@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES } from '../runSettings';
+import { SearchTermsGenerator } from './SearchTermsGenerator';
 
 type Mode = 'rehearse' | 'live';
 
@@ -747,7 +748,7 @@ export function RunPanel({
                 <p className="job-meta recommended-first-note">
                   Recommended jobs from each selected board are analysed first. Search terms expand the pool after those jobs.
                 </p>
-                <label className="field run-review-wide">
+                <div className="field run-review-wide">
                   <FieldLabel label="Job titles and search terms" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
                   <textarea
                     className="input"
@@ -755,7 +756,13 @@ export function RunPanel({
                     value={val('KEYWORDS')}
                     onChange={(e) => setEdit('KEYWORDS', e.target.value)}
                   />
-                </label>
+                  <SearchTermsGenerator
+                    currentTerms={val('KEYWORDS')}
+                    targetRole={val('TARGET_ROLE')}
+                    disabled={running}
+                    onGenerated={(terms) => setEdit('KEYWORDS', terms)}
+                  />
+                </div>
                 <label className="field run-review-wide">
                   <FieldLabel label="Target role" optional help="Use this when moving into a different type of work. Leave it blank to match your current experience." />
                   <input className="input" value={val('TARGET_ROLE')} onChange={(e) => setEdit('TARGET_ROLE', e.target.value)} />

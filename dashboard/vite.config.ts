@@ -29,6 +29,7 @@ import {
   isAdmin,
 } from './server/billing.js';
 import { isPaidPlanKey } from './src/pricing.js';
+import { generateSearchTerms } from './server/search-terms.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -345,6 +346,15 @@ function dataApi(): Plugin {
             return send({ ok: true, settings: mergeWithSharedEnv(readEnvSafe(), settings) });
           }
           return send(mergeWithSharedEnv(readEnvSafe(), await loadUserSettings(userId)));
+        });
+      }
+
+      case '/api/search-terms/generate': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async (userId) => {
+          const body = await readBody();
+          const result = await generateSearchTerms(userId, body ?? {});
+          return send(result.ok ? result : { error: result.error }, result.ok ? 200 : result.status ?? 500);
         });
       }
 

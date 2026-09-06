@@ -86,6 +86,17 @@ a:hover { text-decoration: underline; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { filter: brightness(1.08); }
 
+.search-terms-ai {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.search-terms-ai-button { align-self: flex-start; }
+.search-terms-ai-button:disabled { cursor: wait; opacity: .68; }
+.search-terms-ai-message { flex: 1 1 260px; }
+.search-terms-ai-message.bad { color: var(--bad); }
+
 /* ---------- stat cards ---------- */
 .stats {
   display: grid; gap: 12px; margin-bottom: 24px;

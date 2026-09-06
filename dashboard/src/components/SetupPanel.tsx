@@ -4,6 +4,7 @@ import { useSetupStatus } from './SetupChecklist';
 import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES } from '../runSettings';
+import { SearchTermsGenerator } from './SearchTermsGenerator';
 
 const ARRANGEMENTS = [
   { id: 'remote', label: 'Remote', hint: 'anywhere in Australia' },
@@ -111,7 +112,7 @@ export function SetupPanel() {
         blurb="Choose the roles you want the automation to find."
         done={done('keywords')}
       >
-        <label className="field">
+        <div className="field">
           <FieldLabel label="Job titles to search" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
           <textarea
             className="input mono-input"
@@ -120,8 +121,13 @@ export function SetupPanel() {
             value={val('KEYWORDS')}
             onChange={(e) => set('KEYWORDS', e.target.value)}
           />
+          <SearchTermsGenerator
+            currentTerms={val('KEYWORDS')}
+            targetRole={val('TARGET_ROLE')}
+            onGenerated={(terms) => set('KEYWORDS', terms)}
+          />
           <span className="job-meta">Comma separated. More terms cast a wider net.</span>
-        </label>
+        </div>
 
         <label className="field">
           <FieldLabel label="Targeting a different field?" optional help="Use this when moving into a different type of work. Leave it blank to match your current experience." />
