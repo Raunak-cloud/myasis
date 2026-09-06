@@ -1,0 +1,45 @@
+.myasis-panel {
+  position: fixed; right: 18px; bottom: 18px; z-index: 2147483647;
+  width: 330px; background: #171a23; color: #e6e9f0;
+  border: 1px solid #2a2f3d; border-left: 3px solid #6366f1; border-radius: 10px;
+  font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 12px 34px rgba(0,0,0,.42); overflow: hidden;
+}
+.myasis-panel[data-tone="ok"]   { border-left-color: #34d399; }
+.myasis-panel[data-tone="warn"] { border-left-color: #fbbf24; }
+.myasis-panel[data-tone="bad"]  { border-left-color: #f87171; }
+
+.myasis-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid #2a2f3d; font-size: 13px;
+}
+.myasis-dot { width: 8px; height: 8px; border-radius: 50%; background: #6366f1; }
+.myasis-x {
+  margin-left: auto; background: none; border: none; color: #6b7385;
+  font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.myasis-x:hover { color: #e6e9f0; }
+
+.myasis-body { padding: 12px; }
+.myasis-body ul { margin: 6px 0 0; padding-left: 18px; }
+.myasis-body li { margin-bottom: 3px; }
+.myasis-body small { color: #9aa3b5; }
+.myasis-body code { background: #1e222d; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+.myasis-go {
+  width: 100%; background: #6366f1; border: none; color: #fff;
+  padding: 9px 12px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer;
+}
+.myasis-go:hover { filter: brightness(1.08); }
+.myasis-hint { color: #6b7385; font-size: 12px; margin-top: 7px; text-align: center; }
+
+.myasis-warn { background: rgba(251,191,36,.12); border-radius: 7px; padding: 8px 10px; margin-top: 9px; }
+.myasis-ok   { background: rgba(52,211,153,.12); border-radius: 7px; padding: 8px 10px; margin-top: 9px; }
+.myasis-foot { padding: 8px 12px; border-top: 1px solid #2a2f3d; color: #6b7385; font-size: 11px; }
+
+/* Highlight fields Myasis filled, so nothing is changed invisibly. */
+.myasis-filled {
+  outline: 2px solid #6366f1 !important;
+  outline-offset: 1px;
+  transition: outline-color 1.4s ease;
+}

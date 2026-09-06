@@ -1,0 +1,37 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# Environment variables and credentials
+.env
+.env.*
+!.env.example
+
+# Runtime and personal data
+data/
+seek-bot/data/
+uploads/
+resumes/
+profile.txt
+*.log
+*.jsonl
+*.sqlite
+*.sqlite3
+
+# Personal documents and generated artifacts
+*.docx
+*.pdf
+*.rtf
+render_check/
+snapshot_captcha.txt
+third_wave_bbq_response.md
+build_docx.py
+
+# Local tool configuration
+.claude/
+.mcp.json
+.DS_Store
+Thumbs.db

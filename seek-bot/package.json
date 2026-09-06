@@ -1,0 +1,31 @@
+{
+  "name": "seek-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright + Gemini job search and auto-apply agent for SEEK",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsc && node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "search": "tsx src/main.ts --search-only",
+    "capture": "tsx src/discovery.ts --capture",
+    "test:e2e": "tsc && node dist/e2e.js",
+    "test:external": "tsc && node dist/external-e2e.js",
+    "test:external-real": "tsc && node dist/external-real-rehearsal.js",
+    "queue": "tsc && node dist/queue.js",
+    "humanizer": "llama-server -hf mradermacher/authormist-originality-GGUF:Q4_K_M --host 127.0.0.1 --port 8091 --ctx-size 4096 --n-gpu-layers 99"
+  },
+  "dependencies": {
+    "@google/genai": "^0.14.0",
+    "dotenv": "^16.4.7",
+    "mammoth": "^1.12.1",
+    "pdf-parse-fork": "^1.2.0",
+    "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

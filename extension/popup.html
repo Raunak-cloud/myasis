@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>
+  body { width: 268px; margin: 0; padding: 14px; background: #171a23; color: #e6e9f0;
+         font: 13px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 14px; margin: 0 0 3px; }
+  .sub { color: #6b7385; font-size: 12px; margin-bottom: 12px; }
+  button { width: 100%; background: #6366f1; border: none; color: #fff; padding: 9px;
+           border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { background: #2a2f3d; color: #6b7385; cursor: default; }
+  .row { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid #2a2f3d; font-size: 12px; }
+  .k { color: #6b7385; }
+  .foot { color: #6b7385; font-size: 11px; margin-top: 11px; }
+  a { color: #6366f1; }
+</style></head>
+<body>
+  <h1>Myasis Assist</h1>
+  <div class="sub" id="sub">Checking…</div>
+  <button id="fill" disabled>Fill this form</button>
+  <div class="row"><span class="k">Server</span><span id="server">—</span></div>
+  <div class="row"><span class="k">Queue</span><span id="queue">—</span></div>
+  <div class="foot">Myasis fills the form. <strong>You</strong> click Submit.<br>
+    <a href="http://localhost:5180" target="_blank">Open dashboard</a></div>
+  <script src="popup.js"></script>
+</body>
+</html>

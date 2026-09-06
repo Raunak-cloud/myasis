@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Myasis Assist",
+  "version": "1.0.0",
+  "description": "Fills SEEK application forms from your Myasis profile. You review and submit.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://*.seek.com.au/*",
+    "https://au.seek.com/*",
+    "http://localhost:5180/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://*.seek.com.au/job/*", "https://au.seek.com/job/*"],
+      "js": ["content.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Myasis Assist" }
+}
