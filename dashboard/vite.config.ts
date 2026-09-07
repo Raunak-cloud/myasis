@@ -251,7 +251,7 @@ function dataApi(): Plugin {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         const env = readEnv();
         const apiKey = env.GEMINI_API_KEY ?? '';
-        const model = env.GEMINI_MODEL ?? 'gemini-2.5-flash';
+        const model = env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
         if (!apiKey) return send({ error: 'The drafting service is not configured.' }, 503);
 
         return fetch(

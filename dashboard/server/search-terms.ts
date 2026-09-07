@@ -185,7 +185,7 @@ export async function generateSearchTerms(
 
   const env = readEnv();
   const apiKey = env.GEMINI_API_KEY ?? '';
-  const model = env.GEMINI_MODEL ?? 'gemini-2.5-flash';
+  const model = env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
   if (!apiKey) {
     return { ok: false, status: 503, error: 'Gemini is not configured. Add GEMINI_API_KEY first.' };
   }
