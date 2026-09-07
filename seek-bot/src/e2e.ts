@@ -19,7 +19,7 @@ process.env.REHEARSE = 'true';
 import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, assertSignedIn } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
-import { scoreJob, hardExclusions, parseMinSalary, detectInjection } from './scoring.js';
+import { scoreJob, hardExclusions, parseMinSalary, parseSalaryRate, detectInjection } from './scoring.js';
 import { applyToJob } from './apply.js';
 import { loadResumes, resolveResume } from './resume.js';
 import { buildKnowledgeContext } from './knowledge.js';
@@ -92,6 +92,10 @@ async function main() {
       const got = parseMinSalary(input);
       return want === null ? got !== null : got !== want;
     });
+    const hourly = parseSalaryRate('$32 - $38 per hour');
+    if (hourly?.period !== 'hourly' || hourly.minimum !== 32) {
+      return ['fail', `hourly period/rate parsed incorrectly: ${JSON.stringify(hourly)}`];
+    }
     return bad.length
       ? ['fail', `${bad.length}/${cases.length} wrong: ${bad.map((b) => b[0]).join(' | ')}`]
       : ['pass', `${cases.length}/${cases.length} correct`];

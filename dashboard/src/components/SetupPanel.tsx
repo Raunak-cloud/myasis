@@ -181,7 +181,7 @@ export function SetupPanel() {
             </select>
           </label>
           <label className="field">
-            <FieldLabel label="Minimum salary" help="Jobs with a known salary below this annual amount are skipped. Jobs without a listed salary are still considered." />
+            <FieldLabel label="Minimum annual salary" help="Yearly and daily-rate jobs below this annual amount are skipped." />
             <input
               className="input"
               type="number"
@@ -190,7 +190,19 @@ export function SetupPanel() {
               value={val('MIN_SALARY')}
               onChange={(e) => set('MIN_SALARY', e.target.value)}
             />
-            <span className="job-meta">Jobs with no salary listed are still considered.</span>
+            <span className="job-meta">AUD per year</span>
+          </label>
+          <label className="field">
+            <FieldLabel label="Minimum hourly rate" help="Hourly jobs below this rate are skipped independently of your annual minimum." />
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="1"
+              value={val('MIN_HOURLY_RATE')}
+              onChange={(e) => set('MIN_HOURLY_RATE', e.target.value)}
+            />
+            <span className="job-meta">AUD per hour · jobs with no salary remain eligible</span>
           </label>
         </div>
       </Step>

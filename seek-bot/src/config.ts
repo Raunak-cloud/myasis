@@ -150,6 +150,7 @@ export const config = {
   rules: {
     maxAgeDays: Number(process.env.MAX_AGE_DAYS ?? 14),
     minSalary: Number(process.env.MIN_SALARY ?? 70_000),
+    minHourlyRate: Number(process.env.MIN_HOURLY_RATE ?? 0),
     minScore: Number(process.env.MIN_SCORE ?? 60),
     onsiteCity: process.env.ONSITE_CITY ?? 'Sydney',
 

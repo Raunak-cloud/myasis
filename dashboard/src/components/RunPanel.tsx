@@ -48,6 +48,7 @@ const RUN_DEFAULTS: Record<string, string> = {
   ONSITE_CITY: 'Sydney',
   SEARCH_RADIUS_KM: '0',
   MIN_SALARY: '70000',
+  MIN_HOURLY_RATE: '0',
   MAX_AGE_DAYS: '14',
   MAX_APPS_PER_RUN: '5',
   MAX_EVALUATIONS: '40',
@@ -219,8 +220,6 @@ export function RunPanel({
   const [loginMessage, setLoginMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outOfApplications, setOutOfApplications] = useState(false);
-  /** Display preference only — MIN_SALARY is always stored/sent as an annual AUD figure. */
-  const [salaryUnit, setSalaryUnit] = useState<'annual' | 'hourly'>('annual');
   const [freeResetsAt, setFreeResetsAt] = useState<string | null>(null);
   const [clock, setClock] = useState(() => Date.now());
   const setup = useSetupStatus();
@@ -280,25 +279,6 @@ export function RunPanel({
   const val = (k: string, d = RUN_DEFAULTS[k] ?? '') => edits[k] ?? settings[k] ?? d;
   const setEdit = (key: string, value: string) =>
     setEdits((current) => ({ ...current, [key]: value }));
-  /**
-   * MIN_SALARY is always sent/stored as an annual AUD figure — scoring.ts's
-   * own hourly-rate parsing already uses ~1800 billable hours/year to judge
-   * a listed hourly rate against it, so the same factor is used here to
-   * convert what the user types. Only the display unit is a preference.
-   */
-  const HOURLY_TO_ANNUAL = 1800;
-  const minSalaryDisplay =
-    salaryUnit === 'hourly'
-      ? val('MIN_SALARY')
-        ? String(Math.round((Number(val('MIN_SALARY')) / HOURLY_TO_ANNUAL) * 100) / 100)
-        : ''
-      : val('MIN_SALARY');
-  const setMinSalaryDisplay = (raw: string) => {
-    if (!raw.trim()) return setEdit('MIN_SALARY', '');
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return setEdit('MIN_SALARY', raw); // let existing validation reject it
-    setEdit('MIN_SALARY', String(salaryUnit === 'hourly' ? Math.round(n * HOURLY_TO_ANNUAL) : n));
-  };
   const arrangements = val('WORK_ARRANGEMENTS').split(',').map((item) => item.trim()).filter(Boolean);
   const coverLetterMode = val('COVER_LETTER_MODE') === 'reuse' ? 'reuse' : 'tailored';
   const reusableCoverLetter = decodeBase64(val('COVER_LETTER_TEXT_B64'));
@@ -356,7 +336,7 @@ export function RunPanel({
     setError(null);
     const updates = Object.fromEntries(REVIEW_KEYS.map((key) => [key, val(key)]));
     const numericKeys = [
-      'MIN_SALARY', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS',
+      'MIN_SALARY', 'MIN_HOURLY_RATE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS',
       'MIN_SCORE', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
     ];
     const positiveKeys = [
@@ -890,27 +870,28 @@ export function RunPanel({
                     </select>
                   </label>
                   <label className="field">
-                    <FieldLabel label="Minimum salary" help="Jobs with a known salary below this are skipped, converted to a yearly figure either way. Jobs without a listed salary are still considered." />
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        className="input"
-                        type="number"
-                        min="0"
-                        step={salaryUnit === 'hourly' ? 1 : 5000}
-                        value={minSalaryDisplay}
-                        onChange={(e) => setMinSalaryDisplay(e.target.value)}
-                        style={{ flex: 1, minWidth: 0 }}
-                      />
-                      <select
-                        className="input"
-                        style={{ flex: '0 0 auto', width: 92 }}
-                        value={salaryUnit}
-                        onChange={(e) => setSalaryUnit(e.target.value as 'annual' | 'hourly')}
-                      >
-                        <option value="annual">per year</option>
-                        <option value="hourly">per hour</option>
-                      </select>
-                    </div>
+                    <FieldLabel label="Minimum annual salary" help="Yearly and daily-rate jobs below this annual amount are skipped. Jobs without a listed salary are still considered." />
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="5000"
+                      value={val('MIN_SALARY')}
+                      onChange={(e) => setEdit('MIN_SALARY', e.target.value)}
+                    />
+                    <span className="job-meta">AUD per year</span>
+                  </label>
+                  <label className="field">
+                    <FieldLabel label="Minimum hourly rate" help="Hourly jobs below this rate are skipped independently of your annual minimum." />
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={val('MIN_HOURLY_RATE')}
+                      onChange={(e) => setEdit('MIN_HOURLY_RATE', e.target.value)}
+                    />
+                    <span className="job-meta">AUD per hour</span>
                   </label>
                 </div>
               </section>

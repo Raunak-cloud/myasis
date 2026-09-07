@@ -1,8 +1,14 @@
 import { config } from './config.js';
 import type { CandidateProfile, JobListing, ScoreBreakdown } from './types.js';
 
-/** Pulls the lowest dollar figure out of strings like "$120,000 - $140,000 + super". */
-export function parseMinSalary(text?: string): number | null {
+export interface ParsedSalaryRate {
+  period: 'hourly' | 'daily' | 'annual';
+  minimum: number;
+  annualEquivalent: number;
+}
+
+/** Pulls the lowest rate and its period from salary copy. */
+export function parseSalaryRate(text?: string): ParsedSalaryRate | null {
   if (!text) return null;
   const nums = [...text.matchAll(/\$?\s?([\d,]+(?:\.\d+)?)\s*(k\b)?/gi)]
     .map((m) => {
@@ -25,15 +31,24 @@ export function parseMinSalary(text?: string): number | null {
 
   if (perDay) {
     const daily = nums.filter((n) => n >= 100 && n <= 5_000);
-    if (daily.length) return Math.round(Math.min(...daily) * 220); // ~220 working days
+    if (daily.length) {
+      const minimum = Math.min(...daily);
+      return { period: 'daily', minimum, annualEquivalent: Math.round(minimum * 220) };
+    }
   }
   if (perHour) {
     const hourly = nums.filter((n) => n > 0 && n <= 500);
-    if (hourly.length) return Math.round(Math.min(...hourly) * 1_800); // ~1800 billable hours
+    if (hourly.length) {
+      const minimum = Math.min(...hourly);
+      return { period: 'hourly', minimum, annualEquivalent: Math.round(minimum * 1_800) };
+    }
   }
 
   const annualish = nums.filter((n) => n >= 1000);
-  if (annualish.length) return Math.min(...annualish);
+  if (annualish.length) {
+    const minimum = Math.min(...annualish);
+    return { period: 'annual', minimum, annualEquivalent: minimum };
+  }
 
   /**
    * A bare figure under ~$2,000 with no unit is a contract rate, not a yearly
@@ -44,9 +59,44 @@ export function parseMinSalary(text?: string): number | null {
   const small = nums.filter((n) => n > 0 && n < 2_000);
   if (small.length) {
     const min = Math.min(...small);
-    return Math.round(min < 250 ? min * 1_800 : min * 220); // hourly vs daily
+    return min < 250
+      ? { period: 'hourly', minimum: min, annualEquivalent: Math.round(min * 1_800) }
+      : { period: 'daily', minimum: min, annualEquivalent: Math.round(min * 220) };
   }
   return null;
+}
+
+/** Backward-compatible annual equivalent used by existing callers and tests. */
+export function parseMinSalary(text?: string): number | null {
+  return parseSalaryRate(text)?.annualEquivalent ?? null;
+}
+
+export interface SalaryFloorComparison {
+  period: 'hourly' | 'annual';
+  amount: number;
+  floor: number;
+  inferred: boolean;
+}
+
+/** Selects the matching user preference for the period advertised by the job. */
+export function salaryFloorForJob(job: JobListing): SalaryFloorComparison | null {
+  const stated = parseSalaryRate(job.salary);
+  if (stated?.period === 'hourly') {
+    return {
+      period: 'hourly',
+      amount: stated.minimum,
+      floor: config.rules.minHourlyRate,
+      inferred: false,
+    };
+  }
+  const annual = stated?.annualEquivalent ?? job.inferredMinSalary ?? null;
+  if (annual === null) return null;
+  return {
+    period: 'annual',
+    amount: annual,
+    floor: config.rules.minSalary,
+    inferred: !stated && job.inferredMinSalary !== undefined,
+  };
 }
 
 export function isRemoteOrHybrid(job: JobListing): boolean {
@@ -136,11 +186,15 @@ export function hardExclusions(job: JobListing, profile: CandidateProfile): stri
       return `job type not in ${config.rules.jobTypes.join('/')}`;
   }
 
-  // Salary rule: excludes only when we have a real figure — either stated on
-  // the ad, or SEEK's structured range for ads that hid the display value.
-  const min = parseMinSalary(job.salary) ?? job.inferredMinSalary ?? null;
-  if (min !== null && min < config.rules.minSalary)
-    return `minimum salary ${min.toLocaleString()} below ${config.rules.minSalary.toLocaleString()}`;
+  // Match the advertised period to the corresponding user preference. An
+  // hourly rate is no longer compared with an annual value through a guessed
+  // conversion; daily rates still use their annual equivalent because there
+  // is no separate daily preference.
+  const pay = salaryFloorForJob(job);
+  if (pay && pay.floor > 0 && pay.amount < pay.floor) {
+    const unit = pay.period === 'hourly' ? '/hour' : '/year';
+    return `minimum salary ${pay.amount.toLocaleString()}${unit} below ${pay.floor.toLocaleString()}${unit}`;
+  }
 
   if (job.ageDays !== undefined && job.ageDays > config.rules.maxAgeDays)
     return `posted ${job.ageDays}d ago (>${config.rules.maxAgeDays}d)`;
@@ -244,15 +298,15 @@ export function scoreJob(job: JobListing, profile: CandidateProfile): ScoreBreak
     reasons.push(`posted ${job.ageDays}d ago`);
   }
 
-  const stated = parseMinSalary(job.salary);
-  const min = stated ?? job.inferredMinSalary ?? null;
+  const pay = salaryFloorForJob(job);
   let salary = 10; // undisclosed is neutral, not a penalty
-  if (min !== null) {
-    salary = min >= config.rules.minSalary * 1.4 ? 15 : min >= config.rules.minSalary ? 13 : 0;
+  if (pay) {
+    salary = pay.floor <= 0 ? 10 : pay.amount >= pay.floor * 1.4 ? 15 : pay.amount >= pay.floor ? 13 : 0;
+    const unit = pay.period === 'hourly' ? '/hour' : '/year';
     reasons.push(
-      stated !== null
-        ? `salary min ~${min.toLocaleString()}`
-        : `salary not disclosed (listing data indicates ~${min.toLocaleString()})`,
+      pay.inferred
+        ? `salary not disclosed (listing data indicates ~${pay.amount.toLocaleString()}${unit})`
+        : `salary min ~${pay.amount.toLocaleString()}${unit}`,
     );
   } else {
     reasons.push('salary not disclosed');

@@ -21,7 +21,7 @@ import { upsertSettingRow } from './db/records.js';
 export const KEEP_SETTINGS_KEYS = [
   'KEYWORDS', 'TARGET_ROLE', 'PLATFORMS', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
-  'MIN_SALARY', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
+  'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
   'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
   'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64',
 ] as const;
@@ -43,9 +43,9 @@ function normalizeSetting(key: string, value: string): string {
  * these keys. That file still holds the original single account's real values
  * (their KEYWORDS, salary floor, stack exclusions), so "unset" must resolve to
  * a neutral product default here, never to whatever the shared file happens to
- * contain. MIN_SALARY deliberately defaults to no floor rather than a number:
- * a salary floor is a personal preference, and inheriting one would silently
- * discard jobs the account never chose to exclude.
+ * contain. Both salary settings deliberately default to no floor rather than
+ * a number: pay floors are personal preferences, and inheriting them would
+ * silently discard jobs the account never chose to exclude.
  */
 export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
@@ -57,6 +57,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   // 0 = no geographic limit, i.e. the behaviour before the radius existed.
   SEARCH_RADIUS_KM: '0',
   MIN_SALARY: '0',
+  MIN_HOURLY_RATE: '0',
   MIN_SCORE: '60',
   MAX_AGE_DAYS: '14',
   MAX_APPS_PER_RUN: '5',

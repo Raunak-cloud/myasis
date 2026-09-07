@@ -69,7 +69,8 @@ known external applications when external apply is disabled. This prevents
 model calls for jobs the current run cannot apply to.
 
 **Hard exclusions** (deterministic, no model call): excluded core stacks,
-on-site outside your city, salary below floor, older than `MAX_AGE_DAYS`.
+on-site outside your city, salary below the matching annual/hourly floor, older
+than `MAX_AGE_DAYS`.
 
 **Scoring** is seek.md's rubric: 40 skills / 15 title / 15 recency / 15 salary /
 10 credibility / 5 location.
