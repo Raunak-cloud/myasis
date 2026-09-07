@@ -7,9 +7,10 @@ import { readEnv } from './runner.js';
  *
  * Chrome's `Page.startScreencast` emits JPEG frames; `Input.*` accepts synthetic
  * mouse and keyboard events. Together that is a remote-control surface for a
- * browser running anywhere — which is the point: on a VPS there is no screen,
- * so signing in, clearing a CAPTCHA, or completing SEEK Pass would otherwise be
- * impossible.
+ * browser running anywhere. This is useful for observing the worker and for
+ * ordinary interaction. It is not a reliable CAPTCHA handoff because CDP input
+ * is synthetic; security verification should use a normal desktop Chrome
+ * window (local install) or a secure OS-level remote desktop (VPS).
  *
  * Chosen over VNC deliberately: no X11/Xvfb/x11vnc stack to install, and it
  * reuses the same debugging port Playwright already talks to.

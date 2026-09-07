@@ -215,6 +215,8 @@ export function RunPanel({
   const [stopConfirming, setStopConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [openingLogin, setOpeningLogin] = useState(false);
+  const [loginMessage, setLoginMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outOfApplications, setOutOfApplications] = useState(false);
   /** Display preference only — MIN_SALARY is always stored/sent as an annual AUD figure. */
@@ -442,6 +444,25 @@ export function RunPanel({
     }
   }
 
+  async function openSeekLogin() {
+    if (openingLogin || running) return;
+    setOpeningLogin(true);
+    setLoginMessage(null);
+    setError(null);
+    try {
+      const response = await fetch('/api/browser/manual-login', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Could not open Chrome.');
+      setLoginMessage(
+        'Chrome opened. Sign in to SEEK and complete any security check, then close Chrome before starting the agent again.',
+      );
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setOpeningLogin(false);
+    }
+  }
+
   return (
     <div className="run-layout">
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
@@ -501,6 +522,7 @@ export function RunPanel({
           </div>
         )}
         {error && <div className="banner banner-bad">{error}</div>}
+        {loginMessage && <div className="banner banner-ok">{loginMessage}</div>}
 
         <div className="run-actions">
           {running && status?.isOwner === false ? (
@@ -512,14 +534,26 @@ export function RunPanel({
               ⏹ Stop run
             </button>
           ) : (
-            <button
-              className="btn primary lg"
-              onClick={() => setConfirming(true)}
-            >
-              Start {mode === 'rehearse' ? 'rehearsal' : 'live run'}
-            </button>
+            <>
+              <button
+                className="btn primary lg"
+                onClick={() => setConfirming(true)}
+              >
+                Start {mode === 'rehearse' ? 'rehearsal' : 'live run'}
+              </button>
+              <button className="btn lg" disabled={openingLogin} onClick={openSeekLogin}>
+                {openingLogin ? 'Opening Chrome…' : 'Open SEEK login'}
+              </button>
+            </>
           )}
         </div>
+
+        {!running && (
+          <p className="job-meta manual-login-note">
+            Use this if SEEK asks you to sign in or verify you are human. Complete it in the Chrome window,
+            not through an automated browser view.
+          </p>
+        )}
 
         {!running && status?.finishedAt && (
           <p className="job-meta">

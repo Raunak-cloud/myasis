@@ -337,6 +337,7 @@ tbody tr.clickable { cursor: pointer; }
 .btn-danger { border-color: var(--bad); color: var(--bad); }
 .btn-danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
 .banner-bad { border-color: var(--bad); background: var(--bad-soft); }
+.banner-ok { border-color: var(--ok); background: var(--ok-soft); }
 .warn-text { color: var(--warn); }
 
 .console-card { display: flex; flex-direction: column; min-height: 520px; position: sticky; top: 16px; }
@@ -396,6 +397,7 @@ tbody tr.clickable { cursor: pointer; }
   border-top: 1px solid var(--border);
   background: var(--surface);
 }
+.manual-login-note { margin: 9px 0 0; }
 
 @media (max-width: 640px) {
   .run-review-modal { max-height: calc(100vh - 16px); width: calc(100vw - 16px); }

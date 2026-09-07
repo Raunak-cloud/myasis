@@ -30,6 +30,7 @@ import {
 } from './server/billing.js';
 import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
+import { openSeekManualLogin } from './server/manual-login.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -560,6 +561,17 @@ function dataApi(): Plugin {
         return readBody().then(async (b) => {
           const t = await openTab(b?.url ?? 'https://www.seek.com.au/');
           return send(t ? { ok: true, target: t } : { error: 'Could not open a tab' }, t ? 200 : 502);
+        });
+      }
+
+      case '/api/browser/manual-login': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async () => {
+          if (runner.state.running) {
+            return send({ error: 'Stop the current run before opening the manual SEEK login.' }, 409);
+          }
+          const result = await openSeekManualLogin(readEnv());
+          return send(result.ok ? { ok: true } : { error: result.error }, result.ok ? 200 : 409);
         });
       }
 

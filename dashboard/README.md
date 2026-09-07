@@ -240,9 +240,15 @@ documents is still marked ungrounded and halts the application.
 ## Live browser tab
 
 Streams the automation browser into the dashboard and lets you click and type
-into it. This is what makes a headless VPS usable: signing in, clearing a
-CAPTCHA, and completing SEEK Pass all need a human at the browser, and a server
-has no screen.
+into it. Use it to observe the worker and for ordinary interaction. Do not rely
+on it for CAPTCHA/security verification: its clicks are synthetic CDP input and
+may be rejected even when a person is clicking.
+
+On a local desktop, stop the run and use **Open SEEK login** in the run panel.
+Myasis opens ordinary Chrome with the same profile so sign-in and verification
+use normal OS input. Close that Chrome window before starting the agent again.
+On a VPS, use a secure OS-level remote desktop instead; the button intentionally
+refuses to open a second browser alongside the managed CDP Chrome service.
 
 ### How it works
 

@@ -38,7 +38,9 @@ export async function launchBrowser(): Promise<BrowserContext> {
     /**
      * Three visibility modes, in increasing order of detectability:
      *
-     *  visible    — normal window. You can watch it and solve a CAPTCHA yourself.
+     *  visible    — normal window. You can watch it, but verification may still
+     *               reject a browser launched under automation. Use the
+     *               dashboard's manual-login handoff when that happens.
      *  background — a real, fully-rendered window parked off-screen. Identical
      *               fingerprint to visible; it just stays out of your way.
      *  headless   — no window at all. Fastest, but headless Chrome is what bot
