@@ -57,6 +57,10 @@ export interface JobListing {
    * jobs can be classified before a page is even opened.
    */
   indeedApplyable?: boolean;
+  /** Known before AI fit review when the job board exposes its apply route. */
+  applicationMode?: 'hosted' | 'external' | 'unknown';
+  /** Apply destination when the listing exposes one without opening it. */
+  applicationUrl?: string;
   /** Populated once the detail page is opened. */
   description?: string;
   /**

@@ -360,6 +360,13 @@ export async function search(page: Page, keywords: string, pageNum = 1): Promise
   return (await searchViaDom(page, keywords, pageNum)).map((job) => ({ ...job, source: 'search' as const }));
 }
 
+/** Mirrors SEEK's live CTA contract: Quick Apply is hosted; plain Apply leaves SEEK. */
+export function classifySeekApplication(label?: string): JobListing['applicationMode'] {
+  if (!label?.trim()) return 'unknown';
+  const clean = label.replace(/[\u200B-\u200D\u2060\uFEFF\u00A0]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /quick\s*apply/i.test(clean) ? 'hosted' : 'external';
+}
+
 /** Opens the detail page for the full description (needed for scoring). */
 export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobListing> {
   await page.goto(job.url, { waitUntil: 'domcontentloaded' });
@@ -379,6 +386,19 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
   const listedText = await pick('job-detail-date');
   const location = (await pick('job-detail-location')) ?? job.location;
   const work = (await pick('job-detail-work-type')) ?? job.workArrangement;
+  const applyCta = page.locator('[data-automation="job-detail-apply"]').first();
+  const applyLabel = await applyCta.innerText({ timeout: 1200 }).catch(() => '');
+  const applyHref = await applyCta.getAttribute('href', { timeout: 1200 }).catch(() => null);
+  const applicationMode = classifySeekApplication(applyLabel);
+  const applicationUrl = applyHref
+    ? (() => {
+        try {
+          return new URL(applyHref, page.url()).href;
+        } catch {
+          return undefined;
+        }
+      })()
+    : undefined;
 
   /**
    * SEEK stamps "You applied on <date>" onto listings you have already applied
@@ -421,5 +441,7 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
     appliedNote: applied ?? undefined,
     strongApplicant: Boolean(strongApplicant),
     strongApplicantNote: strongApplicant ?? undefined,
+    applicationMode,
+    applicationUrl,
   };
 }

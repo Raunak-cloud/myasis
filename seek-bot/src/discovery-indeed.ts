@@ -109,6 +109,7 @@ function normalise(raw: any): JobListing | null {
   const title = raw?.title ?? raw?.displayTitle;
   if (!id || !title) return null;
 
+  const hasApplyMode = typeof raw?.indeedApplyable === 'boolean';
   return {
     id,
     title: String(raw?.displayTitle ?? title),
@@ -122,7 +123,9 @@ function normalise(raw: any): JobListing | null {
     url: `${config.indeedBase}/viewjob?jk=${id}`,
     teaser: raw?.snippet || undefined,
     platform: 'indeed',
-    indeedApplyable: Boolean(raw?.indeedApplyable),
+    indeedApplyable: hasApplyMode ? raw.indeedApplyable : undefined,
+    applicationMode: hasApplyMode ? (raw.indeedApplyable ? 'hosted' : 'external') : 'unknown',
+    applicationUrl: typeof raw?.thirdPartyApplyUrl === 'string' ? raw.thirdPartyApplyUrl : undefined,
   };
 }
 

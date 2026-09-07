@@ -176,6 +176,29 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Detects a CAPTCHA that is already blocking the current page without using a
+ * model. Hidden reCAPTCHA integrations do not count: many normal pages include
+ * those, so only a visible challenge or explicit blocking copy should stop a
+ * run.
+ */
+export async function hasVisibleCaptcha(page: Page): Promise<boolean> {
+  const visibleChallenge = await page
+    .locator(
+      'iframe[title*="reCAPTCHA" i]:visible, iframe[src*="recaptcha"]:visible, .g-recaptcha:visible, ' +
+        'iframe[title*="Cloudflare" i]:visible, iframe[title*="challenge" i]:visible, ' +
+        'iframe[src*="challenges.cloudflare.com"]:visible',
+    )
+    .count()
+    .catch(() => 0);
+  if (visibleChallenge > 0) return true;
+
+  const copy = await page.locator('body').innerText().catch(() => '');
+  return /i'?m not a robot|select all (images|squares)|verify you are human|performing security verification|additional verification required|checking your browser/i.test(
+    copy,
+  );
+}
+
 /** Jittered human-ish pause. Uniform delays are both rude and a fingerprint. */
 export function jitter(minMs: number, maxMs: number): Promise<void> {
   return sleep(Math.floor(minMs + Math.random() * (maxMs - minMs)));

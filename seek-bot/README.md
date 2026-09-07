@@ -54,6 +54,7 @@ applied to by hand.
 ```
 SEEK Recommended (priority) + keyword search (expansion)
         → dedupe + age filter → detail fetch
+        → visible CAPTCHA + application-route preflight
         → hard exclusions → keyword score → Gemini fit check
         → Quick Apply state machine → applied.json
 ```
@@ -62,6 +63,10 @@ The signed-in SEEK homepage's personalised Recommended feed is always evaluated
 first. Keyword searches expand the pool only after those recommendations, and a
 recommendation still has to pass every exclusion, score threshold, and Gemini
 fit check before the bot applies.
+
+Before any Gemini fit check, the preflight stops on a visible CAPTCHA and skips
+known external applications when external apply is disabled. This prevents
+model calls for jobs the current run cannot apply to.
 
 **Hard exclusions** (deterministic, no model call): excluded core stacks,
 on-site outside your city, salary below floor, older than `MAX_AGE_DAYS`.
@@ -115,7 +120,7 @@ By design, not limitation:
 |---|---|
 | CAPTCHA | stops, logs `needs-human`, backs off |
 | SEEK Pass / work-rights wall | stops, logs `needs-human` |
-| Redirects off SEEK to an external ATS | logs `off-platform`, **enters nothing** |
+| External application while external apply is disabled | logs `off-platform` before AI review, **enters nothing** |
 | A question not answerable from `profile.txt` | stops before submitting |
 | 2 friction signals in a row | aborts the whole run |
 

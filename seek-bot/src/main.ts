@@ -1,5 +1,13 @@
 import { config, loadProfile } from './config.js';
-import { launchBrowser, closeBrowser, getPage, assertSignedIn, assertIndeedSignedIn, jitter } from './browser.js';
+import {
+  launchBrowser,
+  closeBrowser,
+  getPage,
+  assertSignedIn,
+  assertIndeedSignedIn,
+  hasVisibleCaptcha,
+  jitter,
+} from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import {
   recommended as recommendedIndeed,
@@ -204,6 +212,8 @@ async function main() {
         error?: string;
       }>;
     }> = [];
+    /** Once a board presents a CAPTCHA, later detail pages would be the same wall. */
+    const reviewBlockedPlatforms = new Set<PlatformId>();
 
     /**
      * Collect a buffer of candidates beyond what we can apply to, since some
@@ -280,16 +290,46 @@ async function main() {
     let evaluated = 0;
     for (const stub of shortlist) {
       if (candidates.length >= candidateCap) break;
+      const adapter = ADAPTERS.get(stub.platform ?? 'seek');
+      if (!adapter || reviewBlockedPlatforms.has(adapter.id)) continue;
       if (evaluated >= config.limits.maxEvaluations) {
         console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
         break;
       }
       evaluated++;
 
-      const adapter = ADAPTERS.get(stub.platform ?? 'seek');
-      if (!adapter) continue;
       const job = await adapter.fetchJobDetail(page, stub);
       await jitter(1200, 2800);
+
+      if (await hasVisibleCaptcha(page)) {
+        const reason = 'CAPTCHA detected before AI fit review';
+        console.log(`  ⏸ ${adapter.label} needs manual verification — no AI review was sent`);
+        bump(reason);
+        reviewBlockedPlatforms.add(adapter.id);
+        logOutcome({
+          status: 'needs-human',
+          jobId: job.id,
+          reason,
+          url: page.url(),
+          title: job.title,
+          company: job.company,
+        });
+        continue;
+      }
+
+      if (job.applicationMode === 'external' && !config.allowExternalApply) {
+        const destination = job.applicationUrl ?? 'employer site';
+        console.log(`  ↪ off-platform (${destination}) — skipped before AI fit review`);
+        bump('external application disabled');
+        logOutcome({
+          status: 'off-platform',
+          jobId: job.id,
+          redirectedTo: destination,
+          title: job.title,
+          company: job.company,
+        });
+        continue;
+      }
 
       const injection = detectInjection(job);
       if (injection) {
