@@ -251,7 +251,7 @@ function dataApi(): Plugin {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         const env = readEnv();
         const apiKey = env.GEMINI_API_KEY ?? '';
-        const model = env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
+        const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
         if (!apiKey) return send({ error: 'The drafting service is not configured.' }, 503);
 
         return fetch(
@@ -266,7 +266,7 @@ function dataApi(): Plugin {
                     'Write an original 90-110 word sample job-application paragraph in the first person. Write in the voice of a professional applicant from an Asian country who uses English as a second language. Use clear, direct wording, straightforward vocabulary and mostly simple sentence structures. Keep it natural and professional. Do not add deliberate grammar or spelling mistakes, stereotypes, private details, a greeting, or a sign-off. Include a plausible generic software-project example so the paragraph is useful for testing a rewriting tool. Return only the complete paragraph.',
                 }],
               }],
-              generationConfig: { temperature: 0.8, maxOutputTokens: 4_096 },
+              generationConfig: { maxOutputTokens: 4_096 },
             }),
             signal: AbortSignal.timeout(30_000),
           },

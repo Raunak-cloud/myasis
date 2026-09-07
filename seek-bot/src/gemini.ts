@@ -79,7 +79,7 @@ async function json<T>(prompt: string, schema: object): Promise<T> {
       const res = await ai.models.generateContent({
         model: config.gemini.model,
         contents: prompt,
-        config: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.2 },
+        config: { responseMimeType: 'application/json', responseSchema: schema },
       });
       const text = res.text;
       if (!text) throw new Error('Drafting service returned an empty response');
