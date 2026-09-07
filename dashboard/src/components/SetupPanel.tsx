@@ -46,6 +46,7 @@ export function SetupPanel() {
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [resumeLibraryVersion, setResumeLibraryVersion] = useState(0);
   const status = useSetupStatus();
 
   useEffect(() => {
@@ -103,7 +104,7 @@ export function SetupPanel() {
         blurb="Your résumé and any supporting information the automation can use."
         done={done('resume')}
       >
-        <FilesPanel />
+        <FilesPanel onChanged={() => setResumeLibraryVersion((value) => value + 1)} />
       </Step>
 
       <Step
@@ -124,6 +125,7 @@ export function SetupPanel() {
           <SearchTermsGenerator
             currentTerms={val('KEYWORDS')}
             targetRole={val('TARGET_ROLE')}
+            refreshKey={resumeLibraryVersion}
             onGenerated={(terms) => set('KEYWORDS', terms)}
           />
           <span className="job-meta">Comma separated. More terms cast a wider net.</span>
