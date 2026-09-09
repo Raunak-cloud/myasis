@@ -242,13 +242,29 @@ export async function hasVisibleCaptcha(page: Page, attemptSolve = true): Promis
     elements => elements.some(element => Boolean((element as HTMLInputElement).value)),
   ).catch(() => false);
   if (attemptSolve && !turnstileSolved && await trySolveCaptcha(page)) return hasVisibleCaptcha(page, false);
+  /**
+   * Only a challenge someone must actually solve counts. Invisible reCAPTCHA
+   * (Greenhouse, Dayforce, SmartRecruiters and most employer ATSes) renders a
+   * small badge in a corner — a visible iframe, but nothing to solve — and
+   * matching it read every one of those application forms as "a CAPTCHA is
+   * blocking the page" at step one.
+   */
   const visibleChallenge = await page
     .locator(
       'iframe[title*="reCAPTCHA" i]:visible, iframe[src*="recaptcha"]:visible, .g-recaptcha:visible, ' +
         'iframe[src*="captcha-delivery"]:visible, iframe[title*="Verification system" i]:visible' +
         (turnstileSolved ? '' : ', iframe[title*="Cloudflare" i]:visible, iframe[title*="challenge" i]:visible, iframe[src*="challenges.cloudflare.com"]:visible'),
     )
-    .count()
+    .evaluateAll((elements) =>
+      elements.filter((element) => {
+        if (element.closest('.grecaptcha-badge')) return false;
+        const src = element.getAttribute('src') ?? '';
+        if (/size=invisible/.test(src)) return false;
+        const box = element.getBoundingClientRect();
+        // The invisible-reCAPTCHA badge is 256×60 wherever it is mounted.
+        return !(Math.round(box.width) === 256 && Math.round(box.height) === 60);
+      }).length,
+    )
     .catch(() => 0);
   if (visibleChallenge > 0) return true;
 
