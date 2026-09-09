@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
-import { jitter, hasVisibleCaptcha } from './browser.js';
+import { jitter, hasVisibleCaptcha, waitForChallengeToClear } from './browser.js';
 import type { JobListing } from './types.js';
 
 /**
@@ -181,6 +181,7 @@ export async function recommended(page: Page): Promise<JobListing[]> {
   }
 
   await page.goto(config.seekBase, { waitUntil: 'domcontentloaded' });
+  await waitForChallengeToClear(page);
   await page
     .waitForSelector('[data-automation^="recommendedJobLink_"]', { timeout: 15_000 })
     .catch(() => {});
@@ -258,6 +259,7 @@ export function searchUrl(keywords: string, pageNum = 1): string {
 export async function searchViaApollo(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const url = searchUrl(keywords, pageNum);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
+  await waitForChallengeToClear(page);
   await page.waitForSelector('[data-automation="normalJob"]', { timeout: 15_000 }).catch(() => {});
   await jitter(600, 1400);
 
@@ -312,6 +314,7 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
   const url = searchUrl(keywords, pageNum);
   if (!page.url().startsWith(url)) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await waitForChallengeToClear(page);
     await page.waitForSelector('[data-automation="normalJob"]', { timeout: 15_000 }).catch(() => {});
   }
 
@@ -373,6 +376,7 @@ export function classifySeekApplication(label?: string): JobListing['application
 /** Opens the detail page for the full description (needed for scoring). */
 export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobListing> {
   await page.goto(job.url, { waitUntil: 'domcontentloaded' });
+  await waitForChallengeToClear(page);
   await page.waitForSelector('[data-automation="jobAdDetails"]', { timeout: 15_000 }).catch(() => {});
 
   // Short timeout on purpose: these fields are frequently absent, and the

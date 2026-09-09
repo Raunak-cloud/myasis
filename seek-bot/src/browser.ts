@@ -160,6 +160,7 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
 /** Confirms the SEEK session is still alive without touching credentials. */
 export async function assertSignedIn(page: Page): Promise<void> {
   await page.goto(`${config.seekBase}/profile/me`, { waitUntil: 'domcontentloaded' });
+  await waitForChallengeToClear(page);
   const url = page.url();
   if (/login|signin|oauth/i.test(url)) {
     throw new Error(
@@ -255,6 +256,40 @@ export async function hasVisibleCaptcha(page: Page, attemptSolve = true): Promis
   return /i'?m not a robot|select all (images|squares)|verify you are human|performing security verification|additional verification required|checking your browser/i.test(
     copy,
   );
+}
+
+/**
+ * Lets Cloudflare's automatic challenge finish before the page is read.
+ *
+ * A fresh session's first SEEK page usually gets the managed challenge. It
+ * clears on its own in a few seconds, but navigating away while it is still
+ * verifying restarts it on the next page, so a run used to spend its first
+ * minute re-triggering the same check on every search page and reading each
+ * one before SEEK's data had loaded. Resolves true once no challenge is
+ * showing; false if it is still there after `timeoutMs`, which the caller's
+ * existing captcha check then reports.
+ */
+export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): Promise<boolean> {
+  const showing = () =>
+    page
+      .evaluate(
+        () =>
+          /just a moment|performing security verification/i.test(document.title) ||
+          Boolean(document.querySelector('#challenge-running, #challenge-stage, iframe[src*="challenges.cloudflare.com"]')),
+      )
+      .catch(() => false);
+  const deadline = Date.now() + timeoutMs;
+  if (!(await showing())) return true;
+  console.log('  ⏳ Cloudflare verification — waiting for it to clear');
+  while (Date.now() < deadline) {
+    await sleep(500);
+    if (!(await showing())) {
+      // The real page is now loading behind the cleared challenge.
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Jittered human-ish pause. Uniform delays are both rude and a fingerprint. */
