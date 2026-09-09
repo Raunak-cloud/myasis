@@ -78,7 +78,12 @@ export async function launchBrowser(): Promise<BrowserContext> {
      * `background` is the right default for "leave it running": you get the
      * full real-browser fingerprint without the window stealing focus.
      */
-    const args: string[] = [];
+    /**
+     * `--test-type` only suppresses Chrome's "unsupported command-line flag"
+     * bar, which Patchright's anti-detection flag otherwise triggers. Command
+     * line flags are invisible to pages, and navigator.webdriver stays false.
+     */
+    const args: string[] = ['--test-type'];
     if (captchaEnabled()) {
       const port = Number(process.env.CDP_PORT || '9222');
       if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid CDP_PORT');
