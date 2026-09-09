@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { jitter } from '../browser.js';
 import type { CandidateProfile, JobListing } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
-import { RunGuards, detectConfirmation, detectFriction, isExternal } from './guards.js';
+import { RunGuards, detectConfirmation, isExternal } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
 import { TOOL_SCHEMAS, executeTool, type AgentTermination, type ToolContext } from './tools.js';
 
@@ -81,9 +81,12 @@ STOPPING
 - To submit an application, click its submit control. "finish" is for giving up,
   never for reporting success — success is detected from the page, not declared.
   If you have already submitted, the run has ended and you will not be asked again.
-- Call finish with "needs_human" when the page needs a real person: an identity
-  or work-rights wall, a question the profile cannot support, a login, or a step
-  you cannot make progress on.
+- Call finish with "needs_human" when the page needs a real person: a CAPTCHA
+  or bot check you cannot pass (an "I'm not a robot" checkbox, an image puzzle,
+  "verify you are human", a Cloudflare check that will not clear), a login wall
+  with no guest option, an identity or work-rights wall, a question the profile
+  cannot support, or a step you cannot make progress on. Say which in the reason.
+  A small "protected by reCAPTCHA" badge in a corner is not a challenge.
 - Call finish with "nothing_to_apply_to" when the listing is expired, already
   applied to, or has no application form.
 - Do not guess your way past anything that looks like a verification wall.
@@ -221,14 +224,6 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * up a duplicate on the next run.
      */
     if (await detectConfirmation(page)) return finish({ status: 'applied' });
-
-    const friction = await detectFriction(page);
-    if (friction) {
-      return finish({
-        status: 'needs-human',
-        reason: friction === 'captcha' ? 'a CAPTCHA is blocking the page' : 'identity / work-rights verification required',
-      });
-    }
 
     if (isExternal(page.url()) && !config.allowExternalApply) {
       return finish({ status: 'off-platform', redirectedTo: page.url() });

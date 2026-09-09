@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
-import { captchaEnabled, trySolveCaptcha } from './captcha.js';
+import { captchaEnabled } from './captcha.js';
+import { judgePage } from './blocker.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -196,13 +197,8 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
         'This tool never automates login.',
     );
   }
-  const challenged = await page
-    .evaluate(
-      () =>
-        /additional verification required|checking your browser/i.test(document.title + ' ' + document.body.innerText.slice(0, 500)),
-    )
-    .catch(() => false);
-  if (challenged && !(await trySolveCaptcha(page) && !(await hasVisibleCaptcha(page, false)))) {
+  await waitForChallengeToClear(page);
+  if ((await judgePage(page, 'the Indeed homepage')).state === 'captcha') {
     throw new Error(
       'Indeed is showing a Cloudflare verification challenge instead of the site. Open the Chrome profile ' +
         'manually, solve the challenge (or wait for it to clear — it usually follows a burst of traffic), then re-run.',
@@ -230,49 +226,6 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
 }
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/**
- * Detects a CAPTCHA that is already blocking the current page without using a
- * model. Hidden reCAPTCHA integrations do not count: many normal pages include
- * those, so only a visible challenge or explicit blocking copy should stop a
- * run.
- */
-export async function hasVisibleCaptcha(page: Page, attemptSolve = true): Promise<boolean> {
-  const turnstileSolved = await page.locator('input[name="cf-turnstile-response"]').evaluateAll(
-    elements => elements.some(element => Boolean((element as HTMLInputElement).value)),
-  ).catch(() => false);
-  if (attemptSolve && !turnstileSolved && await trySolveCaptcha(page)) return hasVisibleCaptcha(page, false);
-  /**
-   * Only a challenge someone must actually solve counts. Invisible reCAPTCHA
-   * (Greenhouse, Dayforce, SmartRecruiters and most employer ATSes) renders a
-   * small badge in a corner — a visible iframe, but nothing to solve — and
-   * matching it read every one of those application forms as "a CAPTCHA is
-   * blocking the page" at step one.
-   */
-  const visibleChallenge = await page
-    .locator(
-      'iframe[title*="reCAPTCHA" i]:visible, iframe[src*="recaptcha"]:visible, .g-recaptcha:visible, ' +
-        'iframe[src*="captcha-delivery"]:visible, iframe[title*="Verification system" i]:visible' +
-        (turnstileSolved ? '' : ', iframe[title*="Cloudflare" i]:visible, iframe[title*="challenge" i]:visible, iframe[src*="challenges.cloudflare.com"]:visible'),
-    )
-    .evaluateAll((elements) =>
-      elements.filter((element) => {
-        if (element.closest('.grecaptcha-badge')) return false;
-        const src = element.getAttribute('src') ?? '';
-        if (/size=invisible/.test(src)) return false;
-        const box = element.getBoundingClientRect();
-        // The invisible-reCAPTCHA badge is 256×60 wherever it is mounted.
-        return !(Math.round(box.width) === 256 && Math.round(box.height) === 60);
-      }).length,
-    )
-    .catch(() => 0);
-  if (visibleChallenge > 0) return true;
-
-  const copy = await page.locator('body').innerText().catch(() => '');
-  return /i'?m not a robot|select all (images|squares)|verify you are human|performing security verification|additional verification required|checking your browser/i.test(
-    copy,
-  );
-}
 
 /**
  * Lets Cloudflare's automatic challenge finish before the page is read.

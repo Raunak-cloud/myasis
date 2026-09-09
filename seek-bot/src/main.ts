@@ -8,9 +8,9 @@ import {
   getPage,
   assertSignedIn,
   assertIndeedSignedIn,
-  hasVisibleCaptcha,
   jitter,
 } from './browser.js';
+import { judgePage, WALL_STATES } from './blocker.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import {
   recommended as recommendedIndeed,
@@ -320,7 +320,7 @@ async function main() {
       }
       evaluated++;
 
-      const job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
+      let job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
       /**
        * Reading pace, not network pace. At 1–3 s a hundred job ads went by in
        * fifteen minutes, and Cloudflare challenges are partly rate-based — the
@@ -328,20 +328,35 @@ async function main() {
        */
       await jitter(5000, 8000);
 
-      if (await hasVisibleCaptcha(page)) {
-        const reason = 'CAPTCHA detected before AI fit review';
-        console.log(`  ⏸ ${adapter.label} needs manual verification — no AI review was sent`);
-        bump(reason);
-        reviewBlockedPlatforms.add(adapter.id);
-        logOutcome({
-          status: 'needs-human',
-          jobId: job.id,
-          reason,
-          url: page.url(),
-          title: job.title,
-          company: job.company,
-        });
-        continue;
+      /**
+       * A listing with no description is the only signal that something is
+       * wrong at this stage, and the model is asked why only then: a wall
+       * hands the platform to a person, a slow page gets one retry, and a
+       * removed listing is skipped instead of being sent to the fit review
+       * with a blank description.
+       */
+      if (!job.description) {
+        const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
+        let verdict = await judgePage(page, expected);
+        if (verdict.state === 'loading') {
+          await jitter(3000, 5000);
+          job = await measured('detail-retry', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
+          if (!job.description) verdict = await judgePage(page, expected);
+        }
+        if (!job.description) {
+          if (WALL_STATES.has(verdict.state)) {
+            const reason = `${verdict.state === 'captcha' ? 'CAPTCHA' : verdict.state === 'login' ? 'Login wall' : 'Verification gate'} before AI fit review — ${verdict.reason}`;
+            console.log(`  ⏸ ${adapter.label} needs manual verification — no AI review was sent`);
+            bump(reason);
+            reviewBlockedPlatforms.add(adapter.id);
+            logOutcome({ status: 'needs-human', jobId: job.id, reason, url: page.url(), title: job.title, company: job.company });
+            continue;
+          }
+          console.log(`  ↷ ${job.title} @ ${job.company} — listing unavailable (${verdict.reason})`);
+          bump('listing unavailable');
+          logOutcome({ status: 'skipped', jobId: job.id, reason: `Listing unavailable: ${verdict.reason}`, title: job.title, company: job.company });
+          continue;
+        }
       }
 
       if (job.applicationMode === 'external' && !config.allowExternalApply) {

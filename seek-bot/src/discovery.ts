@@ -1,6 +1,7 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
-import { jitter, hasVisibleCaptcha, waitForChallengeToClear } from './browser.js';
+import { jitter, waitForChallengeToClear } from './browser.js';
+import { judgePage, WALL_STATES } from './blocker.js';
 import type { JobListing } from './types.js';
 
 /**
@@ -164,7 +165,7 @@ export async function recommended(page: Page): Promise<JobListing[]> {
       out.push({
         id,
         title,
-        companyName: txt('jobCompany'),
+        companyName: txt('jobCompany') ?? txt('jobAdvertiser'),
         location: txt('jobCardLocation') ?? txt('jobLocation'),
         workArrangements: txt('jobWorkArrangement') ? [txt('jobWorkArrangement')] : [],
         salaryLabel: txt('jobSalary'),
@@ -249,7 +250,8 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
 
 export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const jobs = await searchViaDom(page, keywords, pageNum);
-  if (await hasVisibleCaptcha(page, false)) {
+  // No cards is the only signal worth a model call: a wall, or simply no more results.
+  if (!jobs.length && WALL_STATES.has((await judgePage(page, `SEEK search results for "${keywords}"`, { attemptSolve: false })).state)) {
     throw new Error('SEEK search requires human verification. Open SEEK login, complete verification, close that Chrome window and retry. No search results were evaluated.');
   }
   return jobs.map((job) => ({ ...job, source: 'search' as const }));

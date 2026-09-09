@@ -4,11 +4,11 @@ import { resolve } from 'node:path';
 import { config } from './config.js';
 import {
   captureInteractivePageState,
-  hasVisibleCaptcha,
   jitter,
   waitForInteractivePageChange,
   waitForInteractiveSurface,
 } from './browser.js';
+import { judgePage, WALL_STATES } from './blocker.js';
 import { extractFields, fillField, pageSummary } from './dom.js';
 import { answerFields, classifyPage, coverLetterForJob } from './llm.js';
 import { rewriteLongText } from './humanizer.js';
@@ -80,8 +80,9 @@ const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
  * plus the Cloudflare Turnstile wording seen on the blocked `/viewjob` nav.
  */
 
-async function detectFriction(page: Page): Promise<'captcha' | null> {
-  return await hasVisibleCaptcha(page) ? 'captcha' : null;
+async function detectFriction(page: Page): Promise<{ kind: 'captcha' | 'identity' | 'login'; reason: string } | null> {
+  const verdict = await judgePage(page, 'an Indeed application step');
+  return WALL_STATES.has(verdict.state) ? { kind: verdict.state as 'captcha' | 'identity' | 'login', reason: verdict.reason } : null;
 }
 
 /** Visible buttons whose accessible name matches, trimmed/case-folded. */
@@ -322,11 +323,11 @@ async function runApplySteps(
 
     const friction = await detectFriction(applyPage);
     if (friction) {
-      deps.onFriction(friction);
+      deps.onFriction(friction.kind);
       return {
         status: 'needs-human',
         jobId: job.id,
-        reason: 'CAPTCHA / verification challenge',
+        reason: `${friction.kind === 'captcha' ? 'CAPTCHA' : 'Verification'} challenge — ${friction.reason}`,
         url: applyPage.url(),
       };
     }
@@ -408,11 +409,11 @@ async function runApplySteps(
 
         const formFriction = await detectFriction(applyPage);
         if (formFriction) {
-          deps.onFriction(formFriction);
+          deps.onFriction(formFriction.kind);
           return {
             status: 'needs-human',
             jobId: job.id,
-            reason: 'CAPTCHA / verification challenge',
+            reason: `${formFriction.kind === 'captcha' ? 'CAPTCHA' : 'Verification'} challenge — ${formFriction.reason}`,
             url: applyPage.url(),
           };
         }

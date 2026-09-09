@@ -1,5 +1,4 @@
 import type { Page } from 'patchright';
-import { hasVisibleCaptcha } from '../browser.js';
 import { config } from '../config.js';
 import { CostMeter } from './celeris.js';
 
@@ -12,7 +11,9 @@ import { CostMeter } from './celeris.js';
  * link off SEEK, and how long a run may spend are all decided here, in code,
  * before or after the model speaks — never by it.
  *
- * Nothing in this module takes model output as an input.
+ * Nothing in this module takes model output as an input. Whether a page is a
+ * wall (a CAPTCHA, a login, a verification gate) is the agent's own call — it
+ * sees the page every step and reports it through `finish`.
  */
 
 const clean = (s: string) => s.replace(/[​-‍⁠﻿ ]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -51,42 +52,6 @@ const FORBIDDEN_URL = /\/(login|signin|sign-in|register|signup|password|oauth|ch
 
 export function isForbiddenDestination(url: string): boolean {
   return FORBIDDEN_URL.test(url);
-}
-
-/**
- * Cheap deterministic friction detection — no model call.
- *
- * Identity detection stays conservative: SEEK renders a *non-blocking* "verify
- * with SEEK Pass" upsell beside ordinary work-rights questions, and naive text
- * matching reads that as a wall and aborts a perfectly good application. A
- * mention only counts when there is genuinely no way forward.
- */
-export async function detectFriction(page: Page): Promise<'captcha' | 'identity' | null> {
-  if (/seekpass|verify-identity|right-to-work/i.test(page.url())) return 'identity';
-
-  if (await hasVisibleCaptcha(page)) return 'captcha';
-
-  const body = await page.locator('body').innerText().catch(() => '');
-  if (/i'?m not a robot|select all (images|squares)|verify you are human/i.test(body)) return 'captcha';
-
-  /**
-   * "…to continue applying" is SEEK stating outright that the listing is gated
-   * on verified work rights. The Continue button stays *enabled* on those
-   * pages — clicking it bounces you back — so button state is not a reliable
-   * signal and the wording has to be trusted instead.
-   */
-  if (/verify your (work rights|identity)[^.]{0,40}to continue/i.test(body)) return 'identity';
-
-  if (/seek pass|verify your (work rights|identity)/i.test(body)) {
-    const enabled = await page
-      .locator('button:visible, a[role="button"]:visible')
-      .filter({ hasText: /continue|next|submit|review/i })
-      .first()
-      .isEnabled()
-      .catch(() => false);
-    if (!enabled) return 'identity';
-  }
-  return null;
 }
 
 /**

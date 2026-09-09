@@ -15,6 +15,7 @@ import type { CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
+import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
 
 /**
  * The agent's entire action surface.
@@ -414,7 +415,7 @@ async function doScroll(ctx: ToolContext, args: Record<string, unknown>): Promis
   return ok(`Scrolled ${direction === 1 ? 'down' : 'up'}.`);
 }
 
-function doFinish(ctx: ToolContext, args: Record<string, unknown>): ToolResult {
+async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const reason = String(args.reason ?? 'no reason given');
   switch (String(args.status)) {
     case 'submitted':
@@ -435,6 +436,11 @@ function doFinish(ctx: ToolContext, args: Record<string, unknown>): ToolResult {
     case 'nothing_to_apply_to':
       return { kind: 'terminal', outcome: { status: 'skipped', reason } };
     default:
+      // The agent met a challenge. With click-solving on, one attempt is
+      // made before a person is asked; if it clears, the agent carries on.
+      if (/captcha|robot|verify you are human|bot check|security verification/i.test(reason) && captchaEnabled()) {
+        if (await trySolveCaptcha(ctx.page)) return ok('The challenge was cleared. Re-observe the page and continue.');
+      }
       return { kind: 'terminal', outcome: { status: 'needs-human', reason } };
   }
 }

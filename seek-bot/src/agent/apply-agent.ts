@@ -14,7 +14,7 @@ import { runApplicationAgent } from './loop.js';
  */
 
 export interface ApplyDeps {
-  onFriction: (kind: 'captcha' | 'identity') => void;
+  onFriction: (kind: 'captcha' | 'identity' | 'login') => void;
 }
 
 /**
