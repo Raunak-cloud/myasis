@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import { config } from './config.js';
-import { chooseResume } from './gemini.js';
+import { chooseResume } from './llm.js';
 import type { CandidateProfile, JobListing } from './types.js';
 
 export interface ResumeRecord {
@@ -61,7 +61,7 @@ export async function pickResumeForJob(
   if (config.resume.select) return resolveResume(config.resume.select);
 
   const all = loadResumes();
-  if (all.length <= 1 || !config.gemini.apiKey) return resolveResume();
+  if (all.length <= 1 || !config.celeris.apiKey) return resolveResume();
 
   try {
     const { resumeId, reason } = await chooseResume(
@@ -95,11 +95,11 @@ function normaliseName(s: string): string {
 /**
  * SEEK's Braid radios are custom components: the real `<input>` is
  * `tabindex="-1"` and visually hidden, and state lives in `aria-checked` driven
- * by React. Playwright's `.check()` clicks it but then blocks waiting for
+ * by React. Patchright's `.check()` clicks it but then blocks waiting for
  * `checked` to flip, which never happens — so drive the label instead, the way
  * a person would, and verify via `aria-checked`.
  */
-async function checkRadio(radio: import('playwright').Locator): Promise<void> {
+async function checkRadio(radio: import('patchright').Locator): Promise<void> {
   const page = radio.page();
   const id = await radio.getAttribute('id').catch(() => null);
 

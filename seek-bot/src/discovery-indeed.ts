@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import { config } from './config.js';
 import { jitter } from './browser.js';
 import type { JobListing } from './types.js';

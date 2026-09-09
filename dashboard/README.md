@@ -175,7 +175,7 @@ Because a button here sends real applications to real employers:
 
 - `seek-bot` must be built (`npm run build` there); the runner checks for
   `dist/main.js` and reports clearly if it is missing.
-- Chrome must not already be running on the bot's profile, or Playwright cannot
+- Chrome must not already be running on the bot's profile, or Patchright cannot
   attach.
 
 ### API
@@ -260,7 +260,7 @@ Chrome DevTools Protocol, not VNC:
 - Coordinates are rescaled from the displayed image back to page pixels, so
   clicks land where you aim regardless of window size.
 
-No X11/Xvfb/x11vnc to install — it reuses the same debugging port Playwright
+No X11/Xvfb/x11vnc to install — it reuses the same debugging port Patchright
 already talks to. One wrinkle handled: `startScreencast` only emits on *change*,
 so a static page would look like a dead connection. The server primes the view
 with a screenshot on connect and re-primes if 3s pass with no frame.

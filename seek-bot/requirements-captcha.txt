@@ -1,0 +1,4 @@
+# Pin upstream: includes Patchright CDP preparation fixes absent in older releases.
+playwright-captcha @ git+https://github.com/techinz/playwright-captcha.git@2bdd880b6dd2c27133dc971f425f83e04c6c3849
+patchright==1.58.2
+playwright==1.58.0

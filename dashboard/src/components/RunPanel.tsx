@@ -34,12 +34,6 @@ interface RunStatus {
   isOwner: boolean;
 }
 
-const CONTROLS = [
-  { key: 'MAX_APPS_PER_RUN', label: 'Max applications', hint: 'stops after this many', help: 'The most applications this run can complete before stopping.' },
-  { key: 'MAX_EVALUATIONS', label: 'Jobs to evaluate', hint: 'maximum 120', help: 'The most job listings this run will open and assess. Capped at 120 to keep runs bounded.' },
-  { key: 'MIN_SCORE', label: 'Match threshold', hint: 'out of 100', help: 'Jobs scoring below this number are skipped. A higher number gives fewer, closer matches.' },
-] as const;
-
 const RUN_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
   TARGET_ROLE: '',
@@ -219,6 +213,15 @@ export function RunPanel({
   const [openingLogin, setOpeningLogin] = useState(false);
   const [loginMessage, setLoginMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Which field the message belongs to, so it can be shown where the mistake
+   * is rather than only at the bottom of a modal the user may have scrolled
+   * past. `shake` re-triggers the nudge animation on every failed attempt.
+   */
+  const [errorField, setErrorField] = useState<string | null>(null);
+  const [shaking, setShaking] = useState(false);
+  /** Counts rejected attempts, so the same field failing twice still reacts. */
+  const [attempt, setAttempt] = useState(0);
   const [outOfApplications, setOutOfApplications] = useState(false);
   const [freeResetsAt, setFreeResetsAt] = useState<string | null>(null);
   const [clock, setClock] = useState(() => Date.now());
@@ -331,9 +334,61 @@ export function RunPanel({
         ? `Reviewing ${summary.found} job listings`
         : 'Searching for jobs';
 
+  /**
+   * One table for the ceilings, mirroring `RUN_LIMITS` in server/settings.ts.
+   * These bound how much traffic a run makes: search load is terms x pages, and
+   * a large value here is what earned a bot challenge that blocked the account.
+   */
+  const RUN_CAP_VALUES: Record<string, number> = {
+    MAX_APPS_PER_RUN: 10,
+    MAX_EVALUATIONS: 100,
+    PAGES_PER_KEYWORD: 3,
+    MAX_APPS_PER_DAY: 50,
+  };
+  const RUN_CAPS = [
+    { key: 'MAX_APPS_PER_RUN', label: 'Max applications' },
+    { key: 'MAX_EVALUATIONS', label: 'Jobs to evaluate' },
+    { key: 'PAGES_PER_KEYWORD', label: 'Search pages per term' },
+    { key: 'MAX_APPS_PER_DAY', label: 'Daily application cap' },
+  ];
+  const MAX_SEARCH_TERMS = 5;
+  const termCount = val('KEYWORDS').split(',').map((t) => t.trim()).filter(Boolean).length;
+
+  /** The message for one field, rendered directly beneath it. */
+  const FieldError = ({ field }: { field: string }) =>
+    errorField === field && error ? (
+      <span className="field-error" role="alert">{error}</span>
+    ) : null;
+
+  /** Reject a submission: message under the field, plus a nudge on the modal. */
+  function fail(message: string, field?: string) {
+    setError(message);
+    setErrorField(field ?? null);
+    setShaking(true);
+    setAttempt((n) => n + 1);
+  }
+
+  /**
+   * Bring the offending field into view once the message has rendered.
+   *
+   * Deliberately in an effect rather than inside `fail`: scrolling before the
+   * re-render lands on the field's old position, and the message that explains
+   * the problem is not on screen yet. Keyed on `attempt` so submitting the same
+   * bad value twice scrolls again rather than sitting silent.
+   */
+  useEffect(() => {
+    if (!attempt || !errorField) return;
+    const el = document.querySelector<HTMLElement>(`[data-field="${errorField}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Focus without a second competing scroll, so the caret is where the fix is.
+    el.focus?.({ preventScroll: true });
+  }, [attempt, errorField]);
+
   async function saveAndStart() {
     if (starting) return;
     setError(null);
+    setErrorField(null);
     const updates = Object.fromEntries(REVIEW_KEYS.map((key) => [key, val(key)]));
     const numericKeys = [
       'MIN_SALARY', 'MIN_HOURLY_RATE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS',
@@ -343,31 +398,48 @@ export function RunPanel({
       'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
     ];
     if (!updates.KEYWORDS.trim()) {
-      setError('Add at least one job title or search term.');
+      fail('Add at least one job title or search term.', 'KEYWORDS');
       return;
     }
     if (!updates.WORK_ARRANGEMENTS.trim()) {
-      setError('Choose at least one work arrangement.');
+      fail('Choose at least one work arrangement.', 'WORK_ARRANGEMENTS');
       return;
     }
     if (!updates.PLATFORMS.trim()) {
-      setError('Choose at least one job board.');
+      fail('Choose at least one job board.', 'PLATFORMS');
       return;
     }
     if (numericKeys.some((key) => !Number.isFinite(Number(updates[key])) || Number(updates[key]) < 0)) {
-      setError('Check the numeric settings before starting.');
+      fail('Check the numeric settings before starting.');
       return;
     }
     if (positiveKeys.some((key) => Number(updates[key]) < 1)) {
-      setError('Application and search limits must be at least 1.');
+      fail('Application and search limits must be at least 1.');
       return;
     }
     if (Number(updates.MIN_SCORE) > 100) {
-      setError('Match threshold must be between 0 and 100.');
+      fail('Match threshold must be between 0 and 100.', 'MIN_SCORE');
+      return;
+    }
+    /**
+     * Say so rather than silently trimming.
+     *
+     * The server clamps these anyway, so a larger number was accepted, saved,
+     * and quietly reduced — leaving the field showing one value and the run
+     * using another. Telling the user which field and what the ceiling is costs
+     * nothing and avoids that.
+     */
+    const overCap = RUN_CAPS.find(({ key }) => Number(updates[key]) > RUN_CAP_VALUES[key]);
+    if (overCap) {
+      fail(`${overCap.label} can be at most ${RUN_CAP_VALUES[overCap.key]}.`, overCap.key);
+      return;
+    }
+    if (termCount > MAX_SEARCH_TERMS) {
+      fail(`Use at most ${MAX_SEARCH_TERMS} search terms — you have ${termCount}.`, 'KEYWORDS');
       return;
     }
     if (updates.COVER_LETTER_MODE === 'reuse' && !decodeBase64(updates.COVER_LETTER_TEXT_B64).trim()) {
-      setError('Paste the cover letter you want to reuse.');
+      fail('Paste the cover letter you want to reuse.', 'COVER_LETTER_TEXT_B64');
       return;
     }
 
@@ -473,25 +545,6 @@ export function RunPanel({
             </div>
           </label>
         </div>
-
-        <section className="run-options" aria-labelledby="run-limits-title">
-          <h3 id="run-limits-title">Run limits</h3>
-          <div className="grid-2 run-options-grid">
-            {CONTROLS.map((c) => (
-              <label className="field" key={c.key}>
-                <FieldLabel label={c.label} help={c.help} />
-                <input
-                  className="input"
-                  type="number"
-                  value={val(c.key)}
-                  disabled={running}
-                  onChange={(e) => setEdit(c.key, e.target.value)}
-                />
-                <span className="job-meta">{c.hint}</span>
-              </label>
-            ))}
-          </div>
-        </section>
 
         {!status?.hasKey && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
@@ -724,7 +777,15 @@ export function RunPanel({
 
       {confirming && (
         <div className="overlay center" onClick={() => !starting && setConfirming(false)}>
-          <div className="card run-review-modal" role="dialog" aria-modal="true" aria-labelledby="run-review-title" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="card run-review-modal"
+            data-shake={shaking ? 'yes' : undefined}
+            onAnimationEnd={() => setShaking(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="run-review-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="run-review-head">
               <div>
                 <h2 id="run-review-title">Review run settings</h2>
@@ -746,7 +807,7 @@ export function RunPanel({
                 <h3>What to find</h3>
                 <div className="field run-review-wide">
                   <FieldLabel label="Job boards" help="Which job boards to search and apply on this run. Both are searched, scored and deduplicated together as one combined pool." />
-                  <div className="chips">
+                  <div className="chips" data-field="PLATFORMS">
                     {JOB_BOARDS.map((board) => (
                       <button
                         type="button"
@@ -758,6 +819,7 @@ export function RunPanel({
                       </button>
                     ))}
                   </div>
+                  <FieldError field="PLATFORMS" />
                 </div>
                 <p className="job-meta recommended-first-note">
                   Recommended jobs from each selected board are analysed first. Search terms expand the pool after those jobs.
@@ -766,10 +828,12 @@ export function RunPanel({
                   <FieldLabel label="Job titles and search terms" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
                   <textarea
                     className="input"
+                    data-field="KEYWORDS"
                     rows={3}
                     value={val('KEYWORDS')}
                     onChange={(e) => setEdit('KEYWORDS', e.target.value)}
                   />
+                  <FieldError field="KEYWORDS" />
                   <SearchTermsGenerator
                     currentTerms={val('KEYWORDS')}
                     targetRole={val('TARGET_ROLE')}
@@ -819,9 +883,11 @@ export function RunPanel({
                       rows={7}
                       maxLength={12_000}
                       placeholder="Paste the complete cover letter, including greeting and sign-off."
+                      data-field="COVER_LETTER_TEXT_B64"
                       value={reusableCoverLetter}
                       onChange={(event) => setEdit('COVER_LETTER_TEXT_B64', encodeBase64(event.target.value))}
                     />
+                    <FieldError field="COVER_LETTER_TEXT_B64" />
                   </label>
                 )}
               </section>
@@ -830,7 +896,7 @@ export function RunPanel({
                 <h3>Location and pay</h3>
                 <div className="field run-review-wide">
                   <FieldLabel label="Work arrangements" help="Choose whether to include remote, hybrid, and on-site jobs." />
-                  <div className="chips">
+                  <div className="chips" data-field="WORK_ARRANGEMENTS">
                     {ARRANGEMENTS.map((arrangement) => (
                       <button
                         type="button"
@@ -842,6 +908,7 @@ export function RunPanel({
                       </button>
                     ))}
                   </div>
+                  <FieldError field="WORK_ARRANGEMENTS" />
                 </div>
                 <div className="grid-2">
                   <label className="field">
@@ -900,33 +967,38 @@ export function RunPanel({
                 <h3>Run limits</h3>
                 <div className="run-review-grid">
                   <label className="field">
-                    <FieldLabel label="Max applications" help="The most applications this run can complete before stopping." />
-                    <input className="input" type="number" min="1" value={val('MAX_APPS_PER_RUN')} onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)} />
+                    <FieldLabel label="Max applications" help="The most applications this run can complete before stopping. Capped at 10 per run." />
+                    <input className="input" data-field="MAX_APPS_PER_RUN" type="number" min="1" max="10" value={val('MAX_APPS_PER_RUN')} onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)} />
+                    <FieldError field="MAX_APPS_PER_RUN" />
                   </label>
                   <label className="field">
-                    <FieldLabel label="Jobs to evaluate" help="The most job listings this run will open and assess. Capped at 120 to keep runs bounded." />
-                    <input className="input" type="number" min="1" max="120" value={val('MAX_EVALUATIONS')} onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)} />
+                    <FieldLabel label="Jobs to evaluate" help="The most job listings this run will open and assess. Capped at 100 to keep runs bounded." />
+                    <input className="input" data-field="MAX_EVALUATIONS" type="number" min="1" max="100" value={val('MAX_EVALUATIONS')} onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)} />
+                    <FieldError field="MAX_EVALUATIONS" />
                   </label>
                   <label className="field">
                     <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />
-                    <input className="input" type="number" min="0" max="100" value={val('MIN_SCORE')} onChange={(e) => setEdit('MIN_SCORE', e.target.value)} />
+                    <input className="input" data-field="MIN_SCORE" type="number" min="0" max="100" value={val('MIN_SCORE')} onChange={(e) => setEdit('MIN_SCORE', e.target.value)} />
+                    <FieldError field="MIN_SCORE" />
                   </label>
                   <label className="field">
                     <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />
                     <input className="input" type="number" min="0" value={val('MAX_AGE_DAYS')} onChange={(e) => setEdit('MAX_AGE_DAYS', e.target.value)} />
                   </label>
                   <label className="field">
-                    <FieldLabel label="Daily application cap" help="The total number of applications allowed in one day, across all runs." />
-                    <input className="input" type="number" min="1" value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
+                    <FieldLabel label="Daily application cap" help="The total number of applications allowed in one day, across all runs. Capped at 50." />
+                    <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max="50" value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
+                    <FieldError field="MAX_APPS_PER_DAY" />
                   </label>
                   <label className="field">
-                    <FieldLabel label="Search pages per term" help="How many result pages to check for each search term. More pages take longer." />
-                    <input className="input" type="number" min="1" value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
+                    <FieldLabel label="Search pages per term" help="How many result pages to check for each search term. This multiplies by your number of search terms, so it is capped at 3." />
+                    <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max="3" value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
+                    <FieldError field="PAGES_PER_KEYWORD" />
                   </label>
                 </div>
               </section>
 
-              {error && <div className="banner banner-bad run-review-error">{error}</div>}
+              {error && !errorField && <div className="banner banner-bad run-review-error">{error}</div>}
             </div>
 
             <div className="confirm-actions run-review-actions">

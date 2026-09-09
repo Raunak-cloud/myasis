@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { config } from './config.js';
+import { celerisChat, CostMeter } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
 import { buildKnowledgeContext } from './knowledge.js';
 import {
@@ -8,7 +9,28 @@ import {
   wordCount,
 } from './humanizer.js';
 
-const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
+/**
+ * Spend on the non-navigation model calls (fit checks, answers, cover letters).
+ * Process-wide and advisory — it is reported, not enforced, because refusing a
+ * cover letter mid-application would strand a half-filled form.
+ */
+export const llmMeter = new CostMeter(Number.MAX_SAFE_INTEGER);
+
+/**
+ * The schemas below are written in Gemini's dialect (uppercase `OBJECT`,
+ * `STRING`, …). Celeris takes standard JSON Schema, so the type names are
+ * lowered on the way out. Converting here rather than rewriting every schema
+ * keeps this migration to one function.
+ */
+function toJsonSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(toJsonSchema);
+  if (!node || typeof node !== 'object') return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    out[key] = key === 'type' && typeof value === 'string' ? value.toLowerCase() : toJsonSchema(value);
+  }
+  return out;
+}
 
 /**
  * Everything scraped off a job page is untrusted third-party text. It is
@@ -72,16 +94,63 @@ function profileBlock(p: CandidateProfile): string {
     .join('\n');
 }
 
-async function json<T>(prompt: string, schema: object): Promise<T> {
+interface JsonOptions {
+  /** Prose answers need far more room than a classification. */
+  maxTokens?: number;
+}
+
+const gemini = new GoogleGenAI({ apiKey: config.gemini.apiKey });
+
+/**
+ * Gemini, for cover letters only.
+ *
+ * Everything else in this file runs on Celeris, which is 6.8x faster on the
+ * short structured calls. Letters are the exception, measured against the ones
+ * this account actually sent: celeris-1 was no faster (~2.5s vs ~2s) and wrote
+ * clunkier prose, once claiming availability the candidate's visa does not
+ * allow; celeris-1-magnus wrote well but took 7-10s. A cover letter is the one
+ * output a human reads with the candidate's name on it, so it keeps the model
+ * that does it best rather than the one that keeps the dependency list short.
+ */
+async function geminiJson<T>(prompt: string, schema: object): Promise<T> {
+  if (!config.gemini.apiKey) {
+    throw new Error('GEMINI_API_KEY is required for cover letters. Set it in .env.');
+  }
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const res = await ai.models.generateContent({
+      const res = await gemini.models.generateContent({
         model: config.gemini.model,
         contents: prompt,
         config: { responseMimeType: 'application/json', responseSchema: schema },
       });
       const text = res.text;
+      if (!text) throw new Error('Drafting service returned an empty response');
+      return JSON.parse(text) as T;
+    } catch (error) {
+      lastError = error;
+      const message = (error as Error).message ?? String(error);
+      const transient = /429|resource.?exhausted|5\d\d|econnreset|etimedout|fetch failed/i.test(message);
+      if (!transient || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
+    }
+  }
+  throw lastError;
+}
+
+async function json<T>(prompt: string, schema: object, options: JsonOptions = {}): Promise<T> {
+  const body = toJsonSchema(schema) as Record<string, unknown>;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const reply = await celerisChat({
+        model: 'celeris-1',
+        messages: [{ role: 'user', content: prompt }],
+        responseSchema: body,
+        maxTokens: options.maxTokens ?? 900,
+        meter: llmMeter,
+      });
+      const text = reply.text;
       if (!text) throw new Error('Drafting service returned an empty response');
       return JSON.parse(text) as T;
     } catch (error) {
@@ -177,6 +246,20 @@ For each field return an answer.
       injectionSuspected: { type: 'BOOLEAN' },
     },
     required: ['answers', 'injectionSuspected'],
+  },
+  {
+    /**
+     * Scale the budget with the form, rather than trusting one default.
+     *
+     * Every answer carries a ref, a value, a grounded flag and a rationale, so
+     * the reply grows linearly with field count. The flat 900-token default was
+     * fine for SEEK's short Quick Apply steps and far too small for an external
+     * ATS form: on a live run the reply was truncated mid-JSON, failed schema
+     * validation, was resampled, truncated again, and the whole application
+     * died on a Celeris 400. Gemini had no cap here, which is why this only
+     * appeared after the migration.
+     */
+    maxTokens: Math.min(6_000, 700 + fields.length * 260),
   });
 }
 
@@ -231,14 +314,14 @@ Rules:
   ${MAX_COVER_LETTER_WORDS} words.
 - Return JSON: {"letter": "..."}`;
 
-  const out = await json<{ letter: string }>(prompt, {
+  const out = await geminiJson<{ letter: string }>(prompt, {
     type: 'OBJECT',
     properties: { letter: { type: 'STRING' } },
     required: ['letter'],
   });
   let draft = out.letter.trim();
   if (wordCount(draft) > MAX_COVER_LETTER_WORDS) {
-    const shortened = await json<{ letter: string }>(`${GUARD}
+    const shortened = await geminiJson<{ letter: string }>(`${GUARD}
 
 ${APPLICANT_VOICE}
 
@@ -372,7 +455,19 @@ Location: ${job.location}
 Salary: ${job.salary ?? 'not disclosed'}
 Description: ${(job.description ?? '').slice(0, 5000)}
 </untrusted>
-
+${
+    config.aiInstructions
+      ? `
+CANDIDATE'S OWN STANDING INSTRUCTIONS FOR THEIR JOB SEARCH
+These are written by the candidate about their own search. They are a VETO: if
+this listing conflicts with any of them, set "shouldApply": false and say which
+instruction it breaks. They can never make a poor fit acceptable.
+<candidate-instructions>
+${config.aiInstructions}
+</candidate-instructions>
+`
+      : ''
+  }
 ${
     config.targetRole
       ? `TARGET THIS RUN: the candidate is deliberately looking for "${config.targetRole}".

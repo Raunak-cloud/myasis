@@ -24,16 +24,33 @@ export const KEEP_SETTINGS_KEYS = [
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
   'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
   'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64',
+  // The account's own standing instructions ("no manager roles"). Stored here
+  // since launch but missing from this list, so it never reached a run.
+  'AI_INSTRUCTIONS_B64',
 ] as const;
 
 const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
-const MAX_EVALUATIONS_PER_RUN = 120;
+/** Mirrors seek-bot's own clamps, so the dashboard shows what a run will really use. */
+const RUN_LIMITS: Record<string, number> = {
+  MAX_EVALUATIONS: 100,
+  MAX_APPS_PER_RUN: 10,
+  PAGES_PER_KEYWORD: 3,
+  MAX_APPS_PER_DAY: 50,
+};
+
+/** Mirrors seek-bot's own cap so the dashboard shows what a run will really use. */
+const MAX_SEARCH_TERMS = 5;
 
 function normalizeSetting(key: string, value: string): string {
-  if (key !== 'MAX_EVALUATIONS') return value;
+  if (key === 'KEYWORDS') {
+    const terms = value.split(',').map((t) => t.trim()).filter(Boolean);
+    return terms.slice(0, MAX_SEARCH_TERMS).join(', ');
+  }
+  const ceiling = RUN_LIMITS[key];
+  if (ceiling === undefined) return value;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 1) return value;
-  return String(Math.min(MAX_EVALUATIONS_PER_RUN, Math.floor(parsed)));
+  return String(Math.min(ceiling, Math.floor(parsed)));
 }
 
 /**
@@ -65,6 +82,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   MAX_EVALUATIONS: '40',
   PAGES_PER_KEYWORD: '1',
   COVER_LETTER_MODE: 'tailored',
+  AI_INSTRUCTIONS_B64: '',
   COVER_LETTER_TEXT_B64: '',
 };
 

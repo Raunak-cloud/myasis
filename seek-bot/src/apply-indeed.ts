@@ -1,18 +1,19 @@
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
 import {
   captureInteractivePageState,
+  hasVisibleCaptcha,
   jitter,
   waitForInteractivePageChange,
   waitForInteractiveSurface,
 } from './browser.js';
 import { extractFields, fillField, pageSummary } from './dom.js';
-import { answerFields, classifyPage, coverLetterForJob } from './gemini.js';
+import { answerFields, classifyPage, coverLetterForJob } from './llm.js';
 import { rewriteLongText } from './humanizer.js';
 import { RESUME_DIR, pickResumeForJob } from './resume.js';
-import type { ApplyDeps } from './apply.js';
+import type { ApplyDeps } from './agent/apply-agent.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 const MAX_STEPS = 12;
@@ -80,24 +81,7 @@ const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
  */
 
 async function detectFriction(page: Page): Promise<'captcha' | null> {
-  const hasVisibleChallenge = await page
-    .locator(
-      'iframe[title*="reCAPTCHA" i]:visible, iframe[src*="recaptcha"]:visible, .g-recaptcha:visible, ' +
-        'iframe[title*="Cloudflare" i]:visible, iframe[title*="challenge" i]:visible',
-    )
-    .count()
-    .catch(() => 0);
-  if (hasVisibleChallenge > 0) return 'captcha';
-
-  const body = await page.locator('body').innerText().catch(() => '');
-  if (
-    /i'?m not a robot|select all (images|squares)|verify you are human|additional verification required|checking your browser/i.test(
-      body,
-    )
-  ) {
-    return 'captcha';
-  }
-  return null;
+  return await hasVisibleCaptcha(page) ? 'captcha' : null;
 }
 
 /** Visible buttons whose accessible name matches, trimmed/case-folded. */

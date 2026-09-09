@@ -13,14 +13,13 @@
  * It always runs in DRY_RUN, so the apply flow is exercised to the final
  * Submit and then stops.
  */
-process.env.DRY_RUN = 'true';
-process.env.REHEARSE = 'true';
 
+import './rehearsal-env.js';
 import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, assertSignedIn } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import { scoreJob, hardExclusions, parseMinSalary, parseSalaryRate, detectInjection } from './scoring.js';
-import { applyToJob } from './apply.js';
+import { applyToJobWithAgent } from './agent/apply-agent.js';
 import { loadResumes, resolveResume } from './resume.js';
 import { buildKnowledgeContext } from './knowledge.js';
 import { AppliedIndex } from './store.js';
@@ -75,8 +74,8 @@ async function main() {
   });
 
   await stage('config: Gemini key present', async () =>
-    config.gemini.apiKey
-      ? ['pass', `model ${config.gemini.model}`]
+    config.celeris.apiKey
+      ? ['pass', `model celeris-1`]
       : ['fail', 'GEMINI_API_KEY missing — stack-fit checks would be skipped'],
   );
 
@@ -220,6 +219,7 @@ async function main() {
      */
     await stage('apply: full flow to Submit (withheld)', async () => {
       if (!target) return ['skip', 'no target'];
+      const apply = applyToJobWithAgent;
 
       const queue = jobArg ? [target] : [target, ...found.slice(1, 8)];
       let outcome: ApplyOutcome | null = null;
@@ -227,7 +227,7 @@ async function main() {
 
       for (const stub of queue) {
         const job = stub === target ? target : await fetchJobDetail(page, stub);
-        const res = await applyToJob(page, job, profile, { onFriction: () => {} });
+        const res = await apply(page, job, profile, { onFriction: () => {} });
         if (res.status === 'off-platform') {
           offPlatform++;
           continue;

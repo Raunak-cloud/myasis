@@ -17,7 +17,7 @@ import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import { scoreJob, hardExclusions, detectInjection, looksTemplated } from './scoring.js';
-import { assessFit, coverLetterForJob } from './gemini.js';
+import { assessFit, coverLetterForJob } from './llm.js';
 import { AppliedIndex } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import type { JobListing } from './types.js';
@@ -63,7 +63,7 @@ export function saveQueue(items: QueueItem[]) {
 
 async function build() {
   const profile = loadProfile();
-  if (!config.gemini.apiKey) throw new Error('The matching service is not configured.');
+  if (!config.celeris.apiKey) throw new Error('The matching service is not configured.');
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
   }

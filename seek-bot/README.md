@@ -1,6 +1,6 @@
 # seek-bot
 
-Playwright + Gemini agent that searches SEEK, scores listings against your
+Patchright + Gemini agent that searches SEEK, scores listings against your
 resume, and completes Quick Apply end to end.
 
 ## How SEEK actually works (verified live, Aug 2026)
@@ -75,8 +75,80 @@ than `MAX_AGE_DAYS`.
 **Scoring** is seek.md's rubric: 40 skills / 15 title / 15 recency / 15 salary /
 10 credibility / 5 location.
 
-**Gemini** does three jobs: judge genuine stack overlap, write grounded cover
-letters, and classify pages the state machine doesn't recognise.
+**Models.** Celeris runs everything structured — the fit check, resume choice,
+page classification and screening answers — measured at **6.8x faster** than
+Gemini on those calls (300ms vs 2046ms median, n=70). Gemini keeps cover letters
+alone: benchmarked against letters this tool actually sent, `celeris-1` was no
+faster (~2.5s vs ~2s) and wrote weaker prose, once claiming weekly availability
+the candidate's visa does not allow, while `celeris-1-magnus` wrote well but took
+7-10s. `npm run bench:fit` and `npm run bench:letter` reproduce both.
+
+### Apply engine: Celeris browser agent
+
+Every SEEK application is driven by a browser agent on
+[Celeris](https://docs.celeris.ai). The hand-written state machine that used to
+live in `apply.ts` is gone — there is no toggle and no second path.
+
+**What the agent replaced:** navigation only. The ordered list of button labels
+to try, the per-site special cases, the modal-dismissal heuristics, the fixed
+step budget. The agent reads each step and decides which control to act on.
+
+**What it does not replace:** anything that decides whether an application may
+be transmitted. Those live in `src/agent/guards.ts`, run before and after every
+turn, and take no model output as input:
+
+| Rail | Behaviour |
+|---|---|
+| Submit gate | `canSubmit()` is the only route to a submit click. Dry run withholds; an ungrounded answer blocks; an external submit blocks unless enabled |
+| Grounding | Answers still come from Gemini's grounded path. Anything it cannot support is recorded and blocks submission |
+| CAPTCHA / SEEK Pass | Detected in code before each turn; halts with `needs-human` |
+| Off-platform | Leaving SEEK with external apply disabled halts before anything is entered |
+| Forbidden destinations | Login, signup, password, payment and checkout URLs are refused outright — the bot still never touches credentials |
+| Budgets | Step, wall-clock and per-application USD ceilings. An agent loop has no natural stopping point |
+| Success | Only `detectConfirmation()` can report `applied`. The agent is explicitly forbidden from declaring success, and a claim of one is downgraded to `needs-human` |
+
+**The agent cannot author selectors or code.** Each observation stamps a `ref`
+onto every visible control; the tools accept only those refs. The model can act
+on what it was just shown, and nothing else.
+
+**Model routing.** `celeris-1` handles the per-step decisions — it is a
+diffusion model built for exactly this shape of call (short, structured, tool
+-shaped), and its prompt cache bills at a tenth of the uncached rate, which is
+why the system prompt and tool definitions sit ahead of anything that varies.
+A step that stalls twice escalates to `celeris-1-magnus`, which adds reasoning,
+and attaches a screenshot. Cover letters and screening answers stay on Gemini:
+those are long-form and grounded against the candidate profile, a different job
+from picking the next button.
+
+```bash
+npm run test:agent    # guards offline, a live Celeris tool call, and a full
+                      # multi-step application against a local fixture site
+```
+
+The fixture's controls are labelled "Proceed to the next stage" and "Almost
+done" — labels the deterministic matcher recognises none of. That is the case
+the agent exists for. The run drives to the final submit and withholds it,
+typically in 5 steps for about **$0.0011 per application** (prompt cache warm).
+
+Two things that harness caught, both worth keeping in mind:
+
+- **The agent will claim success if you let it.** An earlier `finish` tool
+  offered a `submitted` status and the system prompt told it never to use one;
+  on a live run it used it anyway, on an application it had not submitted. The
+  status is gone from the schema now. Prose is a request; a schema is a rule.
+- **A rehearsal submitted a real application.** `e2e.ts` set
+  `process.env.DRY_RUN='true'` at the top of the file and then imported config —
+  but ES imports are hoisted, so config had already snapshotted `DRY_RUN=false`
+  from `.env` and the withhold guard was silently disarmed. `canSubmit` now
+  reads the live environment as well as config, and `rehearsal-env.ts` exists so
+  a harness can set that flag before config loads. A safety rail must not be
+  defeatable by module ordering.
+- **`page.evaluate` needs a `__name` shim under tsx.** esbuild's `keepNames`
+  wraps named inner functions in a helper that does not exist in the browser,
+  so `extractFields` — and therefore every apply flow, on *both* engines —
+  threw "__name is not defined" under `npm run dev`. `launchBrowser` now
+  installs a no-op shim; the compiled build never emits the call, so it is
+  inert in production.
 
 ### Optional AuthorMist cover-letter pass
 
@@ -119,15 +191,43 @@ By design, not limitation:
 
 | Situation | Behaviour |
 |---|---|
-| CAPTCHA | stops, logs `needs-human`, backs off |
+| CAPTCHA | optionally tries Cloudflare click solving, then logs `needs-human` if still blocked |
 | SEEK Pass / work-rights wall | stops, logs `needs-human` |
 | External application while external apply is disabled | logs `off-platform` before AI review, **enters nothing** |
 | A question not answerable from `profile.txt` | stops before submitting |
 | 2 friction signals in a row | aborts the whole run |
 
-There is **no CAPTCHA solving and no fingerprint evasion** here, deliberately.
-Those walls appeared organically after ~44 applications in one day; they're a
-signal to slow down, not an obstacle to route around.
+### Optional Patchright CAPTCHA integration
+
+The Python [playwright-captcha](https://github.com/techinz/playwright-captcha)
+library connects to the TypeScript bot's existing Patchright tab over CDP.
+It supports Cloudflare Turnstile and interstitial click solving without an API key.
+reCAPTCHA, unsupported challenges, and unsuccessful attempts still need a human.
+
+Install from the `seek-bot` directory (Python 3.11+ and Git required):
+
+```powershell
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -r requirements-captcha.txt
+```
+
+On Linux, use `.venv/bin/python` for the pip command. Set `CAPTCHA_SOLVER=click`
+in `.env` to enable, or `off` to disable. The bot finds this virtual environment
+automatically; `CAPTCHA_PYTHON` can override its interpreter path.
+Restart the bot after enabling so Chrome launches with a loopback CDP port
+(`CDP_PORT`, default 9222). Choose a different free port for concurrent browsers.
+With `BROWSER_CONNECT_CDP=true`, the bridge uses the existing `CDP_HOST` and
+`CDP_PORT` instead. No extra Python browser download is needed.
+
+The bridge targets the exact CDP tab ID, performs one solve attempt with a
+45-second Python timeout and a 50-second process limit, then disconnects.
+Attempts on the same tab and URL have a 60-second cooldown. The bot rechecks
+the page afterward. The bridge does not reload forms or invoke an API solver's
+form-submission functionality. Rate limits and identity checks remain in place.
+
+Verification: `npm run build` then `node scripts/test-captcha.mjs` runs the real
+Python solver against locally fulfilled browser fixtures. It requires Chrome
+and the Python dependencies; it does not contact job boards or CAPTCHA services.
 
 ## Honesty guarantees
 

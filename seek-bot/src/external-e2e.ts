@@ -1,14 +1,13 @@
+import './rehearsal-env.js';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { chromium } from 'playwright';
+import { chromium } from 'patchright';
 import type { CandidateProfile, JobListing } from './types.js';
 
 // This is deliberately a local fake employer site. It proves that the bot can
 // leave SEEK, advance a multi-page flow, and stop before the irreversible
 // submit without transmitting any real candidate data.
 process.env.ALLOW_EXTERNAL_APPLY = 'true';
-process.env.DRY_RUN = 'true';
-process.env.REHEARSE = 'true';
 
 const listing = `<!doctype html><html><body>
   <h1>Fixture Software Engineer</h1>
@@ -63,7 +62,7 @@ const job: JobListing = {
   url: `${baseUrl}/job/test`,
 };
 
-const { applyToJob } = await import('./apply.js');
+const { applyToJobWithAgent: applyToJob } = await import('./agent/apply-agent.js');
 const { config } = await import('./config.js');
 const browser = await chromium.launch({
   executablePath: config.chromePath,

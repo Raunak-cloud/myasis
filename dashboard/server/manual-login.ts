@@ -9,7 +9,7 @@ export interface ManualLoginResult {
 /**
  * Opens SEEK in ordinary desktop Chrome using Myasis's persistent profile.
  *
- * This is deliberately separate from Playwright and CDP. Security checks such
+ * This is deliberately separate from Patchright and CDP. Security checks such
  * as Cloudflare Turnstile may reject synthetic input even when it came from a
  * person using the dashboard's streamed browser. This handoff gives the user a
  * real Chrome window and normal OS mouse/keyboard input; it does not automate

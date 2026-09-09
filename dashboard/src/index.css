@@ -646,7 +646,7 @@ tbody tr.clickable { cursor: pointer; }
 .signin { padding: 34px 32px; width: min(400px, 100%); display: grid; gap: 18px; text-align: center; }
 .signin-brand h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
 .signin-brand p { margin: 0; }
-.signin-logo { width: 44px; height: 44px; object-fit: contain; margin: 0 auto 12px; display: block; }
+.signin-logo { width: 60px; height: 60px; object-fit: contain; margin: 0 auto 12px; display: block; }
 .signin-error { text-align: left; }
 .signin-note { margin: 0; }
 
@@ -802,8 +802,8 @@ a:focus-visible,
 }
 
 .product-mark {
-  width: 30px;
-  height: 30px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
 }
@@ -936,7 +936,7 @@ a:focus-visible,
   }
   .product { width: auto; flex: 0 0 auto; padding: 0 8px 0 0; }
   .product-name, .nav-label { display: none; }
-  .product-mark { width: 34px; height: 34px; }
+  .product-mark { width: 40px; height: 40px; }
   .side-nav { flex-direction: row; }
   .side-link { width: auto; min-height: 36px; padding: 7px 10px; white-space: nowrap; }
   .main-shell { padding: 24px 18px 48px; }
@@ -1477,4 +1477,28 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   .console-empty { min-height: 220px; }
   .humanizer-editor { min-height: 330px; }
   .humanizer-textarea { min-height: 220px; }
+}
+
+/* ---- run review validation -------------------------------------------- */
+/* The message sits with the field it is about, not only at the foot of a
+   modal the user has already scrolled past. */
+.field-error {
+  display: block; margin-top: 5px; font-size: 12.5px; font-weight: 550;
+  color: var(--bad, #c0392b);
+}
+.input[data-field]:focus { border-color: var(--accent); }
+
+/* A short nudge on a rejected submission. Keyed remount replays it each time. */
+@keyframes run-review-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-7px); }
+  30% { transform: translateX(6px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(3px); }
+  80% { transform: translateX(-2px); }
+}
+.run-review-modal[data-shake] { animation: run-review-shake 380ms ease-in-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .run-review-modal[data-shake] { animation: none; }
 }

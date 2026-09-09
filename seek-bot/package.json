@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Playwright + Gemini job search and auto-apply agent for SEEK",
+  "description": "Patchright + Gemini job search and auto-apply agent for SEEK",
   "scripts": {
     "build": "tsc",
     "start": "tsc && node dist/main.js",
@@ -13,15 +13,19 @@
     "test:e2e": "tsc && node dist/e2e.js",
     "test:external": "tsc && node dist/external-e2e.js",
     "test:external-real": "tsc && node dist/external-real-rehearsal.js",
+    "test:agent": "tsc && node dist/agent-e2e.js",
     "queue": "tsc && node dist/queue.js",
-    "humanizer": "llama-server -hf mradermacher/authormist-originality-GGUF:Q4_K_M --host 127.0.0.1 --port 8091 --ctx-size 4096 --n-gpu-layers 99"
+    "humanizer": "llama-server -hf mradermacher/authormist-originality-GGUF:Q4_K_M --host 127.0.0.1 --port 8091 --ctx-size 4096 --n-gpu-layers 99",
+    "bench:fit": "tsc && node dist/bench-fit.js",
+    "bench:letter": "tsc && node dist/bench-letter.js",
+    "bench:humanizer": "tsc && node dist/bench-humanizer.js"
   },
   "dependencies": {
     "@google/genai": "^0.14.0",
     "dotenv": "^16.4.7",
     "mammoth": "^1.12.1",
     "pdf-parse-fork": "^1.2.0",
-    "playwright": "^1.62.1"
+    "patchright": "^1.63.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

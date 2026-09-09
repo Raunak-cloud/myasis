@@ -77,7 +77,7 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
  * Seeds the local dedupe store from SEEK's own "Applied jobs" page, so a fresh
  * install does not re-apply to everything already submitted by hand.
  */
-export async function syncFromSeek(page: import('playwright').Page): Promise<number> {
+export async function syncFromSeek(page: import('patchright').Page): Promise<number> {
   await page.goto(`${config.seekBase}/my-activity/applied-jobs`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
 

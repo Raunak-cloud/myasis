@@ -1,7 +1,32 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
+import { installCursor } from './agent/cursor.js';
+import { captchaEnabled, trySolveCaptcha } from './captcha.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
+
+/**
+ * Makes `page.evaluate` callbacks work under `npm run dev`.
+ *
+ * tsx compiles with esbuild's `keepNames`, which wraps every *named* function
+ * in a `__name(fn, "…")` helper. That helper is defined in the Node module
+ * scope, but a page.evaluate callback is serialised and re-evaluated inside the
+ * browser, where nothing defines it — so any evaluate containing a named inner
+ * function throws "__name is not defined". It affects dom.ts's `extractFields`
+ * and every apply flow that depends on it, on both engines.
+ *
+ * The compiled build (`tsc`, which is what production runs) emits no such call,
+ * so this shim is inert there. Cheaper and far less risky than rewriting those
+ * evaluate bodies to avoid named functions.
+ */
+async function installEsbuildNameShim(ctx: BrowserContext): Promise<void> {
+  await ctx
+    .addInitScript(() => {
+      const scope = globalThis as unknown as Record<string, unknown>;
+      if (typeof scope.__name !== 'function') scope.__name = (fn: unknown) => fn;
+    })
+    .catch(() => {});
+}
 
 /**
  * Opens the user's existing, already-logged-in Chrome profile.
@@ -9,8 +34,7 @@ const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
  * Deliberate choices:
  *  - persistent context, so we inherit the real session (no credential handling,
  *    no login automation, no stored passwords).
- *  - no stealth/fingerprint patching. If SEEK decides to challenge us we stop
- *    and hand control back rather than trying to look like someone else.
+ *  - optional Cloudflare click solving; unresolved challenges hand back to a human.
  */
 export async function launchBrowser(): Promise<BrowserContext> {
   let ctx: BrowserContext;
@@ -32,6 +56,8 @@ export async function launchBrowser(): Promise<BrowserContext> {
       }
       attachedBrowsers.set(defaultContext, browser);
       defaultContext.setDefaultTimeout(30_000);
+      await installEsbuildNameShim(defaultContext);
+      await installCursor(defaultContext);
       return defaultContext;
     }
 
@@ -51,6 +77,11 @@ export async function launchBrowser(): Promise<BrowserContext> {
      * full real-browser fingerprint without the window stealing focus.
      */
     const args: string[] = [];
+    if (captchaEnabled()) {
+      const port = Number(process.env.CDP_PORT || '9222');
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid CDP_PORT');
+      args.push(`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1');
+    }
     if (config.background && !config.headless) {
       args.push('--window-position=-32000,-32000', '--window-size=1440,960');
     }
@@ -58,7 +89,7 @@ export async function launchBrowser(): Promise<BrowserContext> {
     ctx = await chromium.launchPersistentContext(config.userDataDir, {
       executablePath: config.chromePath,
       headless: config.headless,
-      // Playwright otherwise adds --no-sandbox by default. Keep Chrome's
+      // Patchright otherwise adds --no-sandbox by default. Keep Chrome's
       // process sandbox enabled so the launched browser does not show the
       // unsupported/security warning and renderer processes stay isolated.
       chromiumSandbox: true,
@@ -71,7 +102,7 @@ export async function launchBrowser(): Promise<BrowserContext> {
     const msg = (err as Error).message;
     if (/already in use|existing browser session/i.test(msg)) {
       throw new Error(
-        `Chrome is already running with this profile, so Playwright cannot attach.\n` +
+        `Chrome is already running with this profile, so Patchright cannot attach.\n` +
           `  Close every window of that Chrome instance, then re-run. To force it:\n` +
           `    Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |\n` +
           `      Where-Object { $_.CommandLine -like '*${config.userDataDir.split('\\').pop()}*' } |\n` +
@@ -81,6 +112,8 @@ export async function launchBrowser(): Promise<BrowserContext> {
     throw err;
   }
   ctx.setDefaultTimeout(30_000);
+  await installEsbuildNameShim(ctx);
+  await installCursor(ctx);
   return ctx;
 }
 
@@ -147,7 +180,7 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
         /additional verification required|checking your browser/i.test(document.title + ' ' + document.body.innerText.slice(0, 500)),
     )
     .catch(() => false);
-  if (challenged) {
+  if (challenged && !(await trySolveCaptcha(page) && !(await hasVisibleCaptcha(page, false)))) {
     throw new Error(
       'Indeed is showing a Cloudflare verification challenge instead of the site. Open the Chrome profile ' +
         'manually, solve the challenge (or wait for it to clear — it usually follows a burst of traffic), then re-run.',
@@ -182,12 +215,16 @@ export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * those, so only a visible challenge or explicit blocking copy should stop a
  * run.
  */
-export async function hasVisibleCaptcha(page: Page): Promise<boolean> {
+export async function hasVisibleCaptcha(page: Page, attemptSolve = true): Promise<boolean> {
+  const turnstileSolved = await page.locator('input[name="cf-turnstile-response"]').evaluateAll(
+    elements => elements.some(element => Boolean((element as HTMLInputElement).value)),
+  ).catch(() => false);
+  if (attemptSolve && !turnstileSolved && await trySolveCaptcha(page)) return hasVisibleCaptcha(page, false);
   const visibleChallenge = await page
     .locator(
       'iframe[title*="reCAPTCHA" i]:visible, iframe[src*="recaptcha"]:visible, .g-recaptcha:visible, ' +
-        'iframe[title*="Cloudflare" i]:visible, iframe[title*="challenge" i]:visible, ' +
-        'iframe[src*="challenges.cloudflare.com"]:visible',
+        'iframe[src*="captcha-delivery"]:visible, iframe[title*="Verification system" i]:visible' +
+        (turnstileSolved ? '' : ', iframe[title*="Cloudflare" i]:visible, iframe[title*="challenge" i]:visible, iframe[src*="challenges.cloudflare.com"]:visible'),
     )
     .count()
     .catch(() => 0);

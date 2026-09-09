@@ -85,6 +85,9 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
   };
 }
 
+/** Search terms honoured per run — see the note on `keywords` below. */
+export const MAX_SEARCH_TERMS = 5;
+
 export const config = {
   /**
    * Reuses the already-authenticated Chrome profile. The bot never handles
@@ -144,7 +147,17 @@ export const config = {
   )
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean),
+    .filter(Boolean)
+    /**
+     * Capped, because search traffic is the product of terms and pages.
+     *
+     * Ten terms at five pages is fifty result pages before a single job is
+     * opened, and repeated runs at that volume are what triggered a Cloudflare
+     * challenge that blocked the account for everything. Five terms keeps a run
+     * quiet enough to stay unremarkable, and the terms further down a list are
+     * rarely the ones producing applications anyway.
+     */
+    .slice(0, MAX_SEARCH_TERMS),
 
   /** seek.md rules, as data. */
   rules: {
@@ -181,22 +194,43 @@ export const config = {
   targetRole: process.env.TARGET_ROLE ?? '',
 
   /**
+   * Free-text standing instructions the account holder wrote for their own
+   * search ("no senior or manager positions", "weekends only").
+   *
+   * These were stored by the dashboard but read by nothing — not the bot, not
+   * the settings allowlist — so an account that asked not to be put forward for
+   * manager roles was being put forward for them anyway. They are applied as a
+   * veto in the fit check: they can only ever stop an application, never start
+   * one, and they never loosen the honesty rules.
+   */
+  aiInstructions: decodeBase64(process.env.AI_INSTRUCTIONS_B64),
+
+  /**
    * Deliberately conservative. SEEK Pass verification walls and Indeed
    * reCAPTCHA both appeared after ~44 applications in one day, so these
    * defaults stay well under that and back off hard on any friction signal.
    */
   limits: {
-    maxApplicationsPerRun: Number(process.env.MAX_APPS_PER_RUN ?? 8),
+    /**
+     * Hard ceilings, not just defaults.
+     *
+     * Every one of these multiplies into site traffic — terms x pages is the
+     * search load, evaluations is the job pages opened, applications is the
+     * submissions. A run that quietly asked for 10 terms at 5 pages is what
+     * earned a Cloudflare challenge that locked the account out entirely, so
+     * these are clamped here rather than trusted from a caller.
+     */
+    maxApplicationsPerRun: Math.max(1, Math.min(10, Number(process.env.MAX_APPS_PER_RUN ?? 8))),
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
-    maxEvaluations: Math.max(1, Math.min(120, Number(process.env.MAX_EVALUATIONS ?? 40))),
+    maxEvaluations: Math.max(1, Math.min(100, Number(process.env.MAX_EVALUATIONS ?? 40))),
     /**
      * Result pages to read per keyword. SEEK returns 32 per page, so page 1
      * alone caps discovery at 32 × keywords — and once the obvious listings are
      * applied to, everything left worth having is on pages 2+.
      */
-    pagesPerKeyword: Number(process.env.PAGES_PER_KEYWORD ?? 1),
-    maxApplicationsPerDay: Number(process.env.MAX_APPS_PER_DAY ?? 20),
+    pagesPerKeyword: Math.max(1, Math.min(3, Number(process.env.PAGES_PER_KEYWORD ?? 1))),
+    maxApplicationsPerDay: Math.max(1, Math.min(50, Number(process.env.MAX_APPS_PER_DAY ?? 20))),
     minDelayMs: Number(process.env.MIN_DELAY_MS ?? 25_000),
     maxDelayMs: Number(process.env.MAX_DELAY_MS ?? 70_000),
     /** Brief pacing after an attempt that transmitted no application. */
@@ -209,9 +243,61 @@ export const config = {
     frictionAbortThreshold: Number(process.env.FRICTION_ABORT ?? 2),
   },
 
+
+
+  /** Cover letters only — every other model call runs on Celeris. */
   gemini: {
     apiKey: process.env.GEMINI_API_KEY ?? '',
     model: process.env.GEMINI_MODEL ?? 'gemini-3.7-flash',
+  },
+
+  /**
+   * Celeris drives the browser agent's per-step decisions.
+   *
+   * `celeris-1` is a low-latency diffusion model built for exactly this shape
+   * of call — short, structured, tool-shaped — and `celeris-1-magnus` adds
+   * reasoning for the steps it gets stuck on. Cover letters and screening
+   * answers deliberately stay on Gemini: those are long-form and grounded
+   * against the candidate profile, which is a different job.
+   */
+  celeris: {
+    apiKey: process.env.CELERIS_API_KEY ?? '',
+    /**
+     * Root only. Celeris puts the model id in the URL path ahead of `/v1`, and
+     * the path segment must match the body's `model` field, so the per-model
+     * endpoint is derived rather than configured.
+     */
+    baseUrl: process.env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai',
+    maxTokens: Number(process.env.CELERIS_MAX_TOKENS ?? 700),
+    timeoutMs: Number(process.env.CELERIS_TIMEOUT_MS ?? 45_000),
+
+    /** Ceilings on one application. An agent loop has no natural stopping point. */
+    maxSteps: Number(process.env.AGENT_MAX_STEPS ?? 24),
+    /**
+     * Stop when the agent is stuck, not merely when it is slow. A slow
+     * multi-page employer form that keeps advancing gets as long as it needs.
+     */
+    maxStuckMs: Number(process.env.AGENT_STUCK_MS ?? 180_000),
+    maxTotalMs: Number(process.env.AGENT_MAX_MS ?? 1_800_000),
+    budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? 0.05),
+
+    /** Turns with no page change before escalating to the reasoning model. */
+    escalateAfterStalls: Number(process.env.AGENT_ESCALATE_AFTER ?? 2),
+    /**
+     * Draw a pointer that glides to whatever is about to be clicked. Purely a
+     * window onto what already happens — no model calls, and skipped entirely
+     * when the browser is headless.
+     */
+    showCursor: process.env.AGENT_SHOW_CURSOR !== 'false',
+
+    /** celeris-1 accepts images; a screenshot is attached once a step stalls. */
+    useScreenshots: process.env.AGENT_SCREENSHOTS !== 'false',
+    /**
+     * Trimming the transcript costs cache hits, since Celeris caches on prefix
+     * and everything after the system prompt shifts. Kept high enough that a
+     * normal application never trims.
+     */
+    maxTranscriptTokens: Number(process.env.AGENT_MAX_TRANSCRIPT_TOKENS ?? 60_000),
   },
 
   /** Optional local AuthorMist post-processor served by llama.cpp. */

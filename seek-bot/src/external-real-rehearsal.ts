@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { chromium } from 'playwright';
+import { chromium } from 'patchright';
 import type { JobListing } from './types.js';
 
 if (process.env.CONFIRM_EXTERNAL_TEST !== 'true') {
@@ -25,7 +25,7 @@ const server = createServer((_request, response) => {
 await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
 const port = (server.address() as AddressInfo).port;
 
-const { applyToJob } = await import('./apply.js');
+const { applyToJobWithAgent: applyToJob } = await import('./agent/apply-agent.js');
 const { config, loadProfile } = await import('./config.js');
 const profile = loadProfile();
 const job: JobListing = {

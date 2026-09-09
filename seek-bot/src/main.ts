@@ -15,14 +15,14 @@ import {
   fetchJobDetail as fetchJobDetailIndeed,
 } from './discovery-indeed.js';
 import { scoreJob, hardExclusions, detectInjection, looksTemplated } from './scoring.js';
-import { assessFit } from './gemini.js';
-import { applyToJob, type ApplyDeps } from './apply.js';
+import { assessFit } from './llm.js';
 import { applyToIndeedJob } from './apply-indeed.js';
+import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, syncFromSeek } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -56,7 +56,7 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
       recommended,
       search,
       fetchJobDetail,
-      apply: applyToJob,
+      apply: applyToJobWithAgent,
     },
   ],
   [
@@ -78,11 +78,30 @@ async function main() {
   const profile = loadProfile();
   console.log(`Profile: ${profile.name} · ${profile.suburb ?? ''} · relocate=${profile.willingToRelocate}`);
 
-  if (!config.gemini.apiKey && !searchOnly) {
+  if (!config.celeris.apiKey && !searchOnly) {
     throw new Error('The matching service is not configured. Check the local environment settings.');
   }
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
+  }
+  if (!searchOnly) {
+    if (!config.celeris.apiKey) {
+      throw new Error('CELERIS_API_KEY is required — the browser agent drives every application.');
+    }
+    /**
+     * Cover letters are the one call still on Gemini. Check the key up front:
+     * discovering it is missing part-way through an application strands a
+     * half-filled form on a real employer's site.
+     */
+    if (config.coverLetter.mode === 'tailored' && !config.gemini.apiKey) {
+      throw new Error(
+        'GEMINI_API_KEY is required for AI-tailored cover letters. Set it, or use COVER_LETTER_MODE=reuse.',
+      );
+    }
+    console.log(
+      `Browser agent: Celeris ` +
+        `(max ${config.celeris.maxSteps} steps, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
+    );
   }
   if (!searchOnly) {
     await assertHumanizerHealthy();
@@ -91,7 +110,7 @@ async function main() {
   console.log(
     `Cover letters: ${config.coverLetter.mode === 'reuse' ? 'reuse the provided letter' : 'AI-tailored for every job'}`,
   );
-  if (!config.gemini.apiKey) {
+  if (!config.celeris.apiKey) {
     console.warn(
       '\n⚠  Matching service unavailable — using keyword scoring only, with no stack-fit check.\n' +
         '   Scoring alone is lenient: it rates .NET/Dynamics roles highly off generic\n' +
@@ -374,7 +393,7 @@ async function main() {
         continue;
       }
 
-      const fitPromise = config.gemini.apiKey
+      const fitPromise = config.celeris.apiKey
         ? assessFit(job, profile).then(
             (fit) => ({ fit }),
             (error) => ({ error: (error as Error).message }),
@@ -386,10 +405,33 @@ async function main() {
 
     await flushFits();
 
+    /**
+     * Jobs the board hosts itself go first; the employer's own site is the
+     * fallback for when those run out.
+     *
+     * Not a quality judgement — a hosted application is simply a far better
+     * bet. It is one short known flow, it costs a fraction as much to complete,
+     * and the résumé and profile are already attached. External sites are every
+     * vendor's form at once: longer, slower, and where every failed application
+     * in this run came from. With a run cap in play, spending it on hosted
+     * listings first means more applications actually land.
+     */
+    const hostedFirst = (job: JobListing): number => (job.applicationMode === 'external' ? 1 : 0);
+
     candidates.sort((a, b) => {
+      const hosted = hostedFirst(a.job) - hostedFirst(b.job);
+      if (hosted) return hosted;
       const sourcePriority = Number(b.job.source === 'recommended') - Number(a.job.source === 'recommended');
       return sourcePriority || b.score - a.score;
     });
+
+    const externalCount = candidates.filter((c) => hostedFirst(c.job) === 1).length;
+    if (externalCount) {
+      console.log(
+        `\nOrder: ${candidates.length - externalCount} on-site application(s) first, ` +
+          `then ${externalCount} on employer sites.`,
+      );
+    }
 
     if (skips.size) {
       console.log('\nFiltered out:');

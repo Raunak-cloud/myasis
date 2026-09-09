@@ -13,7 +13,7 @@ import { readEnv } from './runner.js';
  * window (local install) or a secure OS-level remote desktop (VPS).
  *
  * Chosen over VNC deliberately: no X11/Xvfb/x11vnc stack to install, and it
- * reuses the same debugging port Playwright already talks to.
+ * reuses the same debugging port Patchright already talks to.
  */
 
 /**
