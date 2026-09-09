@@ -201,8 +201,15 @@ export class RunGuards {
     this.lastProgressAt = Date.now();
   }
 
+  resolveGrounding(question: string): void {
+    const i = this.ungrounded.indexOf(question);
+    if (i >= 0) this.ungrounded.splice(i, 1);
+  }
+
+  readonly pendingFields = new Set<string>();
+
   recordUngrounded(question: string): void {
-    this.ungrounded.push(question);
+    if (!this.ungrounded.includes(question)) this.ungrounded.push(question);
   }
 
   /**
@@ -210,6 +217,7 @@ export class RunGuards {
    * here, and it consults only configuration and recorded facts.
    */
   canSubmit(currentUrl: string): SubmitVerdict {
+    if (this.pendingFields.size) return { allowed: false, kind: 'ungrounded', reason: `Fields not verified: ${[...this.pendingFields].join('; ')}` };
     if (this.ungrounded.length) {
       return {
         allowed: false,

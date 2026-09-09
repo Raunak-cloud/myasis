@@ -118,7 +118,7 @@ export function SetupPanel() {
           <textarea
             className="input mono-input"
             rows={4}
-            placeholder="react developer, full stack engineer, node.js developer"
+            placeholder="Enter job titles or search terms"
             value={val('KEYWORDS')}
             onChange={(e) => set('KEYWORDS', e.target.value)}
           />

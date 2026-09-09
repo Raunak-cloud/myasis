@@ -55,20 +55,20 @@ applied to by hand.
 SEEK Recommended (priority) + keyword search (expansion)
         → dedupe + age filter → detail fetch
         → visible CAPTCHA + application-route preflight
-        → hard exclusions → keyword score → Gemini fit check
+        → hard exclusions → keyword score → role-neutral model fit check
         → Quick Apply state machine → applied.json
 ```
 
 The signed-in SEEK homepage's personalised Recommended feed is always evaluated
 first. Keyword searches expand the pool only after those recommendations, and a
-recommendation still has to pass every exclusion, score threshold, and Gemini
+recommendation still has to pass every explicit exclusion and model
 fit check before the bot applies.
 
-Before any Gemini fit check, the preflight stops on a visible CAPTCHA and skips
+Before any role-neutral model fit check, the preflight stops on a visible CAPTCHA and skips
 known external applications when external apply is disabled. This prevents
 model calls for jobs the current run cannot apply to.
 
-**Hard exclusions** (deterministic, no model call): excluded core stacks,
+**Hard exclusions** (deterministic, no model call): candidate-specified excluded domains,
 on-site outside your city, salary below the matching annual/hourly floor, older
 than `MAX_AGE_DAYS`.
 
@@ -167,8 +167,10 @@ npm run humanizer
 
 The first start downloads the Q4 GGUF model. Keep that terminal open, then verify
 `http://127.0.0.1:8091/health`. Set `HUMANIZER_URL` in `.env` to that base URL.
-AuthorMist must be healthy before a writing run starts. If it becomes unavailable
-or rejects a rewrite during the run, the run stops instead of using unprocessed text.
+AuthorMist startup health is required only when `HUMANIZER_REQUIRED=true`.
+The default selective pass runs when the draft requests editing; `HUMANIZER_MODE=always`
+forces it. Rewrites get two attempts within a shared 15-second request deadline.
+A failed rewrite or failed factual check falls back to the original checked draft.
 
 ### Cover-letter strategy
 
@@ -181,7 +183,7 @@ Choose one strategy in the dashboard before each run:
   process logs.
 
 > Keyword scoring alone is too lenient — it rates a Microsoft D365/Dynamics role
-> 94/100 off generic "developer" tokens. The Gemini fit check is what actually
+> 94/100 off generic "developer" tokens. The role-neutral model fit check is what actually
 > catches those, so running without an API key gives you an unfiltered list.
 > The bot warns loudly when that happens.
 
@@ -292,3 +294,30 @@ Mocked tests would not have caught a single one of this project's real bugs —
 invisible characters in button labels, Braid radios that never report `checked`,
 a modal swallowing pointer events, `$1,100 per day` parsed as an annual salary.
 So the harness talks to the real site.
+
+### Role-neutral pipeline improvements
+
+No occupation, skill list or career path is supplied as a fallback. Configure search
+terms or a target role. The model evaluates candidate evidence and transferable skills,
+respects explicit instructions, and distinguishes missing evidence from disqualification.
+Keyword scores rank jobs but cannot reject them or override model decisions. Accepted
+and uncertain decisions receive an independent Magnus review; unresolved uncertainty
+is withheld. SEEK match badges cannot bypass that review.
+
+Detail fields are read concurrently and fit requests use a bounded completion queue.
+Validated definitive assessments are cached for seven days, keyed by the complete
+prompt, evidence, profile, settings and model version. Cover letters and resume choices
+share in-flight results and prepare one candidate ahead during the existing cooldown.
+Candidate documents and resume contents supply relevant verbatim evidence.
+
+Form writes are read back before being recorded. Rejected values and unsupported
+answers block submission until resolved. Progress observes current field values,
+validation text and disabled controls. Model retries share a 60-second deadline;
+local stage timings are written to the account's ignored `pipeline-metrics.jsonl`.
+These changes preserve model-led decisions and browser navigation. Explicit user
+constraints, submission limits and verification remain enforced.
+
+Validation: `npm run test:pipeline` uses browser fixtures and a stub model;
+`npm run test:fit-live` uses synthetic profiles with real model calls (API cost,
+no applications). `npm run test:agent` exercises the browser agent on a local form.
+The historical benchmark numbers above are not measurements of this new pipeline.

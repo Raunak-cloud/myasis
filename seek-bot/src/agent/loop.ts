@@ -1,4 +1,5 @@
 import type { Page } from 'patchright';
+import { measured } from '../pipeline.js';
 import { config } from '../config.js';
 import { jitter } from '../browser.js';
 import type { CandidateProfile, JobListing } from '../types.js';
@@ -124,7 +125,10 @@ function trimTranscript(messages: ChatMessage[], maxTokens: number): ChatMessage
   // Drop from the front in pairs so an assistant tool_call is never separated
   // from its tool result, which the API rejects.
   while (kept.length > 4 && estimateTokens([system, firstObservation, ...kept]) > maxTokens) {
-    kept.splice(0, 2);
+    // Remove complete exchanges, ending at the next observation/user boundary.
+    let end = 1;
+    while (end < kept.length && kept[end].role !== 'user') end++;
+    kept.splice(0, end);
   }
   return [system, firstObservation, { role: 'user', content: '[earlier steps omitted]' }, ...kept];
 }
@@ -205,6 +209,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   });
 
   for (;;) {
+    if (await detectConfirmation(page)) return finish({ status: 'applied' });
     const budget = guards.nextStep();
     if (!budget.ok) return finish({ status: 'needs-human', reason: budget.reason });
 
@@ -247,9 +252,11 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
 
     // A page that has not changed since the last turn means the previous action
     // did nothing. Say so explicitly rather than letting the model repeat it.
-    const fingerprint = `${ctx.observation.actions.map((a) => a.text).join('|')}::${ctx.observation.fields
-      .map((f) => f.label)
-      .join('|')}`;
+    const fingerprint = JSON.stringify({
+      actions: ctx.observation.actions.map(a => [a.text, a.disabled]),
+      fields: ctx.observation.fields.map(f => [f.label, f.currentValue, f.options]),
+      text: ctx.observation.text,
+    });
     if (page.url() === lastUrl && fingerprint === lastFingerprint) {
       stalls += 1;
       note = `${note}\n\nNOTE: the page is unchanged from the previous turn — your last action had no effect. Try a different control.`;
@@ -285,6 +292,12 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       meter,
     });
 
+    if (reply.toolCalls.length > 1) {
+      messages.push(reply.message);
+      for (const proposed of reply.toolCalls) messages.push({ role: 'tool', tool_call_id: proposed.id, content: 'Not executed. Propose exactly one action using the current observation.' });
+      stalls++;
+      continue;
+    }
     const call = reply.toolCalls[0];
     if (!call) {
       // Nothing actionable came back. One nudge, then treat it as stuck.
@@ -305,7 +318,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
 
     let result;
     try {
-      result = await executeTool(ctx, call.name, call.args);
+      result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });
     } catch (error) {
       // A thrown tool is a real failure (a cover letter that would not draft,
       // for instance) — not something to let the model retry blindly.
@@ -322,7 +335,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     // Answering questions, attaching a resume or writing the letter all move the
     // application forward without necessarily changing the page, so they reset
     // the stuck timer just as a navigation does.
-    if (['answer_questions', 'add_cover_letter', 'attach_resume'].includes(call.name)) {
+    if (['add_cover_letter', 'attach_resume'].includes(call.name) && !/could not|unavailable|failed|refused/i.test(result.message)) {
       guards.recordProgress();
     }
 

@@ -68,17 +68,12 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
     disability: find('disability'),
     referralSource: find('how did you hear') ?? 'Google',
     securityClearance: process.env.SECURITY_CLEARANCE ?? 'None held',
-    experienceSummary:
-      process.env.EXPERIENCE_SUMMARY ??
-      '~2 years freelance full-stack development and ~2 years freelance AI & Automation Engineer work. ACS member. Projects: DanpheAi, Nasosend, Gharsuchi, Tohmeal.',
-    skills: (process.env.SKILLS ?? 'JavaScript,TypeScript,React,React Native,Node.js,Firebase,MongoDB,Next.js,Python,HTML5,Sass,Expo')
+    experienceSummary: process.env.EXPERIENCE_SUMMARY ?? find('experience summary') ?? '',
+    skills: (process.env.SKILLS ?? find('skills') ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    excludedDomains: (
-      process.env.EXCLUDED_DOMAINS ??
-      '.NET/C# as core stack,blockchain,crypto,mainframe,COBOL,IAM/identity security as core stack,Golang as core stack,PHP/Laravel as core stack,Ruby on Rails as core stack,Java/Spring as core stack'
-    )
+    excludedDomains: (process.env.EXCLUDED_DOMAINS ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
@@ -134,16 +129,7 @@ export const config = {
     .filter(Boolean),
 
   keywords: (
-    process.env.KEYWORDS ??
-    // Spans the whole resume: full-stack, React/frontend, Node/backend,
-    // React Native/mobile, Firebase, the AI & automation half, and the
-    // early-career title variants.
-    'full stack developer,full stack engineer,full stack javascript,web developer,' +
-      'react developer,frontend developer react,frontend engineer,next.js developer,' +
-      'node.js developer,backend developer node,javascript engineer,typescript developer,' +
-      'react native developer,mobile developer react native,firebase developer,' +
-      'ai engineer,ai engineer python,ai automation engineer,llm engineer,python developer,' +
-      'junior software engineer,graduate software engineer'
+    process.env.KEYWORDS ?? ''
   )
     .split(',')
     .map((s) => s.trim())
@@ -283,12 +269,6 @@ export const config = {
 
     /** Turns with no page change before escalating to the reasoning model. */
     escalateAfterStalls: Number(process.env.AGENT_ESCALATE_AFTER ?? 2),
-    /**
-     * Draw a pointer that glides to whatever is about to be clicked. Purely a
-     * window onto what already happens — no model calls, and skipped entirely
-     * when the browser is headless.
-     */
-    showCursor: process.env.AGENT_SHOW_CURSOR !== 'false',
 
     /** celeris-1 accepts images; a screenshot is attached once a step stalls. */
     useScreenshots: process.env.AGENT_SCREENSHOTS !== 'false',

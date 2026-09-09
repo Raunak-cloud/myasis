@@ -133,8 +133,7 @@ export function looksTemplated(job: JobListing): string | null {
     return 'contains unedited placeholder text';
   if (/\bnec\b/.test(job.title.toLowerCase()) && d.length < 600)
     return 'generic ANZSCO-code posting with thin detail';
-  if (d.length < 350 && !/react|node|javascript|typescript|python/i.test(d))
-    return 'very short ad naming no concrete technology';
+  // Short descriptions are not spam evidence; the role-neutral model assesses them.
   return null;
 }
 
@@ -168,8 +167,7 @@ export function hardExclusions(job: JobListing, profile: CandidateProfile): stri
     if (core.test(hay)) return `excluded domain: ${domain}`;
   }
 
-  if (/\b(blockchain|crypto|web3|smart contract)\b/.test(hay)) return 'excluded domain: blockchain/crypto';
-  if (/\b(cobol|mainframe)\b/.test(hay)) return 'excluded domain: mainframe/COBOL';
+  // Domain exclusions come only from the candidate, never from a default career track.
 
   // Work-arrangement rule. On-site is additionally pinned to the nominated
   // city; remote and hybrid are accepted anywhere in the country.

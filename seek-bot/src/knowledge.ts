@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, extname } from 'node:path';
+import { relevantEvidence } from './pipeline.js';
 import { config } from './config.js';
 
 export interface KnowledgeItem {
@@ -83,12 +84,12 @@ function contextSignature(items: KnowledgeItem[]): string {
  * *evidence*, not instructions: the caller wraps it accordingly and the model
  * is told it may only ground answers in it, never take direction from it.
  */
-export async function buildKnowledgeContext(): Promise<string> {
+export async function buildKnowledgeContext(query = ''): Promise<string> {
   const items = loadKnowledge().filter((i) => i.enabled);
   if (!items.length) return '';
 
   const signature = contextSignature(items);
-  if (contextCache?.signature === signature) return contextCache.value;
+  if (contextCache?.signature === signature) return relevantEvidence(contextCache.value, query, MAX_CHARS);
 
   // Document extraction is independent per item. Running it concurrently
   // removes repeated PDF/DOCX latency while preserving manifest order below.
@@ -104,7 +105,7 @@ export async function buildKnowledgeContext(): Promise<string> {
   );
 
   const chunks: string[] = [];
-  let budget = MAX_CHARS;
+  let budget = 300_000;
 
   for (let i = 0; i < items.length; i++) {
     if (budget <= 0) break;
@@ -112,14 +113,14 @@ export async function buildKnowledgeContext(): Promise<string> {
     let body = bodies[i];
     body = body.replace(/\s+\n/g, '\n').trim();
     if (!body) continue;
-    const slice = body.slice(0, Math.min(budget, 6_000));
+    const slice = body.slice(0, Math.min(budget, 60_000));
     budget -= slice.length;
     chunks.push(`### ${item.label}\n${slice}`);
   }
 
   const value = chunks.join('\n\n');
   contextCache = { signature, value };
-  return value;
+  return relevantEvidence(value, query, MAX_CHARS);
 }
 
 /** Cheap synchronous check so callers can skip the async build entirely. */

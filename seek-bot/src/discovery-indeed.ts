@@ -256,7 +256,7 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
   // domcontentloaded — wait for it so a cold navigation doesn't fetch with an
   // empty session token (see the same race in browser.ts's sign-in check).
   await page
-    .waitForFunction(() => (window as any).mosaic?.initialData?.logTk !== undefined, { timeout: 8_000 })
+    .waitForFunction(() => (window as any).mosaic?.initialData?.logTk !== undefined, undefined, { timeout: 8_000 })
     .catch(() => {});
   await jitter(500, 1200);
 

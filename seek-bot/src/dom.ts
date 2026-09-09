@@ -69,7 +69,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       }
 
       const ref = `f${n++}`;
-      el.setAttribute('data-bot-ref', ref);
+      el.setAttribute('data-field-id', ref);
 
       if (el.tagName === 'SELECT') {
         const sel = el as unknown as HTMLSelectElement;
@@ -97,7 +97,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
 
     radioGroups.forEach((inputs, key) => {
       const ref = `f${n++}`;
-      inputs.forEach((i, idx) => i.setAttribute('data-bot-ref', `${ref}:${idx}`));
+      inputs.forEach((i, idx) => i.setAttribute('data-field-id', `${ref}:${idx}`));
       const groupLabel =
         inputs[0].closest('fieldset')?.querySelector('legend')?.textContent?.trim() ??
         (key.startsWith('f') ? key : key);
@@ -107,6 +107,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         kind: 'radio',
         required: inputs.some((i) => i.required),
         options: inputs.map((i) => labelFor(i)),
+        currentValue: inputs.find(i => i.checked) ? labelFor(inputs.find(i => i.checked)!) : '',
       });
     });
 
@@ -115,7 +116,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
 }
 
 /** Applies a resolved answer back onto the page. */
-export async function fillField(page: Page, field: FormField, value: string): Promise<void> {
+async function fillFieldUnchecked(page: Page, field: FormField, value: string): Promise<void> {
   const deepFill = async () => {
     const outcome = await page.evaluate(({ ref, kind, wanted, options }) => {
       const deepElements = (root: Document | ShadowRoot = document): Element[] => {
@@ -129,13 +130,13 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
       if (kind === 'radio') {
         const index = (options ?? []).findIndex((option) => option.toLowerCase().trim() === wanted.toLowerCase().trim());
         const fallback = index >= 0 ? index : (options ?? []).findIndex((option) => option.toLowerCase().includes(wanted.toLowerCase()));
-        const radio = all.find((element) => element.getAttribute('data-bot-ref') === `${ref}:${fallback}`) as HTMLInputElement | undefined;
+        const radio = all.find((element) => element.getAttribute('data-field-id') === `${ref}:${fallback}`) as HTMLInputElement | undefined;
         if (!radio || fallback < 0) return false;
         radio.click();
         radio.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
         return true;
       }
-      const element = all.find((candidate) => candidate.getAttribute('data-bot-ref') === ref) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | undefined;
+      const element = all.find((candidate) => candidate.getAttribute('data-field-id') === ref) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | undefined;
       if (!element) return false;
       if (kind === 'checkbox') {
         const checked = wanted.toLowerCase() === 'true';
@@ -157,7 +158,7 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
     if (!outcome) throw new Error(`could not find ${field.ref} inside the form components`);
   };
 
-  const direct = page.locator(`[data-bot-ref="${field.ref}"]`);
+  const direct = page.locator(`[data-field-id="${field.ref}"]`);
   if (!(await direct.count())) {
     await deepFill();
     if (field.autocomplete) {
@@ -173,6 +174,7 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
             }
             return false;
           },
+          undefined,
           { timeout: 1_200 },
         )
         .catch(() => {});
@@ -183,7 +185,7 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
           return found;
         };
         const options = deepElements().filter((element) => element.getAttribute('role') === 'option');
-        const chosen = options.find((option) => option.textContent?.trim().toLowerCase() === wanted.toLowerCase()) ?? options[0];
+        const chosen = options.find((option) => option.textContent?.trim().toLowerCase() === wanted.toLowerCase());
         (chosen as HTMLElement | undefined)?.click();
       }, value);
     }
@@ -198,7 +200,7 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
       o.toLowerCase().includes(value.toLowerCase()),
     );
     if (pick < 0) throw new Error(`no radio option matching "${value}" in [${field.options?.join(' | ')}]`);
-    await page.locator(`[data-bot-ref="${field.ref}:${pick}"]`).check({ force: true });
+    await page.locator(`[data-field-id="${field.ref}:${pick}"]`).check({ force: true });
     return;
   }
 
@@ -223,7 +225,7 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
     await options.first().waitFor({ state: 'visible', timeout: 1_200 }).catch(() => {});
     const exact = options.filter({ hasText: new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).first();
     if (await exact.count()) await exact.click({ timeout: 5_000 });
-    else if (await options.count()) await options.first().click({ timeout: 5_000 });
+    else if (await options.count()) throw new Error('No exact autocomplete option; re-observe the available choices.');
   }
 }
 
@@ -251,4 +253,28 @@ export async function pageSummary(page: Page): Promise<string> {
     `BUTTONS: ${[...new Set(buttons)].slice(0, 15).join(' | ')}`,
     `TEXT: ${body.replace(/\s+/g, ' ').slice(0, 1800)}`,
   ].join('\n');
+}
+
+/** Fill only reports success after the browser accepts and retains the value. */
+export async function fillField(page: Page, field: FormField, value: string): Promise<void> {
+  await fillFieldUnchecked(page, field, value);
+  await page.waitForFunction(({ field, value }) => {
+    const roots: Array<Document | ShadowRoot> = [document];
+    const elements: Element[] = [];
+    for (let i = 0; i < roots.length; i++) {
+      for (const el of roots[i].querySelectorAll('*')) { elements.push(el); if (el.shadowRoot) roots.push(el.shadowRoot); }
+    }
+    const normal = (s: string) => s.replace(/\s+/g, ' ').trim();
+    if (field.kind === 'radio') {
+      const idx = field.options?.findIndex(o => normal(o) === normal(value)) ?? -1;
+      return idx >= 0 && Boolean((elements.find(e => e.getAttribute('data-field-id') === `${field.ref}:${idx}`) as HTMLInputElement)?.checked);
+    }
+    const el = elements.find(e => e.getAttribute('data-field-id') === field.ref) as HTMLInputElement | HTMLSelectElement | undefined;
+    if (!el || el.getAttribute('aria-invalid') === 'true' || !el.validity.valid) return false;
+    if (field.kind === 'checkbox') return (el as HTMLInputElement).checked === (value === 'true');
+    if (field.kind === 'select') return [...(el as HTMLSelectElement).selectedOptions].some(o => normal(o.textContent ?? '') === normal(value) || o.value === value);
+    return normal(el.value) === normal(value);
+  }, { field, value }, { timeout: 2000, polling: 100 }).catch(() => {
+    throw new Error(`The form did not accept the value for "${field.label}"; inspect the current field and validation message.`);
+  });
 }

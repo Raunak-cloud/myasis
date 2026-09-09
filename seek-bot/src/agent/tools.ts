@@ -14,7 +14,6 @@ import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
 import type { CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isForbiddenDestination, isSubmitAction } from './guards.js';
-import { flashClick, glideTo } from './cursor.js';
 import type { ToolSchema } from './celeris.js';
 
 /**
@@ -154,18 +153,12 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
  * open dialog.
  */
 async function clickRef(page: Page, ref: string): Promise<boolean> {
-  // Show where the click is going before it lands. Decoration only: it never
-  // affects how the click is dispatched, and it cannot fail an application.
-  await glideTo(page, ref);
-  const locator = page.locator(`[data-agent-ref="${ref}"]`).first();
+  const locator = page.locator(`[data-ref-id="${ref}"]`).first();
   const clicked = await locator
     .click({ timeout: 6_000 })
     .then(() => true)
     .catch(() => false);
-  if (clicked) {
-    await flashClick(page);
-    return true;
-  }
+  if (clicked) return true;
 
   return page
     .evaluate((wanted) => {
@@ -175,7 +168,7 @@ async function clickRef(page: Page, ref: string): Promise<boolean> {
       while (roots.length) {
         const root = roots.pop()!;
         for (const element of root.querySelectorAll('*')) {
-          if (element.getAttribute('data-agent-ref') === wanted && element instanceof HTMLElement) {
+          if (element.getAttribute('data-ref-id') === wanted && element instanceof HTMLElement) {
             element.click();
             return true;
           }
@@ -229,7 +222,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
 
   if (action.role === 'link') {
     const href = await ctx.page
-      .locator(`[data-agent-ref="${ref}"]`)
+      .locator(`[data-ref-id="${ref}"]`)
       .first()
       .getAttribute('href')
       .catch(() => null);
@@ -268,29 +261,33 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   }
 
   const filled: string[] = [];
+  const failed: string[] = [];
+  for (const field of wanted) ctx.guards.pendingFields.add(field.label);
   for (const answer of answers) {
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
 
-    /**
-     * Ungrounded answers are still filled so a dry run shows exactly what the
-     * flow would have contained — but they are recorded, and `canSubmit`
-     * refuses to transmit while any remain. The model is not consulted about
-     * that.
-     */
+    // Leave unsupported answers blank and block submission until resolved.
     if (!answer.grounded) {
       ctx.guards.recordUngrounded(field.label);
-      ctx.log(`  ⚠ ungrounded: ${field.label}`);
+      continue;
     }
 
-    await fillField(ctx.page, field, answer.value).catch(() => {});
+    try { await fillField(ctx.page, field, answer.value); }
+    catch (error) { failed.push(`${field.label}: ${(error as Error).message}`); continue; }
+    ctx.guards.resolveGrounding(field.label);
+    ctx.guards.pendingFields.delete(field.label);
+    const prior = ctx.captured.findIndex(item => item.question === field.label);
+    if (prior >= 0) ctx.captured.splice(prior, 1);
     ctx.captured.push({ question: field.label, answer: answer.value });
     filled.push(`${field.label} → ${answer.value.slice(0, 60)}`);
   }
 
+  if (filled.length) ctx.guards.recordProgress();
   const ungroundedNow = ctx.guards.ungrounded.length;
   return ok(
-    `Answered ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
+    (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
+    `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
       (ungroundedNow
         ? `\nWARNING: ${ungroundedNow} answer(s) could not be grounded in the candidate profile. This application cannot be submitted; finish with status "needs_human" once you have nothing else useful to do.`
         : ''),
@@ -341,6 +338,7 @@ async function doAddCoverLetter(ctx: ToolContext): Promise<ToolResult> {
   if (!draft.letter) throw new Error('Cover-letter drafting returned no text.');
 
   await textarea.fill(draft.letter, { timeout: 10_000 });
+  if (await textarea.inputValue() !== draft.letter) throw new Error('Cover letter did not retain the drafted text');
   ctx.coverLetter = draft.letter;
   if (config.coverLetter.mode === 'reuse') ctx.log('  ↻ reusable cover letter selected');
   return ok(
@@ -390,7 +388,7 @@ async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
   const fileAction = ctx.observation.actions.find((candidate) => candidate.role === 'file');
   if (!fileAction) return ok('There is no resume step on this page. Move on.');
 
-  const locator = ctx.page.locator(`[data-agent-ref="${fileAction.ref}"]`).first();
+  const locator = ctx.page.locator(`[data-ref-id="${fileAction.ref}"]`).first();
   const already = await locator.inputValue().catch(() => '');
   if (already) {
     ctx.resumeUsed = already.replace(/^.*[\\/]/, '');

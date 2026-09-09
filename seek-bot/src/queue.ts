@@ -210,22 +210,14 @@ async function build() {
         continue;
       }
       const s = scoreJob(job, profile);
-      // SEEK's own "strong applicant" signal overrides the score/fit gates —
-      // never the hard exclusions above. See the same override in main.ts.
-      if (s.total < config.rules.minScore && !job.strongApplicant) {
-        bump(`score below ${config.rules.minScore}`);
-        continue;
-      }
       const fit = await assessFit(job, profile);
       if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
-      if (!fit.shouldApply && !job.strongApplicant) {
+      if (!fit.shouldApply) {
         console.log(`  ✗ ${s.total} · ${job.title} @ ${job.company} — ${fit.reason.slice(0, 90)}`);
         bump('not a fit');
         continue;
       }
-      const fitReason = fit.shouldApply
-        ? fit.reason
-        : `SEEK marked you a strong applicant; model fit check disagreed: ${fit.reason}`;
+      const fitReason = fit.reason;
 
       // Draft the letter now so the reviewer has something to read, not a spinner.
       const coverLetter = await coverLetterForJob(job, profile);

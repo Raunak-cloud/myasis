@@ -53,6 +53,7 @@ export async function applyToJobWithAgent(
       () =>
         Boolean(document.querySelector('[data-automation="job-detail-apply"]')) ||
         /you applied|already applied/i.test(document.body.innerText),
+      undefined,
       { timeout: 10_000 },
     )
     .catch(() => {});
@@ -101,49 +102,54 @@ export async function applyToJobWithAgent(
 
   const flowPage = await openApplyFlow(page, applyCta);
 
-  const run = await runApplicationAgent({
-    page: flowPage,
-    job,
-    profile,
-    prefetchedLetter,
-    log: (line) => console.log(line),
-  });
+  try {
+    const run = await runApplicationAgent({
+      page: flowPage,
+      job,
+      profile,
+      prefetchedLetter,
+      log: (line) => console.log(line),
+    });
 
-  console.log(`  agent: ${run.steps} steps · ${run.usage}`);
+    console.log(`  agent: ${run.steps} steps · ${run.usage}`);
 
-  switch (run.outcome.status) {
-    case 'applied':
-      return {
-        status: 'applied',
-        jobId: job.id,
-        at: new Date().toISOString(),
-        coverLetter: run.coverLetter,
-        answers: run.captured,
-      };
-    case 'rehearsed':
-      return {
-        status: 'rehearsed',
-        jobId: job.id,
-        coverLetter: run.coverLetter,
-        answers: run.captured,
-        stoppedAt: run.outcome.stoppedAt,
-      };
-    case 'off-platform':
-      return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo };
-    case 'skipped':
-      return { status: 'skipped', jobId: job.id, reason: run.outcome.reason };
-    case 'needs-human':
-    default: {
-      // Friction signals feed the run-level abort counter exactly as the
-      // deterministic path does, so repeated walls still stop the whole run.
-      if (/captcha/i.test(run.outcome.reason)) deps.onFriction('captcha');
-      else if (/identity|work-rights/i.test(run.outcome.reason)) deps.onFriction('identity');
-      return {
-        status: 'needs-human',
-        jobId: job.id,
-        reason: run.outcome.reason,
-        url: flowPage.url(),
-      };
+    switch (run.outcome.status) {
+      case 'applied':
+        return {
+          status: 'applied',
+          jobId: job.id,
+          at: new Date().toISOString(),
+          coverLetter: run.coverLetter,
+          answers: run.captured,
+        };
+      case 'rehearsed':
+        return {
+          status: 'rehearsed',
+          jobId: job.id,
+          coverLetter: run.coverLetter,
+          answers: run.captured,
+          stoppedAt: run.outcome.stoppedAt,
+        };
+      case 'off-platform':
+        return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo };
+      case 'skipped':
+        return { status: 'skipped', jobId: job.id, reason: run.outcome.reason };
+      case 'needs-human':
+      default: {
+        // Friction signals feed the run-level abort counter exactly as the
+        // deterministic path does, so repeated walls still stop the whole run.
+        if (/captcha/i.test(run.outcome.reason)) deps.onFriction('captcha');
+        else if (/identity|work-rights/i.test(run.outcome.reason)) deps.onFriction('identity');
+        return {
+          status: 'needs-human',
+          jobId: job.id,
+          reason: run.outcome.reason,
+          url: flowPage.url(),
+        };
+      }
     }
+  } finally {
+    if (flowPage !== page) await flowPage.close().catch(() => {});
+    await page.bringToFront().catch(() => {});
   }
 }

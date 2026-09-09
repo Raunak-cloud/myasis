@@ -1,3 +1,6 @@
+import { measured, metric } from './pipeline.js';
+import { pickResumeForJob } from './resume.js';
+import { coverLetterForJob } from './llm.js';
 import { config, loadProfile } from './config.js';
 import {
   launchBrowser,
@@ -75,7 +78,9 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
 ]);
 
 async function main() {
+  const startedAt = performance.now();
   const profile = loadProfile();
+  if (!config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
   console.log(`Profile: ${profile.name} · ${profile.suburb ?? ''} · relocate=${profile.willingToRelocate}`);
 
   if (!config.celeris.apiKey && !searchOnly) {
@@ -169,10 +174,10 @@ async function main() {
       for (const job of recommendations) seen.set(`${adapter.id}:${job.id}`, job);
       console.log(`  ${adapter.label} Recommended -> ${recommendations.length} personalised jobs (priority)`);
 
-      for (const kw of config.keywords) {
+      for (const kw of config.keywords.length ? config.keywords : [config.targetRole]) {
         let kwTotal = 0;
         for (let p = 1; p <= config.limits.pagesPerKeyword; p++) {
-          const results = await adapter.search(page, kw, p);
+          const results = await measured('discovery', () => adapter.search(page, kw, p), { platform: adapter.id });
           // An empty or short page means we have reached the end of the results.
           if (!results.length) break;
           kwTotal += results.length;
@@ -250,10 +255,9 @@ async function main() {
      */
     const flushFits = async () => {
       if (!pendingFits.length) return;
-      const batch = pendingFits.splice(0);
-      const decisions = await Promise.all(
-        batch.map(async (item) => ({ item, ...(await item.fitPromise) })),
-      );
+      const decision = await Promise.race(pendingFits.map(async item => ({ item, ...(await item.fitPromise) })));
+      pendingFits.splice(pendingFits.indexOf(decision.item), 1);
+      const decisions = [decision];
 
       for (const { item, fit, error } of decisions) {
         if (candidates.length >= candidateCap) break;
@@ -272,22 +276,21 @@ async function main() {
 
         let why = scoreReasons.join('; ');
         if (fit) {
+          metric('fit-decision', 0, { jobId: job.id, decision: fit.decision });
           if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
-          if (!fit.shouldApply && !job.strongApplicant) {
+          if (!fit.shouldApply) {
             console.log(`  ✗ ${score} · ${job.title} @ ${job.company} — ${fit.reason}`);
-            bump('stack mismatch (fit check)');
+            bump(fit.decision === 'uncertain' ? 'fit needs clarification' : 'fit mismatch');
             logOutcome({
               status: 'skipped',
               jobId: job.id,
-              reason: `Fit check: ${fit.reason}`,
+              reason: `Fit check (${fit.decision}): ${fit.reason}`,
               title: job.title,
               company: job.company,
             });
             continue;
           }
-          why = fit.shouldApply
-            ? fit.reason
-            : `SEEK marked you a strong applicant; model fit check disagreed: ${fit.reason}`;
+          why = fit.reason;
         }
 
         candidates.push({
@@ -317,8 +320,13 @@ async function main() {
       }
       evaluated++;
 
-      const job = await adapter.fetchJobDetail(page, stub);
-      await jitter(1200, 2800);
+      const job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
+      /**
+       * Reading pace, not network pace. At 1–3 s a hundred job ads went by in
+       * fifteen minutes, and Cloudflare challenges are partly rate-based — the
+       * one that blocked a run appeared on a plain search page.
+       */
+      await jitter(5000, 8000);
 
       if (await hasVisibleCaptcha(page)) {
         const reason = 'CAPTCHA detected before AI fit review';
@@ -378,21 +386,7 @@ async function main() {
       }
 
       const s = scoreJob(job, profile);
-      // SEEK's own "strong applicant" signal overrides our score/fit gates —
-      // never the hard exclusions above, which encode the candidate's own
-      // constraints (location, salary floor, excluded stacks) rather than fit.
-      if (s.total < config.rules.minScore && !job.strongApplicant) {
-        bump(`score below ${config.rules.minScore}`);
-        logOutcome({
-          status: 'skipped',
-          jobId: job.id,
-          reason: `score ${s.total} < ${config.rules.minScore}`,
-          title: job.title,
-          company: job.company,
-        });
-        continue;
-      }
-
+      // Keyword scores order the review queue; only the role-neutral model decides fit.
       const fitPromise = config.celeris.apiKey
         ? assessFit(job, profile).then(
             (fit) => ({ fit }),
@@ -403,7 +397,7 @@ async function main() {
       if (pendingFits.length >= config.limits.fitConcurrency) await flushFits();
     }
 
-    await flushFits();
+    while (pendingFits.length) await flushFits();
 
     /**
      * Jobs the board hosts itself go first; the employer's own site is the
@@ -456,6 +450,11 @@ async function main() {
       return;
     }
 
+    const prepare = (job: JobListing) => {
+      // One candidate ahead only; these functions share their in-flight results.
+      void coverLetterForJob(job, profile).catch(() => {});
+      void pickResumeForJob(job, profile).catch(() => {});
+    };
     // ---- apply -----------------------------------------------------------
     let applied = 0;
     let rehearsed = 0;
@@ -495,12 +494,12 @@ async function main() {
       let outcome: ApplyOutcome;
       let candidateHitFriction = false;
       try {
-        outcome = await adapter.apply(page, job, profile, {
+        outcome = await measured('application', () => adapter.apply(page, job, profile, {
           onFriction: () => {
             candidateHitFriction = true;
             frictionStreak.set(platformId, (frictionStreak.get(platformId) ?? 0) + 1);
           },
-        });
+        }), { jobId: job.id, platform: platformId });
       } catch (err) {
         const msg = (err as Error).message;
         if (/Target page, context or browser has been closed|browser has disconnected|Target closed/i.test(msg)) {
@@ -527,6 +526,7 @@ async function main() {
       switch (outcome.status) {
         case 'applied':
           applied++;
+          if (applied === 1) metric('first-submission', performance.now() - startedAt);
           frictionStreak.set(platformId, 0);
           index.add({
             jobId: job.id,
@@ -593,6 +593,8 @@ async function main() {
       if (candidateIndex < candidates.length - 1) {
         // Preserve full pacing after a submission or verification wall. An
         // attempt that sent nothing only needs a short, polite request gap.
+        const nextCandidate = candidates.slice(candidateIndex + 1).find(c => !abortedPlatforms.has(c.job.platform ?? 'seek'));
+        if (nextCandidate && !candidateHitFriction) prepare(nextCandidate.job);
         const fullCooldown = outcome.status === 'applied' || candidateHitFriction;
         await jitter(
           fullCooldown ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
@@ -604,6 +606,7 @@ async function main() {
     console.log(`\n=== Run complete: ${applied} new application(s) ===`);
     console.log(`Log: data/run-log.jsonl · Store: data/applied.json`);
   } finally {
+    metric('run-total', performance.now() - startedAt);
     await closeBrowser(ctx);
   }
 }

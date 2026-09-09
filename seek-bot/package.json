@@ -14,6 +14,8 @@
     "test:external": "tsc && node dist/external-e2e.js",
     "test:external-real": "tsc && node dist/external-real-rehearsal.js",
     "test:agent": "tsc && node dist/agent-e2e.js",
+    "test:pipeline": "tsc && node scripts/test-pipeline.mjs",
+    "test:fit-live": "tsc && node scripts/test-fit-live.mjs",
     "queue": "tsc && node dist/queue.js",
     "humanizer": "llama-server -hf mradermacher/authormist-originality-GGUF:Q4_K_M --host 127.0.0.1 --port 8091 --ctx-size 4096 --n-gpu-layers 99",
     "bench:fit": "tsc && node dist/bench-fit.js",

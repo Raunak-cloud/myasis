@@ -97,8 +97,14 @@ class Session {
     this.cdp = new WebSocket(this.targetWsUrl, { perMessageDeflate: false });
 
     this.cdp.on('open', async () => {
+      /**
+       * Page domain only. Never enable Runtime here: that is the single
+       * biggest thing Cloudflare fingerprints in a CDP-driven tab, and the
+       * exact leak Patchright exists to avoid. A tab Cloudflare has flagged
+       * fails the Turnstile checkbox even for a person clicking in the real
+       * window. Screencast, screenshots and Input.* do not need it.
+       */
       await this.send('Page.enable');
-      await this.send('Runtime.enable');
       await this.send('Page.startScreencast', {
         format: 'jpeg',
         quality,

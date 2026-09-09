@@ -296,10 +296,12 @@ async function runApplySteps(
   const captured: Array<{ question: string; answer: string }> = [];
   let coverLetter: string | undefined;
   let lastUrl = '';
+  let lastState = '';
   let stagnant = 0;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    if (applyPage.url() === lastUrl) {
+    const state = JSON.stringify((await extractFields(applyPage)).map(f => [f.label, f.currentValue]));
+    if (applyPage.url() === lastUrl && state === lastState) {
       if (++stagnant >= 2) {
         return {
           status: 'needs-human',
@@ -312,6 +314,7 @@ async function runApplySteps(
       stagnant = 0;
     }
     lastUrl = applyPage.url();
+    lastState = state;
 
     if (await detectConfirmation(applyPage)) {
       return { status: 'applied', jobId: job.id, at: new Date().toISOString(), coverLetter, answers: captured };
@@ -357,7 +360,7 @@ async function runApplySteps(
           await fillField(applyPage, coverLetterField, coverLetter);
           captured.push({ question: coverLetterField.label, answer: coverLetter });
         } catch (err) {
-          console.warn(`  ! could not fill cover letter: ${(err as Error).message}`);
+          return { status: 'needs-human', jobId: job.id, reason: `Cover-letter fill not verified: ${(err as Error).message}`, url: applyPage.url() };
         }
       }
 
@@ -399,7 +402,7 @@ async function runApplySteps(
             await fillField(applyPage, field, value);
             captured.push({ question: field.label, answer: value });
           } catch (err) {
-            console.warn(`  ! could not fill "${field.label}": ${(err as Error).message}`);
+            return { status: 'needs-human', jobId: job.id, reason: `Field fill not verified: ${(err as Error).message}`, url: applyPage.url() };
           }
         }
 

@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 import type { Page } from 'patchright';
 import { config } from './config.js';
+import { extractText } from './knowledge.js';
+import { relevantEvidence } from './pipeline.js';
 import { chooseResume } from './llm.js';
 import type { CandidateProfile, JobListing } from './types.js';
 
@@ -54,7 +56,7 @@ export function resolveResume(idOrLabel?: string): ResumeRecord | null {
  * Falls back to the default résumé on any failure or an unrecognised answer,
  * so a flaky model call can never block an application outright.
  */
-export async function pickResumeForJob(
+async function pickResumeUncached(
   job: JobListing,
   profile: CandidateProfile,
 ): Promise<ResumeRecord | null> {
@@ -67,7 +69,7 @@ export async function pickResumeForJob(
     const { resumeId, reason } = await chooseResume(
       job,
       profile,
-      all.map((r) => ({ id: r.id, label: r.label, notes: r.notes })),
+      await Promise.all(all.map(async r => ({ id: r.id, label: r.label, notes: r.notes, evidence: relevantEvidence(await extractText(resolve(RESUME_DIR, r.fileName)).catch(() => ''), job.title + ' ' + (job.description ?? ''), 6000) }))),
     );
     const chosen = all.find((r) => r.id === resumeId);
     if (chosen) {
@@ -233,4 +235,12 @@ export async function selectResume(
     await modalContent.waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
   }
   return { status: 'uploaded', name: wanted.fileName };
+}
+
+const resumeChoices = new Map<string, Promise<ResumeRecord | null>>();
+export function pickResumeForJob(job: JobListing, profile: CandidateProfile): Promise<ResumeRecord | null> {
+  const key = JSON.stringify([config.dataDir, job, profile, config.resume.select, loadResumes()]);
+  let pending = resumeChoices.get(key);
+  if (!pending) { pending = pickResumeUncached(job, profile); resumeChoices.set(key, pending); }
+  return pending;
 }

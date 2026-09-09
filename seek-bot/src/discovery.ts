@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
-import { jitter } from './browser.js';
+import { jitter, hasVisibleCaptcha } from './browser.js';
 import type { JobListing } from './types.js';
 
 /**
@@ -355,6 +355,9 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
 
 export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const viaApollo = await searchViaApollo(page, keywords, pageNum).catch(() => []);
+  if (await hasVisibleCaptcha(page, false)) {
+    throw new Error('SEEK search requires human verification. Open SEEK login, complete verification, close that Chrome window and retry. No search results were evaluated.');
+  }
   if (viaApollo.length) return viaApollo.map((job) => ({ ...job, source: 'search' as const }));
   console.warn(`  [discovery] Apollo cache empty for "${keywords}" p${pageNum} — using DOM`);
   return (await searchViaDom(page, keywords, pageNum)).map((job) => ({ ...job, source: 'search' as const }));
@@ -381,14 +384,17 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
       .innerText({ timeout: 1200 })
       .catch(() => '')) || undefined;
 
-  const description = (await pick('jobAdDetails')) ?? '';
-  const salary = (await pick('job-detail-salary')) ?? job.salary;
-  const listedText = await pick('job-detail-date');
-  const location = (await pick('job-detail-location')) ?? job.location;
-  const work = (await pick('job-detail-work-type')) ?? job.workArrangement;
   const applyCta = page.locator('[data-automation="job-detail-apply"]').first();
-  const applyLabel = await applyCta.innerText({ timeout: 1200 }).catch(() => '');
-  const applyHref = await applyCta.getAttribute('href', { timeout: 1200 }).catch(() => null);
+  const [detail, pay, listedText, place, workType, applyLabel, applyHref] = await Promise.all([
+    pick('jobAdDetails'), pick('job-detail-salary'), pick('job-detail-date'),
+    pick('job-detail-location'), pick('job-detail-work-type'),
+    applyCta.innerText({ timeout: 1200 }).catch(() => ''),
+    applyCta.getAttribute('href', { timeout: 1200 }).catch(() => null),
+  ]);
+  const description = detail ?? '';
+  const salary = pay ?? job.salary;
+  const location = place ?? job.location;
+  const work = workType ?? job.workArrangement;
   const applicationMode = classifySeekApplication(applyLabel);
   const applicationUrl = applyHref
     ? (() => {

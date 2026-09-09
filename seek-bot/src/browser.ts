@@ -1,6 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
-import { installCursor } from './agent/cursor.js';
 import { captchaEnabled, trySolveCaptcha } from './captcha.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
@@ -16,10 +15,14 @@ const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
  * and every apply flow that depends on it, on both engines.
  *
  * The compiled build (`tsc`, which is what production runs) emits no such call,
- * so this shim is inert there. Cheaper and far less risky than rewriting those
+ * so the shim is only installed when this module itself is running from a
+ * `.ts` source. Patchright injects init scripts by rewriting every HTML
+ * response — Cloudflare's challenge page included — so an unneeded script is
+ * pure detection surface. Cheaper and far less risky than rewriting those
  * evaluate bodies to avoid named functions.
  */
 async function installEsbuildNameShim(ctx: BrowserContext): Promise<void> {
+  if (!import.meta.url.endsWith('.ts')) return;
   await ctx
     .addInitScript(() => {
       const scope = globalThis as unknown as Record<string, unknown>;
@@ -57,7 +60,6 @@ export async function launchBrowser(): Promise<BrowserContext> {
       attachedBrowsers.set(defaultContext, browser);
       defaultContext.setDefaultTimeout(30_000);
       await installEsbuildNameShim(defaultContext);
-      await installCursor(defaultContext);
       return defaultContext;
     }
 
@@ -82,8 +84,10 @@ export async function launchBrowser(): Promise<BrowserContext> {
       if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid CDP_PORT');
       args.push(`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1');
     }
-    if (config.background && !config.headless) {
-      args.push('--window-position=-32000,-32000', '--window-size=1440,960');
+    if (!config.headless) {
+      // Size the real window rather than emulating a viewport — see below.
+      args.push('--window-size=1440,960');
+      if (config.background) args.push('--window-position=-32000,-32000');
     }
 
     ctx = await chromium.launchPersistentContext(config.userDataDir, {
@@ -93,9 +97,22 @@ export async function launchBrowser(): Promise<BrowserContext> {
       // process sandbox enabled so the launched browser does not show the
       // unsupported/security warning and renderer processes stay isolated.
       chromiumSandbox: true,
-      viewport: { width: 1440, height: 960 },
-      locale: 'en-AU',
-      timezoneId: 'Australia/Sydney',
+      /**
+       * No viewport, locale or timezone emulation in headed mode.
+       *
+       * Each of those is a CDP override that makes the page disagree with the
+       * real machine, and Cloudflare's challenge checks exactly those seams.
+       * A browser it has flagged fails the "Verify you are human" checkbox
+       * even when a person clicks it in the real window. Measured here:
+       *  - viewport → Emulation.setDeviceMetricsOverride reported a 1440×960
+       *    screen while the window was 1456×1094 at (10,10): a window larger
+       *    than the screen it sits on.
+       *  - locale → a user-agent override sending Accept-Language "en-AU" with
+       *    a one-entry navigator.languages, which no real Chrome produces.
+       *  - timezoneId → overriding a value the OS already has right.
+       * Headless keeps a fixed viewport because there is no window to size.
+       */
+      viewport: config.headless ? { width: 1440, height: 960 } : null,
       args,
     });
   } catch (err) {
@@ -113,7 +130,6 @@ export async function launchBrowser(): Promise<BrowserContext> {
   }
   ctx.setDefaultTimeout(30_000);
   await installEsbuildNameShim(ctx);
-  await installCursor(ctx);
   return ctx;
 }
 
@@ -194,7 +210,7 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
    * actually exist before trusting its value.
    */
   await page
-    .waitForFunction(() => (window as any).mosaic?.initialData !== undefined, { timeout: 10_000 })
+    .waitForFunction(() => (window as any).mosaic?.initialData !== undefined, undefined, { timeout: 10_000 })
     .catch(() => {});
   const loggedIn = await page
     .evaluate(() => Boolean((window as any).mosaic?.initialData?.isLoggedIn))
@@ -262,7 +278,7 @@ export async function captureInteractivePageState(page: Page): Promise<Interacti
             input.type ?? '',
             input.name ?? '',
             element.getAttribute('data-automation') ?? '',
-            element.getAttribute('data-bot-ref') ?? '',
+            element.getAttribute('data-field-id') ?? '',
             element.getAttribute('aria-label') ?? '',
             compact((element as HTMLElement).innerText ?? '').slice(0, 120),
           ].join(':');
@@ -295,7 +311,7 @@ export async function waitForInteractivePageChange(
               input.type ?? '',
               input.name ?? '',
               element.getAttribute('data-automation') ?? '',
-              element.getAttribute('data-bot-ref') ?? '',
+              element.getAttribute('data-field-id') ?? '',
               element.getAttribute('aria-label') ?? '',
               compact((element as HTMLElement).innerText ?? '').slice(0, 120),
             ].join(':');
@@ -326,6 +342,7 @@ export async function waitForInteractiveSurface(page: Page, timeout = 8_000): Pr
           document.body.innerText,
         );
       },
+      undefined,
       { timeout },
     )
     .then(() => true)

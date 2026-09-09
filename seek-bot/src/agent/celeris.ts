@@ -1,3 +1,4 @@
+import { metric } from '../pipeline.js';
 import { config } from '../config.js';
 
 /**
@@ -166,9 +167,12 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
     body.chat_template_kwargs = { enable_thinking: true };
   }
 
+  const startedAt = performance.now();
+  const deadline = Date.now() + 60_000;
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      if (Date.now() >= deadline) throw new Error('Model request deadline exceeded');
       const response = await fetch(endpointFor(request.model), {
         method: 'POST',
         headers: {
@@ -176,7 +180,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
           authorization: `Bearer ${config.celeris.apiKey}`,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(config.celeris.timeoutMs),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(config.celeris.timeoutMs, deadline - Date.now()))),
       });
 
       if (!response.ok) {
@@ -204,6 +208,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         return { id: call.id, name: call.function.name, args };
       });
 
+      metric('model', performance.now() - startedAt, { model: request.model, attempts: attempt + 1, usage: payload.usage });
       return {
         text: message.content ?? '',
         toolCalls,

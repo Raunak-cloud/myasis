@@ -100,7 +100,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       }
 
       const ref = `a${n++}`;
-      element.setAttribute('data-agent-ref', ref);
+      element.setAttribute('data-ref-id', ref);
       results.push({
         ref,
         text:
@@ -151,6 +151,7 @@ export async function waitForApplicationSurface(page: Page, timeout = 25_000): P
           document.body.innerText,
         );
       },
+      undefined,
       { timeout, polling: 150 },
     )
     .then(() => true)

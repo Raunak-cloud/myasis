@@ -10,6 +10,7 @@ export const LONG_TEXT_REWRITE_THRESHOLD = 50;
 
 /** Refuse writing runs until the local AuthorMist model is fully loaded. */
 export async function assertHumanizerHealthy(): Promise<void> {
+  if (!config.humanizer.required) return;
   const base = config.humanizer.url;
   if (!base) {
     throw new Error(
@@ -36,7 +37,7 @@ export async function assertHumanizerHealthy(): Promise<void> {
  * used for each. Later attempts trade voice for fidelity — by then the failure
  * is usually the model straying from the draft's facts, not a dull rewrite.
  */
-const TEMPERATURE_LADDER = [0.7, 0.5, 0.35, 0.2, 0.1] as const;
+const TEMPERATURE_LADDER = [0.5, 0.2] as const;
 const REWRITE_ATTEMPTS = TEMPERATURE_LADDER.length;
 
 export function wordCount(text: string): number {
@@ -117,6 +118,7 @@ async function rewriteText(
   maxWords: number,
   purpose: string,
   temperature = 0.7,
+  deadline = Date.now() + 15_000,
 ): Promise<string> {
   /**
    * The draft goes to the model as-is, with its real numbers and URLs.
@@ -152,7 +154,7 @@ async function rewriteText(
       max_tokens: Math.max(256, Math.ceil(maxWords * 2)),
       stream: false,
     }),
-    signal: AbortSignal.timeout(config.humanizer.timeoutMs),
+    signal: AbortSignal.timeout(Math.max(1, Math.min(config.humanizer.timeoutMs, deadline - Date.now()))),
   });
   const body = (await response.json()) as ChatCompletionResponse;
   if (!response.ok) throw new Error(errorMessage(body, response.status));
@@ -165,6 +167,9 @@ async function rewriteText(
 
 /** Rewrite long, free-text form responses; short and exact-value fields bypass this. */
 export async function rewriteLongText(text: string): Promise<string> {
+  // Answers are already drafted in the requested voice; avoid a second style model.
+  if (process.env.HUMANIZER_MODE !== 'always') return text;
+  const deadline = Date.now() + 15_000;
   const sourceWords = wordCount(text);
   if (sourceWords <= LONG_TEXT_REWRITE_THRESHOLD) return text;
   if (!config.humanizer.url) {
@@ -177,9 +182,9 @@ export async function rewriteLongText(text: string): Promise<string> {
   const maxWords = Math.ceil(sourceWords * 1.25);
   // Retried for the same reason as the cover letter — see humanizeCoverLetter.
   let lastError = 'unknown error';
-  for (let attempt = 0; attempt < REWRITE_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < REWRITE_ATTEMPTS && Date.now() < deadline; attempt++) {
     try {
-      const candidate = await rewriteText(text, maxWords, 'application response', TEMPERATURE_LADDER[attempt]);
+      const candidate = await rewriteText(text, maxWords, 'application response', TEMPERATURE_LADDER[attempt], deadline);
       const invalid = validateRewrite(text, candidate, maxWords);
       if (invalid) throw new Error(invalid);
       return candidate;
@@ -196,7 +201,13 @@ export async function rewriteLongText(text: string): Promise<string> {
 }
 
 /** Humanize a grounded Gemini draft through local AuthorMist. */
-export async function humanizeCoverLetter(letter: string): Promise<string> {
+export async function humanizeCoverLetter(
+  letter: string,
+  verifyMeaning?: (candidate: string) => Promise<boolean>,
+  needsEditing = false,
+): Promise<string> {
+  if (!needsEditing && process.env.HUMANIZER_MODE !== 'always') return letter;
+  const deadline = Date.now() + 15_000;
   if (wordCount(letter) > MAX_COVER_LETTER_WORDS) {
     throw new Error(`Draft exceeds the ${MAX_COVER_LETTER_WORDS}-word cover-letter limit`);
   }
@@ -215,7 +226,7 @@ export async function humanizeCoverLetter(letter: string): Promise<string> {
    * temperature, trading voice for fidelity.
    */
   let lastError = 'unknown error';
-  for (let attempt = 0; attempt < REWRITE_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < REWRITE_ATTEMPTS && Date.now() < deadline; attempt++) {
     try {
       const blocks = letter.trim().split(/\n\s*\n/);
       const preserveEdges = blocks.length >= 3;
@@ -228,12 +239,14 @@ export async function humanizeCoverLetter(letter: string): Promise<string> {
         MAX_COVER_LETTER_WORDS - preservedWords,
         'cover-letter body',
         TEMPERATURE_LADDER[attempt],
+        deadline,
       );
       const candidate = preserveEdges
         ? [blocks[0], rewritten, blocks.at(-1)].join('\n\n')
         : rewritten;
       const invalid = validateHumanized(letter, candidate, preserveEdges);
       if (invalid) throw new Error(invalid);
+      if (!verifyMeaning || !(await verifyMeaning(candidate))) return letter;
       return candidate;
     } catch (error) {
       lastError = (error as Error).message;
