@@ -209,7 +209,7 @@ export const config = {
     maxApplicationsPerRun: Math.max(1, Math.min(10, Number(process.env.MAX_APPS_PER_RUN ?? 8))),
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
-    maxEvaluations: Math.max(1, Math.min(100, Number(process.env.MAX_EVALUATIONS ?? 40))),
+    maxEvaluations: Math.max(1, Math.min(150, Number(process.env.MAX_EVALUATIONS ?? 40))),
     /**
      * Result pages to read per keyword. SEEK returns 32 per page, so page 1
      * alone caps discovery at 32 × keywords — and once the obvious listings are

@@ -341,7 +341,7 @@ export function RunPanel({
    */
   const RUN_CAP_VALUES: Record<string, number> = {
     MAX_APPS_PER_RUN: 10,
-    MAX_EVALUATIONS: 100,
+    MAX_EVALUATIONS: 150,
     PAGES_PER_KEYWORD: 3,
     MAX_APPS_PER_DAY: 50,
   };
@@ -973,7 +973,7 @@ export function RunPanel({
                   </label>
                   <label className="field">
                     <FieldLabel label="Jobs to evaluate" help="The most job listings this run will open and assess. Capped at 100 to keep runs bounded." />
-                    <input className="input" data-field="MAX_EVALUATIONS" type="number" min="1" max="100" value={val('MAX_EVALUATIONS')} onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)} />
+                    <input className="input" data-field="MAX_EVALUATIONS" type="number" min="1" max="150" value={val('MAX_EVALUATIONS')} onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)} />
                     <FieldError field="MAX_EVALUATIONS" />
                   </label>
                   <label className="field">
