@@ -168,7 +168,6 @@ Description: ${(job.description ?? '').slice(0, 5000)}
       },
     ],
     responseSchema: FIT_SCHEMA,
-    maxTokens: 200,
     meter,
   });
 

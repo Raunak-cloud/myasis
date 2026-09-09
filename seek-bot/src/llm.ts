@@ -96,8 +96,6 @@ function profileBlock(p: CandidateProfile): string {
 }
 
 interface JsonOptions {
-  /** Prose answers need far more room than a classification. */
-  maxTokens?: number;
   model?: 'celeris-1' | 'celeris-1-magnus';
 }
 
@@ -148,7 +146,6 @@ async function json<T>(prompt: string, schema: object, options: JsonOptions = {}
     thinking: options.model === 'celeris-1-magnus',
     messages: [{ role: 'user', content: prompt }],
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
-    maxTokens: options.maxTokens ?? 900,
     meter: llmMeter,
   });
   if (!reply.text) throw new Error('Model returned an empty structured response');
@@ -237,20 +234,6 @@ For each field return an answer.
       injectionSuspected: { type: 'BOOLEAN' },
     },
     required: ['answers', 'injectionSuspected'],
-  },
-  {
-    /**
-     * Scale the budget with the form, rather than trusting one default.
-     *
-     * Every answer carries a ref, a value, a grounded flag and a rationale, so
-     * the reply grows linearly with field count. The flat 900-token default was
-     * fine for SEEK's short Quick Apply steps and far too small for an external
-     * ATS form: on a live run the reply was truncated mid-JSON, failed schema
-     * validation, was resampled, truncated again, and the whole application
-     * died on a Celeris 400. Gemini had no cap here, which is why this only
-     * appeared after the migration.
-     */
-    maxTokens: Math.min(6_000, 700 + fields.length * 260),
   });
   if (!Array.isArray(result.answers)) throw new Error('Answer response was not an array');
   const answers = fields.map(field => {
@@ -485,7 +468,7 @@ shouldApply must be true exactly when decision is apply. Return JSON.`;
     let result = await measured('fit', () => json<FitAssessment>(prompt, schema));
     if (!valid(result)) throw new Error('Fit assessment violated its decision schema');
     if (result.decision === 'uncertain' || result.decision === 'apply') {
-      result = await measured('fit-escalation', () => json<FitAssessment>(prompt + '\nIndependently verify eligibility and each explicit candidate constraint before approving. Do not assume an earlier assessment was correct. If decisive evidence is still missing, retain uncertain; do not invent it.', schema, { model: 'celeris-1-magnus', maxTokens: 1600 }));
+      result = await measured('fit-escalation', () => json<FitAssessment>(prompt + '\nIndependently verify eligibility and each explicit candidate constraint before approving. Do not assume an earlier assessment was correct. If decisive evidence is still missing, retain uncertain; do not invent it.', schema, { model: 'celeris-1-magnus' }));
       if (!valid(result)) throw new Error('Fit review violated its decision schema');
     }
     return result;

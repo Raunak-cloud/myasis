@@ -254,7 +254,6 @@ export const config = {
      * endpoint is derived rather than configured.
      */
     baseUrl: process.env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai',
-    maxTokens: Number(process.env.CELERIS_MAX_TOKENS ?? 700),
     timeoutMs: Number(process.env.CELERIS_TIMEOUT_MS ?? 45_000),
 
     /** Ceilings on one application. An agent loop has no natural stopping point. */

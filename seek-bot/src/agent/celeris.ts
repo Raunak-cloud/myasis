@@ -125,7 +125,6 @@ export interface CelerisRequest {
   tools?: ToolSchema[];
   /** Force a tool call rather than letting the model reply with prose. */
   requireTool?: boolean;
-  maxTokens?: number;
   temperature?: number;
   /** Magnus only; ignored by celeris-1. */
   thinking?: boolean;
@@ -143,11 +142,16 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
     throw new Error('CELERIS_API_KEY is not set — the browser agent cannot run without it.');
   }
 
+  const magnus = request.model === 'celeris-1-magnus';
+  /**
+   * Deliberately no max_tokens. Magnus reasons before it answers and the
+   * reasoning counts against the budget: a 1,600 cap was consumed entirely by
+   * reasoning on 24 of 29 real fit reviews, returning no answer at all. Both
+   * models accept an uncapped request and stop on their own.
+   */
   const body: Record<string, unknown> = {
     model: request.model,
     messages: request.messages,
-    // Explicit max_tokens is both a cost rail and the documented recommendation.
-    max_tokens: request.maxTokens ?? config.celeris.maxTokens,
     temperature: request.temperature ?? 0,
   };
   if (request.tools?.length) {
@@ -163,9 +167,12 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       json_schema: { name: 'reply', schema: request.responseSchema },
     };
   }
-  if (request.thinking && request.model === 'celeris-1-magnus') {
-    body.chat_template_kwargs = { enable_thinking: true };
-  }
+  /**
+   * Magnus thinks by default, so the flag has to be sent both ways: omitting
+   * it does not turn thinking off. Thinking output is billed as completion
+   * tokens, roughly 2,600 of them on a real fit review.
+   */
+  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking) };
 
   const startedAt = performance.now();
   const deadline = Date.now() + 60_000;
@@ -189,13 +196,24 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       }
 
       const payload = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string | null; tool_calls?: RawToolCall[] } }>;
-        usage?: unknown;
+        choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: RawToolCall[] } }>;
+        usage?: { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } };
       };
       request.meter?.record(payload.usage);
 
-      const message = payload.choices?.[0]?.message;
+      const choice = payload.choices?.[0];
+      const message = choice?.message;
       if (!message) throw new Error('Celeris returned no choices');
+
+      /**
+       * A reply cut off by a length limit is not an answer. Before this check
+       * it surfaced as "empty structured response" with no hint of the cause.
+       */
+      if (choice.finish_reason === 'length') {
+        const used = payload.usage?.completion_tokens ?? 0;
+        const reasoning = payload.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+        throw new Error(`Celeris reply truncated by a length limit after ${used} completion tokens (${reasoning} reasoning)`);
+      }
 
       const toolCalls: ToolCall[] = (message.tool_calls ?? []).map((call) => {
         let args: Record<string, unknown> = {};
