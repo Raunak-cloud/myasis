@@ -95,10 +95,6 @@ function profileBlock(p: CandidateProfile): string {
     .join('\n');
 }
 
-interface JsonOptions {
-  model?: 'celeris-1' | 'celeris-1-magnus';
-}
-
 const gemini = new GoogleGenAI({ apiKey: config.gemini.apiKey });
 
 /**
@@ -140,10 +136,9 @@ async function geminiJson<T>(prompt: string, schema: object): Promise<T> {
   throw lastError;
 }
 
-async function json<T>(prompt: string, schema: object, options: JsonOptions = {}): Promise<T> {
+async function json<T>(prompt: string, schema: object): Promise<T> {
   const reply = await celerisChat({
-    model: options.model ?? 'celeris-1',
-    thinking: options.model === 'celeris-1-magnus',
+    model: 'celeris-1',
     messages: [{ role: 'user', content: prompt }],
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
     meter: llmMeter,
@@ -464,13 +459,15 @@ shouldApply must be true exactly when decision is apply. Return JSON.`;
   const valid = (r: FitAssessment) => Boolean(r && ['apply','skip','uncertain'].includes(r.decision)
     && typeof r.reason === 'string' && Array.isArray(r.evidence)
     && r.shouldApply === (r.decision === 'apply'));
-  return cachedAssessment({ version: 'role-neutral-v2', prompt, model: 'celeris-1+magnus', endpoint: config.celeris.baseUrl }, async () => {
-    let result = await measured('fit', () => json<FitAssessment>(prompt, schema));
+  /**
+   * One pass on celeris-1. A second opinion from celeris-1-magnus used to run
+   * on every apply/uncertain verdict; at 5–13 s and ~2,000+ reasoning tokens
+   * a call it was dropped in favour of speed. An uncertain verdict is not
+   * cached, so the next run asks again.
+   */
+  return cachedAssessment({ version: 'role-neutral-v3', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
+    const result = await measured('fit', () => json<FitAssessment>(prompt, schema));
     if (!valid(result)) throw new Error('Fit assessment violated its decision schema');
-    if (result.decision === 'uncertain' || result.decision === 'apply') {
-      result = await measured('fit-escalation', () => json<FitAssessment>(prompt + '\nIndependently verify eligibility and each explicit candidate constraint before approving. Do not assume an earlier assessment was correct. If decisive evidence is still missing, retain uncertain; do not invent it.', schema, { model: 'celeris-1-magnus' }));
-      if (!valid(result)) throw new Error('Fit review violated its decision schema');
-    }
     return result;
   }, r => valid(r) && r.decision !== 'uncertain');
 }
