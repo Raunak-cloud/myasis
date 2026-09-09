@@ -4,17 +4,13 @@ import { jitter, hasVisibleCaptcha, waitForChallengeToClear } from './browser.js
 import type { JobListing } from './types.js';
 
 /**
- * How SEEK actually works (verified against the live site, Aug 2026):
+ * How SEEK actually works (verified against the live site, Sep 2026):
  *
- * There is NO client-side JSON search endpoint to replay. Results are
- * server-rendered; the only runtime GraphQL calls on a results page are a
- * salary nudge and a footer banner. What the page *does* expose is the Apollo
- * client itself (`window.__APOLLO_CLIENT__`), whose normalised cache holds the
- * hydrated `jobSearchV7` result set as structured objects.
- *
- * So: read the Apollo cache (structured, no selectors), and keep a
- * `data-automation`-based DOM reader as fallback. Those attributes are SEEK's
- * own automation hooks and are far stabler than CSS classes.
+ * There is NO client-side JSON search endpoint to replay, and the page no
+ * longer exposes its Apollo client on `window` — an earlier fast path read
+ * the hydrated result set from there and now always came back empty. Results
+ * are server-rendered, so the reader below uses SEEK's own `data-automation`
+ * hooks, which are far stabler than CSS classes.
  */
 
 /** "54m ago•Viewed", "3d ago", "Posted 2 days ago" → days */
@@ -43,42 +39,6 @@ function daysSinceIso(iso?: string): number | undefined {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return undefined;
   return Math.floor((Date.now() - t) / 86_400_000);
-}
-
-/**
- * Walks an arbitrary object graph looking for the array of job records.
- * Deliberately shape-tolerant: SEEK renames these fields between releases, so
- * we identify jobs by their duck type (id + title) rather than a fixed path.
- */
-function deepFindJobArray(root: any, maxDepth = 8): any[] | null {
-  const seen = new Set<any>();
-  const looksLikeJob = (o: any) =>
-    o &&
-    typeof o === 'object' &&
-    (o.id !== undefined || o.jobId !== undefined) &&
-    typeof (o.title ?? o.jobTitle) === 'string';
-
-  const walk = (node: any, depth: number): any[] | null => {
-    if (!node || typeof node !== 'object' || depth > maxDepth) return null;
-    if (seen.has(node)) return null;
-    seen.add(node);
-
-    if (Array.isArray(node)) {
-      if (node.length && node.filter(looksLikeJob).length >= Math.min(3, node.length)) return node;
-      for (const child of node) {
-        const hit = walk(child, depth + 1);
-        if (hit) return hit;
-      }
-      return null;
-    }
-    for (const key of Object.keys(node)) {
-      const hit = walk(node[key], depth + 1);
-      if (hit) return hit;
-    }
-    return null;
-  };
-
-  return walk(root, 0);
 }
 
 function normalise(raw: any): JobListing | null {
@@ -156,9 +116,8 @@ function normalise(raw: any): JobListing | null {
 }
 
 /**
- * Reads the signed-in candidate's personalised SEEK Recommended feed.
- * The homepage hydrates it as `careerFeed` in Apollo, with each edge wrapping
- * a normal Job entity plus recommendation metadata.
+ * Reads the signed-in candidate's personalised SEEK Recommended feed from the
+ * homepage's rendered cards, keyed on SEEK's `recommendedJobLink_<id>` hooks.
  */
 export async function recommended(page: Page): Promise<JobListing[]> {
   /**
@@ -188,46 +147,32 @@ export async function recommended(page: Page): Promise<JobListing[]> {
   await jitter(600, 1400);
 
   const rows: any[] = await page.evaluate(() => {
-    const client = (window as any).__APOLLO_CLIENT__;
-    if (!client?.cache?.extract) return [];
-    const store = client.cache.extract();
-    const root = store.ROOT_QUERY ?? {};
-    const key = Object.keys(root).find((candidate) => /^careerFeed\(/i.test(candidate));
-    if (!key) return [];
-
-    const deref = (value: any, depth = 0): any => {
-      if (!value || typeof value !== 'object' || depth > 6) return value;
-      if (Array.isArray(value)) return value.map((item) => deref(item, depth + 1));
-      if (typeof value.__ref === 'string') return deref(store[value.__ref], depth + 1);
-      const out: any = {};
-      for (const childKey of Object.keys(value)) out[childKey] = deref(value[childKey], depth + 1);
-      return out;
-    };
-    const field = (object: any, name: string): any => {
-      if (!object || typeof object !== 'object') return undefined;
-      if (object[name] !== undefined) return object[name];
-      const parameterised = Object.keys(object).find((candidate) => candidate.startsWith(`${name}(`));
-      return parameterised ? object[parameterised] : undefined;
-    };
-
-    const feed = deref(root[key]);
-    return (feed?.edges ?? []).flatMap((edge: any) => {
-      const node = edge?.node;
-      const job = node?.job;
-      if (!job?.id || !job?.title) return [];
-      const arrangementsKey = Object.keys(node).find((candidate) => candidate.startsWith('workArrangements'));
-      const arrangement = arrangementsKey ? node[arrangementsKey] : undefined;
-      return [{
-        id: String(job.id),
-        title: String(job.title),
-        companyName: field(job.advertiser, 'name') ?? 'Unknown',
-        location: field(job.location, 'label') ?? 'Unknown',
-        workArrangements: arrangement?.label ? [arrangement.label] : [],
-        salaryLabel: field(job.salary, 'label'),
-        listedAt: { label: field(job.listedAt, 'label') },
-        teaser: Array.isArray(job.products?.bullets) ? job.products.bullets.join(' · ') : undefined,
-      }];
+    const seen = new Set<string>();
+    const out: any[] = [];
+    document.querySelectorAll('[data-automation^="recommendedJobLink_"]').forEach((link) => {
+      const href = link.getAttribute('href') ?? '';
+      const id =
+        link.getAttribute('data-automation')?.replace(/^recommendedJobLink_/, '') ||
+        /\/job\/(\d+)/.exec(href)?.[1] ||
+        '';
+      if (!/^\d+$/.test(id) || seen.has(id)) return;
+      seen.add(id);
+      const card = link.closest('article, [data-job-id], li') ?? link;
+      const txt = (sel: string) => card.querySelector(`[data-automation="${sel}"]`)?.textContent?.trim() || undefined;
+      const title = txt('jobTitle') ?? link.getAttribute('aria-label') ?? link.textContent?.trim() ?? '';
+      if (!title) return;
+      out.push({
+        id,
+        title,
+        companyName: txt('jobCompany'),
+        location: txt('jobCardLocation') ?? txt('jobLocation'),
+        workArrangements: txt('jobWorkArrangement') ? [txt('jobWorkArrangement')] : [],
+        salaryLabel: txt('jobSalary'),
+        listedAt: { label: txt('jobListingDate') },
+        teaser: txt('jobShortDescription'),
+      });
     });
+    return out;
   });
 
   return rows
@@ -253,60 +198,6 @@ export function searchUrl(keywords: string, pageNum = 1): string {
   }
   if (pageNum > 1) params.set('page', String(pageNum));
   return `${config.seekBase}/jobs?${params.toString()}`;
-}
-
-/** Primary path: pull the hydrated result set out of Apollo's cache. */
-export async function searchViaApollo(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const url = searchUrl(keywords, pageNum);
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  await waitForChallengeToClear(page);
-  await page.waitForSelector('[data-automation="normalJob"]', { timeout: 15_000 }).catch(() => {});
-  await jitter(600, 1400);
-
-  const raw = await page.evaluate(() => {
-    const client = (window as any).__APOLLO_CLIENT__;
-    if (!client?.cache?.extract) return null;
-    const store = client.cache.extract();
-
-    /**
-     * Apollo normalises nested entities into `{__ref: "Type:id"}` pointers.
-     * Resolve them (one level deep is enough for location/organisation) so the
-     * caller sees whole objects instead of dangling references.
-     */
-    const deref = (value: any, depth = 0): any => {
-      if (!value || typeof value !== 'object' || depth > 3) return value;
-      if (Array.isArray(value)) return value.map((v) => deref(v, depth + 1));
-      if (typeof value.__ref === 'string') return deref(store[value.__ref], depth + 1);
-      const out: any = {};
-      for (const k of Object.keys(value)) out[k] = deref(value[k], depth + 1);
-      return out;
-    };
-
-    const root = store.ROOT_QUERY ?? {};
-    const candidates = Object.keys(root)
-      .filter((k) => /jobSearch/i.test(k))
-      .map((k) => deref(root[k]));
-    return JSON.stringify({ candidates, store: deref(store, 2) });
-  });
-
-  if (!raw) return [];
-  let parsed: any;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-
-  for (const candidate of parsed.candidates ?? []) {
-    const arr = deepFindJobArray(candidate);
-    if (arr?.length) {
-      const jobs = arr.map(normalise).filter((j): j is JobListing => j !== null);
-      if (jobs.length) return jobs;
-    }
-  }
-  // Last resort inside the cache: scan the whole normalised store.
-  const arr = deepFindJobArray(parsed.store);
-  return arr ? arr.map(normalise).filter((j): j is JobListing => j !== null) : [];
 }
 
 /** Fallback: read the rendered cards via SEEK's own data-automation hooks. */
@@ -357,13 +248,11 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
 }
 
 export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const viaApollo = await searchViaApollo(page, keywords, pageNum).catch(() => []);
+  const jobs = await searchViaDom(page, keywords, pageNum);
   if (await hasVisibleCaptcha(page, false)) {
     throw new Error('SEEK search requires human verification. Open SEEK login, complete verification, close that Chrome window and retry. No search results were evaluated.');
   }
-  if (viaApollo.length) return viaApollo.map((job) => ({ ...job, source: 'search' as const }));
-  console.warn(`  [discovery] Apollo cache empty for "${keywords}" p${pageNum} — using DOM`);
-  return (await searchViaDom(page, keywords, pageNum)).map((job) => ({ ...job, source: 'search' as const }));
+  return jobs.map((job) => ({ ...job, source: 'search' as const }));
 }
 
 /** Mirrors SEEK's live CTA contract: Quick Apply is hosted; plain Apply leaves SEEK. */
