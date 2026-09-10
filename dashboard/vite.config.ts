@@ -366,6 +366,17 @@ function dataApi(): Plugin {
 
       case '/api/humanizer': {
         const env = readEnv();
+        /**
+         * What the rewriter can actually finish, not what a textarea can hold.
+         *
+         * AuthorMist is a 3B served from the CPU: measured on a two-core VPS
+         * it rewrites about 55 characters a second, so 8,000 characters take
+         * roughly two and a half minutes and fit inside both the request
+         * timeout and the model's context window with room to spare. The old
+         * 20,000 accepted three times more than could ever come back, and
+         * spent the full timeout finding that out.
+         */
+        const maxChars = Number(env.HUMANIZER_MAX_CHARS ?? 8_000);
         const base = (env.HUMANIZER_URL ?? '').replace(/\/$/, '');
         const model = env.HUMANIZER_MODEL ?? 'authormist-originality';
         if (!base) return send({ configured: false, online: false, error: 'Humanizer URL is not configured.' }, 503);
@@ -374,7 +385,12 @@ function dataApi(): Plugin {
           return readBody().then(async (body) => {
             const text = typeof body?.text === 'string' ? body.text.trim() : '';
             if (!text) return send({ error: 'Paste some text first.' }, 400);
-            if (text.length > 20_000) return send({ error: 'Text must be 20,000 characters or less.' }, 413);
+            if (text.length > maxChars) {
+              return send(
+                { error: `That is ${text.length.toLocaleString()} characters. Rewrite up to ${maxChars.toLocaleString()} at a time.` },
+                413,
+              );
+            }
             try {
               const { masked, restore } = maskExactValues(text);
               const sourceWords = textTokens(text).length;
@@ -466,7 +482,7 @@ function dataApi(): Plugin {
             if (!response.ok) {
               throw new Error(typeof result.error?.message === 'string' ? result.error.message : `HTTP ${response.status}`);
             }
-            return send({ configured: true, online: true });
+            return send({ configured: true, online: true, maxChars });
           })
           .catch((error) => send({ configured: true, online: false, error: `Could not reach the rewriting service: ${(error as Error).message}` }, 503));
       }

@@ -3,8 +3,13 @@ import { useEffect, useState } from 'react';
 type RewriteStatus = {
   configured: boolean;
   online: boolean;
+  /** The server's own ceiling, so this page cannot disagree with it. */
+  maxChars?: number;
   error?: string;
 };
+
+/** Only used until the status call lands; the server is the authority. */
+const FALLBACK_MAX_CHARS = 8_000;
 
 export function HumanizerPanel() {
   const [input, setInput] = useState('');
@@ -29,7 +34,7 @@ export function HumanizerPanel() {
   }, []);
 
   async function run() {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || tooLong) return;
     setLoading(true);
     setError(null);
     setCopied(false);
@@ -82,6 +87,9 @@ export function HumanizerPanel() {
     setError(null);
   };
   const inputWords = input.trim() ? input.trim().split(/\s+/).length : 0;
+  const maxChars = status?.maxChars ?? FALLBACK_MAX_CHARS;
+  // Refuse before the request rather than after a long wait for a 413.
+  const tooLong = input.length > maxChars;
   const outputWords = output.trim() ? output.trim().split(/\s+/).length : 0;
 
   return (
@@ -103,7 +111,11 @@ export function HumanizerPanel() {
         <div className="card humanizer-editor">
           <div className="humanizer-editor-head">
             <label htmlFor="humanizer-input">Original</label>
-            <span className="job-meta">{inputWords} words</span>
+            <span className={`job-meta ${tooLong ? 'over-limit' : ''}`}>
+              {tooLong
+                ? `${input.length.toLocaleString()} / ${maxChars.toLocaleString()} characters — too long to rewrite`
+                : `${inputWords} words`}
+            </span>
           </div>
           <textarea
             id="humanizer-input"
@@ -114,7 +126,7 @@ export function HumanizerPanel() {
             spellCheck
           />
           <div className="humanizer-actions">
-            <button className="btn primary lg" disabled={!input.trim() || loading} onClick={run}>
+            <button className="btn primary lg" disabled={!input.trim() || loading || tooLong} onClick={run}>
               {loading ? 'Rewriting…' : 'Rewrite'}
             </button>
             <button className="btn" disabled={generating || loading} onClick={generateSample}>

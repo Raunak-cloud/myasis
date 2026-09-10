@@ -117,7 +117,7 @@ Environment=LD_LIBRARY_PATH=$LLAMA_DIR/llama-$LLAMA_BUILD
 ExecStart=$LLAMA_DIR/llama-$LLAMA_BUILD/llama-server \
   --model $MODEL_FILE \
   --host 127.0.0.1 --port 8091 \
-  --ctx-size 4096 --threads $(nproc) --n-gpu-layers 0
+  --ctx-size 8192 --threads $(nproc) --n-gpu-layers 0
 Restart=on-failure
 RestartSec=5
 # The browser automation is the product; a rewrite is not. Under memory

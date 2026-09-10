@@ -1616,3 +1616,5 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
    across the card the way the shared .run-actions rule leaves it. */
 .gmail-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .gmail-actions .btn { flex: 0 0 auto; }
+
+.over-limit { color: var(--bad); font-weight: 600; }
