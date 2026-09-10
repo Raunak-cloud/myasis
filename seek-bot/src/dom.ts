@@ -39,6 +39,25 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           .join(' ');
         if (t) return t;
       }
+      /**
+       * Many employer forms never associate their labels: the <label> just
+       * sits in the same wrapper, or the caption is the previous sibling.
+       * A raw name like "phonePrefix" tells the answerer nothing; the
+       * caption "* Phone" does.
+       */
+      let box: Element | null = el.parentElement;
+      for (let depth = 0; depth < 3 && box; depth++, box = box.parentElement) {
+        const inner = box.querySelector('label');
+        const text = inner?.textContent?.trim();
+        if (text && text.length < 120 && !inner!.querySelector('input, select, textarea')) return text;
+        if (depth === 0) {
+          const prev = el.previousElementSibling as HTMLElement | null;
+          const prevText = prev?.innerText?.trim();
+          if (prevText && prevText.length < 120 && !prev!.querySelector('input, select, textarea')) return prevText;
+        }
+      }
+      const placeholder = el.getAttribute('placeholder');
+      if (placeholder) return placeholder;
       // Fall back to the nearest preceding question-ish text.
       const group = el.closest('fieldset, [role="group"], div');
       const legend = group?.querySelector('legend, h2, h3, strong');

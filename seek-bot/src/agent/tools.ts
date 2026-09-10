@@ -290,7 +290,9 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
   return ok(
     changed
       ? `Clicked "${action.text}". The page changed; a fresh observation follows.`
-      : `Clicked "${action.text}" but nothing on the page changed. It was probably not the control that advances this step — try a different one.`,
+      : isSubmitAction(action.text)
+        ? `Clicked "${action.text}" but the form did not submit. A form that refuses to submit almost always shows a validation message beside an incomplete required field, often near the top: scroll up, re-observe, and answer or fix the field it names before trying again.`
+        : `Clicked "${action.text}" but nothing on the page changed. It was probably not the control that advances this step — try a different one.`,
   );
 }
 

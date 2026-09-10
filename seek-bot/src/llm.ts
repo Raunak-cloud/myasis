@@ -223,7 +223,10 @@ For each field return an answer.
 - For select/radio fields, "value" MUST be exactly one of the given options.
 - For an autocomplete/combobox field ("autocomplete": true), give the short text a person
   would type to find the option, e.g. "Australia" or "Sydney". If such a field lists
-  "options", the value MUST be exactly one of them. A country or dialling-code
+  "options", the value MUST be exactly one of them.
+- A phone prefix / country code / dialling code field (labels like "phonePrefix",
+  "Country code", "+61") is grounded by the candidate's Australian phone number: choose
+  the option for Australia (+61), or "+61" / "Australia" if there are no listed options. A country or dialling-code
   selector beside a phone number is grounded: it follows from the candidate's location
   (Australia, +61). Answer it with "Australia".
 - Routine form fields are grounded, neutral choices: a Title (Mr/Ms/Mrs/Mx) follows from
