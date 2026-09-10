@@ -76,6 +76,38 @@ function maskExactValues(text: string) {
  * and only failing that on the limit itself, so a wall of text still goes
  * through rather than being refused.
  */
+/**
+ * The rewriting endpoint to use right now, preferring the first that answers.
+ *
+ * The fast copy of this model lives on whichever machine has a GPU, reached
+ * over a tunnel — and a tunnel drops. `HUMANIZER_FALLBACK_URL` names the slow
+ * local CPU copy to use meanwhile, so losing the tunnel costs speed instead of
+ * the feature. Cached briefly so a chunked document does not health-check once
+ * per paragraph, but short enough that a dropped tunnel is noticed in seconds.
+ */
+let humanizerBaseCache: { url: string; until: number } | null = null;
+
+async function resolveHumanizerBase(env: Record<string, string>): Promise<string> {
+  const candidates = [env.HUMANIZER_URL, env.HUMANIZER_FALLBACK_URL]
+    .map((url) => (url ?? '').replace(/\/$/, ''))
+    .filter(Boolean);
+  if (candidates.length <= 1) return candidates[0] ?? '';
+  if (humanizerBaseCache && Date.now() < humanizerBaseCache.until) return humanizerBaseCache.url;
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(`${candidate}/health`, { signal: AbortSignal.timeout(2_500) });
+      if (!response.ok) continue;
+      humanizerBaseCache = { url: candidate, until: Date.now() + 30_000 };
+      return candidate;
+    } catch {
+      // Try the next one.
+    }
+  }
+  humanizerBaseCache = null;
+  return candidates[0];
+}
+
 function splitForRewrite(text: string, limit: number): string[] {
   const paragraphs = text.trim().split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   const pieces: string[] = [];
@@ -421,9 +453,10 @@ function dataApi(): Plugin {
          * spent the full timeout finding that out.
          */
         const maxChars = Number(env.HUMANIZER_MAX_CHARS ?? 8_000);
-        const base = (env.HUMANIZER_URL ?? '').replace(/\/$/, '');
         const model = env.HUMANIZER_MODEL ?? 'authormist-originality';
-        if (!base) return send({ configured: false, online: false, error: 'Humanizer URL is not configured.' }, 503);
+        if (!env.HUMANIZER_URL && !env.HUMANIZER_FALLBACK_URL) {
+          return send({ configured: false, online: false, error: 'Humanizer URL is not configured.' }, 503);
+        }
 
         if (req.method === 'POST') {
           return readBody().then(async (body) => {
@@ -436,6 +469,7 @@ function dataApi(): Plugin {
               );
             }
 
+            const base = await resolveHumanizerBase(env);
             const deadline = Date.now() + Number(env.HUMANIZER_TIMEOUT_MS ?? 240_000);
 
             /**
@@ -553,7 +587,8 @@ function dataApi(): Plugin {
         }
 
         if (req.method !== 'GET') return send({ error: 'GET or POST required' }, 405);
-        return fetch(`${base}/health`, { signal: AbortSignal.timeout(2_500) })
+        return resolveHumanizerBase(env)
+          .then((base) => fetch(`${base}/health`, { signal: AbortSignal.timeout(2_500) }))
           .then(async (response) => {
             const result = await response.json() as { status?: unknown; error?: { message?: unknown } };
             if (!response.ok) {

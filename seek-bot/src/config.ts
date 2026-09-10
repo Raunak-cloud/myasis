@@ -311,9 +311,19 @@ export const config = {
     maxTranscriptTokens: Number(process.env.AGENT_MAX_TRANSCRIPT_TOKENS ?? 60_000),
   },
 
-  /** Optional local AuthorMist post-processor served by llama.cpp. */
+  /** Optional AuthorMist post-processor served by llama.cpp. */
   humanizer: {
     url: (process.env.HUMANIZER_URL ?? '').replace(/\/$/, ''),
+    /**
+     * Where to go when the first URL is unreachable.
+     *
+     * The fast copy of this model is whichever machine has a GPU, which for a
+     * hosted server means a tunnel to someone's desktop — and a tunnel is a
+     * thing that drops. Naming a second endpoint keeps that from turning a
+     * dropped tunnel into failed applications: the run simply carries on
+     * against the slower local CPU.
+     */
+    fallbackUrl: (process.env.HUMANIZER_FALLBACK_URL ?? '').replace(/\/$/, ''),
     model: process.env.HUMANIZER_MODEL ?? 'authormist-originality',
     required: process.env.HUMANIZER_REQUIRED === 'true',
     timeoutMs: Number(process.env.HUMANIZER_TIMEOUT_MS ?? 120_000),

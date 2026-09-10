@@ -8,10 +8,54 @@ type ChatCompletionResponse = {
 export const MAX_COVER_LETTER_WORDS = 250;
 export const LONG_TEXT_REWRITE_THRESHOLD = 50;
 
-/** Refuse writing runs until the local AuthorMist model is fully loaded. */
+/**
+ * The endpoint to use right now, preferring the first that answers.
+ *
+ * Resolved per call rather than once at startup, because the whole point of
+ * the fallback is that the preferred endpoint comes and goes mid-run. The
+ * answer is cached briefly so a run of many letters does not pay a health
+ * check for each one, and so a tunnel that drops is noticed in seconds
+ * rather than at the next process restart.
+ */
+let cachedBase: { url: string; until: number } | null = null;
+const BASE_CACHE_MS = 30_000;
+
+async function answers(base: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2_500) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function humanizerBase(): Promise<string> {
+  const candidates = [config.humanizer.url, config.humanizer.fallbackUrl].filter(Boolean);
+  if (candidates.length === 0) return '';
+  if (candidates.length === 1) return candidates[0];
+
+  if (cachedBase && Date.now() < cachedBase.until) return cachedBase.url;
+
+  for (const candidate of candidates) {
+    if (await answers(candidate)) {
+      if (candidate !== cachedBase?.url) {
+        console.log(`  · humanizer using ${candidate}`);
+      }
+      cachedBase = { url: candidate, until: Date.now() + BASE_CACHE_MS };
+      return candidate;
+    }
+  }
+
+  // None answered. Return the preferred one so the caller's own error
+  // reporting describes the endpoint that was actually meant to serve it.
+  cachedBase = null;
+  return candidates[0];
+}
+
+/** Refuse writing runs until the AuthorMist model is fully loaded. */
 export async function assertHumanizerHealthy(): Promise<void> {
   if (!config.humanizer.required) return;
-  const base = config.humanizer.url;
+  const base = await humanizerBase();
   if (!base) {
     throw new Error(
       'AuthorMist is required but HUMANIZER_URL is not configured. Start it with `npm run humanizer` and set HUMANIZER_URL.',
@@ -133,7 +177,7 @@ async function rewriteText(
    * mismatch. Removing the masking raises the success rate without weakening
    * the guarantee.
    */
-  const response = await fetch(`${config.humanizer.url}/v1/chat/completions`, {
+  const response = await fetch(`${await humanizerBase()}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -172,7 +216,7 @@ export async function rewriteLongText(text: string): Promise<string> {
   const deadline = Date.now() + 15_000;
   const sourceWords = wordCount(text);
   if (sourceWords <= LONG_TEXT_REWRITE_THRESHOLD) return text;
-  if (!config.humanizer.url) {
+  if (!config.humanizer.url && !config.humanizer.fallbackUrl) {
     const message = 'Rewriting service is not configured';
     if (config.humanizer.required) throw new Error(message);
     console.warn(`  ! ${message}; using the original response`);
@@ -211,7 +255,7 @@ export async function humanizeCoverLetter(
   if (wordCount(letter) > MAX_COVER_LETTER_WORDS) {
     throw new Error(`Draft exceeds the ${MAX_COVER_LETTER_WORDS}-word cover-letter limit`);
   }
-  if (!config.humanizer.url) {
+  if (!config.humanizer.url && !config.humanizer.fallbackUrl) {
     const message = 'Rewriting service is not configured';
     if (config.humanizer.required) throw new Error(message);
     console.warn(`  ! ${message}; using the original grounded cover letter`);
