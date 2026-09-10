@@ -3,6 +3,7 @@ import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
+import { SeekSignIn } from './SeekSignIn';
 
 type Mode = 'rehearse' | 'live';
 
@@ -210,8 +211,6 @@ export function RunPanel({
   const [stopConfirming, setStopConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [openingLogin, setOpeningLogin] = useState(false);
-  const [loginMessage, setLoginMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
    * Which field the message belongs to, so it can be shown where the mistake
@@ -496,25 +495,6 @@ export function RunPanel({
     }
   }
 
-  async function openSeekLogin() {
-    if (openingLogin || running) return;
-    setOpeningLogin(true);
-    setLoginMessage(null);
-    setError(null);
-    try {
-      const response = await fetch('/api/browser/manual-login', { method: 'POST' });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? 'Could not open Chrome.');
-      setLoginMessage(
-        'Chrome opened. Sign in to SEEK and complete any security check, then close Chrome before starting the agent again.',
-      );
-    } catch (reason) {
-      setError((reason as Error).message);
-    } finally {
-      setOpeningLogin(false);
-    }
-  }
-
   return (
     <div className="run-layout">
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
@@ -555,7 +535,6 @@ export function RunPanel({
           </div>
         )}
         {error && <div className="banner banner-bad">{error}</div>}
-        {loginMessage && <div className="banner banner-ok">{loginMessage}</div>}
 
         <div className="run-actions">
           {running && status?.isOwner === false ? (
@@ -574,19 +553,14 @@ export function RunPanel({
               >
                 Start {mode === 'rehearse' ? 'rehearsal' : 'live run'}
               </button>
-              <button className="btn lg" disabled={openingLogin} onClick={openSeekLogin}>
-                {openingLogin ? 'Opening Chrome…' : 'Open SEEK login'}
-              </button>
             </>
           )}
         </div>
 
-        {!running && (
-          <p className="job-meta manual-login-note">
-            Use this if SEEK asks you to sign in or verify you are human. Complete it in the Chrome window,
-            not through an automated browser view.
-          </p>
-        )}
+        {/* Signing in to SEEK lives here rather than in Setup: it is the one
+            thing a run cannot start without, and the browser it opens is what
+            the person needs in front of them. */}
+        {!running && <SeekSignIn />}
 
         {!running && status?.finishedAt && (
           <p className="job-meta">

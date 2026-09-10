@@ -1516,11 +1516,6 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .trace-shot { width: 100%; max-width: 720px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; }
 .btn-small { padding: 4px 10px; font-size: 12px; }
 
-/* SEEK sign-in on the server, streamed from a private virtual screen. */
-.seek-signin { display: grid; gap: 12px; }
-.seek-signin-bar { align-items: center; }
-.seek-signin-screen { width: 100%; height: 620px; background: #111; border-radius: 8px; overflow: hidden; }
-.seek-signin-screen canvas { display: block; }
 
 /* ---------------------------------------------------------------------------
    Landing page — everything a visitor sees before signing in.
@@ -1583,3 +1578,27 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 @media (max-width: 620px) {
   .landing-hero { padding: 48px 0 40px; }
 }
+
+/* ---------------------------------------------------------------------------
+   SEEK sign-in: a compact prompt, and the remote browser as a framed window.
+   --------------------------------------------------------------------------- */
+.seek-connect { display: grid; gap: 12px; }
+.seek-connect-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.seek-connect-row h3 { margin: 0 0 2px; font-size: 15px; }
+.seek-connect-row p { margin: 0; }
+
+.seek-window { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+.seek-window-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+.seek-window-title { font-size: 13px; font-weight: 600; }
+.seek-window-time { margin-left: auto; }
+.seek-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); flex: none; }
+.seek-dot.on { background: var(--ok); }
+.seek-window-error { margin: 12px; }
+
+/* Matches the virtual screen (1280x900) so the stream fills the frame exactly
+   instead of sitting in letterbox bars. */
+.seek-window-screen { width: 100%; aspect-ratio: 1280 / 900; background: var(--surface-2); }
+.seek-window-screen canvas { display: block; }
