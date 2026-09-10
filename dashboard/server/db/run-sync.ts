@@ -99,6 +99,14 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const answers = await listAnswers(userId);
   writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer }) => ({ question, answer })), null, 2));
   const gmailToken = await gmailRefreshToken(userId);
+  // Employer-site attempts already made today, so the daily ceiling holds across runs.
+  const externalToday = await query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM run_events
+      WHERE user_id = $1 AND ts >= date_trunc('day', now())
+        AND status IN ('applied', 'rehearsed', 'needs-human', 'error')
+        AND url IS NOT NULL AND url !~ '(seek\\.com|indeed\\.com)'`,
+    [userId],
+  );
 
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
@@ -172,6 +180,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
        * never inherit another account's connection from the environment.
        */
       GMAIL_REFRESH_TOKEN: gmailToken ?? '',
+      EXTERNAL_ATTEMPTS_TODAY: externalToday[0]?.n ?? '0',
     },
   };
 }

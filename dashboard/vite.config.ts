@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { userDir } from './server/userdata.js';
 import { runner, readEnv, readEnvSafe, type RunMode } from './server/runner.js';
 import {
   listResumes, addResume, updateResume, deleteResume,
@@ -720,6 +721,20 @@ function dataApi(): Plugin {
         });
       }
 
+      case '/api/trace': {
+        // The step-by-step record (with screenshots) of an application that needs a person.
+        return withUser(async (userId) => {
+          const jobId = url.searchParams.get('jobId') ?? '';
+          if (!/^[A-Za-z0-9_-]{1,64}$/.test(jobId)) return send({ error: 'jobId required' }, 400);
+          const file = resolve(userDir(userId), 'traces', `${jobId}.json`);
+          if (!existsSync(file)) return send({ error: 'No trace recorded for this job.' }, 404);
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Cache-Control', 'no-store');
+          return res.end(readFileSync(file, 'utf8'));
+        });
+      }
+
       case '/api/attention/clear': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
@@ -798,6 +813,8 @@ function dataApi(): Plugin {
               // This entitlement is decided server-side. A browser request
               // cannot enable external applications by supplying an override.
               overrides.ALLOW_EXTERNAL_APPLY = allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
+              // Employer-site applications cost 10-20x a Quick Apply; the plan sets the daily ceiling.
+              overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass || isAdmin(user.email) ? '5' : '2';
               if (mode === 'live') {
                 if (allowance.totalRemaining < 1) {
                   return send({ error: 'No successful applications remain. Choose a pass or wait for the free allowance to reset.' }, 402);

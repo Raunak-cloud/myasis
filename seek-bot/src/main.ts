@@ -477,11 +477,31 @@ async function main() {
     const frictionStreak = new Map<PlatformId, number>();
     const abortedPlatforms = new Set<PlatformId>();
 
+    let externalAttempts = config.limits.externalAttemptsToday;
+    /** One attempt per role: SEEK lists the same job once per store or advertiser. */
+    const attemptedRoles = new Set<string>();
+
     for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
       const { job, score, reasons } = candidates[candidateIndex];
       const platformId = job.platform ?? 'seek';
       const adapter = ADAPTERS.get(platformId);
       if (!adapter) continue;
+
+      const roleKey = `${job.title}|${job.company}`.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (attemptedRoles.has(roleKey)) {
+        console.log(`  – skipped (same role already attempted this run): ${job.title} @ ${job.company}`);
+        logOutcome({ status: 'skipped', jobId: job.id, reason: 'duplicate listing of a role already attempted this run', title: job.title, company: job.company });
+        continue;
+      }
+      if (job.applicationMode === 'external' && config.limits.maxExternalPerDay > 0) {
+        if (externalAttempts >= config.limits.maxExternalPerDay) {
+          console.log(`  – skipped (daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached): ${job.title} @ ${job.company}`);
+          logOutcome({ status: 'skipped', jobId: job.id, reason: `daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached`, title: job.title, company: job.company });
+          continue;
+        }
+        externalAttempts++;
+      }
+      attemptedRoles.add(roleKey);
 
       if (abortedPlatforms.has(platformId)) {
         console.log(`  – skipped (${adapter.label} stopped earlier this run after repeated friction): ${job.title} @ ${job.company}`);

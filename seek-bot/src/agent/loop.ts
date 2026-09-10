@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { config } from '../config.js';
@@ -68,6 +70,15 @@ employers, so read the page rather than assuming an order.
   If a step has unanswered fields, answer them before clicking anything.
 - If a forward control is disabled, something required is still unanswered.
 - If a dialog is covering the page, close or confirm it first.
+- Custom controls are driven step by step, the way a person uses them. A
+  dropdown that is not a native select shows as an action "(opens a list)":
+  click it, then its entries appear as [option] actions — click the one you
+  want, then re-check the field's current value. Styled checkboxes, radios and
+  switches show as [toggle] actions with their state; click to change them.
+  Never try to type into a control that opens a list.
+- When you receive a screenshot, every ref is drawn on it as a small tag: red
+  for actions, blue for fields. Use those refs. click_point exists only for
+  something you can see that has no tag.
 - If a click changes nothing, you picked a nav element rather than the step's
   real control. Pick a different one; do not repeat the same click.
 
@@ -110,6 +121,81 @@ sign-in code): make sure the email has been requested — click the send/next
 control if it has not — then call enter_emailed_code with the ref of the code
 FIELD. Never type a code yourself and never give up on a page only because it
 asks for an emailed code.`;
+}
+
+interface TraceStep {
+  step: number;
+  url: string;
+  tool: string;
+  args: Record<string, unknown>;
+  /** Human-readable version of the call, e.g. `click "Apply without an account"`. */
+  label: string;
+  result?: string;
+  screenshot?: string;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function describeCall(ctx: ToolContext, tool: string, args: Record<string, unknown>): string {
+  if (tool === 'click') {
+    const action = ctx.observation.actions.find((candidate) => candidate.ref === String(args.ref));
+    return `click "${action?.text ?? String(args.ref)}"`;
+  }
+  if (tool === 'answer_questions') {
+    const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
+    const labels = ctx.observation.fields.filter((field) => refs.includes(field.ref)).map((field) => field.label);
+    return `answer ${labels.length} question(s): ${labels.slice(0, 6).join('; ')}${labels.length > 6 ? '…' : ''}`;
+  }
+  if (tool === 'click_point') return `click at (${args.x},${args.y}): ${String(args.reason ?? '')}`;
+  if (tool === 'finish') return `finish ${String(args.status)}: ${String(args.reason ?? '')}`;
+  return tool.replace(/_/g, ' ');
+}
+
+const SITE_HINTS = () => resolve(config.dataDir, 'site-hints.json');
+const TRACE_DIR = () => resolve(config.dataDir, 'traces');
+
+interface SiteHint {
+  steps: string[];
+  updatedAt: string;
+}
+
+function loadSiteHints(): Record<string, SiteHint> {
+  try {
+    return existsSync(SITE_HINTS()) ? (JSON.parse(readFileSync(SITE_HINTS(), 'utf8')) as Record<string, SiteHint>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Keeps the record a person would want: the full step-by-step trace, with
+ * screenshots, for anything that needs them; and for an employer site that
+ * was completed, the step outline as a hint for the next application there.
+ */
+function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceStep[], finalUrl: string): void {
+  try {
+    if (outcome.status === 'needs-human') {
+      mkdirSync(TRACE_DIR(), { recursive: true });
+      writeFileSync(
+        resolve(TRACE_DIR(), `${job.id}.json`),
+        JSON.stringify({ jobId: job.id, title: job.title, company: job.company, outcome, finalUrl, savedAt: new Date().toISOString(), steps: trace }),
+      );
+    }
+    const host = hostOf(finalUrl);
+    if ((outcome.status === 'applied' || outcome.status === 'rehearsed') && host && isExternal(finalUrl) && trace.length) {
+      const hints = loadSiteHints();
+      hints[host] = { steps: trace.map((step) => step.label).slice(0, 40), updatedAt: new Date().toISOString() };
+      writeFileSync(SITE_HINTS(), JSON.stringify(hints, null, 2));
+    }
+  } catch {
+    /* a missing trace must never fail an application */
+  }
 }
 
 export interface AgentRunResult {
@@ -221,22 +307,30 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let stalls = 0;
   let repeats = 0;
   let lastSignature = '';
+  /** A screenshot on the next turn, because the last action failed in a way text does not explain. */
+  let needVision = false;
+  /** What the agent saw and did, step by step — kept for the dashboard when a person has to take over. */
+  const trace: TraceStep[] = [];
+  const hintedHosts = new Set<string>();
   let lastUrl = '';
   let lastFingerprint = '';
 
-  const finish = (outcome: AgentTermination): AgentRunResult => ({
-    // Every needs-human carries the questions the profile could not answer, so
-    // the dashboard can ask the candidate once and reuse the answers.
-    outcome:
-      outcome.status === 'needs-human'
-        ? { ...outcome, questions: [...new Set([...guards.pendingFields, ...guards.ungrounded, ...guards.skippedOptional])] }
-        : outcome,
-    captured: ctx.captured,
-    coverLetter: ctx.coverLetter,
-    resumeUsed: ctx.resumeUsed,
-    steps: guards.stepCount,
-    usage: meter.summary(),
-  });
+  const finish = (outcome: AgentTermination): AgentRunResult => {
+    persistTrace(job, outcome, trace, page.url());
+    return {
+      // Every needs-human carries the questions the profile could not answer, so
+      // the dashboard can ask the candidate once and reuse the answers.
+      outcome:
+        outcome.status === 'needs-human'
+          ? { ...outcome, questions: [...new Set([...guards.pendingFields, ...guards.ungrounded, ...guards.skippedOptional])] }
+          : outcome,
+      captured: ctx.captured,
+      coverLetter: ctx.coverLetter,
+      resumeUsed: ctx.resumeUsed,
+      steps: guards.stepCount,
+      usage: meter.summary(),
+    };
+  };
 
   for (;;) {
     if (await detectConfirmation(page)) return finish({ status: 'applied' });
@@ -262,7 +356,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * the latter is how a good Quick Apply flow gets abandoned.
      */
     await waitForApplicationSurface(page);
-    const wantScreenshot = config.celeris.useScreenshots && stalls > 0;
+    const wantScreenshot = config.celeris.useScreenshots && (stalls > 0 || needVision);
+    needVision = false;
     ctx.observation = await observe(page, { screenshot: wantScreenshot });
     for (let retry = 0; retry < 3 && looksUnrendered(ctx.observation); retry++) {
       // Cold SPA bundles on SEEK's apply flow have taken north of 15s to
@@ -299,6 +394,19 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       log(`  ↑ step ${guards.stepCount} stalled — escalating to ${model}`);
     }
 
+    /**
+     * Site hints: what worked on this host before, offered once as guidance.
+     * A guide rather than a script — the page in front of the agent decides.
+     */
+    const host = hostOf(page.url());
+    if (host && !hintedHosts.has(host)) {
+      hintedHosts.add(host);
+      const hint = loadSiteHints()[host];
+      if (hint?.steps.length) {
+        note = `${note}\n\nOn ${host} an earlier application succeeded with these steps (a guide, not a script):\n${hint.steps.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
+      }
+    }
+
     compressSupersededObservations();
     observationIndices.push(messages.length);
     messages.push(observationMessage(ctx.observation, note));
@@ -308,7 +416,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     const reply = await celerisChat({
       model,
       messages: trimmed,
-      tools: toolSchemas(),
+      tools: toolSchemas({ vision: Boolean(ctx.observation.screenshot) }),
       requireTool: true,
       thinking: model === 'celeris-1-magnus',
       meter,
@@ -350,6 +458,16 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
 
     messages.push(reply.message);
 
+    const step: TraceStep = {
+      step: guards.stepCount,
+      url: page.url(),
+      tool: call.name,
+      args: call.args,
+      label: describeCall(ctx, call.name, call.args),
+      screenshot: ctx.observation.screenshot ?? (await page.screenshot({ type: 'jpeg', quality: 35 }).then((b) => `data:image/jpeg;base64,${b.toString('base64')}`).catch(() => undefined)),
+    };
+    trace.push(step);
+
     let result;
     try {
       result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });
@@ -358,6 +476,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       // for instance) — not something to let the model retry blindly.
       return finish({ status: 'needs-human', reason: `${call.name} failed: ${(error as Error).message}` });
     }
+
+    step.result = result.kind === 'ok' ? result.message.slice(0, 400) : `ended: ${result.outcome.status}`;
+    needVision = result.kind === 'ok' && /Not accepted|No option matches|did not open|Could not click|nothing on the page changed/i.test(result.message);
 
     if (result.kind === 'terminal') {
       // The confirmation page is authoritative even here: a submit click that

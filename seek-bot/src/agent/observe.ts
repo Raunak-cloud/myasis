@@ -17,7 +17,13 @@ export interface AgentAction {
   ref: string;
   /** Button/link text, or the aria-label when the control is icon-only. */
   text: string;
-  role: 'button' | 'link' | 'file';
+  /**
+   * `option` is an entry in an open dropdown or menu; `toggle` is a styled
+   * checkbox, radio or switch that is not a native input. Both are clicked
+   * like buttons — they exist so custom widgets can be driven step by step
+   * (open it, look, choose) instead of by widget-specific code.
+   */
+  role: 'button' | 'link' | 'file' | 'option' | 'toggle';
   disabled: boolean;
 }
 
@@ -73,10 +79,26 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
 
     for (const element of all) {
       const tag = element.tagName;
-      const isButton = tag === 'BUTTON' || element.getAttribute('role') === 'button';
+      const role = element.getAttribute('role') ?? '';
       const isLink = tag === 'A' && Boolean(element.getAttribute('href'));
       const isFile = tag === 'INPUT' && (element as HTMLInputElement).type === 'file';
-      if (!isButton && !isLink && !isFile) continue;
+      /**
+       * Custom widgets. Dropdown entries, menu items and tabs; styled
+       * checkboxes/radios/switches; a combobox that is not an input (Ant
+       * Design, React-Select and friends render a div you click to open);
+       * a label wrapping a hidden native checkbox, which is how most "I agree"
+       * boxes are built. Each becomes a plain click for the agent.
+       */
+      const isOption = /^(option|menuitem|menuitemradio|menuitemcheckbox|tab|treeitem)$/.test(role);
+      const isToggle =
+        /^(checkbox|radio|switch)$/.test(role) ||
+        (tag === 'LABEL' && Boolean(element.querySelector('input[type="checkbox"], input[type="radio"]')) &&
+          !(element.querySelector('input') as HTMLElement | null)?.offsetWidth);
+      const isOpener = tag !== 'INPUT' && tag !== 'SELECT' && (role === 'combobox' || element.hasAttribute('aria-haspopup')) && !isOption;
+      const isButton = tag === 'BUTTON' || role === 'button' || tag === 'SUMMARY' || isOpener;
+      if (!isButton && !isLink && !isFile && !isOption && !isToggle) continue;
+      // A styled toggle's inner input is already represented by its label.
+      if (isToggle && tag === 'INPUT') continue;
 
       /**
        * Site chrome is never an action worth offering.
@@ -101,14 +123,24 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
 
       const ref = `a${n++}`;
       element.setAttribute('data-ref-id', ref);
+      const state =
+        isToggle
+          ? (element.getAttribute('aria-checked') === 'true' || Boolean((element.querySelector('input') as HTMLInputElement | null)?.checked) ? ' [checked]' : ' [unchecked]')
+          : isOption && element.getAttribute('aria-selected') === 'true'
+            ? ' [selected]'
+            : isOpener
+              ? ' (opens a list)'
+              : '';
+      const label =
+        (element as HTMLElement).innerText?.trim() ||
+        element.getAttribute('aria-label') ||
+        element.getAttribute('title') ||
+        element.getAttribute('placeholder') ||
+        (isFile ? 'file upload' : '');
       results.push({
         ref,
-        text:
-          (element as HTMLElement).innerText?.trim() ||
-          element.getAttribute('aria-label') ||
-          element.getAttribute('title') ||
-          (isFile ? 'file upload' : ''),
-        role: isFile ? 'file' : isButton ? 'button' : 'link',
+        text: label + state,
+        role: isFile ? 'file' : isOption ? 'option' : isToggle ? 'toggle' : isButton ? 'button' : 'link',
         disabled:
           (element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true',
       });
@@ -120,7 +152,49 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
     .map((action) => ({ ...action, text: clean(action.text), role: action.role as AgentAction['role'] }))
     // Unlabelled controls are noise the model cannot act on meaningfully.
     .filter((action) => action.text || action.role === 'file')
-    .slice(0, 60);
+    .slice(0, 120);
+}
+
+/**
+ * Draws each ref as a small numbered tag on its element, so a screenshot
+ * shows the same ids the text observation uses — the model can point at what
+ * it sees without guessing coordinates. Removed right after the screenshot.
+ */
+async function withMarks<T>(page: Page, work: () => Promise<T>): Promise<T> {
+  await page
+    .evaluate(() => {
+      const layer = document.createElement('div');
+      layer.id = '__agent_marks';
+      layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647';
+      for (const attr of ['data-ref-id', 'data-field-id']) {
+        for (const element of document.querySelectorAll(`[${attr}]`)) {
+          const ref = element.getAttribute(attr) ?? '';
+          if (!/^[af]\d+$/.test(ref)) continue;
+          const box = element.getBoundingClientRect();
+          if (!(box.width > 0 && box.height > 0) || box.bottom < 0 || box.top > innerHeight) continue;
+          const tag = document.createElement('div');
+          tag.textContent = ref;
+          const isField = attr === 'data-field-id';
+          tag.style.cssText =
+            `position:fixed;left:${Math.max(0, box.left - 2)}px;top:${Math.max(0, box.top - 9)}px;` +
+            `background:${isField ? '#1d4ed8' : '#b91c1c'};color:#fff;font:bold 10px/1 monospace;padding:2px 3px;` +
+            'border-radius:3px;box-shadow:0 0 0 1px #fff';
+          layer.appendChild(tag);
+          const outline = document.createElement('div');
+          outline.style.cssText =
+            `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;` +
+            `outline:1.5px solid ${isField ? '#1d4ed8' : '#b91c1c'};outline-offset:-1px`;
+          layer.appendChild(outline);
+        }
+      }
+      document.body.appendChild(layer);
+    })
+    .catch(() => {});
+  try {
+    return await work();
+  } finally {
+    await page.evaluate(() => document.getElementById('__agent_marks')?.remove()).catch(() => {});
+  }
 }
 
 /**
@@ -193,9 +267,9 @@ export async function observe(page: Page, options: ObserveOptions = {}): Promise
   };
 
   if (options.screenshot) {
-    const shot = await page
-      .screenshot({ type: 'jpeg', quality: 60, fullPage: false })
-      .catch(() => null);
+    const shot = await withMarks(page, () =>
+      page.screenshot({ type: 'jpeg', quality: 60, fullPage: false }).catch(() => null),
+    );
     if (shot) observation.screenshot = `data:image/jpeg;base64,${shot.toString('base64')}`;
   }
 

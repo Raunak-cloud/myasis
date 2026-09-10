@@ -217,6 +217,14 @@ export const config = {
      */
     pagesPerKeyword: Math.max(1, Math.min(3, Number(process.env.PAGES_PER_KEYWORD ?? 1))),
     maxApplicationsPerDay: Math.max(1, Math.min(50, Number(process.env.MAX_APPS_PER_DAY ?? 20))),
+    /**
+     * Employer-site applications started per day, 0 for no limit. They cost
+     * 10-20x a SEEK Quick Apply in model calls, so the dashboard sets this
+     * from the account's plan and passes today's count in
+     * EXTERNAL_ATTEMPTS_TODAY.
+     */
+    maxExternalPerDay: Math.max(0, Number(process.env.MAX_EXTERNAL_PER_DAY ?? 0)),
+    externalAttemptsToday: Math.max(0, Number(process.env.EXTERNAL_ATTEMPTS_TODAY ?? 0)),
     minDelayMs: Number(process.env.MIN_DELAY_MS ?? 25_000),
     maxDelayMs: Number(process.env.MAX_DELAY_MS ?? 70_000),
     /** Brief pacing after an attempt that transmitted no application. */

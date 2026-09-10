@@ -69,6 +69,62 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
   );
 }
 
+interface TraceStep {
+  step: number;
+  url: string;
+  label: string;
+  result?: string;
+  screenshot?: string;
+}
+
+/**
+ * What the agent saw and did, step by step, for an application it could not
+ * finish. Replaces guessing from a one-line reason with looking at the page.
+ */
+function TraceViewer({ jobId }: { jobId: string }) {
+  const [steps, setSteps] = useState<TraceStep[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  async function load() {
+    setOpen(true);
+    if (steps) return;
+    try {
+      const response = await fetch(`/api/trace?jobId=${encodeURIComponent(jobId)}`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? 'No trace available.');
+      setSteps(body.steps ?? []);
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button className="btn btn-small" onClick={load}>
+        View steps
+      </button>
+    );
+  }
+  return (
+    <div className="trace">
+      <button className="btn btn-small" onClick={() => setOpen(false)}>
+        Hide steps
+      </button>
+      {error && <div className="job-meta">{error}</div>}
+      {steps?.map((s) => (
+        <div key={s.step} className="trace-step">
+          <div className="job-meta">
+            <strong>Step {s.step}</strong> · {s.label}
+            {s.result ? <span className="trace-result"> → {s.result}</span> : null}
+          </div>
+          {s.screenshot ? <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" /> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const KIND: Record<AttentionKind, { label: string; tone: string; what: string }> = {
   verification: {
     label: 'Work rights',
@@ -221,6 +277,9 @@ export function AttentionPanel({
                 <td className="job-meta attention-reason">
                   {i.reason}
                   {i.questions?.length ? <AnswerForm item={i} onSaved={onCleared} /> : null}
+                  <div className="trace-actions">
+                    <TraceViewer jobId={i.jobId} />
+                  </div>
                 </td>
                 <td className="nowrap job-meta">{relative(i.at)}</td>
                 <td className="nowrap">

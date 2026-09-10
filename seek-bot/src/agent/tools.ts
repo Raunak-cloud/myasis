@@ -76,9 +76,32 @@ const EMAILED_CODE_TOOL: ToolSchema = {
   },
 };
 
-/** The tools the model may call this run: the base set plus whatever the account has connected. */
-export function toolSchemas(): ToolSchema[] {
-  return [...TOOL_SCHEMAS, ...(gmailConfigured() ? [EMAILED_CODE_TOOL] : [])];
+const CLICK_POINT_TOOL: ToolSchema = {
+  name: 'click_point',
+  description:
+    'Last resort, only when the screenshot shows something you need to click that has no ref: click at a point. ' +
+    'Coordinates are on a 0-1000 grid over the screenshot, x left to right, y top to bottom. Prefer click with a ref whenever one exists.',
+  parameters: {
+    type: 'object',
+    properties: {
+      x: { type: 'number', description: '0-1000, left to right' },
+      y: { type: 'number', description: '0-1000, top to bottom' },
+      reason: { type: 'string', description: 'What you are clicking and why.' },
+    },
+    required: ['x', 'y', 'reason'],
+  },
+};
+
+/**
+ * The tools the model may call this turn: the base set, whatever the account
+ * has connected, and pointing only while a screenshot is in front of it.
+ */
+export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
+  return [
+    ...TOOL_SCHEMAS,
+    ...(gmailConfigured() ? [EMAILED_CODE_TOOL] : []),
+    ...(options.vision ? [CLICK_POINT_TOOL] : []),
+  ];
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
@@ -512,6 +535,64 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
   }
 }
 
+/**
+ * A click by coordinates, for the rare control no ref reaches. The same
+ * rails as a ref click apply: the element under the point is inspected
+ * first, so a submit still passes `canSubmit` and a forbidden link is still
+ * refused. celeris-1 places these on a 0-1000 grid to within a few pixels.
+ */
+async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (!ctx.observation.screenshot) return ok('click_point is only available while a screenshot is in front of you. Use click with a ref.');
+  const gx = Number(args.x);
+  const gy = Number(args.y);
+  if (!(gx >= 0 && gx <= 1000 && gy >= 0 && gy <= 1000)) return ok('x and y must be numbers on the 0-1000 grid.');
+  const size = await ctx.page.evaluate(() => ({ width: innerWidth, height: innerHeight })).catch(() => ({ width: 1280, height: 800 }));
+  const x = (gx / 1000) * size.width;
+  const y = (gy / 1000) * size.height;
+  const under = await ctx.page
+    .evaluate(
+      ({ x, y }) => {
+        const element = document.elementFromPoint(x, y);
+        if (!element) return null;
+        const clickable = element.closest('a, button, [role], label, input, select, textarea') ?? element;
+        const link = clickable.closest('a[href]');
+        return {
+          tag: clickable.tagName,
+          text: ((clickable as HTMLElement).innerText || clickable.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+          href: link ? (link as HTMLAnchorElement).href : null,
+        };
+      },
+      { x, y },
+    )
+    .catch(() => null);
+  if (!under) return ok('Nothing is under that point. Re-observe and try a ref or a different point.');
+  if (under.href && isForbiddenDestination(under.href)) {
+    return ok(`Refused: that point is a link to ${under.href}, which this tool never navigates to.`);
+  }
+  if (isSubmitAction(under.text)) {
+    const verdict = ctx.guards.canSubmit(ctx.page.url());
+    if (!verdict.allowed) {
+      if (verdict.kind === 'dry-run') {
+        ctx.log(`  ✋ dry run — withheld "${under.text}"`);
+        return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } };
+      }
+      if (verdict.kind === 'off-platform') {
+        return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
+      }
+      return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason } };
+    }
+    ctx.log(`  → submitting: "${under.text}"`);
+  }
+  const before = await captureInteractivePageState(ctx.page);
+  await ctx.page.mouse.click(x, y);
+  const changed = await waitForInteractivePageChange(ctx.page, before);
+  await waitForInteractiveSurface(ctx.page, 4_000);
+  return ok(
+    `Clicked at (${gx},${gy}) on <${under.tag.toLowerCase()}> "${under.text}". ` +
+      (changed ? 'The page changed; a fresh observation follows.' : 'Nothing on the page changed.'),
+  );
+}
+
 async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!gmailConfigured()) return ok('Email access is not connected for this candidate. Finish with "needs_human".');
   const field = ctx.observation.fields.find((candidate) => candidate.ref === String(args.ref ?? ''));
@@ -555,6 +636,8 @@ export async function executeTool(
       return doFinish(ctx, args);
     case 'enter_emailed_code':
       return doEnterEmailedCode(ctx, args);
+    case 'click_point':
+      return doClickPoint(ctx, args);
     default:
       return ok(`No such tool "${name}".`);
   }
