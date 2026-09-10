@@ -6,7 +6,8 @@ import type { CandidateProfile, JobListing } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
-import { TOOL_SCHEMAS, executeTool, type AgentTermination, type ToolContext } from './tools.js';
+import { executeTool, toolSchemas, type AgentTermination, type ToolContext } from './tools.js';
+import { gmailConfigured } from '../gmail.js';
 
 /**
  * The navigation agent.
@@ -84,13 +85,32 @@ STOPPING
 - Call finish with "needs_human" when the page needs a real person: a CAPTCHA
   or bot check you cannot pass (an "I'm not a robot" checkbox, an image puzzle,
   "verify you are human", a Cloudflare check that will not clear), a login wall
-  with no guest option, an identity or work-rights wall, a question the profile
-  cannot support, or a step you cannot make progress on. Say which in the reason.
-  A small "protected by reCAPTCHA" badge in a corner is not a challenge.
+  with no guest option, an emailed code you have no tool for, an identity or
+  work-rights wall, a REQUIRED question the profile cannot support, or a step you
+  cannot make progress on. Say which in the reason. A small "protected by
+  reCAPTCHA" badge in a corner is not a challenge, and an optional question you
+  cannot answer is not a reason to stop.
 - Call finish with "nothing_to_apply_to" when the listing is expired, already
   applied to, or has no application form.
 - Do not guess your way past anything that looks like a verification wall.
 `.trim();
+
+/**
+ * Sections that only make sense when the account has the matching tool. Kept
+ * out of the constant prefix so accounts without them keep the shorter,
+ * cache-friendly prompt.
+ */
+function systemPrompt(): string {
+  if (!gmailConfigured()) return SYSTEM_PROMPT;
+  return `${SYSTEM_PROMPT}
+
+EMAILED CODES
+When a site says it has emailed a code (verification code, one-time passcode,
+sign-in code): make sure the email has been requested — click the send/next
+control if it has not — then call enter_emailed_code with the ref of the code
+FIELD. Never type a code yourself and never give up on a page only because it
+asks for an emailed code.`;
+}
 
 export interface AgentRunResult {
   outcome: AgentTermination;
@@ -172,7 +192,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     log,
   };
 
-  const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+  const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt() }];
   /**
    * Where each page description sits in the transcript.
    *
@@ -203,7 +223,12 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastFingerprint = '';
 
   const finish = (outcome: AgentTermination): AgentRunResult => ({
-    outcome,
+    // Every needs-human carries the questions the profile could not answer, so
+    // the dashboard can ask the candidate once and reuse the answers.
+    outcome:
+      outcome.status === 'needs-human'
+        ? { ...outcome, questions: [...new Set([...guards.pendingFields, ...guards.ungrounded, ...guards.skippedOptional])] }
+        : outcome,
     captured: ctx.captured,
     coverLetter: ctx.coverLetter,
     resumeUsed: ctx.resumeUsed,
@@ -281,7 +306,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     const reply = await celerisChat({
       model,
       messages: trimmed,
-      tools: TOOL_SCHEMAS,
+      tools: toolSchemas(),
       requireTool: true,
       thinking: model === 'celeris-1-magnus',
       meter,

@@ -143,14 +143,19 @@ export interface RunEventRow {
   reason?: string | null;
   url?: string | null;
   ts?: string | Date;
+  /** Employer questions the run could not answer, for the answer bank. */
+  questions?: string[] | null;
 }
 
 /** Matched by `run_events_dedupe_idx (user_id, job_id, status, ts)`. */
 export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<void> {
   await query(
-    `INSERT INTO run_events (user_id, job_id, status, title, company, reason, url, ts)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO run_events (user_id, job_id, status, title, company, reason, url, ts, questions)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (user_id, job_id, status, ts) DO NOTHING`,
-    [uid, e.jobId ?? null, e.status ?? 'unknown', e.title ?? null, e.company ?? null, e.reason ?? null, e.url ?? null, e.ts ?? new Date()],
+    [
+      uid, e.jobId ?? null, e.status ?? 'unknown', e.title ?? null, e.company ?? null, e.reason ?? null, e.url ?? null, e.ts ?? new Date(),
+      e.questions?.length ? JSON.stringify(e.questions) : null,
+    ],
   );
 }

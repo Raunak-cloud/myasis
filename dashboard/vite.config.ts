@@ -19,6 +19,8 @@ import {
 import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions } from './server/auth.js';
+import { gmailAuthUrl, handleGmailCallback, gmailStatus, disconnectGmail, isGmailState } from './server/gmail.js';
+import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
   billingStatus,
   consumeCompletedRehearsal,
@@ -614,6 +616,14 @@ function dataApi(): Plugin {
       }
 
       case '/api/auth/callback/google': {
+        // The Gmail connection shares this registered redirect URI; its state carries a prefix.
+        if (isGmailState(url.searchParams.get('state'))) {
+          return handleGmailCallback(url.searchParams.get('code'), url.searchParams.get('state')).then((r) => {
+            res.statusCode = 302;
+            res.setHeader('Location', r.ok ? '/?gmail=connected' : '/?gmail_error=' + encodeURIComponent(r.error ?? 'failed'));
+            return res.end();
+          });
+        }
         return handleGoogleCallback(url.searchParams.get('code'), url.searchParams.get('state')).then(
           (r) => {
             if (!r.ok) {
@@ -671,6 +681,44 @@ function dataApi(): Plugin {
 
       case '/api/attention':
         return withUser(async (userId) => send(await loadAttention(userId)));
+
+      case '/api/gmail/connect': {
+        return withUser(async (userId) => {
+          const r = gmailAuthUrl(userId);
+          if (!r.ok) return send({ error: r.error }, 400);
+          res.statusCode = 302;
+          res.setHeader('Location', r.url!);
+          return res.end();
+        });
+      }
+
+      case '/api/gmail/status':
+        return withUser(async (userId) => send(await gmailStatus(userId)));
+
+      case '/api/gmail/disconnect': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async (userId) => {
+          await disconnectGmail(userId);
+          return send({ ok: true, ...(await gmailStatus(userId)) });
+        });
+      }
+
+      case '/api/answers': {
+        return withUser(async (userId) => {
+          if (req.method === 'POST') {
+            const b = await readBody();
+            const answers = Array.isArray(b?.answers) ? b.answers : [];
+            const result = await saveAnswers(userId, answers, typeof b?.jobId === 'string' ? b.jobId : undefined);
+            return send({ ok: true, ...result, items: await listAnswers(userId) });
+          }
+          if (req.method === 'DELETE') {
+            const b = await readBody();
+            if (typeof b?.question === 'string') await deleteAnswer(userId, b.question);
+            return send({ ok: true, items: await listAnswers(userId) });
+          }
+          return send({ items: await listAnswers(userId) });
+        });
+      }
 
       case '/api/attention/clear': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);

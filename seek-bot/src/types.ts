@@ -115,7 +115,14 @@ export type ApplyOutcome =
     }
   | { status: 'skipped'; jobId: string; reason: string }
   | { status: 'off-platform'; jobId: string; redirectedTo: string }
-  | { status: 'needs-human'; jobId: string; reason: string; url: string }
+  | {
+      status: 'needs-human';
+      jobId: string;
+      reason: string;
+      url: string;
+      /** Employer questions the profile could not answer — the dashboard asks the candidate. */
+      questions?: string[];
+    }
   | { status: 'error'; jobId: string; error: string };
 
 export interface AppliedRecord {

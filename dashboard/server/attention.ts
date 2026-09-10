@@ -17,11 +17,14 @@ export interface AttentionItem {
   reason: string;
   url: string;
   at: string;
+  /** Questions the candidate can answer right here to unblock the job. */
+  questions?: string[];
 }
 
 const CLASSIFY: Array<[RegExp, AttentionKind]> = [
   [/captcha|not a robot/i, 'captcha'],
-  [/work[- ]rights|seek pass|identity|verif/i, 'verification'],
+  // "verify"/"verification" only: "cannot be answered from the verified profile" is a question, not a wall.
+  [/work[- ]rights|seek pass|identity|verif(?:y|ication)\b/i, 'verification'],
   [/not answerable|needs input|question/i, 'question'],
   [/off-platform|external|apply on company/i, 'off-platform'],
 ];
@@ -34,6 +37,7 @@ interface RunEventRow {
   reason: string | null;
   url: string | null;
   ts: Date | string;
+  questions: string[] | null;
 }
 
 /**
@@ -43,7 +47,7 @@ interface RunEventRow {
 export async function loadAttention(userId: string): Promise<AttentionItem[]> {
   const [events, appliedRows] = await Promise.all([
     query<RunEventRow>(
-      `SELECT job_id, status, title, company, reason, url, ts
+      `SELECT job_id, status, title, company, reason, url, ts, questions
          FROM run_events
         WHERE user_id = $1
           AND status IN ('needs-human', 'off-platform', 'error')
@@ -61,6 +65,7 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
     if (!e.job_id || applied.has(e.job_id)) continue;
 
     const reason = e.reason ?? 'stopped';
+    const questions = Array.isArray(e.questions) ? e.questions.map(String).filter(Boolean) : [];
     let kind: AttentionKind = e.status === 'off-platform' ? 'off-platform' : e.status === 'error' ? 'error' : 'question';
     for (const [re, k] of CLASSIFY) {
       if (re.test(reason)) {
@@ -68,6 +73,8 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
         break;
       }
     }
+    // A run that recorded the unanswered questions is, whatever the wording, something the candidate can answer.
+    if (questions.length && e.status === 'needs-human') kind = 'question';
 
     // Later entries win: a job may have been retried and resolved differently.
     latest.set(e.job_id, {
@@ -78,6 +85,7 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
       reason: String(reason).slice(0, 300),
       url: e.url ?? `https://www.seek.com.au/job/${e.job_id}`,
       at: new Date(e.ts).toISOString(),
+      ...(questions.length ? { questions } : {}),
     });
   }
 

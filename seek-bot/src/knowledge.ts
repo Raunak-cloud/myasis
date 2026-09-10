@@ -18,6 +18,32 @@ export interface KnowledgeItem {
 }
 
 const MANIFEST = resolve(config.dataDir, 'knowledge.json');
+const ANSWERS = resolve(config.dataDir, 'answers.json');
+
+export interface SavedAnswer {
+  question: string;
+  answer: string;
+}
+
+/**
+ * Answers the candidate gave in the dashboard to questions the profile could
+ * not cover ("Why do you want to work here?", "Which store location?"). Kept
+ * out of the relevance filter on purpose: an answer bank is small and every
+ * entry may apply to any job.
+ */
+export function loadSavedAnswers(): SavedAnswer[] {
+  if (!existsSync(ANSWERS)) return [];
+  try {
+    const raw = JSON.parse(readFileSync(ANSWERS, 'utf8')) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((item): item is SavedAnswer => Boolean(item && typeof item === 'object' && typeof (item as SavedAnswer).question === 'string' && typeof (item as SavedAnswer).answer === 'string'))
+      .filter((item) => item.question.trim() && item.answer.trim())
+      .slice(0, 200);
+  } catch {
+    return [];
+  }
+}
 export const KNOWLEDGE_DIR = resolve(config.dataDir, 'knowledge');
 
 export function loadKnowledge(): KnowledgeItem[] {

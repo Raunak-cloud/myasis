@@ -145,6 +145,7 @@ export async function applyToJobWithAgent(
           jobId: job.id,
           reason: run.outcome.reason,
           url: flowPage.url(),
+          ...(run.outcome.questions?.length ? { questions: run.outcome.questions } : {}),
         };
       }
     }

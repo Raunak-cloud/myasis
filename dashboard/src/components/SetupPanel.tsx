@@ -12,6 +12,73 @@ const ARRANGEMENTS = [
   { id: 'onsite', label: 'On-site', hint: 'your city only' },
 ];
 
+/**
+ * Read-only Gmail access so a run can enter the one-time codes employer
+ * sites email during an application. Connecting is a Google consent redirect;
+ * the token never reaches the browser.
+ */
+function GmailCard() {
+  const [status, setStatus] = useState<{ connected: boolean; email: string | null } | null>(null);
+  const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () =>
+    fetch('/api/gmail/status')
+      .then((r) => r.json())
+      .then(setStatus)
+      .catch(() => setStatus({ connected: false, email: null }));
+
+  useEffect(() => {
+    void refresh();
+    const params = new URLSearchParams(location.search);
+    if (params.get('gmail') === 'connected') setNotice({ tone: 'ok', text: 'Gmail connected. Runs can now enter emailed verification codes.' });
+    const failed = params.get('gmail_error');
+    if (failed) setNotice({ tone: 'bad', text: failed });
+    if (params.has('gmail') || params.has('gmail_error')) history.replaceState(null, '', location.pathname);
+  }, []);
+
+  async function disconnect() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fetch('/api/gmail/disconnect', { method: 'POST' });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card step">
+      <div className="step-head">
+        <span className={`step-n ${status?.connected ? 'done' : ''}`}>{status?.connected ? '✓' : '5'}</span>
+        <div>
+          <h3 className="step-title">Verification emails</h3>
+          <p className="job-meta step-blurb">
+            Many employer sites email a one-time code before an application can be sent. With read-only access to
+            your Gmail, the agent enters that code itself instead of stopping and asking you. Nothing is sent or deleted.
+          </p>
+        </div>
+      </div>
+      {notice && <div className={`banner ${notice.tone === 'ok' ? 'banner-ok' : 'banner-bad'}`}>{notice.text}</div>}
+      <div className="run-actions">
+        {status?.connected ? (
+          <>
+            <span className="job-meta">Connected{status.email ? ` as ${status.email}` : ''}.</span>
+            <button className="btn" disabled={busy} onClick={disconnect}>
+              {busy ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </>
+        ) : (
+          <a className="btn primary" href="/api/gmail/connect">
+            Connect Gmail
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** A numbered step that shows its own completion state. */
 function Step({
   n,
@@ -208,6 +275,8 @@ export function SetupPanel() {
           </label>
         </div>
       </Step>
+
+      <GmailCard />
 
       <div className="card step">
         <button className="setup-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>

@@ -5,6 +5,8 @@ import { insertApplicationRow, insertRunEventRow } from './records.js';
 import { ensureUserDataDir } from '../userdata.js';
 import { loadProfile } from '../profile.js';
 import { listResumes, listKnowledge } from '../files.js';
+import { listAnswers } from '../answers.js';
+import { gmailRefreshToken } from '../gmail.js';
 import type { CandidateProfile } from '../candidate-profile.js';
 
 /**
@@ -93,6 +95,11 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const knowledge = await listKnowledge(userId);
   writeFileSync(resolve(dir, 'knowledge.json'), JSON.stringify(knowledge, null, 2));
 
+  // The answer bank, read by seek-bot's knowledge.ts on every form step.
+  const answers = await listAnswers(userId);
+  writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer }) => ({ question, answer })), null, 2));
+  const gmailToken = await gmailRefreshToken(userId);
+
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at
@@ -160,6 +167,11 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
        */
       EXCLUDED_DOMAINS: '',
       SECURITY_CLEARANCE: 'None held',
+      /**
+       * This account's own mailbox token, or explicitly empty so a run can
+       * never inherit another account's connection from the environment.
+       */
+      GMAIL_REFRESH_TOKEN: gmailToken ?? '',
     },
   };
 }
@@ -218,6 +230,7 @@ export async function syncRunResultsToDb(
           reason: e.reason ?? e.redirectedTo ?? e.error ?? null,
           url: e.url ?? null,
           ts: e.ts ?? new Date(),
+          questions: Array.isArray(e.questions) ? e.questions.map(String).filter(Boolean).slice(0, 30) : null,
         });
         runEvents++;
       } catch {

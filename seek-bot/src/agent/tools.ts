@@ -16,6 +16,7 @@ import type { Observation } from './observe.js';
 import { RunGuards, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
+import { findVerificationCode, gmailConfigured } from '../gmail.js';
 
 /**
  * The agent's entire action surface.
@@ -35,7 +36,7 @@ import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
 export type AgentTermination =
   | { status: 'applied' }
   | { status: 'rehearsed'; stoppedAt: string }
-  | { status: 'needs-human'; reason: string }
+  | { status: 'needs-human'; reason: string; questions?: string[] }
   | { status: 'off-platform'; redirectedTo: string }
   | { status: 'skipped'; reason: string };
 
@@ -58,6 +59,27 @@ export interface ToolContext {
 }
 
 const ok = (message: string): ToolResult => ({ kind: 'ok', message });
+
+const EMAILED_CODE_TOOL: ToolSchema = {
+  name: 'enter_emailed_code',
+  description:
+    'When the page asks for a code that was emailed to the candidate (verification code, one-time passcode, sign-in code), ' +
+    "call this with the ref of the code FIELD after the email has been requested. The code is read from the candidate's " +
+    'inbox and typed into that field for you. Never type a code yourself.',
+  parameters: {
+    type: 'object',
+    properties: {
+      ref: { type: 'string', description: 'The FIELD ref of the code input.' },
+      sender_hint: { type: 'string', description: 'The site or company that sent the code, e.g. "Oracle" or "Workday".' },
+    },
+    required: ['ref'],
+  },
+};
+
+/** The tools the model may call this run: the base set plus whatever the account has connected. */
+export function toolSchemas(): ToolSchema[] {
+  return [...TOOL_SCHEMAS, ...(gmailConfigured() ? [EMAILED_CODE_TOOL] : [])];
+}
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
@@ -263,13 +285,25 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
 
   const filled: string[] = [];
   const failed: string[] = [];
+  const skipped: string[] = [];
   for (const field of wanted) ctx.guards.pendingFields.add(field.label);
   for (const answer of answers) {
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
 
-    // Leave unsupported answers blank and block submission until resolved.
+    /**
+     * Unsupported answers are never invented. A required one blocks
+     * submission until a person resolves it; an optional one is simply left
+     * blank — referral fields and "anything else?" boxes used to stop whole
+     * applications for no reason.
+     */
     if (!answer.grounded) {
+      if (!field.required) {
+        ctx.guards.pendingFields.delete(field.label);
+        ctx.guards.skippedOptional.add(field.label);
+        skipped.push(field.label);
+        continue;
+      }
       ctx.guards.recordUngrounded(field.label);
       continue;
     }
@@ -289,6 +323,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   return ok(
     (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
+      (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
       (ungroundedNow
         ? `\nWARNING: ${ungroundedNow} answer(s) could not be grounded in the candidate profile. This application cannot be submitted; finish with status "needs_human" once you have nothing else useful to do.`
         : ''),
@@ -445,6 +480,26 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
   }
 }
 
+async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (!gmailConfigured()) return ok('Email access is not connected for this candidate. Finish with "needs_human".');
+  const field = ctx.observation.fields.find((candidate) => candidate.ref === String(args.ref ?? ''));
+  if (!field) return ok("That ref is not a FIELD on this page. Choose the code input's ref from the current FIELDS list.");
+  ctx.log('  ✉ waiting for the emailed verification code');
+  // The email is usually requested a few seconds before this call; look back a little further to be safe.
+  const found = await findVerificationCode({
+    since: Date.now() - 3 * 60_000,
+    hint: typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company,
+    timeoutMs: 90_000,
+  });
+  if (!found) {
+    return ok('No verification email arrived within 90 seconds. If the page has a resend control, click it and call this again once; otherwise finish with "needs_human".');
+  }
+  await fillField(ctx.page, field, found.code);
+  ctx.guards.recordProgress();
+  ctx.log(`  ✉ entered the code from "${found.subject.slice(0, 60)}"`);
+  return ok(`Entered the emailed code into "${field.label}". Continue with the next control.`);
+}
+
 export async function executeTool(
   ctx: ToolContext,
   name: string,
@@ -466,6 +521,8 @@ export async function executeTool(
       return doScroll(ctx, args);
     case 'finish':
       return doFinish(ctx, args);
+    case 'enter_emailed_code':
+      return doEnterEmailedCode(ctx, args);
     default:
       return ok(`No such tool "${name}".`);
   }

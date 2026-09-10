@@ -11,6 +11,62 @@ export interface AttentionItem {
   reason: string;
   url: string;
   at: string;
+  /** Questions the candidate can answer right here to unblock the job. */
+  questions?: string[];
+}
+
+/**
+ * Inline form for the questions a run could not answer. Saving writes them to
+ * the answer bank, which every later run reads, and takes the job off this
+ * list so the next run retries it.
+ */
+function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => void }) {
+  const questions = item.questions ?? [];
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const answered = questions.filter((q) => (values[q] ?? '').trim());
+
+  async function save() {
+    if (saving || !answered.length) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/answers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: item.jobId, answers: answered.map((q) => ({ question: q, answer: values[q].trim() })) }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? 'Could not save the answers.');
+      onSaved?.();
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="answer-form">
+      {questions.map((q) => (
+        <label key={q} className="field">
+          <span className="job-meta">{q}</span>
+          <textarea
+            className="input"
+            rows={2}
+            value={values[q] ?? ''}
+            placeholder="Your answer — it will be reused whenever a form asks this again"
+            onChange={(e) => setValues({ ...values, [q]: e.target.value })}
+          />
+        </label>
+      ))}
+      {error && <div className="banner banner-bad">{error}</div>}
+      <button className="btn primary" disabled={saving || !answered.length} onClick={save}>
+        {saving ? 'Saving…' : `Save ${answered.length || ''} answer${answered.length === 1 ? '' : 's'} and retry next run`}
+      </button>
+    </div>
+  );
 }
 
 const KIND: Record<AttentionKind, { label: string; tone: string; what: string }> = {
@@ -27,7 +83,7 @@ const KIND: Record<AttentionKind, { label: string; tone: string; what: string }>
   question: {
     label: 'Needs an answer',
     tone: 'info',
-    what: 'A screening question could not be answered from your profile or documents. Adding it to your knowledge base in Setup will let future runs handle it.',
+    what: 'A screening question could not be answered from your profile or documents. Answer it below once and every future run will reuse your answer.',
   },
   'off-platform': {
     label: 'External site',
@@ -162,7 +218,10 @@ export function AttentionPanel({
                 <td>
                   <span className={`badge ${KIND[i.kind].tone}`}>{KIND[i.kind].label}</span>
                 </td>
-                <td className="job-meta attention-reason">{i.reason}</td>
+                <td className="job-meta attention-reason">
+                  {i.reason}
+                  {i.questions?.length ? <AnswerForm item={i} onSaved={onCleared} /> : null}
+                </td>
                 <td className="nowrap job-meta">{relative(i.at)}</td>
                 <td className="nowrap">
                   <a href={i.url} target="_blank" rel="noreferrer">

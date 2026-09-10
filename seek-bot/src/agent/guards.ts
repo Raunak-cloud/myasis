@@ -172,6 +172,8 @@ export class RunGuards {
   }
 
   readonly pendingFields = new Set<string>();
+  /** Optional fields left blank for want of evidence — reported, never blocking. */
+  readonly skippedOptional = new Set<string>();
 
   recordUngrounded(question: string): void {
     if (!this.ungrounded.includes(question)) this.ungrounded.push(question);

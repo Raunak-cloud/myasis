@@ -188,3 +188,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS knowledge_items_user_note_idx
   ON knowledge_items(user_id, label) WHERE kind = 'note';
 CREATE UNIQUE INDEX IF NOT EXISTS run_events_dedupe_idx
   ON run_events(user_id, job_id, status, ts);
+
+-- Employer questions a run could not answer from the profile, so the
+-- dashboard can ask the candidate once (see saved_answers).
+ALTER TABLE run_events ADD COLUMN IF NOT EXISTS questions JSONB;
+
+-- Read-only Gmail access, per account, so a run can pick up the one-time
+-- codes employer sites email during an application. A secret: never served
+-- to the browser, only handed to that account's own run.
+CREATE TABLE IF NOT EXISTS google_connections (
+  user_id       BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  refresh_token TEXT NOT NULL,
+  gmail_email   TEXT,
+  scope         TEXT,
+  connected_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- The candidate's answer bank: answered once in the dashboard, reused on
+-- every later form that asks the same thing.
+CREATE TABLE IF NOT EXISTS saved_answers (
+  id         BIGSERIAL PRIMARY KEY,
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  question   TEXT NOT NULL,
+  answer     TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, question)
+);

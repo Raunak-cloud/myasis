@@ -51,6 +51,13 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
     };
 
+    /**
+     * SEEK's apply wizard marks nothing as required in the markup yet refuses
+     * to advance until every question is answered, so on those pages every
+     * field counts as required. Elsewhere the markup is trusted.
+     */
+    const everythingRequired = /(^|\.)seek\.com(\.au)?$/.test(location.hostname) && /\/apply\b/.test(location.pathname);
+
     // Radio groups collapse into one logical field.
     const radioGroups = new Map<string, HTMLInputElement[]>();
 
@@ -77,7 +84,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           ref,
           label: labelFor(el),
           kind: 'select',
-          required: el.required || el.getAttribute('aria-required') === 'true',
+          required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || everythingRequired,
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
           currentValue: sel.value,
           autocomplete: el.getAttribute('role') === 'combobox',
@@ -89,7 +96,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         ref,
         label: labelFor(el),
         kind: el.tagName === 'TEXTAREA' ? 'textarea' : el.type === 'checkbox' ? 'checkbox' : 'text',
-        required: el.required || el.getAttribute('aria-required') === 'true',
+        required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || everythingRequired,
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',
       });
@@ -105,7 +112,11 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         ref,
         label: groupLabel,
         kind: 'radio',
-        required: inputs.some((i) => i.required),
+        required:
+          inputs.some((i) => i.required || i.getAttribute('aria-required') === 'true') ||
+          Boolean(inputs[0].closest('[aria-required="true"]')) ||
+          /(^|\s)\*|\*\s*$/.test(groupLabel) ||
+          everythingRequired,
         options: inputs.map((i) => labelFor(i)),
         currentValue: inputs.find(i => i.checked) ? labelFor(inputs.find(i => i.checked)!) : '',
       });
