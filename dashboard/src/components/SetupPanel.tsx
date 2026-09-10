@@ -5,6 +5,7 @@ import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
+import { SeekSignIn } from './SeekSignIn';
 
 const ARRANGEMENTS = [
   { id: 'remote', label: 'Remote', hint: 'anywhere in Australia' },
@@ -275,6 +276,22 @@ export function SetupPanel() {
           </label>
         </div>
       </Step>
+
+      <div className="card step">
+        <div className="step-head">
+          <span className="step-n">6</span>
+          <div>
+            <h3 className="step-title">Sign in to SEEK</h3>
+            <p className="job-meta step-blurb">
+              Your applications are sent from your own SEEK account, so it has to be signed in once. Myasis never asks
+              for or stores your password.
+            </p>
+          </div>
+        </div>
+        <div className="step-body">
+          <SeekSignIn />
+        </div>
+      </div>
 
       <GmailCard />
 

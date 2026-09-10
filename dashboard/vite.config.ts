@@ -34,6 +34,7 @@ import {
 import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
+import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc, stopAllSignins } from './server/signin.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -567,6 +568,31 @@ function dataApi(): Plugin {
         });
       }
 
+      case '/api/signin/session': {
+        /**
+         * A private browser for this account to sign in to SEEK with.
+         *
+         * GET reports whether one is open, POST opens it, DELETE closes it.
+         * The VNC password is returned only to the authenticated owner and
+         * only for their own session.
+         */
+        return withUser(async (userId) => {
+          if (req.method === 'POST') {
+            if (runner.stateFor(userId).running) {
+              return send({ error: 'Stop your current run first — Chrome cannot open the same profile twice.' }, 409);
+            }
+            const result = await startSignin(userId);
+            if (!result.ok) return send({ error: result.error }, 409);
+            return send({ ok: true, supported: true, session: result.session });
+          }
+          if (req.method === 'DELETE') {
+            stopSignin(userId);
+            return send({ ok: true, session: null });
+          }
+          return send({ supported: signinSupported(), session: sessionFor(userId) });
+        });
+      }
+
       case '/api/browser/manual-login': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
@@ -887,11 +913,11 @@ function dataApi(): Plugin {
     // Braces matter: an arrow body would return `Server`, but the hook is void.
     configureServer(server) {
       server.middlewares.use(handler);
-      if (server.httpServer) attachScreencast(server.httpServer);
+      if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
     },
     configurePreviewServer(server) {
       server.middlewares.use(handler);
-      if (server.httpServer) attachScreencast(server.httpServer);
+      if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
     },
   };
 }

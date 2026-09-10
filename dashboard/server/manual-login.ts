@@ -32,6 +32,21 @@ export function openSeekManualLogin(
     });
   }
 
+  /**
+   * A server has no screen, even once Xvfb gives it a DISPLAY.
+   *
+   * Testing DISPLAY alone was a trap: with Xvfb running for the bot, this
+   * would happily open Chrome on a virtual screen nobody can look at and
+   * report success. On Linux the remote sign-in flow (server/signin.ts) is
+   * the supported route, so this stays for desktop use only.
+   */
+  if (process.platform === 'linux') {
+    return Promise.resolve({
+      ok: false,
+      error: 'This server has no desktop. Use "Open SEEK sign-in" in Setup, which streams a private browser to you.',
+    });
+  }
+
   if (process.platform !== 'win32' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
     return Promise.resolve({
       ok: false,

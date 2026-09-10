@@ -1515,3 +1515,9 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .trace-result { opacity: 0.8; }
 .trace-shot { width: 100%; max-width: 720px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; }
 .btn-small { padding: 4px 10px; font-size: 12px; }
+
+/* SEEK sign-in on the server, streamed from a private virtual screen. */
+.signin { display: grid; gap: 12px; }
+.signin-bar { align-items: center; }
+.signin-screen { width: 100%; height: 620px; background: #111; border-radius: 8px; overflow: hidden; }
+.signin-screen canvas { display: block; }
