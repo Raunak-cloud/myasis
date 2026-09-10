@@ -105,6 +105,26 @@ Or edit `MAX_CONCURRENT_RUNS` in `ecosystem.config.cjs`: 1 on 4 GB, 3 on 8 GB,
 > disables `myasis-chrome.service`. Leaving it on would ignore the per-account
 > profiles and send every account's applications from one SEEK session.
 
+## 3c. The AuthorMist humanizer
+
+The installer sets this up as `myasis-humanizer.service`: llama.cpp serving
+AuthorMist on `127.0.0.1:8091`, CPU only. The model is a 3B quantised to about
+1.8GB, so it needs no GPU — a short rewrite takes roughly five seconds on two
+cores, and the unit is niced and OOM-deprioritised so a run always wins the
+contest for CPU and memory.
+
+    sudo systemctl status myasis-humanizer
+    curl -s http://127.0.0.1:8091/health        # {"status":"ok"}
+    curl -s http://127.0.0.1:5180/api/humanizer # {"configured":true,"online":true}
+
+It never listens on anything but loopback, and the dashboard reaches it
+through `HUMANIZER_URL` in `seek-bot/.env`.
+
+Applications do not depend on it unless `HUMANIZER_REQUIRED=true`; with it off,
+a humanizer that is down costs you the Rewrite text tab and nothing else. Its
+RSS looks alarming in `ps` (~3GB) because the model file is mmap'd — those
+pages are shared, reclaimable, and not counted in `free`'s used total.
+
 ## 4. Keep the public surface safe
 
 Do not expose port 9333. It grants control of the signed-in browser. Port 5180

@@ -22,7 +22,7 @@ warn() { printf '\033[1;33m!! %s\033[0m\n' "$1"; }
 
 [[ $EUID -eq 0 ]] && warn "Running as root. A non-root user with sudo is safer."
 
-say "1/7  System packages"
+say "1/8  System packages"
 sudo apt-get update -qq
 sudo apt-get install -y -qq curl wget git ca-certificates gnupg xvfb x11vnc fonts-liberation
 # SEEK is an Australian site and the browser must agree with the machine it
@@ -30,7 +30,7 @@ sudo apt-get install -y -qq curl wget git ca-certificates gnupg xvfb x11vnc font
 # override is one of the seams Cloudflare inspects.
 sudo timedatectl set-timezone Australia/Sydney || true
 
-say "2/7  Node.js 22 and PM2"
+say "2/8  Node.js 22 and PM2"
 if ! command -v node >/dev/null || [[ "$(node -v | cut -c2- | cut -d. -f1)" -lt 20 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
   sudo apt-get install -y -qq nodejs
@@ -41,7 +41,7 @@ if ! command -v pm2 >/dev/null; then
 fi
 echo "    PM2 $(pm2 --version | tail -n 1)"
 
-say "3/7  Google Chrome"
+say "3/8  Google Chrome"
 if ! command -v google-chrome-stable >/dev/null; then
   wget -qO /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
   sudo apt-get install -y -qq /tmp/chrome.deb
@@ -49,7 +49,7 @@ if ! command -v google-chrome-stable >/dev/null; then
 fi
 echo "    $(google-chrome-stable --version)"
 
-say "4/7  Virtual display :99 for the browsers"
+say "4/8  Virtual display :99 for the browsers"
 # One shared display for the runs. Each run launches its own Chrome on its own
 # account profile — a single shared browser cannot work now, because Chrome
 # locks a profile directory and two accounts would fight over one SEEK session.
@@ -86,7 +86,62 @@ else
   warn "Xvfb did not come up. Check: sudo journalctl -u myasis-xvfb -n 40"
 fi
 
-say "5/7  Application"
+say "5/8  AuthorMist humanizer"
+# The rewriter that makes generated application text read like a person wrote
+# it. It is a 3B model quantised to ~1.8GB, which is small enough to serve
+# from the CPU on a modest box — no GPU, and llama.cpp ships a prebuilt
+# static-ish binary, so there is nothing to compile here.
+LLAMA_BUILD=b10900
+LLAMA_DIR=/opt/llama.cpp
+MODEL_FILE="$LLAMA_DIR/models/authormist-originality.Q4_K_M.gguf"
+sudo apt-get install -y -qq libgomp1
+if [[ ! -x "$LLAMA_DIR/llama-$LLAMA_BUILD/llama-server" ]]; then
+  sudo mkdir -p "$LLAMA_DIR"
+  sudo curl -sSL -o /tmp/llama.tar.gz     "https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_BUILD/llama-$LLAMA_BUILD-bin-ubuntu-x64.tar.gz"
+  sudo tar xzf /tmp/llama.tar.gz -C "$LLAMA_DIR" && rm -f /tmp/llama.tar.gz
+fi
+if [[ ! -f "$MODEL_FILE" ]]; then
+  echo "    Downloading AuthorMist (~1.8GB, once)"
+  sudo mkdir -p "$LLAMA_DIR/models"
+  sudo curl -sSL --retry 3 -o "$MODEL_FILE"     'https://huggingface.co/mradermacher/authormist-originality-GGUF/resolve/main/authormist-originality.Q4_K_M.gguf?download=true'
+fi
+sudo tee /etc/systemd/system/myasis-humanizer.service >/dev/null <<UNIT
+[Unit]
+Description=Myasis humanizer (AuthorMist via llama.cpp, CPU)
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+Environment=LD_LIBRARY_PATH=$LLAMA_DIR/llama-$LLAMA_BUILD
+ExecStart=$LLAMA_DIR/llama-$LLAMA_BUILD/llama-server \
+  --model $MODEL_FILE \
+  --host 127.0.0.1 --port 8091 \
+  --ctx-size 4096 --threads $(nproc) --n-gpu-layers 0
+Restart=on-failure
+RestartSec=5
+# The browser automation is the product; a rewrite is not. Under memory
+# pressure the kernel should take this process rather than Chrome or the
+# dashboard, and it must yield CPU to a run instead of competing with it.
+OOMScoreAdjust=600
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable -q --now myasis-humanizer
+for _ in $(seq 1 30); do
+  curl -sf -m 2 http://127.0.0.1:8091/health >/dev/null 2>&1 && break
+  sleep 2
+done
+if curl -sf -m 5 http://127.0.0.1:8091/health >/dev/null 2>&1; then
+  echo "    Humanizer answering on 127.0.0.1:8091"
+else
+  warn "Humanizer did not come up. Check: sudo journalctl -u myasis-humanizer -n 40"
+fi
+
+say "6/8  Application"
 if [[ -d "$APP_DIR/seek-bot" ]]; then
   echo "    Found $APP_DIR — installing dependencies"
   ( cd "$APP_DIR/seek-bot" && npm ci --include=dev --silent && npm run build )
@@ -97,7 +152,7 @@ else
   echo "        ./seek-bot ./dashboard ./profile.txt ./ecosystem.config.cjs $USER@$(hostname -I | awk '{print $1}'):$APP_DIR/"
 fi
 
-say "6/7  Configuration"
+say "7/8  Configuration"
 ENV_FILE="$APP_DIR/seek-bot/.env"
 if [[ -f "$ENV_FILE" ]]; then
   set_env() {
@@ -118,13 +173,14 @@ if [[ -f "$ENV_FILE" ]]; then
   set_env CHROME_PROFILE_DIR "$PROFILE_DIR"
   set_env CHROME_PATH /usr/bin/google-chrome-stable
   set_env PROFILE_PATH "$APP_DIR/profile.txt"
+  set_env HUMANIZER_URL http://127.0.0.1:8091
   echo "    Updated $ENV_FILE"
   grep -q '^GEMINI_API_KEY=.\+' "$ENV_FILE" || warn "GEMINI_API_KEY is empty — set it before running."
 else
   warn "No .env yet — copy seek-bot/.env.example to .env and fill it in."
 fi
 
-say "7/7  PM2 dashboard service"
+say "8/8  PM2 dashboard service"
 if [[ -f "$APP_DIR/ecosystem.config.cjs" ]]; then
   # Keep the app on loopback. A reverse proxy should own public TLS and access.
   ( cd "$APP_DIR" && HOST=127.0.0.1 PORT=5180 pm2 startOrReload ecosystem.config.cjs --update-env )
