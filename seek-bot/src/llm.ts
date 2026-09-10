@@ -234,7 +234,10 @@ For each field return an answer.
   profile: the candidate found this listing on ${job.platform === 'indeed' ? 'Indeed' : 'SEEK'}. Choose that option
   when offered (e.g. "Seek", "SEEK", "Indeed"), otherwise "Job board", "Online job site" or
   "Other". It is grounded.
-- For checkboxes, "value" is "true" or "false". Only agree to terms/privacy consents.
+- For checkboxes, "value" is "true" or "false". Tick consent and acknowledgement boxes —
+  privacy policy, terms, data handling, being contacted about this application, and a
+  communications/marketing consent when it is required to proceed — as a person applying
+  would; these are grounded. Leave an optional marketing box unticked.
 - Never tick anything that asserts a qualification, clearance or eligibility the
   candidate does not have.`;
 
