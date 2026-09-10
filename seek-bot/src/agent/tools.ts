@@ -311,6 +311,8 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   const filled: string[] = [];
   const failed: string[] = [];
   const skipped: string[] = [];
+  /** Required fields the answerer has already refused once — asking again cannot help. */
+  const repeated: string[] = [];
   for (const field of wanted) ctx.guards.pendingFields.add(field.label);
   for (const answer of answers) {
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
@@ -329,6 +331,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
         skipped.push(field.label);
         continue;
       }
+      if (ctx.guards.ungrounded.includes(field.label)) repeated.push(field.label);
       ctx.guards.recordUngrounded(field.label);
       continue;
     }
@@ -381,6 +384,9 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
+      (repeated.length
+        ? `\nSTOP asking about: ${repeated.join('; ')}. These required questions have no answer in the candidate's profile and calling answer_questions again cannot change that — only the candidate can supply them. Finish with status "needs_human" now.`
+        : '') +
       (ungroundedNow
         ? `\nWARNING: ${ungroundedNow} answer(s) could not be grounded in the candidate profile. This application cannot be submitted; finish with status "needs_human" once you have nothing else useful to do.`
         : ''),
