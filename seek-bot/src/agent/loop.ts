@@ -219,6 +219,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     'Complete this application. Begin by reading the page below.';
   /** Consecutive turns that produced no page change — the escalation trigger. */
   let stalls = 0;
+  let repeats = 0;
+  let lastSignature = '';
   let lastUrl = '';
   let lastFingerprint = '';
 
@@ -332,6 +334,18 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
 
     if (process.env.DEBUG_STEPS === 'true') {
       log(`    step ${guards.stepCount}: ${call.name}(${JSON.stringify(call.args).slice(0, 120)})`);
+    }
+
+    /**
+     * The same action, again and again, on a page that is not changing is a
+     * loop, not progress. One form ate 22 identical clicks before the step
+     * budget ended it; stopping at the fourth saves the budget and the money.
+     */
+    const signature = `${call.name}:${JSON.stringify(call.args)}`;
+    repeats = signature === lastSignature ? repeats + 1 : 0;
+    lastSignature = signature;
+    if (repeats >= 3 && stalls >= 2) {
+      return finish({ status: 'needs-human', reason: `stuck repeating ${call.name} with no effect on the page` });
     }
 
     messages.push(reply.message);

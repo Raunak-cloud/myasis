@@ -221,6 +221,10 @@ For each field return an answer.
   that is not required is simply left blank, so prefer "grounded": false with an empty
   "value" over inventing something for an optional question.
 - For select/radio fields, "value" MUST be exactly one of the given options.
+- For an autocomplete/combobox field ("autocomplete": true), give the short text a person
+  would type to find the option, e.g. "Australia" or "Sydney". A country or dialling-code
+  selector beside a phone number is grounded: it follows from the candidate's location
+  (Australia, +61). Answer it with "Australia".
 - For checkboxes, "value" is "true" or "false". Only agree to terms/privacy consents.
 - Never tick anything that asserts a qualification, clearance or eligibility the
   candidate does not have.`;

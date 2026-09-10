@@ -233,10 +233,14 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string): 
   // the matching suggestion just as a user would.
   if (field.autocomplete || (await el.getAttribute('role').catch(() => null)) === 'combobox') {
     const options = page.locator('[role="option"]:visible');
-    await options.first().waitFor({ state: 'visible', timeout: 1_200 }).catch(() => {});
-    const exact = options.filter({ hasText: new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).first();
+    await options.first().waitFor({ state: 'visible', timeout: 1_500 }).catch(() => {});
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const exact = options.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') }).first();
+    // "Australia" should pick "Australia (+61)"; a lone containing match is what a person would click.
+    const partial = options.filter({ hasText: new RegExp(escaped, 'i') });
     if (await exact.count()) await exact.click({ timeout: 5_000 });
-    else if (await options.count()) throw new Error('No exact autocomplete option; re-observe the available choices.');
+    else if ((await partial.count()) >= 1) await partial.first().click({ timeout: 5_000 });
+    else if (await options.count()) throw new Error('No matching autocomplete option; re-observe the available choices.');
   }
 }
 
