@@ -96,6 +96,17 @@ async function resolveHumanizerBase(env: Record<string, string>): Promise<string
 }
 
 /**
+ * Forget the cached endpoint once it has failed a real request.
+ *
+ * Without this, a tunnel that drops mid-window keeps being chosen until the
+ * cache expires — so the fallback that exists to prevent an outage would
+ * instead cause one, for up to thirty seconds.
+ */
+function invalidateHumanizerBase(): void {
+  humanizerBaseCache = null;
+}
+
+/**
  * Splits text into pieces small enough for the rewriter to handle in one go.
  *
  * AuthorMist is a 3B. Handed a long document it does not fail loudly — it
@@ -470,7 +481,6 @@ function dataApi(): Plugin {
               );
             }
 
-            const base = await resolveHumanizerBase(env);
             const deadline = Date.now() + Number(env.HUMANIZER_TIMEOUT_MS ?? 240_000);
 
             /**
@@ -490,7 +500,16 @@ function dataApi(): Plugin {
 
               for (let attempt = 0; attempt < 3; attempt++) {
                 if (Date.now() >= deadline) break;
-                const response = await fetch(`${base}/v1/chat/completions`, {
+                /**
+                 * Re-resolved per attempt, and only cheap because the result is
+                 * cached: if the preferred endpoint died since the last piece,
+                 * the failure below clears that cache and this picks the
+                 * fallback up on the next turn of the loop.
+                 */
+                const endpoint = await resolveHumanizerBase(env);
+                let response: Response;
+                try {
+                  response = await fetch(`${endpoint}/v1/chat/completions`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -520,7 +539,17 @@ function dataApi(): Plugin {
                     stream: false,
                   }),
                   signal: AbortSignal.timeout(Math.max(1_000, deadline - Date.now())),
-                });
+                  });
+                } catch (reason) {
+                  // Unreachable, not a bad answer: drop this endpoint and let
+                  // the next attempt resolve to whatever is still alive.
+                  invalidateHumanizerBase();
+                  const next = await resolveHumanizerBase(env);
+                  if (next === endpoint) {
+                    return { failure: `Could not reach the rewriting service: ${(reason as Error).message}`, status: 503 };
+                  }
+                  continue;
+                }
                 const result = await response.json() as {
                   choices?: Array<{ message?: { content?: unknown } }>;
                   error?: string | { message?: unknown };

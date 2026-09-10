@@ -52,6 +52,11 @@ export async function humanizerBase(): Promise<string> {
   return candidates[0];
 }
 
+/** Drop the cached choice after it has failed a real request, not just a probe. */
+export function forgetHumanizerBase(): void {
+  cachedBase = null;
+}
+
 /** Refuse writing runs until the AuthorMist model is fully loaded. */
 export async function assertHumanizerHealthy(): Promise<void> {
   if (!config.humanizer.required) return;
@@ -177,7 +182,15 @@ async function rewriteText(
    * mismatch. Removing the masking raises the success rate without weakening
    * the guarantee.
    */
-  const response = await fetch(`${await humanizerBase()}/v1/chat/completions`, {
+  /**
+   * Sent to whichever endpoint is alive, retried once if that changes.
+   *
+   * The preferred endpoint is typically a GPU reached over a tunnel, and the
+   * chosen one is cached for half a minute. Without retrying here, a tunnel
+   * that drops mid-run would keep being dialled until that cache expired —
+   * the fallback would exist and still not be used.
+   */
+  const send = (endpoint: string) => fetch(`${endpoint}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -200,6 +213,19 @@ async function rewriteText(
     }),
     signal: AbortSignal.timeout(Math.max(1, Math.min(config.humanizer.timeoutMs, deadline - Date.now()))),
   });
+
+  const endpoint = await humanizerBase();
+  let response: Response;
+  try {
+    response = await send(endpoint);
+  } catch (reason) {
+    forgetHumanizerBase();
+    const next = await humanizerBase();
+    if (next === endpoint) throw reason;
+    console.warn(`  ! humanizer at ${endpoint} unreachable; falling back to ${next}`);
+    response = await send(next);
+  }
+
   const body = (await response.json()) as ChatCompletionResponse;
   if (!response.ok) throw new Error(errorMessage(body, response.status));
   const content = body.choices?.[0]?.message?.content;
