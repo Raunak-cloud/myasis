@@ -149,18 +149,29 @@ export function SeekSignIn() {
     );
   }
 
+  /**
+   * The browser opens over the page, not inside the column.
+   *
+   * The virtual screen is 1280 wide; squeezed into the run column it renders
+   * at about a third of that and SEEK is unreadable. An overlay gives it the
+   * width it was drawn at. Clicking the backdrop deliberately does nothing —
+   * losing a half-finished sign-in to a stray click would be worse than the
+   * inconvenience of reaching for Done.
+   */
   return (
-    <div className="seek-window">
-      <div className="seek-window-bar">
-        <span className={`seek-dot ${connected ? 'on' : ''}`} aria-hidden="true" />
-        <span className="seek-window-title">SEEK sign-in</span>
-        <span className="job-meta seek-window-time">{minutesLeft} min left</span>
-        <button className="btn btn-small" disabled={busy} onClick={close}>
-          {busy ? 'Closing…' : 'Done'}
-        </button>
+    <div className="overlay center" role="dialog" aria-modal="true" aria-label="SEEK sign-in">
+      <div className="card seek-window">
+        <div className="seek-window-bar">
+          <span className={`seek-dot ${connected ? 'on' : ''}`} aria-hidden="true" />
+          <span className="seek-window-title">SEEK sign-in</span>
+          <span className="job-meta seek-window-time">{minutesLeft} min left</span>
+          <button className="btn primary btn-small" disabled={busy} onClick={close}>
+            {busy ? 'Closing…' : "I'm signed in"}
+          </button>
+        </div>
+        {error && <div className="banner banner-bad seek-window-error">{error}</div>}
+        <div className="seek-window-screen" ref={screen} />
       </div>
-      {error && <div className="banner banner-bad seek-window-error">{error}</div>}
-      <div className="seek-window-screen" ref={screen} />
     </div>
   );
 }

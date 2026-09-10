@@ -1587,7 +1587,16 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .seek-connect-row h3 { margin: 0 0 2px; font-size: 15px; }
 .seek-connect-row p { margin: 0; }
 
-.seek-window { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+/* Width is capped by the viewport HEIGHT as well as its width, so the
+   fixed-ratio screen below always fits whole rather than being letterboxed.
+   The 70px covers the title bar and the overlay's margin. */
+.seek-window {
+  width: min(1320px, calc(100vw - 32px), calc((100vh - 70px) * 1280 / 900));
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 .seek-window-bar {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
