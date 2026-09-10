@@ -136,7 +136,7 @@ export function SeekSignIn() {
   const minutesLeft = status.session ? Math.max(0, Math.round((status.session.expiresAt - now) / 60000)) : 0;
 
   return (
-    <div className="signin">
+    <div className="seek-signin">
       {error && <div className="banner banner-bad">{error}</div>}
 
       {!status.session ? (
@@ -151,7 +151,7 @@ export function SeekSignIn() {
         </>
       ) : (
         <>
-          <div className="run-actions signin-bar">
+          <div className="run-actions seek-signin-bar">
             <span className="job-meta">
               {connected ? 'Connected.' : 'Connecting…'} This window closes automatically in {minutesLeft} minute
               {minutesLeft === 1 ? '' : 's'}.
@@ -160,7 +160,7 @@ export function SeekSignIn() {
               {busy ? 'Closing…' : "I'm signed in — close"}
             </button>
           </div>
-          <div className="signin-screen" ref={screen} />
+          <div className="seek-signin-screen" ref={screen} />
         </>
       )}
     </div>

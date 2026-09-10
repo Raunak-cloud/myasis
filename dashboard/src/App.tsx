@@ -7,7 +7,8 @@ import { SetupPanel } from './components/SetupPanel';
 import { HumanizerPanel } from './components/HumanizerPanel';
 import { PricingPanel } from './components/PricingPanel';
 import { daysSince } from './format';
-import { SignIn, UserChip, useAuth } from './components/SignIn';
+import { UserChip, useAuth } from './components/SignIn';
+import { Landing } from './components/Landing';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 
 type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup';
@@ -118,7 +119,9 @@ export default function App() {
   if (authLoading) {
     return <div className="signin-wrap"><div className="job-meta">Loading…</div></div>;
   }
-  if (!user) return <SignIn googleConfigured={googleConfigured} />;
+  // Signed out, a visitor gets the landing page rather than a bare sign-in box:
+  // nothing behind this point is public, so this page has to do the explaining.
+  if (!user) return <Landing googleConfigured={googleConfigured} />;
 
   return (
     <div className="app-shell">
