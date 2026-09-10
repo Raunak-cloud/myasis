@@ -143,6 +143,8 @@ export interface AppliedRecord {
   answers?: Array<{ question: string; answer: string }>;
   /** Why this job scored as it did — the rubric's own reasoning. */
   scoreReasons?: string[];
+  /** Submitted on an employer's own site rather than the job board. Counted against the daily employer-site allowance. */
+  external?: boolean;
 }
 
 /** A single interactive field the apply form is asking about. */

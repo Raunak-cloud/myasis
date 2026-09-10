@@ -193,6 +193,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS run_events_dedupe_idx
 -- dashboard can ask the candidate once (see saved_answers).
 ALTER TABLE run_events ADD COLUMN IF NOT EXISTS questions JSONB;
 
+-- Submitted on an employer's own site rather than the job board. The stored
+-- `url` is always the board listing, so the daily employer-site allowance
+-- cannot be counted from it.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS external BOOLEAN NOT NULL DEFAULT false;
+
 -- Read-only Gmail access, per account, so a run can pick up the one-time
 -- codes employer sites email during an application. A secret: never served
 -- to the browser, only handed to that account's own run.

@@ -477,7 +477,8 @@ async function main() {
     const frictionStreak = new Map<PlatformId, number>();
     const abortedPlatforms = new Set<PlatformId>();
 
-    let externalAttempts = config.limits.externalAttemptsToday;
+    /** Employer-site applications actually SUBMITTED today, across runs. Failures cost model calls but not allowance. */
+    let externalSubmitted = config.limits.externalAttemptsToday;
     /** One attempt per role: SEEK lists the same job once per store or advertiser. */
     const attemptedRoles = new Set<string>();
 
@@ -498,13 +499,12 @@ async function main() {
         logOutcome({ status: 'skipped', jobId: job.id, reason: 'duplicate listing of a role already attempted this run', title: job.title, company: job.company });
         continue;
       }
-      if (job.applicationMode === 'external' && config.limits.maxExternalPerDay > 0) {
-        if (externalAttempts >= config.limits.maxExternalPerDay) {
+      if (job.applicationMode === 'external') {
+        if (externalSubmitted >= config.limits.maxExternalPerDay) {
           console.log(`  – skipped (daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached): ${job.title} @ ${job.company}`);
           logOutcome({ status: 'skipped', jobId: job.id, reason: `daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached`, title: job.title, company: job.company });
           continue;
         }
-        externalAttempts++;
       }
       attemptedRoles.add(roleKey);
 
@@ -566,6 +566,7 @@ async function main() {
       switch (outcome.status) {
         case 'applied':
           applied++;
+          if (job.applicationMode === 'external') externalSubmitted++;
           if (applied === 1) metric('first-submission', performance.now() - startedAt);
           frictionStreak.set(platformId, 0);
           index.add({
@@ -583,6 +584,7 @@ async function main() {
             coverLetter: outcome.coverLetter,
             answers: outcome.answers,
             scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...reasons] : reasons,
+            external: job.applicationMode === 'external',
           });
           console.log(`  ✅ submitted (${applied}/${config.limits.maxApplicationsPerRun})`);
           break;

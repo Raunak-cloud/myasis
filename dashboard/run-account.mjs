@@ -36,8 +36,8 @@ const overrides = await runSettingsForUser(userId);
 const email = (await one('select email from users where id = $1', [userId]))?.email ?? null;
 const allowance = await billingStatus(userId, email);
 overrides.ALLOW_EXTERNAL_APPLY = allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
-// Employer-site applications cost 10-20x a Quick Apply; the plan sets the daily ceiling.
-overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass || isAdmin(email) ? '5' : '2';
+// Employer-site applications are an Intensive Pass feature, and cost 10-20x a Quick Apply.
+overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
 
 // Admins are exempt from the allowance; everyone else is capped by what remains.
 if (mode === 'live' && !isAdmin(email)) {

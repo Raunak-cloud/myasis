@@ -813,8 +813,8 @@ function dataApi(): Plugin {
               // This entitlement is decided server-side. A browser request
               // cannot enable external applications by supplying an override.
               overrides.ALLOW_EXTERNAL_APPLY = allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
-              // Employer-site applications cost 10-20x a Quick Apply; the plan sets the daily ceiling.
-              overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass || isAdmin(user.email) ? '5' : '2';
+              // Employer-site applications are an Intensive Pass feature, and cost 10-20x a Quick Apply.
+              overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
               if (mode === 'live') {
                 if (allowance.totalRemaining < 1) {
                   return send({ error: 'No successful applications remain. Choose a pass or wait for the free allowance to reset.' }, 402);

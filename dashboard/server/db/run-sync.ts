@@ -73,6 +73,7 @@ interface ApplicationExportRow {
   answers: unknown;
   score_reasons: unknown;
   applied_at: Date | string;
+  external: boolean;
 }
 
 /**
@@ -99,18 +100,20 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const answers = await listAnswers(userId);
   writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer }) => ({ question, answer })), null, 2));
   const gmailToken = await gmailRefreshToken(userId);
-  // Employer-site attempts already made today, so the daily ceiling holds across runs.
+  /**
+   * Employer-site applications SUBMITTED today, so the daily ceiling holds
+   * across runs. Only successful ones count: a form that defeats the agent
+   * costs model calls, but it must not consume the candidate's allowance.
+   */
   const externalToday = await query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM run_events
-      WHERE user_id = $1 AND ts >= date_trunc('day', now())
-        AND status IN ('applied', 'rehearsed', 'needs-human', 'error')
-        AND url IS NOT NULL AND url !~ '(seek\\.com|indeed\\.com)'`,
+    `SELECT count(*)::text AS n FROM applications
+      WHERE user_id = $1 AND external AND applied_at >= date_trunc('day', now())`,
     [userId],
   );
 
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
-            work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at
+            work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at, external
        FROM applications WHERE user_id = $1 ORDER BY applied_at`,
     [userId],
   );
@@ -129,6 +132,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     coverLetter: a.cover_letter ?? undefined,
     answers: a.answers ?? [],
     scoreReasons: a.score_reasons ?? [],
+    external: a.external === true,
   }));
   writeFileSync(resolve(dir, 'applied.json'), JSON.stringify(appliedJson, null, 2));
 
@@ -216,6 +220,7 @@ export async function syncRunResultsToDb(
           answers: a.answers ?? [],
           scoreReasons: a.scoreReasons ?? [],
           appliedAt: a.appliedAt ?? new Date(),
+          external: a.external === true,
         });
         if (inserted) applications++;
       }

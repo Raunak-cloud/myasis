@@ -218,12 +218,19 @@ export const config = {
     pagesPerKeyword: Math.max(1, Math.min(3, Number(process.env.PAGES_PER_KEYWORD ?? 1))),
     maxApplicationsPerDay: Math.max(1, Math.min(50, Number(process.env.MAX_APPS_PER_DAY ?? 20))),
     /**
-     * Employer-site applications started per day, 0 for no limit. They cost
+     * Employer-site applications SUBMITTED per day. Unset means no limit (a
+     * direct CLI run); "0" means none are allowed, which is what every
+     * account without an Intensive Pass gets. They cost
      * 10-20x a SEEK Quick Apply in model calls, so the dashboard sets this
-     * from the account's plan and passes today's count in
-     * EXTERNAL_ATTEMPTS_TODAY.
+     * from the account's plan (Intensive Pass only) and passes today's
+     * submitted count in EXTERNAL_ATTEMPTS_TODAY. A failed attempt still
+     * costs model calls, but the run's own step and cost budgets bound that —
+     * charging it against the daily allowance would let one bad form lock the
+     * candidate out of every employer site for the day.
      */
-    maxExternalPerDay: Math.max(0, Number(process.env.MAX_EXTERNAL_PER_DAY ?? 0)),
+    maxExternalPerDay: process.env.MAX_EXTERNAL_PER_DAY
+      ? Math.max(0, Number(process.env.MAX_EXTERNAL_PER_DAY))
+      : Number.POSITIVE_INFINITY,
     externalAttemptsToday: Math.max(0, Number(process.env.EXTERNAL_ATTEMPTS_TODAY ?? 0)),
     minDelayMs: Number(process.env.MIN_DELAY_MS ?? 25_000),
     maxDelayMs: Number(process.env.MAX_DELAY_MS ?? 70_000),

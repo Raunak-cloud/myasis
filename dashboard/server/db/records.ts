@@ -112,6 +112,8 @@ export interface ApplicationRow {
   scoreReasons?: unknown[];
   outcome?: string | null;
   appliedAt?: string | Date;
+  /** Submitted on an employer's own site — counted against the daily employer-site allowance. */
+  external?: boolean;
 }
 
 /** Matched by the existing `applications_user_id_job_id_key` UNIQUE(user_id, job_id). */
@@ -120,8 +122,8 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
     `INSERT INTO applications (
        user_id, job_id, title, company, location, url, platform, score, salary,
        work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons,
-       outcome, applied_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       outcome, applied_at, external
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      ON CONFLICT (user_id, job_id) DO NOTHING
      RETURNING id`,
     [
@@ -129,7 +131,7 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
       a.platform ?? 'seek', a.score ?? 0, a.salary ?? null, a.workArrangement ?? null,
       a.ageDaysAtApply ?? null, a.coverLetter ?? null,
       JSON.stringify(a.answers ?? []), JSON.stringify(a.scoreReasons ?? []),
-      a.outcome ?? null, a.appliedAt ?? new Date(),
+      a.outcome ?? null, a.appliedAt ?? new Date(), a.external === true,
     ],
   );
   return rows.length > 0;
