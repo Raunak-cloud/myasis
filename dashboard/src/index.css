@@ -1602,3 +1602,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
    instead of sitting in letterbox bars. */
 .seek-window-screen { width: 100%; aspect-ratio: 1280 / 900; background: var(--surface-2); }
 .seek-window-screen canvas { display: block; }
+
+/* The Gmail step's own actions row: a button sized to its label, not stretched
+   across the card the way the shared .run-actions rule leaves it. */
+.gmail-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.gmail-actions .btn { flex: 0 0 auto; }

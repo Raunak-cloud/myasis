@@ -4,6 +4,7 @@ import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
+import { GmailConnect } from './GmailConnect';
 
 type Mode = 'rehearse' | 'live';
 
@@ -560,7 +561,12 @@ export function RunPanel({
         {/* Signing in to SEEK lives here rather than in Setup: it is the one
             thing a run cannot start without, and the browser it opens is what
             the person needs in front of them. */}
-        {!running && <SeekSignIn />}
+        {!running && (
+          <>
+            <SeekSignIn />
+            <GmailConnect compact />
+          </>
+        )}
 
         {!running && status?.finishedAt && (
           <p className="job-meta">
