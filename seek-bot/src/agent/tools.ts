@@ -8,7 +8,7 @@ import {
   waitForInteractivePageChange,
   waitForInteractiveSurface,
 } from '../browser.js';
-import { fillField } from '../dom.js';
+import { ComboboxOptionsError, fillField } from '../dom.js';
 import { answerFields, coverLetterForJob } from '../llm.js';
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
 import type { CandidateProfile, JobListing } from '../types.js';
@@ -308,14 +308,46 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
       continue;
     }
 
-    try { await fillField(ctx.page, field, answer.value); }
-    catch (error) { failed.push(`${field.label}: ${(error as Error).message}`); continue; }
+    let value = answer.value;
+    try {
+      await fillField(ctx.page, field, value);
+    } catch (error) {
+      /**
+       * A dropdown's choices are only visible once it opens, so the first
+       * answer was given blind. Ask once more with the real list, the way a
+       * person reads the menu before choosing.
+       */
+      if (error instanceof ComboboxOptionsError) {
+        const again = await answerFields([{ ...field, options: error.options }], ctx.job, ctx.profile);
+        const retry = again.answers[0];
+        if (!retry?.grounded) {
+          if (!field.required) {
+            ctx.guards.pendingFields.delete(field.label);
+            ctx.guards.skippedOptional.add(field.label);
+            skipped.push(field.label);
+            continue;
+          }
+          ctx.guards.recordUngrounded(field.label);
+          continue;
+        }
+        value = retry.value;
+        try {
+          await fillField(ctx.page, field, value);
+        } catch (secondError) {
+          failed.push(`${field.label}: ${(secondError as Error).message}`);
+          continue;
+        }
+      } else {
+        failed.push(`${field.label}: ${(error as Error).message}`);
+        continue;
+      }
+    }
     ctx.guards.resolveGrounding(field.label);
     ctx.guards.pendingFields.delete(field.label);
     const prior = ctx.captured.findIndex(item => item.question === field.label);
     if (prior >= 0) ctx.captured.splice(prior, 1);
-    ctx.captured.push({ question: field.label, answer: answer.value });
-    filled.push(`${field.label} → ${answer.value.slice(0, 60)}`);
+    ctx.captured.push({ question: field.label, answer: value });
+    filled.push(`${field.label} → ${value.slice(0, 60)}`);
   }
 
   if (filled.length) ctx.guards.recordProgress();

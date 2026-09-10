@@ -261,9 +261,20 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
   if (await exact.count()) await exact.click({ timeout: 5_000 });
   else if (await partial.count()) await partial.first().click({ timeout: 5_000 });
   else if (await options.count()) {
-    const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 12);
-    throw new Error(`No option matches "${value}". Available: ${shown.join(' | ')}`);
+    const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 40);
+    await page.keyboard.press('Escape').catch(() => {});
+    throw new ComboboxOptionsError(value, shown);
   } else throw new Error('The dropdown did not open; re-observe and click its control first.');
+}
+
+/**
+ * A combobox's choices are only known once it opens. When the answer given
+ * blind matches none of them, the caller re-asks with the real list.
+ */
+export class ComboboxOptionsError extends Error {
+  constructor(value: string, readonly options: string[]) {
+    super(`No option matches "${value}". Available: ${options.join(' | ')}`);
+  }
 }
 
 /** Short text summary of the page, for classifying unexpected steps. */

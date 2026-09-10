@@ -222,7 +222,8 @@ For each field return an answer.
   "value" over inventing something for an optional question.
 - For select/radio fields, "value" MUST be exactly one of the given options.
 - For an autocomplete/combobox field ("autocomplete": true), give the short text a person
-  would type to find the option, e.g. "Australia" or "Sydney". A country or dialling-code
+  would type to find the option, e.g. "Australia" or "Sydney". If such a field lists
+  "options", the value MUST be exactly one of them. A country or dialling-code
   selector beside a phone number is grounded: it follows from the candidate's location
   (Australia, +61). Answer it with "Australia".
 - Routine form fields are grounded, neutral choices: a Title (Mr/Ms/Mrs/Mx) follows from
