@@ -34,7 +34,7 @@ import {
 import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
-import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc, stopAllSignins } from './server/signin.js';
+import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
