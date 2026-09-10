@@ -228,8 +228,11 @@ For each field return an answer.
 - Routine form fields are grounded, neutral choices: a Title (Mr/Ms/Mrs/Mx) follows from
   the pronouns or gender in the profile (if neither is present, choose the option that
   fits the name and note "assumed" in the rationale); "Preferred contact method" is Email;
-  "How did you hear about this job?" is the profile's referral source, or the closest option
-  (a job board / SEEK); a state or country selector follows from the candidate's address.
+  a state or country selector follows from the candidate's address.
+- "How did you hear about this job / about us?" is a fact of this application, not of the
+  profile: the candidate found this listing on ${job.platform === 'indeed' ? 'Indeed' : 'SEEK'}. Choose that option
+  when offered (e.g. "Seek", "SEEK", "Indeed"), otherwise "Job board", "Online job site" or
+  "Other". It is grounded.
 - For checkboxes, "value" is "true" or "false". Only agree to terms/privacy consents.
 - Never tick anything that asserts a qualification, clearance or eligibility the
   candidate does not have.`;
