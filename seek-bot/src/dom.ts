@@ -124,9 +124,21 @@ export async function extractFields(page: Page): Promise<FormField[]> {
     radioGroups.forEach((inputs, key) => {
       const ref = `f${n++}`;
       inputs.forEach((i, idx) => i.setAttribute('data-field-id', `${ref}:${idx}`));
-      const groupLabel =
-        inputs[0].closest('fieldset')?.querySelector('legend')?.textContent?.trim() ??
-        (key.startsWith('f') ? key : key);
+      /**
+       * The group's caption, not an option's label. Walk up to the smallest
+       * element holding every radio in the group, then take its legend or the
+       * first caption-like child that is not itself an option label.
+       */
+      let container: Element | null = inputs[0].parentElement;
+      while (container && !inputs.every((input) => container!.contains(input))) container = container.parentElement;
+      const caption =
+        container?.querySelector('legend')?.textContent?.trim() ||
+        [...(container?.querySelectorAll('label, span, div, p') ?? [])]
+          .filter((element) => !element.querySelector('input') && !element.closest('label:has(input)'))
+          .map((element) => (element as HTMLElement).innerText?.trim() ?? '')
+          .find((text) => text && text.length < 120 && !inputs.some((input) => labelFor(input) === text)) ||
+        '';
+      const groupLabel = caption || key;
       fields.push({
         ref,
         label: groupLabel,

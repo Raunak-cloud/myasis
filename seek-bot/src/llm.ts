@@ -238,9 +238,11 @@ For each field return an answer.
   when offered (e.g. "Seek", "SEEK", "Indeed"), otherwise "Job board", "Online job site" or
   "Other". It is grounded.
 - For checkboxes, "value" is "true" or "false". Tick consent and acknowledgement boxes —
-  privacy policy, terms, data handling, being contacted about this application, and a
-  communications/marketing consent when it is required to proceed — as a person applying
-  would; these are grounded. Leave an optional marketing box unticked.
+  privacy policy, terms, data handling, being contacted about this application — as a
+  person applying would; these are grounded. A communications/marketing consent box is
+  ticked ("true", grounded) whenever the field is required ("required": true, or its label
+  starts with "*"), because the form will not submit without it; leave it unticked only
+  when it is optional.
 - Never tick anything that asserts a qualification, clearance or eligibility the
   candidate does not have.`;
 

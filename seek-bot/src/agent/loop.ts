@@ -377,6 +377,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     if (page.url() === lastUrl && fingerprint === lastFingerprint) {
       stalls += 1;
       note = `${note}\n\nNOTE: the page is unchanged from the previous turn — your last action had no effect. Try a different control.`;
+      // Six actions without any effect is a wall, whatever they were called; stop spending the budget on it.
+      if (stalls >= 6) return finish({ status: 'needs-human', reason: 'no progress after six actions on the same page' });
     } else {
       stalls = 0;
       guards.recordProgress();

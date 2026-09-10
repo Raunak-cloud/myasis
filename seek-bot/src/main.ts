@@ -487,6 +487,11 @@ async function main() {
       const adapter = ADAPTERS.get(platformId);
       if (!adapter) continue;
 
+      // Diagnostic: APPLY_ONLY=external|hosted restricts a run to one kind of application, for testing a flow in isolation.
+      const only = process.env.APPLY_ONLY;
+      if (only === 'external' && job.applicationMode !== 'external') continue;
+      if (only === 'hosted' && job.applicationMode === 'external') continue;
+
       const roleKey = `${job.title}|${job.company}`.toLowerCase().replace(/\s+/g, ' ').trim();
       if (attemptedRoles.has(roleKey)) {
         console.log(`  – skipped (same role already attempted this run): ${job.title} @ ${job.company}`);
