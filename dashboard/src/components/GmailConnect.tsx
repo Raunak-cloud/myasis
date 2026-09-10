@@ -14,6 +14,15 @@ import { useEffect, useState } from 'react';
 interface GmailStatus {
   connected: boolean;
   email: string | null;
+  /**
+   * Whether this account has any use for Gmail access. Only an intensive pass
+   * reaches employer sites, which are the only things that email a code, and
+   * a profile already signed in to Google can have the code read out of the
+   * browser instead. The server decides; this component only obeys.
+   */
+  needed?: boolean;
+  /** The Google account already signed in to this profile's Chrome, if any. */
+  browserAccount?: string | null;
 }
 
 const BLURB =
@@ -54,9 +63,11 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
 
   if (!status) return null;
 
-  // On the Apply page this is a prompt, not a setting: once it is done, it goes.
+  // On the Apply page this is a prompt, not a setting: once it is done, it
+  // goes — and it never appears for an account that has no use for it.
   if (compact) {
     if (status.connected && !notice) return null;
+    if (status.needed === false && !notice) return null;
     return (
       <div className="seek-connect">
         {notice && <div className={`banner ${notice.tone === 'ok' ? 'banner-ok' : 'banner-bad'}`}>{notice.text}</div>}
@@ -86,7 +97,18 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
       </div>
       {notice && <div className={`banner ${notice.tone === 'ok' ? 'banner-ok' : 'banner-bad'}`}>{notice.text}</div>}
       <div className="step-body gmail-actions">
-        {status.connected ? (
+        {status.browserAccount && !status.connected ? (
+          // Already solvable without OAuth: the agent reads the code out of
+          // the browser it is driving. Offering to connect here would ask for
+          // an account's whole inbox to buy nothing.
+          <span className="job-meta">
+            Not needed — the agent reads codes from {status.browserAccount}, already signed in to your browser.
+          </span>
+        ) : status.needed === false && !status.connected ? (
+          <span className="job-meta">
+            Not needed on your plan. Employer sites are the only ones that email a code, and only an intensive pass applies to those.
+          </span>
+        ) : status.connected ? (
           <>
             <span className="job-meta">Connected{status.email ? ` as ${status.email}` : ''}.</span>
             <button className="btn" disabled={busy} onClick={disconnect}>

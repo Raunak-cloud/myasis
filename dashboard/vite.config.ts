@@ -36,6 +36,7 @@ import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { readSeekState, writeSeekState } from './server/seek-state.js';
+import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -62,20 +63,6 @@ function maskExactValues(text: string) {
   };
 }
 
-/**
- * Splits text into pieces small enough for the rewriter to handle in one go.
- *
- * AuthorMist is a 3B. Handed a long document it does not fail loudly — it
- * drifts, or runs into max_tokens and stops mid-sentence, and the length check
- * downstream then rejects the whole thing after minutes of work. Kept to about
- * a paragraph at a time it is reliable, so long text is rewritten piecewise
- * and stitched back together.
- *
- * Paragraphs are the natural seam and are packed greedily up to the limit. A
- * single paragraph longer than the limit is split on sentence ends instead,
- * and only failing that on the limit itself, so a wall of text still goes
- * through rather than being refused.
- */
 /**
  * The rewriting endpoint to use right now, preferring the first that answers.
  *
@@ -108,6 +95,20 @@ async function resolveHumanizerBase(env: Record<string, string>): Promise<string
   return candidates[0];
 }
 
+/**
+ * Splits text into pieces small enough for the rewriter to handle in one go.
+ *
+ * AuthorMist is a 3B. Handed a long document it does not fail loudly — it
+ * drifts, or runs into max_tokens and stops mid-sentence, and the length check
+ * downstream then rejects the whole thing after minutes of work. Kept to about
+ * a paragraph at a time it is reliable, so long text is rewritten piecewise
+ * and stitched back together.
+ *
+ * Paragraphs are the natural seam and are packed greedily up to the limit. A
+ * single paragraph longer than the limit is split on sentence ends instead,
+ * and only failing that on the limit itself, so a wall of text still goes
+ * through rather than being refused.
+ */
 function splitForRewrite(text: string, limit: number): string[] {
   const paragraphs = text.trim().split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   const pieces: string[] = [];
@@ -857,7 +858,26 @@ function dataApi(): Plugin {
       }
 
       case '/api/gmail/status':
-        return withUser(async (userId) => send(await gmailStatus(userId)));
+        return withUser(async (userId) => {
+          /**
+           * Whether this account has any reason to be asked for Gmail access.
+           *
+           * Only an intensive pass applies on employer sites, and only those
+           * sites email one-time codes — so nobody else needs this. And if the
+           * profile's Chrome is already signed in to a Google account, the
+           * agent can read the code in the browser it is already driving, so
+           * asking for OAuth on top of that buys nothing.
+           */
+          const user = await currentUser(req.headers?.cookie);
+          const allowance = await billingStatus(userId, user?.email);
+          const entitled = isAdmin(user?.email) || allowance.paid.hasActiveIntensivePass;
+          const browserAccounts = chromeGoogleAccounts(userId);
+          return send({
+            ...(await gmailStatus(userId)),
+            needed: entitled && browserAccounts.length === 0,
+            browserAccount: browserAccounts[0] ?? null,
+          });
+        });
 
       case '/api/gmail/disconnect': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
