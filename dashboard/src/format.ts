@@ -10,6 +10,13 @@ export function fmtDateTime(iso: string): string {
   });
 }
 
+/** Just the clock time, e.g. "3:42 pm" — the date is shown alongside it. */
+export function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+}
+
 export function fmtDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

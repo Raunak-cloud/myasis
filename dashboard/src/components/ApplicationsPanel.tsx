@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Application, Outcome } from '../types';
-import { fmtDate, daysSince, scoreClass } from '../format';
+import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 
 interface Props {
   apps: Application[];
@@ -116,7 +116,9 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                     </td>
                     <td className="nowrap">
                       <div>{fmtDate(a.appliedAt)}</div>
-                      <div className="job-meta">{age === 0 ? 'today' : `${age}d ago`}</div>
+                      <div className="job-meta">
+                        {fmtTime(a.appliedAt)} · {age === 0 ? 'today' : `${age}d ago`}
+                      </div>
                     </td>
                     <td>
                       {a.outcome ? (
@@ -157,7 +159,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
               <div className="minw">
                 <h2>{open.title}</h2>
                 <div className="job-meta">
-                  {open.company} · applied {fmtDate(open.appliedAt)} ({daysSince(open.appliedAt)}d ago)
+                  {open.company} · applied {fmtDate(open.appliedAt)} at {fmtTime(open.appliedAt)} ({daysSince(open.appliedAt)}d ago)
                 </div>
               </div>
               <button className="btn" onClick={() => setOpen(null)}>
