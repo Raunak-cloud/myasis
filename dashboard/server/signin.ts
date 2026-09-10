@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -59,11 +59,21 @@ export function signinSupported(): boolean {
   return process.platform === 'linux';
 }
 
-/** A display and port nobody else here is using. */
+/**
+ * A display and port nobody is using.
+ *
+ * The in-memory map is not enough on its own: a dashboard restart forgets its
+ * sessions while their Xvfb processes keep running, and X refuses a display
+ * whose lock file already exists. Checking the filesystem too means a
+ * leftover display is skipped rather than collided with.
+ */
 function allocate(): { display: number; vncPort: number } {
   const used = new Set([...sessions.values()].map((s) => s.display));
   let display = FIRST_DISPLAY;
-  while (used.has(display)) display++;
+  while (used.has(display) || existsSync(`/tmp/.X${display}-lock`) || existsSync(`/tmp/.X11-unix/X${display}`)) {
+    display++;
+    if (display > FIRST_DISPLAY + 64) throw new Error('No free virtual display. Restart the server to clear stale ones.');
+  }
   return { display, vncPort: FIRST_PORT + (display - FIRST_DISPLAY) };
 }
 
@@ -142,7 +152,12 @@ export async function startSignin(userId: string, startUrl = 'https://www.seek.c
     xvfb = spawn('Xvfb', [`:${display}`, '-screen', '0', SCREEN, '-nolisten', 'tcp'], { stdio: 'ignore' });
     xvfb.on('error', () => {});
     await wait(700);
-    if (xvfb.exitCode !== null) throw new Error('Xvfb did not start. Install it with `apt install xvfb`.');
+    if (xvfb.exitCode !== null) {
+      throw new Error(
+        `The virtual display :${display} would not start. If Xvfb is missing, install it with \`apt install xvfb\`; ` +
+          'otherwise a stale display is holding it and the server needs a restart.',
+      );
+    }
 
     chrome = spawn(
       chromePath,
