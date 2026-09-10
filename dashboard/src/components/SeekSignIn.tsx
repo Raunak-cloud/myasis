@@ -22,7 +22,14 @@ interface Session {
   password: string;
 }
 
-type Status = { supported: boolean; session: Session | null };
+/** Last known SEEK sign-in state; null when nobody has ever found out. */
+interface SeekState {
+  signedIn: boolean;
+  checkedAt: string;
+  source: 'run' | 'declared';
+}
+
+type Status = { supported: boolean; session: Session | null; seek?: SeekState | null };
 
 export function SeekSignIn() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -121,9 +128,11 @@ export function SeekSignIn() {
     rfb.current = null;
     setConnected(false);
     try {
-      await fetch('/api/signin/session', { method: 'DELETE' });
-    } finally {
+      const body = await fetch('/api/signin/session', { method: 'DELETE' }).then((r) => r.json());
+      setStatus({ supported: true, session: null, seek: body?.seek ?? null });
+    } catch {
       setStatus({ supported: true, session: null });
+    } finally {
       setBusy(false);
     }
   }
@@ -132,6 +141,17 @@ export function SeekSignIn() {
   const minutesLeft = status.session ? Math.max(0, Math.round((status.session.expiresAt - now) / 60000)) : 0;
 
   if (!status.session) {
+    /**
+     * Nothing to say to an account that is already signed in.
+     *
+     * "Sign in once" is a one-time instruction, so leaving it on the Apply
+     * page forever reads as an unfinished step. It comes back by itself: a
+     * run that finds the session dead records that, and the prompt returns
+     * with the reason attached.
+     */
+    if (status.seek?.signedIn && !error && !notice) return null;
+
+    const expired = status.seek?.signedIn === false;
     return (
       <div className="seek-connect">
         {error && <div className="banner banner-bad">{error}</div>}
@@ -139,10 +159,14 @@ export function SeekSignIn() {
         <div className="seek-connect-row">
           <div>
             <h3>SEEK account</h3>
-            <p className="job-meta">Sign in once. Applications are sent from your own account.</p>
+            <p className="job-meta">
+              {expired
+                ? 'Your last run found this account signed out of SEEK. Sign in again to keep applying.'
+                : 'Sign in once. Applications are sent from your own account.'}
+            </p>
           </div>
           <button className="btn primary" disabled={busy} onClick={open}>
-            {busy ? 'Opening…' : 'Open SEEK'}
+            {busy ? 'Opening…' : expired ? 'Sign in again' : 'Open SEEK'}
           </button>
         </div>
       </div>

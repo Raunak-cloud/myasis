@@ -35,6 +35,7 @@ import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
+import { readSeekState, writeSeekState } from './server/seek-state.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -587,9 +588,15 @@ function dataApi(): Plugin {
           }
           if (req.method === 'DELETE') {
             stopSignin(userId);
-            return send({ ok: true, session: null });
+            /**
+             * Closing the window is the person saying they are signed in, so
+             * take them at their word and stop prompting. It is only a claim,
+             * not an observation — the next run overwrites it with the truth.
+             */
+            writeSeekState(userId, { signedIn: true, checkedAt: new Date().toISOString(), source: 'declared' });
+            return send({ ok: true, session: null, seek: readSeekState(userId) });
           }
-          return send({ supported: signinSupported(), session: sessionFor(userId) });
+          return send({ supported: signinSupported(), session: sessionFor(userId), seek: readSeekState(userId) });
         });
       }
 

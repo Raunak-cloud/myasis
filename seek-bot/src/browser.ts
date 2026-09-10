@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
 import { captchaEnabled } from './captcha.js';
@@ -158,6 +160,26 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
   return existing ?? (await ctx.newPage());
 }
 
+/**
+ * Records what this run observed about the SEEK session.
+ *
+ * A run is the only thing that ever finds out for certain, so it is the only
+ * honest source for the dashboard's "SEEK account" prompt, which otherwise
+ * has to nag every account forever, including the ones already signed in.
+ * The dashboard reads this same file; see `dashboard/server/seek-state.ts`,
+ * which must keep the shape below in step.
+ */
+function recordSeekSession(signedIn: boolean): void {
+  try {
+    writeFileSync(
+      resolve(config.dataDir, 'seek-session.json'),
+      JSON.stringify({ signedIn, checkedAt: new Date().toISOString(), source: 'run' }, null, 2),
+    );
+  } catch {
+    // Never fail a run over a status file the run itself does not read.
+  }
+}
+
 /** Confirms the SEEK session is still alive without touching credentials. */
 export async function assertSignedIn(page: Page): Promise<void> {
   await page.goto(`${config.seekBase}/profile/me`, { waitUntil: 'domcontentloaded' });
@@ -189,11 +211,17 @@ export async function assertSignedIn(page: Page): Promise<void> {
     .catch(() => 'unclear');
 
   if (verdict === 'signed-out' || (verdict === 'unclear' && /login|signin|oauth/i.test(page.url()))) {
+    recordSeekSession(false);
     throw new Error(
       'SEEK session is not signed in. Open the Chrome profile manually, sign in, then re-run. ' +
         'This tool never automates login.',
     );
   }
+  // An 'unclear' verdict that did not land on a login page stays unrecorded: a
+  // page that failed to load is not evidence either way, and overwriting a
+  // known-good state with a guess would put the sign-in prompt back in front
+  // of someone who is perfectly well signed in.
+  if (verdict === 'signed-in') recordSeekSession(true);
 }
 
 /**
