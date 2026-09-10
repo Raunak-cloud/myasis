@@ -795,7 +795,9 @@ function dataApi(): Plugin {
            * holds the original single account's KEYWORDS, salary floor and
            * exclusions, silently running one account's search under another's.
            */
-          const overrides: Record<string, string> = await runSettingsForUser(userId);
+          const runUser = await currentUser(req.headers?.cookie);
+          const runAdmin = isAdmin(runUser?.email);
+          const overrides: Record<string, string> = await runSettingsForUser(userId, { unlimited: runAdmin });
           for (const [k, v] of Object.entries(body?.overrides ?? {})) {
             // Only known per-account settings are accepted from the browser.
             // Without this filter a request could set PROFILE_PATH or DATA_DIR
@@ -812,10 +814,18 @@ function dataApi(): Plugin {
               const allowance = await billingStatus(usageUser.id, usageUser.email);
               // This entitlement is decided server-side. A browser request
               // cannot enable external applications by supplying an override.
-              overrides.ALLOW_EXTERNAL_APPLY = allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
-              // Employer-site applications are an Intensive Pass feature, and cost 10-20x a Quick Apply.
-              overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
-              if (mode === 'live') {
+              overrides.ALLOW_EXTERNAL_APPLY = runAdmin || allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
+              /**
+               * Employer-site applications are an Intensive Pass feature and
+               * cost 10-20x a Quick Apply. An operator of this installation
+               * has no ceilings at all: no daily employer-site limit, no
+               * allowance deduction, and their own run settings unclamped.
+               */
+              if (runAdmin) overrides.ADMIN_UNLIMITED = 'true';
+              else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
+              if (runAdmin) {
+                // No allowance check and no clamp: the operator runs at the size they configured.
+              } else if (mode === 'live') {
                 if (allowance.totalRemaining < 1) {
                   return send({ error: 'No successful applications remain. Choose a pass or wait for the free allowance to reset.' }, 402);
                 }

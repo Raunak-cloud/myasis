@@ -92,11 +92,13 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
  * `KEEP_SETTINGS_KEYS` so the spawned child has an explicit value for each and
  * cannot inherit another account's.
  */
-export async function runSettingsForUser(userId: string): Promise<Record<string, string>> {
+export async function runSettingsForUser(userId: string, options: { unlimited?: boolean } = {}): Promise<Record<string, string>> {
   const saved = await loadUserSettings(userId);
   const out: Record<string, string> = {};
   for (const key of KEEP_SETTINGS_KEYS) {
-    out[key] = normalizeSetting(key, saved[key] ?? RUN_SETTING_DEFAULTS[key] ?? '');
+    const value = saved[key] ?? RUN_SETTING_DEFAULTS[key] ?? '';
+    // An operator of this installation runs at whatever size they configured.
+    out[key] = options.unlimited ? value : normalizeSetting(key, value);
   }
   return out;
 }
@@ -107,7 +109,9 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
     [userId],
   );
   const out: Record<string, string> = {};
-  for (const row of rows) out[row.key] = normalizeSetting(row.key, row.value);
+  // Stored verbatim; the ceilings are applied when a run is built, which is
+  // the only place they can be waived for an operator of this installation.
+  for (const row of rows) out[row.key] = row.value;
   return out;
 }
 
@@ -118,7 +122,7 @@ export async function saveUserSettings(
 ): Promise<Record<string, string>> {
   for (const [key, value] of Object.entries(updates)) {
     if (!KEEP_SET.has(key)) continue;
-    await upsertSettingRow(userId, key, normalizeSetting(key, String(value ?? '')));
+    await upsertSettingRow(userId, key, String(value ?? '').slice(0, 20_000));
   }
   return loadUserSettings(userId);
 }

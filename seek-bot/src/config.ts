@@ -8,6 +8,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ROOT = resolve(__dirname, '..');
 dotenv.config({ path: resolve(ROOT, '.env') });
 
+/** True for a run started by an operator of this installation. Set only by the dashboard. */
+export const adminUnlimited = process.env.ADMIN_UNLIMITED === 'true';
+
+/**
+ * A configured value, floored at 1 and capped at `max` — except for an
+ * admin's run, where the cap is lifted and only the floor remains.
+ */
+function ceiling(max: number, value: string | undefined, fallback: number): number {
+  const wanted = Number(value ?? fallback);
+  if (!Number.isFinite(wanted)) return fallback;
+  return Math.max(1, adminUnlimited ? Math.floor(wanted) : Math.min(max, wanted));
+}
+
 function decodeBase64(value?: string): string {
   if (!value) return '';
   try {
@@ -143,7 +156,7 @@ export const config = {
      * quiet enough to stay unremarkable, and the terms further down a list are
      * rarely the ones producing applications anyway.
      */
-    .slice(0, MAX_SEARCH_TERMS),
+    .slice(0, adminUnlimited ? Infinity : MAX_SEARCH_TERMS),
 
   /** seek.md rules, as data. */
   rules: {
@@ -205,18 +218,22 @@ export const config = {
      * submissions. A run that quietly asked for 10 terms at 5 pages is what
      * earned a Cloudflare challenge that locked the account out entirely, so
      * these are clamped here rather than trusted from a caller.
+     *
+     * `ADMIN_UNLIMITED` lifts the ceilings, not the defaults: it is set only
+     * by the dashboard for an operator of this installation, who is the one
+     * person who can judge the traffic risk and is accepting it deliberately.
      */
-    maxApplicationsPerRun: Math.max(1, Math.min(10, Number(process.env.MAX_APPS_PER_RUN ?? 8))),
+    maxApplicationsPerRun: ceiling(10, process.env.MAX_APPS_PER_RUN, 8),
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
-    maxEvaluations: Math.max(1, Math.min(150, Number(process.env.MAX_EVALUATIONS ?? 40))),
+    maxEvaluations: ceiling(150, process.env.MAX_EVALUATIONS, 40),
     /**
      * Result pages to read per keyword. SEEK returns 32 per page, so page 1
      * alone caps discovery at 32 × keywords — and once the obvious listings are
      * applied to, everything left worth having is on pages 2+.
      */
-    pagesPerKeyword: Math.max(1, Math.min(3, Number(process.env.PAGES_PER_KEYWORD ?? 1))),
-    maxApplicationsPerDay: Math.max(1, Math.min(50, Number(process.env.MAX_APPS_PER_DAY ?? 20))),
+    pagesPerKeyword: ceiling(3, process.env.PAGES_PER_KEYWORD, 1),
+    maxApplicationsPerDay: ceiling(50, process.env.MAX_APPS_PER_DAY, 20),
     /**
      * Employer-site applications SUBMITTED per day. Unset means no limit (a
      * direct CLI run); "0" means none are allowed, which is what every

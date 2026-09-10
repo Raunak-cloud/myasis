@@ -22,7 +22,9 @@ if (!userId || !['search', 'rehearse', 'live'].includes(mode ?? '')) {
   process.exit(2);
 }
 
-const overrides = await runSettingsForUser(userId);
+const adminEmail = (await one('select email from users where id = $1', [userId]))?.email ?? null;
+const admin = isAdmin(adminEmail);
+const overrides = await runSettingsForUser(userId, { unlimited: admin });
 
 /**
  * Mirror what `/api/run` does before spawning.
@@ -33,11 +35,17 @@ const overrides = await runSettingsForUser(userId);
  * candidate pool on the first 40-job run. The entitlement is decided here, from
  * billing, never from a caller-supplied argument.
  */
-const email = (await one('select email from users where id = $1', [userId]))?.email ?? null;
+const email = adminEmail;
 const allowance = await billingStatus(userId, email);
-overrides.ALLOW_EXTERNAL_APPLY = allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
-// Employer-site applications are an Intensive Pass feature, and cost 10-20x a Quick Apply.
-overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
+overrides.ALLOW_EXTERNAL_APPLY = admin || allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
+/**
+ * Employer-site applications are an Intensive Pass feature and cost 10-20x a
+ * Quick Apply. An operator of this installation has no ceilings at all: no
+ * daily employer-site limit, no allowance deduction, and their own run
+ * settings are used as configured rather than clamped.
+ */
+if (admin) overrides.ADMIN_UNLIMITED = 'true';
+else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
 
 // Admins are exempt from the allowance; everyone else is capped by what remains.
 if (mode === 'live' && !isAdmin(email)) {
@@ -53,7 +61,7 @@ for (const pair of rest) {
 
 // Re-asserted after the CLI args: a command-line flag must not be able to hand
 // an account an entitlement billing did not give it.
-if (!allowance.paid.hasActiveIntensivePass) overrides.ALLOW_EXTERNAL_APPLY = 'false';
+if (!admin && !allowance.paid.hasActiveIntensivePass) overrides.ALLOW_EXTERNAL_APPLY = 'false';
 if (mode === 'live' && !isAdmin(email)) {
   if (allowance.totalRemaining < 1) throw new Error('No application allowance remaining');
   overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
