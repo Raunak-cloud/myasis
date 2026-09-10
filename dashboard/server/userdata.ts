@@ -42,6 +42,18 @@ export function userKnowledgeDir(userId: string): string {
   return resolve(userDir(userId), 'knowledge');
 }
 
+/**
+ * This account's own Chrome profile, holding its SEEK sign-in.
+ *
+ * One profile per account, not one for the installation. Chrome takes an
+ * exclusive lock on a profile directory, so a shared one makes concurrent
+ * runs impossible — and worse, whoever signed in last is who every account's
+ * applications would be sent as.
+ */
+export function userChromeDir(userId: string): string {
+  return resolve(userDir(userId), 'chrome');
+}
+
 function ensure(dir: string) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
@@ -52,5 +64,6 @@ export function ensureUserDataDir(userId: string): string {
   ensure(dir);
   ensure(userResumeDir(userId));
   ensure(userKnowledgeDir(userId));
+  ensure(userChromeDir(userId));
   return dir;
 }

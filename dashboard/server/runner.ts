@@ -16,7 +16,7 @@ export interface LogLine {
   text: string;
 }
 
-interface RunState {
+export interface RunState {
   running: boolean;
   mode: RunMode | null;
   startedAt: string | null;
@@ -24,18 +24,34 @@ interface RunState {
   exitCode: number | null;
   applied: number;
   /**
-   * Which account's run this is. Only one run can be active at a time (one
-   * shared Chrome/SEEK session, machine-wide), but its live status/console —
-   * and the finished-run summary that lingers after — must still only be
-   * visible to, and stoppable by, that account, not whichever account
-   * happens to have the Apply tab open. Stays set after the run finishes
-   * (until the next run overwrites it) so the "last run" summary stays
-   * scoped too, not just the live stream.
+   * Which account's run this is. Kept on the state even though runs are now
+   * per-account, because the finished-run summary lingers after the child
+   * exits and the API still checks ownership before showing it.
    */
   ownerUserId: string | null;
 }
 
 const MAX_LINES = 2000;
+
+/**
+ * How many accounts may run at once.
+ *
+ * Each run holds a headed Chrome, which is roughly 1.2 GB of RAM and a real
+ * share of a CPU core, so this is a memory ceiling rather than a policy. On a
+ * 4 GB box one run is all that fits; 8 GB comfortably holds three. Set
+ * MAX_CONCURRENT_RUNS to match the machine.
+ */
+const MAX_CONCURRENT = Math.max(1, Number(process.env.MAX_CONCURRENT_RUNS ?? 3));
+
+const IDLE_STATE: RunState = {
+  running: false,
+  mode: null,
+  startedAt: null,
+  finishedAt: null,
+  exitCode: null,
+  applied: 0,
+  ownerUserId: null,
+};
 
 export async function assertHumanizerHealthy(overrides: Record<string, string> = {}): Promise<void> {
   const fileEnv = readEnv();
@@ -65,22 +81,29 @@ export async function assertHumanizerHealthy(overrides: Record<string, string> =
   }
 }
 
-class Runner {
+/**
+ * One account's run: its child process, its console and its state.
+ *
+ * Everything here used to be installation-wide, which meant one run at a time
+ * for everybody and one account's console visible in the pool. Per-account
+ * instances are what make concurrent runs possible; the other half of that is
+ * a per-account Chrome profile (see `userChromeDir`), because Chrome locks a
+ * profile directory against a second process.
+ */
+class Run {
   private child: ChildProcess | null = null;
   private onApplicationSubmitted: (() => void | Promise<void>) | null = null;
   private onRehearsalCompleted: (() => void | Promise<void>) | null = null;
   private lines: LogLine[] = [];
   private seq = 0;
   private listeners = new Set<(l: LogLine) => void>();
-  state: RunState = {
-    running: false,
-    mode: null,
-    startedAt: null,
-    finishedAt: null,
-    exitCode: null,
-    applied: 0,
-    ownerUserId: null,
-  };
+  readonly userId: string;
+  state: RunState;
+
+  constructor(userId: string) {
+    this.userId = userId;
+    this.state = { ...IDLE_STATE, ownerUserId: userId };
+  }
 
   private push(stream: LogLine['stream'], text: string) {
     for (const raw of text.split(/\r?\n/)) {
@@ -120,6 +143,22 @@ class Runner {
     return this.lines.filter((l) => l.seq > since);
   }
 
+  get running(): boolean {
+    return this.state.running;
+  }
+
+  /**
+   * True once the run has ended and nobody is watching its console any more.
+   *
+   * `finishedAt` is the load-bearing part. A run is not marked running until
+   * its data export finishes, so testing `running` alone let a second
+   * account's start sweep away a run that was still being prepared — its
+   * child then spawned against an orphaned object, invisible and unstoppable.
+   */
+  get disposable(): boolean {
+    return !this.state.running && this.state.finishedAt !== null && this.listeners.size === 0;
+  }
+
   /**
    * Spawns the bot as a child process with per-run env overrides, so a
    * dashboard run never has to rewrite .env to change its behaviour.
@@ -134,11 +173,11 @@ class Runner {
   async start(
     mode: RunMode,
     overrides: Record<string, string>,
-    userId: string,
     onApplicationSubmitted?: () => void | Promise<void>,
     onRehearsalCompleted?: () => void | Promise<void>,
   ): Promise<{ ok: boolean; error?: string }> {
-    if (this.state.running) return { ok: false, error: 'A run is already in progress.' };
+    const userId = this.userId;
+    if (this.state.running) return { ok: false, error: 'A run is already in progress for this account.' };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'main.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
@@ -165,8 +204,8 @@ class Runner {
       ...process.env,
       ...overrides,
       // After `overrides`, deliberately: these carry the account's identity
-      // (whose profile.txt, whose experience/skills) and must never be
-      // settable by a caller-supplied override.
+      // (whose profile.txt, whose experience/skills, whose Chrome profile)
+      // and must never be settable by a caller-supplied override.
       ...profileOverrides,
       // Rehearse fills every form but withholds the final submit.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
@@ -196,27 +235,7 @@ class Runner {
     if (shown) this.push('sys', `  overrides: ${shown}`);
     if (mode === 'live') this.push('sys', '  ⚠ LIVE — applications will be submitted');
 
-    this.child = spawn(process.execPath, args, { cwd: BOT_DIR, env });
-    this.child.stdout?.on('data', (b) => this.push('out', b.toString()));
-    this.child.stderr?.on('data', (b) => this.push('err', b.toString()));
-    this.child.on('error', (e) => this.push('err', `spawn failed: ${e.message}`));
-    this.child.on('close', (code) => {
-      this.state.running = false;
-      this.state.exitCode = code;
-      this.state.finishedAt = new Date().toISOString();
-      this.child = null;
-      this.onApplicationSubmitted = null;
-      this.onRehearsalCompleted = null;
-      this.push('sys', `■ run finished (exit ${code})`);
-      // Fold what this run actually did — new applications, run events — back
-      // into userId's Postgres rows. `syncRunResultsToDb` is idempotent (ON
-      // CONFLICT DO NOTHING on natural keys), so this can never double-count
-      // even if it were somehow triggered twice for the same run.
-      void syncRunResultsToDb(userId, dataDir)
-        .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
-        .catch((error) => this.push('err', `Could not save this run's results: ${(error as Error).message}`));
-    });
-
+    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env }), userId, dataDir, 'run');
     return { ok: true };
   }
 
@@ -227,11 +246,9 @@ class Runner {
    * still reads this account's résumés/knowledge/applied-jobs history to
    * dedupe and draft, off `DATA_DIR`, not the shared folder.
    */
-  async startQueue(
-    userId: string,
-    overrides: Record<string, string> = {},
-  ): Promise<{ ok: boolean; error?: string }> {
-    if (this.state.running) return { ok: false, error: 'A scan is already running.' };
+  async startQueue(overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
+    const userId = this.userId;
+    if (this.state.running) return { ok: false, error: 'A scan is already running for this account.' };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'queue.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
@@ -272,27 +289,36 @@ class Runner {
       // Always last: no override may point a scan at another account's files.
       DATA_DIR: dataDir,
     };
-    this.child = spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env });
-    this.child.stdout?.on('data', (b) => this.push('out', b.toString()));
-    this.child.stderr?.on('data', (b) => this.push('err', b.toString()));
-    this.child.on('close', (code) => {
+    this.spawnChild(spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env }), userId, dataDir, 'scan');
+    return { ok: true };
+  }
+
+  /** Wiring shared by a run and a scan: console piping, exit handling, result sync. */
+  private spawnChild(child: ChildProcess, userId: string, dataDir: string, kind: 'run' | 'scan'): void {
+    this.child = child;
+    child.stdout?.on('data', (b) => this.push('out', b.toString()));
+    child.stderr?.on('data', (b) => this.push('err', b.toString()));
+    child.on('error', (e) => this.push('err', `spawn failed: ${e.message}`));
+    child.on('close', (code) => {
       this.state.running = false;
       this.state.exitCode = code;
       this.state.finishedAt = new Date().toISOString();
       this.child = null;
-      this.push('sys', `■ scan finished (exit ${code})`);
+      this.onApplicationSubmitted = null;
+      this.onRehearsalCompleted = null;
+      this.push('sys', `■ ${kind} finished (exit ${code})`);
+      // Fold what this run actually did — new applications, run events — back
+      // into userId's Postgres rows. `syncRunResultsToDb` is idempotent (ON
+      // CONFLICT DO NOTHING on natural keys), so this can never double-count
+      // even if it were somehow triggered twice for the same run.
       void syncRunResultsToDb(userId, dataDir)
         .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
-        .catch((error) => this.push('err', `Could not save this scan's results: ${(error as Error).message}`));
+        .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`));
     });
-    return { ok: true };
   }
 
-  stop(userId: string): { ok: boolean; error?: string } {
+  stop(): { ok: boolean; error?: string } {
     if (!this.child) return { ok: false, error: 'Nothing is running.' };
-    if (this.state.ownerUserId !== userId) {
-      return { ok: false, error: 'This run belongs to another account.' };
-    }
     this.push('sys', '⏹ stop requested — terminating');
     // Windows needs the tree killed; the bot owns a Chrome child process.
     if (process.platform === 'win32') {
@@ -304,7 +330,87 @@ class Runner {
   }
 }
 
-export const runner = new Runner();
+/**
+ * Every account's run, keyed by account.
+ *
+ * Runs are independent: one account's failure, console and stop button never
+ * touch another's. The only shared resource left is the machine itself, which
+ * `MAX_CONCURRENT` protects.
+ */
+class RunPool {
+  private runs = new Map<string, Run>();
+
+  private forUser(userId: string): Run {
+    let run = this.runs.get(userId);
+    if (!run) {
+      run = new Run(userId);
+      this.runs.set(userId, run);
+    }
+    return run;
+  }
+
+  /** Drops finished runs nobody is watching, so the map cannot grow forever. */
+  private sweep(): void {
+    for (const [userId, run] of this.runs) if (run.disposable) this.runs.delete(userId);
+  }
+
+  activeCount(): number {
+    let n = 0;
+    for (const run of this.runs.values()) if (run.running) n++;
+    return n;
+  }
+
+  /** True while any account is running — the machine-wide question. */
+  anyRunning(): boolean {
+    return this.activeCount() > 0;
+  }
+
+  stateFor(userId: string): RunState {
+    return this.runs.get(userId)?.state ?? { ...IDLE_STATE, ownerUserId: null };
+  }
+
+  subscribe(userId: string, fn: (l: LogLine) => void): () => void {
+    return this.forUser(userId).subscribe(fn);
+  }
+
+  backlog(userId: string, since = 0): LogLine[] {
+    return this.runs.get(userId)?.backlog(since) ?? [];
+  }
+
+  private atCapacity(userId: string): string | null {
+    if (this.runs.get(userId)?.running) return null; // its own guard reports better
+    if (this.activeCount() < MAX_CONCURRENT) return null;
+    return `The server is already running ${MAX_CONCURRENT} applications at once. Try again in a few minutes.`;
+  }
+
+  async start(
+    mode: RunMode,
+    overrides: Record<string, string>,
+    userId: string,
+    onApplicationSubmitted?: () => void | Promise<void>,
+    onRehearsalCompleted?: () => void | Promise<void>,
+  ): Promise<{ ok: boolean; error?: string }> {
+    this.sweep();
+    const full = this.atCapacity(userId);
+    if (full) return { ok: false, error: full };
+    return this.forUser(userId).start(mode, overrides, onApplicationSubmitted, onRehearsalCompleted);
+  }
+
+  async startQueue(userId: string, overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
+    this.sweep();
+    const full = this.atCapacity(userId);
+    if (full) return { ok: false, error: full };
+    return this.forUser(userId).startQueue(overrides);
+  }
+
+  stop(userId: string): { ok: boolean; error?: string } {
+    const run = this.runs.get(userId);
+    if (!run) return { ok: false, error: 'Nothing is running.' };
+    return run.stop();
+  }
+}
+
+export const runner = new RunPool();
 
 /** Reads seek-bot/.env into a plain object, skipping comments. */
 export function readEnv(): Record<string, string> {

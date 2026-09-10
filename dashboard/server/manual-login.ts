@@ -15,7 +15,15 @@ export interface ManualLoginResult {
  * real Chrome window and normal OS mouse/keyboard input; it does not automate
  * login or attempt to solve a challenge.
  */
-export function openSeekManualLogin(env: Record<string, string>): Promise<ManualLoginResult> {
+export function openSeekManualLogin(
+  env: Record<string, string>,
+  /**
+   * This account's own Chrome profile. Signing in has to happen in the same
+   * profile the account's runs use, otherwise the run finds no SEEK session —
+   * or worse, finds somebody else's.
+   */
+  chromeProfileDir?: string,
+): Promise<ManualLoginResult> {
   if (env.BROWSER_CONNECT_CDP === 'true') {
     return Promise.resolve({
       ok: false,
@@ -33,7 +41,7 @@ export function openSeekManualLogin(env: Record<string, string>): Promise<Manual
   }
 
   const chromePath = env.CHROME_PATH?.trim();
-  const profileDir = env.CHROME_PROFILE_DIR?.trim();
+  const profileDir = chromeProfileDir?.trim() || env.CHROME_PROFILE_DIR?.trim();
   if (!chromePath || !existsSync(chromePath)) {
     return Promise.resolve({ ok: false, error: 'The configured Chrome application could not be found.' });
   }

@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { userDir } from './server/userdata.js';
+import { userChromeDir, userDir } from './server/userdata.js';
 import { runner, readEnv, readEnvSafe, type RunMode } from './server/runner.js';
 import {
   listResumes, addResume, updateResume, deleteResume,
@@ -569,11 +569,13 @@ function dataApi(): Plugin {
 
       case '/api/browser/manual-login': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
-        return withUser(async () => {
-          if (runner.state.running) {
-            return send({ error: 'Stop the current run before opening the manual SEEK login.' }, 409);
+        return withUser(async (userId) => {
+          // Only this account's own run blocks it: the profile Chrome would
+          // open is this account's, and Chrome locks a profile in use.
+          if (runner.stateFor(userId).running) {
+            return send({ error: 'Stop your current run before opening the manual SEEK login.' }, 409);
           }
-          const result = await openSeekManualLogin(readEnv());
+          const result = await openSeekManualLogin(readEnv(), userChromeDir(userId));
           return send(result.ok ? { ok: true } : { error: result.error }, result.ok ? 200 : 409);
         });
       }
@@ -744,24 +746,10 @@ function dataApi(): Plugin {
       }
 
       case '/api/run/status': {
+        // Runs are per-account now, so an account only ever sees its own.
         return withUser(async (userId) => {
           const hasKey = Boolean(readEnvSafe().GEMINI_API_KEY);
-          const isOwner = !runner.state.ownerUserId || runner.state.ownerUserId === userId;
-          // A run belonging to another account: only reveal that the one
-          // shared browser is busy, never whose run it is or what it's doing.
-          if (!isOwner) {
-            return send({
-              running: runner.state.running,
-              mode: null,
-              startedAt: null,
-              finishedAt: null,
-              exitCode: null,
-              applied: 0,
-              hasKey,
-              isOwner: false,
-            });
-          }
-          return send({ ...runner.state, hasKey, isOwner: true });
+          return send({ ...runner.stateFor(userId), hasKey, isOwner: true });
         });
       }
 
@@ -867,13 +855,9 @@ function dataApi(): Plugin {
       case '/api/run/stream': {
         return currentUser(req.headers?.cookie).then((user) => {
           if (!user) return send({ error: 'Sign in required.' }, 401);
-          // The live console can contain another account's real name,
-          // suburb and search terms (see main.ts's own startup logging) —
-          // never open the stream for a run that isn't this account's.
-          if (runner.state.ownerUserId && runner.state.ownerUserId !== user.id) {
-            return send({ error: 'This run belongs to another account.' }, 403);
-          }
-
+          // The live console can contain an account's real name, suburb and
+          // search terms (see main.ts's own startup logging), so the stream
+          // is scoped to this account's own run and cannot reach another's.
           // Server-sent events: live console without polling.
           res.writeHead(200, {
             'Content-Type': 'text/event-stream',
@@ -881,10 +865,10 @@ function dataApi(): Plugin {
             Connection: 'keep-alive',
           });
           const since = Number(url.searchParams.get('since') ?? 0);
-          for (const line of runner.backlog(since)) {
+          for (const line of runner.backlog(user.id, since)) {
             res.write(`data: ${JSON.stringify(line)}\n\n`);
           }
-          const unsub = runner.subscribe((line) => res.write(`data: ${JSON.stringify(line)}\n\n`));
+          const unsub = runner.subscribe(user.id, (line) => res.write(`data: ${JSON.stringify(line)}\n\n`));
           const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
           req.on('close', () => {
             clearInterval(ping);

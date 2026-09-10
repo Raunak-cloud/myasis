@@ -80,7 +80,7 @@ for (const [k, v] of Object.entries(overrides).sort()) {
 }
 if (mode === 'live') console.log('\n⚠ LIVE — real applications will be submitted\n');
 
-runner.subscribe((line) => process.stdout.write(`${line.text.replace(/\s+$/, '')}\n`));
+runner.subscribe(userId, (line) => process.stdout.write(`${line.text.replace(/\s+$/, '')}\n`));
 
 const usageWrites = [];
 const started = await runner.start(mode, overrides, userId,
@@ -95,7 +95,7 @@ if (!started.ok) {
 // `start` returns as soon as the child is spawned; wait for it to actually end.
 await new Promise((resolve) => {
   const t = setInterval(() => {
-    if (!runner.state.running) {
+    if (!runner.stateFor(userId).running) {
       clearInterval(t);
       resolve();
     }
@@ -105,5 +105,6 @@ await new Promise((resolve) => {
 await Promise.all(usageWrites);
 await syncRunResultsToDb(userId, resolve(import.meta.dirname, '../seek-bot/data/users', userId));
 
-console.log(`\nfinished · exit=${runner.state.exitCode} · applied=${runner.state.applied}`);
-process.exit(runner.state.exitCode ?? 0);
+const finalState = runner.stateFor(userId);
+console.log(`\nfinished · exit=${finalState.exitCode} · applied=${finalState.applied}`);
+process.exit(finalState.exitCode ?? 0);

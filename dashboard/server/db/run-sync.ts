@@ -2,7 +2,7 @@ import { writeFileSync, existsSync, unlinkSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { query } from './index.js';
 import { insertApplicationRow, insertRunEventRow } from './records.js';
-import { ensureUserDataDir } from '../userdata.js';
+import { ensureUserDataDir, userChromeDir } from '../userdata.js';
 import { loadProfile } from '../profile.js';
 import { listResumes, listKnowledge } from '../files.js';
 import { listAnswers } from '../answers.js';
@@ -185,6 +185,13 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
        */
       GMAIL_REFRESH_TOKEN: gmailToken ?? '',
       EXTERNAL_ATTEMPTS_TODAY: externalToday[0]?.n ?? '0',
+      /**
+       * This account's own Chrome profile, holding its own SEEK sign-in.
+       * Without it every run shares one profile, which Chrome locks against
+       * concurrent use and which would send one account's applications under
+       * whichever account signed in last.
+       */
+      CHROME_PROFILE_DIR: userChromeDir(userId),
     },
   };
 }

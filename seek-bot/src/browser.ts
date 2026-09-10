@@ -162,8 +162,33 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
 export async function assertSignedIn(page: Page): Promise<void> {
   await page.goto(`${config.seekBase}/profile/me`, { waitUntil: 'domcontentloaded' });
   await waitForChallengeToClear(page);
-  const url = page.url();
-  if (/login|signin|oauth/i.test(url)) {
+
+  /**
+   * Wait for the answer rather than reading the URL immediately.
+   *
+   * The profile page is a single-page app: a signed-out visit renders its
+   * shell first and only redirects to login.seek.com a second or two later.
+   * Testing the URL at domcontentloaded therefore reported "signed in" for
+   * every signed-out profile — harmless while one always-signed-in profile
+   * was shared, and badly wrong once each account has its own, because a new
+   * account's first run would crawl SEEK unauthenticated before failing.
+   */
+  const verdict = await page
+    .waitForFunction(
+      () => {
+        if (/login\.seek|\/oauth\/login|\/signin|\/login\b/i.test(location.href)) return 'signed-out';
+        const text = document.body?.innerText ?? '';
+        if (/sign in to view your profile|sign in to continue/i.test(text)) return 'signed-out';
+        if (/profile visibility|profile strength|career history|profile activity/i.test(text)) return 'signed-in';
+        return false;
+      },
+      undefined,
+      { timeout: 15_000, polling: 300 },
+    )
+    .then((handle) => handle.jsonValue() as Promise<string>)
+    .catch(() => 'unclear');
+
+  if (verdict === 'signed-out' || (verdict === 'unclear' && /login|signin|oauth/i.test(page.url()))) {
     throw new Error(
       'SEEK session is not signed in. Open the Chrome profile manually, sign in, then re-run. ' +
         'This tool never automates login.',
