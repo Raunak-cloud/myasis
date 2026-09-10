@@ -62,6 +62,50 @@ function maskExactValues(text: string) {
   };
 }
 
+/**
+ * Splits text into pieces small enough for the rewriter to handle in one go.
+ *
+ * AuthorMist is a 3B. Handed a long document it does not fail loudly — it
+ * drifts, or runs into max_tokens and stops mid-sentence, and the length check
+ * downstream then rejects the whole thing after minutes of work. Kept to about
+ * a paragraph at a time it is reliable, so long text is rewritten piecewise
+ * and stitched back together.
+ *
+ * Paragraphs are the natural seam and are packed greedily up to the limit. A
+ * single paragraph longer than the limit is split on sentence ends instead,
+ * and only failing that on the limit itself, so a wall of text still goes
+ * through rather than being refused.
+ */
+function splitForRewrite(text: string, limit: number): string[] {
+  const paragraphs = text.trim().split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const pieces: string[] = [];
+
+  for (const paragraph of paragraphs) {
+    if (paragraph.length <= limit) {
+      pieces.push(paragraph);
+      continue;
+    }
+    let rest = paragraph;
+    while (rest.length > limit) {
+      const window = rest.slice(0, limit);
+      const sentenceEnd = Math.max(window.lastIndexOf('. '), window.lastIndexOf('! '), window.lastIndexOf('? '));
+      const cut = sentenceEnd > limit * 0.4 ? sentenceEnd + 1 : window.lastIndexOf(' ') > 0 ? window.lastIndexOf(' ') : limit;
+      pieces.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) pieces.push(rest);
+  }
+
+  // Pack neighbouring short paragraphs so a bulleted list is not one call each.
+  const packed: string[] = [];
+  for (const piece of pieces) {
+    const last = packed.at(-1);
+    if (last && last.length + piece.length + 2 <= limit) packed[packed.length - 1] = `${last}\n\n${piece}`;
+    else packed.push(piece);
+  }
+  return packed.length ? packed : [text];
+}
+
 function textTokens(text: string): string[] {
   return text
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
@@ -391,13 +435,26 @@ function dataApi(): Plugin {
                 413,
               );
             }
-            try {
-              const { masked, restore } = maskExactValues(text);
-              const sourceWords = textTokens(text).length;
-              let lastIssue = 'The rewrite was too similar to the original.';
-              let bestCandidate: { text: string; similarity: number } | null = null;
+
+            const deadline = Date.now() + Number(env.HUMANIZER_TIMEOUT_MS ?? 240_000);
+
+            /**
+             * One pass over one piece, with the retry ladder that the whole
+             * request used to run over an entire document.
+             *
+             * Hands back the piece unchanged rather than failing when the
+             * model cannot better it: one stubborn paragraph should cost that
+             * paragraph, not the nine others the person waited for.
+             */
+            async function rewritePiece(
+              piece: string,
+            ): Promise<{ text: string; similarity: number } | { failure: string; status: number }> {
+              const { masked, restore } = maskExactValues(piece);
+              const sourceWords = textTokens(piece).length;
+              let best: { text: string; similarity: number } | null = null;
 
               for (let attempt = 0; attempt < 3; attempt++) {
+                if (Date.now() >= deadline) break;
                 const response = await fetch(`${base}/v1/chat/completions`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -418,10 +475,16 @@ function dataApi(): Plugin {
                     ],
                     temperature: 0.78 + attempt * 0.08,
                     top_p: 0.95,
-                    max_tokens: Math.min(2_000, Math.max(500, sourceWords * 3)),
+                    /**
+                     * Sized against this piece rather than a flat ceiling. The
+                     * old cap of 2,000 truncated any long rewrite mid-sentence,
+                     * which then failed the length check below — a document
+                     * rejected after minutes of work for a fault in the request.
+                     */
+                    max_tokens: Math.max(600, Math.ceil(sourceWords * 4)),
                     stream: false,
                   }),
-                  signal: AbortSignal.timeout(Number(env.HUMANIZER_TIMEOUT_MS ?? 120_000)),
+                  signal: AbortSignal.timeout(Math.max(1_000, deadline - Date.now())),
                 });
                 const result = await response.json() as {
                   choices?: Array<{ message?: { content?: unknown } }>;
@@ -434,41 +497,55 @@ function dataApi(): Plugin {
                     : typeof result.error?.message === 'string'
                       ? result.error.message
                       : `The rewriting service returned HTTP ${response.status}.`;
-                  return send({ error: message }, 502);
+                  return { failure: message, status: 502 };
                 }
 
                 let candidate: string;
                 try {
                   candidate = restore(content.trim());
-                } catch (error) {
-                  lastIssue = (error as Error).message;
+                } catch {
                   continue;
                 }
 
                 const outputWords = textTokens(candidate).length;
-                if (outputWords < sourceWords * 0.65 || outputWords > sourceWords * 1.45) {
-                  lastIssue = 'The rewrite changed the length too much.';
-                  continue;
-                }
-                const similarity = tokenSimilarity(text, candidate);
-                if (!bestCandidate || similarity < bestCandidate.similarity) {
-                  bestCandidate = { text: candidate, similarity };
-                }
-                if (similarity > 0.7) {
-                  lastIssue = 'The rewrite was too similar to the original.';
-                  continue;
-                }
-                return send({ text: candidate, changed: true, similarity });
+                if (outputWords < sourceWords * 0.65 || outputWords > sourceWords * 1.45) continue;
+
+                const similarity = tokenSimilarity(piece, candidate);
+                if (!best || similarity < best.similarity) best = { text: candidate, similarity };
+                if (similarity <= 0.7) return best;
               }
 
-              if (bestCandidate && bestCandidate.similarity < 0.95) {
-                return send({
-                  text: bestCandidate.text,
-                  changed: true,
-                  similarity: bestCandidate.similarity,
-                });
+              if (best && best.similarity < 0.95) return best;
+              return { text: piece, similarity: 1 };
+            }
+
+            try {
+              const pieces = splitForRewrite(text, 1_400);
+              const rewritten: string[] = [];
+              let weighted = 0;
+              let counted = 0;
+              let untouched = 0;
+
+              for (const piece of pieces) {
+                const outcome = await rewritePiece(piece);
+                if ('failure' in outcome) return send({ error: outcome.failure }, outcome.status);
+                rewritten.push(outcome.text);
+                weighted += outcome.similarity * piece.length;
+                counted += piece.length;
+                if (outcome.similarity >= 0.95) untouched += 1;
               }
-              return send({ error: `${lastIssue} Please try again.` }, 422);
+
+              if (untouched === pieces.length) {
+                return send({ error: 'The rewrite was too similar to the original. Please try again.' }, 422);
+              }
+              return send({
+                text: rewritten.join('\n\n'),
+                changed: true,
+                similarity: counted ? weighted / counted : 1,
+                // Reported rather than hidden, so the person can see which
+                // parts to revisit instead of assuming everything changed.
+                ...(untouched ? { unchangedSections: untouched, sections: pieces.length } : {}),
+              });
             } catch (error) {
               return send({ error: `Could not reach the rewriting service: ${(error as Error).message}` }, 503);
             }
