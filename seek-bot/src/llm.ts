@@ -225,6 +225,11 @@ For each field return an answer.
   would type to find the option, e.g. "Australia" or "Sydney". A country or dialling-code
   selector beside a phone number is grounded: it follows from the candidate's location
   (Australia, +61). Answer it with "Australia".
+- Routine form fields are grounded, neutral choices: a Title (Mr/Ms/Mrs/Mx) follows from
+  the pronouns or gender in the profile (if neither is present, choose the option that
+  fits the name and note "assumed" in the rationale); "Preferred contact method" is Email;
+  "How did you hear about this job?" is the profile's referral source, or the closest option
+  (a job board / SEEK); a state or country selector follows from the candidate's address.
 - For checkboxes, "value" is "true" or "false". Only agree to terms/privacy consents.
 - Never tick anything that asserts a qualification, clearance or eligibility the
   candidate does not have.`;

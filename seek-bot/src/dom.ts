@@ -1,4 +1,4 @@
-import type { Page } from 'patchright';
+import type { Locator, Page } from 'patchright';
 import type { FormField } from './types.js';
 
 /**
@@ -227,21 +227,43 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string): 
     else await el.uncheck({ force: true });
     return;
   }
-  await el.fill(value);
-  // Common external ATS forms implement City and similar fields as an ARIA
-  // combobox. Typing alone leaves the required value uncommitted, so select
-  // the matching suggestion just as a user would.
   if (field.autocomplete || (await el.getAttribute('role').catch(() => null)) === 'combobox') {
-    const options = page.locator('[role="option"]:visible');
-    await options.first().waitFor({ state: 'visible', timeout: 1_500 }).catch(() => {});
-    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const exact = options.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') }).first();
-    // "Australia" should pick "Australia (+61)"; a lone containing match is what a person would click.
-    const partial = options.filter({ hasText: new RegExp(escaped, 'i') });
-    if (await exact.count()) await exact.click({ timeout: 5_000 });
-    else if ((await partial.count()) >= 1) await partial.first().click({ timeout: 5_000 });
-    else if (await options.count()) throw new Error('No matching autocomplete option; re-observe the available choices.');
+    await pickFromCombobox(page, el, value);
+    return;
   }
+  await el.fill(value);
+}
+
+/**
+ * ARIA comboboxes come in two shapes. A searchable one (city, dialling code)
+ * filters as you type; a select-style one (title, preferred contact method,
+ * "how did you hear") is a read-only input that only opens on click — Ant
+ * Design's, used by Dayforce, is the common case. Either way the value is
+ * committed by clicking the matching option, exactly as a person does.
+ */
+async function pickFromCombobox(page: Page, el: Locator, value: string): Promise<void> {
+  const typeable = await el
+    .evaluate((element) => /^(INPUT|TEXTAREA)$/.test(element.tagName) && !(element as HTMLInputElement).readOnly)
+    .catch(() => false);
+  const options = page.locator('[role="option"]:visible');
+  if (typeable) await el.fill(value);
+  else await el.click({ timeout: 3_000 });
+  await options.first().waitFor({ state: 'visible', timeout: 1_500 }).catch(() => {});
+  if (!(await options.count()) && typeable) {
+    // Some searchable selects only open on a click, not on typing.
+    await el.click({ timeout: 3_000 }).catch(() => {});
+    await options.first().waitFor({ state: 'visible', timeout: 1_500 }).catch(() => {});
+  }
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exact = options.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') }).first();
+  // "Australia" should pick "Australia (+61)"; a containing match is what a person would click.
+  const partial = options.filter({ hasText: new RegExp(escaped, 'i') });
+  if (await exact.count()) await exact.click({ timeout: 5_000 });
+  else if (await partial.count()) await partial.first().click({ timeout: 5_000 });
+  else if (await options.count()) {
+    const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 12);
+    throw new Error(`No option matches "${value}". Available: ${shown.join(' | ')}`);
+  } else throw new Error('The dropdown did not open; re-observe and click its control first.');
 }
 
 /** Short text summary of the page, for classifying unexpected steps. */
@@ -288,6 +310,13 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
     if (!el || el.getAttribute('aria-invalid') === 'true' || !el.validity.valid) return false;
     if (field.kind === 'checkbox') return (el as HTMLInputElement).checked === (value === 'true');
     if (field.kind === 'select') return [...(el as HTMLSelectElement).selectedOptions].some(o => normal(o.textContent ?? '') === normal(value) || o.value === value);
+    if (field.autocomplete || el.getAttribute('role') === 'combobox') {
+      // A combobox shows its choice in a sibling, not in the input, and often clears the input after choosing.
+      const container = el.closest('[class*="select"], [class*="combobox"], [class*="dropdown"], label') ?? el.parentElement?.parentElement ?? el;
+      const shown = normal(container.textContent ?? '').toLowerCase();
+      const want = normal(value).toLowerCase();
+      return normal(el.value).toLowerCase() === want || (want.length > 0 && shown.includes(want));
+    }
     return normal(el.value) === normal(value);
   }, { field, value }, { timeout: 2000, polling: 100 }).catch(() => {
     throw new Error(`The form did not accept the value for "${field.label}"; inspect the current field and validation message.`);
