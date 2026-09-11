@@ -3,10 +3,10 @@ import { resolve } from 'node:path';
 import { query } from './index.js';
 import { insertApplicationRow, insertRunEventRow } from './records.js';
 import { ensureUserDataDir, userChromeDir } from '../userdata.js';
+import { chromeGoogleAccounts } from '../chrome-accounts.js';
 import { loadProfile } from '../profile.js';
 import { listResumes, listKnowledge } from '../files.js';
 import { listAnswers } from '../answers.js';
-import { gmailRefreshToken } from '../gmail.js';
 import type { CandidateProfile } from '../candidate-profile.js';
 
 /**
@@ -99,7 +99,6 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   // The answer bank, read by seek-bot's knowledge.ts on every form step.
   const answers = await listAnswers(userId);
   writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer }) => ({ question, answer })), null, 2));
-  const gmailToken = await gmailRefreshToken(userId);
   /**
    * Employer-site applications SUBMITTED today, so the daily ceiling holds
    * across runs. Only successful ones count: a form that defeats the agent
@@ -180,10 +179,14 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
       EXCLUDED_DOMAINS: '',
       SECURITY_CLEARANCE: 'None held',
       /**
-       * This account's own mailbox token, or explicitly empty so a run can
-       * never inherit another account's connection from the environment.
+       * The mailbox the run can read in its own browser, when there is one.
+       *
+       * The API route above needs Google's restricted `gmail.readonly` scope,
+       * which an unverified app cannot have. A dedicated Gmail signed in to
+       * this profile's Chrome gets to the same codes with no scope at all, so
+       * the run is told the address exists and reads it from the session.
        */
-      GMAIL_REFRESH_TOKEN: gmailToken ?? '',
+      GMAIL_BROWSER_ACCOUNT: chromeGoogleAccounts(userId)[0] ?? '',
       EXTERNAL_ATTEMPTS_TODAY: externalToday[0]?.n ?? '0',
       /**
        * This account's own Chrome profile, holding its own SEEK sign-in.

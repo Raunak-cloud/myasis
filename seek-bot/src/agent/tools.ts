@@ -16,7 +16,7 @@ import type { Observation } from './observe.js';
 import { RunGuards, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
-import { findVerificationCode, gmailConfigured } from '../gmail.js';
+import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
 
 /**
  * The agent's entire action surface.
@@ -99,7 +99,7 @@ const CLICK_POINT_TOOL: ToolSchema = {
 export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
   return [
     ...TOOL_SCHEMAS,
-    ...(gmailConfigured() ? [EMAILED_CODE_TOOL] : []),
+    ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL] : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
   ];
 }
@@ -602,19 +602,26 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
 }
 
 async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  if (!gmailConfigured()) return ok('Email access is not connected for this candidate. Finish with "needs_human".');
+  if (!browserGmailAvailable()) {
+    return ok('No mailbox is signed in for this candidate. Finish with "needs_human".');
+  }
   const field = ctx.observation.fields.find((candidate) => candidate.ref === String(args.ref ?? ''));
   if (!field) return ok("That ref is not a FIELD on this page. Choose the code input's ref from the current FIELDS list.");
+  const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
   ctx.log('  ✉ waiting for the emailed verification code');
-  // The email is usually requested a few seconds before this call; look back a little further to be safe.
-  const found = await findVerificationCode({
-    since: Date.now() - 3 * 60_000,
-    hint: typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company,
-    timeoutMs: 90_000,
-  });
-  if (!found) {
+
+  const found = await findCodeInBrowser(ctx.page.context(), { hint, timeoutMs: 90_000, log: ctx.log });
+  if ('error' in found) {
+    ctx.log(`  ✉ ${found.error}`);
+    /**
+     * A signed-out mailbox is not a slow email, and calling this again will
+     * not fix it. Saying so ends the attempt in one step instead of spending
+     * another ninety seconds finding out the same thing.
+     */
+    if (/signed out/i.test(found.error)) return ok(`${found.error} Finish with "needs_human".`);
     return ok('No verification email arrived within 90 seconds. If the page has a resend control, click it and call this again once; otherwise finish with "needs_human".');
   }
+
   await fillField(ctx.page, field, found.code);
   ctx.guards.recordProgress();
   ctx.log(`  ✉ entered the code from "${found.subject.slice(0, 60)}"`);

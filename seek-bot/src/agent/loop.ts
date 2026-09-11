@@ -9,7 +9,7 @@ import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './c
 import { RunGuards, detectConfirmation, isExternal } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
 import { executeTool, toolSchemas, type AgentTermination, type ToolContext } from './tools.js';
-import { gmailConfigured } from '../gmail.js';
+import { browserGmailAvailable } from '../browser-gmail.js';
 
 /**
  * The navigation agent.
@@ -112,7 +112,7 @@ STOPPING
  * cache-friendly prompt.
  */
 function systemPrompt(): string {
-  if (!gmailConfigured()) return SYSTEM_PROMPT;
+  if (!browserGmailAvailable()) return SYSTEM_PROMPT;
   return `${SYSTEM_PROMPT}
 
 EMAILED CODES

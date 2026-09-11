@@ -36,6 +36,19 @@ const FIRST_DISPLAY = 100;
 const FIRST_PORT = 5900;
 const SCREEN = '1280x900x24';
 
+/** What a sign-in window was opened for; only the label and start page differ. */
+export type SigninTarget = 'seek' | 'gmail';
+
+export const START_URLS: Record<SigninTarget, string> = {
+  seek: 'https://www.seek.com.au/oauth/login/',
+  /**
+   * Straight to the account chooser rather than mail.google.com, which would
+   * land an already-signed-in profile in an inbox instead of offering to add
+   * the separate account this flow exists to add.
+   */
+  gmail: 'https://accounts.google.com/AddSession?service=mail',
+};
+
 export interface SigninSession {
   userId: string;
   display: number;
@@ -43,6 +56,7 @@ export interface SigninSession {
   password: string;
   startedAt: number;
   expiresAt: number;
+  target: SigninTarget;
 }
 
 interface Live extends SigninSession {
@@ -106,8 +120,8 @@ export function stopSignin(userId: string): { ok: boolean } {
 export function sessionFor(userId: string): SigninSession | null {
   const live = sessions.get(userId);
   if (!live) return null;
-  const { userId: id, display, vncPort, password, startedAt, expiresAt } = live;
-  return { userId: id, display, vncPort, password, startedAt, expiresAt };
+  const { userId: id, display, vncPort, password, startedAt, expiresAt, target } = live;
+  return { userId: id, display, vncPort, password, startedAt, expiresAt, target };
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -120,7 +134,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * plain Chrome — no automation flags, no CDP — because this window exists to
  * be driven by a human.
  */
-export async function startSignin(userId: string, startUrl = 'https://www.seek.com.au/oauth/login/'): Promise<{
+export async function startSignin(userId: string, target: SigninTarget = 'seek'): Promise<{
   ok: boolean;
   error?: string;
   session?: SigninSession;
@@ -131,6 +145,7 @@ export async function startSignin(userId: string, startUrl = 'https://www.seek.c
   const existing = sessions.get(userId);
   if (existing) return { ok: true, session: sessionFor(userId)! };
 
+  const startUrl = START_URLS[target] ?? START_URLS.seek;
   const env = readEnv();
   const chromePath = env.CHROME_PATH?.trim() || '/usr/bin/google-chrome';
   ensureUserDataDir(userId);
@@ -206,6 +221,7 @@ export async function startSignin(userId: string, startUrl = 'https://www.seek.c
       password,
       startedAt,
       expiresAt: startedAt + SESSION_MS,
+      target,
       xvfb,
       chrome,
       vnc,

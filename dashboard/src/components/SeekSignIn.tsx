@@ -20,6 +20,8 @@ interface Session {
   startedAt: number;
   expiresAt: number;
   password: string;
+  /** Which sign-in this window was opened for; only the labels differ. */
+  target?: 'seek' | 'gmail';
 }
 
 /** Last known SEEK sign-in state; null when nobody has ever found out. */
@@ -183,11 +185,13 @@ export function SeekSignIn() {
    * inconvenience of reaching for Done.
    */
   return (
-    <div className="overlay center" role="dialog" aria-modal="true" aria-label="SEEK sign-in">
+    <div className="overlay center" role="dialog" aria-modal="true" aria-label="Browser sign-in">
       <div className="card seek-window">
         <div className="seek-window-bar">
           <span className={`seek-dot ${connected ? 'on' : ''}`} aria-hidden="true" />
-          <span className="seek-window-title">SEEK sign-in</span>
+          <span className="seek-window-title">
+            {status.session.target === 'gmail' ? 'Gmail sign-in' : 'SEEK sign-in'}
+          </span>
           <span className="job-meta seek-window-time">{minutesLeft} min left</span>
           <button className="btn primary btn-small" disabled={busy} onClick={close}>
             {busy ? 'Closing…' : "I'm signed in"}

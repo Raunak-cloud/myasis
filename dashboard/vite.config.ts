@@ -20,7 +20,6 @@ import {
 import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions } from './server/auth.js';
-import { gmailAuthUrl, handleGmailCallback, gmailStatus, disconnectGmail, isGmailState } from './server/gmail.js';
 import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
   billingStatus,
@@ -740,7 +739,10 @@ function dataApi(): Plugin {
             if (runner.stateFor(userId).running) {
               return send({ error: 'Stop your current run first — Chrome cannot open the same profile twice.' }, 409);
             }
-            const result = await startSignin(userId);
+            // Same window, same profile; only the page it opens on differs.
+            const body = await readBody();
+            const target = body?.target === 'gmail' ? 'gmail' : 'seek';
+            const result = await startSignin(userId, target);
             if (!result.ok) return send({ error: result.error }, 409);
             return send({ ok: true, supported: true, session: result.session });
           }
@@ -810,14 +812,6 @@ function dataApi(): Plugin {
       }
 
       case '/api/auth/callback/google': {
-        // The Gmail connection shares this registered redirect URI; its state carries a prefix.
-        if (isGmailState(url.searchParams.get('state'))) {
-          return handleGmailCallback(url.searchParams.get('code'), url.searchParams.get('state')).then((r) => {
-            res.statusCode = 302;
-            res.setHeader('Location', r.ok ? '/?gmail=connected' : '/?gmail_error=' + encodeURIComponent(r.error ?? 'failed'));
-            return res.end();
-          });
-        }
         return handleGoogleCallback(url.searchParams.get('code'), url.searchParams.get('state')).then(
           (r) => {
             if (!r.ok) {
@@ -876,16 +870,6 @@ function dataApi(): Plugin {
       case '/api/attention':
         return withUser(async (userId) => send(await loadAttention(userId)));
 
-      case '/api/gmail/connect': {
-        return withUser(async (userId) => {
-          const r = gmailAuthUrl(userId);
-          if (!r.ok) return send({ error: r.error }, 400);
-          res.statusCode = 302;
-          res.setHeader('Location', r.url!);
-          return res.end();
-        });
-      }
-
       case '/api/gmail/status':
         return withUser(async (userId) => {
           /**
@@ -901,32 +885,11 @@ function dataApi(): Plugin {
           const allowance = await billingStatus(userId, user?.email);
           const entitled = isAdmin(user?.email) || allowance.paid.hasActiveIntensivePass;
           const browserAccounts = chromeGoogleAccounts(userId);
-          const gmail = await gmailStatus(userId);
-          /**
-           * The whole point of this connection is a mailbox the agent can read
-           * without that being someone's real inbox. Connecting a personal
-           * account defeats that — so if the address they connected is one
-           * already signed in to their own browser, say so rather than treat
-           * the setup as finished.
-           */
-          const isPersonalAccount = Boolean(
-            gmail.connected && gmail.email && browserAccounts.some((a) => a.toLowerCase() === gmail.email!.toLowerCase()),
-          );
           return send({
-            ...gmail,
             needed: entitled && browserAccounts.length === 0,
             browserAccount: browserAccounts[0] ?? null,
-            isPersonalAccount,
           });
         });
-
-      case '/api/gmail/disconnect': {
-        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
-        return withUser(async (userId) => {
-          await disconnectGmail(userId);
-          return send({ ok: true, ...(await gmailStatus(userId)) });
-        });
-      }
 
       case '/api/answers': {
         return withUser(async (userId) => {
