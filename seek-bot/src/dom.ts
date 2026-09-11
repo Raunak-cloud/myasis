@@ -483,7 +483,79 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
       return normal(el.value).toLowerCase() === want || (want.length > 0 && shown.includes(want));
     }
     return normal(el.value) === normal(value);
-  }, { field, value }, { timeout: 2000, polling: 100 }).catch(() => {
-    throw new Error(`The form did not accept the value for "${field.label}"; inspect the current field and validation message.`);
+  }, { field, value }, { timeout: 2000, polling: 100 }).catch(async () => {
+    const complaint = await readValidationMessage(page, field);
+    throw new FieldRejectedError(field.label, value, complaint);
   });
+}
+
+/**
+ * What the form said was wrong, in its own words.
+ *
+ * This used to throw "inspect the current field and validation message" —
+ * telling the model to go and look at something it was never shown. The page
+ * was saying "Mobile phone number is invalid" next to an empty dialling-code
+ * selector, and the answer never got that back, so it had no way to work out
+ * that a leading zero and a +61 prefix cannot both be there.
+ *
+ * Reading the complaint and handing it over is the general form of that fix.
+ * A rule per format — phone here, state name there, dates next — only ever
+ * covers the cases already seen; the form itself knows why it refused, for
+ * every case, including the ones nobody has hit yet.
+ */
+async function readValidationMessage(page: Page, field: FormField): Promise<string> {
+  return page
+    .evaluate(({ ref }) => {
+      const roots: (Document | ShadowRoot)[] = [document];
+      const elements: Element[] = [];
+      for (let i = 0; i < roots.length; i++) {
+        for (const el of roots[i].querySelectorAll('*')) {
+          elements.push(el);
+          if (el.shadowRoot) roots.push(el.shadowRoot);
+        }
+      }
+      const el = elements.find((e) => (e.getAttribute('data-field-id') ?? '').split(':')[0] === ref);
+      if (!el) return '';
+      const clean = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ').trim();
+
+      // The browser's own message, when the constraint is a native one.
+      const native = clean((el as HTMLInputElement).validationMessage);
+      if (native) return native;
+
+      // Whatever the form points at as this field's error.
+      for (const attribute of ['aria-errormessage', 'aria-describedby']) {
+        for (const id of (el.getAttribute(attribute) ?? '').split(/\s+/).filter(Boolean)) {
+          const text = clean(document.getElementById(id)?.textContent);
+          if (text) return text;
+        }
+      }
+
+      /**
+       * Otherwise the nearest thing that looks like an error. Bounded to the
+       * field's own surroundings so a message belonging to another field is
+       * not read back as this one's.
+       */
+      let scope: Element | null = el.parentElement;
+      for (let up = 0; up < 4 && scope; up++, scope = scope.parentElement) {
+        const found = scope.querySelector('[role="alert"], [class*="error" i], [class*="invalid" i], [class*="Error"]');
+        const text = clean((found as HTMLElement | null)?.innerText);
+        if (text && text.length < 200) return text;
+      }
+      return '';
+    }, { ref: field.ref })
+    .catch(() => '');
+}
+
+/**
+ * A value the form refused, carrying the form's own reason so the retry can
+ * be told what to change rather than guessing a second time.
+ */
+export class FieldRejectedError extends Error {
+  constructor(readonly label: string, readonly value: string, readonly complaint: string) {
+    super(
+      complaint
+        ? `The form rejected "${value}" for "${label}": ${complaint}`
+        : `The form did not accept "${value}" for "${label}".`,
+    );
+  }
 }

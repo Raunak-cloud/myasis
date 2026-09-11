@@ -8,7 +8,7 @@ import {
   waitForInteractivePageChange,
   waitForInteractiveSurface,
 } from '../browser.js';
-import { ComboboxOptionsError, fillField } from '../dom.js';
+import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
 import { answerFields, coverLetterForJob } from '../llm.js';
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
 import type { CandidateProfile, JobListing } from '../types.js';
@@ -345,16 +345,18 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
        * answer was given blind. Ask once more with the real list, the way a
        * person reads the menu before choosing.
        */
-      if (error instanceof ComboboxOptionsError) {
+      if (error instanceof ComboboxOptionsError || error instanceof FieldRejectedError) {
         /**
-         * With options, the re-ask is a choice from a known list. With none,
-         * the search itself found nothing, so the field's own label is no help
-         * — the reason has to travel with it, or the model simply answers the
-         * same way again and the field fails a second time for one reason.
+         * With options, the re-ask is a choice from a known list. Otherwise
+         * the reason has to travel with the field — a search that matched
+         * nothing, or the form's own complaint about the value — because the
+         * label alone would produce the identical answer and the identical
+         * rejection a second time.
          */
-        const reask = error.options.length
-          ? { ...field, options: error.options }
-          : { ...field, label: `${field.label} — ${error.message}` };
+        const reask =
+          error instanceof ComboboxOptionsError && error.options.length
+            ? { ...field, options: error.options }
+            : { ...field, label: `${field.label} — ${error.message}` };
         const again = await answerFields([reask], ctx.job, ctx.profile);
         const retry = again.answers[0];
         if (!retry?.grounded) {
