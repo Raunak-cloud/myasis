@@ -901,10 +901,22 @@ function dataApi(): Plugin {
           const allowance = await billingStatus(userId, user?.email);
           const entitled = isAdmin(user?.email) || allowance.paid.hasActiveIntensivePass;
           const browserAccounts = chromeGoogleAccounts(userId);
+          const gmail = await gmailStatus(userId);
+          /**
+           * The whole point of this connection is a mailbox the agent can read
+           * without that being someone's real inbox. Connecting a personal
+           * account defeats that — so if the address they connected is one
+           * already signed in to their own browser, say so rather than treat
+           * the setup as finished.
+           */
+          const isPersonalAccount = Boolean(
+            gmail.connected && gmail.email && browserAccounts.some((a) => a.toLowerCase() === gmail.email!.toLowerCase()),
+          );
           return send({
-            ...(await gmailStatus(userId)),
+            ...gmail,
             needed: entitled && browserAccounts.length === 0,
             browserAccount: browserAccounts[0] ?? null,
+            isPersonalAccount,
           });
         });
 
