@@ -1654,7 +1654,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .landing-steps h3 { margin: 4px 0 6px; font-size: 16px; }
 .landing-steps p { margin: 0; color: var(--text-dim); line-height: 1.6; max-width: 66ch; }
 
-.landing-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+/* 220px lets four points sit in one row at the page width; 240 left one orphaned. */
+.landing-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .landing-point, .landing-plan {
   border-radius: var(--landing-radius);
   transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
