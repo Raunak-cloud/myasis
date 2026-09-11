@@ -316,14 +316,21 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastFingerprint = '';
 
   const finish = (outcome: AgentTermination): AgentRunResult => {
+    /**
+     * The technical detail goes to the log and the trace and stops there.
+     * What leaves this function is written to the account's run events and
+     * shown on the dashboard, so it carries only the plain reason.
+     */
+    if (outcome.status === 'needs-human' && outcome.detail) log(`  · ${outcome.detail}`);
     persistTrace(job, outcome, trace, page.url());
+    const plain: AgentTermination = outcome.status === 'needs-human' ? { ...outcome, detail: undefined } : outcome;
     return {
       // Every needs-human carries the questions the profile could not answer, so
       // the dashboard can ask the candidate once and reuse the answers.
       outcome:
-        outcome.status === 'needs-human'
+        plain.status === 'needs-human'
           ? {
-              ...outcome,
+              ...plain,
               questions: [...new Set([...guards.pendingFields, ...guards.ungrounded, ...guards.skippedOptional])].map(
                 (question) => {
                   const shape = guards.fieldShapes.get(question);
@@ -335,7 +342,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
                 },
               ),
             }
-          : outcome,
+          : plain,
       captured: ctx.captured,
       coverLetter: ctx.coverLetter,
       resumeUsed: ctx.resumeUsed,
@@ -347,7 +354,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   for (;;) {
     if (await detectConfirmation(page)) return finish({ status: 'applied' });
     const budget = guards.nextStep();
-    if (!budget.ok) return finish({ status: 'needs-human', reason: budget.reason });
+    if (!budget.ok) return finish({ status: 'needs-human', reason: budget.reason, detail: budget.detail });
 
     /**
      * Deterministic checks run before the model gets a turn, in this order.
@@ -390,7 +397,13 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       stalls += 1;
       note = `${note}\n\nNOTE: the page is unchanged from the previous turn — your last action had no effect. Try a different control.`;
       // Six actions without any effect is a wall, whatever they were called; stop spending the budget on it.
-      if (stalls >= 6) return finish({ status: 'needs-human', reason: 'no progress after six actions on the same page' });
+      if (stalls >= 6) {
+        return finish({
+          status: 'needs-human',
+          reason: 'The page did not change in response to anything the agent tried.',
+          detail: 'no progress after six actions on the same page',
+        });
+      }
     } else {
       stalls = 0;
       guards.recordProgress();
@@ -449,7 +462,11 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       messages.push({ role: 'user', content: 'You must call exactly one tool. Choose a ref from the observation above.' });
       stalls += 1;
       if (stalls >= config.celeris.escalateAfterStalls + 2) {
-        return finish({ status: 'needs-human', reason: 'the agent stopped proposing actions' });
+        return finish({
+          status: 'needs-human',
+          reason: 'The agent could not work out a next step on this page.',
+          detail: 'the agent stopped proposing actions',
+        });
       }
       continue;
     }
@@ -467,7 +484,11 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     repeats = signature === lastSignature ? repeats + 1 : 0;
     lastSignature = signature;
     if (repeats >= 3 && stalls >= 2) {
-      return finish({ status: 'needs-human', reason: `stuck repeating ${call.name} with no effect on the page` });
+      return finish({
+        status: 'needs-human',
+        reason: 'The agent kept repeating the same action with no effect.',
+        detail: `stuck repeating ${call.name} with no effect on the page`,
+      });
     }
 
     messages.push(reply.message);
@@ -488,7 +509,11 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     } catch (error) {
       // A thrown tool is a real failure (a cover letter that would not draft,
       // for instance) — not something to let the model retry blindly.
-      return finish({ status: 'needs-human', reason: `${call.name} failed: ${(error as Error).message}` });
+      return finish({
+        status: 'needs-human',
+        reason: 'A step failed while filling in the application.',
+        detail: `${call.name} failed: ${(error as Error).message}`,
+      });
     }
 
     step.result = result.kind === 'ok' ? result.message.slice(0, 400) : `ended: ${result.outcome.status}`;

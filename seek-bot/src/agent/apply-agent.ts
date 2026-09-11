@@ -75,7 +75,7 @@ export async function applyToJobWithAgent(
    */
   const applyCta = page.locator('[data-automation="job-detail-apply"]').first();
   if (!(await applyCta.count())) {
-    return { status: 'skipped', jobId: job.id, reason: 'no apply control found (expired?)' };
+    return { status: 'skipped', jobId: job.id, reason: 'No apply button on the listing — it may have closed.' };
   }
 
   const label = clean(await applyCta.innerText().catch(() => ''));
@@ -90,7 +90,7 @@ export async function applyToJobWithAgent(
   }
 
   if (config.dryRun && process.env.REHEARSE !== 'true') {
-    return { status: 'skipped', jobId: job.id, reason: 'DRY_RUN (set REHEARSE=true to fill forms)' };
+    return { status: 'skipped', jobId: job.id, reason: 'Dry run — forms are not opened.' };
   }
 
   // Draft while the application UI opens and renders — independent work,

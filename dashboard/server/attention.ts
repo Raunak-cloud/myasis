@@ -87,6 +87,49 @@ interface RunEventRow {
  * Items are deduped to the latest attempt per job, and anything since
  * applied drops off automatically.
  */
+/**
+ * Plain wording for reasons written before runs produced their own.
+ *
+ * Older rows hold the technical form — "model budget exhausted (21 calls ·
+ * 339614 prompt (28% cached) · $0.05270)" — because that string was once the
+ * only one a run produced. Runs now write a plain reason and keep the detail
+ * in their log; this covers what is already stored. The final line strips a
+ * meter summary from anything the patterns miss, so a token count can never
+ * reach the page whatever the wording around it.
+ */
+const PLAIN: Array<[RegExp, string]> = [
+  [/^model budget exhausted/i, 'The application used up its allowance for one attempt.'],
+  [/^step budget exhausted/i, 'The application needed more steps than one attempt allows.'],
+  [/^stuck for \d+s/i, 'The page stopped responding to what the agent did.'],
+  [/^overall time limit/i, 'The application ran out of time.'],
+  [/^the agent stopped proposing/i, 'The agent could not work out a next step on this page.'],
+  [/^stuck repeating/i, 'The agent kept repeating the same action with no effect.'],
+  [/^no progress after six/i, 'The page did not change in response to anything the agent tried.'],
+  [/^agent claimed submission/i, 'The application was not confirmed as submitted.'],
+  [/^[a-z_]+ failed: /i, 'A step failed while filling in the application.'],
+  [/^Fields not verified: (.+)/i, 'Required answers could not be confirmed: $1'],
+  [/^the model could not ground \d+ answer\(s\): (.+)/i, 'These questions could not be answered from the profile: $1'],
+  [/^submit is on an external site/i, "The application continues on the employer's own site."],
+  [/^DRY_RUN/i, 'Rehearsal — nothing was submitted.'],
+];
+
+/** A meter summary, wherever it sits: "21 calls · 339614 prompt (28% cached) · 3042 completion · $0.05270". */
+const METER = /\s*\(?\d+ calls · .*?\$\d+(?:\.\d+)?\)?/g;
+
+export function plainReason(reason: string): string {
+  for (const [pattern, wording] of PLAIN) {
+    if (!pattern.test(reason)) continue;
+    /**
+     * A wording with a "$1" keeps the part of the original it refers to —
+     * the list of questions. Any other wording replaces the whole reason:
+     * the original's tail is the technical part ("(24 steps)", the meter),
+     * which is exactly what must not be shown.
+     */
+    return wording.includes('$1') ? reason.replace(pattern, wording) : wording;
+  }
+  return reason.replace(METER, '').trim();
+}
+
 export async function loadAttention(userId: string): Promise<AttentionItem[]> {
   const [events, appliedRows] = await Promise.all([
     query<RunEventRow>(
@@ -125,7 +168,7 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
       title: e.title ?? `Job ${e.job_id}`,
       company: e.company ?? '—',
       kind,
-      reason: String(reason).slice(0, 300),
+      reason: plainReason(String(reason)).slice(0, 300),
       url: e.url ?? `https://www.seek.com.au/job/${e.job_id}`,
       at: new Date(e.ts).toISOString(),
       ...(questions.length ? { questions } : {}),

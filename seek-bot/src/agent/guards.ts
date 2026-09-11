@@ -95,7 +95,7 @@ export async function detectConfirmation(page: Page): Promise<boolean> {
 
 export type SubmitVerdict =
   | { allowed: true }
-  | { allowed: false; kind: 'dry-run' | 'ungrounded' | 'off-platform'; reason: string };
+  | { allowed: false; kind: 'dry-run' | 'ungrounded' | 'off-platform'; reason: string; detail?: string };
 
 export interface RunGuardOptions {
   maxSteps: number;
@@ -114,7 +114,7 @@ export interface RunGuardOptions {
   meter: CostMeter;
 }
 
-export type BudgetVerdict = { ok: true } | { ok: false; reason: string };
+export type BudgetVerdict = { ok: true } | { ok: false; reason: string; detail?: string };
 
 /**
  * Per-application budget and grounding ledger.
@@ -136,18 +136,40 @@ export class RunGuards {
   nextStep(): BudgetVerdict {
     this.steps += 1;
     if (this.steps > this.options.maxSteps) {
-      return { ok: false, reason: `step budget exhausted (${this.options.maxSteps} steps)` };
+      return {
+        ok: false,
+        reason: 'The application needed more steps than one attempt allows.',
+        detail: `step budget exhausted (${this.options.maxSteps} steps)`,
+      };
     }
     const stuckFor = Date.now() - this.lastProgressAt;
     if (stuckFor > this.options.maxStuckMs) {
-      return { ok: false, reason: `stuck for ${Math.round(stuckFor / 1000)}s with no progress` };
+      return {
+        ok: false,
+        reason: 'The page stopped responding to what the agent did.',
+        detail: `stuck for ${Math.round(stuckFor / 1000)}s with no progress`,
+      };
     }
     const elapsed = Date.now() - this.startedAt;
     if (elapsed > this.options.maxTotalMs) {
-      return { ok: false, reason: `overall time limit reached (${Math.round(elapsed / 1000)}s)` };
+      return {
+        ok: false,
+        reason: 'The application ran out of time.',
+        detail: `overall time limit reached (${Math.round(elapsed / 1000)}s)`,
+      };
     }
     if (this.options.meter.exhausted) {
-      return { ok: false, reason: `model budget exhausted (${this.options.meter.summary()})` };
+      /**
+       * The meter summary — call counts, token counts, dollars — is for the
+       * log. It reached the dashboard verbatim once, as the reason a job
+       * needed attention, and nobody applying for a job should be reading
+       * "339614 prompt (28% cached)".
+       */
+      return {
+        ok: false,
+        reason: 'The application used up its allowance for one attempt.',
+        detail: `model budget exhausted (${this.options.meter.summary()})`,
+      };
     }
     return { ok: true };
   }
@@ -200,18 +222,25 @@ export class RunGuards {
    * here, and it consults only configuration and recorded facts.
    */
   canSubmit(currentUrl: string): SubmitVerdict {
-    if (this.pendingFields.size) return { allowed: false, kind: 'ungrounded', reason: `Fields not verified: ${[...this.pendingFields].join('; ')}` };
+    if (this.pendingFields.size) {
+      return { allowed: false, kind: 'ungrounded', reason: `Required answers could not be confirmed: ${[...this.pendingFields].join('; ')}` };
+    }
     if (this.ungrounded.length) {
       return {
         allowed: false,
         kind: 'ungrounded',
-        reason: `the model could not ground ${this.ungrounded.length} answer(s): ${this.ungrounded
+        reason: `These questions could not be answered from the profile: ${this.ungrounded
           .slice(0, 3)
           .join('; ')}`,
       };
     }
     if (isExternal(currentUrl) && !config.allowExternalApply) {
-      return { allowed: false, kind: 'off-platform', reason: `submit is on an external site (${currentUrl})` };
+      return {
+        allowed: false,
+        kind: 'off-platform',
+        reason: "The application continues on the employer's own site.",
+        detail: `submit is on an external site (${currentUrl})`,
+      };
     }
     /**
      * Read the environment live, not just the snapshot config took at import.
@@ -226,7 +255,7 @@ export class RunGuards {
      * both and blocks if *either* says rehearsal.
      */
     if (config.dryRun || process.env.DRY_RUN === 'true') {
-      return { allowed: false, kind: 'dry-run', reason: 'DRY_RUN — final submit withheld' };
+      return { allowed: false, kind: 'dry-run', reason: 'Rehearsal — nothing was submitted.', detail: 'DRY_RUN — final submit withheld' };
     }
     return { allowed: true };
   }

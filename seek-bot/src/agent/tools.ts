@@ -36,7 +36,14 @@ import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
 export type AgentTermination =
   | { status: 'applied' }
   | { status: 'rehearsed'; stoppedAt: string }
-  | { status: 'needs-human'; reason: string; questions?: BlockedQuestion[] }
+  | {
+      status: 'needs-human';
+      /** Plain language, shown to the candidate. */
+      reason: string;
+      /** The technical version, for the log and the trace only. */
+      detail?: string;
+      questions?: BlockedQuestion[];
+    }
   | { status: 'off-platform'; redirectedTo: string }
   | { status: 'skipped'; reason: string };
 
@@ -261,7 +268,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
       if (verdict.kind === 'off-platform') {
         return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
       }
-      return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason } };
+      return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } };
     }
     ctx.log(`  → submitting: "${action.text}"`);
   }
@@ -566,7 +573,8 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
         kind: 'terminal',
         outcome: {
           status: 'needs-human',
-          reason: `agent claimed submission but no confirmation page was reached: ${reason}`,
+          reason: 'The application was not confirmed as submitted.',
+          detail: `agent claimed submission but no confirmation page was reached: ${reason}`,
         },
       };
     case 'off_platform':
@@ -627,7 +635,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
       if (verdict.kind === 'off-platform') {
         return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
       }
-      return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason } };
+      return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } };
     }
     ctx.log(`  → submitting: "${under.text}"`);
   }
