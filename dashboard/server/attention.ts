@@ -40,16 +40,23 @@ export function normaliseQuestions(raw: unknown): BlockedQuestion[] {
   if (!Array.isArray(raw)) return [];
   const out: BlockedQuestion[] = [];
   for (const entry of raw) {
-    if (typeof entry === 'string') {
-      if (entry.trim()) out.push({ question: entry.trim() });
-      continue;
-    }
-    if (!entry || typeof entry !== 'object') continue;
-    const item = entry as { question?: unknown; kind?: unknown; options?: unknown };
-    if (typeof item.question !== 'string' || !item.question.trim()) continue;
+    const item: { question?: unknown; kind?: unknown; options?: unknown } =
+      typeof entry === 'string' ? { question: entry } : entry && typeof entry === 'object' ? entry : {};
+    if (typeof item.question !== 'string') continue;
+    // Labels arrive with the form's own line breaks and required-asterisks; one line reads better.
+    const question = item.question.replace(/\s*\*\s*$/, '').replace(/\s+/g, ' ').trim();
+    if (!question) continue;
+    /**
+     * Never shown, whatever the run wrote. Runs stopped recording password
+     * fields once that was noticed, but rows from before then still hold
+     * them, and a password typed into this form is stored in plain text and
+     * replayed at every later employer. Dropping them here covers the old
+     * rows the capture-side fix cannot reach.
+     */
+    if (/\bpass(word|phrase)\b/i.test(question)) continue;
     const options = Array.isArray(item.options) ? item.options.map(String).filter(Boolean) : [];
     out.push({
-      question: item.question.trim(),
+      question,
       ...(typeof item.kind === 'string' ? { kind: item.kind as BlockedQuestion['kind'] } : {}),
       ...(options.length ? { options } : {}),
     });
