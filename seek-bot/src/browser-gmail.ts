@@ -22,6 +22,20 @@ const SEARCH = 'newer_than:1h (code OR verification OR verify OR passcode OR OTP
 
 const INBOX = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(SEARCH)}`;
 
+/**
+ * How often to reload while waiting. Long enough that Gmail can finish
+ * rendering a message list between reloads, short enough that mail arriving
+ * mid-wait is still noticed.
+ */
+const RELOAD_EVERY_MS = 20_000;
+
+/**
+ * Roughly how many lines Gmail's shell alone produces — sidebar, labels,
+ * counts and filter chips, with no message rows. More than this means rows
+ * actually rendered.
+ */
+const CHROME_ONLY_LINES = 30;
+
 /** Set by the dashboard when the profile's Chrome has a Google account signed in. */
 export function browserGmailAvailable(): boolean {
   return Boolean(process.env.GMAIL_BROWSER_ACCOUNT);
@@ -116,6 +130,18 @@ export async function findCodeInBrowser(
     await page.goto(INBOX, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
 
     let seenMail = false;
+    let seenRows = false;
+    /**
+     * Gmail is a heavy single-page app: the shell, sidebar and even the
+     * "1-1 of 1" result count paint well before the message rows do. An
+     * earlier version reloaded every three seconds, which restarted that
+     * render each time — it never once got as far as a row, and reported "no
+     * email arrived" against an inbox that plainly had one. So the page is
+     * loaded once and left alone to finish, and only reloaded occasionally,
+     * to pick up mail that landed after this started watching.
+     */
+    let nextReload = Date.now() + RELOAD_EVERY_MS;
+
     while (Date.now() < deadline) {
       const where = await state(page);
       if (where === 'signed-out') {
@@ -129,14 +155,14 @@ export async function findCodeInBrowser(
         const text = (await page.evaluate(() => document.body?.innerText ?? '').catch(() => '')) as string;
 
         /**
-         * Each list row is its own line, so lines are the natural unit: it
-         * keeps a code found next to one sender from being attributed to the
-         * row above it, which matters when several employers are mid-flight.
+         * A row's sender, subject and snippet each land on their own line, so
+         * a code and the keyword introducing it stay together while separate
+         * messages stay apart — which matters when several employers are
+         * mid-flight and only one of the codes is the one being asked for.
          */
         const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
-        const ranked = hint
-          ? [...lines].sort((a, b) => scoreFor(b, hint) - scoreFor(a, hint))
-          : lines;
+        if (lines.length > CHROME_ONLY_LINES) seenRows = true;
+        const ranked = hint ? [...lines].sort((a, b) => scoreFor(b, hint) - scoreFor(a, hint)) : lines;
 
         for (const line of ranked) {
           const code = extractCode(line);
@@ -144,17 +170,19 @@ export async function findCodeInBrowser(
         }
       }
 
-      await page.waitForTimeout(3_000);
-      // A background reload is what makes new mail appear; Gmail's own push
-      // does not always fire in an automated context.
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 }).catch(() => {});
+      await page.waitForTimeout(2_000);
+      if (Date.now() >= nextReload) {
+        nextReload = Date.now() + RELOAD_EVERY_MS;
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 }).catch(() => {});
+      }
     }
 
-    return {
-      error: seenMail
-        ? 'No verification email arrived in Gmail within the wait.'
-        : 'Gmail did not finish loading in this browser profile.',
-    };
+    if (!seenMail) return { error: 'Gmail did not finish loading in this browser profile.' };
+    // Told apart deliberately: a mailbox whose rows never rendered is a
+    // different problem from one that rendered and held no code, and only the
+    // second means "the email has not arrived".
+    if (!seenRows) return { error: 'Gmail loaded but never rendered its message list.' };
+    return { error: 'No verification email arrived in Gmail within the wait.' };
   } finally {
     await page.close().catch(() => {});
     log('  ✉ closed the Gmail tab');
