@@ -393,7 +393,27 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
     const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 40);
     await page.keyboard.press('Escape').catch(() => {});
     throw new ComboboxOptionsError(value, shown);
-  } else throw new Error('The dropdown did not open; re-observe and click its control first.');
+  } else {
+    /**
+     * Nothing matched is not the same as nothing opened.
+     *
+     * Typing "NSW" into one of these pickers leaves the list showing "No
+     * Data" — open, but empty. Reporting that as "the dropdown did not open"
+     * sent the agent off to re-observe and click the control again, over and
+     * over, until its step budget ran out, when the actual fix was to search
+     * "New South Wales" instead.
+     */
+    const popupOpen = await page
+      .locator('[role="listbox"]:visible, [role="dialog"]:visible, .no-data, [class*="no-data"], [class*="noData"]')
+      .count()
+      .then((count) => count > 0)
+      .catch(() => false);
+    await page.keyboard.press('Escape').catch(() => {});
+    if (popupOpen && typeable) {
+      throw new ComboboxOptionsError(value, []);
+    }
+    throw new Error('The dropdown did not open; re-observe and click its control first.');
+  }
 }
 
 /**
@@ -402,7 +422,12 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
  */
 export class ComboboxOptionsError extends Error {
   constructor(value: string, readonly options: string[]) {
-    super(`No option matches "${value}". Available: ${options.join(' | ')}`);
+    super(
+      options.length
+        ? `No option matches "${value}". Available: ${options.join(' | ')}`
+        : `Searching "${value}" returned nothing. The list is a search box, not a fixed menu, so answer with the ` +
+          `full spelled-out form instead of an abbreviation — "New South Wales" rather than "NSW".`,
+    );
   }
 }
 

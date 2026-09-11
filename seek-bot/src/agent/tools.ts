@@ -346,7 +346,16 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
        * person reads the menu before choosing.
        */
       if (error instanceof ComboboxOptionsError) {
-        const again = await answerFields([{ ...field, options: error.options }], ctx.job, ctx.profile);
+        /**
+         * With options, the re-ask is a choice from a known list. With none,
+         * the search itself found nothing, so the field's own label is no help
+         * — the reason has to travel with it, or the model simply answers the
+         * same way again and the field fails a second time for one reason.
+         */
+        const reask = error.options.length
+          ? { ...field, options: error.options }
+          : { ...field, label: `${field.label} — ${error.message}` };
+        const again = await answerFields([reask], ctx.job, ctx.profile);
         const retry = again.answers[0];
         if (!retry?.grounded) {
           if (!field.required) {

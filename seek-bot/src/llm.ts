@@ -229,6 +229,15 @@ For each field return an answer.
   the option for Australia (+61), or "+61" / "Australia" if there are no listed options. A country or dialling-code
   selector beside a phone number is grounded: it follows from the candidate's location
   (Australia, +61). Answer it with "Australia".
+- When a separate dialling-code field is present, the number field takes the national
+  number WITHOUT its leading zero: ${profile.phone} becomes ${profile.phone.replace(/^0/, '')}. Leaving
+  the zero on beside a +61 prefix is what makes these forms answer "phone number is
+  invalid", because it reads as an extra digit. Answer BOTH fields whenever both appear —
+  a dialling code left empty fails validation just as surely as a wrong number.
+- For an Australian state, prefer the full name over the postal abbreviation when the
+  field is a combobox or has options: "New South Wales", not "NSW". These pickers match on
+  the full name and simply show "No Data" for an abbreviation, which looks to you like an
+  empty list rather than a bad query. Use the abbreviation only for a plain text input.
 - Routine form fields are grounded, neutral choices: a Title (Mr/Ms/Mrs/Mx) follows from
   the pronouns or gender in the profile (if neither is present, choose the option that
   fits the name and note "assumed" in the rationale); "Preferred contact method" is Email;
