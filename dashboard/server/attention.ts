@@ -18,7 +18,43 @@ export interface AttentionItem {
   url: string;
   at: string;
   /** Questions the candidate can answer right here to unblock the job. */
-  questions?: string[];
+  questions?: BlockedQuestion[];
+}
+
+/**
+ * A blocked question as the dashboard shows it: the wording, and the choices
+ * the form offered when it had any, so the person picks from the same list
+ * the form did rather than typing something that will not match on retry.
+ */
+export interface BlockedQuestion {
+  question: string;
+  kind?: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
+  options?: string[];
+}
+
+/**
+ * Accepts both shapes a run has ever written — bare label strings from older
+ * runs, and objects from current ones — so old rows still render.
+ */
+export function normaliseQuestions(raw: unknown): BlockedQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BlockedQuestion[] = [];
+  for (const entry of raw) {
+    if (typeof entry === 'string') {
+      if (entry.trim()) out.push({ question: entry.trim() });
+      continue;
+    }
+    if (!entry || typeof entry !== 'object') continue;
+    const item = entry as { question?: unknown; kind?: unknown; options?: unknown };
+    if (typeof item.question !== 'string' || !item.question.trim()) continue;
+    const options = Array.isArray(item.options) ? item.options.map(String).filter(Boolean) : [];
+    out.push({
+      question: item.question.trim(),
+      ...(typeof item.kind === 'string' ? { kind: item.kind as BlockedQuestion['kind'] } : {}),
+      ...(options.length ? { options } : {}),
+    });
+  }
+  return out;
 }
 
 const CLASSIFY: Array<[RegExp, AttentionKind]> = [
@@ -37,7 +73,7 @@ interface RunEventRow {
   reason: string | null;
   url: string | null;
   ts: Date | string;
-  questions: string[] | null;
+  questions: unknown[] | null;
 }
 
 /**
@@ -65,7 +101,7 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
     if (!e.job_id || applied.has(e.job_id)) continue;
 
     const reason = e.reason ?? 'stopped';
-    const questions = Array.isArray(e.questions) ? e.questions.map(String).filter(Boolean) : [];
+    const questions = normaliseQuestions(e.questions);
     let kind: AttentionKind = e.status === 'off-platform' ? 'off-platform' : e.status === 'error' ? 'error' : 'question';
     for (const [re, k] of CLASSIFY) {
       if (re.test(reason)) {

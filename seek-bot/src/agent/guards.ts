@@ -175,6 +175,22 @@ export class RunGuards {
   /** Optional fields left blank for want of evidence — reported, never blocking. */
   readonly skippedOptional = new Set<string>();
 
+  /**
+   * What each blocked field looked like on the form — its kind and choices —
+   * keyed by label. The pending lists above only hold labels, which was enough
+   * to report a blocker but not to ask a person the same question the form
+   * asked: a dropdown became a free-text box, and what they typed rarely
+   * matched an option on retry.
+   */
+  readonly fieldShapes = new Map<string, { kind?: string; options?: string[] }>();
+
+  rememberField(field: { label: string; kind?: string; options?: string[] }): void {
+    const known = this.fieldShapes.get(field.label);
+    // A later sighting can only add choices (a combobox opened), never remove them.
+    const options = field.options?.length ? field.options : known?.options;
+    this.fieldShapes.set(field.label, { kind: field.kind ?? known?.kind, options });
+  }
+
   recordUngrounded(question: string): void {
     if (!this.ungrounded.includes(question)) this.ungrounded.push(question);
   }

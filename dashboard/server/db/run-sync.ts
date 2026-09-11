@@ -4,6 +4,7 @@ import { query } from './index.js';
 import { insertApplicationRow, insertRunEventRow } from './records.js';
 import { ensureUserDataDir, userChromeDir } from '../userdata.js';
 import { chromeGoogleAccounts } from '../chrome-accounts.js';
+import { normaliseQuestions } from '../attention.js';
 import { loadProfile } from '../profile.js';
 import { listResumes, listKnowledge } from '../files.js';
 import { listAnswers } from '../answers.js';
@@ -254,7 +255,7 @@ export async function syncRunResultsToDb(
           reason: e.reason ?? e.redirectedTo ?? e.error ?? null,
           url: e.url ?? null,
           ts: e.ts ?? new Date(),
-          questions: Array.isArray(e.questions) ? e.questions.map(String).filter(Boolean).slice(0, 30) : null,
+          questions: normaliseQuestions(e.questions).slice(0, 30),
         });
         runEvents++;
       } catch {

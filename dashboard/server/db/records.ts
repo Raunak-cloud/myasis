@@ -145,8 +145,8 @@ export interface RunEventRow {
   reason?: string | null;
   url?: string | null;
   ts?: string | Date;
-  /** Employer questions the run could not answer, for the answer bank. */
-  questions?: string[] | null;
+  /** Employer questions the run could not answer, for the answer bank — see attention.ts for the shape. */
+  questions?: unknown[] | null;
 }
 
 /** Matched by `run_events_dedupe_idx (user_id, job_id, status, ts)`. */

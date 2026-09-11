@@ -3,6 +3,13 @@ import { relative } from '../format';
 
 export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
 
+/** A blocked question with the choices the form offered, when it had any. */
+interface BlockedQuestion {
+  question: string;
+  kind?: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
+  options?: string[];
+}
+
 export interface AttentionItem {
   jobId: string;
   title: string;
@@ -12,7 +19,7 @@ export interface AttentionItem {
   url: string;
   at: string;
   /** Questions the candidate can answer right here to unblock the job. */
-  questions?: string[];
+  questions?: BlockedQuestion[];
 }
 
 /**
@@ -25,7 +32,8 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const answered = questions.filter((q) => (values[q] ?? '').trim());
+  const answered = questions.filter((q) => (values[q.question] ?? '').trim());
+  const set = (question: string, value: string) => setValues((current) => ({ ...current, [question]: value }));
 
   async function save() {
     if (saving || !answered.length) return;
@@ -35,7 +43,10 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
       const response = await fetch('/api/answers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: item.jobId, answers: answered.map((q) => ({ question: q, answer: values[q].trim() })) }),
+        body: JSON.stringify({
+          jobId: item.jobId,
+          answers: answered.map((q) => ({ question: q.question, answer: values[q.question].trim() })),
+        }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? 'Could not save the answers.');
@@ -47,24 +58,56 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
     }
   }
 
+  /**
+   * Each question gets the control the form used. A dropdown or radio group
+   * is offered as the same choice — a free-text box in its place produced
+   * answers that matched none of the options on retry. A checkbox is a
+   * yes/no. Only a genuinely open question gets a text box, and only long
+   * ones a multi-line one.
+   */
+  const control = (q: BlockedQuestion) => {
+    const value = values[q.question] ?? '';
+    if (q.options?.length) {
+      return (
+        <select className="input" value={value} onChange={(e) => set(q.question, e.target.value)}>
+          <option value="">Choose…</option>
+          {q.options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (q.kind === 'checkbox') {
+      return (
+        <select className="input" value={value} onChange={(e) => set(q.question, e.target.value)}>
+          <option value="">Choose…</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      );
+    }
+    if (q.kind === 'textarea') {
+      return <textarea className="input" rows={3} value={value} onChange={(e) => set(q.question, e.target.value)} />;
+    }
+    return <input className="input" value={value} onChange={(e) => set(q.question, e.target.value)} />;
+  };
+
   return (
     <div className="answer-form">
       {questions.map((q) => (
-        <label key={q} className="field">
-          <span className="job-meta">{q}</span>
-          <textarea
-            className="input"
-            rows={2}
-            value={values[q] ?? ''}
-            placeholder="Your answer — it will be reused whenever a form asks this again"
-            onChange={(e) => setValues({ ...values, [q]: e.target.value })}
-          />
+        <label key={q.question} className="answer-row">
+          <span className="answer-label">{q.question}</span>
+          {control(q)}
         </label>
       ))}
       {error && <div className="banner banner-bad">{error}</div>}
-      <button className="btn primary" disabled={saving || !answered.length} onClick={save}>
-        {saving ? 'Saving…' : `Save ${answered.length || ''} answer${answered.length === 1 ? '' : 's'} and retry next run`}
-      </button>
+      <div className="answer-actions">
+        <button className="btn primary" disabled={saving || !answered.length} onClick={save}>
+          {saving ? 'Saving…' : 'Save and retry'}
+        </button>
+      </div>
     </div>
   );
 }

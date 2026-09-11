@@ -11,7 +11,7 @@ import {
 import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
 import { answerFields, coverLetterForJob } from '../llm.js';
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
-import type { CandidateProfile, JobListing } from '../types.js';
+import type { BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
@@ -36,7 +36,7 @@ import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
 export type AgentTermination =
   | { status: 'applied' }
   | { status: 'rehearsed'; stoppedAt: string }
-  | { status: 'needs-human'; reason: string; questions?: string[] }
+  | { status: 'needs-human'; reason: string; questions?: BlockedQuestion[] }
   | { status: 'off-platform'; redirectedTo: string }
   | { status: 'skipped'; reason: string };
 
@@ -298,7 +298,31 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
 
 async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
-  const wanted = ctx.observation.fields.filter((field) => refs.includes(field.ref));
+  const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref));
+
+  /**
+   * A password is not a question anybody can answer on the candidate's behalf.
+   *
+   * Some employers make you create an account partway through applying, so
+   * "Choose Password" arrives looking like an employer question. It must not
+   * be answered, and above all must not be added to the pending list, because
+   * that list is what the dashboard turns into "answer this and we will reuse
+   * it" — plain text, replayed at every later employer asking the same thing.
+   */
+  const credentials = asked.filter((field) => field.sensitive);
+  const wanted = asked.filter((field) => !field.sensitive);
+  if (credentials.length) {
+    return {
+      kind: 'terminal',
+      outcome: {
+        status: 'needs-human',
+        reason:
+          `This employer requires creating an account (${credentials.map((f) => f.label).join(', ')}). ` +
+          'Passwords are never set or stored here, so this one has to be finished by hand.',
+      },
+    };
+  }
+
   if (!wanted.length) {
     return ok('None of those refs are fields on this page. Choose refs from the current FIELDS list.');
   }
@@ -313,7 +337,10 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   const skipped: string[] = [];
   /** Required fields the answerer has already refused once — asking again cannot help. */
   const repeated: string[] = [];
-  for (const field of wanted) ctx.guards.pendingFields.add(field.label);
+  for (const field of wanted) {
+    ctx.guards.pendingFields.add(field.label);
+    ctx.guards.rememberField(field);
+  }
   for (const answer of answers) {
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
@@ -357,6 +384,8 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
           error instanceof ComboboxOptionsError && error.options.length
             ? { ...field, options: error.options }
             : { ...field, label: `${field.label} — ${error.message}` };
+        // A combobox's real choices are only known now; keep them for the person too.
+        if (error instanceof ComboboxOptionsError && error.options.length) ctx.guards.rememberField(reask);
         const again = await answerFields([reask], ctx.job, ctx.profile);
         const retry = again.answers[0];
         if (!retry?.grounded) {

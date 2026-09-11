@@ -212,6 +212,16 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || requiredOnThisPage(labelFor(el)),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',
+        /**
+         * A credential, never an employer question.
+         *
+         * Some employer sites make you create an account mid-application, so
+         * "Choose Password" turns up among the questions. Left unmarked it
+         * reached the answer bank, which stores answers in plain text and
+         * replays them on every later form asking the same thing — one typed
+         * password would have been reused across unrelated employers.
+         */
+        sensitive: el.type === 'password' || /\bpass(word|phrase)\b/i.test(labelFor(el)),
       });
       });
 

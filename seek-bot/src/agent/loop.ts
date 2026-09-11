@@ -4,7 +4,7 @@ import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { config } from '../config.js';
 import { jitter } from '../browser.js';
-import type { CandidateProfile, JobListing } from '../types.js';
+import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
@@ -322,7 +322,19 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       // the dashboard can ask the candidate once and reuse the answers.
       outcome:
         outcome.status === 'needs-human'
-          ? { ...outcome, questions: [...new Set([...guards.pendingFields, ...guards.ungrounded, ...guards.skippedOptional])] }
+          ? {
+              ...outcome,
+              questions: [...new Set([...guards.pendingFields, ...guards.ungrounded, ...guards.skippedOptional])].map(
+                (question) => {
+                  const shape = guards.fieldShapes.get(question);
+                  return {
+                    question,
+                    ...(shape?.kind ? { kind: shape.kind as BlockedQuestion['kind'] } : {}),
+                    ...(shape?.options?.length ? { options: shape.options } : {}),
+                  };
+                },
+              ),
+            }
           : outcome,
       captured: ctx.captured,
       coverLetter: ctx.coverLetter,

@@ -121,7 +121,7 @@ export type ApplyOutcome =
       reason: string;
       url: string;
       /** Employer questions the profile could not answer — the dashboard asks the candidate. */
-      questions?: string[];
+      questions?: BlockedQuestion[];
     }
   | { status: 'error'; jobId: string; error: string };
 
@@ -157,6 +157,21 @@ export interface FormField {
   currentValue?: string;
   /** True for custom ATS inputs that require choosing a suggestion. */
   autocomplete?: boolean;
+  /** A credential the candidate must set, not a question about them. Never stored or asked for. */
+  sensitive?: boolean;
+}
+
+/**
+ * A question a run could not answer, carrying the choices the form offered.
+ *
+ * The dashboard turns these into a form for the candidate. Shown a dropdown's
+ * question as a free-text box, people typed "yes" where the form wanted
+ * "Yes - full time", and the saved answer then matched nothing on retry.
+ */
+export interface BlockedQuestion {
+  question: string;
+  kind?: FormField['kind'];
+  options?: string[];
 }
 
 export interface FieldAnswer {

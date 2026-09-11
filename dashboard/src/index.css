@@ -1504,9 +1504,14 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 }
 
 /* Inline answer form on the attention list. */
-.answer-form { display: grid; gap: 10px; margin-top: 10px; max-width: 560px; }
-.answer-form .field { display: grid; gap: 4px; }
-.answer-form textarea.input { width: 100%; resize: vertical; }
+/* One row per question: the wording, then the same control the form used. */
+.answer-form { display: grid; gap: 12px; margin-top: 12px; max-width: 560px; }
+.answer-row { display: grid; gap: 5px; }
+.answer-label { color: var(--text-faint); font-size: 12px; line-height: 1.35; }
+.answer-form .input { width: 100%; }
+.answer-form textarea.input { resize: vertical; }
+.answer-form select.input { cursor: pointer; }
+.answer-actions { display: flex; justify-content: flex-end; padding-top: 2px; }
 
 /* Step-by-step trace of an application that needs a person. */
 .trace-actions { margin-top: 8px; }
