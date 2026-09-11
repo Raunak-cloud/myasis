@@ -102,6 +102,36 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       if (above) return above;
 
       /**
+       * Last resort before giving up: the closest text on screen.
+       *
+       * DOM order stops being a guide once a form uses absolute positioning or
+       * a grid — SEEK's "Show strong interest" checkbox sits in the corner of
+       * a card with its wording laid out beside it rather than before it, so
+       * no amount of sibling-walking finds it. Distance on screen does, and
+       * text to the left or above wins ties because that is where a caption
+       * sits in a left-to-right form.
+       */
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      if (rect.width || rect.height) {
+        const scope = el.closest('form, section, article, fieldset, [class*="card"]') ?? document.body;
+        let best: { text: string; score: number } | null = null;
+        for (const candidate of scope.querySelectorAll('label, span, p, div, h1, h2, h3, h4, a')) {
+          if (candidate.contains(el) || candidate.querySelector('input, select, textarea')) continue;
+          const text = (candidate as HTMLElement).innerText?.trim().replace(/\s+/g, ' ') ?? '';
+          if (!text || text.length < 3 || text.length > 120 || opaqueName(text)) continue;
+          const r = candidate.getBoundingClientRect();
+          if (!r.width && !r.height) continue;
+          const dx = Math.max(0, Math.max(r.left - rect.right, rect.left - r.right));
+          const dy = Math.max(0, Math.max(r.top - rect.bottom, rect.top - r.bottom));
+          if (dx > 400 || dy > 120) continue;
+          const behind = r.left <= rect.left || r.top <= rect.top ? 0 : 60;
+          const score = dx + dy * 2 + behind;
+          if (!best || score < best.score) best = { text, score };
+        }
+        if (best) return best.text;
+      }
+
+      /**
        * Last resort. The machine name is only worth showing if it reads like
        * words — "phonePrefix" is a hint, "questionnaire.AU_Q_26_V_3" is not,
        * and pretending the latter is a question just moves the failure to
@@ -122,7 +152,24 @@ export async function extractFields(page: Page): Promise<FormField[]> {
      * to advance until every question is answered, so on those pages every
      * field counts as required. Elsewhere the markup is trusted.
      */
-    const everythingRequired = /(^|\.)seek\.com(\.au)?$/.test(location.hostname) && /\/apply\b/.test(location.pathname);
+    const seekApplyPage = /(^|\.)seek\.com(\.au)?$/.test(location.hostname) && /\/apply\b/.test(location.pathname);
+
+    /**
+     * ...with one exception: a control nobody could name.
+     *
+     * That blanket rule swept in SEEK's own "Show strong interest" checkbox, a
+     * promotional toggle in the corner of the apply page. It is not an
+     * employer question, nothing in the DOM associates a caption with it, and
+     * counting it as required blocked entire applications on "Fields not
+     * verified: unlabelled field" — an unanswerable prompt for an optional
+     * upsell.
+     *
+     * A real employer question always renders its wording somewhere. If
+     * nothing on the page names a control, it is chrome, and the markup's own
+     * silence about whether it is required is the better guide.
+     */
+    const requiredOnThisPage = (label: string) =>
+      seekApplyPage && label !== 'unlabelled field' && label !== 'unlabelled question';
 
     // Radio groups collapse into one logical field.
     const radioGroups = new Map<string, HTMLInputElement[]>();
@@ -150,7 +197,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           ref,
           label: labelFor(el),
           kind: 'select',
-          required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || everythingRequired,
+          required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || requiredOnThisPage(labelFor(el)),
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
           currentValue: sel.value,
           autocomplete: el.getAttribute('role') === 'combobox',
@@ -162,7 +209,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         ref,
         label: labelFor(el),
         kind: el.tagName === 'TEXTAREA' ? 'textarea' : el.type === 'checkbox' ? 'checkbox' : 'text',
-        required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || everythingRequired,
+        required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || requiredOnThisPage(labelFor(el)),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',
       });
@@ -198,7 +245,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           inputs.some((i) => i.required || i.getAttribute('aria-required') === 'true') ||
           Boolean(inputs[0].closest('[aria-required="true"]')) ||
           /(^|\s)\*|\*\s*$/.test(groupLabel) ||
-          everythingRequired,
+          requiredOnThisPage(groupLabel),
         options: inputs.map((i) => labelFor(i)),
         currentValue: inputs.find(i => i.checked) ? labelFor(inputs.find(i => i.checked)!) : '',
       });
