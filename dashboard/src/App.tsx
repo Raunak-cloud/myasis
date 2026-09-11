@@ -10,6 +10,7 @@ import { daysSince } from './format';
 import { UserChip, useAuth } from './components/SignIn';
 import { Landing } from './components/Landing';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
+import { useEntitlements } from './entitlements';
 
 type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup';
 
@@ -55,6 +56,16 @@ export default function App() {
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref());
   const [toast, setToast] = useState<string | null>(null);
   const { user, googleConfigured, loading: authLoading, signOut } = useAuth();
+  const entitlements = useEntitlements();
+  /**
+   * The rewriting tool is the operator's, so its tab is not offered. Landing
+   * on it by an old link or a stale tab falls back to Apply rather than
+   * rendering a page whose every request the server will refuse.
+   */
+  const canRewrite = entitlements?.rewriteText ?? false;
+  useEffect(() => {
+    if (entitlements && !canRewrite && tab === 'humanizer') setTab('run');
+  }, [entitlements, canRewrite, tab]);
 
   const load = useCallback(async () => {
     const [a, n] = await Promise.all([
@@ -147,14 +158,18 @@ export default function App() {
             </button>
           ))}
 
-          <span className="nav-label nav-label-tools">Tools</span>
-          <button
-            className={`side-link ${tab === 'humanizer' ? 'active' : ''}`}
-            aria-current={tab === 'humanizer' ? 'page' : undefined}
-            onClick={() => setTab('humanizer')}
-          >
-            Rewrite text
-          </button>
+          {canRewrite && (
+            <>
+              <span className="nav-label nav-label-tools">Tools</span>
+              <button
+                className={`side-link ${tab === 'humanizer' ? 'active' : ''}`}
+                aria-current={tab === 'humanizer' ? 'page' : undefined}
+                onClick={() => setTab('humanizer')}
+              >
+                Rewrite text
+              </button>
+            </>
+          )}
 
           <span className="nav-label nav-label-tools">Account</span>
           <button
@@ -224,7 +239,7 @@ export default function App() {
           {tab === 'applications' && (
             <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} />
           )}
-          {tab === 'humanizer' && <HumanizerPanel />}
+          {tab === 'humanizer' && canRewrite && <HumanizerPanel />}
           {tab === 'pricing' && <PricingPanel />}
           {tab === 'setup' && <SetupPanel />}
         </div>

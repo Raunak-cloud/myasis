@@ -15,7 +15,7 @@ import { loadAttention, dismissAllAttention } from './server/attention.js';
 import { setupStatus } from './server/setup.js';
 import { loadProfile as loadCandidate, saveProfile } from './server/profile.js';
 import {
-  loadUserSettings, saveUserSettings, mergeWithSharedEnv, runSettingsForUser, KEEP_SETTINGS_KEYS,
+  loadUserSettings, saveUserSettings, mergeWithSharedEnv, runSettingsForUser,
 } from './server/settings.js';
 import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
@@ -23,8 +23,6 @@ import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigu
 import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
   billingStatus,
-  consumeCompletedRehearsal,
-  consumeSuccessfulApplication,
   createCheckout,
   fulfillCheckoutSession,
   handleStripeWebhook,
@@ -36,6 +34,9 @@ import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { readSeekState, writeSeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
+import { entitlementsFor, FINE_TUNING_KEYS } from './server/entitlements.js';
+import { startRun } from './server/start-run.js';
+import { startAutoRunner } from './server/autorun.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -435,7 +436,19 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           if (req.method === 'POST') {
             const body = await readBody();
-            const settings = await saveUserSettings(userId, body?.updates ?? {});
+            /**
+             * The fine-tuning settings decide how a run behaves, and belong
+             * to the tiers that drive runs. The form hides them; this is what
+             * actually withholds them.
+             */
+            const settingsUser = await currentUser(req.headers?.cookie);
+            const { fineTune } = await entitlementsFor(userId, settingsUser?.email);
+            const updates: Record<string, string> = {};
+            for (const [key, value] of Object.entries(body?.updates ?? {})) {
+              if (!fineTune && FINE_TUNING_KEYS.includes(key)) continue;
+              updates[key] = String(value ?? '');
+            }
+            const settings = await saveUserSettings(userId, updates);
             return send({ ok: true, settings: mergeWithSharedEnv(readEnvSafe(), settings) });
           }
           return send(mergeWithSharedEnv(readEnvSafe(), await loadUserSettings(userId)));
@@ -452,6 +465,13 @@ function dataApi(): Plugin {
       }
 
       case '/api/humanizer': {
+        /**
+         * An operator tool, not a candidate feature: it exists to rewrite
+         * copy for this installation, and it competes with runs for the
+         * machine's two cores.
+         */
+        return currentUser(req.headers?.cookie).then((toolUser) => {
+        if (!isAdmin(toolUser?.email)) return send({ error: 'Not available on your plan.' }, 403);
         const env = readEnv();
         /**
          * What the rewriter can actually finish, not what a textarea can hold.
@@ -626,6 +646,7 @@ function dataApi(): Plugin {
             return send({ configured: true, online: true, maxChars });
           })
           .catch((error) => send({ configured: true, online: false, error: `Could not reach the rewriting service: ${(error as Error).message}` }, 503));
+        });
       }
 
       // ---- résumé library ----
@@ -930,6 +951,13 @@ function dataApi(): Plugin {
         });
       }
 
+      case '/api/entitlements': {
+        return withUser(async (userId) => {
+          const user = await currentUser(req.headers?.cookie);
+          return send(await entitlementsFor(userId, user?.email));
+        });
+      }
+
       case '/api/run/status': {
         // Runs are per-account now, so an account only ever sees its own.
         return withUser(async (userId) => {
@@ -961,71 +989,21 @@ function dataApi(): Plugin {
           if (mode === 'live' && body?.confirm !== true) {
             return send({ error: 'Live runs require confirm: true.' }, 400);
           }
-          /**
-           * This account's own saved settings are the base, not whatever the
-           * client happened to post. Anything omitted here would otherwise
-           * fall through to seek-bot/.env in the spawned child — which still
-           * holds the original single account's KEYWORDS, salary floor and
-           * exclusions, silently running one account's search under another's.
-           */
           const runUser = await currentUser(req.headers?.cookie);
-          const runAdmin = isAdmin(runUser?.email);
-          const overrides: Record<string, string> = await runSettingsForUser(userId, { unlimited: runAdmin });
-          for (const [k, v] of Object.entries(body?.overrides ?? {})) {
-            // Only known per-account settings are accepted from the browser.
-            // Without this filter a request could set PROFILE_PATH or DATA_DIR
-            // and point its own run at another account's files.
-            if (!KEEP_SETTINGS_KEYS.includes(k as (typeof KEEP_SETTINGS_KEYS)[number])) continue;
-            if (v !== undefined && v !== null && String(v).length) overrides[k] = String(v);
-          }
-          let usageUser: Awaited<ReturnType<typeof currentUser>> = null;
-          let countRehearsals = false;
-          if (mode === 'live' || mode === 'rehearse') {
-            usageUser = await currentUser(req.headers?.cookie);
-            if (!usageUser) return send({ error: 'Sign in before starting a run.' }, 401);
-            try {
-              const allowance = await billingStatus(usageUser.id, usageUser.email);
-              // This entitlement is decided server-side. A browser request
-              // cannot enable external applications by supplying an override.
-              overrides.ALLOW_EXTERNAL_APPLY = runAdmin || allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
-              /**
-               * Employer-site applications are an Intensive Pass feature and
-               * cost 10-20x a Quick Apply. An operator of this installation
-               * has no ceilings at all: no daily employer-site limit, no
-               * allowance deduction, and their own run settings unclamped.
-               */
-              if (runAdmin) overrides.ADMIN_UNLIMITED = 'true';
-              else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
-              if (runAdmin) {
-                // No allowance check and no clamp: the operator runs at the size they configured.
-              } else if (mode === 'live') {
-                if (allowance.totalRemaining < 1) {
-                  return send({ error: 'No successful applications remain. Choose a pass or wait for the free allowance to reset.' }, 402);
-                }
-                const requested = Number(overrides.MAX_APPS_PER_RUN || 1);
-                overrides.MAX_APPS_PER_RUN = String(Math.min(requested, allowance.totalRemaining));
-              } else if (!allowance.rehearsals.unlimited) {
-                if (allowance.rehearsals.remaining < 1) {
-                  return send({ error: 'No free rehearsals remain this month. Choose a pass for unlimited rehearsals or wait for the monthly reset.' }, 402);
-                }
-                const requested = Number(overrides.MAX_APPS_PER_RUN || 1);
-                overrides.MAX_APPS_PER_RUN = String(Math.min(requested, allowance.rehearsals.remaining));
-                countRehearsals = true;
-              }
-            } catch (error) {
-              return send({ error: `Could not verify run allowance: ${(error as Error).message}` }, 503);
-            }
-          }
-          // Admins are exempt from the allowance, so nothing should be deducted for them.
-          const admin = isAdmin(usageUser?.email);
-          const r = await runner.start(
-            mode,
-            overrides,
+          if (!runUser) return send({ error: 'Sign in before starting a run.' }, 401);
+          /**
+           * Entitlement, settings, allowance and deduction all live in
+           * startRun, which the scheduler calls too — so a scheduled
+           * application and a hand-started one obey exactly the same rules.
+           */
+          const result = await startRun({
             userId,
-            mode === 'live' && usageUser && !admin ? () => consumeSuccessfulApplication(usageUser!.id) : undefined,
-            countRehearsals && usageUser && !admin ? () => consumeCompletedRehearsal(usageUser!.id) : undefined,
-          );
-          return send(r.ok ? { ok: true, mode } : { error: r.error }, r.ok ? 200 : 409);
+            email: runUser.email,
+            mode,
+            trigger: 'manual',
+            clientOverrides: body?.overrides ?? {},
+          });
+          return send(result.ok ? { ok: true, mode: result.mode } : { error: result.error }, result.ok ? 200 : result.status);
         });
       }
 
@@ -1074,9 +1052,14 @@ function dataApi(): Plugin {
       server.middlewares.use(handler);
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
     },
+    /**
+     * Only the preview server schedules runs. Dev is someone's laptop with
+     * the file watcher restarting it; applications must not go out from there.
+     */
     configurePreviewServer(server) {
       server.middlewares.use(handler);
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
+      startAutoRunner();
     },
   };
 }

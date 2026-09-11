@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEntitlements, windowLabel } from '../entitlements';
 import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES } from '../runSettings';
@@ -205,6 +206,15 @@ export function RunPanel({
 }) {
   const [status, setStatus] = useState<RunStatus | null>(null);
   const [mode, setMode] = useState<Mode>('rehearse');
+  /**
+   * A standard account does not drive runs: it saves what work it wants and
+   * Myasis applies on a schedule. So it gets a statement of what is happening
+   * rather than controls that would be refused.
+   */
+  const entitlements = useEntitlements();
+  const driving = entitlements?.manualRuns ?? true;
+  const runsLeft = entitlements?.manualRunsLeftToday ?? null;
+  const outOfRuns = runsLeft !== null && runsLeft < 1;
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -501,10 +511,16 @@ export function RunPanel({
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
       <div className="card run-controls-card">
         <div className="run-card-title">
-          <h2>New run</h2>
-          <p className="job-meta">Rehearse first, then apply when everything looks right.</p>
+          <h2>{driving ? 'New run' : 'Applying for you'}</h2>
+          <p className="job-meta">
+            {driving
+              ? 'Rehearse first, then apply when everything looks right.'
+              : entitlements
+                ? `${entitlements.autoRunsPerDay} times a day, between ${windowLabel(entitlements.window)}.`
+                : ''}
+          </p>
         </div>
-        <div className="modes">
+        {driving && <div className="modes">
           <label className={`mode ${mode === 'rehearse' ? 'sel' : ''}`}>
             <input type="radio" checked={mode === 'rehearse'} disabled={running} onChange={() => setMode('rehearse')} />
             <div>
@@ -525,7 +541,7 @@ export function RunPanel({
               <div className="job-meta">Sends applications to employers automatically.</div>
             </div>
           </label>
-        </div>
+        </div>}
 
         {!status?.hasKey && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
@@ -546,14 +562,24 @@ export function RunPanel({
             <button className="btn btn-danger lg" onClick={() => setStopConfirming(true)}>
               ⏹ Stop run
             </button>
+          ) : !driving ? (
+            <p className="job-meta run-auto-count">
+              {entitlements
+                ? `${entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} done today.`
+                : ''}
+            </p>
           ) : (
             <>
-              <button
-                className="btn primary lg"
-                onClick={() => setConfirming(true)}
-              >
+              <button className="btn primary lg" disabled={outOfRuns} onClick={() => setConfirming(true)}>
                 Start {mode === 'rehearse' ? 'rehearsal' : 'live run'}
               </button>
+              {runsLeft !== null && (
+                <span className="job-meta">
+                  {outOfRuns
+                    ? 'No runs left today.'
+                    : `${runsLeft} of ${entitlements?.manualRunsPerDay} runs left today.`}
+                </span>
+              )}
             </>
           )}
         </div>

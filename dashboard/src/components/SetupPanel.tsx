@@ -6,6 +6,7 @@ import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
+import { useEntitlements } from '../entitlements';
 
 const ARRANGEMENTS = [
   { id: 'remote', label: 'Remote', hint: 'anywhere in Australia' },
@@ -49,6 +50,12 @@ export function SetupPanel() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resumeLibraryVersion, setResumeLibraryVersion] = useState(0);
   const status = useSetupStatus();
+  /**
+   * These settings decide how a run behaves, and belong to the accounts that
+   * drive runs. Hidden rather than disabled: a row of greyed-out inputs is an
+   * advertisement, not an interface.
+   */
+  const canFineTune = useEntitlements()?.fineTune ?? false;
 
   useEffect(() => {
     fetch('/api/settings')
@@ -213,7 +220,7 @@ export function SetupPanel() {
 
       <GmailConnect />
 
-      <div className="card step">
+      {canFineTune && <div className="card step">
         <button className="setup-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
           <span className="step-title">Fine tuning</span>
           <span>{showAdvanced ? '−' : '+'}</span>
@@ -267,7 +274,7 @@ export function SetupPanel() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
 
       {dirty && (
         <div className="save-bar">
