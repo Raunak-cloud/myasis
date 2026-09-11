@@ -89,16 +89,22 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
       <main>
         <section className="landing-hero">
-          <h1>Apply for the jobs worth applying for.</h1>
-          <p className="landing-lede">
-            Myasis reads your résumé, finds roles on SEEK that genuinely match it, writes a cover letter for each one
-            and submits the application. You review what it could not answer.
-          </p>
-          {error && <div className="banner banner-bad landing-error">{error}</div>}
-          <div className="landing-actions">{signIn}</div>
-          <p className="job-meta landing-note">
-            Free for {FREE_MONTHLY_APPLICATIONS} applications a month. No card required to start.
-          </p>
+          <div className="landing-hero-copy">
+            <h1>Apply for the jobs worth applying for.</h1>
+            <p className="landing-lede">
+              Myasis reads your résumé, finds roles on SEEK that genuinely match it, writes a cover letter for each one
+              and submits the application. You review what it could not answer.
+            </p>
+            {error && <div className="banner banner-bad landing-error">{error}</div>}
+            <div className="landing-actions">{signIn}</div>
+            <p className="job-meta landing-note">
+              Free for {FREE_MONTHLY_APPLICATIONS} applications a month. No card required to start.
+            </p>
+          </div>
+          {/* The mark, large: the one decorative element on the page, and it is the brand. */}
+          <div className="landing-hero-art" aria-hidden="true">
+            <img src="/favicon.svg" alt="" />
+          </div>
         </section>
 
         <section className="landing-section">
