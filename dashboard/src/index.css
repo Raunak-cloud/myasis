@@ -1510,21 +1510,48 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* Step-by-step trace of an application that needs a person. */
 .trace-actions { margin-top: 8px; }
-/* Full row width now, not a 34% table cell — see AttentionPanel's TraceSteps. */
-.trace { display: grid; gap: 12px; margin: 8px 0; }
+/**
+ * A contact sheet, not a slideshow.
+ *
+ * Full-width captures pushed everything else off the screen; a 34% table cell
+ * made them unreadable. Small tiles let the whole attempt be scanned at a
+ * glance, and the one that matters opens full size over the page.
+ */
+.trace {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin: 10px 0;
+}
 .trace-row > td { background: var(--surface-2); }
-.trace-step { display: grid; gap: 6px; }
+.trace-step { display: grid; gap: 4px; align-content: start; }
+/* Two lines of caption, so one verbose step cannot make the row ragged. */
+.trace-caption {
+  font-size: 11px; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.trace-shot-missing {
+  aspect-ratio: 4 / 3; display: grid; place-items: center;
+  border: 1px dashed var(--border); border-radius: 6px; font-size: 11px;
+}
 .trace-result { opacity: 0.8; }
-.trace-shot { width: 100%; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; display: block; }
+/* Cropped to the top of the page, which is where the form always is. */
+.trace-shot {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; object-position: top;
+  border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; display: block;
+}
 /* The thumbnail is a button so it can be opened full size; it must not look like one. */
 .trace-shot-button { padding: 0; border: 0; background: none; cursor: zoom-in; width: 100%; display: block; }
 .trace-shot-button { position: relative; }
 .trace-shot-button:hover .trace-shot { border-color: var(--accent); }
-.trace-shot-hint {
-  position: absolute; right: 8px; bottom: 8px;
-  padding: 3px 8px; border-radius: 4px; font-size: 11px;
-  background: rgba(0,0,0,.65); color: #fff; pointer-events: none;
+.trace-shot-button::after {
+  content: '⤢';
+  position: absolute; right: 6px; bottom: 6px;
+  width: 20px; height: 20px; border-radius: 4px;
+  display: grid; place-items: center; font-size: 12px;
+  background: rgba(0,0,0,.6); color: #fff; opacity: 0; transition: opacity .12s;
 }
+.trace-shot-button:hover::after { opacity: 1; }
 /* Sized off the viewport height as well as its width so a tall capture fits whole. */
 .trace-zoom {
   width: min(1400px, calc(100vw - 32px));

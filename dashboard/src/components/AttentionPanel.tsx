@@ -116,16 +116,17 @@ function TraceSteps({ jobId }: { jobId: string }) {
       {!steps && !error && <div className="job-meta">Loading steps…</div>}
       {steps?.map((s) => (
         <div key={s.step} className="trace-step">
-          <div className="job-meta">
-            <strong>Step {s.step}</strong> · {s.label}
+          {s.screenshot ? (
+            <button className="trace-shot-button" onClick={() => setEnlarged(s)} title="Open full size">
+              <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" />
+            </button>
+          ) : (
+            <div className="trace-shot-missing job-meta">no capture</div>
+          )}
+          <div className="trace-caption job-meta">
+            <strong>{s.step}.</strong> {s.label}
             {s.result ? <span className="trace-result"> → {s.result}</span> : null}
           </div>
-          {s.screenshot ? (
-            <button className="trace-shot-button" onClick={() => setEnlarged(s)}>
-              <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" />
-              <span className="trace-shot-hint">Click to enlarge</span>
-            </button>
-          ) : null}
         </div>
       ))}
 
