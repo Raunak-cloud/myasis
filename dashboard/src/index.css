@@ -1513,7 +1513,25 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .trace { display: grid; gap: 12px; margin-top: 8px; max-width: 720px; }
 .trace-step { display: grid; gap: 6px; }
 .trace-result { opacity: 0.8; }
-.trace-shot { width: 100%; max-width: 720px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; }
+.trace-shot { width: 100%; max-width: 720px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; display: block; }
+/* The thumbnail is a button so it can be opened full size; it must not look like one. */
+.trace-shot-button { padding: 0; border: 0; background: none; cursor: zoom-in; width: 100%; display: block; }
+.trace-shot-button:hover .trace-shot { border-color: var(--accent); }
+/* Sized off the viewport height as well as its width so a tall capture fits whole. */
+.trace-zoom {
+  width: min(1400px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.trace-zoom-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+}
+.trace-zoom img { width: 100%; display: block; }
 .btn-small { padding: 4px 10px; font-size: 12px; }
 
 

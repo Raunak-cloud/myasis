@@ -19,6 +19,40 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       return found;
     };
 
+    /**
+     * Whether a "label" is really just a machine name.
+     *
+     * SEEK names its questionnaire inputs `questionnaire.AU_Q_26_V_3`. Falling
+     * back to that produced questions no human could answer — the candidate
+     * was shown "questionnaire.AU_Q_26_V_3" and an empty box. Anything with no
+     * spaces that reads like an identifier is treated as no label at all, so
+     * the search keeps looking instead of stopping on it.
+     */
+    const opaqueName = (text: string): boolean =>
+      !text.includes(' ') && (/[._]/.test(text) || /^[A-Z0-9_.-]+$/.test(text)) && !text.endsWith('?');
+
+    /**
+     * The nearest caption above an element.
+     *
+     * A question and its inputs are often siblings rather than parent and
+     * child: SEEK renders the question as a heading and the radios as the
+     * block after it, so nothing inside the input's own container names it.
+     * This walks up the ancestors and, at each level, back through the
+     * preceding siblings, taking the first text that is not itself part of
+     * some other control.
+     */
+    const captionAbove = (start: Element, reject: (text: string) => boolean): string => {
+      let node: Element | null = start;
+      for (let up = 0; up < 6 && node; up++, node = node.parentElement) {
+        for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
+          if (sib.querySelector('input, select, textarea')) continue;
+          const text = (sib as HTMLElement).innerText?.trim().replace(/\s+/g, ' ') ?? '';
+          if (text && text.length > 2 && text.length < 200 && !opaqueName(text) && !reject(text)) return text;
+        }
+      }
+      return '';
+    };
+
     const labelFor = (el: Element): string => {
       const root = el.getRootNode() as Document | ShadowRoot;
       const id = el.getAttribute('id');
@@ -58,10 +92,23 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       }
       const placeholder = el.getAttribute('placeholder');
       if (placeholder) return placeholder;
-      // Fall back to the nearest preceding question-ish text.
-      const group = el.closest('fieldset, [role="group"], div');
-      const legend = group?.querySelector('legend, h2, h3, strong');
-      return legend?.textContent?.trim() ?? el.getAttribute('name') ?? 'unlabelled field';
+
+      const fieldset = el.closest('fieldset, [role="group"]');
+      const legend = fieldset?.querySelector('legend, h1, h2, h3, h4, [role="heading"]')?.textContent?.trim();
+      if (legend && !opaqueName(legend)) return legend;
+
+      // Nothing names it from the inside; look at what sits above it.
+      const above = captionAbove(el, () => false);
+      if (above) return above;
+
+      /**
+       * Last resort. The machine name is only worth showing if it reads like
+       * words — "phonePrefix" is a hint, "questionnaire.AU_Q_26_V_3" is not,
+       * and pretending the latter is a question just moves the failure to
+       * whoever has to answer it.
+       */
+      const name = el.getAttribute('name') ?? '';
+      return name && !opaqueName(name) ? name : 'unlabelled field';
     };
 
     const visible = (el: Element) => {
@@ -131,14 +178,18 @@ export async function extractFields(page: Page): Promise<FormField[]> {
        */
       let container: Element | null = inputs[0].parentElement;
       while (container && !inputs.every((input) => container!.contains(input))) container = container.parentElement;
+      const isOptionLabel = (text: string) => inputs.some((input) => labelFor(input) === text);
       const caption =
         container?.querySelector('legend')?.textContent?.trim() ||
         [...(container?.querySelectorAll('label, span, div, p') ?? [])]
           .filter((element) => !element.querySelector('input') && !element.closest('label:has(input)'))
           .map((element) => (element as HTMLElement).innerText?.trim() ?? '')
-          .find((text) => text && text.length < 120 && !inputs.some((input) => labelFor(input) === text)) ||
+          .find((text) => text && text.length < 120 && !isOptionLabel(text)) ||
+        // The question is usually a heading above the options, not inside them.
+        (container ? captionAbove(container, isOptionLabel) : '') ||
         '';
-      const groupLabel = caption || key;
+      // `key` is the input's name, which for SEEK is an opaque questionnaire id.
+      const groupLabel = caption || (opaqueName(key) ? 'unlabelled question' : key);
       fields.push({
         ref,
         label: groupLabel,

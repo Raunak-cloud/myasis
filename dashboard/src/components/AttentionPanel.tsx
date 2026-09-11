@@ -85,6 +85,15 @@ function TraceViewer({ jobId }: { jobId: string }) {
   const [steps, setSteps] = useState<TraceStep[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  /**
+   * A screenshot blown up over the page.
+   *
+   * These are captures of a 1280-wide browser shown inside a narrow column,
+   * which renders them at about a third of their real size — legible as a
+   * thumbnail, useless for actually reading the form that blocked the
+   * application. Clicking one opens it at full width.
+   */
+  const [enlarged, setEnlarged] = useState<TraceStep | null>(null);
 
   async function load() {
     setOpen(true);
@@ -118,9 +127,29 @@ function TraceViewer({ jobId }: { jobId: string }) {
             <strong>Step {s.step}</strong> · {s.label}
             {s.result ? <span className="trace-result"> → {s.result}</span> : null}
           </div>
-          {s.screenshot ? <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" /> : null}
+          {s.screenshot ? (
+            <button className="trace-shot-button" onClick={() => setEnlarged(s)} title="Click to enlarge">
+              <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" />
+            </button>
+          ) : null}
         </div>
       ))}
+
+      {enlarged && (
+        <div className="overlay center" onClick={() => setEnlarged(null)} role="dialog" aria-modal="true">
+          <div className="card trace-zoom" onClick={(event) => event.stopPropagation()}>
+            <div className="trace-zoom-bar">
+              <span className="job-meta">
+                <strong>Step {enlarged.step}</strong> · {enlarged.label}
+              </span>
+              <button className="btn btn-small" onClick={() => setEnlarged(null)}>
+                Close
+              </button>
+            </div>
+            <img src={enlarged.screenshot} alt={`Step ${enlarged.step}`} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
