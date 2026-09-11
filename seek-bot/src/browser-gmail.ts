@@ -48,27 +48,45 @@ async function state(page: Page): Promise<'mail' | 'signed-out' | 'loading'> {
   return 'loading';
 }
 
+const KEYWORD = /(?:code|pin|passcode|otp|one[- ]time)/gi;
+
+/** 1900–2099 as a bare four-digit run: a year, not a code. */
+const looksLikeYear = (digits: string) => digits.length === 4 && /^(?:19|20)\d\d$/.test(digits);
+
 /**
- * Pulls the code out of a message. Codes are 4–8 digits, or 6–8 letters and
- * digits, and sit near the word "code" (or "PIN"/"passcode"/"OTP"). Years,
- * phone numbers and order numbers are the usual false matches, so proximity
- * to that word wins over any bare number.
+ * Pulls a one-time code out of one message-list row.
+ *
+ * A code always has to sit near the word "code" (or PIN/passcode/OTP). There
+ * is deliberately no last-resort "any number here" branch: this reads whole
+ * list rows, not the subject line of an email already known to be a code
+ * email, and rows are full of salaries, reference numbers and years. A bare
+ * number rule typed 95000 from "Salary range 95000 to 120000" into a
+ * verification field, which is far worse than not finding a code at all —
+ * a miss is recoverable, a wrong code is a failed application.
  */
-function extractCode(subject: string, body: string): string | null {
-  const text = `${subject}\n${body}`.replace(/\s+/g, ' ');
-  const keyword = /(?:code|pin|passcode|otp|one[- ]time)/gi;
-  const digitsAfter = /(?:code|pin|passcode|otp|one[- ]time)[^0-9]{0,60}?\b([0-9]{4,8})\b/i.exec(text);
-  if (digitsAfter) return digitsAfter[1];
-  const digitsBefore = /\b([0-9]{4,8})\b[^0-9]{0,40}(?:is your|verification|code)/i.exec(text);
-  if (digitsBefore) return digitsBefore[1];
-  // Letter-and-digit codes are case-sensitive: an uppercase run with at least one digit and one letter.
-  for (const match of text.matchAll(keyword)) {
-    const window = text.slice(match.index + match[0].length, match.index + match[0].length + 80);
-    const alnum = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}\b/.exec(window);
+export function extractCode(row: string): string | null {
+  const text = row.replace(/\s+/g, ' ');
+
+  for (const match of text.matchAll(KEYWORD)) {
+    const after = text.slice(match.index + match[0].length, match.index + match[0].length + 60);
+
+    // Digits following the keyword, skipping anything that reads as a year.
+    for (const digits of after.matchAll(/\b(\d{4,8})\b/g)) {
+      if (!looksLikeYear(digits[1])) return digits[1];
+    }
+
+    // Letter-and-digit codes are case-sensitive: an uppercase run carrying
+    // at least one digit and one letter.
+    const alnum = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}\b/.exec(after);
     if (alnum) return alnum[0];
   }
-  const subjectOnly = /\b(\d{4,8})\b/.exec(subject);
-  return subjectOnly ? subjectOnly[1] : null;
+
+  // The other order: "728104 is your one-time passcode".
+  for (const before of text.matchAll(/\b(\d{4,8})\b(?=[^0-9]{0,40}(?:is your|verification|code|passcode))/gi)) {
+    if (!looksLikeYear(before[1])) return before[1];
+  }
+
+  return null;
 }
 
 export interface BrowserCodeResult {
@@ -121,7 +139,7 @@ export async function findCodeInBrowser(
           : lines;
 
         for (const line of ranked) {
-          const code = extractCode(line, '');
+          const code = extractCode(line);
           if (code) return { code, subject: line.slice(0, 120) };
         }
       }
