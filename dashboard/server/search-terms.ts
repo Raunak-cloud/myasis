@@ -111,7 +111,8 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
-async function askGeminiForJson(
+/** Shared with profile-autofill.ts, which asks Gemini the same way. */
+export async function askGeminiForJson(
   apiKey: string,
   model: string,
   systemInstruction: string,

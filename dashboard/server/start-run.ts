@@ -7,6 +7,7 @@ import {
   isAdmin,
 } from './billing.js';
 import { entitlementsFor, recordRunStart, FINE_TUNING_KEYS } from './entitlements.js';
+import { listResumes } from './files.js';
 
 /**
  * The one way a run starts.
@@ -61,6 +62,20 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
         error: `You have used all ${entitlements.manualRunsPerDay} runs for today. They reset at midnight.`,
       };
     }
+  }
+
+  /**
+   * Nothing works without one. The agent attaches a résumé on nearly every
+   * form, the fit check reads it, and the cover letter is written from it —
+   * so a run without one wastes an employer's time and the candidate's
+   * allowance before failing on the document step.
+   */
+  if (consumes && !(await listResumes(userId)).length) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Upload your résumé first — applications are built from it.',
+    };
   }
 
   const overrides: Record<string, string> = await runSettingsForUser(userId, { unlimited: admin });

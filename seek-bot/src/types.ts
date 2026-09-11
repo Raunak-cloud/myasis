@@ -177,7 +177,15 @@ export interface BlockedQuestion {
 export interface FieldAnswer {
   ref: string;
   value: string;
-  /** false when the model had no grounded basis in the profile — triggers human handoff. */
+  /** false when nothing supports an answer — triggers the human handoff. */
   grounded: boolean;
+  /**
+   * Where a filled answer came from, recorded so an application can be
+   * audited afterwards:
+   *  - 'profile'  drawn from the candidate's own material
+   *  - 'composed' written by the model, asserting no checkable claim
+   *  - 'none'     not answerable; the candidate is asked
+   */
+  basis?: 'profile' | 'composed' | 'none';
   rationale?: string;
 }

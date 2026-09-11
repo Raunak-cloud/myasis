@@ -35,6 +35,7 @@ import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc }
 import { readSeekState, writeSeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { entitlementsFor, FINE_TUNING_KEYS } from './server/entitlements.js';
+import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { startAutoRunner } from './server/autorun.js';
 
@@ -655,7 +656,19 @@ function dataApi(): Plugin {
           if (req.method === 'POST') {
             const b = await readBody();
             const r = await addResume(userId, b);
-            return send(r.ok ? { ok: true, resumes: await listResumes(userId) } : { error: r.error }, r.ok ? 200 : 400);
+            if (!r.ok) return send({ error: r.error }, 400);
+            /**
+             * The details form is filled from the document that just arrived,
+             * because the candidate has already written all of it down once.
+             * Only blank fields are touched, and a failure here is not an
+             * upload failure — the résumé is saved either way.
+             */
+            const autofill = await autofillProfileFromResume(userId).catch(() => null);
+            return send({
+              ok: true,
+              resumes: await listResumes(userId),
+              ...(autofill?.filled.length ? { autofilled: autofill.filled } : {}),
+            });
           }
           if (req.method === 'PATCH') {
             const b = await readBody();

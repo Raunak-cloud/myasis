@@ -35,6 +35,24 @@ function toBase64(file: File): Promise<string> {
   });
 }
 
+/** Profile keys as the details form names them. */
+const FIELD_LABELS: Record<string, string> = {
+  fullName: 'Full name',
+  email: 'Email',
+  phone: 'Phone',
+  suburb: 'Suburb',
+  state: 'State',
+  postcode: 'Postcode',
+  headline: 'Headline',
+  experienceSummary: 'Experience summary',
+  skills: 'Skills',
+  highestQualification: 'Highest qualification',
+  linkedin: 'LinkedIn',
+  portfolio: 'Portfolio',
+};
+
+const fieldLabel = (key: string) => FIELD_LABELS[key] ?? key;
+
 export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [resumes, setResumes] = useState<ResumeRecord[]>([]);
   const [items, setItems] = useState<KnowledgeItem[]>([]);
@@ -47,6 +65,12 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [noteText, setNoteText] = useState('');
   const resumeInput = useRef<HTMLInputElement>(null);
   const knowledgeInput = useRef<HTMLInputElement>(null);
+  /**
+   * What reading the résumé put into the details form. Worth saying out loud:
+   * a form that fills itself silently looks broken, and the candidate needs
+   * to know which fields to check.
+   */
+  const [autofilled, setAutofilled] = useState<string[] | null>(null);
 
   async function refresh() {
     const [r, k] = await Promise.all([
@@ -75,7 +99,10 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       });
       const json = await res.json();
       if (!res.ok) setError(json.error ?? 'Upload failed.');
-      else await refresh();
+      else {
+        setAutofilled(Array.isArray(json.autofilled) && json.autofilled.length ? json.autofilled : null);
+        await refresh();
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -140,6 +167,13 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       {error && (
         <div className="banner" style={{ gridColumn: '1/-1', borderColor: 'var(--bad)', background: 'var(--bad-soft)' }}>
           {error}
+        </div>
+      )}
+
+      {autofilled && (
+        <div className="banner banner-ok" style={{ gridColumn: '1/-1' }}>
+          Filled in from your résumé: {autofilled.map(fieldLabel).join(', ')}. Check them in Your details, and add
+          anything the résumé did not mention.
         </div>
       )}
 
