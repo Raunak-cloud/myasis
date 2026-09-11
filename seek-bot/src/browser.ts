@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
@@ -45,9 +45,14 @@ async function installEsbuildNameShim(ctx: BrowserContext): Promise<void> {
 export async function launchBrowser(): Promise<BrowserContext> {
   let ctx: BrowserContext;
   try {
+    // Opt-in local capture for real-run demos. Keep raw applicant footage in
+    // private storage; only an edited/redacted export belongs in public assets.
+    const recordingDir = process.env.RUN_VIDEO_DIR?.trim();
+    if (recordingDir) mkdirSync(resolve(recordingDir), { recursive: true });
     const cdpHost = process.env.CDP_HOST?.trim();
     const cdpPort = process.env.CDP_PORT?.trim();
     if (process.env.BROWSER_CONNECT_CDP === 'true') {
+      if (recordingDir) throw new Error('RUN_VIDEO_DIR requires a newly launched browser; recording an existing CDP context is not supported.');
       if (!cdpHost || !cdpPort) {
         throw new Error('BROWSER_CONNECT_CDP=true requires both CDP_HOST and CDP_PORT.');
       }
@@ -121,6 +126,7 @@ export async function launchBrowser(): Promise<BrowserContext> {
        * Headless keeps a fixed viewport because there is no window to size.
        */
       viewport: config.headless ? { width: 1440, height: 960 } : null,
+      ...(recordingDir ? { recordVideo: { dir: resolve(recordingDir), size: { width: 1440, height: 960 } } } : {}),
       args,
     });
   } catch (err) {
