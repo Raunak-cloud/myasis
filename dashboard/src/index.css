@@ -1510,13 +1510,21 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* Step-by-step trace of an application that needs a person. */
 .trace-actions { margin-top: 8px; }
-.trace { display: grid; gap: 12px; margin-top: 8px; max-width: 720px; }
+/* Full row width now, not a 34% table cell — see AttentionPanel's TraceSteps. */
+.trace { display: grid; gap: 12px; margin: 8px 0; }
+.trace-row > td { background: var(--surface-2); }
 .trace-step { display: grid; gap: 6px; }
 .trace-result { opacity: 0.8; }
-.trace-shot { width: 100%; max-width: 720px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; display: block; }
+.trace-shot { width: 100%; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; display: block; }
 /* The thumbnail is a button so it can be opened full size; it must not look like one. */
 .trace-shot-button { padding: 0; border: 0; background: none; cursor: zoom-in; width: 100%; display: block; }
+.trace-shot-button { position: relative; }
 .trace-shot-button:hover .trace-shot { border-color: var(--accent); }
+.trace-shot-hint {
+  position: absolute; right: 8px; bottom: 8px;
+  padding: 3px 8px; border-radius: 4px; font-size: 11px;
+  background: rgba(0,0,0,.65); color: #fff; pointer-events: none;
+}
 /* Sized off the viewport height as well as its width so a tall capture fits whole. */
 .trace-zoom {
   width: min(1400px, calc(100vw - 32px));

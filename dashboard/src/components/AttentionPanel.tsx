@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { relative } from '../format';
 
 export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
@@ -80,47 +80,40 @@ interface TraceStep {
 /**
  * What the agent saw and did, step by step, for an application it could not
  * finish. Replaces guessing from a one-line reason with looking at the page.
+ *
+ * Rendered in its own full-width row rather than inside the Detail cell.
+ * That cell is 34% of the table, so a capture of a 1280-wide browser landed
+ * at roughly a third of its real size — present, but far too small to read
+ * the form that actually blocked the application.
  */
-function TraceViewer({ jobId }: { jobId: string }) {
+function TraceSteps({ jobId }: { jobId: string }) {
   const [steps, setSteps] = useState<TraceStep[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  /**
-   * A screenshot blown up over the page.
-   *
-   * These are captures of a 1280-wide browser shown inside a narrow column,
-   * which renders them at about a third of their real size — legible as a
-   * thumbnail, useless for actually reading the form that blocked the
-   * application. Clicking one opens it at full width.
-   */
+  /** A capture opened over the page, for when full-row width still is not enough. */
   const [enlarged, setEnlarged] = useState<TraceStep | null>(null);
 
-  async function load() {
-    setOpen(true);
-    if (steps) return;
-    try {
-      const response = await fetch(`/api/trace?jobId=${encodeURIComponent(jobId)}`);
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? 'No trace available.');
-      setSteps(body.steps ?? []);
-    } catch (reason) {
-      setError((reason as Error).message);
-    }
-  }
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/trace?jobId=${encodeURIComponent(jobId)}`);
+        const body = await response.json();
+        if (cancelled) return;
+        if (!response.ok) throw new Error(body.error ?? 'No trace available.');
+        setSteps(body.steps ?? []);
+      } catch (reason) {
+        if (!cancelled) setError((reason as Error).message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
 
-  if (!open) {
-    return (
-      <button className="btn btn-small" onClick={load}>
-        View steps
-      </button>
-    );
-  }
   return (
     <div className="trace">
-      <button className="btn btn-small" onClick={() => setOpen(false)}>
-        Hide steps
-      </button>
       {error && <div className="job-meta">{error}</div>}
+      {!steps && !error && <div className="job-meta">Loading steps…</div>}
       {steps?.map((s) => (
         <div key={s.step} className="trace-step">
           <div className="job-meta">
@@ -128,8 +121,9 @@ function TraceViewer({ jobId }: { jobId: string }) {
             {s.result ? <span className="trace-result"> → {s.result}</span> : null}
           </div>
           {s.screenshot ? (
-            <button className="trace-shot-button" onClick={() => setEnlarged(s)} title="Click to enlarge">
+            <button className="trace-shot-button" onClick={() => setEnlarged(s)}>
               <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" />
+              <span className="trace-shot-hint">Click to enlarge</span>
             </button>
           ) : null}
         </div>
@@ -151,6 +145,46 @@ function TraceViewer({ jobId }: { jobId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** One blocked job, plus its step-by-step trace on a full-width row beneath. */
+function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: () => void }) {
+  const [showTrace, setShowTrace] = useState(false);
+  return (
+    <>
+      <tr>
+        <td>
+          <div className="job-title">{item.title}</div>
+          <div className="job-meta">{item.company}</div>
+        </td>
+        <td>
+          <span className={`badge ${KIND[item.kind].tone}`}>{KIND[item.kind].label}</span>
+        </td>
+        <td className="job-meta attention-reason">
+          {item.reason}
+          {item.questions?.length ? <AnswerForm item={item} onSaved={onCleared} /> : null}
+          <div className="trace-actions">
+            <button className="btn btn-small" onClick={() => setShowTrace((open) => !open)}>
+              {showTrace ? 'Hide steps' : 'View steps'}
+            </button>
+          </div>
+        </td>
+        <td className="nowrap job-meta">{relative(item.at)}</td>
+        <td className="nowrap">
+          <a href={item.url} target="_blank" rel="noreferrer">
+            Open ↗
+          </a>
+        </td>
+      </tr>
+      {showTrace && (
+        <tr className="trace-row">
+          <td colSpan={5}>
+            <TraceSteps jobId={item.jobId} />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -295,28 +329,7 @@ export function AttentionPanel({
           </thead>
           <tbody>
             {shown.map((i) => (
-              <tr key={i.jobId}>
-                <td>
-                  <div className="job-title">{i.title}</div>
-                  <div className="job-meta">{i.company}</div>
-                </td>
-                <td>
-                  <span className={`badge ${KIND[i.kind].tone}`}>{KIND[i.kind].label}</span>
-                </td>
-                <td className="job-meta attention-reason">
-                  {i.reason}
-                  {i.questions?.length ? <AnswerForm item={i} onSaved={onCleared} /> : null}
-                  <div className="trace-actions">
-                    <TraceViewer jobId={i.jobId} />
-                  </div>
-                </td>
-                <td className="nowrap job-meta">{relative(i.at)}</td>
-                <td className="nowrap">
-                  <a href={i.url} target="_blank" rel="noreferrer">
-                    Open ↗
-                  </a>
-                </td>
-              </tr>
+              <AttentionRow key={i.jobId} item={i} onCleared={onCleared} />
             ))}
           </tbody>
         </table>
