@@ -1651,6 +1651,11 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   display: grid; place-items: center; font-size: 13px; font-weight: 700;
   background: rgba(var(--warm), .22); color: #8a5a28;
 }
+/* Brown on a tan tint reads on a light ground and disappears on a dark one. */
+:root[data-theme='dark'] .landing-step-n { color: #f1c79a; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .landing-step-n { color: #f1c79a; }
+}
 .landing-steps h3 { margin: 4px 0 6px; font-size: 16px; }
 .landing-steps p { margin: 0; color: var(--text-dim); line-height: 1.6; max-width: 66ch; }
 
