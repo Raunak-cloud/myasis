@@ -2,6 +2,7 @@ import { query } from './db/index.js';
 import { runner, MAX_CONCURRENT } from './runner.js';
 import { startRun } from './start-run.js';
 import { entitlementsFor, AUTO_WINDOW, RUN_TIME_ZONE, type Entitlements } from './entitlements.js';
+import { sendDailyDigests, digestDue } from './digest.js';
 
 /**
  * Applications for the accounts that do not drive runs themselves.
@@ -87,6 +88,15 @@ interface Scheduled {
  * One pass. Returns the accounts it started, for the log and for tests.
  */
 export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
+  /**
+   * Checked before the window, deliberately: the summary goes out once the
+   * day's runs are done, which is the moment the window shuts. Putting it
+   * after the early return below would mean it never ran at all.
+   */
+  if (digestDue(now)) {
+    await sendDailyDigests(now).catch((error) => console.warn('[digest] failed:', (error as Error).message));
+  }
+
   const elapsed = minutesIntoWindow(now);
   if (elapsed === null) return [];
 

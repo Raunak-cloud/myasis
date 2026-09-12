@@ -238,3 +238,16 @@ CREATE TABLE IF NOT EXISTS run_starts (
   started_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS run_starts_user_idx ON run_starts(user_id, trigger, started_at DESC);
+
+-- One row per account per day the evening summary was sent.
+--
+-- The unique key is the guard: the scheduler ticks every minute after 9pm, so
+-- something has to make the send happen once. A row is claimed before the
+-- email goes out and removed again if it fails, which retries on the next
+-- tick rather than leaving a candidate with no summary at all.
+CREATE TABLE IF NOT EXISTS daily_digests (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day     DATE NOT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, day)
+);
