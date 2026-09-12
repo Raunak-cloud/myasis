@@ -11,14 +11,34 @@ ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
 
 # All clips are from the same uninterrupted real run. The long search is reduced
 # to one results view, then the film jumps to the chosen listing, review, submit,
-# and SEEK confirmation. The applicant's name in the success banner is blurred.
+# and confirmation. Branding, the page header, job title and applicant name are blurred.
 filter_graph = r"""
 [0:v]split=4[v0][v1][v2][v3];
-[v0]trim=start=55:end=58,setpts=PTS-STARTPTS,scale=1280:800[s0];
-[v1]trim=start=617:end=620.5,setpts=PTS-STARTPTS,scale=1280:800[s1];
-[v2]trim=start=632:end=636,setpts=PTS-STARTPTS,scale=1280:800[s2];
-[v3]trim=start=636:end=640,setpts=PTS-STARTPTS,scale=1280:800,delogo=x=462:y=150:w=360:h=72:show=0[s3];
-[s0][s1][s2][s3]concat=n=4:v=1:a=0[out]
+[v0]trim=start=55:end=58,setpts=PTS-STARTPTS,scale=1280:800,split=2[search][seekbutton];
+[seekbutton]crop=96:52:1112:84,boxblur=10:5[seekbuttonblur];
+[search][seekbuttonblur]overlay=1112:84[s0];
+[v1]trim=start=617:end=620.5,setpts=PTS-STARTPTS,scale=1280:800,split=3[listing][listingtitle][seekloader];
+[listingtitle]crop=460:78:230:500,boxblur=12:6[listingtitleblur];
+[seekloader]crop=140:70:570:640,boxblur=12:6[seekloaderblur];
+[listing][listingtitleblur]overlay=230:500[listingredacted];
+[listingredacted][seekloaderblur]overlay=570:640[s1];
+[v2]trim=start=632:end=636,setpts=PTS-STARTPTS,scale=1280:800,split=6[application][applicationtitle][seekprofile][seeknotice][applicantdata][seekfooter];
+[applicationtitle]crop=520:78:340:28,boxblur=12:6[applicationtitleblur];
+[seekprofile]crop=250:52:545:218,boxblur=10:5[seekprofileblur];
+[seeknotice]crop=650:50:205:286,boxblur=10:5[seeknoticeblur];
+[applicantdata]crop=650:700:195:50,boxblur=20:10[applicantdatablur];
+[seekfooter]crop=360:90:900:680,boxblur=12:6[seekfooterblur];
+[application][applicationtitleblur]overlay=340:28[applicationpart];
+[applicationpart][seekprofileblur]overlay=545:218[applicationredacted];
+[applicationredacted][seeknoticeblur]overlay=205:286[applicationpublic];
+[applicationpublic][applicantdatablur]overlay=195:50:enable='between(t\,0\,3.15)'[applicationprivate];
+[applicationprivate][seekfooterblur]overlay=900:680[s2];
+[v3]trim=start=637:end=637.04,setpts=PTS-STARTPTS,scale=1280:800,loop=loop=74:size=1:start=0,setpts=N/25/TB,split=2[success][private];
+[private]crop=96:38:660:172,boxblur=9:4[blurred];
+[success][blurred]overlay=660:172[s3];
+[s0][s1][s2][s3]concat=n=4:v=1:a=0,split=2[film][header];
+[header]crop=1280:66:0:0,boxblur=12:6[headerblur];
+[film][headerblur]overlay=0:0,setpts=0.5193*PTS,fps=25[out]
 """.replace("\n", "")
 
 movie = output / "myasis-live-run.mp4"
@@ -37,20 +57,20 @@ subprocess.run([
 
 (output / "myasis-live-run.vtt").write_text("""WEBVTT
 
-00:00.000 --> 00:03.000
-Myasis searches SEEK and reviews available roles.
+00:00.000 --> 00:01.560
+Myasis searches and reviews available roles.
 
-00:03.000 --> 00:06.500
-It opens a suitable role: Casual Retail Sales Assistant at Mountain Warehouse.
+00:01.560 --> 00:03.370
+It opens a suitable role.
 
-00:06.500 --> 00:09.600
-The application reaches final review with the selected résumé and prepared cover letter.
+00:03.370 --> 00:05.000
+The application reaches final review with the selected resume and prepared cover letter.
 
-00:09.500 --> 00:10.000
+00:05.000 --> 00:05.300
 Myasis submits the application.
 
-00:10.000 --> 00:11.640
-SEEK confirms the real application was sent to Mountain Warehouse.
+00:05.300 --> 00:07.000
+The job site confirms the real application was sent.
 """, encoding="utf-8")
 
 print(movie)

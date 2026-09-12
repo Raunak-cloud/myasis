@@ -1,13 +1,13 @@
 :root {
-  --bg: #0f1117;
-  --surface: #171a23;
-  --surface-2: #1e222d;
-  --border: #2a2f3d;
-  --text: #e6e9f0;
-  --text-dim: #9aa3b5;
-  --text-faint: #6b7385;
-  --accent: #6366f1;
-  --accent-soft: rgba(99, 102, 241, 0.14);
+  --bg: #0b1320;
+  --surface: #111c2b;
+  --surface-2: #192638;
+  --border: #2a3a50;
+  --text: #eef5fc;
+  --text-dim: #a5b4c6;
+  --text-faint: #74869a;
+  --accent: #4f8edc;
+  --accent-soft: rgba(79, 142, 220, 0.16);
   --ok: #34d399;
   --ok-soft: rgba(52, 211, 153, 0.14);
   --warn: #fbbf24;
@@ -21,27 +21,29 @@
 }
 
 :root[data-theme='light'] {
-  --bg: #f6f7f9;
+  --bg: #f4f8fc;
   --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #dfe3ea;
-  --text: #131722;
-  --text-dim: #57606f;
-  --text-faint: #8b93a3;
-  --accent-soft: rgba(99, 102, 241, 0.1);
+  --surface-2: #eaf1f8;
+  --border: #cbd9e7;
+  --text: #14243d;
+  --text-dim: #52647a;
+  --text-faint: #6e7f92;
+  --accent: #2563a6;
+  --accent-soft: rgba(37, 99, 166, 0.12);
 }
 
 /* No data-theme attribute = follow the OS (which handles time-of-day itself). */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
-  --bg: #f6f7f9;
+  --bg: #f4f8fc;
   --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #dfe3ea;
-  --text: #131722;
-  --text-dim: #57606f;
-  --text-faint: #8b93a3;
-  --accent-soft: rgba(99, 102, 241, 0.1);
+  --surface-2: #eaf1f8;
+  --border: #cbd9e7;
+  --text: #14243d;
+  --text-dim: #52647a;
+  --text-faint: #6e7f92;
+  --accent: #2563a6;
+  --accent-soft: rgba(37, 99, 166, 0.12);
 }
 }
 
@@ -707,28 +709,28 @@ tbody tr.clickable { cursor: pointer; }
 
 /* ---------- simplified application shell ---------- */
 :root {
-  --bg: #0c0e13;
-  --surface: #14171f;
-  --surface-2: #1b1f29;
-  --border: #282d39;
-  --text: #f2f4f8;
-  --text-dim: #a5adbd;
-  --text-faint: #727b8d;
-  --accent: #7c6ff0;
-  --accent-soft: rgba(124, 111, 240, .14);
+  --bg: #0b1320;
+  --surface: #111c2b;
+  --surface-2: #192638;
+  --border: #2a3a50;
+  --text: #eef5fc;
+  --text-dim: #a5b4c6;
+  --text-faint: #74869a;
+  --accent: #4f8edc;
+  --accent-soft: rgba(79, 142, 220, .16);
   --radius: 12px;
 }
 
 :root[data-theme='light'] {
-  --bg: #f6f7f9;
+  --bg: #f4f8fc;
   --surface: #ffffff;
-  --surface-2: #eef1f5;
-  --border: #cfd5df;
-  --text: #11141c;
-  --text-dim: #465163;
-  --text-faint: #606b7d;
-  --accent: #5847d2;
-  --accent-soft: rgba(88, 71, 210, .12);
+  --surface-2: #eaf1f8;
+  --border: #cbd9e7;
+  --text: #14243d;
+  --text-dim: #52647a;
+  --text-faint: #6e7f92;
+  --accent: #2563a6;
+  --accent-soft: rgba(37, 99, 166, .12);
   --ok: #0f7250;
   --ok-soft: rgba(15, 114, 80, .12);
   --warn: #805700;
@@ -741,15 +743,15 @@ tbody tr.clickable { cursor: pointer; }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
-    --bg: #f6f7f9;
+    --bg: #f4f8fc;
     --surface: #ffffff;
-    --surface-2: #eef1f5;
-    --border: #cfd5df;
-    --text: #11141c;
-    --text-dim: #465163;
-    --text-faint: #606b7d;
-    --accent: #5847d2;
-    --accent-soft: rgba(88, 71, 210, .12);
+    --surface-2: #eaf1f8;
+    --border: #cbd9e7;
+    --text: #14243d;
+    --text-dim: #52647a;
+    --text-faint: #6e7f92;
+    --accent: #2563a6;
+    --accent-soft: rgba(37, 99, 166, .12);
     --ok: #0f7250;
     --ok-soft: rgba(15, 114, 80, .12);
     --warn: #805700;
@@ -853,7 +855,7 @@ a:focus-visible,
   text-align: center;
 }
 
-.side-link.active .nav-count { background: rgba(124, 111, 240, .18); color: var(--text); }
+.side-link.active .nav-count { background: rgba(37, 99, 166, .18); color: var(--text); }
 
 .main-shell {
   min-width: 0;
@@ -913,7 +915,7 @@ a:focus-visible,
 .page-content { max-width: 1500px; margin: 0 auto; }
 .card { box-shadow: 0 1px 0 rgba(255, 255, 255, .02); }
 .btn { min-height: 36px; font-weight: 550; }
-.btn.primary { box-shadow: 0 7px 20px rgba(124, 111, 240, .18); }
+.btn.primary { box-shadow: 0 7px 20px rgba(37, 99, 166, .18); }
 .input, select.input { min-height: 38px; }
 
 /* The page header now supplies titles, so nested tool headings can stay quiet. */
@@ -1271,7 +1273,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 .pricing-card.recommended {
   border-color: var(--accent);
-  box-shadow: 0 10px 30px rgba(99, 102, 241, .12);
+  box-shadow: 0 10px 30px rgba(37, 99, 166, .14);
 }
 
 .pricing-card.recommended .pricing-plan-label { color: var(--accent); }
@@ -1441,7 +1443,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .terminal-time { color: #718096; font-variant-numeric: tabular-nums; }
 .terminal-channel { color: #65c7ff; font-size: 9.5px; font-weight: 700; letter-spacing: .05em; }
 .terminal-message { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.terminal-line.sys .terminal-channel { color: #b697ff; }
+.terminal-line.sys .terminal-channel { color: #8fb7ea; }
 .terminal-line.err .terminal-channel,
 .terminal-line.err .terminal-message { color: #ff8191; }
 .terminal-line.waiting .terminal-channel { color: #69e4ac; }
