@@ -39,10 +39,10 @@ const WINDOW_MINUTES = (AUTO_WINDOW.endHour - AUTO_WINDOW.startHour) * 60;
  * different lanes, so the number starting together never exceeds the number
  * the machine can run.
  *
- * With ten accounts, two lanes and five runs across 9am-9pm: blocks are 144
- * minutes, five accounts share each lane, so slots are 28.8 minutes. Account
- * 0 goes at 9:00, 11:24, 13:48, 16:12, 18:36; account 2 at 9:28, 11:52, and
- * so on; accounts 0 and 1 start together because they are in different lanes.
+ * With ten accounts, two lanes and four runs across 9am-9pm: blocks are 180
+ * minutes, five accounts share each lane, so slots are 36 minutes. Account 0
+ * goes at 9:00, 12:00, 15:00 and 18:00; account 2 at 9:36, 12:36 and so on;
+ * accounts 0 and 1 start together because they are in different lanes.
  */
 export function slotMinutes(
   index: number,

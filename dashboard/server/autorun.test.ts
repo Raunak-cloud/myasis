@@ -10,7 +10,7 @@ import { slotMinutes } from './autorun.js';
  */
 
 const WINDOW = 720; // 9am-9pm
-const RUNS = 5;
+const RUNS = 4;
 const LANES = 2;
 
 interface DayResult {
@@ -81,7 +81,7 @@ check('no more than 2 accounts share a slot', Math.max(...at.values()) <= LANES,
 // ---- a day where runs finish inside their slot
 console.log('');
 const brisk = simulate(10, 25);
-check('10 accounts each get all 5 runs (25-minute runs)', brisk.perUser.every((n) => n === RUNS), brisk.perUser.join(','));
+check(`10 accounts each get all ${RUNS} runs (25-minute runs)`, brisk.perUser.every((n) => n === RUNS), brisk.perUser.join(','));
 check('never more than 2 at once', brisk.peakConcurrent <= LANES, `peak ${brisk.peakConcurrent}`);
 console.log(`   account 0 started at: ${(brisk.startTimes.get(0) ?? []).map(clock).join(', ')}`);
 console.log(`   account 9 started at: ${(brisk.startTimes.get(9) ?? []).map(clock).join(', ')}`);

@@ -28,8 +28,16 @@ export const AUTO_WINDOW = { startHour: 9, endHour: 21 } as const;
 /** Manual runs an Intensive Pass may start per local day. Admins have no cap. */
 export const INTENSIVE_MANUAL_RUNS_PER_DAY = 3;
 
-/** Automatic runs a standard account gets per local day. */
-export const STANDARD_AUTO_RUNS_PER_DAY = 5;
+/**
+ * Automatic runs a standard account gets per local day.
+ *
+ * Four rather than five so each run has room to finish inside its slot: two
+ * lanes across a twelve-hour window is 1,440 lane-minutes, which ten accounts
+ * at four runs each divide into 36 minutes apiece. At five it was 29, close
+ * enough to a real run's length that a slow day started costing accounts
+ * their last run. More accounts should buy more lanes, not thinner slots.
+ */
+export const STANDARD_AUTO_RUNS_PER_DAY = 4;
 
 /**
  * The preferences a standard account may edit: who they are, what work they
