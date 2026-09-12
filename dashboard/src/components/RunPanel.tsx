@@ -519,7 +519,7 @@ export function RunPanel({
             {driving
               ? 'Rehearse first, then apply when everything looks right.'
               : entitlements
-                ? `${entitlements.autoRunsPerDay} times a day, between ${windowLabel(entitlements.window)}.`
+                ? `${entitlements.autoRunsPerDay} times a day, between ${windowLabel(entitlements.window)}. Only jobs matching ${entitlements.scheduledMinScore}% or higher are applied to.`
                 : ''}
           </p>
         </div>

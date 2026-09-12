@@ -34,7 +34,7 @@ import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { readSeekState, writeSeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt } from './server/entitlements.js';
+import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt } from './server/entitlements.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { startAutoRunner } from './server/autorun.js';
@@ -989,9 +989,12 @@ function dataApi(): Plugin {
       case '/api/run/queue': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
+          const queueUser = await currentUser(req.headers?.cookie);
+          const entitlements = await entitlementsFor(userId, queueUser?.email);
           // Same reasoning as /api/run: without this the scan inherits the
           // shared .env's search settings instead of this account's.
-          const r = await runner.startQueue(userId, await runSettingsForUser(userId));
+          const settings = applyRunPolicy(await runSettingsForUser(userId), entitlements, 'manual');
+          const r = await runner.startQueue(userId, settings);
           return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
         });
       }

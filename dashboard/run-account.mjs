@@ -15,6 +15,7 @@ import { syncRunResultsToDb } from './server/db/run-sync.js';
 import { resolve } from 'node:path';
 import { billingStatus, isAdmin, consumeSuccessfulApplication, consumeCompletedRehearsal } from './server/billing.js';
 import { one } from './server/db/index.js';
+import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS } from './server/entitlements.js';
 
 const [userId, mode, ...rest] = process.argv.slice(2);
 if (!userId || !['search', 'rehearse', 'live'].includes(mode ?? '')) {
@@ -24,7 +25,12 @@ if (!userId || !['search', 'rehearse', 'live'].includes(mode ?? '')) {
 
 const adminEmail = (await one('select email from users where id = $1', [userId]))?.email ?? null;
 const admin = isAdmin(adminEmail);
-const overrides = await runSettingsForUser(userId, { unlimited: admin });
+const entitlements = await entitlementsFor(userId, adminEmail);
+const overrides = applyRunPolicy(
+  await runSettingsForUser(userId, { unlimited: admin }),
+  entitlements,
+  'manual',
+);
 
 /**
  * Mirror what `/api/run` does before spawning.
@@ -56,7 +62,10 @@ if (mode === 'live' && !isAdmin(email)) {
 // CLI arguments last, so an operator can still narrow a run.
 for (const pair of rest) {
   const i = pair.indexOf('=');
-  if (i > 0) overrides[pair.slice(0, i)] = pair.slice(i + 1);
+  const key = pair.slice(0, i);
+  if (i > 0 && (entitlements.fineTune || !FINE_TUNING_KEYS.includes(key))) {
+    overrides[key] = pair.slice(i + 1);
+  }
 }
 
 // Re-asserted after the CLI args: a command-line flag must not be able to hand

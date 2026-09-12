@@ -1,6 +1,6 @@
 import { query } from './db/index.js';
 import { billingStatus, isAdmin } from './billing.js';
-import { KEEP_SETTINGS_KEYS } from './settings.js';
+import { KEEP_SETTINGS_KEYS, RUN_SETTING_DEFAULTS } from './settings.js';
 
 /**
  * What an account is allowed to do — decided in one place, for every caller.
@@ -39,6 +39,9 @@ export const INTENSIVE_MANUAL_RUNS_PER_DAY = 3;
  */
 export const STANDARD_AUTO_RUNS_PER_DAY = 4;
 
+/** Scheduled applications must clear this model-assessed match threshold. */
+export const SCHEDULED_MIN_SCORE = 75;
+
 /**
  * The preferences a standard account may edit: who they are, what work they
  * want, and where and for how much. Everything else in `KEEP_SETTINGS_KEYS`
@@ -60,6 +63,28 @@ export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
   (key) => !(BASIC_SETTINGS_KEYS as readonly string[]).includes(key),
 );
 
+/**
+ * Apply plan policy to the settings that will actually reach the bot.
+ *
+ * Filtering writes is not enough: an account may have advanced values saved
+ * from an earlier Intensive Pass. Standard runs therefore resolve every
+ * fine-tuning key back to the product default at execution time. Scheduled
+ * live applications then receive their fixed safety threshold regardless of
+ * any saved value.
+ */
+export function applyRunPolicy(
+  settings: Record<string, string>,
+  entitlement: Pick<Entitlements, 'fineTune'>,
+  trigger: 'manual' | 'auto',
+): Record<string, string> {
+  const resolved = { ...settings };
+  if (!entitlement.fineTune) {
+    for (const key of FINE_TUNING_KEYS) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
+  }
+  if (trigger === 'auto') resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
+  return resolved;
+}
+
 export interface Entitlements {
   tier: Tier;
   /** May start a rehearsal or a live run by hand. */
@@ -71,6 +96,8 @@ export interface Entitlements {
   /** Automatic runs per local day; 0 for the tiers that drive runs themselves. */
   autoRunsPerDay: number;
   autoRunsUsedToday: number;
+  /** Fixed match floor for scheduled applications; null when this tier has no schedule. */
+  scheduledMinScore: number | null;
   /** May edit the settings that change how a run behaves. */
   fineTune: boolean;
   /** May use the rewriting tool. */
@@ -166,6 +193,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     manualRunsLeftToday: manualRunsPerDay === null ? null : Math.max(0, manualRunsPerDay - manualRunsUsedToday),
     autoRunsPerDay,
     autoRunsUsedToday,
+    scheduledMinScore: autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
     fineTune: tier !== 'standard',
     rewriteText: tier === 'admin',
     window: { ...AUTO_WINDOW, timeZone: RUN_TIME_ZONE },

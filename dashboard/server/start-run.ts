@@ -6,7 +6,7 @@ import {
   consumeSuccessfulApplication,
   isAdmin,
 } from './billing.js';
-import { entitlementsFor, recordRunStart, FINE_TUNING_KEYS } from './entitlements.js';
+import { applyRunPolicy, entitlementsFor, recordRunStart, FINE_TUNING_KEYS } from './entitlements.js';
 import { listResumes } from './files.js';
 
 /**
@@ -78,7 +78,11 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     };
   }
 
-  const overrides: Record<string, string> = await runSettingsForUser(userId, { unlimited: admin });
+  const overrides = applyRunPolicy(
+    await runSettingsForUser(userId, { unlimited: admin }),
+    entitlements,
+    trigger,
+  );
 
   /**
    * Only known per-account settings are accepted from a browser: without this
