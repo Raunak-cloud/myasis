@@ -6,7 +6,7 @@ import { ApplicationsPanel } from './components/ApplicationsPanel';
 import { SetupPanel } from './components/SetupPanel';
 import { HumanizerPanel } from './components/HumanizerPanel';
 import { PricingPanel } from './components/PricingPanel';
-import { daysSince, fmtDateTime } from './format';
+import { daysSince } from './format';
 import { UserChip, useAuth } from './components/SignIn';
 import { Landing } from './components/Landing';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
@@ -198,12 +198,6 @@ export default function App() {
           <div>
             <h1>{PAGE_COPY[tab].title}</h1>
             <p>{PAGE_COPY[tab].description}</p>
-            {tab === 'run' && (
-              <div className="last-run" title={lastRunAt ? new Date(lastRunAt).toLocaleString('en-AU') : undefined}>
-                <span aria-hidden="true" />
-                {lastRunAt ? `Last run ${fmtDateTime(lastRunAt)}` : 'No runs yet'}
-              </div>
-            )}
           </div>
           <div className="toolbar">
             {running && <span className="badge ok">Running</span>}
@@ -243,7 +237,12 @@ export default function App() {
 
         <div className="page-content">
           {tab === 'run' && (
-            <RunPanel onFinished={load} onGoSetup={() => setTab('setup')} onGoPricing={() => setTab('pricing')} />
+            <RunPanel
+              lastRunAt={lastRunAt}
+              onFinished={load}
+              onGoSetup={() => setTab('setup')}
+              onGoPricing={() => setTab('pricing')}
+            />
           )}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
           {tab === 'applications' && (

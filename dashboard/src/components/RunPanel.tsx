@@ -6,6 +6,7 @@ import { AUSTRALIAN_CITIES } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
+import { fmtDateTime } from '../format';
 
 type Mode = 'rehearse' | 'live';
 
@@ -196,10 +197,12 @@ function logChannel(line: LogLine): string {
  * Full details remain available in a collapsed log for troubleshooting.
  */
 export function RunPanel({
+  lastRunAt,
   onFinished,
   onGoSetup,
   onGoPricing,
 }: {
+  lastRunAt: string | null;
   onFinished: () => void;
   onGoSetup: () => void;
   onGoPricing: () => void;
@@ -594,9 +597,10 @@ export function RunPanel({
           </>
         )}
 
-        {!running && status?.finishedAt && (
+        {!running && (lastRunAt || status?.finishedAt) && (
           <p className="job-meta">
-            Last run: {status.applied} submitted · exit {status.exitCode}
+            Last run {fmtDateTime(lastRunAt ?? status!.finishedAt!)}
+            {status?.finishedAt ? ` · ${status.applied} submitted · exit ${status.exitCode}` : ''}
           </p>
         )}
       </div>
