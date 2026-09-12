@@ -83,7 +83,7 @@ export function SearchTermsGenerator({
       const terms = result.terms.filter((term): term is string => typeof term === 'string');
       onGenerated(terms.join(', '));
       const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected résumés';
-      setMessage(`Generated and eligibility-checked ${terms.length} terms from ${label}. Review them before saving.`);
+      setMessage(`Gemini created ${terms.length} résumé-matched searches from ${label}. Review them before saving.`);
     } catch (error) {
       setFailed(true);
       setMessage((error as Error).message);
