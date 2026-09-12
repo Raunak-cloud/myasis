@@ -164,6 +164,11 @@ export function deterministicExclusion(job: JobListing): string | null {
   return null;
 }
 
+/** The account's configured semantic-fit floor. Used after model review. */
+export function meetsMinimumScore(score: number): boolean {
+  return Number.isFinite(score) && score >= config.rules.minScore;
+}
+
 /** Words that carry no signal when matching a search term against a job title. */
 const TITLE_NOISE = new Set([
   'a', 'an', 'the', 'and', 'or', 'of', 'for', 'in', 'to', 'with', 'new',

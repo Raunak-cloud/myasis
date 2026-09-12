@@ -4,8 +4,10 @@ import { celerisChat, CostMeter } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
 import { cachedAssessment, relevantEvidence, measured } from './pipeline.js';
 import { buildKnowledgeContext, loadSavedAnswers } from './knowledge.js';
+import { loadApplied } from './store.js';
 import {
   humanizeCoverLetter,
+  coverLetterStyleIssue,
   MAX_COVER_LETTER_WORDS,
   wordCount,
 } from './humanizer.js';
@@ -389,15 +391,75 @@ export async function writeCoverLetter(
   knowledgeOverride?: string,
 ): Promise<string> {
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
+  const recentShapes = loadApplied()
+    .filter((application) => application.coverLetter)
+    .slice(-8)
+    .reverse()
+    .map((application) => {
+      const blocks = application.coverLetter!.trim().split(/\n\s*\n/);
+      return {
+        role: application.title,
+        opening: blocks.slice(0, Math.min(2, blocks.length)).join(' / ').slice(0, 350),
+        closing: (blocks.at(-1) ?? '').slice(0, 180),
+      };
+    });
+
+  const plan = await geminiJson<{
+    approach: 'evidence-led' | 'company-led' | 'role-problem' | 'career-bridge' | 'brief-note' | 'story-led';
+    tone: 'warm' | 'confident' | 'thoughtful' | 'energetic' | 'calm';
+    opening: string;
+    bodyMoves: string[];
+    closing: string;
+    targetWords: number;
+  }>(`${GUARD}
+
+Act as an editor planning one distinctive cover letter. Choose the form that best fits this
+specific role and candidate. The next model will write the prose; give it a concrete editorial
+brief, not a reusable template.
+
+CANDIDATE PROFILE
+${profileBlock(profile)}
+
+<untrusted role="job-listing">
+Title: ${job.title}
+Company: ${job.company}
+Description: ${relevantEvidence(job.description ?? job.teaser ?? '', job.title + ' priorities responsibilities culture ' + profile.skills.join(' '), 16000)}
+</untrusted>
+
+Recently used letter shapes:
+<recent-letters>${recentShapes.length ? JSON.stringify(recentShapes) : 'None available.'}</recent-letters>
+
+Select one approach and design a fresh opening, body movement, and closing. Avoid the recent
+openings, rhythms, paragraph sequence, and sign-offs. Do not write "Dear Hiring Manager",
+"To whom it may concern", "I am writing to express my interest", or "Sincerely". A greeting
+is optional. Do not invent facts. Return JSON.`, {
+    type: 'OBJECT',
+    properties: {
+      approach: { type: 'STRING', enum: ['evidence-led', 'company-led', 'role-problem', 'career-bridge', 'brief-note', 'story-led'] },
+      tone: { type: 'STRING', enum: ['warm', 'confident', 'thoughtful', 'energetic', 'calm'] },
+      opening: { type: 'STRING' },
+      bodyMoves: { type: 'ARRAY', items: { type: 'STRING' } },
+      closing: { type: 'STRING' },
+      targetWords: { type: 'INTEGER' },
+    },
+    required: ['approach', 'tone', 'opening', 'bodyMoves', 'closing', 'targetWords'],
+  });
   const prompt = `${GUARD}
 
 ${APPLICANT_VOICE}
 
-Write a concise cover letter. Aim for 180-220 words. The complete letter,
+Write a vivid, specific cover letter from the editorial plan below. The complete letter,
 including its greeting and sign-off, must never exceed ${MAX_COVER_LETTER_WORDS} words.
-It must sound like a real person who deliberately chose this role, not a generic
-template. Use a natural opening and connect the candidate's strongest relevant
-evidence to two or three concrete priorities from this specific job description.
+It must sound like a real person who deliberately chose this role. Let this job determine
+the letter's shape instead of forcing it into a standard cover-letter sequence.
+
+EDITORIAL PLAN
+Approach: ${plan.approach}
+Tone: ${plan.tone}
+Opening direction: ${plan.opening}
+Body movement: ${plan.bodyMoves.join(' -> ')}
+Closing direction: ${plan.closing}
+Target length: ${Math.max(130, Math.min(230, Math.round(plan.targetWords)))} words
 
 CANDIDATE PROFILE
 ${profileBlock(profile)}
@@ -425,18 +487,21 @@ Rules:
   more years than the candidate has, do not imply they have them. It is fine to
   acknowledge being earlier-career while making the case on demonstrated work.
 - Reference at most two named projects from the profile where genuinely relevant.
-- Address the company and role by name. End with the candidate's name.
-- Avoid stock phrases such as "I am writing to express my interest" and do not
-  merely repeat the advertisement. Vary sentence lengths and keep the tone warm,
-  direct and human.
+- Mention the company and role naturally. End with the candidate's name.
+- Do not use "Dear Hiring Manager", "To whom it may concern", "I am writing to
+  express my interest", or "Sincerely". A greeting is optional. Do not merely repeat
+  the advertisement.
+- Follow the editorial plan closely. Vary sentence and paragraph lengths. A crisp
+  three-paragraph note, a direct evidence-led pitch, and a short narrative should
+  look materially different from one another.
 - Count the words before responding and keep the complete letter at or below
   ${MAX_COVER_LETTER_WORDS} words.
 - Return JSON: {"letter": "..."}`;
 
-  const out = await geminiJson<{ letter: string; needsEditing: boolean }>(prompt + '\nAlso return needsEditing=true only if this draft would benefit from a separate style edit. Prefer delivering a finished letter.', {
+  const out = await geminiJson<{ letter: string }>(prompt, {
     type: 'OBJECT',
-    properties: { letter: { type: 'STRING' }, needsEditing: { type: 'BOOLEAN' } },
-    required: ['letter', 'needsEditing'],
+    properties: { letter: { type: 'STRING' } },
+    required: ['letter'],
   });
   let draft = out.letter.trim();
   if (wordCount(draft) > MAX_COVER_LETTER_WORDS) {
@@ -459,6 +524,24 @@ ${draft}
     draft = shortened.letter.trim();
   }
 
+  const styleIssue = coverLetterStyleIssue(draft);
+  if (styleIssue) {
+    const corrected = await geminiJson<{ letter: string }>(`${prompt}
+
+The previous draft was rejected for this reason: ${styleIssue}.
+Rewrite it with a materially different opening and closing while following the same editorial
+plan and evidence rules. Do not mention this correction. Return JSON as {"letter":"..."}.
+
+<rejected-draft>${draft}</rejected-draft>`, {
+      type: 'OBJECT',
+      properties: { letter: { type: 'STRING' } },
+      required: ['letter'],
+    });
+    draft = corrected.letter.trim();
+    const remainingIssue = coverLetterStyleIssue(draft);
+    if (remainingIssue) throw new Error(`Drafting service repeated a stock cover-letter pattern: ${remainingIssue}`);
+  }
+
   if (wordCount(draft) > MAX_COVER_LETTER_WORDS) {
     throw new Error(`Drafting service could not produce a cover letter within ${MAX_COVER_LETTER_WORDS} words`);
   }
@@ -475,7 +558,7 @@ Return supported and a brief reason.`, { type: 'OBJECT', properties: { supported
     return result.supported === true;
   };
   if (!(await verify(draft))) throw new Error('Cover letter contains unsupported factual claims; draft withheld.');
-  return humanizeCoverLetter(draft, verify, out.needsEditing === true);
+  return humanizeCoverLetter(draft, verify, true);
 }
 
 /** Resolves the run's cover-letter strategy for one application. */

@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
-import { deterministicExclusion, detectInjection } from './scoring.js';
+import { deterministicExclusion, detectInjection, meetsMinimumScore } from './scoring.js';
 import { assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
@@ -213,6 +213,11 @@ async function build() {
       if (!fit.shouldApply) {
         console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${fit.reason.slice(0, 90)}`);
         bump('not a fit');
+        continue;
+      }
+      if (!meetsMinimumScore(fit.matchScore)) {
+        console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — below minimum ${config.rules.minScore}`);
+        bump('below minimum match score');
         continue;
       }
       const fitReason = fit.reason;

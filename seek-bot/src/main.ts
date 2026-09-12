@@ -17,7 +17,7 @@ import {
   search as searchIndeed,
   fetchJobDetail as fetchJobDetailIndeed,
 } from './discovery-indeed.js';
-import { scoreJob, deterministicExclusion, detectInjection } from './scoring.js';
+import { scoreJob, deterministicExclusion, detectInjection, meetsMinimumScore } from './scoring.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, syncFromSeek } from './store.js';
@@ -296,8 +296,18 @@ async function main() {
             });
             continue;
           }
+          if (!meetsMinimumScore(fit.matchScore)) {
+            const reason = `Model match score ${fit.matchScore} below minimum ${config.rules.minScore}`;
+            console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${reason}`);
+            bump('below minimum match score');
+            logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company });
+            continue;
+          }
           why = fit.reason;
           decisionReasons = fit.evidence;
+        } else if (!meetsMinimumScore(score)) {
+          bump('below minimum match score');
+          continue;
         }
 
         const semanticScore = fit?.matchScore ?? score;
