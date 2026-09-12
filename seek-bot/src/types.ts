@@ -114,6 +114,7 @@ export type ApplyOutcome =
       stoppedAt: string;
     }
   | { status: 'skipped'; jobId: string; reason: string }
+  | { status: 'already-applied'; jobId: string; reason: string }
   | { status: 'off-platform'; jobId: string; redirectedTo: string }
   | {
       status: 'needs-human';

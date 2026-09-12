@@ -123,6 +123,20 @@ async function main() {
   }
 
   const index = new AppliedIndex();
+  const rememberExistingApplication = (job: JobListing, reason: string) => {
+    if (index.has(job.id, job.company, job.title, job.location)) return;
+    index.add({
+      jobId: job.id,
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      url: job.url,
+      appliedAt: new Date().toISOString(),
+      score: 0,
+      platform: job.platform ?? 'seek',
+      scoreReasons: [reason],
+    });
+  };
   const already = index.appliedToday();
   console.log(`Known applications: ${index.all.length} (${already} today)`);
 
@@ -344,20 +358,34 @@ async function main() {
        */
       await jitter(5000, 8000);
 
+      const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
+      let verdict = await judgePage(page, expected);
+      if (verdict.state === 'already-applied') {
+        console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
+        bump('already applied');
+        rememberExistingApplication(job, verdict.reason);
+        logOutcome({ status: 'already-applied', jobId: job.id, reason: verdict.reason, title: job.title, company: job.company });
+        continue;
+      }
+
       /**
-       * A listing with no description is the only signal that something is
-       * wrong at this stage, and the model is asked why only then: a wall
-       * hands the platform to a person, a slow page gets one retry, and a
-       * removed listing is skipped instead of being sent to the fit review
-       * with a blank description.
+       * The semantic page verdict above resolves work the account already
+       * completed before fit review. For an unreadable listing it also tells
+       * us whether a person is needed, the page is still loading, or the job
+       * disappeared.
        */
       if (!job.description) {
-        const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
-        let verdict = await judgePage(page, expected);
         if (verdict.state === 'loading') {
           await jitter(3000, 5000);
           job = await measured('detail-retry', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
-          if (!job.description) verdict = await judgePage(page, expected);
+          verdict = await judgePage(page, expected);
+          if (verdict.state === 'already-applied') {
+            console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
+            bump('already applied');
+            rememberExistingApplication(job, verdict.reason);
+            logOutcome({ status: 'already-applied', jobId: job.id, reason: verdict.reason, title: job.title, company: job.company });
+            continue;
+          }
         }
         if (!job.description) {
           if (WALL_STATES.has(verdict.state)) {
@@ -605,6 +633,10 @@ async function main() {
           break;
         case 'off-platform':
           console.log(`  ↪ off-platform (${outcome.redirectedTo}) — skipped, nothing entered`);
+          break;
+        case 'already-applied':
+          rememberExistingApplication(job, outcome.reason);
+          console.log(`  ↩ already applied — ${outcome.reason}`);
           break;
         case 'needs-human':
           console.log(`  ⏸ needs you: ${outcome.reason}\n     ${outcome.url}`);

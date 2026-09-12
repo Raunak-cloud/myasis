@@ -72,7 +72,7 @@ const CLASSIFY: Array<[RegExp, AttentionKind]> = [
   [/off-platform|external|apply on company/i, 'off-platform'],
 ];
 
-interface RunEventRow {
+export interface RunEventRow {
   job_id: string | null;
   status: string;
   title: string | null;
@@ -82,6 +82,8 @@ interface RunEventRow {
   ts: Date | string;
   questions: unknown[] | null;
 }
+
+const ATTENTION_STATUSES = new Set(['needs-human', 'off-platform', 'error']);
 
 /**
  * Items are deduped to the latest attempt per job, and anything since
@@ -141,25 +143,17 @@ export function plainReason(reason: string): string {
   return reason.replace(METER, '').trim();
 }
 
-export async function loadAttention(userId: string): Promise<AttentionItem[]> {
-  const [events, appliedRows] = await Promise.all([
-    query<RunEventRow>(
-      `SELECT job_id, status, title, company, reason, url, ts, questions
-         FROM run_events
-        WHERE user_id = $1
-          AND status IN ('needs-human', 'off-platform', 'error')
-          AND dismissed_at IS NULL
-        ORDER BY ts`,
-      [userId],
-    ),
-    query<{ job_id: string }>(`SELECT job_id FROM applications WHERE user_id = $1`, [userId]),
-  ]);
-  const applied = new Set(appliedRows.map((r) => r.job_id));
-
+export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<string>): AttentionItem[] {
   const latest = new Map<string, AttentionItem>();
 
-  for (const e of events) {
+  for (const e of [...events].sort((a, b) => Date.parse(String(a.ts)) - Date.parse(String(b.ts)))) {
     if (!e.job_id || applied.has(e.job_id)) continue;
+    // Every event participates in the lifecycle. A later resolved outcome
+    // clears an older blocker instead of being hidden by the attention query.
+    if (!ATTENTION_STATUSES.has(e.status)) {
+      latest.delete(e.job_id);
+      continue;
+    }
 
     const reason = e.reason ?? 'stopped';
     const questions = normaliseQuestions(e.questions);
@@ -187,6 +181,26 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
   }
 
   return [...latest.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+export async function loadAttention(userId: string): Promise<AttentionItem[]> {
+  const [events, appliedRows] = await Promise.all([
+    query<RunEventRow>(
+      `SELECT job_id, status, title, company, reason, url, ts, questions
+         FROM (
+           SELECT DISTINCT ON (job_id)
+                  id, job_id, status, title, company, reason, url, ts, questions, dismissed_at
+             FROM run_events
+            WHERE user_id = $1 AND job_id IS NOT NULL
+            ORDER BY job_id, ts DESC, id DESC
+         ) AS latest
+        WHERE dismissed_at IS NULL
+        ORDER BY ts`,
+      [userId],
+    ),
+    query<{ job_id: string }>(`SELECT job_id FROM applications WHERE user_id = $1`, [userId]),
+  ]);
+  return resolveAttention(events, new Set(appliedRows.map((row) => row.job_id)));
 }
 
 /**

@@ -232,7 +232,7 @@ async function main() {
           offPlatform++;
           continue;
         }
-        if (res.status === 'skipped' && /already applied/i.test(res.reason)) continue;
+        if (res.status === 'already-applied') continue;
         target = job;
         outcome = res;
         break;

@@ -20,6 +20,7 @@ import { deterministicExclusion, detectInjection, meetsMinimumScore } from './sc
 import { assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
+import { judgePage } from './blocker.js';
 import type { JobListing } from './types.js';
 
 export type QueueStatus = 'pending' | 'applied' | 'skipped';
@@ -72,6 +73,20 @@ async function build() {
 
   const existing = loadQueue();
   const index = new AppliedIndex();
+  const rememberExistingApplication = (job: JobListing, reason: string, score = 0) => {
+    if (index.has(job.id, job.company, job.title, job.location)) return;
+    index.add({
+      jobId: job.id,
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      url: job.url,
+      appliedAt: new Date().toISOString(),
+      score,
+      platform: job.platform ?? 'seek',
+      scoreReasons: [reason],
+    });
+  };
   const known = new Set(existing.map((i) => i.jobId));
 
   console.log(`Building review queue for ${profile.name}`);
@@ -101,24 +116,13 @@ async function build() {
           location: item.location,
           url: item.url,
         } as JobListing);
-        if (check.alreadyApplied) {
+        const verdict = await judgePage(page, `the SEEK job listing "${item.title}" at ${item.company}`);
+        if (verdict.state === 'already-applied') {
           item.status = 'applied';
           item.decidedAt = new Date().toISOString();
           pruned.add(item.jobId);
-          console.log(`  ↩ ${item.title} @ ${item.company} — ${check.appliedNote}`);
-          if (!index.has(item.jobId, item.company, item.title, item.location)) {
-            index.add({
-              jobId: item.jobId,
-              title: item.title,
-              company: item.company,
-              location: item.location,
-              url: item.url,
-              appliedAt: new Date().toISOString(),
-              score: item.score,
-              platform: 'seek',
-              scoreReasons: [check.appliedNote ?? 'detected on SEEK'],
-            });
-          }
+          console.log(`  ↩ ${item.title} @ ${item.company} — ${verdict.reason}`);
+          rememberExistingApplication(check, verdict.reason, item.score);
         }
         await jitter(700, 1500);
       }
@@ -174,26 +178,11 @@ async function build() {
       const job = await fetchJobDetail(page, stub);
       await jitter(900, 2000);
 
-      /**
-       * SEEK's own marker is checked first and trusted over local history —
-       * it is the only thing that knows about applications made by hand, on
-       * another device, or before this tool existed. Recording it locally means
-       * the next run filters the job out before spending a page load on it.
-       */
-      if (job.alreadyApplied) {
-        console.log(`  ↩ ${job.title} @ ${job.company} — ${job.appliedNote ?? 'already applied'}`);
+      const verdict = await judgePage(page, `the SEEK job listing "${job.title}" at ${job.company}`);
+      if (verdict.state === 'already-applied') {
+        console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
         bump('already applied on SEEK');
-        index.add({
-          jobId: job.id,
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          url: job.url,
-          appliedAt: new Date().toISOString(),
-          score: 0,
-          platform: 'seek',
-          scoreReasons: [job.appliedNote ?? 'detected on SEEK'],
-        });
+        rememberExistingApplication(job, verdict.reason);
         continue;
       }
 

@@ -101,8 +101,10 @@ STOPPING
   cannot make progress on. Say which in the reason. A small "protected by
   reCAPTCHA" badge in a corner is not a challenge, and an optional question you
   cannot answer is not a reason to stop.
-- Call finish with "nothing_to_apply_to" when the listing is expired, already
-  applied to, or has no application form.
+- Call finish with "already_applied" when the page says the candidate has
+  previously applied for this specific job.
+- Call finish with "nothing_to_apply_to" when the listing is expired or has no
+  application form.
 - Do not guess your way past anything that looks like a verification wall.
 `.trim();
 

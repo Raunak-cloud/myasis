@@ -45,6 +45,7 @@ export type AgentTermination =
       questions?: BlockedQuestion[];
     }
   | { status: 'off-platform'; redirectedTo: string }
+  | { status: 'already-applied'; reason: string }
   | { status: 'skipped'; reason: string };
 
 export type ToolResult = { kind: 'ok'; message: string } | { kind: 'terminal'; outcome: AgentTermination };
@@ -172,8 +173,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'finish',
     description:
-      'Give up on this application: a human is required, the flow has left this job board, or there is nothing to ' +
-      'apply to. This is NOT how an application is completed — to submit, click the submit control. There is no ' +
+      'End this attempt without submitting: the job was already applied to, a human is required, the flow has left ' +
+      'this job board, or there is nothing to apply to. This is NOT how an application is completed — to submit, click the submit control. There is no ' +
       '"submitted" status here because success is detected from the page, never declared.',
     parameters: {
       type: 'object',
@@ -188,7 +189,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
          */
         status: {
           type: 'string',
-          enum: ['needs_human', 'off_platform', 'nothing_to_apply_to'],
+          enum: ['needs_human', 'off_platform', 'already_applied', 'nothing_to_apply_to'],
         },
         reason: { type: 'string', description: 'One sentence, specific.' },
       },
@@ -591,6 +592,8 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
       };
     case 'off_platform':
       return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
+    case 'already_applied':
+      return { kind: 'terminal', outcome: { status: 'already-applied', reason } };
     case 'nothing_to_apply_to':
       return { kind: 'terminal', outcome: { status: 'skipped', reason } };
     default:

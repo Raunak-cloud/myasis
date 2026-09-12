@@ -74,17 +74,11 @@ export async function applyToJobWithAgent(
     .waitForFunction(
       () =>
         Boolean(document.querySelector('[data-automation="job-detail-apply"]')) ||
-        /you applied|already applied/i.test(document.body.innerText),
+        Boolean(document.body?.innerText.trim()),
       undefined,
       { timeout: 10_000 },
     )
     .catch(() => {});
-
-  const alreadyApplied = await page
-    .locator('text=/you applied|already applied/i')
-    .count()
-    .catch(() => 0);
-  if (alreadyApplied > 0) return { status: 'skipped', jobId: job.id, reason: 'SEEK reports already applied' };
 
   /**
    * This one selector stays deterministic on purpose.
@@ -154,6 +148,8 @@ export async function applyToJobWithAgent(
         };
       case 'off-platform':
         return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo };
+      case 'already-applied':
+        return { status: 'already-applied', jobId: job.id, reason: run.outcome.reason };
       case 'skipped':
         return { status: 'skipped', jobId: job.id, reason: run.outcome.reason };
       case 'needs-human':
