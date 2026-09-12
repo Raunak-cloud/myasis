@@ -102,7 +102,7 @@ export function HumanizerPanel() {
 
       {status && !status.online && (
         <div className="banner banner-bad">
-          {status.error ?? 'The rewriting service is offline.'} Start it with <code>npm run humanizer</code>.
+          The rewriting service is temporarily unavailable. Please try again shortly.
         </div>
       )}
       {error && <div className="banner banner-bad">{error}</div>}

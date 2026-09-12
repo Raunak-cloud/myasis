@@ -173,7 +173,9 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
       title: e.title ?? `Job ${e.job_id}`,
       company: e.company ?? '—',
       kind,
-      reason: plainReason(String(reason)).slice(0, 300),
+      reason: e.status === 'error'
+        ? 'Myasis could not complete this application. Please try it again.'
+        : plainReason(String(reason)).slice(0, 300),
       url: e.url ?? `https://www.seek.com.au/job/${e.job_id}`,
       at: new Date(e.ts).toISOString(),
       ...(questions.length ? { questions } : {}),

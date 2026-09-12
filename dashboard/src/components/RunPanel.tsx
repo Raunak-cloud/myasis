@@ -102,8 +102,8 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
       add(line, `Connected to ${match[1]}`, 'done');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
       add(line, `${match[2]} ${match[1]} Recommended jobs prioritised`, 'done');
-    } else if ((match = text.match(/⚠ (SEEK|Indeed): (.+)/i))) {
-      add(line, `${match[1]} unavailable this run`, 'warn', match[2]);
+    } else if ((match = text.match(/⚠ (SEEK|Indeed):/i))) {
+      add(line, `${match[1]} is temporarily unavailable`, 'warn', 'Myasis will try again on the next run.');
     } else if ((match = text.match(/(\d+) unique listings discovered/i))) {
       add(line, `Found ${match[1]} job listings`, 'done');
     } else if ((match = text.match(/(\d+) qualifying jobs/i))) {
@@ -116,12 +116,12 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
       add(line, 'Application submitted', 'done', match[1] ? `${match[1]} this run` : undefined);
     } else if (/🧪 rehearsed/i.test(text)) {
       add(line, 'Rehearsal completed', 'done', 'The form was completed without submitting.');
-    } else if ((match = text.match(/⏸ needs you:\s*(.+)/i))) {
-      add(line, 'Needs your attention', 'warn', match[1]);
-    } else if ((match = text.match(/↪ off-platform.*?—\s*(.+)/i))) {
-      add(line, 'Skipped an external application', 'warn', match[1]);
-    } else if ((match = text.match(/(?:✗\s+(?:unexpected )?error:|Fatal:)\s*(.+)/i))) {
-      add(line, 'Something went wrong', 'bad', match[1]);
+    } else if (/⏸ needs you:/i.test(text)) {
+      add(line, 'Needs your attention', 'warn', 'Open Needs attention to review it.');
+    } else if (/↪ off-platform/i.test(text)) {
+      add(line, 'Skipped an external application', 'warn', "This application continues on the employer's website.");
+    } else if (/(?:✗\s+(?:unexpected )?error:|Fatal:)/i.test(text)) {
+      add(line, 'Something went wrong', 'bad', 'The run stopped safely. Please try again.');
     } else if ((match = text.match(/=== Run complete:\s*(\d+) new application/i))) {
       add(
         line,
@@ -144,14 +144,6 @@ function dateLabel(value: string): string {
     : new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short' }).format(date);
 }
 
-function logTime(timestamp?: string): string {
-  if (!timestamp) return '--:--:--';
-  const date = new Date(timestamp);
-  return Number.isNaN(date.valueOf())
-    ? '--:--:--'
-    : date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
 function formatRunDuration(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -162,22 +154,11 @@ function formatRunDuration(milliseconds: number): string {
     : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
-function logChannel(line: LogLine): string {
-  if (line.stream === 'sys') return 'SYSTEM';
-  if (line.stream === 'err') return 'ALERT';
-  if (/✅\s*submitted|application submitted/i.test(line.text)) return 'SUBMITTED';
-  if (/search|listing|discovered/i.test(line.text)) return 'SCAN';
-  if (/^\s*✓\s*\d+\s*·|qualifying jobs/i.test(line.text)) return 'MATCH';
-  if (/^\s*✗\s*\d+\s*·|^\s*\d+\s*×|Filtered out|fit check/i.test(line.text)) return 'UNSUITABLE';
-  if (/Applying:|\bform\b|résumé|cover letter|rehearsed/i.test(line.text)) return 'APPLY';
-  return 'TASK';
-}
-
 /**
  * The main screen: start a run and watch it.
  *
- * The default activity view turns verbose process output into a short timeline.
- * Full details remain available in a collapsed log for troubleshooting.
+ * Verbose process output is converted into a short, user-facing timeline.
+ * Raw diagnostics remain server-side and are never rendered in the product.
  */
 export function RunPanel({
   lastRunAt,
@@ -297,24 +278,6 @@ export function RunPanel({
   };
   const summary = useMemo(() => activitySummary(lines), [lines]);
   const events = useMemo(() => activityEvents(lines), [lines]);
-  const logSections = useMemo(() => {
-    const sectionFor = (line: LogLine) => {
-      const channel = logChannel(line);
-      if (channel === 'MATCH') return 'matches';
-      if (channel === 'APPLY') return 'applications';
-      if (channel === 'SUBMITTED') return 'submitted';
-      return 'process';
-    };
-    const sections = [
-      { id: 'process', title: 'Search and review', lines: [] as LogLine[] },
-      { id: 'matches', title: 'Suitable matches', lines: [] as LogLine[] },
-      { id: 'applications', title: 'Applications in progress', lines: [] as LogLine[] },
-      { id: 'submitted', title: 'Submitted applications', lines: [] as LogLine[] },
-    ];
-    const sectionMap = new Map(sections.map((section) => [section.id, section]));
-    lines.forEach((line) => sectionMap.get(sectionFor(line))?.lines.push(line));
-    return sections.filter((section) => section.lines.length > 0);
-  }, [lines]);
   const latestApplicationLine = [...lines].reverse().find((line) => /→ Applying:/i.test(line.text));
   const latestOutcomeLine = [...lines].reverse().find((line) =>
     /✅ submitted|🧪 rehearsed|⏸ needs you:|↪ off-platform|✗ (?:unexpected )?error:/i.test(line.text),
@@ -676,48 +639,6 @@ export function RunPanel({
                   </div>
                 )}
               </div>
-
-              <details className="raw-log" open>
-                <summary>View detailed log</summary>
-                <div className="raw-terminal">
-                  <div className="terminal-bar">
-                    <div className="terminal-lights" aria-hidden="true">
-                      <span /><span /><span />
-                    </div>
-                    <span className="terminal-title">myasis://local-activity</span>
-                    <span className={`terminal-state ${running ? 'live' : ''}`}>
-                      {running ? 'Live' : 'Session ended'}
-                    </span>
-                  </div>
-                  <div className="raw-console">
-                    {logSections.map((section) => (
-                      <section className="terminal-section" key={section.id} aria-labelledby={`log-section-${section.id}`}>
-                        <div className="terminal-section-head" id={`log-section-${section.id}`}>
-                          <span>{section.title}</span>
-                          <span>{section.lines.length}</span>
-                        </div>
-                        {section.lines.map((line) => (
-                          <div key={line.seq} className={`terminal-line ${line.stream}`}>
-                            <span className="terminal-time">{logTime(line.ts)}</span>
-                            <span className="terminal-channel">{logChannel(line)}</span>
-                            <span className="terminal-message">{line.text}</span>
-                          </div>
-                        ))}
-                      </section>
-                    ))}
-                    {running && (
-                      <section className="terminal-section terminal-section-active" aria-labelledby="log-section-active">
-                        <div className="terminal-section-head" id="log-section-active"><span>Current activity</span></div>
-                        <div className="terminal-line waiting">
-                          <span className="terminal-time">{logTime(new Date().toISOString())}</span>
-                          <span className="terminal-channel">ACTIVE</span>
-                          <span className="terminal-message">Watching the next process event<span className="terminal-cursor" /></span>
-                        </div>
-                      </section>
-                    )}
-                  </div>
-                </div>
-              </details>
             </>
           )}
         </div>

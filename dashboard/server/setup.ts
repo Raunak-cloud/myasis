@@ -70,9 +70,11 @@ export async function setupStatus(
     },
     {
       id: 'humanizer',
-      label: 'AuthorMist humanizer ready',
+      label: 'Writing assistant ready',
       done: !humanizerError,
-      hint: humanizerError || 'The humanizer model is loaded and ready for application writing.',
+      hint: humanizerError
+        ? 'The writing assistant is temporarily unavailable. Please try again shortly.'
+        : 'Ready to prepare application writing.',
       fix: 'external',
       required: true,
     },
