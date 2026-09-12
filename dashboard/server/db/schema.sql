@@ -166,19 +166,19 @@ CREATE INDEX IF NOT EXISTS application_credit_grants_active_idx
 -- active, not only to purchases made after the pricing change. The purchase
 -- value is the idempotency guard: once raised, rerunning the schema cannot add
 -- the difference a second time.
-UPDATE application_credit_grants AS grant
-   SET credits_total = grant.credits_total + (
-     CASE purchase.plan_key
+UPDATE application_credit_grants AS g
+   SET credits_total = g.credits_total + (
+     CASE p.plan_key
        WHEN 'job-search-pass' THEN 150
        WHEN 'intensive-pass' THEN 320
-     END - purchase.applications_granted
+     END - p.applications_granted
    )
-  FROM billing_purchases AS purchase
- WHERE grant.purchase_id = purchase.id
-   AND grant.expires_at > now()
+  FROM billing_purchases AS p
+ WHERE g.purchase_id = p.id
+   AND g.expires_at > now()
    AND (
-     (purchase.plan_key = 'job-search-pass' AND purchase.applications_granted < 150)
-     OR (purchase.plan_key = 'intensive-pass' AND purchase.applications_granted < 320)
+     (p.plan_key = 'job-search-pass' AND p.applications_granted < 150)
+     OR (p.plan_key = 'intensive-pass' AND p.applications_granted < 320)
    );
 
 UPDATE billing_purchases
