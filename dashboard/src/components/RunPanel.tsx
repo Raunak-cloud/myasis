@@ -770,7 +770,7 @@ export function RunPanel({
       )}
 
       {confirming && (
-        <div className="overlay center" onClick={() => !starting && setConfirming(false)}>
+        <div className="overlay center run-review-overlay" onClick={() => !starting && setConfirming(false)}>
           <div
             className="card run-review-modal"
             data-shake={shaking ? 'yes' : undefined}
@@ -797,7 +797,7 @@ export function RunPanel({
                 </div>
               )}
 
-              <section className="run-review-section">
+              <section className="run-review-section run-review-search">
                 <h3>What to find</h3>
                 <div className="field run-review-wide">
                   <FieldLabel label="Job boards" help="Which job boards to search and apply on this run. Both are searched, scored and deduplicated together as one combined pool." />
@@ -850,7 +850,7 @@ export function RunPanel({
                 </label>
               </section>
 
-              <section className="run-review-section">
+              <section className="run-review-section run-review-cover">
                 <h3>Cover letter</h3>
                 <div className="modes cover-letter-modes">
                   <label className={`mode ${coverLetterMode === 'tailored' ? 'sel' : ''}`}>
@@ -895,7 +895,7 @@ export function RunPanel({
                 )}
               </section>
 
-              <section className="run-review-section">
+              <section className="run-review-section run-review-location">
                 <h3>Location and pay</h3>
                 <div className="field run-review-wide">
                   <FieldLabel label="Work arrangements" help="Choose whether to include remote, hybrid, and on-site jobs." />
@@ -966,7 +966,7 @@ export function RunPanel({
                 </div>
               </section>
 
-              <section className="run-review-section">
+              <section className="run-review-section run-review-limits">
                 <h3>Run limits</h3>
                 <div className="run-review-grid">
                   <label className="field">
