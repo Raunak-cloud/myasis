@@ -111,6 +111,17 @@ const PLAIN: Array<[RegExp, string]> = [
   [/^the model could not ground \d+ answer\(s\): (.+)/i, 'These questions could not be answered from the profile: $1'],
   [/^submit is on an external site/i, "The application continues on the employer's own site."],
   [/^DRY_RUN/i, 'Rehearsal — nothing was submitted.'],
+  /**
+   * A thrown error, in the browser driver's own words.
+   *
+   * These reach the tab verbatim — "locator.click: Timeout 30000ms exceeded.
+   * Call log: - waiting for locator('[data-automation=...]')" — which tells a
+   * candidate nothing and reads like the product is broken. Matched loosely on
+   * purpose: it is the shape of machinery talking, and every library has its
+   * own. The original still goes to the run log.
+   */
+  [/^\w+\.\w+: |Timeout \d+ms exceeded|Call log:|net::ERR_|page\.goto|waiting for locator/i,
+    'The page did not respond as expected, so the application stopped.'],
 ];
 
 /** A meter summary, wherever it sits: "21 calls · 339614 prompt (28% cached) · 3042 completion · $0.05270". */
