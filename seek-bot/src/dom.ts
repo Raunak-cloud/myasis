@@ -212,6 +212,8 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || requiredOnThisPage(labelFor(el)),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',
+        // Only when it constrains the value; "text" tells the answerer nothing.
+        ...(el.tagName === 'INPUT' && el.type && el.type !== 'text' ? { inputType: el.type } : {}),
         /**
          * A credential, never an employer question.
          *

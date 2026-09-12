@@ -157,6 +157,15 @@ export interface FormField {
   currentValue?: string;
   /** True for custom ATS inputs that require choosing a suggestion. */
   autocomplete?: boolean;
+  /**
+   * The input's own type — "date", "number", "email", "tel".
+   *
+   * A native date input silently refuses anything that is not YYYY-MM-DD, so
+   * an answerer told only that this is a "text" field writes "Immediate" and
+   * the field stays empty. The browser's own constraint is a fact the
+   * answerer needs, not a rule to be guessed at from the label.
+   */
+  inputType?: string;
   /** A credential the candidate must set, not a question about them. Never stored or asked for. */
   sensitive?: boolean;
 }
