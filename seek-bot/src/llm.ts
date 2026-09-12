@@ -554,6 +554,32 @@ export interface FitAssessment {
   injectionSuspected: boolean;
 }
 
+/**
+ * Convert the model's single decision into the shape used by the pipeline.
+ * `shouldApply` used to be generated separately, so an otherwise valid
+ * `decision: "apply"` response could be discarded when that redundant boolean
+ * said false. The decision remains model-owned; this only derives its boolean
+ * representation in one place.
+ */
+export function normalizeFitAssessment(value: unknown): FitAssessment | null {
+  if (!value || typeof value !== 'object') return null;
+  const result = value as Record<string, unknown>;
+  if (!['apply', 'skip', 'uncertain'].includes(String(result.decision))) return null;
+  if (typeof result.reason !== 'string' || !Array.isArray(result.evidence)) return null;
+  if (!result.evidence.every((item) => typeof item === 'string')) return null;
+  if (!Number.isInteger(result.matchScore) || Number(result.matchScore) < 0 || Number(result.matchScore) > 100) return null;
+  if (typeof result.injectionSuspected !== 'boolean') return null;
+  const decision = result.decision as FitAssessment['decision'];
+  return {
+    decision,
+    shouldApply: decision === 'apply',
+    matchScore: Number(result.matchScore),
+    reason: result.reason,
+    evidence: result.evidence as string[],
+    injectionSuspected: result.injectionSuspected,
+  };
+}
+
 export interface ReviewPriority {
   reviewId: string;
   priority: number;
@@ -666,28 +692,28 @@ A salary range alone does not establish full-time hours. Check EVERY explicit ca
 instruction against the title and responsibilities before accepting, even if the board
 labels this candidate a strong applicant.
 matchScore is an integer from 0 to 100 for overall semantic fit after constraints.
-shouldApply must be true exactly when decision is apply. Return JSON.`;
+Return JSON.`;
   const schema = { type: 'OBJECT', properties: {
-    shouldApply: { type: 'BOOLEAN' }, decision: { type: 'STRING', enum: ['apply','skip','uncertain'] },
+    decision: { type: 'STRING', enum: ['apply','skip','uncertain'] },
     matchScore: { type: 'INTEGER' },
     reason: { type: 'STRING' }, evidence: { type: 'ARRAY', items: { type: 'STRING' } },
     injectionSuspected: { type: 'BOOLEAN' },
-  }, required: ['shouldApply','decision','matchScore','reason','evidence','injectionSuspected'] };
-  const valid = (r: FitAssessment) => Boolean(r && ['apply','skip','uncertain'].includes(r.decision)
-    && typeof r.reason === 'string' && Array.isArray(r.evidence)
-    && Number.isInteger(r.matchScore) && r.matchScore >= 0 && r.matchScore <= 100
-    && r.shouldApply === (r.decision === 'apply'));
+  }, required: ['decision','matchScore','reason','evidence','injectionSuspected'] };
   /**
    * One pass on celeris-1. A second opinion from celeris-1-magnus used to run
    * on every apply/uncertain verdict; at 5–13 s and ~2,000+ reasoning tokens
    * a call it was dropped in favour of speed. An uncertain verdict is not
    * cached, so the next run asks again.
    */
-  return cachedAssessment({ version: 'model-owned-fit-v4', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
-    const result = await measured('fit', () => json<FitAssessment>(prompt, schema));
-    if (!valid(result)) throw new Error('Fit assessment violated its decision schema');
+  return cachedAssessment({ version: 'model-owned-fit-v5', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
+    const raw = await measured('fit', () => json<unknown>(prompt, schema));
+    const result = normalizeFitAssessment(raw);
+    if (!result) throw new Error('Fit assessment violated its decision schema');
     return result;
-  }, r => valid(r) && r.decision !== 'uncertain');
+  }, r => {
+    const normalized = normalizeFitAssessment(r);
+    return Boolean(normalized && normalized.decision !== 'uncertain');
+  });
 }
 
 /** Picks the best-fitting résumé from the candidate's library for one job. Only called when there is more than one to choose between. */
