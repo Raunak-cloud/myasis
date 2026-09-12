@@ -4,7 +4,7 @@ import { FilesPanel } from './FilesPanel';
 import { useSetupStatus } from './SetupChecklist';
 import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
-import { AUSTRALIAN_CITIES } from '../runSettings';
+import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { useEntitlements } from '../entitlements';
 
@@ -230,6 +230,20 @@ export function SetupPanel() {
         </p>
         {showAdvanced && (
           <div className="step-body">
+            <label className="field">
+              <FieldLabel label="Run instructions" optional help="Tell Myasis which otherwise suitable jobs to avoid or prefer. The model checks these instructions for every job before applying." />
+              <textarea
+                className="input"
+                rows={4}
+                maxLength={4_000}
+                value={decodeSettingText(val('AI_INSTRUCTIONS_B64'))}
+                onChange={(event) => set('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}
+                aria-describedby="setup-run-instructions-help"
+              />
+              <span className="job-meta" id="setup-run-instructions-help">
+                Used for every run until changed. Example: Don’t apply for senior positions or jobs that require weekend work.
+              </span>
+            </label>
             <div className="grid-2">
               <label className="field">
                 <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />

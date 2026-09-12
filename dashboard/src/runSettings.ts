@@ -30,3 +30,21 @@ export const AUSTRALIAN_CITIES = [
   'Port Macquarie',
   'Gladstone',
 ] as const;
+
+/** Store free text safely in the KEY=value environment passed to a run. */
+export function encodeSettingText(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+export function decodeSettingText(value: string): string {
+  if (!value) return '';
+  try {
+    const binary = atob(value);
+    return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+  } catch {
+    return '';
+  }
+}

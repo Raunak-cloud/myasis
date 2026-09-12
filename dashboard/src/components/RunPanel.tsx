@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements, windowLabel } from '../entitlements';
 import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel } from './FieldLabel';
-import { AUSTRALIAN_CITIES } from '../runSettings';
+import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
@@ -55,6 +55,7 @@ const RUN_DEFAULTS: Record<string, string> = {
   PAGES_PER_KEYWORD: '1',
   COVER_LETTER_MODE: 'tailored',
   COVER_LETTER_TEXT_B64: '',
+  AI_INSTRUCTIONS_B64: '',
 };
 
 const REVIEW_KEYS = Object.keys(RUN_DEFAULTS);
@@ -68,23 +69,6 @@ const JOB_BOARDS = [
   { id: 'seek', label: 'SEEK' },
   { id: 'indeed', label: 'Indeed' },
 ];
-
-function encodeBase64(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function decodeBase64(value: string): string {
-  if (!value) return '';
-  try {
-    const binary = atob(value);
-    return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
-  } catch {
-    return '';
-  }
-}
 
 function lastMatch(lines: LogLine[], pattern: RegExp): RegExpMatchArray | null {
   for (let index = lines.length - 1; index >= 0; index--) {
@@ -297,7 +281,8 @@ export function RunPanel({
     setEdits((current) => ({ ...current, [key]: value }));
   const arrangements = val('WORK_ARRANGEMENTS').split(',').map((item) => item.trim()).filter(Boolean);
   const coverLetterMode = val('COVER_LETTER_MODE') === 'reuse' ? 'reuse' : 'tailored';
-  const reusableCoverLetter = decodeBase64(val('COVER_LETTER_TEXT_B64'));
+  const reusableCoverLetter = decodeSettingText(val('COVER_LETTER_TEXT_B64'));
+  const runInstructions = decodeSettingText(val('AI_INSTRUCTIONS_B64'));
   const toggleArrangement = (item: string) => {
     const next = new Set(arrangements);
     if (next.has(item)) next.delete(item);
@@ -451,7 +436,7 @@ export function RunPanel({
       fail(`Use at most ${MAX_SEARCH_TERMS} search terms — you have ${termCount}.`, 'KEYWORDS');
       return;
     }
-    if (updates.COVER_LETTER_MODE === 'reuse' && !decodeBase64(updates.COVER_LETTER_TEXT_B64).trim()) {
+    if (updates.COVER_LETTER_MODE === 'reuse' && !decodeSettingText(updates.COVER_LETTER_TEXT_B64).trim()) {
       fail('Paste the cover letter you want to reuse.', 'COVER_LETTER_TEXT_B64');
       return;
     }
@@ -855,6 +840,20 @@ export function RunPanel({
                   <FieldLabel label="Target role" optional help="Use this when moving into a different type of work. Leave it blank to match your current experience." />
                   <input className="input" value={val('TARGET_ROLE')} onChange={(e) => setEdit('TARGET_ROLE', e.target.value)} />
                 </label>
+                <label className="field run-review-wide">
+                  <FieldLabel label="Run instructions" optional help="Tell Myasis which otherwise suitable jobs to avoid or prefer. These saved instructions are checked for every job before applying." />
+                  <textarea
+                    className="input"
+                    rows={3}
+                    maxLength={4_000}
+                    value={runInstructions}
+                    onChange={(event) => setEdit('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}
+                    aria-describedby="run-instructions-help"
+                  />
+                  <span className="job-meta" id="run-instructions-help">
+                    Used for this and future runs until changed. Example: Don’t apply for senior positions or jobs that require weekend work.
+                  </span>
+                </label>
               </section>
 
               <section className="run-review-section">
@@ -895,7 +894,7 @@ export function RunPanel({
                       placeholder="Paste the complete cover letter, including greeting and sign-off."
                       data-field="COVER_LETTER_TEXT_B64"
                       value={reusableCoverLetter}
-                      onChange={(event) => setEdit('COVER_LETTER_TEXT_B64', encodeBase64(event.target.value))}
+                      onChange={(event) => setEdit('COVER_LETTER_TEXT_B64', encodeSettingText(event.target.value))}
                     />
                     <FieldError field="COVER_LETTER_TEXT_B64" />
                   </label>
