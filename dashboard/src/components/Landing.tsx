@@ -62,7 +62,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
     <main className="home-width">
       <section className="home-intro">
         <div className="home-intro-heading"><h1>Job hunting<br />is a job.<br /><em>Let’s share<br className="home-title-break" /> the workload.</em></h1></div>
-        <div className="home-intro-copy"><p>You’ve found a role you like. Now there’s another form, another cover letter, another set of questions you’ve answered before.</p><p>Myasis takes care of that part. It finds roles that fit your experience, prepares the paperwork and applies on your behalf.</p>{error && <div className="home-error" role="alert">{error}</div>}{start()}<p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications a month. No card needed.</p><a href="#demo" className="home-demo-link" onClick={() => { void playDemo(); }}><span aria-hidden="true">↙</span> See a real application, below</a></div>
+        <div className="home-intro-copy"><p>Finding the right job is hard enough. Applying shouldn’t be.</p><p>Myasis finds roles that fit your experience, handles the forms and cover letters, and applies for you.</p>{error && <div className="home-error" role="alert">{error}</div>}{start()}<p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications a month. No card needed.</p><a href="#demo" className="home-demo-link" onClick={() => { void playDemo(); }}><span aria-hidden="true">↙</span> See a real application, below</a></div>
       </section>
 
       <section className="home-demo" id="demo" aria-labelledby="demo-heading">
