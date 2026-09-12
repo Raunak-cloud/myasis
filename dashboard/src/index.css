@@ -628,6 +628,23 @@ tbody tr.clickable { cursor: pointer; }
 .run-controls-card { padding: 18px; display: grid; gap: 13px; align-content: start; }
 .run-layout { align-items: start; }
 .console-card { min-height: 560px; }
+.run-schedule-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.run-schedule-status strong { display: block; margin-bottom: 2px; font-size: 13px; }
+.run-schedule-status p { margin: 0; }
+.run-schedule-status .badge { flex: none; }
+
+@media (max-width: 520px) {
+  .run-schedule-status { align-items: flex-start; flex-direction: column; }
+}
 
 /* ---------- needs-you ---------- */
 .attention-hero { margin-bottom: 14px; line-height: 1.6; }

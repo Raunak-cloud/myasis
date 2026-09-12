@@ -58,7 +58,7 @@ const check = (label: string, ok: boolean, detail = '') => {
 const clock = (m: number) => `${String(9 + Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
 
 // ---- the shape of the timetable itself
-console.log('timetable for 10 accounts, 2 lanes, 5 runs each:');
+console.log(`timetable for 10 accounts, 2 lanes, ${RUNS} runs each:`);
 for (let i = 0; i < 10; i++) {
   const times = Array.from({ length: RUNS }, (_, r) => clock(slotMinutes(i, r, 10, LANES, RUNS)));
   console.log(`   account ${String(i).padStart(2)}: ${times.join('  ')}`);

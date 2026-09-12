@@ -530,6 +530,20 @@ export function RunPanel({
           </label>
         </div>}
 
+        {driving && entitlements && entitlements.autoRunsPerDay > 0 && (
+          <div className="run-schedule-status">
+            <div>
+              <strong>Automatic schedule</strong>
+              <p className="job-meta">
+                {entitlements.autoRunsPerDay} live runs daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
+              </p>
+            </div>
+            <span className="badge info">
+              {entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} today
+            </span>
+          </div>
+        )}
+
         {!status?.hasKey && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
         )}

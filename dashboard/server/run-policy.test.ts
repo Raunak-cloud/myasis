@@ -1,4 +1,4 @@
-import { applyRunPolicy, SCHEDULED_MIN_SCORE } from './entitlements.js';
+import { applyRunPolicy, automaticRunsPerDay, SCHEDULED_MIN_SCORE } from './entitlements.js';
 
 let failures = 0;
 function check(label: string, condition: boolean): void {
@@ -32,6 +32,8 @@ check('removed target roles cannot influence Intensive runs', intensive.TARGET_R
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, { fineTune: true }, 'manual');
 check('admins keep their fine tuning', admin.MAX_EVALUATIONS === '500');
+check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);
+check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
 
 console.log(`\n${failures} failure(s)`);
 process.exit(failures ? 1 : 0);

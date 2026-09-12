@@ -5,11 +5,10 @@ import { KEEP_SETTINGS_KEYS, RUN_SETTING_DEFAULTS } from './settings.js';
 /**
  * What an account is allowed to do — decided in one place, for every caller.
  *
- * Two shapes of product live in this app. An operator or an Intensive Pass
- * holder drives runs themselves: they choose rehearse or live, and they tune
- * how a run searches. Everyone else does not drive anything — their
- * applications go out on a schedule, from the preferences they saved, and the
- * knobs that decide how a run behaves are not theirs to set.
+ * Admins can drive runs and also receive scheduled runs. Intensive Pass
+ * holders drive runs themselves: they choose rehearse or live, and they tune
+ * how a run searches. Standard accounts do not drive anything — their
+ * applications go out on a schedule from the preferences they saved.
  *
  * Every gate in the app reads this module rather than re-deriving the rule
  * from `isAdmin` and a pass flag, because the same rule is enforced in five
@@ -38,6 +37,9 @@ export const INTENSIVE_MANUAL_RUNS_PER_DAY = 3;
  * their last run. More accounts should buy more lanes, not thinner slots.
  */
 export const STANDARD_AUTO_RUNS_PER_DAY = 4;
+
+/** Admins keep scheduled applications alongside unlimited manual runs. */
+export const ADMIN_AUTO_RUNS_PER_DAY = 4;
 
 /** Scheduled applications must clear this model-assessed match threshold. */
 export const SCHEDULED_MIN_SCORE = 75;
@@ -95,7 +97,7 @@ export interface Entitlements {
   manualRunsPerDay: number | null;
   manualRunsUsedToday: number;
   manualRunsLeftToday: number | null;
-  /** Automatic runs per local day; 0 for the tiers that drive runs themselves. */
+  /** Automatic runs per local day; admins and standard accounts have a schedule. */
   autoRunsPerDay: number;
   autoRunsUsedToday: number;
   /** Fixed match floor for scheduled applications; null when this tier has no schedule. */
@@ -110,6 +112,12 @@ export interface Entitlements {
 function tierFor(admin: boolean, intensive: boolean): Tier {
   if (admin) return 'admin';
   return intensive ? 'intensive' : 'standard';
+}
+
+export function automaticRunsPerDay(tier: Tier): number {
+  if (tier === 'admin') return ADMIN_AUTO_RUNS_PER_DAY;
+  if (tier === 'standard') return STANDARD_AUTO_RUNS_PER_DAY;
+  return 0;
 }
 
 /**
@@ -180,7 +188,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
 
   const manualRuns = tier !== 'standard';
   const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
-  const autoRunsPerDay = manualRuns ? 0 : STANDARD_AUTO_RUNS_PER_DAY;
+  const autoRunsPerDay = automaticRunsPerDay(tier);
 
   const [manualRunsUsedToday, autoRunsUsedToday] = await Promise.all([
     manualRuns ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
