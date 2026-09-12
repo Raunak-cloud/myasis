@@ -26,14 +26,14 @@ interface BillingStatus {
 
 const PASS_FEATURES: Record<Exclude<PaidPlanKey, 'application-top-up'>, string[]> = {
   'job-search-pass': [
-    '100 successful applications',
+    `${PAID_PLANS['job-search-pass'].applications} successful applications`,
     'Valid for 30 days',
     'Unlimited rehearsals',
     'SEEK-hosted applications',
     'Application tracking included',
   ],
   'intensive-pass': [
-    '250 successful applications',
+    `${PAID_PLANS['intensive-pass'].applications} successful applications`,
     'Valid for 30 days',
     'Unlimited rehearsals',
     'Applications on supported external sites',

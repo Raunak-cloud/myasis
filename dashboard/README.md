@@ -26,8 +26,8 @@ Plans are defined in `src/pricing.ts`:
 | Plan | Price | Allowance | Validity |
 |---|---:|---:|---:|
 | Free | A$0 | 10 successful applications + 30 rehearsals | Resets monthly |
-| Job Search Pass | A$5.99 | 100 successful applications | 30 days |
-| Intensive Pass | A$12.99 | 250 successful applications + supported external sites | 30 days |
+| Job Search Pass | A$5.99 | 150 successful applications | 30 days |
+| Intensive Pass | A$12.99 | 320 successful applications + supported external sites | 30 days |
 | Application Top-up | A$2.99 | 50 successful applications | 30 days |
 
 Passes are one-time payments and do not auto-renew.

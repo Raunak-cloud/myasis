@@ -162,6 +162,33 @@ CREATE TABLE IF NOT EXISTS application_credit_grants (
 CREATE INDEX IF NOT EXISTS application_credit_grants_active_idx
   ON application_credit_grants(user_id, expires_at) WHERE credits_used < credits_total;
 
+-- The September 2026 allowance increase applies to passes that are still
+-- active, not only to purchases made after the pricing change. The purchase
+-- value is the idempotency guard: once raised, rerunning the schema cannot add
+-- the difference a second time.
+UPDATE application_credit_grants AS grant
+   SET credits_total = grant.credits_total + (
+     CASE purchase.plan_key
+       WHEN 'job-search-pass' THEN 150
+       WHEN 'intensive-pass' THEN 320
+     END - purchase.applications_granted
+   )
+  FROM billing_purchases AS purchase
+ WHERE grant.purchase_id = purchase.id
+   AND grant.expires_at > now()
+   AND (
+     (purchase.plan_key = 'job-search-pass' AND purchase.applications_granted < 150)
+     OR (purchase.plan_key = 'intensive-pass' AND purchase.applications_granted < 320)
+   );
+
+UPDATE billing_purchases
+   SET applications_granted = CASE plan_key
+     WHEN 'job-search-pass' THEN 150
+     WHEN 'intensive-pass' THEN 320
+   END
+ WHERE (plan_key = 'job-search-pass' AND applications_granted < 150)
+    OR (plan_key = 'intensive-pass' AND applications_granted < 320);
+
 CREATE TABLE IF NOT EXISTS monthly_application_usage (
   user_id                BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   month_start            DATE NOT NULL,

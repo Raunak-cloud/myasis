@@ -14,9 +14,11 @@ ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
 # and confirmation. Branding, the page header, job title and applicant name are blurred.
 filter_graph = r"""
 [0:v]split=4[v0][v1][v2][v3];
-[v0]trim=start=55:end=58,setpts=PTS-STARTPTS,scale=1280:800,split=2[search][seekbutton];
+[v0]trim=start=55:end=58,setpts=PTS-STARTPTS,scale=1280:800,split=3[search][seekbutton][searchquery];
 [seekbutton]crop=96:52:1112:84,boxblur=10:5[seekbuttonblur];
-[search][seekbuttonblur]overlay=1112:84[s0];
+[searchquery]crop=750:42:64:94,boxblur=10:5[searchqueryblur];
+[search][seekbuttonblur]overlay=1112:84[searchbrand];
+[searchbrand][searchqueryblur]overlay=64:94[s0];
 [v1]trim=start=617:end=620.5,setpts=PTS-STARTPTS,scale=1280:800,split=3[listing][listingtitle][seekloader];
 [listingtitle]crop=460:78:230:500,boxblur=12:6[listingtitleblur];
 [seekloader]crop=140:70:570:640,boxblur=12:6[seekloaderblur];
@@ -38,7 +40,7 @@ filter_graph = r"""
 [success][blurred]overlay=660:172[s3];
 [s0][s1][s2][s3]concat=n=4:v=1:a=0,split=2[film][header];
 [header]crop=1280:66:0:0,boxblur=12:6[headerblur];
-[film][headerblur]overlay=0:0,setpts=0.5193*PTS,fps=25[out]
+[film][headerblur]overlay=0:0,setpts=0.891*PTS,fps=25[out]
 """.replace("\n", "")
 
 movie = output / "myasis-live-run.mp4"
@@ -49,6 +51,13 @@ subprocess.run([
     "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-y", str(movie),
 ], check=True)
 
+reader = imageio_ffmpeg.read_frames(str(movie))
+metadata = next(reader)
+reader.close()
+duration = float(metadata.get("duration", 0))
+if abs(duration - 12.0) > 0.05:
+    raise RuntimeError(f"Expected a 12-second demo, encoded {duration:.3f} seconds")
+
 subprocess.run([
     ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", "1.2", "-i", str(movie),
     "-frames:v", "1", "-vf", "format=yuvj420p", "-q:v", "2", "-y",
@@ -57,20 +66,20 @@ subprocess.run([
 
 (output / "myasis-live-run.vtt").write_text("""WEBVTT
 
-00:00.000 --> 00:01.560
+00:00.000 --> 00:02.670
 Myasis searches and reviews available roles.
 
-00:01.560 --> 00:03.370
+00:02.670 --> 00:05.780
 It opens a suitable role.
 
-00:03.370 --> 00:05.000
+00:05.780 --> 00:08.570
 The application reaches final review with the selected resume and prepared cover letter.
 
-00:05.000 --> 00:05.300
+00:08.570 --> 00:09.150
 Myasis submits the application.
 
-00:05.300 --> 00:07.000
+00:09.150 --> 00:12.000
 The job site confirms the real application was sent.
 """, encoding="utf-8")
 
-print(movie)
+print(f"{movie} ({duration:.2f}s)")
