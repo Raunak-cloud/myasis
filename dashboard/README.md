@@ -201,10 +201,10 @@ your SEEK profile.** So the bot resolves a résumé in this order:
 
 1. A document on SEEK whose name matches the chosen résumé → tick it. Changes
    nothing about your profile.
-2. Not there, and **Allow upload** is on → upload the local file. This *adds a
-   document to your SEEK account*, so it is off by default.
-3. Not there, and upload is off → the run stops with `needs-human`, naming what
-   is actually available. It never silently applies with the wrong résumé.
+2. Not there → upload the selected local file to the account's SEEK document
+   picker, then use it for the application.
+3. If the local file or SEEK upload control is unavailable → the run stops with
+   `needs-human`. It never silently applies with the wrong résumé.
 
 Deleting a résumé here removes the local copy only; it never touches SEEK.
 

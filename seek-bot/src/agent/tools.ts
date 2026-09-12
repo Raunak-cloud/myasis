@@ -517,6 +517,18 @@ async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
       ctx.resumeUsed = outcome.name;
       return ok(`Resume "${outcome.name}" ${outcome.status}. Move on to the next step.`);
     case 'unavailable':
+      if (outcome.reason === 'local-file-missing') {
+        return ok(
+          `The selected resume ("${outcome.wanted}") is missing from local storage and cannot be attached. ` +
+            'Finish with "needs_human".',
+        );
+      }
+      if (outcome.reason === 'upload-control-missing') {
+        return ok(
+          `The selected resume ("${outcome.wanted}") is not on the SEEK account, and this application does not offer an upload control. ` +
+            `Available: ${outcome.available.join(', ') || 'none'}. Finish with "needs_human".`,
+        );
+      }
       return ok(
         `The resume for this run ("${outcome.wanted}") is not on the account and uploading is disabled. ` +
           `Available: ${outcome.available.join(', ') || 'none'}. Finish with "needs_human".`,

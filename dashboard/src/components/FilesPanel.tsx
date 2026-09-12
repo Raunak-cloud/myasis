@@ -199,9 +199,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
           />
         </div>
         <p className="job-meta" style={{ marginTop: 0 }}>
-          Pick which résumé a run should use. SEEK only offers documents already on your profile,
-          so a résumé that isn't there yet needs <em>Allow upload</em> enabled on the run — which
-          adds it to your SEEK account.
+          The best résumé is selected for each role and uploaded to SEEK when it is not already on your profile.
         </p>
         {resumes.length > 1 && (
           <p className="job-meta" style={{ marginTop: 0 }}>

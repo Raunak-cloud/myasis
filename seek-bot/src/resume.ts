@@ -142,7 +142,12 @@ export type ResumeOutcome =
   | { status: 'selected'; name: string }
   | { status: 'uploaded'; name: string }
   | { status: 'kept-default'; name: string }
-  | { status: 'unavailable'; wanted: string; available: string[] };
+  | {
+      status: 'unavailable';
+      wanted: string;
+      available: string[];
+      reason: 'upload-disabled' | 'local-file-missing' | 'upload-control-missing';
+    };
 
 /**
  * Chooses which résumé this application should use.
@@ -195,11 +200,20 @@ export async function selectResume(
 
   // 2. Not there — upload only with permission.
   const localPath = resolve(RESUME_DIR, wanted.fileName);
-  if (!allowUpload || !existsSync(localPath)) {
+  if (!allowUpload) {
     return {
       status: 'unavailable',
       wanted: wanted.label,
       available: realDocs.map((o) => o.label),
+      reason: 'upload-disabled',
+    };
+  }
+  if (!existsSync(localPath)) {
+    return {
+      status: 'unavailable',
+      wanted: wanted.label,
+      available: realDocs.map((o) => o.label),
+      reason: 'local-file-missing',
     };
   }
 
@@ -207,7 +221,12 @@ export async function selectResume(
     .locator('input[type=file][accept*="docx"], input[type=file][accept*="pdf"]')
     .first();
   if (!(await fileInput.count())) {
-    return { status: 'unavailable', wanted: wanted.label, available: realDocs.map((o) => o.label) };
+    return {
+      status: 'unavailable',
+      wanted: wanted.label,
+      available: realDocs.map((o) => o.label),
+      reason: 'upload-control-missing',
+    };
   }
 
   await fileInput.setInputFiles(localPath);

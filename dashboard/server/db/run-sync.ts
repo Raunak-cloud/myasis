@@ -180,6 +180,13 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
       EXCLUDED_DOMAINS: '',
       SECURITY_CLEARANCE: 'None held',
       /**
+       * A résumé saved in this account's library is an explicit choice for
+       * applications. Let the bot add that document to the account's SEEK
+       * document picker when it is not already available there. This is a
+       * trusted server override rather than a browser-supplied setting.
+       */
+      RESUME_ALLOW_UPLOAD: 'true',
+      /**
        * The mailbox the run can read in its own browser, when there is one.
        *
        * The API route above needs Google's restricted `gmail.readonly` scope,
