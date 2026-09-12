@@ -879,6 +879,22 @@ a:focus-visible,
 }
 
 .page-header p { margin: 6px 0 0; color: var(--text-dim); }
+.last-run {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.last-run > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 .theme-btn { min-width: 56px; padding-inline: 11px; }
 
 .quick-status {

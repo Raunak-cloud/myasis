@@ -34,7 +34,7 @@ import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { readSeekState, writeSeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { entitlementsFor, FINE_TUNING_KEYS } from './server/entitlements.js';
+import { entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt } from './server/entitlements.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { startAutoRunner } from './server/autorun.js';
@@ -976,6 +976,13 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           const hasKey = Boolean(readEnvSafe().GEMINI_API_KEY);
           return send({ ...runner.stateFor(userId), hasKey, isOwner: true });
+        });
+      }
+
+      case '/api/run/last': {
+        return withUser(async (userId) => {
+          const startedAt = await latestRunStartedAt(userId);
+          return send({ startedAt: startedAt?.toISOString() ?? null });
         });
       }
 

@@ -154,46 +154,10 @@ export function detectInjection(job: JobListing): string | null {
   return null;
 }
 
-export function hardExclusions(job: JobListing, profile: CandidateProfile): string | null {
-  const hay = `${job.title} ${job.description ?? job.teaser ?? ''}`.toLowerCase();
-
-  for (const domain of profile.excludedDomains) {
-    const key = domain.split(/\s|\//)[0].toLowerCase().replace(/[^a-z#.]/g, '');
-    if (!key) continue;
-    const core = new RegExp(
-      `(${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})[^.]{0,80}(required|must have|essential|core stack|strong|expert|\\d\\+ years)`,
-      'i',
-    );
-    if (core.test(hay)) return `excluded domain: ${domain}`;
-  }
-
-  // Domain exclusions come only from the candidate, never from a default career track.
-
-  // Work-arrangement rule. On-site is additionally pinned to the nominated
-  // city; remote and hybrid are accepted anywhere in the country.
-  const allowed = config.rules.workArrangements;
-  const arrangement = classifyArrangement(job);
-  if (allowed.length && !allowed.includes(arrangement))
-    return `${arrangement} role, but only ${allowed.join('/')} selected`;
-  if (arrangement === 'onsite' && !isInOnsiteCity(job))
-    return `on-site role outside ${config.rules.onsiteCity}`;
-
-  if (config.rules.jobTypes.length) {
-    const hay = `${job.workArrangement ?? ''} ${job.title} ${job.description ?? job.teaser ?? ''}`.toLowerCase();
-    if (!config.rules.jobTypes.some((t) => hay.includes(t)))
-      return `job type not in ${config.rules.jobTypes.join('/')}`;
-  }
-
-  // Match the advertised period to the corresponding user preference. An
-  // hourly rate is no longer compared with an annual value through a guessed
-  // conversion; daily rates still use their annual equivalent because there
-  // is no separate daily preference.
-  const pay = salaryFloorForJob(job);
-  if (pay && pay.floor > 0 && pay.amount < pay.floor) {
-    const unit = pay.period === 'hourly' ? '/hour' : '/year';
-    return `minimum salary ${pay.amount.toLocaleString()}${unit} below ${pay.floor.toLocaleString()}${unit}`;
-  }
-
+export function deterministicExclusion(job: JobListing): string | null {
+  // Only explicit machine-readable facts may stop a listing before model
+  // review. Meaning in prose belongs to assessFit(), which can use context
+  // and express uncertainty rather than silently discarding the listing.
   if (job.ageDays !== undefined && job.ageDays > config.rules.maxAgeDays)
     return `posted ${job.ageDays}d ago (>${config.rules.maxAgeDays}d)`;
 

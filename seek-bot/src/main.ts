@@ -1,6 +1,6 @@
 import { measured, metric } from './pipeline.js';
 import { pickResumeForJob } from './resume.js';
-import { coverLetterForJob } from './llm.js';
+import { assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { config, loadProfile } from './config.js';
 import {
   launchBrowser,
@@ -17,8 +17,7 @@ import {
   search as searchIndeed,
   fetchJobDetail as fetchJobDetailIndeed,
 } from './discovery-indeed.js';
-import { scoreJob, hardExclusions, detectInjection, looksTemplated } from './scoring.js';
-import { assessFit } from './llm.js';
+import { scoreJob, deterministicExclusion, detectInjection } from './scoring.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, syncFromSeek } from './store.js';
@@ -217,9 +216,15 @@ async function main() {
      * (or platforms) exist. Cross-platform on purpose: seek.md treats every
      * enabled board as one combined, deduplicated pipeline, not separate runs.
      */
+    const reviewPriorities = config.celeris.apiKey
+      ? await rankJobsForReview(shortlist, profile).catch((error) => {
+          console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
+          return new Map<string, { priority: number; reason: string }>();
+        })
+      : new Map<string, { priority: number; reason: string }>();
     shortlist.sort((a, b) => {
       const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
-      return sourcePriority || scoreJob(b, profile).total - scoreJob(a, profile).total;
+      return sourcePriority || (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
     });
     console.log(`${shortlist.length} after dedupe + age filter (pre-ranked).\n`);
 
@@ -275,6 +280,7 @@ async function main() {
         }
 
         let why = scoreReasons.join('; ');
+        let decisionReasons = scoreReasons;
         if (fit) {
           metric('fit-decision', 0, { jobId: job.id, decision: fit.decision });
           if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
@@ -291,18 +297,18 @@ async function main() {
             continue;
           }
           why = fit.reason;
+          decisionReasons = fit.evidence;
         }
 
+        const semanticScore = fit?.matchScore ?? score;
         candidates.push({
           job,
-          score,
+          score: semanticScore,
           why,
-          reasons: job.strongApplicant
-            ? [`SEEK: ${job.strongApplicantNote ?? 'strong applicant'}`, ...scoreReasons]
-            : scoreReasons,
+          reasons: decisionReasons,
         });
         console.log(
-          `  ✓ ${score} · ${job.title} @ ${job.company} (${job.location}) [${adapter.label}]` +
+          `  ✓ ${semanticScore} · ${job.title} @ ${job.company} (${job.location}) [${adapter.label}]` +
             (job.source === 'recommended' ? ' · Recommended' : '') +
             (job.strongApplicant ? ' · SEEK: strong applicant' : ''),
         );
@@ -380,35 +386,24 @@ async function main() {
         continue;
       }
 
-      const templated = looksTemplated(job);
-      if (templated) {
-        console.log(`  ⚠ ${job.company} — flagged templated/spam: ${templated}`);
-        logOutcome({
-          status: 'skipped',
-          jobId: job.id,
-          reason: `templated: ${templated}`,
-          title: job.title,
-          company: job.company,
-        });
-        continue;
-      }
-
-      const excluded = hardExclusions(job, profile);
+      const excluded = deterministicExclusion(job);
       if (excluded) {
         bump(excluded.replace(/:.*/, '').trim());
         logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
         continue;
       }
 
-      const s = scoreJob(job, profile);
-      // Keyword scores order the review queue; only the role-neutral model decides fit.
+      const heuristic = searchOnly ? scoreJob(job, profile) : null;
+      const priority = reviewPriorities.get(reviewKey(job));
+      const score = heuristic?.total ?? priority?.priority ?? 0;
+      const scoreReasons = heuristic?.reasons ?? (priority?.reason ? [priority.reason] : []);
       const fitPromise = config.celeris.apiKey
         ? assessFit(job, profile).then(
             (fit) => ({ fit }),
             (error) => ({ error: (error as Error).message }),
           )
         : Promise.resolve({});
-      pendingFits.push({ job, score: s.total, scoreReasons: s.reasons, adapter, fitPromise });
+      pendingFits.push({ job, score, scoreReasons, adapter, fitPromise });
       if (pendingFits.length >= config.limits.fitConcurrency) await flushFits();
     }
 

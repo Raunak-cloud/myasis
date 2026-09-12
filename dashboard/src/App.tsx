@@ -6,7 +6,7 @@ import { ApplicationsPanel } from './components/ApplicationsPanel';
 import { SetupPanel } from './components/SetupPanel';
 import { HumanizerPanel } from './components/HumanizerPanel';
 import { PricingPanel } from './components/PricingPanel';
-import { daysSince } from './format';
+import { daysSince, fmtDateTime } from './format';
 import { UserChip, useAuth } from './components/SignIn';
 import { Landing } from './components/Landing';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
@@ -53,6 +53,7 @@ export default function App() {
   const [apps, setApps] = useState<Application[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   const [running, setRunning] = useState(false);
+  const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref());
   const [toast, setToast] = useState<string | null>(null);
   const { user, googleConfigured, loading: authLoading, signOut } = useAuth();
@@ -68,12 +69,14 @@ export default function App() {
   }, [entitlements, canRewrite, tab]);
 
   const load = useCallback(async () => {
-    const [a, n] = await Promise.all([
+    const [a, n, lastRun] = await Promise.all([
       fetch('/api/applications').then((response) => response.json()).catch(() => []),
       fetch('/api/attention').then((response) => response.json()).catch(() => []),
+      fetch('/api/run/last').then((response) => response.json()).catch(() => ({ startedAt: null })),
     ]);
     setApps(Array.isArray(a) ? a : []);
     setAttention(Array.isArray(n) ? n : []);
+    setLastRunAt(typeof lastRun?.startedAt === 'string' ? lastRun.startedAt : null);
   }, []);
 
   useEffect(() => {
@@ -98,6 +101,7 @@ export default function App() {
       try {
         const status = await fetch('/api/run/status').then((response) => response.json());
         setRunning(Boolean(status.running));
+        if (typeof status.startedAt === 'string') setLastRunAt(status.startedAt);
         if (wasRunning && !status.running) {
           void load();
           setToast(`Run finished${status.applied ? ` — ${status.applied} submitted` : ''}`);
@@ -194,6 +198,12 @@ export default function App() {
           <div>
             <h1>{PAGE_COPY[tab].title}</h1>
             <p>{PAGE_COPY[tab].description}</p>
+            {tab === 'run' && (
+              <div className="last-run" title={lastRunAt ? new Date(lastRunAt).toLocaleString('en-AU') : undefined}>
+                <span aria-hidden="true" />
+                {lastRunAt ? `Last run ${fmtDateTime(lastRunAt)}` : 'No runs yet'}
+              </div>
+            )}
           </div>
           <div className="toolbar">
             {running && <span className="badge ok">Running</span>}

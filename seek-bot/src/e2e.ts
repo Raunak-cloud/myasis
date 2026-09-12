@@ -18,7 +18,7 @@ import './rehearsal-env.js';
 import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, assertSignedIn } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
-import { scoreJob, hardExclusions, parseMinSalary, parseSalaryRate, detectInjection } from './scoring.js';
+import { scoreJob, deterministicExclusion, parseMinSalary, parseSalaryRate, detectInjection } from './scoring.js';
 import { applyToJobWithAgent } from './agent/apply-agent.js';
 import { loadResumes, resolveResume } from './resume.js';
 import { buildKnowledgeContext } from './knowledge.js';
@@ -100,7 +100,7 @@ async function main() {
       : ['pass', `${cases.length}/${cases.length} correct`];
   });
 
-  await stage('scoring: hard exclusions fire', async () => {
+  await stage('filtering: only explicit facts hard-exclude', async () => {
     const dotnet = {
       id: '1', title: 'Full Stack Dev', company: 'X', location: 'Sydney NSW',
       url: '', description: 'C# and .NET Core required as core stack, 5+ years essential.',
@@ -110,18 +110,18 @@ async function main() {
       url: '', description: 'Fully remote across Australia. React and Node.',
       workArrangement: 'Remote',
     } as JobListing;
-    const onsite = {
-      id: '3', title: 'Dev', company: 'Z', location: 'Perth WA', url: '',
+    const old = {
+      id: '3', title: 'Dev', company: 'Z', location: 'Perth WA', url: '', ageDays: config.rules.maxAgeDays + 1,
       description: 'On-site role. React and Node.',
     } as JobListing;
 
-    const a = hardExclusions(dotnet, profile);
-    const b = hardExclusions(remote, profile);
-    const c = hardExclusions(onsite, profile);
-    if (!a) return ['fail', '.NET/C# core stack was NOT excluded'];
+    const a = deterministicExclusion(dotnet);
+    const b = deterministicExclusion(remote);
+    const c = deterministicExclusion(old);
+    if (a) return ['fail', `.NET prose bypassed model review: ${a}`];
     if (b) return ['fail', `remote role wrongly excluded: ${b}`];
-    if (!c) return ['fail', 'on-site interstate role was NOT excluded'];
-    return ['pass', 'excluded .NET + interstate on-site, kept remote'];
+    if (!c) return ['fail', 'explicit listing age was not excluded'];
+    return ['pass', 'semantic constraints reach the model; explicit age cap remains deterministic'];
   });
 
   await stage('security: prompt-injection detector', async () => {

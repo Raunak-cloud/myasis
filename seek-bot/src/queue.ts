@@ -16,8 +16,8 @@ import { resolve } from 'node:path';
 import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
-import { scoreJob, hardExclusions, detectInjection, looksTemplated } from './scoring.js';
-import { assessFit, coverLetterForJob } from './llm.js';
+import { deterministicExclusion, detectInjection } from './scoring.js';
+import { assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import type { JobListing } from './types.js';
@@ -148,11 +148,15 @@ async function build() {
     const shortlist = [...seen.values()]
       .filter((j) => !known.has(j.id))
       .filter((j) => !index.has(j.id, j.company, j.title, j.location))
-      .filter((j) => j.ageDays === undefined || j.ageDays <= config.rules.maxAgeDays)
-      .sort((a, b) => {
-        const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
-        return sourcePriority || scoreJob(b, profile).total - scoreJob(a, profile).total;
-      });
+      .filter((j) => j.ageDays === undefined || j.ageDays <= config.rules.maxAgeDays);
+    const reviewPriorities = await rankJobsForReview(shortlist, profile).catch((error) => {
+      console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
+      return new Map<string, { priority: number; reason: string }>();
+    });
+    shortlist.sort((a, b) => {
+      const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
+      return sourcePriority || (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+    });
 
     console.log(`${shortlist.length} new to evaluate (pre-ranked).\n`);
 
@@ -199,21 +203,15 @@ async function build() {
         bump('prompt injection');
         continue;
       }
-      const templated = looksTemplated(job);
-      if (templated) {
-        bump('templated/spam');
-        continue;
-      }
-      const excluded = hardExclusions(job, profile);
+      const excluded = deterministicExclusion(job);
       if (excluded) {
         bump(excluded.replace(/:.*/, '').trim());
         continue;
       }
-      const s = scoreJob(job, profile);
       const fit = await assessFit(job, profile);
       if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
       if (!fit.shouldApply) {
-        console.log(`  ✗ ${s.total} · ${job.title} @ ${job.company} — ${fit.reason.slice(0, 90)}`);
+        console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${fit.reason.slice(0, 90)}`);
         bump('not a fit');
         continue;
       }
@@ -232,10 +230,8 @@ async function build() {
         salary: job.salary,
         workArrangement: job.workArrangement,
         ageDays: job.ageDays,
-        score: s.total,
-        scoreReasons: job.strongApplicant
-          ? [`SEEK: ${job.strongApplicantNote ?? 'strong applicant'}`, ...s.reasons]
-          : s.reasons,
+        score: fit.matchScore,
+        scoreReasons: fit.evidence,
         fitReason,
         coverLetter,
         source: job.source,
@@ -243,7 +239,7 @@ async function build() {
         addedAt: new Date().toISOString(),
       });
       console.log(
-        `  ✓ ${s.total} · ${job.title} @ ${job.company} (${job.location})` +
+        `  ✓ ${fit.matchScore} · ${job.title} @ ${job.company} (${job.location})` +
           (job.strongApplicant ? ' · SEEK: strong applicant' : ''),
       );
     }

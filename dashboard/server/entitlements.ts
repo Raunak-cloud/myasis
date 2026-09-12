@@ -115,6 +115,18 @@ export async function lastRunStartedAt(userId: string, trigger: 'manual' | 'auto
   return rows[0]?.started_at ? new Date(rows[0].started_at) : null;
 }
 
+/** Most recent run of either kind, for the account dashboard. */
+export async function latestRunStartedAt(userId: string): Promise<Date | null> {
+  const rows = await query<{ started_at: Date }>(
+    `SELECT started_at FROM run_starts
+      WHERE user_id = $1
+      ORDER BY started_at DESC
+      LIMIT 1`,
+    [userId],
+  );
+  return rows[0]?.started_at ? new Date(rows[0].started_at) : null;
+}
+
 /**
  * One started run. Written once the child is actually spawned — see
  * start-run.ts, which explains why a refused start must not spend a slot
