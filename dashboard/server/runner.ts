@@ -40,8 +40,11 @@ const MAX_LINES = 2000;
  * share of a CPU core, so this is a memory ceiling rather than a policy. On a
  * 4 GB box one run is all that fits; 8 GB comfortably holds three. Set
  * MAX_CONCURRENT_RUNS to match the machine.
+ *
+ * It is also the number of lanes the scheduler spreads accounts across, so
+ * that at most this many scheduled runs ever start at the same moment.
  */
-const MAX_CONCURRENT = Math.max(1, Number(process.env.MAX_CONCURRENT_RUNS ?? 3));
+export const MAX_CONCURRENT = Math.max(1, Number(process.env.MAX_CONCURRENT_RUNS ?? 2));
 
 const IDLE_STATE: RunState = {
   running: false,
