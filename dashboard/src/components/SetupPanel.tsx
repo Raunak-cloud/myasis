@@ -132,25 +132,12 @@ export function SetupPanel() {
           />
           <SearchTermsGenerator
             currentTerms={val('KEYWORDS')}
-            targetRole={val('TARGET_ROLE')}
             refreshKey={resumeLibraryVersion}
             onGenerated={(terms) => set('KEYWORDS', terms)}
           />
           <span className="job-meta">Comma separated. More terms cast a wider net.</span>
         </div>
 
-        <label className="field">
-          <FieldLabel label="Targeting a different field?" optional help="Use this when moving into a different type of work. Leave it blank to match your current experience." />
-          <input
-            className="input"
-            placeholder="e.g. delivery driver — leave blank to match your résumé"
-            value={val('TARGET_ROLE')}
-            onChange={(e) => set('TARGET_ROLE', e.target.value)}
-          />
-          <span className="job-meta">
-            Jobs demanding licences or credentials you do not have are still skipped.
-          </span>
-        </label>
       </Step>
 
       <Step

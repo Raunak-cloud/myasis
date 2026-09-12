@@ -16,6 +16,7 @@ import { setupStatus } from './server/setup.js';
 import { loadProfile as loadCandidate, saveProfile } from './server/profile.js';
 import {
   loadUserSettings, saveUserSettings, mergeWithSharedEnv, runSettingsForUser,
+  USER_SETTABLE_SETTINGS_KEYS,
 } from './server/settings.js';
 import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
@@ -446,6 +447,7 @@ function dataApi(): Plugin {
             const { fineTune } = await entitlementsFor(userId, settingsUser?.email);
             const updates: Record<string, string> = {};
             for (const [key, value] of Object.entries(body?.updates ?? {})) {
+              if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
               if (!fineTune && FINE_TUNING_KEYS.includes(key)) continue;
               updates[key] = String(value ?? '');
             }

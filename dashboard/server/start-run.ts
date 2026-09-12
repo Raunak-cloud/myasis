@@ -1,5 +1,5 @@
 import { runner, type RunMode } from './runner.js';
-import { runSettingsForUser, KEEP_SETTINGS_KEYS } from './settings.js';
+import { runSettingsForUser, USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 import {
   billingStatus,
   consumeCompletedRehearsal,
@@ -92,7 +92,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    */
   for (const [key, value] of Object.entries(request.clientOverrides ?? {})) {
     if (trigger !== 'manual') break;
-    if (!KEEP_SETTINGS_KEYS.includes(key as (typeof KEEP_SETTINGS_KEYS)[number])) continue;
+    if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
     if (!entitlements.fineTune && FINE_TUNING_KEYS.includes(key)) continue;
     if (value !== undefined && value !== null && String(value).length) overrides[key] = String(value);
   }

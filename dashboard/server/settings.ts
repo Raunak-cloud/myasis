@@ -29,6 +29,9 @@ export const KEEP_SETTINGS_KEYS = [
   'AI_INSTRUCTIONS_B64',
 ] as const;
 
+/** TARGET_ROLE remains only so every run explicitly blanks legacy values. */
+export const USER_SETTABLE_SETTINGS_KEYS = KEEP_SETTINGS_KEYS.filter((key) => key !== 'TARGET_ROLE');
+
 const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
 /** Mirrors seek-bot's own clamps, so the dashboard shows what a run will really use. */
 const RUN_LIMITS: Record<string, number> = {

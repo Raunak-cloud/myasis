@@ -8,13 +8,11 @@ interface ResumeOption {
 
 export function SearchTermsGenerator({
   currentTerms,
-  targetRole,
   disabled = false,
   refreshKey = 0,
   onGenerated,
 }: {
   currentTerms: string;
-  targetRole: string;
   disabled?: boolean;
   refreshKey?: number;
   onGenerated: (value: string) => void;
@@ -69,7 +67,7 @@ export function SearchTermsGenerator({
       const response = await fetch('/api/search-terms/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentTerms, targetRole, resumeIds: selectedResumeIds }),
+        body: JSON.stringify({ currentTerms, resumeIds: selectedResumeIds }),
       });
       const result = await response.json() as {
         terms?: unknown;

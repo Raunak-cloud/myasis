@@ -51,7 +51,6 @@ export const SCHEDULED_MIN_SCORE = 75;
  */
 export const BASIC_SETTINGS_KEYS = [
   'KEYWORDS',
-  'TARGET_ROLE',
   'WORK_ARRANGEMENTS',
   'ONSITE_CITY',
   'MIN_SALARY',
@@ -78,6 +77,9 @@ export function applyRunPolicy(
   trigger: 'manual' | 'auto',
 ): Record<string, string> {
   const resolved = { ...settings };
+  // The field was removed. An old saved value or shared .env value must not
+  // keep influencing runs after it disappears from the interface.
+  resolved.TARGET_ROLE = RUN_SETTING_DEFAULTS.TARGET_ROLE;
   if (!entitlement.fineTune) {
     for (const key of FINE_TUNING_KEYS) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
   }

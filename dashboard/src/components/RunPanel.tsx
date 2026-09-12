@@ -40,7 +40,6 @@ interface RunStatus {
 
 const RUN_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
-  TARGET_ROLE: '',
   PLATFORMS: 'seek',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',
@@ -831,15 +830,10 @@ export function RunPanel({
                   <FieldError field="KEYWORDS" />
                   <SearchTermsGenerator
                     currentTerms={val('KEYWORDS')}
-                    targetRole={val('TARGET_ROLE')}
                     disabled={running}
                     onGenerated={(terms) => setEdit('KEYWORDS', terms)}
                   />
                 </div>
-                <label className="field run-review-wide">
-                  <FieldLabel label="Target role" optional help="Use this when moving into a different type of work. Leave it blank to match your current experience." />
-                  <input className="input" value={val('TARGET_ROLE')} onChange={(e) => setEdit('TARGET_ROLE', e.target.value)} />
-                </label>
                 <label className="field run-review-wide">
                   <FieldLabel label="Run instructions" optional help="Tell Myasis which otherwise suitable jobs to avoid or prefer. These saved instructions are checked for every job before applying." />
                   <textarea
