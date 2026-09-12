@@ -33,11 +33,33 @@ async function openApplyFlow(page: Page, applyCta: Locator): Promise<Page> {
     return page;
   }
   const popup = page.context().waitForEvent('page', { timeout: 5_000 }).catch(() => null);
-  await applyCta.click();
+
+  /**
+   * A click that will not land is not the end of the application.
+   *
+   * Three applications died on "locator.click: Timeout 30000ms exceeded" —
+   * the button was there, `count()` found it, and it still could not be
+   * pressed: covered by a consent banner, under a sticky header, or replaced
+   * by a re-render between reading its label and reaching for it. The default
+   * thirty-second wait then threw a Playwright error at the candidate.
+   *
+   * The agent that runs next looks at this same page and can find the control
+   * for itself, which is the whole reason it exists. So this tries the quick
+   * way, then tries once more after scrolling it into view, and otherwise
+   * hands the page over rather than giving up on the job.
+   */
+  let clicked = await applyCta.click({ timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!clicked) {
+    await applyCta.scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
+    clicked = await applyCta.click({ timeout: 5_000 }).then(() => true).catch(() => false);
+  }
+
   const opened = await popup;
   const target = opened ?? page;
   await target.waitForLoadState('domcontentloaded').catch(() => {});
-  await waitForApplicationSurface(target);
+  // Still on the listing when the click never landed; the agent starts there
+  // and opens the form itself, so there is no application surface to wait for.
+  if (clicked) await waitForApplicationSurface(target);
   return target;
 }
 

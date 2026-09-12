@@ -18,6 +18,8 @@ export interface KnowledgeItem {
 }
 
 const MANIFEST = resolve(config.dataDir, 'knowledge.json');
+const RESUME_MANIFEST = resolve(config.dataDir, 'resumes.json');
+const RESUMES = resolve(config.dataDir, 'resumes');
 const ANSWERS = resolve(config.dataDir, 'answers.json');
 
 export interface SavedAnswer {
@@ -112,9 +114,20 @@ function contextSignature(items: KnowledgeItem[]): string {
  */
 export async function buildKnowledgeContext(query = ''): Promise<string> {
   const items = loadKnowledge().filter((i) => i.enabled);
-  if (!items.length) return '';
+  /**
+   * The résumé is a supporting document, and for most accounts the only one.
+   *
+   * Leaving it out meant an employer asking for employment dates, a former
+   * employer's country or a reason for leaving got nothing to answer from —
+   * the profile carries a prose summary, not a work history — so those
+   * applications stopped and asked the candidate for what they had already
+   * uploaded. It goes first because it answers more questions than anything
+   * else here.
+   */
+  const resume = defaultResume();
+  if (!items.length && !resume) return '';
 
-  const signature = contextSignature(items);
+  const signature = `${contextSignature(items)}|${resume?.fileName ?? ''}`;
   if (contextCache?.signature === signature) return relevantEvidence(contextCache.value, query, MAX_CHARS);
 
   // Document extraction is independent per item. Running it concurrently
@@ -132,6 +145,15 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
 
   const chunks: string[] = [];
   let budget = 300_000;
+
+  if (resume) {
+    const text = (await extractText(resolve(RESUMES, resume.fileName)).catch(() => '')).replace(/\s+\n/g, '\n').trim();
+    if (text) {
+      const slice = text.slice(0, 60_000);
+      budget -= slice.length;
+      chunks.push(`### Résumé — ${resume.label}\n${slice}`);
+    }
+  }
 
   for (let i = 0; i < items.length; i++) {
     if (budget <= 0) break;
@@ -151,5 +173,30 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
 
 /** Cheap synchronous check so callers can skip the async build entirely. */
 export function hasKnowledge(): boolean {
-  return loadKnowledge().some((i) => i.enabled);
+  return loadKnowledge().some((i) => i.enabled) || defaultResume() !== null;
+}
+
+interface ResumeEntry {
+  id: string;
+  label: string;
+  fileName: string;
+  isDefault?: boolean;
+}
+
+/**
+ * The candidate's canonical résumé.
+ *
+ * Read here rather than imported from resume.ts, which already imports
+ * extractText from this module — importing back would close a cycle through
+ * llm.ts. Only the manifest shape is duplicated, not any logic.
+ */
+function defaultResume(): ResumeEntry | null {
+  if (!existsSync(RESUME_MANIFEST)) return null;
+  try {
+    const all = JSON.parse(readFileSync(RESUME_MANIFEST, 'utf8')) as ResumeEntry[];
+    if (!Array.isArray(all) || !all.length) return null;
+    return all.find((r) => r.isDefault) ?? all[0];
+  } catch {
+    return null;
+  }
 }

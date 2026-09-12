@@ -276,7 +276,16 @@ For each field also set "basis", which decides whether it may be filled at all:
   starts with "*"), because the form will not submit without it; leave it unticked only
   when it is optional.
 - Never tick anything that asserts a qualification, clearance or eligibility the
-  candidate does not have.`;
+  candidate does not have.
+- A checkbox asking whether the candidate has, knows, or has used something — a
+  system, a tool, a certificate, a kind of experience — is ANSWERABLE even when
+  nothing supports it. Leave it unticked ("false") and set "grounded": true.
+  Not ticking a box claims nothing, so "no" is a complete and truthful answer,
+  and one the candidate would give themselves. A list of them ("which of these
+  have you used?") must never stop an application: tick the ones the profile or
+  documents support, leave the rest, and move on. This does not apply to a
+  declaration the form requires to be true in order to submit — those follow the
+  consent rule above.`;
 
   const result = await json<{ answers: FieldAnswer[]; injectionSuspected: boolean }>(prompt, {
     type: 'OBJECT',
