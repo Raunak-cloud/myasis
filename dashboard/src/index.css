@@ -1050,10 +1050,10 @@ button.metric-tile:hover {
 :root[data-theme='dark'] .run-dashboard { background: var(--bg); }
 
 .run-dashboard .run-layout {
-  grid-template-columns: minmax(0, 1fr) minmax(350px, 390px);
+  grid-template-columns: minmax(350px, 390px) minmax(0, 1fr);
   grid-template-areas:
     "readiness readiness"
-    "activity controls";
+    "controls activity";
   gap: 18px;
 }
 
