@@ -1085,7 +1085,10 @@ button.metric-tile:hover strong { color: var(--accent); }
 }
 .auto-apply-info:hover { color: var(--text); }
 .auto-apply-info svg { display: block; }
-.auto-apply .field-tooltip { left: -6px; max-width: min(320px, calc(100vw - 48px)); font-size: 12px; }
+/* The tooltip spans the panel rather than hanging off the icon, so it never leaves the card. */
+.panel-head { position: relative; }
+.auto-apply-info { position: static; }
+.auto-apply .field-tooltip { top: calc(100% - 4px); left: 16px; right: 16px; width: auto; max-width: none; font-size: 12px; }
 
 /* Rehearse / Apply for real as one switch rather than two cards. */
 .mode-picker { display: grid; gap: 8px; }
