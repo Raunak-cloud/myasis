@@ -33,7 +33,8 @@ import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
-import { readSeekState, writeSeekState } from './server/seek-state.js';
+import { checkSeekSignin, seekCheckInProgress } from './server/seek-check.js';
+import { readSeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt } from './server/entitlements.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
@@ -770,14 +771,24 @@ function dataApi(): Plugin {
           if (req.method === 'DELETE') {
             stopSignin(userId);
             /**
-             * Closing the window is the person saying they are signed in, so
-             * take them at their word and stop prompting. It is only a claim,
-             * not an observation — the next run overwrites it with the truth.
+             * Closing the window is not proof of anything. SEEK is asked
+             * directly, in this account's own profile, and the answer is
+             * what the page shows from here on — see server/seek-check.ts.
              */
-            writeSeekState(userId, { signedIn: true, checkedAt: new Date().toISOString(), source: 'declared' });
-            return send({ ok: true, session: null, seek: readSeekState(userId) });
+            const seek = await checkSeekSignin(userId);
+            return send({ ok: true, session: null, seek, checking: false });
           }
-          return send({ supported: signinSupported(), session: sessionFor(userId), seek: readSeekState(userId) });
+          const seek = readSeekState(userId);
+          /**
+           * An account nobody has ever verified — new, or one that only
+           * declared itself signed in under the old flow — gets checked in
+           * the background the first time its Apply page asks. The page
+           * polls while `checking` is true and settles on SEEK's answer.
+           */
+          if ((!seek || seek.source === 'declared') && !sessionFor(userId) && !runner.stateFor(userId).running) {
+            void checkSeekSignin(userId);
+          }
+          return send({ supported: signinSupported(), session: sessionFor(userId), seek, checking: seekCheckInProgress(userId) });
         });
       }
 

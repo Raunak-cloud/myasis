@@ -31,7 +31,7 @@ interface SeekState {
   source: 'run' | 'declared';
 }
 
-type Status = { supported: boolean; session: Session | null; seek?: SeekState | null };
+type Status = { supported: boolean; session: Session | null; seek?: SeekState | null; checking?: boolean };
 
 export function SeekSignIn() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -55,6 +55,13 @@ export function SeekSignIn() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // While the server is asking SEEK, keep asking the server.
+  useEffect(() => {
+    if (!status?.checking) return;
+    const tick = setInterval(() => void refresh(), 4_000);
+    return () => clearInterval(tick);
+  }, [status?.checking, refresh]);
 
   // Connect the viewer once a session exists and the canvas is on screen.
   useEffect(() => {
@@ -131,7 +138,15 @@ export function SeekSignIn() {
     setConnected(false);
     try {
       const body = await fetch('/api/signin/session', { method: 'DELETE' }).then((r) => r.json());
-      setStatus({ supported: true, session: null, seek: body?.seek ?? null });
+      const seek: SeekState | null = body?.seek ?? null;
+      setStatus({ supported: true, session: null, seek });
+      if (!seek?.signedIn) {
+        setNotice(
+          seek?.signedIn === false
+            ? 'SEEK shows this account signed out. Sign in again to keep applying.'
+            : 'Could not confirm the sign-in with SEEK. Open it and try again.',
+        );
+      }
     } catch {
       setStatus({ supported: true, session: null });
     } finally {
@@ -152,18 +167,20 @@ export function SeekSignIn() {
      * with the reason attached.
      */
     if (status.seek?.signedIn && !error && !notice) return null;
+    // SEEK is being asked right now; a prompt would be answered in seconds either way.
+    if (status.checking && !error && !notice) return null;
 
     const expired = status.seek?.signedIn === false;
     return (
       <div className="seek-connect">
         {error && <div className="banner banner-bad">{error}</div>}
-        {notice && <div className="banner banner-ok">{notice}</div>}
+        {notice && <div className={`banner ${/signed out|could not/i.test(notice) ? 'banner-bad' : 'banner-ok'}`}>{notice}</div>}
         <div className="seek-connect-row">
           <div>
             <h3>SEEK account</h3>
             <p className="job-meta">
               {expired
-                ? 'Your last run found this account signed out of SEEK. Sign in again to keep applying.'
+                ? 'SEEK shows this account signed out. Sign in again to keep applying.'
                 : 'Sign in once. Applications are sent from your own account.'}
             </p>
           </div>
@@ -194,7 +211,7 @@ export function SeekSignIn() {
           </span>
           <span className="job-meta seek-window-time">{minutesLeft} min left</span>
           <button className="btn primary btn-small" disabled={busy} onClick={close}>
-            {busy ? 'Closing…' : "I'm signed in"}
+            {busy ? 'Checking with SEEK…' : 'Done'}
           </button>
         </div>
         {error && <div className="banner banner-bad seek-window-error">{error}</div>}
