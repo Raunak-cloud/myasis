@@ -1059,6 +1059,24 @@ button.metric-tile:hover strong { color: var(--accent); }
 .panel-head p { margin: 0; font-size: 12px; }
 .panel-body { flex: 1; display: grid; gap: 18px; align-content: start; padding: 20px; }
 
+/* Standard accounts: the schedule is on, and the detail lives behind the icon. */
+.auto-apply { display: flex; align-items: center; gap: 10px; }
+.auto-apply-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 14px 6px 12px;
+  border-color: var(--ok);
+  background: var(--ok-soft);
+  color: var(--text);
+  font-weight: 650;
+  cursor: default;
+}
+.auto-apply-btn:hover { background: var(--ok-soft); color: var(--text); }
+.auto-apply-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .2); }
+.auto-apply .field-tooltip { left: auto; right: 0; }
+
 /* Rehearse / Apply for real as one switch rather than two cards. */
 .mode-picker { display: grid; gap: 8px; }
 .mode-switch {

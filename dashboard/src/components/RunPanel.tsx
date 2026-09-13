@@ -163,6 +163,12 @@ function formatRunDuration(milliseconds: number): string {
     : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
+/** What the schedule does, in one breath, for the info icon beside Auto apply. */
+function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): string {
+  const jobs = Math.floor((e.scheduledJobsPerDay ?? 0) / 100) * 100;
+  return `${e.autoRunsPerDay} runs a day, ${windowLabel(e.window)}. ${jobs}+ jobs matched to your résumé daily. Applies to ${e.scheduledMinScore}%+ matches, written in your own voice.`;
+}
+
 function nextRunLabel(schedule: AutoScheduleStatus): string {
   if (schedule.dueNow) return 'Starting shortly';
   const at = new Date(schedule.nextRunAt);
@@ -511,14 +517,25 @@ export function RunPanel({
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
       <div className="card run-controls-card">
         <div className="panel-head">
-          <h2>{driving ? 'New run' : 'Applying for you'}</h2>
-          <p className="job-meta">
-            {driving
-              ? 'Rehearse first, then apply when everything looks right.'
-              : entitlements
-                ? `${entitlements.autoRunsPerDay} runs a day, ${windowLabel(entitlements.window)}. ${Math.floor((entitlements.scheduledJobsPerDay ?? 0) / 100) * 100}+ jobs matched to your résumé daily. Applies to ${entitlements.scheduledMinScore}%+ matches, written in your own voice.`
-                : ''}
-          </p>
+          {driving ? (
+            <>
+              <h2>New run</h2>
+              <p className="job-meta">Rehearse first, then apply when everything looks right.</p>
+            </>
+          ) : (
+            <div className="auto-apply">
+              <span className="btn auto-apply-btn" role="status">
+                <span className="auto-apply-dot" aria-hidden="true" />
+                Auto apply
+              </span>
+              {entitlements && (
+                <span className="field-info" tabIndex={0} aria-label={`Auto apply: ${autoApplySummary(entitlements)}`}>
+                  i
+                  <span className="field-tooltip" role="tooltip">{autoApplySummary(entitlements)}</span>
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="panel-body">
         {driving && (
