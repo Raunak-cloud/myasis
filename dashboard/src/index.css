@@ -1296,6 +1296,11 @@ button.metric-tile:hover strong { color: var(--accent); }
 .finished-label,
 .flowing-dots { display: inline-flex; align-items: center; }
 .in-progress-label { gap: 6px; }
+.active-mode-label { font-size: inherit; font-weight: 750; }
+.in-progress-label > span:nth-child(2) {
+  padding-left: 7px;
+  border-left: 1px solid currentColor;
+}
 .finished-label { gap: 7px; }
 .run-elapsed {
   padding-left: 7px;
@@ -1427,6 +1432,9 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .activity-event > div { display: grid; gap: 2px; min-width: 0; }
 .activity-current strong { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
 .activity-current span:last-child { color: var(--text); line-height: 1.45; }
+.activity-current.live { border-color: var(--bad); background: var(--bad-soft); }
+.activity-current.live strong { color: var(--bad); }
+.activity-current.live .activity-pulse { background: var(--bad); box-shadow: 0 0 0 4px var(--bad-soft); }
 
 .activity-pulse {
   width: 9px;

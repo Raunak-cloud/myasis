@@ -90,10 +90,11 @@ function activitySummary(lines: LogLine[]) {
   const found = Number(lastMatch(lines, /(\d+) unique listings discovered/i)?.[1] ?? 0);
   const reviewed = lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length;
   const suitable = Number(lastMatch(lines, /(\d+) qualifying jobs/i)?.[1] ?? 0);
-  return { found, reviewed, suitable };
+  const rehearsed = lines.filter((line) => /rehearsed/i.test(line.text)).length;
+  return { found, reviewed, suitable, rehearsed };
 }
 
-function activityEvents(lines: LogLine[]): ActivityEvent[] {
+function activityEvents(lines: LogLine[], mode: Mode): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string) => {
     const previous = events.at(-1);
@@ -106,7 +107,7 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
     let match: RegExpMatchArray | null;
 
     if (/starting (?:rehearse|live) run/i.test(text)) {
-      add(line, 'Run started', 'done');
+      add(line, mode === 'live' ? 'Applying for real' : 'Rehearsal started', 'done');
     } else if ((match = text.match(/(SEEK|Indeed) session OK/i))) {
       add(line, `Connected to ${match[1]}`, 'done');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
@@ -118,7 +119,7 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
     } else if ((match = text.match(/(\d+) qualifying jobs/i))) {
       add(line, `${match[1]} suitable ${Number(match[1]) === 1 ? 'job' : 'jobs'} ready`, 'done');
     } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
-      add(line, `Applying to ${match[1]}`, 'neutral', match[2]);
+      add(line, `${mode === 'live' ? 'Applying to' : 'Rehearsing'} ${match[1]}`, 'neutral', match[2]);
     } else if (/discarded a stale pre-filled cover letter/i.test(text)) {
       add(line, 'Prepared a fresh cover letter', 'neutral');
     } else if ((match = text.match(/✅ submitted\s*(?:\(([^)]+)\))?/i))) {
@@ -134,9 +135,11 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
     } else if ((match = text.match(/=== Run complete:\s*(\d+) new application/i))) {
       add(
         line,
-        'Run complete',
+        mode === 'live' ? 'Live run complete' : 'Rehearsal complete',
         'done',
-        `${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'} submitted.`,
+        mode === 'live'
+          ? `${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'} submitted.`
+          : 'No applications were submitted.',
       );
     } else if (/run finished \(exit [^0]/i.test(text)) {
       add(line, 'Run stopped before completion', 'bad');
@@ -332,8 +335,9 @@ export function RunPanel({
     else next.add(id);
     setEdit('PLATFORMS', [...next].join(','));
   };
+  const activeRunMode: Mode = status?.mode === 'live' ? 'live' : status?.mode === 'rehearse' ? 'rehearse' : mode;
   const summary = useMemo(() => activitySummary(lines), [lines]);
-  const events = useMemo(() => activityEvents(lines), [lines]);
+  const events = useMemo(() => activityEvents(lines, activeRunMode), [lines, activeRunMode]);
   const latestApplicationLine = [...lines].reverse().find((line) => /→ Applying:/i.test(line.text));
   const latestOutcomeLine = [...lines].reverse().find((line) =>
     /✅ submitted|🧪 rehearsed|⏸ needs you:|↪ off-platform|✗ (?:unexpected )?error:/i.test(line.text),
@@ -343,9 +347,9 @@ export function RunPanel({
     currentApplication && (!latestOutcomeLine || latestApplicationLine!.seq > latestOutcomeLine.seq),
   );
   const currentActivity = applyingNow
-    ? `Applying to ${currentApplication![1]} at ${currentApplication![2]}`
+    ? `${activeRunMode === 'live' ? 'Applying to' : 'Rehearsing'} ${currentApplication![1]} at ${currentApplication![2]}`
     : summary.suitable
-      ? 'Preparing suitable jobs for application'
+      ? `Preparing suitable jobs for ${activeRunMode === 'live' ? 'application' : 'rehearsal'}`
       : summary.found
         ? `Reviewing ${summary.found} job listings`
         : 'Searching for jobs';
@@ -519,8 +523,18 @@ export function RunPanel({
         <div className="panel-head">
           {driving ? (
             <>
-              <h2>New run</h2>
-              <p className="job-meta">Rehearse first, then apply when everything looks right.</p>
+              <h2>
+                {running && status?.isOwner !== false
+                  ? activeRunMode === 'live' ? 'Applying for real' : 'Rehearsal running'
+                  : 'New run'}
+              </h2>
+              <p className="job-meta">
+                {running && status?.isOwner !== false
+                  ? activeRunMode === 'live'
+                    ? 'This run submits completed applications.'
+                    : 'This run stops before every final submission.'
+                  : 'Rehearse first, then apply when everything looks right.'}
+              </p>
             </>
           ) : (
             <div className="auto-apply">
@@ -653,10 +667,13 @@ export function RunPanel({
         <div className="console-head">
           <div className="console-status">
             <strong>Activity</strong>
-            <span className={`badge ${running ? 'ok' : 'muted'}`}>
+            <span className={`badge ${running ? activeRunMode === 'live' ? 'bad' : 'info' : 'muted'}`}>
               {running ? (
                 <span className="in-progress-label">
-                  In progress
+                  <strong className="active-mode-label">
+                    {activeRunMode === 'live' ? 'Applying for real' : 'Rehearsal'}
+                  </strong>
+                  <span>In progress</span>
                   {elapsedMs !== null && (
                     <time className="run-elapsed" aria-label={`Running for ${formatRunDuration(elapsedMs)}`}>
                       {formatRunDuration(elapsedMs)}
@@ -691,7 +708,10 @@ export function RunPanel({
             <div><strong>{summary.found}</strong><span>Found</span></div>
             <div><strong>{summary.reviewed}</strong><span>Reviewed</span></div>
             <div><strong>{summary.suitable}</strong><span>Suitable</span></div>
-            <div><strong>{status?.applied ?? 0}</strong><span>Submitted</span></div>
+            <div>
+              <strong>{activeRunMode === 'live' ? status?.applied ?? 0 : summary.rehearsed}</strong>
+              <span>{activeRunMode === 'live' ? 'Submitted' : 'Rehearsed'}</span>
+            </div>
           </div>
         )}
 
@@ -704,10 +724,10 @@ export function RunPanel({
           ) : (
             <>
               {running && (
-                <div className="activity-current">
+                <div className={`activity-current ${activeRunMode === 'live' ? 'live' : 'rehearse'}`}>
                   <span className="activity-pulse" aria-hidden="true" />
                   <div>
-                    <strong>Now</strong>
+                    <strong>{activeRunMode === 'live' ? 'Applying now' : 'Rehearsing now'}</strong>
                     <span>{currentActivity}</span>
                   </div>
                 </div>
