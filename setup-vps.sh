@@ -180,6 +180,16 @@ else
   warn "No .env yet — copy seek-bot/.env.example to .env and fill it in."
 fi
 
+say "8/8  Nightly backups and housekeeping"
+# Postgres dump plus each account's résumé/knowledge files, 14 days local,
+# then Chrome cache and old-trace cleanup — see deploy/maintenance.sh. Runs at
+# 03:15 (Sydney), outside the auto-run window. To copy backups off the box,
+# configure an rclone remote named "backup" (any S3/R2/B2/Drive):
+#   sudo rclone config
+sudo apt-get install -y -qq rclone
+sudo install -m 755 "$APP_DIR/deploy/maintenance.sh" "$APP_DIR/deploy/maintenance.sh"
+sudo install -m 644 "$APP_DIR/deploy/myasis.cron" /etc/cron.d/myasis
+
 say "8/8  PM2 dashboard service"
 if [[ -f "$APP_DIR/ecosystem.config.cjs" ]]; then
   # Keep the app on loopback. A reverse proxy should own public TLS and access.

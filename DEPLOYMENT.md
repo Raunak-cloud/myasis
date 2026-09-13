@@ -157,6 +157,20 @@ cd ~/myasis/dashboard && npm ci --include=dev && npm run build
 cd ~/myasis && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save
 ```
 
+## 6. Backups
+
+`/etc/cron.d/myasis` runs `deploy/maintenance.sh` nightly at 03:15 Sydney time: a
+`pg_dump` of the database and a tarball of every account's résumé/knowledge files
+land in `/var/backups/myasis` (14 days kept), then idle Chrome caches and traces
+older than 30 days are cleared. Log: `/var/log/myasis-maintenance.log`.
+
+Backups stay on the machine until an rclone remote named `backup` exists — do
+this once on the VPS (`sudo rclone config`, any S3/R2/B2/Drive bucket) and the
+next night's run copies there and keeps 30 days.
+
+Restore: `sudo -u postgres pg_restore -d myasis --clean /var/backups/myasis/db-<stamp>.dump`
+and `tar -xzf files-<stamp>.tar.gz -C ~/myasis/seek-bot/data/users`.
+
 ## Coolify
 
 Coolify deploys applications as Docker containers. PM2 is therefore unnecessary

@@ -1,0 +1,6 @@
+# Nightly Myasis housekeeping — see deploy/maintenance.sh. 03:15 server time,
+# which setup-vps.sh sets to Australia/Sydney: outside the 9am-9pm auto-run
+# window and after the 9pm digest.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+15 3 * * * root /home/myasis/myasis/deploy/maintenance.sh >> /var/log/myasis-maintenance.log 2>&1

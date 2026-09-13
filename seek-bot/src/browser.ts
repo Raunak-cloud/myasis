@@ -96,6 +96,17 @@ export async function launchBrowser(): Promise<BrowserContext> {
     const port = Number(process.env.CDP_PORT || '9222');
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid CDP_PORT');
     args.push(`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1');
+    /**
+     * Cap the HTTP cache per profile.
+     *
+     * Chrome sizes its cache from free disk, so one account's profile grew to
+     * 1.1GB — 900MB of it cached page assets — which makes disk, not the
+     * database, the first thing that runs out as accounts are added. SEEK's
+     * assets are a few MB; 100MB is more than a run ever revisits. Launch
+     * flags are invisible to pages, so this is not a fingerprint. The V8 code
+     * cache has no flag and is cleared by deploy/maintenance.sh instead.
+     */
+    args.push('--disk-cache-size=104857600');
     if (!config.headless) {
       // Size the real window rather than emulating a viewport — see below.
       args.push('--window-size=1440,960');
