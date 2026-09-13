@@ -222,25 +222,39 @@ export default function App() {
         </header>
 
         {tab === 'run' && (
-          <section className="quick-status" aria-label="Application summary">
-            <button onClick={() => setTab('applications')}>
+          <section className="dashboard-metrics" aria-label="Application summary">
+            <button type="button" className="metric-tile" onClick={() => setTab('applications')}>
               <strong>{stats.week}</strong>
               <span>applied this week</span>
             </button>
             <button
-              className={stats.awaiting ? 'needs-action' : ''}
+              type="button"
+              className={`metric-tile ${stats.awaiting ? 'needs-action' : ''}`}
               onClick={() => setTab('applications')}
             >
               <strong>{stats.awaiting}</strong>
               <span>ready to follow up</span>
             </button>
             <button
-              className={stats.blocked ? 'needs-action' : ''}
+              type="button"
+              className={`metric-tile ${stats.blocked ? 'needs-action' : ''}`}
               onClick={() => setTab('attention')}
             >
               <strong>{stats.blocked}</strong>
               <span>{stats.verification ? 'need verification' : 'need attention'}</span>
             </button>
+            <div className="metric-tile">
+              <strong>{today.runs}</strong>
+              <span>{today.runs === 1 ? 'run today' : 'runs today'}</span>
+            </div>
+            <div className="metric-tile">
+              <strong>{today.reviewed}</strong>
+              <span>jobs reviewed today</span>
+            </div>
+            <div className="metric-tile">
+              <strong>{today.submitted}</strong>
+              <span>applications sent today</span>
+            </div>
           </section>
         )}
 
@@ -248,7 +262,6 @@ export default function App() {
           {tab === 'run' && (
             <RunPanel
               lastRunAt={lastRunAt}
-              today={today}
               onFinished={load}
               onGoSetup={() => setTab('setup')}
               onGoPricing={() => setTab('pricing')}

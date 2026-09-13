@@ -186,13 +186,11 @@ function nextRunLabel(schedule: AutoScheduleStatus): string {
  */
 export function RunPanel({
   lastRunAt,
-  today,
   onFinished,
   onGoSetup,
   onGoPricing,
 }: {
   lastRunAt: string | null;
-  today: { runs: number; reviewed: number; submitted: number };
   onFinished: () => void;
   onGoSetup: () => void;
   onGoPricing: () => void;
@@ -510,16 +508,6 @@ export function RunPanel({
 
   return (
     <div className="run-layout">
-      <section className="card today-summary run-span" aria-labelledby="today-summary-title">
-        <div className="today-summary-title">
-          <strong id="today-summary-title">Today</strong>
-        </div>
-        <div className="today-summary-metrics">
-          <div><strong>{today.runs}</strong><span>{today.runs === 1 ? 'run' : 'runs'}</span></div>
-          <div><strong>{today.reviewed}</strong><span>jobs reviewed</span></div>
-          <div><strong>{today.submitted}</strong><span>applications sent</span></div>
-        </div>
-      </section>
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
       <div className="card run-controls-card">
         <div className="run-card-title">
@@ -554,21 +542,6 @@ export function RunPanel({
             </div>
           </label>
         </div>}
-
-        {driving && entitlements && entitlements.autoRunsPerDay > 0 && (
-          <div className="run-schedule-status">
-            <div>
-              <strong>Automatic schedule</strong>
-              <p className="job-meta">
-                {entitlements.autoRunsPerDay} live runs daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
-                {autoSchedule && <span className="schedule-next-run">{nextRunLabel(autoSchedule)}</span>}
-              </p>
-            </div>
-            <span className="badge info">
-              {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
-            </span>
-          </div>
-        )}
 
         {!status?.hasKey && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
@@ -611,6 +584,21 @@ export function RunPanel({
           )}
         </div>
 
+        {driving && entitlements && entitlements.autoRunsPerDay > 0 && (
+          <div className="run-schedule-status">
+            <div>
+              <strong>Automatic schedule</strong>
+              <p className="job-meta">
+                {entitlements.autoRunsPerDay} live runs daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
+                {autoSchedule && <span className="schedule-next-run">{nextRunLabel(autoSchedule)}</span>}
+              </p>
+            </div>
+            <span className="badge info">
+              {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
+            </span>
+          </div>
+        )}
+
         {/* Signing in to SEEK lives here rather than in Setup: it is the one
             thing a run cannot start without, and the browser it opens is what
             the person needs in front of them. */}
@@ -622,9 +610,9 @@ export function RunPanel({
         )}
 
         {!running && (lastRunAt || status?.finishedAt) && (
-          <p className="job-meta">
+          <p className="job-meta last-run-line">
             Last run {fmtDateTime(lastRunAt ?? status!.finishedAt!)}
-            {status?.finishedAt ? ` · ${status.applied} submitted · exit ${status.exitCode}` : ''}
+            {status?.finishedAt ? ` · ${status.applied} submitted` : ''}
           </p>
         )}
       </div>
