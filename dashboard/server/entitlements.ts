@@ -76,7 +76,7 @@ export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
  */
 export function applyRunPolicy(
   settings: Record<string, string>,
-  entitlement: Pick<Entitlements, 'fineTune'>,
+  entitlement: Pick<Entitlements, 'fineTune' | 'indeedApplications'>,
   trigger: 'manual' | 'auto',
 ): Record<string, string> {
   const resolved = { ...settings };
@@ -85,6 +85,7 @@ export function applyRunPolicy(
   resolved.TARGET_ROLE = RUN_SETTING_DEFAULTS.TARGET_ROLE;
   if (!entitlement.fineTune) {
     for (const key of FINE_TUNING_KEYS) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
+    if (entitlement.indeedApplications) resolved.PLATFORMS = 'seek,indeed';
   }
   if (trigger === 'auto') {
     resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
@@ -112,6 +113,8 @@ export interface Entitlements {
   fineTune: boolean;
   /** May use the rewriting tool. */
   rewriteText: boolean;
+  /** May search and apply to jobs hosted on Indeed as well as SEEK. */
+  indeedApplications: boolean;
   window: { startHour: number; endHour: number; timeZone: string };
 }
 
@@ -213,6 +216,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     scheduledJobsPerDay: autoRunsPerDay ? autoRunsPerDay * SCHEDULED_EVALUATIONS_PER_RUN : null,
     fineTune: tier !== 'standard',
     rewriteText: tier === 'admin',
+    indeedApplications: billing.paid.hasActivePass,
     window: { ...AUTO_WINDOW, timeZone: RUN_TIME_ZONE },
   };
 }

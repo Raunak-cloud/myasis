@@ -19,6 +19,7 @@ export interface Entitlements {
   scheduledJobsPerDay: number | null;
   fineTune: boolean;
   rewriteText: boolean;
+  indeedApplications: boolean;
   window: { startHour: number; endHour: number; timeZone: string };
 }
 
