@@ -164,10 +164,10 @@
    instead of blurred ones, and the hand-lettered face for all text. It sits
    after the base rules on purpose so the layout above stays untouched. */
 .landing {
-  --sketch: 255px 15px 225px 15px / 15px 225px 15px 255px;
-  --sketch-2: 15px 255px 15px 225px / 225px 15px 255px 15px;
+  /* One radius, one stroke, one shadow per role: hand-drawn, but nothing leans or differs from its neighbour. */
+  --sketch: 12px;
   --ink-line: #2b3f5c;
-  --scribble: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='6' viewBox='0 0 240 6'%3E%3Cpath d='M0 3.2 Q30 1 60 3 T120 3.4 T180 2.6 T240 3.2' fill='none' stroke='%232b3f5c' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  --scribble: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='6' viewBox='0 0 240 6'%3E%3Cpath d='M0 3 Q30 1.6 60 3 T120 3 T180 3 T240 3' fill='none' stroke='%232b3f5c' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
   font-family:'Shantell Sans','Segoe Print',Georgia,sans-serif;
   background-color:var(--paper);
   background-image:radial-gradient(#d3dde9 1px, transparent 1.2px);
@@ -192,11 +192,10 @@
 }
 .home-video-wrap { padding:8px; box-shadow:none; }
 .home-hero-demo .home-video-wrap { border:0; border-radius:0; }
-.home-price-card.featured { border-color:var(--blue-deep); box-shadow:6px 6px 0 var(--blue); }
-.home-price-card:nth-child(2) { border-radius:var(--sketch-2); }
+.home-price-card.featured { border-color:var(--blue-deep); box-shadow:4px 4px 0 var(--blue); }
 .home-hero-video-top { border-bottom:0; background:var(--scribble) left bottom/240px 6px repeat-x; }
 .home-price-popular { border:1.5px solid var(--ink-line); border-radius:var(--sketch); background:#fff; }
-.home-step-icon { width:42px; height:42px; border:2px solid var(--ink-line); border-radius:var(--sketch); background:#fff; color:var(--blue-deep); box-shadow:2px 2px 0 var(--ink-line); }
+.home-step-icon { width:42px; height:42px; border:2px solid var(--ink-line); border-radius:10px; background:#fff; color:var(--blue-deep); box-shadow:3px 3px 0 var(--ink-line); }
 
 /* Buttons look drawn and pressed. */
 .home-button { border:2px solid var(--ink-line); border-radius:var(--sketch); box-shadow:3px 3px 0 var(--ink-line); transition:transform .1s, box-shadow .1s, background .15s; }
@@ -205,4 +204,8 @@
 .home-button-light { border-color:var(--ink-line); }
 .home-header nav a:hover { text-decoration:none; background:var(--scribble) left bottom/240px 6px repeat-x; padding-bottom:6px; }
 .home-price-card li::before { content:'✔'; }
+.home-handnote { transform:none; }
+.home-price-card { text-align:left; }
+.home-price-card .home-button { justify-content:space-between; }
+.home-process article { padding-top:30px; padding-bottom:30px; }
 @media(prefers-reduced-motion:reduce) { .home-button:hover,.home-button:active { transform:none; } }
