@@ -209,3 +209,33 @@
 .home-price-card .home-button { justify-content:space-between; }
 .home-process article { padding-top:30px; padding-bottom:30px; }
 @media(prefers-reduced-motion:reduce) { .home-button:hover,.home-button:active { transform:none; } }
+
+/* ---------- Hero: statement first, product second ----------
+   The pattern the best product sites share (Linear, Notion, Stripe): one
+   centred statement, one button, then the product itself at full width.
+   No tinted band, no two-column split, no decoration around the words. */
+.home-intro {
+  width:auto; display:grid; grid-template-columns:1fr; justify-items:center; gap:0;
+  margin:0 0 54px; padding:72px 0 0; background:none; border:0; text-align:center;
+}
+.home-intro-heading { max-width:680px; display:grid; justify-items:center; }
+.home-intro h1 { max-width:none; font-size:clamp(46px,5.2vw,72px); line-height:1.04; }
+.home-intro h1 em { margin-top:4px; }
+.home-hero-summary { max-width:52ch; margin-top:22px; font-size:16px; line-height:1.6; }
+.home-hero-actions { justify-content:center; margin-top:28px; }
+.home-hero-actions .home-button { padding:15px 22px; font-size:14px; gap:26px; }
+.home-intro .home-small { margin-top:14px; }
+.home-hero-demo {
+  width:100%; max-width:1100px; margin-top:56px; border-radius:12px; box-shadow:0 18px 0 -12px var(--ink-line), 0 30px 60px rgba(22,63,112,.14);
+}
+.home-hero-video-top { justify-content:flex-start; gap:14px; padding:9px 14px; }
+.home-hero-video-top::before {
+  content:''; width:34px; height:10px; flex:0 0 auto;
+  background:radial-gradient(circle, var(--ink-line) 3px, transparent 3.6px) 0 0/12px 10px repeat-x;
+}
+.home-hero-video-top span:last-child { margin-left:auto; }
+@media(max-width:800px) {
+  .home-intro { padding:44px 0 0; margin-bottom:40px; }
+  .home-hero-summary { font-size:14px; }
+  .home-hero-demo { margin-top:36px; }
+}
