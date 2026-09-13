@@ -46,11 +46,19 @@ export async function setupStatus(
 
   const checks: SetupCheck[] = [
     {
+      id: 'resume',
+      label: 'Résumé uploaded',
+      done: resumes.length > 0,
+      hint: 'Upload your résumé first. We will use it to fill in the details it contains.',
+      fix: 'documents',
+      required: true,
+    },
+    {
       id: 'profile',
-      label: 'Your details completed',
+      label: 'Remaining details completed',
       done: gaps.length === 0,
       hint: gaps.length
-        ? `Still needed: ${gaps.join(', ')}. These answer questions on nearly every application.`
+        ? `Still needed after résumé import: ${gaps.join(', ')}.`
         : 'Name, contact, work rights and experience are set.',
       fix: 'details',
       required: true,
@@ -71,14 +79,6 @@ export async function setupStatus(
         ? 'The writing assistant is temporarily unavailable. Please try again shortly.'
         : 'Ready to prepare application writing.',
       fix: 'external',
-      required: true,
-    },
-    {
-      id: 'resume',
-      label: 'Résumé uploaded',
-      done: resumes.length > 0,
-      hint: 'Upload the résumé you want attached to applications.',
-      fix: 'documents',
       required: true,
     },
     {

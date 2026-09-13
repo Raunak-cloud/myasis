@@ -99,20 +99,20 @@ export function SetupPanel() {
     <div className="setup-steps">
       <Step
         n={1}
-        title="Your details"
-        blurb="Used to answer common application questions accurately."
-        done={done('profile')}
+        title="Upload your résumé"
+        blurb="We'll use it to fill in the details it already contains."
+        done={done('resume')}
       >
-        <ProfileForm />
+        <FilesPanel onChanged={() => setResumeLibraryVersion((value) => value + 1)} />
       </Step>
 
       <Step
         n={2}
-        title="Your documents"
-        blurb="Your résumé and any supporting information the automation can use."
-        done={done('resume')}
+        title="Complete your details"
+        blurb="Check what was filled in, then add anything your résumé did not include."
+        done={done('profile')}
       >
-        <FilesPanel onChanged={() => setResumeLibraryVersion((value) => value + 1)} />
+        <ProfileForm key={resumeLibraryVersion} />
       </Step>
 
       <Step

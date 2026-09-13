@@ -172,8 +172,8 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
 
       {autofilled && (
         <div className="banner banner-ok" style={{ gridColumn: '1/-1' }}>
-          Filled in from your résumé: {autofilled.map(fieldLabel).join(', ')}. Check them in Your details, and add
-          anything the résumé did not mention.
+          Filled in from your résumé: {autofilled.map(fieldLabel).join(', ')}. Review them in Complete your details,
+          then add anything the résumé did not mention.
         </div>
       )}
 
