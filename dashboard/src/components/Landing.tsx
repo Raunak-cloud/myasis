@@ -1,6 +1,6 @@
 import './Landing.css';
 import { useEffect, useRef, useState } from 'react';
-import { FREE_MONTHLY_APPLICATIONS, FREE_MONTHLY_REHEARSALS, PAID_PLANS, aud } from '../pricing';
+import { FREE_MONTHLY_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, aud } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
 
 const QUESTIONS = [
@@ -74,10 +74,39 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
       <aside className="home-promise"><img src="/favicon.svg" width="54" height="54" alt="" /><div><h2>A helpful assistant. An honest application.</h2><p>Myasis won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p></div></aside>
 
-      <section className="home-pricing" id="pricing"><div className="home-pricing-title"><span className="home-section-number">03 / WHAT IT COSTS</span><h2><em>No ongoing commitment.</em></h2></div><div className="home-price-list"><article className="home-price-row"><div><h3>Free</h3><p>For getting started</p></div><ul><li>{FREE_MONTHLY_APPLICATIONS} applications / month</li><li>{FREE_MONTHLY_REHEARSALS} rehearsals / month</li></ul><p className="home-price">A$0<span>per month</span></p>{start('Start free', true)}</article>{(['job-search-pass', 'intensive-pass'] as const).map(key => { const plan = PAID_PLANS[key]; return <article className="home-price-row" key={key}><div><h3>{plan.name}</h3><p>{key === 'job-search-pass' ? 'For an active search' : 'For a broader search'}</p></div><ul><li>{plan.applications} applications / {plan.validDays} days</li><li>Unlimited rehearsals while active</li>{key === 'intensive-pass' && <li>Supported employer-site applications</li>}</ul><p className="home-price">{aud(plan.priceCents)}<span>one-off</span></p>{start('Get started', true)}</article>; })}<p className="home-price-note">Every plan includes personalised cover letters and a record of your applications.</p></div></section>
+      <section className="home-pricing" id="pricing">
+        <div className="home-pricing-title">
+          <span className="home-section-number">03 / PLANS &amp; PRICING</span>
+          <h2>Choose how you want<br /><em>Myasis to run.</em></h2>
+        </div>
+        <div className="home-price-grid">
+          <article className="home-price-card">
+            <span className="home-price-mode">{PLAN_PRESENTATION.free.label}</span>
+            <h3>Free</h3>
+            <p className="home-price-copy">{PLAN_PRESENTATION.free.description}</p>
+            <p className="home-price">A$0<span>monthly allowance</span></p>
+            {start('Start free', true)}
+            <ul>{PLAN_PRESENTATION.free.features.map(feature => <li key={feature}>{feature}</li>)}</ul>
+          </article>
+          {(['job-search-pass', 'intensive-pass'] as const).map(key => {
+            const plan = PAID_PLANS[key];
+            const presentation = PLAN_PRESENTATION[key];
+            return <article className={`home-price-card${key === 'job-search-pass' ? ' featured' : ''}`} key={key}>
+              {key === 'job-search-pass' && <span className="home-price-popular">Most popular</span>}
+              <span className="home-price-mode">{presentation.label}</span>
+              <h3>{plan.name}</h3>
+              <p className="home-price-copy">{presentation.description}</p>
+              <p className="home-price">{aud(plan.priceCents)}<span>one payment · {plan.validDays} days</span></p>
+              {start('Get started', key !== 'job-search-pass')}
+              <ul>{presentation.features.map(feature => <li key={feature}>{feature}</li>)}</ul>
+            </article>;
+          })}
+        </div>
+        <p className="home-price-note">Only successful submissions use your application allowance. Paid passes do not renew automatically.</p>
+      </section>
 
       <section className="home-questions" id="questions"><div><span className="home-section-number">04 / A FEW THINGS TO KNOW</span><h2>FAQ.</h2></div><div className="home-faq-list">{QUESTIONS.map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>
-      <section className="home-last"><h2>One less thing<br />between you and<br /><em>your next job.</em></h2><div>{start()}<p className="home-small">Start with a free rehearsal.<br />See what Myasis can do with your experience.</p></div></section>
+      <section className="home-last"><h2>One less thing<br />between you and<br /><em>your next job.</em></h2><div>{start()}<p className="home-small">10 free applications each month.<br />No card needed.</p></div></section>
     </main>
     <footer className="home-footer home-width"><a href="#top" className="home-brand"><img src="/favicon.svg" width="32" height="32" alt="" /><span>Myasis</span></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
   </div>;

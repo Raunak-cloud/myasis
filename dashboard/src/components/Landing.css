@@ -59,18 +59,23 @@
 .home-promise h2 { font-family:Georgia,serif; font-weight:400; font-size:25px; letter-spacing:-.5px; margin:0 0 8px; }
 .home-promise p { font-size:12px; line-height:1.8; color:#526b85; margin:0; max-width:90ch; }
 .home-pricing { padding:75px 0 60px; scroll-margin-top:24px; }
-.home-pricing-title { display:grid; grid-template-columns:1fr 1fr; align-items:end; gap:15px 45px; margin-bottom:37px; }
-.home-pricing-title .home-section-number { grid-column:1/-1; margin-bottom:9px; }
-.home-pricing-title>p { justify-self:end; font-size:12px; color:var(--muted); line-height:1.8; margin:0; }
-.home-price-row { display:grid; grid-template-columns:1.05fr 1.4fr .75fr .85fr; gap:24px; align-items:center; padding:28px 0; border-top:1px solid var(--rule); }
-.home-price-row:nth-child(2) { background:#edf5fc; margin-inline:-20px; padding-inline:20px; border-color:#c6d9ea; }
-.home-price-row h3 { font-size:18px; font-weight:600; letter-spacing:-.4px; margin:0 0 4px; }
-.home-price-row>div>p { margin:0; font-size:11px; color:var(--muted); }
-.home-price-row ul { list-style:none; padding:0; margin:0; font-size:11px; line-height:1.9; color:var(--muted); }
+.home-pricing-title { margin-bottom:32px; }
+.home-pricing-title .home-section-number { margin-bottom:12px; }
+.home-price-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; align-items:stretch; }
+.home-price-card { position:relative; display:flex; flex-direction:column; min-width:0; padding:27px 25px 25px; border:1px solid var(--rule); border-radius:8px; background:#fff; }
+.home-price-card.featured { border-color:var(--blue); box-shadow:0 14px 32px rgba(22,63,112,.12); }
+.home-price-mode { color:#426f9f; font-size:9px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+.home-price-popular { position:absolute; top:19px; right:18px; padding:4px 8px; border-radius:99px; background:#e5f0fa; color:var(--blue-deep); font-size:8px; font-weight:700; letter-spacing:.7px; text-transform:uppercase; }
+.home-price-card h3 { min-height:48px; margin:9px 0 5px; font-family:Georgia,serif; font-size:25px; font-weight:400; letter-spacing:-.6px; }
+.home-price-copy { min-height:62px; margin:0; color:var(--muted); font-size:12px; line-height:1.65; }
 .home-price { font-family:Georgia,serif; font-size:33px; line-height:1; letter-spacing:-1px; margin:0; }
 .home-price span { display:block; font-family:Arial,sans-serif; font-size:10px; letter-spacing:0; line-height:1.5; color:var(--muted); margin-top:7px; }
-.home-price-row .home-button { font-size:11px; padding:11px 14px; }
-.home-price-note { border-top:1px solid var(--rule); padding-top:16px; font-size:10px; color:var(--muted); margin:0; }
+.home-price-card .home-price { margin:20px 0 17px; }
+.home-price-card .home-button { width:100%; font-size:11px; padding:11px 14px; }
+.home-price-card ul { display:grid; gap:9px; margin:22px 0 0; padding:20px 0 0; border-top:1px solid var(--rule); list-style:none; color:var(--muted); font-size:11px; line-height:1.55; }
+.home-price-card li { position:relative; padding-left:18px; }
+.home-price-card li::before { content:'✓'; position:absolute; left:0; color:var(--blue); font-weight:700; }
+.home-price-note { padding-top:17px; font-size:10px; color:var(--muted); margin:0; }
 .home-questions { display:grid; grid-template-columns:1fr 1.15fr; gap:100px; border-top:1px solid var(--rule); padding:55px 0 65px; scroll-margin-top:24px; }
 .home-questions h2 { font-size:36px; }
 .home-faq-list { margin-top:3px; }
@@ -92,3 +97,15 @@
 @media(max-width:800px) { .home-width { padding-inline:25px; }.home-header { height:83px; gap:22px; }.home-brand { font-size:24px; gap:7px; }.home-header nav { gap:20px; font-size:11px; margin-right:0; }.home-header nav a:first-child { display:none; }.home-login { font-size:11px; gap:9px; }.home-intro { grid-template-columns:1fr 1fr; gap:25px; padding:50px 0; }.home-intro h1 { font-size:51px; letter-spacing:-2px; }.home-intro-copy>p:not(.home-small) { font-size:13px; }.home-overline { font-size:10px; }.home-small { font-size:10px; }.home-demo-link { font-size:10px; margin-top:19px; }.home-button { font-size:12px; gap:20px; }.home-demo { grid-template-columns:1fr; gap:22px; padding-top:28px; }.home-demo-aside { display:grid; grid-template-columns:1fr 1fr; gap:5px 25px; }.home-demo-aside .home-section-number { grid-column:1/-1; margin-bottom:13px; }.home-demo-aside h2 { font-size:29px; }.home-demo-aside>p { font-size:12px; margin:0; }.home-demo-aside>.home-small { grid-column:2; margin-top:-35px; align-self:end; }.home-handnote { display:none; }.home-explainer { gap:35px; padding-block:50px; }.home-section-lead h2,.home-pricing h2 { font-size:34px; }.home-process { padding-top:20px; }.home-process article { gap:12px; }.home-process h3 { font-size:15px; }.home-process p { font-size:12px; }.home-promise { padding:23px; gap:20px; }.home-promise h2 { font-size:22px; }.home-pricing { padding-block:50px; }.home-price-row { grid-template-columns:1.1fr 1.4fr .7fr; gap:17px; }.home-price-row .home-button { grid-column:3; grid-row:auto; margin-top:-8px; padding:8px 11px; font-size:10px; }.home-price-row ul { grid-column:2; grid-row:span 2; }.home-price-row>div { grid-row:span 2; }.home-price { font-size:30px; }.home-price-row:nth-child(2) { margin-inline:-12px; padding-inline:12px; }.home-questions { gap:35px; padding-block:45px; }.home-last h2 { font-size:39px; }.home-last>div { width:42%; } }
 @media(max-width:560px) { .home-header nav a:last-child { display:none; }.home-header nav { margin-left:auto; }.home-brand img { width:32px; height:32px; }.home-intro { grid-template-columns:1fr; gap:28px; padding:35px 0 34px; }.home-intro h1 { font-size:54px; line-height:1.04; letter-spacing:-2.3px; }.home-title-break { display:none; }.home-overline { margin-bottom:18px; }.home-intro-heading::after { width:82%; margin-top:15px; height:4px; }.home-intro-copy { max-width:none; }.home-intro-copy>p:not(.home-small) { font-size:14px; line-height:1.75; margin-bottom:16px; }.home-demo-link { margin-top:20px; font-size:11px; }.home-intro-copy .home-button { margin-top:3px; }.home-demo-aside { display:block; }.home-demo-aside h2 { margin:0 0 12px; }.home-demo-aside h2 br { display:none; }.home-demo-aside>p { max-width:40ch; }.home-demo-aside>.home-small { margin-top:10px; font-size:10px; }.home-demo-aside>.home-small br { display:none; }.home-demo { padding-bottom:35px; }.home-video-top { padding:10px 12px; font-size:7px; }.home-video-wrap { padding:4px; }.home-video-caption { gap:10px; font-size:9px; }.home-video-caption a { white-space:normal; min-width:62px; }.home-explainer,.home-questions { grid-template-columns:1fr; gap:23px; padding-block:37px; }.home-section-lead h2 { font-size:35px; }.home-section-lead h2 br { display:none; }.home-section-lead>p { display:none; }.home-process { padding:0; }.home-process article { gap:15px; }.home-process h3 { font-size:16px; }.home-process p { font-size:13px; }.home-process article+article { padding-top:21px; }.home-section-number { margin-bottom:17px; }.home-promise { align-items:start; gap:15px; padding:22px 18px; }.home-promise img { width:34px; height:34px; }.home-promise h2 { font-size:22px; line-height:1.3; }.home-promise p { font-size:12px; }.home-pricing-title { grid-template-columns:1fr; gap:0; margin-bottom:28px; }.home-pricing-title .home-section-number { margin-bottom:17px; }.home-pricing-title>p { justify-self:start; margin-top:18px; }.home-pricing h2 { font-size:34px; }.home-price-row { grid-template-columns:1fr auto; align-items:start; gap:16px 20px; padding-block:25px; }.home-price-row>div { grid-column:1; grid-row:auto; }.home-price-row ul { grid-column:1; grid-row:2; font-size:11px; }.home-price { grid-column:2; grid-row:1; font-size:31px; text-align:right; }.home-price-row .home-button { grid-column:2; grid-row:2; margin:0; align-self:end; font-size:10px; gap:9px; padding:9px 10px; }.home-price-row .home-button svg { width:15px; }.home-price-row h3 { font-size:17px; }.home-price-note { font-size:10px; }.home-questions h2 { font-size:34px; }.home-faq-list summary { font-size:13px; }.home-last { align-items:start; flex-direction:column; gap:25px; padding-block:38px; }.home-last>div { width:100%; }.home-last h2 { font-size:41px; }.home-footer { gap:15px; padding-block:23px; }.home-footer>span { display:none; }.home-recording-pending { min-height:220px; }.home-recording-pending p { font-size:17px; } }
 @media(prefers-reduced-motion:reduce) { .home-button,.home-faq-list summary>span { transition:none; } }
+
+@media(max-width:900px) {
+  .home-price-grid { grid-template-columns:1fr; }
+  .home-price-card { padding:24px; }
+  .home-price-card h3,.home-price-copy { min-height:0; }
+}
+
+@media(max-width:560px) {
+  .home-pricing-title { display:block; margin-bottom:28px; }
+  .home-price-card { padding:22px 19px; }
+  .home-price-card .home-price { grid-column:auto; grid-row:auto; text-align:left; }
+}
