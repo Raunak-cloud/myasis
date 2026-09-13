@@ -84,6 +84,103 @@ interface Scheduled {
   entitlements: Entitlements;
 }
 
+async function scheduledAccounts(): Promise<Scheduled[]> {
+  const users = await query<{ id: string; email: string }>('SELECT id::text AS id, email FROM users ORDER BY id');
+  const scheduled: Scheduled[] = [];
+  for (const user of users) {
+    try {
+      const entitlements = await entitlementsFor(user.id, user.email);
+      if (entitlements.autoRunsPerDay > 0) scheduled.push({ userId: user.id, email: user.email, entitlements });
+    } catch {
+      // One unavailable account must not hide the schedule for everyone else.
+    }
+  }
+  return scheduled;
+}
+
+interface LocalDateTime {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+}
+
+function localDateTime(at: Date, timeZone = RUN_TIME_ZONE): LocalDateTime {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+    timeZone,
+  }).formatToParts(at);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? '0');
+  return { year: value('year'), month: value('month'), day: value('day'), hour: value('hour'), minute: value('minute') };
+}
+
+/** Convert a wall-clock time in the configured zone into an absolute instant. */
+function zonedInstant(local: LocalDateTime, timeZone = RUN_TIME_ZONE): Date {
+  const target = Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute);
+  let instant = target;
+  // Two passes handle offsets on either side of a daylight-saving transition.
+  for (let pass = 0; pass < 2; pass++) {
+    const represented = localDateTime(new Date(instant), timeZone);
+    const representedUtc = Date.UTC(
+      represented.year,
+      represented.month - 1,
+      represented.day,
+      represented.hour,
+      represented.minute,
+    );
+    instant += target - representedUtc;
+  }
+  return new Date(instant);
+}
+
+export interface AutoScheduleStatus {
+  runsUsedToday: number;
+  runsPerDay: number;
+  nextRunAt: string;
+  dueNow: boolean;
+  timeZone: string;
+}
+
+/** The next slot the same timetable used by `autoRunTick` assigns this account. */
+export async function autoScheduleFor(userId: string, now: Date = new Date()): Promise<AutoScheduleStatus | null> {
+  const accounts = await scheduledAccounts();
+  const index = accounts.findIndex((account) => account.userId === userId);
+  if (index < 0) return null;
+
+  const account = accounts[index];
+  const runsPerDay = account.entitlements.autoRunsPerDay;
+  const runsUsedToday = account.entitlements.autoRunsUsedToday;
+  const localNow = localDateTime(now);
+  const afterWindow = localNow.hour >= AUTO_WINDOW.endHour;
+  const tomorrow = afterWindow || runsUsedToday >= runsPerDay;
+  const run = tomorrow ? 0 : runsUsedToday;
+  const minutes = slotMinutes(index, run, accounts.length, MAX_CONCURRENT, runsPerDay);
+  const calendar = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + (tomorrow ? 1 : 0)));
+  const next = zonedInstant({
+    year: calendar.getUTCFullYear(),
+    month: calendar.getUTCMonth() + 1,
+    day: calendar.getUTCDate(),
+    hour: AUTO_WINDOW.startHour + Math.floor(minutes / 60),
+    minute: Math.round(minutes % 60),
+  });
+  const dueNow = !tomorrow && next.getTime() <= now.getTime();
+
+  return {
+    runsUsedToday,
+    runsPerDay,
+    nextRunAt: (dueNow ? now : next).toISOString(),
+    dueNow,
+    timeZone: RUN_TIME_ZONE,
+  };
+}
+
 /**
  * One pass. Returns the accounts it started, for the log and for tests.
  */
@@ -100,8 +197,6 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
   const elapsed = minutesIntoWindow(now);
   if (elapsed === null) return [];
 
-  const users = await query<{ id: string; email: string }>('SELECT id::text AS id, email FROM users ORDER BY id');
-
   /**
    * The timetable is built from the accounts the scheduler serves, in a
    * stable order, so an account keeps the same times all day. Adding an
@@ -109,15 +204,7 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
    * little — the count each account has already had is what decides which
    * slot is next, so nobody loses a run to the reshuffle.
    */
-  const scheduled: Scheduled[] = [];
-  for (const user of users) {
-    try {
-      const entitlements = await entitlementsFor(user.id, user.email);
-      if (entitlements.autoRunsPerDay > 0) scheduled.push({ userId: user.id, email: user.email, entitlements });
-    } catch {
-      // A billing lookup that fails is not a reason to abandon the sweep.
-    }
-  }
+  const scheduled = await scheduledAccounts();
   if (!scheduled.length) return [];
 
   /**

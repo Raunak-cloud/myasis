@@ -1452,6 +1452,13 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   .activity-body { padding: 14px; }
 }
 
+.schedule-next-run {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-weight: 650;
+}
+
 @media (max-width: 640px) {
   .console-empty { min-height: 220px; }
   .humanizer-editor { min-height: 330px; }

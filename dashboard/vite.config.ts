@@ -38,7 +38,7 @@ import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt } from './server/entitlements.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
-import { startAutoRunner } from './server/autorun.js';
+import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -979,6 +979,11 @@ function dataApi(): Plugin {
           const hasKey = Boolean(readEnvSafe().GEMINI_API_KEY);
           return send({ ...runner.stateFor(userId), hasKey, isOwner: true });
         });
+      }
+
+      case '/api/auto-schedule': {
+        if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
+        return withUser(async (userId) => send(await autoScheduleFor(userId)));
       }
 
       case '/api/run/last': {

@@ -38,6 +38,14 @@ interface RunStatus {
   isOwner: boolean;
 }
 
+interface AutoScheduleStatus {
+  runsUsedToday: number;
+  runsPerDay: number;
+  nextRunAt: string;
+  dueNow: boolean;
+  timeZone: string;
+}
+
 const RUN_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
   PLATFORMS: 'seek',
@@ -154,6 +162,21 @@ function formatRunDuration(milliseconds: number): string {
     : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
+function nextRunLabel(schedule: AutoScheduleStatus): string {
+  if (schedule.dueNow) return 'Starting shortly';
+  const at = new Date(schedule.nextRunAt);
+  if (Number.isNaN(at.valueOf())) return 'Next run time unavailable';
+  const label = new Intl.DateTimeFormat('en-AU', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: schedule.timeZone,
+  }).format(at);
+  return `Next run ${label}`;
+}
+
 /**
  * The main screen: start a run and watch it.
  *
@@ -172,6 +195,7 @@ export function RunPanel({
   onGoPricing: () => void;
 }) {
   const [status, setStatus] = useState<RunStatus | null>(null);
+  const [autoSchedule, setAutoSchedule] = useState<AutoScheduleStatus | null>(null);
   const [mode, setMode] = useState<Mode>('rehearse');
   /**
    * A standard account does not drive runs: it saves what work it wants and
@@ -245,6 +269,27 @@ export function RunPanel({
   }, [lines]);
 
   const running = status?.running ?? false;
+  useEffect(() => {
+    if (!entitlements?.autoRunsPerDay) {
+      setAutoSchedule(null);
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      void fetch('/api/auto-schedule')
+        .then((response) => (response.ok ? response.json() : null))
+        .then((value) => {
+          if (!cancelled) setAutoSchedule(value?.nextRunAt ? value as AutoScheduleStatus : null);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const id = window.setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [entitlements?.autoRunsPerDay, status?.finishedAt]);
   useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => setClock(Date.now()), 1000);
@@ -499,10 +544,11 @@ export function RunPanel({
               <strong>Automatic schedule</strong>
               <p className="job-meta">
                 {entitlements.autoRunsPerDay} live runs daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
+                {autoSchedule && <span className="schedule-next-run">{nextRunLabel(autoSchedule)}</span>}
               </p>
             </div>
             <span className="badge info">
-              {entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} today
+              {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
             </span>
           </div>
         )}
