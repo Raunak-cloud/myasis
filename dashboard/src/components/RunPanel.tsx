@@ -168,8 +168,8 @@ function formatRunDuration(milliseconds: number): string {
 
 /** What the schedule does, in one breath, for the info icon beside Auto apply. */
 function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): string {
-  const jobs = Math.floor((e.scheduledJobsPerDay ?? 0) / 100) * 100;
-  return `${e.autoRunsPerDay} runs a day, ${windowLabel(e.window)}. ${jobs}+ jobs matched to your résumé daily. Applies to ${e.scheduledMinScore}%+ matches, written in your own voice.`;
+  const jobs = e.scheduledJobsPerDay === null ? '' : ` ${e.scheduledJobsPerDay} jobs reviewed daily.`;
+  return `${e.autoRunsPerDay} runs a day, ${windowLabel(e.window)}.${jobs} Applies to ${e.scheduledMinScore}%+ matches, written in your own voice.`;
 }
 
 function nextRunLabel(schedule: AutoScheduleStatus): string {
@@ -1020,11 +1020,6 @@ export function RunPanel({
                     <FieldLabel label="Max applications" help="The most applications this run can complete before stopping. Capped at 10 per run." />
                     <input className="input" data-field="MAX_APPS_PER_RUN" type="number" min="1" max="10" value={val('MAX_APPS_PER_RUN')} onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)} />
                     <FieldError field="MAX_APPS_PER_RUN" />
-                  </label>
-                  <label className="field">
-                    <FieldLabel label="Jobs to evaluate" help="The most job listings this run will open and assess. Capped at 100 to keep runs bounded." />
-                    <input className="input" data-field="MAX_EVALUATIONS" type="number" min="1" max="150" value={val('MAX_EVALUATIONS')} onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)} />
-                    <FieldError field="MAX_EVALUATIONS" />
                   </label>
                   <label className="field">
                     <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />

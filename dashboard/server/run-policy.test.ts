@@ -17,7 +17,12 @@ const saved = {
   AI_INSTRUCTIONS_B64: 'ZG9udCBhcHBseSBmb3Igc2VuaW9yIHJvbGVz',
 };
 
-const standardManual = applyRunPolicy(saved, { fineTune: false, indeedApplications: false }, 'manual');
+const freePolicy = { fineTune: false, indeedApplications: false, evaluationsPerRun: 10 };
+const jobSearchPolicy = { fineTune: false, indeedApplications: true, evaluationsPerRun: 70 };
+const intensivePolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: 100 };
+const adminPolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: null };
+
+const standardManual = applyRunPolicy(saved, freePolicy, 'manual');
 check('standard accounts keep their job preferences', standardManual.KEYWORDS === saved.KEYWORDS);
 check('standard accounts keep their location preference', standardManual.ONSITE_CITY === saved.ONSITE_CITY);
 check('removed target roles cannot influence standard runs', standardManual.TARGET_ROLE === '');
@@ -26,26 +31,28 @@ check('standard accounts cannot retain custom evaluation limits', standardManual
 check('standard accounts cannot retain custom cover-letter behavior', standardManual.COVER_LETTER_MODE !== saved.COVER_LETTER_MODE);
 check('standard accounts cannot retain fine-tuning prompts', standardManual.AI_INSTRUCTIONS_B64 === '');
 
-const scheduled = applyRunPolicy(saved, { fineTune: false, indeedApplications: false }, 'auto');
+const scheduled = applyRunPolicy(saved, freePolicy, 'auto');
 check('scheduled applications always require a 75 percent match', scheduled.MIN_SCORE === String(SCHEDULED_MIN_SCORE));
 check('standard scheduled runs cannot inherit fine-tuning prompts', scheduled.AI_INSTRUCTIONS_B64 === '');
 
-const intensive = applyRunPolicy({ ...saved, MIN_SCORE: '70' }, { fineTune: true, indeedApplications: true }, 'manual');
+const intensive = applyRunPolicy({ ...saved, MIN_SCORE: '70' }, intensivePolicy, 'manual');
 check('Intensive accounts keep their fine tuning', intensive.MIN_SCORE === '70');
 check('Intensive live runs keep the saved prompt', intensive.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 check('removed target roles cannot influence Intensive runs', intensive.TARGET_ROLE === '');
+check('Intensive runs assess 100 jobs', intensive.MAX_EVALUATIONS === '100');
 
-const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, { fineTune: true, indeedApplications: true }, 'manual');
+const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, adminPolicy, 'manual');
 check('admins keep their fine tuning', admin.MAX_EVALUATIONS === '500');
 
-const standardAuto = applyRunPolicy(saved, { fineTune: false, indeedApplications: false }, 'auto');
-check('a scheduled run assesses a full day\'s share of listings', standardAuto.MAX_EVALUATIONS === '60');
-const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, { fineTune: true, indeedApplications: true }, 'auto');
+const standardAuto = applyRunPolicy(saved, freePolicy, 'auto');
+check('Free runs assess 10 jobs', standardAuto.MAX_EVALUATIONS === '10');
+const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, adminPolicy, 'auto');
 check('a higher saved ceiling is kept on a scheduled run', adminAuto.MAX_EVALUATIONS === '100');
 check('admin scheduled live runs keep the saved prompt', adminAuto.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
-const jobSearchAuto = applyRunPolicy(saved, { fineTune: false, indeedApplications: true }, 'auto');
+const jobSearchAuto = applyRunPolicy(saved, jobSearchPolicy, 'auto');
 check('Free runs stay on SEEK', scheduled.PLATFORMS === 'seek');
 check('Job Search Pass runs use SEEK and Indeed', jobSearchAuto.PLATFORMS === 'seek,indeed');
+check('Job Search Pass runs assess 70 jobs', jobSearchAuto.MAX_EVALUATIONS === '70');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Job Search Pass accounts receive four scheduled runs', automaticRunsPerDay('standard', true) === 4);
 check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);

@@ -8,6 +8,7 @@ export const PLAN_PRESENTATION = {
     features: [
       '10 successful applications each month',
       '1 automatic live run each day',
+      'AI reviews 10 jobs each run',
       '75% minimum match for scheduled applications',
       'SEEK applications',
       'Personalised cover letters and application tracking',
@@ -19,6 +20,7 @@ export const PLAN_PRESENTATION = {
     features: [
       '150 successful applications each month',
       'Up to 4 automatic live runs each day',
+      'AI reviews 70 jobs each run',
       '75% minimum match for scheduled applications',
       'SEEK and Indeed applications',
       'Personalised cover letters and application tracking',
@@ -30,6 +32,7 @@ export const PLAN_PRESENTATION = {
     features: [
       '320 successful applications each month',
       'Up to 3 user-started runs each day',
+      'AI reviews 100 jobs each run',
       'Choose a live run or a rehearsal',
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',

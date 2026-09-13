@@ -37,13 +37,10 @@ export const ADMIN_AUTO_RUNS_PER_DAY = 4;
 /** Scheduled applications must clear this model-assessed match threshold. */
 export const SCHEDULED_MIN_SCORE = 75;
 
-/**
- * Listings a scheduled run assesses against the résumé before applying.
- *
- * Standard accounts cannot raise the evaluation ceiling themselves, so the
- * floor is set here rather than left to a setting their plan cannot edit.
- */
-export const SCHEDULED_EVALUATIONS_PER_RUN = 60;
+/** Listings the AI assesses in each run for the three customer plans. */
+export const FREE_EVALUATIONS_PER_RUN = 10;
+export const JOB_SEARCH_EVALUATIONS_PER_RUN = 70;
+export const INTENSIVE_EVALUATIONS_PER_RUN = 100;
 
 /**
  * The preferences a standard account may edit: who they are, what work they
@@ -76,7 +73,7 @@ export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
  */
 export function applyRunPolicy(
   settings: Record<string, string>,
-  entitlement: Pick<Entitlements, 'fineTune' | 'indeedApplications'>,
+  entitlement: Pick<Entitlements, 'fineTune' | 'indeedApplications' | 'evaluationsPerRun'>,
   trigger: 'manual' | 'auto',
 ): Record<string, string> {
   const resolved = { ...settings };
@@ -87,9 +84,11 @@ export function applyRunPolicy(
     for (const key of FINE_TUNING_KEYS) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
     if (entitlement.indeedApplications) resolved.PLATFORMS = 'seek,indeed';
   }
+  if (entitlement.evaluationsPerRun !== null) {
+    resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);
+  }
   if (trigger === 'auto') {
     resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
-    resolved.MAX_EVALUATIONS = String(Math.max(Number(resolved.MAX_EVALUATIONS) || 0, SCHEDULED_EVALUATIONS_PER_RUN));
   }
   return resolved;
 }
@@ -109,6 +108,8 @@ export interface Entitlements {
   scheduledMinScore: number | null;
   /** Listings the schedule assesses over a full day; null without a schedule. */
   scheduledJobsPerDay: number | null;
+  /** Listings the AI assesses in each run; admins keep their configured value. */
+  evaluationsPerRun: number | null;
   /** May edit the settings that change how a run behaves. */
   fineTune: boolean;
   /** May use the rewriting tool. */
@@ -198,6 +199,13 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
   const manualRuns = tier !== 'standard';
   const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
   const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass);
+  const evaluationsPerRun = tier === 'admin'
+    ? null
+    : tier === 'intensive'
+      ? INTENSIVE_EVALUATIONS_PER_RUN
+      : billing.paid.hasActivePass
+        ? JOB_SEARCH_EVALUATIONS_PER_RUN
+        : FREE_EVALUATIONS_PER_RUN;
 
   const [manualRunsUsedToday, autoRunsUsedToday] = await Promise.all([
     manualRuns ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
@@ -213,7 +221,10 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     autoRunsPerDay,
     autoRunsUsedToday,
     scheduledMinScore: autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
-    scheduledJobsPerDay: autoRunsPerDay ? autoRunsPerDay * SCHEDULED_EVALUATIONS_PER_RUN : null,
+    scheduledJobsPerDay: autoRunsPerDay && evaluationsPerRun !== null
+      ? autoRunsPerDay * evaluationsPerRun
+      : null,
+    evaluationsPerRun,
     fineTune: tier !== 'standard',
     rewriteText: tier === 'admin',
     indeedApplications: billing.paid.hasActivePass,

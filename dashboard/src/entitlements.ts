@@ -17,6 +17,7 @@ export interface Entitlements {
   autoRunsUsedToday: number;
   scheduledMinScore: number | null;
   scheduledJobsPerDay: number | null;
+  evaluationsPerRun: number | null;
   fineTune: boolean;
   rewriteText: boolean;
   indeedApplications: boolean;
