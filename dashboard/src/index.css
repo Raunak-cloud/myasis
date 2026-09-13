@@ -1075,7 +1075,17 @@ button.metric-tile:hover strong { color: var(--accent); }
 }
 .auto-apply-btn:hover { background: var(--ok-soft); color: var(--text); }
 .auto-apply-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .2); }
-.auto-apply .field-tooltip { left: auto; right: 0; }
+.auto-apply-info {
+  width: 22px;
+  height: 22px;
+  flex-basis: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+}
+.auto-apply-info:hover { color: var(--text); }
+.auto-apply-info svg { display: block; }
+.auto-apply .field-tooltip { left: -6px; max-width: min(320px, calc(100vw - 48px)); font-size: 12px; }
 
 /* Rehearse / Apply for real as one switch rather than two cards. */
 .mode-picker { display: grid; gap: 8px; }
