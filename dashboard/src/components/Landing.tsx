@@ -2,6 +2,7 @@ import './Landing.css';
 import { useEffect, useRef, useState } from 'react';
 import { FREE_MONTHLY_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, aud } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
+import { MascotLogo } from './MascotLogo';
 
 const QUESTIONS = [
   { question: 'Does it actually submit applications?', answer: 'Yes. Live mode submits applications on your behalf. Rehearsal mode fills in the forms and prepares the cover letter, then stops before the final submit. Start with a rehearsal to see exactly how it works.' },
@@ -54,7 +55,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
   return <div className="landing" id="top">
     <header className="home-header home-width">
-      <a href="#top" className="home-brand" aria-label="Myasis home"><img src="/favicon.svg" width="40" height="40" alt="" /><span>Myasis</span></a>
+      <a href="#top" className="home-brand" aria-label="Myasis home"><MascotLogo size={40} /><span>Myasis</span></a>
       <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#questions">Questions?</a></nav>
       {googleConfigured && <a className="home-login" href="/api/auth/google">Sign in <span aria-hidden="true">↗</span></a>}
     </header>
@@ -67,12 +68,12 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
       <section className="home-demo" id="demo" aria-labelledby="demo-heading">
         <div className="home-demo-aside"><span className="home-section-number">01 / SEE IT WORK</span><h2 id="demo-heading">The proof is<br />in the applying.</h2><p>This is Myasis working in a real browser, on a real job application.</p><div className="home-handnote" aria-hidden="true">No mock-ups.<br />Just the actual run.<svg width="76" height="58" viewBox="0 0 76 58" fill="none"><path d="M5 3c5 39 39 12 62 41m-21-1 23 4-1-22" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg></div></div>
-        <div className="home-demo-main"><div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Myasis applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><img src="/favicon.svg" width="60" height="60" alt="" /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>{playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}</div>
+        <div className="home-demo-main"><div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Myasis applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>{playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}</div>
       </section>
 
       <section className="home-explainer" id="how-it-works"><div className="home-section-lead"><span className="home-section-number">02 / HOW IT WORKS</span><h2>You know what<br />you’re looking for.<br /><em>Start there.</em></h2><p>You choose the direction.<br />Myasis handles the repetition.</p></div><div className="home-process"><article><span>1.</span><div><h3>Your résumé. Your preferences.</h3><p>Add your documents and tell Myasis the roles, locations and pay you would accept. It checks jobs against those details before applying.</p></div></article><article><span>2.</span><div><h3>Give it a rehearsal.</h3><p>Watch it choose a résumé, write a job-specific cover letter and fill in the forms. Rehearsal mode stops at the submit button for your review.</p></div></article><article><span>3.</span><div><h3>Let it apply. Keep the record.</h3><p>When you’re ready, start a live run. Every application is saved, and anything Myasis cannot answer comes back to you.</p></div></article></div></section>
 
-      <aside className="home-promise"><img src="/favicon.svg" width="54" height="54" alt="" /><div><h2>A helpful assistant. An honest application.</h2><p>Myasis won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p></div></aside>
+      <aside className="home-promise"><MascotLogo size={54} /><div><h2>A helpful assistant. An honest application.</h2><p>Myasis won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p></div></aside>
 
       <section className="home-pricing" id="pricing">
         <div className="home-pricing-title">
@@ -108,6 +109,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       <section className="home-questions" id="questions"><div><span className="home-section-number">04 / A FEW THINGS TO KNOW</span><h2>FAQ.</h2></div><div className="home-faq-list">{QUESTIONS.map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>
       <section className="home-last"><div className="home-last-message"><h2>One less thing<br />between you and<br /><em>your next job.</em></h2><p className="home-goodbye">Our favourite goodbye is “I got the job.”<br />The sooner you leave us for your new role, the happier we are.</p></div><div>{start()}<p className="home-small">10 free applications each month.<br />No card needed.</p></div></section>
     </main>
-    <footer className="home-footer home-width"><a href="#top" className="home-brand"><img src="/favicon.svg" width="32" height="32" alt="" /><span>Myasis</span></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
+    <footer className="home-footer home-width"><a href="#top" className="home-brand"><MascotLogo size={32} /><span>Myasis</span></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
   </div>;
 }

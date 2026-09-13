@@ -57,7 +57,7 @@
 .home-process h3 { font-size:17px; font-weight:600; letter-spacing:-.3px; margin:0 0 10px; }
 .home-process p { font-size:13px; color:var(--muted); line-height:1.8; margin:0; }
 .home-promise { display:flex; align-items:center; gap:28px; background:#e8f2fb; border-block:1px solid #bfd5ea; padding:27px 36px; }
-.home-promise img { flex-shrink:0; }
+.home-promise .mascot-logo { flex-shrink:0; }
 .home-promise h2 { font-family:Georgia,serif; font-weight:400; font-size:25px; letter-spacing:-.5px; margin:0 0 8px; }
 .home-promise p { font-size:12px; line-height:1.8; color:#526b85; margin:0; max-width:90ch; }
 .home-pricing { padding:75px 0 60px; scroll-margin-top:24px; }
@@ -109,6 +109,8 @@
 }
 
 @media(max-width:560px) {
+  .home-brand .mascot-logo { width:32px; height:32px; }
+  .home-promise .mascot-logo { width:34px; height:34px; }
   .home-pricing-title { display:block; margin-bottom:28px; }
   .home-price-card { padding:22px 19px; }
   .home-price-card .home-price { grid-column:auto; grid-row:auto; text-align:left; }

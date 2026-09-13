@@ -1,22 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
-  <!-- Ears, drawn first so the head sits over their inner edge. -->
-  <circle cx="11.5" cy="15" r="6.8" fill="#2E64A2"/>
-  <circle cx="36.5" cy="15" r="6.8" fill="#2E64A2"/>
-  <circle cx="11.9" cy="15.6" r="3.4" fill="#A8C9E9"/>
-  <circle cx="36.1" cy="15.6" r="3.4" fill="#A8C9E9"/>
-  <!-- Head -->
-  <circle cx="24" cy="27" r="15.5" fill="#4B84C4"/>
-  <!-- Muzzle -->
-  <ellipse cx="24" cy="32.6" rx="8.6" ry="6.3" fill="#DCEBF8"/>
-  <!-- Cheeks -->
-  <circle cx="14.2" cy="30.2" r="2.6" fill="#79ACDA" opacity="0.75"/>
-  <circle cx="33.8" cy="30.2" r="2.6" fill="#79ACDA" opacity="0.75"/>
-  <!-- Eyes -->
-  <circle cx="18.2" cy="25.6" r="2.2" fill="#102F54"/>
-  <circle cx="29.8" cy="25.6" r="2.2" fill="#102F54"/>
-  <circle cx="17.5" cy="24.9" r="0.75" fill="#FFFFFF"/>
-  <circle cx="29.1" cy="24.9" r="0.75" fill="#FFFFFF"/>
-  <!-- Nose and smile -->
-  <ellipse cx="24" cy="30.6" rx="2.1" ry="1.5" fill="#173E6B"/>
-  <path d="M21.2 33.2q2.8 2.6 5.6 0" stroke="#173E6B" stroke-width="1.7" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <path d="M13.5 25.5 16.7 8.4l12 7.3a30 30 0 0 1 6.6 0l12-7.3 3.2 17.1Z" fill="#2466A8"/>
+  <path d="M15.6 15.1 17.2 10l5.8 4.1Z" fill="#78AFE2"/>
+  <path d="m48.4 15.1-1.6-5.1-5.8 4.1Z" fill="#78AFE2"/>
+  <path d="M51.5 31.3C51.5 46.9 42.8 56 32 56S12.5 46.9 12.5 31.3 20 14.4 32 14.4s19.5 1.3 19.5 16.9Z" fill="#2F73B9"/>
+  <ellipse cx="23.4" cy="31.1" rx="8.8" ry="9.4" fill="#F8FBFF"/>
+  <ellipse cx="40.6" cy="31.1" rx="8.8" ry="9.4" fill="#F8FBFF"/>
+  <circle cx="23.4" cy="31.4" r="3.8" fill="#14243D"/>
+  <circle cx="40.6" cy="31.4" r="3.8" fill="#14243D"/>
+  <path d="M21.1 45.1c3.2 2.5 6.8 3.8 10.9 3.8s7.7-1.3 10.9-3.8" stroke="#8FC3F0" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="m28.7 40.4 3.3 2.3 3.3-2.3" stroke="#163F70" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

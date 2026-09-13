@@ -9,6 +9,7 @@ import { PricingPanel } from './components/PricingPanel';
 import { daysSince } from './format';
 import { UserChip, useAuth } from './components/SignIn';
 import { Landing } from './components/Landing';
+import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 import { useEntitlements } from './entitlements';
 
@@ -152,7 +153,7 @@ export default function App() {
       <aside className="sidebar">
         <button className="product" onClick={() => setTab('run')} aria-label="Go to Apply">
           <span className="product-mark" aria-hidden="true">
-            <img src="/favicon.svg" alt="" />
+            <MascotLogo size={38} />
           </span>
           <span className="product-name">Myasis</span>
         </button>
