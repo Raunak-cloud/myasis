@@ -15,10 +15,12 @@
 .home-intro h1 em { font-weight:400; color:var(--blue-deep); position:relative; }
 .home-intro-heading { position:relative; }
 .home-intro-heading::after { content:''; display:block; width:71%; height:5px; border-radius:50%; background:var(--blue); transform:rotate(-2deg); margin-top:14px; }
-.home-intro-copy { max-width:410px; padding-bottom:6px; }
-.home-intro-copy>p:not(.home-small) { font-size:16px; line-height:1.75; margin:0 0 20px; }
-.home-intro-copy>p:first-child { color:var(--muted); }
-.home-intro-copy .home-button { margin-top:8px; }
+.home-intro-copy { max-width:445px; padding-bottom:6px; }
+.home-intro-message { margin-bottom:27px; padding:2px 0 2px 23px; border-left:3px solid var(--blue); }
+.home-intro-lead { margin:0 0 15px; font-family:Georgia,'Times New Roman',serif; font-size:25px; line-height:1.28; letter-spacing:-.55px; }
+.home-intro-lead span { display:block; color:var(--blue-deep); font-style:italic; }
+.home-intro-detail { max-width:40ch; margin:0; color:var(--muted); font-size:14px; line-height:1.75; }
+.home-intro-copy .home-button { margin-top:2px; }
 .home-button { display:inline-flex; justify-content:space-between; align-items:center; gap:30px; background:var(--blue-deep); color:#fff!important; border:1px solid var(--blue-deep); padding:14px 19px; border-radius:3px; font-size:13px; font-weight:600; text-decoration:none!important; transition:background .15s; }
 .home-button svg { color:#9fc5eb; flex-shrink:0; }
 .home-button:hover { background:#0e315a; }
@@ -108,4 +110,7 @@
   .home-pricing-title { display:block; margin-bottom:28px; }
   .home-price-card { padding:22px 19px; }
   .home-price-card .home-price { grid-column:auto; grid-row:auto; text-align:left; }
+  .home-intro-message { margin-bottom:23px; padding-left:18px; }
+  .home-intro-lead { font-size:23px; }
+  .home-intro-detail { font-size:13px; }
 }
