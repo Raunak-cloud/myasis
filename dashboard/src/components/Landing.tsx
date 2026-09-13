@@ -107,7 +107,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       </section>
 
       <section className="home-questions" id="questions"><div><span className="home-section-number">04 / A FEW THINGS TO KNOW</span><h2>FAQ.</h2></div><div className="home-faq-list">{QUESTIONS.map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>
-      <section className="home-last"><div className="home-last-message"><h2>One less thing<br />between you and<br /><em>your next job.</em></h2><p className="home-goodbye">Our favourite goodbye is “I got the job.”<br />The sooner you leave us for your new role, the happier we are.</p></div><div>{start()}<p className="home-small">10 free applications each month.<br />No card needed.</p></div></section>
+      <section className="home-last"><div className="home-last-message"><span className="home-goodbye-lead">Our favourite goodbye</span><p className="home-goodbye">“I got the job.”</p><p className="home-goodbye-detail">The sooner you leave us for your new role, the happier we are.</p></div><div className="home-last-action">{start()}<p className="home-small">10 free applications each month.<br />No card needed.</p></div></section>
     </main>
     <footer className="home-footer home-width"><a href="#top" className="home-brand"><MascotLogo size={32} /><span>Myasis</span></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
   </div>;
