@@ -49,6 +49,7 @@
 .home-section-lead h2,.home-pricing h2,.home-questions h2,.home-last h2 { font-family:Georgia,'Times New Roman',serif; font-size:41px; letter-spacing:-1.6px; line-height:1.14; font-weight:400; margin:0; }
 .home-section-lead h2 em,.home-pricing h2 em,.home-last h2 em { font-weight:400; color:var(--blue-deep); }
 .home-section-lead>p { margin-top:22px; color:var(--muted); font-size:13px; line-height:1.8; }
+.home-section-lead>.home-section-number + p { margin-top:0; }
 .home-process { padding-top:35px; }
 .home-process article { display:flex; align-items:start; gap:20px; padding:0 0 26px; }
 .home-process article+article { padding-top:23px; border-top:1px solid var(--rule); }
