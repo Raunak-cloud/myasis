@@ -380,6 +380,19 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref));
 
+  // A prefilled text/select/radio value is already an answer. Re-answering it
+  // can overwrite an account value and, if the model refuses, turn a complete
+  // contact field into a bogus task for the candidate.
+  const alreadyComplete = asked.filter((field) =>
+    field.kind === 'checkbox'
+      ? field.currentValue === 'true'
+      : Boolean(field.currentValue?.trim()),
+  );
+  for (const field of alreadyComplete) {
+    ctx.guards.pendingFields.delete(field.label);
+    ctx.guards.resolveGrounding(field.label);
+  }
+
   /**
    * A password is not a question anybody can answer on the candidate's behalf.
    *
@@ -389,8 +402,8 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
    * that list is what the dashboard turns into "answer this and we will reuse
    * it" — plain text, replayed at every later employer asking the same thing.
    */
-  const credentials = asked.filter((field) => field.sensitive);
-  const wanted = asked.filter((field) => !field.sensitive);
+  const credentials = asked.filter((field) => field.sensitive && !alreadyComplete.includes(field));
+  const wanted = asked.filter((field) => !field.sensitive && !alreadyComplete.includes(field));
   if (credentials.length) {
     return ok(
       `Use complete_authentication for credential fields: ${credentials.map((field) => `${field.ref} (${field.label})`).join(', ')}.`,
@@ -398,7 +411,9 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   }
 
   if (!wanted.length) {
-    return ok('None of those refs are fields on this page. Choose refs from the current FIELDS list.');
+    return ok(alreadyComplete.length
+      ? 'Those fields are already complete. Continue with the next unanswered application field or the forward control.'
+      : 'None of those refs are fields on this page. Choose refs from the current FIELDS list.');
   }
 
   const { answers, injectionSuspected } = await answerFields(wanted, ctx.job, ctx.profile);
@@ -409,6 +424,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   const filled: string[] = [];
   const failed: string[] = [];
   const skipped: string[] = [];
+  const unrelated: string[] = [];
   /** Required fields the answerer has already refused once — asking again cannot help. */
   const repeated: string[] = [];
   for (const field of wanted) {
@@ -418,6 +434,16 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   for (const answer of answers) {
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
+
+    // The answer model sees the field together with the job and can distinguish
+    // an application question from a site search box or misread section title.
+    // Only genuine application questions may become candidate tasks.
+    if (answer.applicationQuestion === false) {
+      ctx.guards.pendingFields.delete(field.label);
+      ctx.guards.resolveGrounding(field.label);
+      unrelated.push(field.label);
+      continue;
+    }
 
     /**
      * Unsupported answers are never invented. A required one blocks
@@ -498,6 +524,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
+      (unrelated.length ? `\nIgnored controls that are not application questions: ${unrelated.join('; ')}` : '') +
       (repeated.length
         ? `\nSTOP asking about: ${repeated.join('; ')}. These required questions have no answer in the candidate's profile and calling answer_questions again cannot change that — only the candidate can supply them. Finish with status "needs_human" now.`
         : '') +

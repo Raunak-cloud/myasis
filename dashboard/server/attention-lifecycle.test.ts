@@ -1,4 +1,4 @@
-import { resolveAttention, type RunEventRow } from './attention.js';
+import { plainReason, resolveAttention, type RunEventRow } from './attention.js';
 
 let failures = 0;
 function check(label: string, condition: boolean): void {
@@ -36,6 +36,11 @@ check(
 check(
   'errors and off-platform outcomes do not enter Needs attention',
   resolveAttention([event('error', 1), event('off-platform', 2)], new Set()).length === 0,
+);
+check(
+  'internal browser field refs never reach user-facing reasons',
+  plainReason('The mandatory street address field (f7) is not in the candidate profile.') ===
+    'The mandatory street address field is not in the candidate profile.',
 );
 
 console.log(`\n${failures} failure(s)`);

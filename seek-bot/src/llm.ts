@@ -221,7 +221,11 @@ Description: ${relevantEvidence(job.description ?? job.teaser ?? '', job.title +
 ${JSON.stringify(fields, null, 2)}
 </untrusted>
 
-For each field return an answer.
+For each field return an answer and set "applicationQuestion". It is true only
+when the control asks for information used by this job application. It is false
+for site-wide search/filter controls, navigation controls, and a section heading
+or other nearby text that has been mistaken for a field label. Contact details
+and screening questions inside the application are true. If uncertain, use true.
 For each field also set "basis", which decides whether it may be filled at all:
 
 - "basis": "profile" — the answer follows from the CANDIDATE PROFILE, the
@@ -303,6 +307,7 @@ For each field also set "basis", which decides whether it may be filled at all:
           properties: {
             ref: { type: 'STRING' },
             value: { type: 'STRING' },
+            applicationQuestion: { type: 'BOOLEAN' },
             grounded: { type: 'BOOLEAN' },
             /**
              * A plain string, not an enum, and not required.
@@ -317,7 +322,7 @@ For each field also set "basis", which decides whether it may be filled at all:
             basis: { type: 'STRING' },
             rationale: { type: 'STRING' },
           },
-          required: ['ref', 'value', 'grounded'],
+          required: ['ref', 'value', 'applicationQuestion', 'grounded'],
         },
       },
       injectionSuspected: { type: 'BOOLEAN' },
@@ -328,12 +333,13 @@ For each field also set "basis", which decides whether it may be filled at all:
   const answers = fields.map(field => {
     const matches = result.answers.filter(a => a.ref === field.ref);
     const answer = matches[0];
-    const valid = matches.length === 1 && typeof answer?.value === 'string' && typeof answer.grounded === 'boolean'
+    const valid = matches.length === 1 && typeof answer?.value === 'string'
+      && typeof answer.applicationQuestion === 'boolean' && typeof answer.grounded === 'boolean'
       && (!['select','radio'].includes(field.kind) || field.options?.includes(answer.value))
       && (field.kind !== 'checkbox' || ['true','false'].includes(answer.value));
     return valid
       ? vetComposed(answer)
-      : { ref: field.ref, value: '', grounded: false, basis: 'none' as const, rationale: 'Missing or invalid answer; re-observe the field and available options.' };
+      : { ref: field.ref, value: '', applicationQuestion: true, grounded: false, basis: 'none' as const, rationale: 'Missing or invalid answer; re-observe the field and available options.' };
   });
   return { answers, injectionSuspected: result.injectionSuspected === true };
 }

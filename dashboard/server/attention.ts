@@ -122,17 +122,18 @@ const PLAIN: Array<[RegExp, string]> = [
 const METER = /\s*\(?\d+ calls · .*?\$\d+(?:\.\d+)?\)?/g;
 
 export function plainReason(reason: string): string {
+  const withoutInternalRefs = reason.replace(/\s*\([af]\d+(?::\d+)?\)/gi, '');
   for (const [pattern, wording] of PLAIN) {
-    if (!pattern.test(reason)) continue;
+    if (!pattern.test(withoutInternalRefs)) continue;
     /**
      * A wording with a "$1" keeps the part of the original it refers to —
      * the list of questions. Any other wording replaces the whole reason:
      * the original's tail is the technical part ("(24 steps)", the meter),
      * which is exactly what must not be shown.
      */
-    return wording.includes('$1') ? reason.replace(pattern, wording) : wording;
+    return wording.includes('$1') ? withoutInternalRefs.replace(pattern, wording) : wording;
   }
-  return reason.replace(METER, '').trim();
+  return withoutInternalRefs.replace(METER, '').trim();
 }
 
 export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<string>): AttentionItem[] {

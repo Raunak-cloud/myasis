@@ -187,6 +187,8 @@ export interface BlockedQuestion {
 export interface FieldAnswer {
   ref: string;
   value: string;
+  /** False when the observed control is page chrome or a misread heading, not part of the application. */
+  applicationQuestion?: boolean;
   /** false when nothing supports an answer — triggers the human handoff. */
   grounded: boolean;
   /**
