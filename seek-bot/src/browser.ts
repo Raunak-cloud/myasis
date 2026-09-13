@@ -2,7 +2,6 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
-import { captchaEnabled } from './captcha.js';
 import { judgePage } from './blocker.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
@@ -92,11 +91,11 @@ export async function launchBrowser(): Promise<BrowserContext> {
      * line flags are invisible to pages, and navigator.webdriver stays false.
      */
     const args: string[] = ['--test-type'];
-    if (captchaEnabled()) {
-      const port = Number(process.env.CDP_PORT || '9222');
-      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid CDP_PORT');
-      args.push(`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1');
-    }
+    // The dashboard's authenticated, view-only stream reads frames through
+    // this localhost port. Each concurrent account receives a different port.
+    const port = Number(process.env.CDP_PORT || '9222');
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid CDP_PORT');
+    args.push(`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1');
     if (!config.headless) {
       // Size the real window rather than emulating a viewport — see below.
       args.push('--window-size=1440,960');

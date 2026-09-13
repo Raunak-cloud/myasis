@@ -1259,22 +1259,64 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .activity-event.warn strong { color: var(--warn); }
 .activity-event.bad strong { color: var(--bad); }
 
-.raw-log {
-  margin-top: 2px;
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
+.console-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.raw-log summary {
-  width: fit-content;
-  padding: 6px 0;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
+.live-action-overlay { padding: 24px; }
+
+.live-action-window {
+  width: min(1180px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  padding: 0;
 }
 
-.raw-log[open] summary { color: var(--text); }
+.live-action-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-action-bar h2 { margin: 0 0 2px; font-size: 16px; }
+
+.live-action-screen {
+  display: grid;
+  min-height: min(68vh, 720px);
+  place-items: center;
+  overflow: hidden;
+  background: #e9edf3;
+}
+
+.live-action-screen img {
+  display: block;
+  width: 100%;
+  max-height: calc(100vh - 130px);
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.live-action-waiting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #45556d;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .live-action-overlay { padding: 10px; }
+  .live-action-window { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+  .live-action-bar { grid-template-columns: 1fr auto; }
+  .live-action-bar .badge { grid-row: 2; grid-column: 1 / -1; justify-self: start; }
+  .live-action-screen { min-height: 55vh; }
+}
 
 /* ---------- plans and pricing ---------- */
 .pricing-page { display: grid; gap: 22px; max-width: 1180px; }

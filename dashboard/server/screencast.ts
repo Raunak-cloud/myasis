@@ -1,16 +1,15 @@
 import { WebSocket, WebSocketServer } from 'ws';
-import { readEnv } from './runner.js';
+import { currentUser } from './auth.js';
+import { readEnv, runner } from './runner.js';
 
 
 /**
  * Live browser view over the Chrome DevTools Protocol.
  *
  * Chrome's `Page.startScreencast` emits JPEG frames; `Input.*` accepts synthetic
- * mouse and keyboard events. Together that is a remote-control surface for a
- * browser running anywhere. This is useful for observing the worker and for
- * ordinary interaction. It is not a reliable CAPTCHA handoff because CDP input
- * is synthetic; security verification should use a normal desktop Chrome
- * window (local install) or a secure OS-level remote desktop (VPS).
+ * The product uses only Page.startScreencast: frames travel from Chrome to the
+ * signed-in owner, and no input messages travel back. Sign-in remains on the
+ * separate authenticated VNC session because that workflow requires control.
  *
  * Chosen over VNC deliberately: no X11/Xvfb/x11vnc stack to install, and it
  * reuses the same debugging port Patchright already talks to.
@@ -21,10 +20,10 @@ import { readEnv } from './runner.js';
  * repointed by editing seek-bot/.env — no dashboard restart — and a VPS can
  * host the browser somewhere other than localhost.
  */
-export function cdpBase(): string {
+export function cdpBase(portOverride?: number): string {
   const env = readEnv();
   const host = process.env.CDP_HOST ?? env.CDP_HOST ?? '127.0.0.1';
-  const port = Number(process.env.CDP_PORT ?? env.CDP_PORT ?? 9333);
+  const port = portOverride ?? Number(process.env.CDP_PORT ?? env.CDP_PORT ?? 9333);
   return `http://${host}:${port}`;
 }
 
@@ -36,28 +35,10 @@ interface CdpTarget {
   webSocketDebuggerUrl?: string;
 }
 
-export async function listTargets(): Promise<CdpTarget[]> {
-  const res = await fetch(`${cdpBase()}/json/list`, { signal: AbortSignal.timeout(4000) });
+export async function listTargets(port?: number): Promise<CdpTarget[]> {
+  const res = await fetch(`${cdpBase(port)}/json/list`, { signal: AbortSignal.timeout(4000) });
   if (!res.ok) throw new Error(`CDP ${res.status}`);
   return (await res.json()) as CdpTarget[];
-}
-
-export async function browserInfo(): Promise<{ ok: boolean; version?: string; error?: string }> {
-  try {
-    const res = await fetch(`${cdpBase()}/json/version`, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return { ok: false, error: `CDP responded ${res.status}` };
-    const j: any = await res.json();
-    return { ok: true, version: j.Browser };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
-/** Opens a new tab, used when the browser has no page to attach to. */
-export async function openTab(url: string): Promise<CdpTarget | null> {
-  const res = await fetch(`${cdpBase()}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' });
-  if (!res.ok) return null;
-  return (await res.json()) as CdpTarget;
 }
 
 type Pending = (msg: any) => void;
@@ -174,62 +155,6 @@ class Session {
     if (this.client.readyState === WebSocket.OPEN) this.client.send(JSON.stringify(payload));
   }
 
-  /** Relays a viewer gesture into the page. */
-  async input(msg: any) {
-    switch (msg.type) {
-      case 'mouse':
-        await this.send('Input.dispatchMouseEvent', {
-          type: msg.event, // mousePressed | mouseReleased | mouseMoved
-          x: msg.x,
-          y: msg.y,
-          button: msg.button ?? 'left',
-          clickCount: msg.clickCount ?? 1,
-          modifiers: msg.modifiers ?? 0,
-        });
-        break;
-      case 'wheel':
-        await this.send('Input.dispatchMouseEvent', {
-          type: 'mouseWheel',
-          x: msg.x,
-          y: msg.y,
-          deltaX: msg.deltaX ?? 0,
-          deltaY: msg.deltaY ?? 0,
-          modifiers: msg.modifiers ?? 0,
-        });
-        break;
-      case 'key':
-        await this.send('Input.dispatchKeyEvent', {
-          type: msg.event, // keyDown | keyUp | char
-          text: msg.text,
-          unmodifiedText: msg.text,
-          key: msg.key,
-          code: msg.code,
-          windowsVirtualKeyCode: msg.keyCode,
-          nativeVirtualKeyCode: msg.keyCode,
-          modifiers: msg.modifiers ?? 0,
-        });
-        break;
-      case 'text':
-        await this.send('Input.insertText', { text: msg.text });
-        break;
-      case 'navigate':
-        await this.send('Page.navigate', { url: msg.url });
-        break;
-      case 'reload':
-        await this.send('Page.reload', {});
-        break;
-      case 'back':
-      case 'forward': {
-        const hist = await this.send('Page.getNavigationHistory', {});
-        if (!hist) break;
-        const idx = hist.currentIndex + (msg.type === 'back' ? -1 : 1);
-        const entry = hist.entries?.[idx];
-        if (entry) await this.send('Page.navigateToHistoryEntry', { entryId: entry.id });
-        break;
-      }
-    }
-  }
-
   async stop() {
     this.closed = true;
     if (this.heartbeat) clearInterval(this.heartbeat);
@@ -248,24 +173,35 @@ class Session {
 export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) => void) => unknown }) {
   const wss = new WebSocketServer({ noServer: true });
 
-  server.on('upgrade', (req, socket, head) => {
+  server.on('upgrade', (req: any, socket: any, head: any) => {
     if (!req.url?.startsWith('/ws/screencast')) return; // leave HMR alone
-    wss.handleUpgrade(req, socket as any, head, (ws) => wss.emit('connection', ws, req));
+    void currentUser(req.headers?.cookie).then((user) => {
+      const port = user ? runner.browserPortFor(user.id) : null;
+      if (!user || !port) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      req.runBrowserPort = port;
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    }).catch(() => {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+    });
   });
 
-  wss.on('connection', async (client, req) => {
+  wss.on('connection', async (client, req: any) => {
     const url = new URL(req.url ?? '', 'http://localhost');
-    const quality = Number(url.searchParams.get('quality') ?? 60);
-    const maxWidth = Number(url.searchParams.get('width') ?? 1280);
-    const wantTarget = url.searchParams.get('target');
+    const quality = Math.max(30, Math.min(80, Number(url.searchParams.get('quality') ?? 60)));
+    const maxWidth = Math.max(800, Math.min(1600, Number(url.searchParams.get('width') ?? 1440)));
+    const port = Number(req.runBrowserPort);
 
     let session: Session | null = null;
     try {
-      const targets = (await listTargets()).filter(
+      const targets = (await listTargets(port)).filter(
         (t) => t.type === 'page' && !t.url.startsWith('devtools://'),
       );
       const target =
-        targets.find((t) => t.id === wantTarget) ??
         targets.find((t) => !t.url.startsWith('chrome://')) ??
         targets[0];
 
@@ -273,7 +209,7 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
         client.send(
           JSON.stringify({
             type: 'error',
-            message: 'No page to attach to. Open a tab in the browser first.',
+            message: 'The live view is still getting ready.',
           }),
         );
         client.close();
@@ -287,20 +223,15 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
       client.send(
         JSON.stringify({
           type: 'error',
-          message: `Cannot reach Chrome at ${cdpBase()}: ${(e as Error).message}`,
+          message: 'The live view is still getting ready. Please try again in a moment.',
         }),
       );
       client.close();
       return;
     }
 
-    client.on('message', async (raw) => {
-      try {
-        await session?.input(JSON.parse(raw.toString()));
-      } catch {
-        /* malformed frame from the viewer — ignore */
-      }
-    });
+    // Deliberately no `message` handler: the browser connection is view-only
+    // even if a client manually sends mouse, keyboard or navigation commands.
     client.on('close', () => session?.stop());
   });
 }

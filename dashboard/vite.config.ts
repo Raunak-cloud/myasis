@@ -9,7 +9,7 @@ import {
   listKnowledge, addKnowledgeFile, addKnowledgeNote, updateKnowledge, deleteKnowledge, knowledgeStats,
   resolveStored, previewText, fullContext, MIME,
 } from './server/files.js';
-import { attachScreencast, browserInfo, listTargets, openTab, cdpBase } from './server/screencast.js';
+import { attachScreencast } from './server/screencast.js';
 import { loadQueue, updateQueueItem, answerForm } from './server/assist.js';
 import { loadAttention, dismissAllAttention } from './server/attention.js';
 import { setupStatus } from './server/setup.js';
@@ -745,22 +745,6 @@ function dataApi(): Plugin {
           const r = await fullContext(userId);
           return send(r, r.ok ? 200 : 500);
         });
-
-      case '/api/browser/status':
-        return browserInfo().then((info) => send({ ...info, cdp: cdpBase() }));
-
-      case '/api/browser/targets':
-        return listTargets()
-          .then((t) => send(t.filter((x) => x.type === 'page')))
-          .catch((e) => send({ error: e.message }, 502));
-
-      case '/api/browser/open': {
-        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
-        return readBody().then(async (b) => {
-          const t = await openTab(b?.url ?? 'https://www.seek.com.au/');
-          return send(t ? { ok: true, target: t } : { error: 'Could not open a tab' }, t ? 200 : 502);
-        });
-      }
 
       case '/api/signin/session': {
         /**

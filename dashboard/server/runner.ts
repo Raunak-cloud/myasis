@@ -95,6 +95,7 @@ export async function assertHumanizerHealthy(overrides: Record<string, string> =
  */
 class Run {
   private child: ChildProcess | null = null;
+  private cdpPort: number | null = null;
   private onApplicationSubmitted: (() => void | Promise<void>) | null = null;
   private onRehearsalCompleted: (() => void | Promise<void>) | null = null;
   private lines: LogLine[] = [];
@@ -150,6 +151,14 @@ class Run {
     return this.state.running;
   }
 
+  get browserPort(): number | null {
+    return this.cdpPort;
+  }
+
+  get occupiesSlot(): boolean {
+    return this.state.running || this.cdpPort !== null;
+  }
+
   /**
    * True once the run has ended and nobody is watching its console any more.
    *
@@ -176,17 +185,20 @@ class Run {
   async start(
     mode: RunMode,
     overrides: Record<string, string>,
+    cdpPort: number,
     onApplicationSubmitted?: () => void | Promise<void>,
     onRehearsalCompleted?: () => void | Promise<void>,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
-    if (this.state.running) return { ok: false, error: 'A run is already in progress for this account.' };
+    if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'main.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
+    this.cdpPort = cdpPort;
     try {
       await assertHumanizerHealthy(overrides);
     } catch (error) {
+      this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
     }
 
@@ -197,6 +209,7 @@ class Run {
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
     } catch (error) {
+      this.cdpPort = null;
       return { ok: false, error: `Could not prepare this account's data for the run: ${(error as Error).message}` };
     }
 
@@ -210,6 +223,7 @@ class Run {
       // (whose profile.txt, whose experience/skills, whose Chrome profile)
       // and must never be settable by a caller-supplied override.
       ...profileOverrides,
+      CDP_PORT: String(cdpPort),
       // Rehearse fills every form but withholds the final submit.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
       ...(mode === 'rehearse' ? { REHEARSE: 'true' } : {}),
@@ -249,15 +263,17 @@ class Run {
    * still reads this account's résumés/knowledge/applied-jobs history to
    * dedupe and draft, off `DATA_DIR`, not the shared folder.
    */
-  async startQueue(overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
+  async startQueue(cdpPort: number, overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
-    if (this.state.running) return { ok: false, error: 'A scan is already running for this account.' };
+    if (this.occupiesSlot) return { ok: false, error: 'A scan is already running for this account.' };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'queue.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
+    this.cdpPort = cdpPort;
     try {
       await assertHumanizerHealthy();
     } catch (error) {
+      this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
     }
 
@@ -268,6 +284,7 @@ class Run {
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
     } catch (error) {
+      this.cdpPort = null;
       return { ok: false, error: `Could not prepare this account's data for the scan: ${(error as Error).message}` };
     }
 
@@ -289,6 +306,7 @@ class Run {
       ...overrides,
       // After `overrides`, deliberately — see the same ordering in start().
       ...profileOverrides,
+      CDP_PORT: String(cdpPort),
       // Always last: no override may point a scan at another account's files.
       DATA_DIR: dataDir,
     };
@@ -307,6 +325,7 @@ class Run {
       this.state.exitCode = code;
       this.state.finishedAt = new Date().toISOString();
       this.child = null;
+      this.cdpPort = null;
       this.onApplicationSubmitted = null;
       this.onRehearsalCompleted = null;
       this.push('sys', `■ ${kind} finished (exit ${code})`);
@@ -359,7 +378,7 @@ class RunPool {
 
   activeCount(): number {
     let n = 0;
-    for (const run of this.runs.values()) if (run.running) n++;
+    for (const run of this.runs.values()) if (run.occupiesSlot) n++;
     return n;
   }
 
@@ -370,6 +389,21 @@ class RunPool {
 
   stateFor(userId: string): RunState {
     return this.runs.get(userId)?.state ?? { ...IDLE_STATE, ownerUserId: null };
+  }
+
+  browserPortFor(userId: string): number | null {
+    return this.runs.get(userId)?.browserPort ?? null;
+  }
+
+  private availableBrowserPort(): number {
+    const env = readEnv();
+    const first = Number(process.env.CDP_PORT ?? env.CDP_PORT ?? 9333);
+    const used = new Set([...this.runs.values()].map((run) => run.browserPort).filter((port) => port !== null));
+    for (let offset = 0; offset < MAX_CONCURRENT; offset++) {
+      const candidate = first + offset;
+      if (!used.has(candidate)) return candidate;
+    }
+    throw new Error('No browser viewer slot is available.');
   }
 
   subscribe(userId: string, fn: (l: LogLine) => void): () => void {
@@ -396,14 +430,20 @@ class RunPool {
     this.sweep();
     const full = this.atCapacity(userId);
     if (full) return { ok: false, error: full };
-    return this.forUser(userId).start(mode, overrides, onApplicationSubmitted, onRehearsalCompleted);
+    return this.forUser(userId).start(
+      mode,
+      overrides,
+      this.availableBrowserPort(),
+      onApplicationSubmitted,
+      onRehearsalCompleted,
+    );
   }
 
   async startQueue(userId: string, overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
     this.sweep();
     const full = this.atCapacity(userId);
     if (full) return { ok: false, error: full };
-    return this.forUser(userId).startQueue(overrides);
+    return this.forUser(userId).startQueue(this.availableBrowserPort(), overrides);
   }
 
   stop(userId: string): { ok: boolean; error?: string } {

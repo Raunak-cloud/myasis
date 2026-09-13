@@ -6,6 +6,7 @@ import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runS
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
+import { LiveActionViewer } from './LiveActionViewer';
 import { fmtDateTime } from '../format';
 
 type Mode = 'rehearse' | 'live';
@@ -196,6 +197,7 @@ export function RunPanel({
 }) {
   const [status, setStatus] = useState<RunStatus | null>(null);
   const [autoSchedule, setAutoSchedule] = useState<AutoScheduleStatus | null>(null);
+  const [liveViewOpen, setLiveViewOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('rehearse');
   /**
    * A standard account does not drive runs: it saves what work it wants and
@@ -269,6 +271,9 @@ export function RunPanel({
   }, [lines]);
 
   const running = status?.running ?? false;
+  useEffect(() => {
+    if (!running) setLiveViewOpen(false);
+  }, [running]);
   useEffect(() => {
     if (!entitlements?.autoRunsPerDay) {
       setAutoSchedule(null);
@@ -637,9 +642,16 @@ export function RunPanel({
               ) : 'Ready'}
             </span>
           </div>
-          {lines.length > 0 && !running && (
-            <button className="btn" onClick={() => setLines([])}>Clear</button>
-          )}
+          <div className="console-actions">
+            {running && (
+              <button className="btn primary btn-small" onClick={() => setLiveViewOpen(true)}>
+                View live action
+              </button>
+            )}
+            {lines.length > 0 && !running && (
+              <button className="btn" onClick={() => setLines([])}>Clear</button>
+            )}
+          </div>
         </div>
 
         {lines.length > 0 && (
@@ -689,6 +701,8 @@ export function RunPanel({
           )}
         </div>
       </div>
+
+      {liveViewOpen && running && <LiveActionViewer onClose={() => setLiveViewOpen(false)} />}
 
       {stopConfirming && running && (
         <div className="overlay center" onClick={() => !stopping && setStopConfirming(false)}>
