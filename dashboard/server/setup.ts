@@ -1,5 +1,5 @@
 import { assertHumanizerHealthy, readEnv } from './runner.js';
-import { listResumes, listKnowledge } from './files.js';
+import { listResumes } from './files.js';
 import { profileGaps } from './profile.js';
 import { loadUserSettings } from './settings.js';
 
@@ -29,13 +29,11 @@ export async function setupStatus(
   userId: string,
 ): Promise<{ checks: SetupCheck[]; ready: boolean; done: number; total: number }> {
   const env = readEnv();
-  const [resumes, knowledgeAll, gaps, settings] = await Promise.all([
+  const [resumes, gaps, settings] = await Promise.all([
     listResumes(userId),
-    listKnowledge(userId),
     profileGaps(userId),
     loadUserSettings(userId),
   ]);
-  const knowledge = knowledgeAll.filter((k) => k.enabled);
 
   let humanizerError = '';
   try {
@@ -96,14 +94,6 @@ export async function setupStatus(
       hint: 'Choose remote/hybrid/on-site and your city so on-site roles are filtered correctly.',
       fix: 'where',
       required: true,
-    },
-    {
-      id: 'knowledge',
-      label: 'Personal details added',
-      done: knowledge.length > 0,
-      hint: 'Add your CV or notes so screening questions can be answered instead of halting the run.',
-      fix: 'documents',
-      required: false,
     },
   ];
 
