@@ -186,11 +186,13 @@ function nextRunLabel(schedule: AutoScheduleStatus): string {
  */
 export function RunPanel({
   lastRunAt,
+  today,
   onFinished,
   onGoSetup,
   onGoPricing,
 }: {
   lastRunAt: string | null;
+  today: { runs: number; reviewed: number; submitted: number };
   onFinished: () => void;
   onGoSetup: () => void;
   onGoPricing: () => void;
@@ -508,6 +510,16 @@ export function RunPanel({
 
   return (
     <div className="run-layout">
+      <section className="card today-summary run-span" aria-labelledby="today-summary-title">
+        <div className="today-summary-title">
+          <strong id="today-summary-title">Today</strong>
+        </div>
+        <div className="today-summary-metrics">
+          <div><strong>{today.runs}</strong><span>{today.runs === 1 ? 'run' : 'runs'}</span></div>
+          <div><strong>{today.reviewed}</strong><span>jobs reviewed</span></div>
+          <div><strong>{today.submitted}</strong><span>applications sent</span></div>
+        </div>
+      </section>
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
       <div className="card run-controls-card">
         <div className="run-card-title">

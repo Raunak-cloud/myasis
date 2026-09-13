@@ -39,6 +39,7 @@ import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt }
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
+import { loadTodayStats } from './server/today.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -968,6 +969,11 @@ function dataApi(): Plugin {
       case '/api/auto-schedule': {
         if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
         return withUser(async (userId) => send(await autoScheduleFor(userId)));
+      }
+
+      case '/api/today': {
+        if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
+        return withUser(async (userId) => send(await loadTodayStats(userId)));
       }
 
       case '/api/run/last': {

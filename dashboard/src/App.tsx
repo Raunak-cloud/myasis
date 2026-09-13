@@ -18,6 +18,12 @@ const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
 const THEME_LABEL: Record<ThemePref, string> = { system: 'Auto', light: 'Light', dark: 'Dark' };
 
+interface TodayStats {
+  runs: number;
+  reviewed: number;
+  submitted: number;
+}
+
 const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   run: {
     title: 'Apply for jobs',
@@ -54,6 +60,7 @@ export default function App() {
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   const [running, setRunning] = useState(false);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  const [today, setToday] = useState<TodayStats>({ runs: 0, reviewed: 0, submitted: 0 });
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref());
   const [toast, setToast] = useState<string | null>(null);
   const { user, googleConfigured, loading: authLoading, signOut } = useAuth();
@@ -69,14 +76,16 @@ export default function App() {
   }, [entitlements, canRewrite, tab]);
 
   const load = useCallback(async () => {
-    const [a, n, lastRun] = await Promise.all([
+    const [a, n, lastRun, todayStats] = await Promise.all([
       fetch('/api/applications').then((response) => response.json()).catch(() => []),
       fetch('/api/attention').then((response) => response.json()).catch(() => []),
       fetch('/api/run/last').then((response) => response.json()).catch(() => ({ startedAt: null })),
+      fetch('/api/today').then((response) => response.json()).catch(() => null),
     ]);
     setApps(Array.isArray(a) ? a : []);
     setAttention(Array.isArray(n) ? n : []);
     setLastRunAt(typeof lastRun?.startedAt === 'string' ? lastRun.startedAt : null);
+    if (todayStats && typeof todayStats.runs === 'number') setToday(todayStats as TodayStats);
   }, []);
 
   useEffect(() => {
@@ -239,6 +248,7 @@ export default function App() {
           {tab === 'run' && (
             <RunPanel
               lastRunAt={lastRunAt}
+              today={today}
               onFinished={load}
               onGoSetup={() => setTab('setup')}
               onGoPricing={() => setTab('pricing')}

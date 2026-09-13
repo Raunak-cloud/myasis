@@ -1265,6 +1265,48 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   gap: 8px;
 }
 
+.today-summary {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.today-summary-title {
+  display: flex;
+  align-items: center;
+  padding: 16px 18px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.today-summary-title strong { font-size: 14px; }
+
+.today-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.today-summary-metrics > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 15px 20px;
+  border-right: 1px solid var(--border);
+}
+
+.today-summary-metrics > div:last-child { border-right: 0; }
+.today-summary-metrics strong { font-size: 21px; font-variant-numeric: tabular-nums; }
+.today-summary-metrics span { color: var(--text-dim); font-size: 12px; }
+
+@media (max-width: 620px) {
+  .today-summary { grid-template-columns: 1fr; }
+  .today-summary-title { padding: 12px 15px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .today-summary-metrics > div { display: grid; gap: 1px; padding: 13px 14px; }
+  .today-summary-metrics strong { font-size: 18px; }
+}
+
 .live-action-overlay { padding: 24px; }
 
 .live-action-window {
