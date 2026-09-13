@@ -42,6 +42,8 @@ check('a scheduled run assesses a full day\'s share of listings', standardAuto.M
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, { fineTune: true }, 'auto');
 check('a higher saved ceiling is kept on a scheduled run', adminAuto.MAX_EVALUATIONS === '100');
 check('admin scheduled live runs keep the saved prompt', adminAuto.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
+check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
+check('Job Search Pass accounts receive four scheduled runs', automaticRunsPerDay('standard', true) === 4);
 check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);
 check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
 

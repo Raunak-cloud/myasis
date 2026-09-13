@@ -8,7 +8,7 @@ const QUESTIONS = [
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Myasis uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Myasis my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Myasis. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
-  { question: 'Is there a subscription?', answer: 'No. The free plan resets monthly. Paid passes are one-off purchases, valid for 30 days, and do not automatically renew. Prices are in Australian dollars.' },
+  { question: 'Is there a subscription?', answer: 'No. The free plan resets monthly. Paid passes are one-off purchases, valid for one month, and do not automatically renew. Prices are in Australian dollars.' },
 ];
 
 function Arrow() {
@@ -96,7 +96,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               <span className="home-price-mode">{presentation.label}</span>
               <h3>{plan.name}</h3>
               <p className="home-price-copy">{presentation.description}</p>
-              <p className="home-price">{aud(plan.priceCents)}<span>one payment · {plan.validDays} days</span></p>
+              <p className="home-price">{aud(plan.priceCents)}<span>one payment · one month</span></p>
               {start('Get started', key !== 'job-search-pass')}
               <ul>{presentation.features.map(feature => <li key={feature}>{feature}</li>)}</ul>
             </article>;

@@ -27,16 +27,9 @@ export const AUTO_WINDOW = { startHour: 9, endHour: 21 } as const;
 /** Manual runs an Intensive Pass may start per local day. Admins have no cap. */
 export const INTENSIVE_MANUAL_RUNS_PER_DAY = 3;
 
-/**
- * Automatic runs a standard account gets per local day.
- *
- * Four rather than five so each run has room to finish inside its slot: two
- * lanes across a twelve-hour window is 1,440 lane-minutes, which ten accounts
- * at four runs each divide into 36 minutes apiece. At five it was 29, close
- * enough to a real run's length that a slow day started costing accounts
- * their last run. More accounts should buy more lanes, not thinner slots.
- */
-export const STANDARD_AUTO_RUNS_PER_DAY = 4;
+/** Scheduled runs per local day for Free and Job Search Pass accounts. */
+export const FREE_AUTO_RUNS_PER_DAY = 1;
+export const JOB_SEARCH_AUTO_RUNS_PER_DAY = 4;
 
 /** Admins keep scheduled applications alongside unlimited manual runs. */
 export const ADMIN_AUTO_RUNS_PER_DAY = 4;
@@ -47,11 +40,8 @@ export const SCHEDULED_MIN_SCORE = 75;
 /**
  * Listings a scheduled run assesses against the résumé before applying.
  *
- * Standard accounts cannot raise the evaluation ceiling themselves, and the
- * product default of 40 was sized for a person watching one run. A schedule
- * is four unattended runs, and the promise made for it is a day's worth of
- * curated jobs — 240 at this figure — so the floor is set here rather than
- * left to a setting nobody on that plan can see.
+ * Standard accounts cannot raise the evaluation ceiling themselves, so the
+ * floor is set here rather than left to a setting their plan cannot edit.
  */
 export const SCHEDULED_EVALUATIONS_PER_RUN = 60;
 
@@ -130,9 +120,9 @@ function tierFor(admin: boolean, intensive: boolean): Tier {
   return intensive ? 'intensive' : 'standard';
 }
 
-export function automaticRunsPerDay(tier: Tier): number {
+export function automaticRunsPerDay(tier: Tier, hasActivePass = false): number {
   if (tier === 'admin') return ADMIN_AUTO_RUNS_PER_DAY;
-  if (tier === 'standard') return STANDARD_AUTO_RUNS_PER_DAY;
+  if (tier === 'standard') return hasActivePass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : FREE_AUTO_RUNS_PER_DAY;
   return 0;
 }
 
@@ -204,7 +194,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
 
   const manualRuns = tier !== 'standard';
   const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
-  const autoRunsPerDay = automaticRunsPerDay(tier);
+  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass);
 
   const [manualRunsUsedToday, autoRunsUsedToday] = await Promise.all([
     manualRuns ? runsStartedToday(userId, 'manual') : Promise.resolve(0),

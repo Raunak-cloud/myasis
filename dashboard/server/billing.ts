@@ -211,7 +211,7 @@ export async function createCheckout(
         unit_amount: plan.priceCents,
         product_data: {
           name: plan.name,
-          description: `${plan.applications} successful applications · valid for ${plan.validDays} days`,
+          description: `${plan.applications} successful applications · valid for one month`,
         },
       },
     }],

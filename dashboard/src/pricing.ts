@@ -7,7 +7,7 @@ export const PLAN_PRESENTATION = {
     description: 'A simple way to let Myasis apply for well-matched SEEK roles.',
     features: [
       '10 successful applications each month',
-      'Up to 4 automatic live runs each day',
+      '1 automatic live run each day',
       '75% minimum match for scheduled applications',
       'SEEK applications',
       'Personalised cover letters and application tracking',
@@ -17,7 +17,7 @@ export const PLAN_PRESENTATION = {
     label: 'Automatic job search',
     description: 'More application capacity while Myasis runs your search for you.',
     features: [
-      '150 successful applications for 30 days',
+      '150 successful applications each month',
       'Up to 4 automatic live runs each day',
       '75% minimum match for scheduled applications',
       'SEEK applications',
@@ -28,7 +28,7 @@ export const PLAN_PRESENTATION = {
     label: 'You control each run',
     description: 'More control, more capacity and support for employer application sites.',
     features: [
-      '320 successful applications for 30 days',
+      '320 successful applications each month',
       'Up to 3 user-started runs each day',
       'Choose a live run or a rehearsal',
       'Advanced search controls and standing instructions',

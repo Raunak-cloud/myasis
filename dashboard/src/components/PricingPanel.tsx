@@ -157,7 +157,7 @@ export function PricingPanel() {
                 <h3>{plan.name}</h3>
                 <p className="pricing-plan-copy">{presentation.description}</p>
               </header>
-              <p className="pricing-price"><strong>{aud(plan.priceCents)}</strong><span>one payment · 30 days</span></p>
+              <p className="pricing-price"><strong>{aud(plan.priceCents)}</strong><span>one payment · one month</span></p>
               <button
                 className={`btn pricing-cta ${recommended ? 'primary' : ''}`}
                 disabled={checkoutDisabled}
@@ -179,7 +179,7 @@ export function PricingPanel() {
         <div>
           <span className="pricing-plan-label">Keep your current plan</span>
           <h3>{PAID_PLANS['application-top-up'].name}</h3>
-          <p>Add 50 successful applications to your balance for 30 days.</p>
+          <p>Add 50 successful applications to your balance for one month.</p>
         </div>
         <div className="topup-action">
           <p className="pricing-price"><strong>{aud(PAID_PLANS['application-top-up'].priceCents)}</strong><span>one payment</span></p>
@@ -201,7 +201,7 @@ export function PricingPanel() {
             <p>Skipped jobs, failed forms, off-platform listings and items needing your attention do not use your allowance.</p>
           </article>
           <article>
-            <strong>Passes last 30 days</strong>
+            <strong>Passes last one month</strong>
             <p>Your applications remain available until the pass expires. There is no automatic renewal.</p>
           </article>
           <article>
