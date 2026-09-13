@@ -1062,8 +1062,7 @@ button.metric-tile:hover strong { color: var(--accent); }
 /* Rehearse / Apply for real as one switch rather than two cards. */
 .mode-picker { display: grid; gap: 8px; }
 .mode-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--border);
@@ -1071,16 +1070,19 @@ button.metric-tile:hover strong { color: var(--accent); }
   background: var(--surface-2);
 }
 .mode-switch button {
+  flex: 1 1 auto;
   min-height: 38px;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 6px 8px;
   border: 0;
   border-radius: 7px;
   background: transparent;
   color: var(--text-dim);
+  font-size: 13px;
   font-weight: 600;
   transition: background .15s, color .15s, box-shadow .15s;
 }
