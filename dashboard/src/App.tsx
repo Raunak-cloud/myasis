@@ -148,7 +148,7 @@ export default function App() {
   if (!user) return <Landing googleConfigured={googleConfigured} />;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${tab === 'run' ? 'apply-shell' : ''}`}>
       <aside className="sidebar">
         <button className="product" onClick={() => setTab('run')} aria-label="Go to Apply">
           <span className="product-mark" aria-hidden="true">
@@ -202,7 +202,7 @@ export default function App() {
         </nav>
       </aside>
 
-      <main className="main-shell">
+      <main className={`main-shell ${tab === 'run' ? 'run-dashboard' : ''}`}>
         <header className="page-header">
           <div>
             <h1>{PAGE_COPY[tab].title}</h1>
