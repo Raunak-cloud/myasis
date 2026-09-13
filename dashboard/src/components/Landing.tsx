@@ -56,11 +56,10 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
     <main className="home-width">
       <section className="home-intro" aria-labelledby="home-heading">
         <div className="home-intro-heading">
-          <span className="home-hero-kicker">Job application assistant</span>
           <h1 id="home-heading">Job hunting is a job.<em>Share the workload.</em></h1>
           <p className="home-hero-summary">Myasis finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
           {error && <div className="home-error" role="alert">{error}</div>}
-          <div className="home-hero-actions">{start()}<a href="#how-it-works">How it works <span aria-hidden="true">↓</span></a></div>
+          <div className="home-hero-actions">{start()}</div>
           <p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications a month. No card needed.</p>
         </div>
         <div className="home-hero-demo" id="demo">
