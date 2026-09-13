@@ -516,7 +516,7 @@ export function RunPanel({
             {driving
               ? 'Rehearse first, then apply when everything looks right.'
               : entitlements
-                ? `${entitlements.autoRunsPerDay} times a day, between ${windowLabel(entitlements.window)}. Our AI analyses over ${Math.floor((entitlements.scheduledJobsPerDay ?? 0) / 100) * 100} curated jobs a day against your résumé, applies to those matching ${entitlements.scheduledMinScore}% or higher, and writes every application in natural, human words.`
+                ? `${entitlements.autoRunsPerDay} runs a day, ${windowLabel(entitlements.window)}. ${Math.floor((entitlements.scheduledJobsPerDay ?? 0) / 100) * 100}+ jobs matched to your résumé daily. Applies to ${entitlements.scheduledMinScore}%+ matches, written in your own voice.`
                 : ''}
           </p>
         </div>
