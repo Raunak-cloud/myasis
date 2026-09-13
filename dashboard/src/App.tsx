@@ -223,6 +223,7 @@ export default function App() {
 
         {tab === 'run' && (
           <section className="dashboard-metrics" aria-label="Application summary">
+            <div className="metric-group">
             <button type="button" className="metric-tile" onClick={() => setTab('applications')}>
               <strong>{stats.week}</strong>
               <span>applied this week</span>
@@ -243,6 +244,8 @@ export default function App() {
               <strong>{stats.blocked}</strong>
               <span>{stats.verification ? 'need verification' : 'need attention'}</span>
             </button>
+            </div>
+            <div className="metric-group">
             <div className="metric-tile">
               <strong>{today.runs}</strong>
               <span>{today.runs === 1 ? 'run today' : 'runs today'}</span>
@@ -254,6 +257,7 @@ export default function App() {
             <div className="metric-tile">
               <strong>{today.submitted}</strong>
               <span>applications sent today</span>
+            </div>
             </div>
           </section>
         )}

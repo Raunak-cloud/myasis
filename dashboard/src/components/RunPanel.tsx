@@ -510,7 +510,7 @@ export function RunPanel({
     <div className="run-layout">
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
       <div className="card run-controls-card">
-        <div className="run-card-title">
+        <div className="panel-head">
           <h2>{driving ? 'New run' : 'Applying for you'}</h2>
           <p className="job-meta">
             {driving
@@ -520,28 +520,38 @@ export function RunPanel({
                 : ''}
           </p>
         </div>
-        {driving && <div className="modes">
-          <label className={`mode ${mode === 'rehearse' ? 'sel' : ''}`}>
-            <input type="radio" checked={mode === 'rehearse'} disabled={running} onChange={() => setMode('rehearse')} />
-            <div>
-              <div className="mode-title">
+        <div className="panel-body">
+        {driving && (
+          <div className="mode-picker">
+            <div className="mode-switch" role="radiogroup" aria-label="Run mode">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === 'rehearse'}
+                className={mode === 'rehearse' ? 'on' : ''}
+                disabled={running}
+                onClick={() => setMode('rehearse')}
+              >
                 Rehearse <span className="badge warn">safe</span>
-              </div>
-              <div className="job-meta">
-                Completes the full process but stops before submitting.
-              </div>
-            </div>
-          </label>
-          <label className={`mode ${mode === 'live' ? 'sel' : ''}`}>
-            <input type="radio" checked={mode === 'live'} disabled={running} onChange={() => setMode('live')} />
-            <div>
-              <div className="mode-title">
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === 'live'}
+                className={mode === 'live' ? 'on live' : 'live'}
+                disabled={running}
+                onClick={() => setMode('live')}
+              >
                 Apply for real <span className="badge bad">submits</span>
-              </div>
-              <div className="job-meta">Sends applications to employers automatically.</div>
+              </button>
             </div>
-          </label>
-        </div>}
+            <p className="job-meta mode-desc">
+              {mode === 'rehearse'
+                ? 'Completes the full process but stops before submitting.'
+                : 'Sends applications to employers automatically.'}
+            </p>
+          </div>
+        )}
 
         {!status?.hasKey && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
@@ -586,16 +596,16 @@ export function RunPanel({
 
         {driving && entitlements && entitlements.autoRunsPerDay > 0 && (
           <div className="run-schedule-status">
-            <div>
+            <div className="run-schedule-head">
               <strong>Automatic schedule</strong>
-              <p className="job-meta">
-                {entitlements.autoRunsPerDay} live runs daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
-                {autoSchedule && <span className="schedule-next-run">{nextRunLabel(autoSchedule)}</span>}
-              </p>
+              <span className="badge info">
+                {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
+              </span>
             </div>
-            <span className="badge info">
-              {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
-            </span>
+            <p className="job-meta">
+              {entitlements.autoRunsPerDay} live runs daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
+            </p>
+            {autoSchedule && <p className="schedule-next-run">{nextRunLabel(autoSchedule)}</p>}
           </div>
         )}
 
@@ -615,6 +625,7 @@ export function RunPanel({
             {status?.finishedAt ? ` · ${status.applied} submitted` : ''}
           </p>
         )}
+        </div>
       </div>
 
       <div className="card console-card">

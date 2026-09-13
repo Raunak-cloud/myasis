@@ -625,13 +625,7 @@ tbody tr.clickable { cursor: pointer; }
 }
 
 /* ---------- run screen (primary) ---------- */
-.run-controls-card {
-  min-height: 500px;
-  padding: 22px;
-  display: grid;
-  gap: 16px;
-  align-content: start;
-}
+.run-controls-card { min-height: 500px; }
 .run-layout { align-items: start; }
 .console-card { min-height: 500px; }
 .run-schedule-status {
@@ -983,99 +977,168 @@ a:focus-visible,
 .page-header p { margin: 6px 0 0; color: var(--text-dim); }
 .theme-btn { min-width: 56px; padding-inline: 11px; }
 
+/* ---------- Apply page: figures row, readiness line, two panels ---------- */
 .dashboard-metrics {
   max-width: 1500px;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0;
-  margin: 0 auto 20px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: 0 3px 14px rgba(18, 42, 70, .05);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 40px;
+  margin: 0 auto 26px;
+}
+
+.metric-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 28px;
+  padding-left: 16px;
+  border-left: 2px solid var(--accent-soft);
 }
 
 .metric-tile {
   min-width: 0;
   display: grid;
-  gap: 3px;
-  padding: 13px 17px 12px;
+  gap: 0;
+  padding: 2px 0;
   border: 0;
-  border-right: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
   text-align: left;
   box-shadow: none;
 }
 
-.metric-tile:last-child { border-right: 0; }
-
-button.metric-tile { transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
-button.metric-tile:hover {
-  border-color: var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-}
+button.metric-tile { transition: color .15s ease; }
+button.metric-tile:hover strong { color: var(--accent); }
 .metric-tile strong {
   color: var(--text);
-  font-size: 23px;
-  line-height: 1.15;
-  letter-spacing: -.025em;
+  font-size: 26px;
+  line-height: 1.1;
+  letter-spacing: -.03em;
   font-variant-numeric: tabular-nums;
+  transition: color .15s ease;
 }
-.metric-tile span { overflow: hidden; color: var(--text-dim); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.metric-tile span { color: var(--text-faint); font-size: 12px; white-space: nowrap; }
 .metric-tile.needs-action strong { color: var(--warn); }
 
-.apply-shell .sidebar {
-  border-right-color: var(--border);
-  background: var(--surface);
-  color: var(--text);
-}
-
-.apply-shell .product-mark {
-  padding: 0;
+.apply-shell .side-link.active {
   background: transparent;
+  box-shadow: inset 3px 0 0 var(--accent);
+  border-radius: 0 9px 9px 0;
+  color: var(--accent);
 }
-
-.apply-shell .product-name { color: var(--text); }
-.apply-shell .nav-label { color: var(--text-faint); }
-.apply-shell .side-link { color: var(--text-dim); }
-.apply-shell .side-link:hover { color: var(--text); background: var(--surface-2); }
-.apply-shell .side-link.active { color: var(--text); background: var(--accent-soft); }
-.apply-shell .nav-count { color: var(--text-faint); background: var(--surface-2); }
-.apply-shell .side-link.active .nav-count { color: var(--text); background: rgba(37, 99, 166, .18); }
-.run-dashboard { background: #f3f6fa; }
-:root[data-theme='dark'] .run-dashboard { background: var(--bg); }
+.apply-shell .side-link.active .nav-count { color: var(--accent); background: var(--accent-soft); }
+.run-dashboard { background: var(--bg); }
 
 .run-dashboard .run-layout {
-  grid-template-columns: minmax(350px, 390px) minmax(0, 1fr);
+  grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
   grid-template-areas:
     "readiness readiness"
     "controls activity";
-  gap: 18px;
+  gap: 16px;
 }
 
 .run-dashboard .run-span { grid-area: readiness; }
-.run-dashboard .console-card {
-  grid-area: activity;
-  min-height: 560px;
-  position: static;
-  overflow: hidden;
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(18, 42, 70, .06);
+.run-dashboard .card { border-radius: 12px; box-shadow: none; }
+.run-dashboard .console-card { grid-area: activity; min-height: 560px; position: static; overflow: hidden; }
+.run-dashboard .run-controls-card { grid-area: controls; min-height: 560px; padding: 0; display: flex; flex-direction: column; }
+
+/* Both panels share one title bar. */
+.panel-head,
+.run-dashboard .console-head {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
 }
-.run-dashboard .console-head { min-height: 54px; padding: 14px 18px; }
-.run-dashboard .console-empty { min-height: 408px; margin: 18px; border: 0; background: var(--surface-2); }
-.run-dashboard .run-controls-card {
-  grid-area: controls;
-  min-height: 560px;
-  padding: 24px;
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(18, 42, 70, .06);
+.panel-head { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
+.panel-head h2, .console-status strong { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+.panel-head p { margin: 0; font-size: 12px; }
+.panel-body { flex: 1; display: grid; gap: 18px; align-content: start; padding: 20px; }
+
+/* Rehearse / Apply for real as one switch rather than two cards. */
+.mode-picker { display: grid; gap: 8px; }
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
 }
-.run-dashboard .checklist { border-radius: 12px; box-shadow: 0 3px 12px rgba(18, 42, 70, .045); }
+.mode-switch button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font-weight: 600;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+.mode-switch button:hover:not(:disabled) { color: var(--text); }
+.mode-switch button:disabled { cursor: default; opacity: .7; }
+.mode-switch button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(18, 42, 70, .12); }
+.mode-switch button.on.live { color: var(--bad); }
+.mode-switch .badge { padding: 1px 7px; font-size: 10px; }
+.mode-desc { margin: 0; min-height: 20px; }
+
+.run-dashboard .run-actions { display: grid; gap: 8px; }
+.run-dashboard .run-actions .btn.lg { width: 100%; min-height: 44px; font-size: 14px; }
+.run-dashboard .run-actions .job-meta { margin: 0; text-align: center; }
+.run-dashboard .btn.primary { box-shadow: none; }
+
+.run-dashboard .run-schedule-status {
+  display: grid;
+  gap: 4px;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+.run-schedule-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.run-schedule-head strong { margin: 0; font-size: 13px; }
+.run-dashboard .run-schedule-status p { margin: 0; }
+.run-dashboard .schedule-next-run { margin-top: 2px; color: var(--text); font-weight: 650; }
+.run-dashboard .run-dashboard .banner { margin: 0; }
+
+/* Readiness is a status line, not a third card. */
+.run-dashboard .checklist {
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+.run-dashboard .checklist.blocking { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+.run-dashboard .checklist-head { align-items: center; }
+.run-dashboard .checklist-head > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.run-dashboard .checklist-head strong { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.run-dashboard .checklist:not(.blocking) .checklist-head strong::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+.run-dashboard .checklist-head .job-meta { font-size: 12px; }
+.run-dashboard .checklist-head > .btn { min-height: 30px; padding: 3px 10px; font-size: 12px; }
+.run-dashboard .checklist-items { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* Activity: a quiet empty state, no inner box. */
+.run-dashboard .console-empty {
+  min-height: 420px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.run-dashboard .console-empty strong { font-size: 14px; }
+.run-dashboard .activity-stats { background: transparent; }
 
 .page-content { max-width: 1500px; margin: 0 auto; }
 .card { box-shadow: 0 1px 3px rgba(18, 42, 70, .045); }
@@ -1111,9 +1174,7 @@ button.metric-tile:hover {
 }
 
 @media (max-width: 1220px) {
-  .dashboard-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .metric-tile:nth-child(3) { border-right: 0; }
-  .metric-tile:nth-child(-n + 3) { border-bottom: 1px solid var(--border); }
+  .dashboard-metrics { gap: 12px 28px; }
 }
 
 @media (max-width: 1120px) {
@@ -1133,20 +1194,16 @@ button.metric-tile:hover {
   .page-header p { display: none; }
   .page-header h1 { font-size: 23px; }
   .toolbar { gap: 6px; }
-  .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
-  .metric-tile { padding: 12px 13px; }
-  .metric-tile:nth-child(3) { border-right: 1px solid var(--border); }
-  .metric-tile:nth-child(even) { border-right: 0; }
-  .metric-tile:nth-child(-n + 4) { border-bottom: 1px solid var(--border); }
+  .dashboard-metrics { gap: 10px 20px; }
+  .metric-group { gap: 4px 18px; padding-left: 12px; }
+  .metric-tile strong { font-size: 22px; }
   .run-layout { grid-template-columns: 1fr; }
-  .run-controls-card { padding: 15px; }
+  .panel-body { padding: 16px; }
   .console-card { min-height: 420px; }
   .run-dashboard .console-empty { min-height: 250px; margin: 12px; }
 }
 
 /* ---------- focused screen content ---------- */
-.run-card-title h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
-.run-card-title p { margin: 3px 0 0; }
 
 .run-options {
   border-top: 1px solid var(--border);
@@ -1162,7 +1219,6 @@ button.metric-tile:hover {
   font-weight: 650;
 }
 .run-options-grid { padding: 5px 0 12px; }
-.run-actions .btn.primary { width: 100%; }
 .console-status strong { font-size: 13px; }
 .modes { gap: 9px; }
 .mode { padding: 13px 14px; border-radius: 10px; }
