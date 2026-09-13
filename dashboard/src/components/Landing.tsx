@@ -1,7 +1,7 @@
 import './Landing.css';
 import { useEffect, useRef, useState } from 'react';
 import { FREE_MONTHLY_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, aud } from '../pricing';
-import { LIVE_DEMO } from '../liveDemo';
+import { LIVE_DEMO, LIVE_DEMO_2 } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 
 const QUESTIONS = [
@@ -55,17 +55,24 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
     <main className="home-width">
       <section className="home-intro" aria-labelledby="home-heading">
+        <div className="home-hero-videos">
+          <div className="home-hero-demo" id="demo">
+            <div className="home-hero-video-top"><span>Real application run</span><span>Rehearsal mode</span></div>
+            <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Myasis applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
+            {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
+          </div>
+          {/* Second window: same clip for now; swap LIVE_DEMO_2 in liveDemo.ts when the next recording is ready. */}
+          <div className="home-hero-demo">
+            <div className="home-hero-video-top"><span>Real application run</span><span>Rehearsal mode</span></div>
+            <div className="home-video-wrap"><video controls playsInline preload="metadata" poster={LIVE_DEMO_2.poster} aria-label="Myasis applying to a real job on SEEK"><source src={LIVE_DEMO_2.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO_2.captions} srcLang="en" label="English" default /></video></div>
+          </div>
+        </div>
         <div className="home-intro-heading">
           <h1 id="home-heading">Job hunting is a job.<em>Share the workload.</em></h1>
           <p className="home-hero-summary">Myasis finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
           {error && <div className="home-error" role="alert">{error}</div>}
           <div className="home-hero-actions">{start()}</div>
           <p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications a month. No card needed.</p>
-        </div>
-        <div className="home-hero-demo" id="demo">
-          <div className="home-hero-video-top"><span>Real application run</span><span>Rehearsal mode</span></div>
-          <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Myasis applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
-          {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
         </div>
       </section>
 

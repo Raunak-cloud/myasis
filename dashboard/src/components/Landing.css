@@ -239,3 +239,13 @@
   .home-hero-summary { font-size:14px; }
   .home-hero-demo { margin-top:36px; }
 }
+
+/* Hero, videos first: two windows in one row, the words beneath them. */
+.home-intro { padding-top:40px; }
+.home-hero-videos { width:100%; max-width:1200px; display:grid; grid-template-columns:1fr 1fr; gap:22px; align-items:start; }
+.home-hero-videos .home-hero-demo { margin-top:0; max-width:none; min-width:0; }
+.home-intro .home-intro-heading { margin-top:52px; }
+@media(max-width:800px) {
+  .home-hero-videos { grid-template-columns:1fr; gap:18px; }
+  .home-intro .home-intro-heading { margin-top:36px; }
+}
