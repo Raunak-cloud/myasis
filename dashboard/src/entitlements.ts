@@ -16,6 +16,7 @@ export interface Entitlements {
   autoRunsPerDay: number;
   autoRunsUsedToday: number;
   scheduledMinScore: number | null;
+  scheduledJobsPerDay: number | null;
   fineTune: boolean;
   rewriteText: boolean;
   window: { startHour: number; endHour: number; timeZone: string };

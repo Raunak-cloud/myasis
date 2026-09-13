@@ -45,6 +45,17 @@ export const ADMIN_AUTO_RUNS_PER_DAY = 4;
 export const SCHEDULED_MIN_SCORE = 75;
 
 /**
+ * Listings a scheduled run assesses against the résumé before applying.
+ *
+ * Standard accounts cannot raise the evaluation ceiling themselves, and the
+ * product default of 40 was sized for a person watching one run. A schedule
+ * is four unattended runs, and the promise made for it is a day's worth of
+ * curated jobs — 240 at this figure — so the floor is set here rather than
+ * left to a setting nobody on that plan can see.
+ */
+export const SCHEDULED_EVALUATIONS_PER_RUN = 60;
+
+/**
  * The preferences a standard account may edit: who they are, what work they
  * want, and where and for how much. Everything else in `KEEP_SETTINGS_KEYS`
  * — match threshold, listing age, page depth, per-run and per-day ceilings,
@@ -85,7 +96,10 @@ export function applyRunPolicy(
   if (!entitlement.fineTune) {
     for (const key of FINE_TUNING_KEYS) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
   }
-  if (trigger === 'auto') resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
+  if (trigger === 'auto') {
+    resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
+    resolved.MAX_EVALUATIONS = String(Math.max(Number(resolved.MAX_EVALUATIONS) || 0, SCHEDULED_EVALUATIONS_PER_RUN));
+  }
   return resolved;
 }
 
@@ -102,6 +116,8 @@ export interface Entitlements {
   autoRunsUsedToday: number;
   /** Fixed match floor for scheduled applications; null when this tier has no schedule. */
   scheduledMinScore: number | null;
+  /** Listings the schedule assesses over a full day; null without a schedule. */
+  scheduledJobsPerDay: number | null;
   /** May edit the settings that change how a run behaves. */
   fineTune: boolean;
   /** May use the rewriting tool. */
@@ -204,6 +220,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     autoRunsPerDay,
     autoRunsUsedToday,
     scheduledMinScore: autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
+    scheduledJobsPerDay: autoRunsPerDay ? autoRunsPerDay * SCHEDULED_EVALUATIONS_PER_RUN : null,
     fineTune: tier !== 'standard',
     rewriteText: tier === 'admin',
     window: { ...AUTO_WINDOW, timeZone: RUN_TIME_ZONE },

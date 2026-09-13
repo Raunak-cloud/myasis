@@ -32,6 +32,11 @@ check('removed target roles cannot influence Intensive runs', intensive.TARGET_R
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, { fineTune: true }, 'manual');
 check('admins keep their fine tuning', admin.MAX_EVALUATIONS === '500');
+
+const standardAuto = applyRunPolicy(saved, { fineTune: false }, 'auto');
+check('a scheduled run assesses a full day\'s share of listings', standardAuto.MAX_EVALUATIONS === '60');
+const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, { fineTune: true }, 'auto');
+check('a higher saved ceiling is kept on a scheduled run', adminAuto.MAX_EVALUATIONS === '100');
 check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);
 check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
 
