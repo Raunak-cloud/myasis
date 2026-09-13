@@ -14,6 +14,6 @@ Think like a senior software developer. Prioritize holistic, architectural solut
 - The dashboard runs `seek-bot/dist`, so build seek-bot after changing it.
 - Deploy: push to `main`, then on the VPS
   `git pull && npm run build` (both packages as needed) `&& pm2 restart myasis-dashboard --update-env`.
-- This tool never automates login and never handles credentials.
+- Employer-site login and account creation are automated with per-site credentials; Australian government sites are excluded before AI review.
 - x11vnc binds `127.0.0.1` only, behind the authenticated dashboard WebSocket. Never publish a VNC port.
 - Never route the bot's outbound traffic through Cloudflare WARP.

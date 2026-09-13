@@ -39,8 +39,9 @@ check('does not treat Continue as a submit', !isSubmitAction('Continue'));
 check('seek.com.au is not external', !isExternal('https://www.seek.com.au/apply/123'));
 check('an ATS host is external', isExternal('https://jobs.smartrecruiters.com/x/y'));
 check('SEEK external apply path is external', isExternal('https://www.seek.com.au/apply/external/123'));
-check('refuses login destinations', isForbiddenDestination('https://example.com/login'));
+check('allows employer authentication destinations', !isForbiddenDestination('https://example.com/login'));
 check('refuses payment destinations', isForbiddenDestination('https://example.com/checkout'));
+check('refuses Australian government destinations', isForbiddenDestination('https://jobs.nsw.gov.au/apply/1'));
 check('allows an ordinary apply path', !isForbiddenDestination('https://example.com/apply/step-2'));
 
 {

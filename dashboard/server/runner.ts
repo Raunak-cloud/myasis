@@ -476,6 +476,7 @@ const SECRET_KEYS = new Set([
   // Found while fixing the per-account data isolation bug: both were being
   // returned in full plaintext by /api/settings to any signed-in account.
   'GOOGLE_CLIENT_SECRET',
+  'SITE_AUTH_SECRET',
   'DATABASE_URL', // embeds the Postgres password
 ]);
 

@@ -1,5 +1,6 @@
 import type { Page } from 'patchright';
 import { config } from '../config.js';
+import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { CostMeter } from './celeris.js';
 
 /**
@@ -43,15 +44,15 @@ export function isExternal(url: string): boolean {
 }
 
 /**
- * Pages the agent is never allowed to drive, whatever it decides.
+ * Destinations the agent is never allowed to drive, whatever it decides.
  *
- * The bot does not automate login and does not handle credentials — that is a
- * standing guarantee of this project, so it is enforced rather than prompted.
+ * Authentication is handled by a dedicated tool. Payment flows and Australian
+ * government domains remain outside the application agent.
  */
-const FORBIDDEN_URL = /\/(login|signin|sign-in|register|signup|password|oauth|checkout|payment|billing)\b/i;
+const FORBIDDEN_URL = /\/(checkout|payment|billing)\b/i;
 
 export function isForbiddenDestination(url: string): boolean {
-  return FORBIDDEN_URL.test(url);
+  return isAustralianGovernmentUrl(url) || FORBIDDEN_URL.test(url);
 }
 
 /**

@@ -5,7 +5,7 @@ export interface SetupCheck {
   label: string;
   done: boolean;
   hint: string;
-  fix: 'documents' | 'looking' | 'where' | 'external';
+  fix: 'details' | 'documents' | 'looking' | 'where' | 'external';
   required: boolean;
 }
 
@@ -19,7 +19,7 @@ export interface SetupStatus {
 export function useSetupStatus(): SetupStatus | null {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   useEffect(() => {
-    const load = () => fetch('/api/setup/status').then((r) => r.json()).then(setStatus).catch(() => {});
+    const load = () => fetch('/api/setup/status').then((response) => response.json()).then(setStatus).catch(() => {});
     load();
     const id = setInterval(load, 6000);
     return () => clearInterval(id);
@@ -27,14 +27,7 @@ export function useSetupStatus(): SetupStatus | null {
   return status;
 }
 
-/**
- * Readiness, shown where the user actually starts a run.
- *
- * Without this a disappointing run is ambiguous — no matches, or no résumé
- * uploaded? Each row is the next action rather than a status label, and the
- * whole card disappears once the required steps are done so it never becomes
- * furniture.
- */
+/** Readiness and direct next steps, shown beside the run controls. */
 export function SetupChecklist({
   status,
   onFix,
@@ -43,46 +36,64 @@ export function SetupChecklist({
   onFix: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const outstanding = status.checks.filter((c) => !c.done);
+  const outstanding = status.checks.filter((check) => !check.done);
 
   if (!outstanding.length) return null;
 
-  const blocking = outstanding.filter((c) => c.required);
-  const optional = outstanding.filter((c) => !c.required);
+  const blocking = outstanding.filter((check) => check.required);
+  const optional = outstanding.filter((check) => !check.required);
+  const visible = blocking.length ? blocking : outstanding;
+  const progress = status.total ? (status.done / status.total) * 100 : 0;
 
   return (
     <div className={`card checklist ${blocking.length ? 'blocking' : ''}`}>
       <div className="checklist-head">
-        <div>
-          <strong>
+        <div className="checklist-summary">
+          <span className="checklist-kicker">Setup</span>
+          <strong className="checklist-title">
             {blocking.length
-              ? `${blocking.length} thing${blocking.length > 1 ? 's' : ''} to set up before running`
+              ? `${blocking.length} step${blocking.length > 1 ? 's' : ''} left before your first run`
               : 'Ready to run'}
           </strong>
-          <div className="job-meta">
-            {status.done} of {status.total} done
-            {!blocking.length && optional.length ? ` · ${optional.length} optional improvement${optional.length > 1 ? 's' : ''}` : ''}
-          </div>
+          {!blocking.length && optional.length > 0 && (
+            <span className="job-meta">
+              {optional.length} optional improvement{optional.length > 1 ? 's' : ''}
+            </span>
+          )}
         </div>
-        {!blocking.length && (
-          <button className="btn" onClick={() => setExpanded(!expanded)}>
-            {expanded ? 'Hide' : 'Show'}
-          </button>
-        )}
+        <div className="checklist-head-actions">
+          <span className="checklist-count">{status.done} of {status.total} complete</span>
+          {!blocking.length && (
+            <button className="btn" onClick={() => setExpanded(!expanded)}>
+              {expanded ? 'Hide' : 'Show'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div
+        className="checklist-progress"
+        role="progressbar"
+        aria-label="Setup progress"
+        aria-valuemin={0}
+        aria-valuemax={status.total}
+        aria-valuenow={status.done}
+      >
+        <span style={{ width: `${progress}%` }} />
       </div>
 
       {(blocking.length > 0 || expanded) && (
         <ul className="checklist-items">
-          {(blocking.length ? blocking : outstanding).map((c) => (
-            <li key={c.id}>
-              <span className="checklist-mark">{c.required ? '!' : '○'}</span>
-              <span>
-                <strong>{c.label}</strong>
-                <div className="job-meta">{c.hint}</div>
+          {visible.map((check, index) => (
+            <li key={check.id}>
+              <span className="checklist-mark" aria-hidden="true">{index + 1}</span>
+              <span className="checklist-copy">
+                <strong>{check.label}</strong>
+                <span className="job-meta">{check.hint}</span>
               </span>
-              {c.fix !== 'external' && (
+              {check.fix !== 'external' && (
                 <button className="btn checklist-btn" onClick={onFix}>
-                  Fix
+                  Set up
                 </button>
               )}
             </li>

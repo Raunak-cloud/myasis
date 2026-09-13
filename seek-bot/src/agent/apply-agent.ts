@@ -4,6 +4,7 @@ import { waitForApplicationSurface } from './observe.js';
 import { coverLetterForJob } from '../llm.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from '../types.js';
 import { runApplicationAgent } from './loop.js';
+import { australianGovernmentDestination } from '../site-policy.js';
 
 /**
  * Agent-driven replacement for `applyToJob`.
@@ -96,6 +97,9 @@ export async function applyToJobWithAgent(
 
   const label = clean(await applyCta.innerText().catch(() => ''));
   const externalCta = !/quick\s*apply/i.test(label);
+  if (australianGovernmentDestination(job)) {
+    return { status: 'skipped', jobId: job.id, reason: 'Australian government application site excluded.' };
+  }
   if (externalCta && !config.allowExternalApply) {
     const href = await applyCta.getAttribute('href').catch(() => null);
     return {

@@ -32,8 +32,9 @@ cp .env.example .env      # add GEMINI_API_KEY
 ```
 
 Sign in to SEEK manually in the Chrome profile at `CHROME_PROFILE_DIR` once.
-**The bot never automates login and never handles credentials.** If the session
-is dead it stops and tells you.
+Employer-site authentication is completed in the candidate's isolated browser.
+The bot uses their email, a private site-specific password and connected Gmail
+for emailed codes. Australian government and payment destinations stay blocked.
 
 ## Use
 
@@ -101,11 +102,11 @@ turn, and take no model output as input:
 |---|---|
 | Submit gate | `canSubmit()` is the only route to a submit click. Dry run withholds; an ungrounded answer blocks; an external submit blocks unless enabled |
 | Grounding | Answers still come from Gemini's grounded path. Anything it cannot support is recorded and blocks submission |
-| CAPTCHA / SEEK Pass | Detected in code before each turn; halts with `needs-human` |
+| CAPTCHA / SEEK Pass | Attempts automated recovery; an unresolved technical wall skips the job without creating user attention |
 | Off-platform | Leaving SEEK with external apply disabled halts before anything is entered |
-| Forbidden destinations | Login, signup, password, payment and checkout URLs are refused outright — the bot still never touches credentials |
+| Employer authentication | Uses the candidate email, a unique site-specific credential and connected Gmail OTPs; payment and Australian government destinations remain blocked |
 | Budgets | Step, wall-clock and per-application USD ceilings. An agent loop has no natural stopping point |
-| Success | Only `detectConfirmation()` can report `applied`. The agent is explicitly forbidden from declaring success, and a claim of one is downgraded to `needs-human` |
+| Success | Only `detectConfirmation()` can report `applied`. The agent is explicitly forbidden from declaring success, and an unconfirmed claim is skipped |
 
 **The agent cannot author selectors or code.** Each observation stamps a `ref`
 onto every visible control; the tools accept only those refs. The model can act
@@ -187,16 +188,18 @@ Choose one strategy in the dashboard before each run:
 > catches those, so running without an API key gives you an unfiltered list.
 > The bot warns loudly when that happens.
 
-## Where it stops and asks you
+## When it asks you
 
 By design, not limitation:
 
 | Situation | Behaviour |
 |---|---|
-| CAPTCHA | optionally tries Cloudflare click solving, then logs `needs-human` if still blocked |
-| SEEK Pass / work-rights wall | stops, logs `needs-human` |
+| CAPTCHA | optionally tries Cloudflare click solving, then skips the job if still blocked |
+| Employer sign-in or sign-up | completes the form, uses connected Gmail for emailed codes, then skips if authentication still cannot complete |
+| Australian government destination | skips before AI review or application |
+| SEEK Pass / work-rights wall | skips the job without creating a user task |
 | External application while external apply is disabled | logs `off-platform` before AI review, **enters nothing** |
-| A question not answerable from `profile.txt` | stops before submitting |
+| A required question not answerable from the verified profile | stops before submitting and asks the candidate |
 | 2 friction signals in a row | aborts the whole run |
 
 ### Optional Patchright CAPTCHA integration
@@ -255,7 +258,7 @@ removing their cooldown invites exactly the verification walls documented above.
 - Many SEEK listings gate applying behind **verified work rights (SEEK Pass)** —
   the page says "Verify your work rights to continue applying" and the flow
   cannot proceed, even though the Continue button stays enabled. The bot detects
-  this and halts with `needs-human`. Completing SEEK Pass verification once
+  this and skips the job. Completing SEEK Pass verification once
   unlocks those listings.
 - Automating applications is very likely contrary to SEEK's terms of use. That's
   your call to make; the code keeps volume low and hands off at every human

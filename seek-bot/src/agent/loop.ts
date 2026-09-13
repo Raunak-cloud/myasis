@@ -10,6 +10,7 @@ import { RunGuards, detectConfirmation, isExternal } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
 import { executeTool, toolSchemas, type AgentTermination, type ToolContext } from './tools.js';
 import { browserGmailAvailable } from '../browser-gmail.js';
+import { isAustralianGovernmentUrl } from '../site-policy.js';
 
 /**
  * The navigation agent.
@@ -70,6 +71,11 @@ employers, so read the page rather than assuming an order.
   If a step has unanswered fields, answer them before clicking anything.
 - If a forward control is disabled, something required is still unanswered.
 - If a dialog is covering the page, close or confirm it first.
+- If an employer site requires sign-in or account creation, complete it rather
+  than stopping. Prefer an emailed code or passwordless option when offered.
+  Use complete_authentication for email, username, name, phone and password
+  fields. If a sign-in password is rejected, use the site's reset-password or
+  create-account path, then use the emailed-code tool when a code is sent.
 - Custom controls are driven step by step, the way a person uses them. A
   dropdown that is not a native select shows as an action "(opens a list)":
   click it, then its entries appear as [option] actions — click the one you
@@ -93,14 +99,13 @@ STOPPING
 - To submit an application, click its submit control. "finish" is for giving up,
   never for reporting success — success is detected from the page, not declared.
   If you have already submitted, the run has ended and you will not be asked again.
-- Call finish with "needs_human" when the page needs a real person: a CAPTCHA
-  or bot check you cannot pass (an "I'm not a robot" checkbox, an image puzzle,
-  "verify you are human", a Cloudflare check that will not clear), a login wall
-  with no guest option, an emailed code you have no tool for, an identity or
-  work-rights wall, a REQUIRED question the profile cannot support, or a step you
-  cannot make progress on. Say which in the reason. A small "protected by
-  reCAPTCHA" badge in a corner is not a challenge, and an optional question you
-  cannot answer is not a reason to stop.
+- Call finish with "needs_human" only when answer_questions reports a REQUIRED
+  application question that the verified profile cannot support. Say which
+  question is missing. An optional question is never a reason to stop.
+- For a CAPTCHA that cannot be cleared, failed authentication after trying the
+  available sign-in, sign-up, reset and emailed-code paths, or a page where no
+  action makes progress, call finish with "cannot_complete". That job is skipped
+  without asking the candidate to fix a technical site problem.
 - Call finish with "already_applied" when the page says the candidate has
   previously applied for this specific job.
 - Call finish with "nothing_to_apply_to" when the listing is expired or has no
@@ -318,14 +323,19 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastFingerprint = '';
 
   const finish = (outcome: AgentTermination): AgentRunResult => {
+    const criticalQuestions = [...new Set([...guards.pendingFields, ...guards.ungrounded])];
+    const finalOutcome: AgentTermination =
+      outcome.status === 'needs-human' && criticalQuestions.length === 0
+        ? { status: 'skipped', reason: outcome.reason }
+        : outcome;
     /**
      * The technical detail goes to the log and the trace and stops there.
      * What leaves this function is written to the account's run events and
      * shown on the dashboard, so it carries only the plain reason.
      */
     if (outcome.status === 'needs-human' && outcome.detail) log(`  · ${outcome.detail}`);
-    persistTrace(job, outcome, trace, page.url());
-    const plain: AgentTermination = outcome.status === 'needs-human' ? { ...outcome, detail: undefined } : outcome;
+    persistTrace(job, finalOutcome, trace, page.url());
+    const plain: AgentTermination = finalOutcome.status === 'needs-human' ? { ...finalOutcome, detail: undefined } : finalOutcome;
     return {
       // Every needs-human carries the questions the profile could not answer, so
       // the dashboard can ask the candidate once and reuse the answers.
@@ -333,7 +343,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
         plain.status === 'needs-human'
           ? {
               ...plain,
-              questions: [...new Set([...guards.pendingFields, ...guards.ungrounded, ...guards.skippedOptional])].map(
+              questions: criticalQuestions.map(
                 (question) => {
                   const shape = guards.fieldShapes.get(question);
                   return {
@@ -367,6 +377,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      */
     if (await detectConfirmation(page)) return finish({ status: 'applied' });
 
+    if (isAustralianGovernmentUrl(page.url())) {
+      return finish({ status: 'skipped', reason: 'Australian government application sites are excluded.' });
+    }
     if (isExternal(page.url()) && !config.allowExternalApply) {
       return finish({ status: 'off-platform', redirectedTo: page.url() });
     }

@@ -7,7 +7,7 @@ import { query } from './db/index.js';
  * `db/run-sync.ts`) and `applications`, both filtered by `user_id`.
  */
 
-export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
+export type AttentionKind = 'question';
 
 export interface AttentionItem {
   jobId: string;
@@ -64,14 +64,6 @@ export function normaliseQuestions(raw: unknown): BlockedQuestion[] {
   return out;
 }
 
-const CLASSIFY: Array<[RegExp, AttentionKind]> = [
-  [/captcha|not a robot/i, 'captcha'],
-  // "verify"/"verification" only: "cannot be answered from the verified profile" is a question, not a wall.
-  [/work[- ]rights|seek pass|identity|verif(?:y|ication)\b/i, 'verification'],
-  [/not answerable|needs input|question/i, 'question'],
-  [/off-platform|external|apply on company/i, 'off-platform'],
-];
-
 export interface RunEventRow {
   job_id: string | null;
   status: string;
@@ -83,7 +75,7 @@ export interface RunEventRow {
   questions: unknown[] | null;
 }
 
-const ATTENTION_STATUSES = new Set(['needs-human', 'off-platform', 'error']);
+const ATTENTION_STATUSES = new Set(['needs-human']);
 
 /**
  * Items are deduped to the latest attempt per job, and anything since
@@ -157,25 +149,21 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
 
     const reason = e.reason ?? 'stopped';
     const questions = normaliseQuestions(e.questions);
-    let kind: AttentionKind = e.status === 'off-platform' ? 'off-platform' : e.status === 'error' ? 'error' : 'question';
-    for (const [re, k] of CLASSIFY) {
-      if (re.test(reason)) {
-        kind = k;
-        break;
-      }
+    // Only an exact, unanswered required application question creates a user
+    // task. Authentication, CAPTCHA, navigation and provider failures remain
+    // run outcomes and never enter Needs attention.
+    if (!questions.length) {
+      latest.delete(e.job_id);
+      continue;
     }
-    // A run that recorded the unanswered questions is, whatever the wording, something the candidate can answer.
-    if (questions.length && e.status === 'needs-human') kind = 'question';
 
     // Later entries win: a job may have been retried and resolved differently.
     latest.set(e.job_id, {
       jobId: e.job_id,
       title: e.title ?? `Job ${e.job_id}`,
       company: e.company ?? '—',
-      kind,
-      reason: e.status === 'error'
-        ? 'Myasis could not complete this application. Please try it again.'
-        : plainReason(String(reason)).slice(0, 300),
+      kind: 'question',
+      reason: plainReason(String(reason)).slice(0, 300),
       url: e.url ?? `https://www.seek.com.au/job/${e.job_id}`,
       at: new Date(e.ts).toISOString(),
       ...(questions.length ? { questions } : {}),
@@ -218,7 +206,7 @@ export async function dismissAllAttention(userId: string): Promise<number> {
     `UPDATE run_events
         SET dismissed_at = now()
       WHERE user_id = $1
-        AND status IN ('needs-human', 'off-platform', 'error')
+        AND status = 'needs-human'
         AND dismissed_at IS NULL
       RETURNING id`,
     [userId],

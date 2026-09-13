@@ -1,6 +1,5 @@
 import { assertHumanizerHealthy, readEnv } from './runner.js';
 import { listResumes, listKnowledge } from './files.js';
-import { loadAttention } from './attention.js';
 import { profileGaps } from './profile.js';
 import { loadUserSettings } from './settings.js';
 
@@ -30,17 +29,13 @@ export async function setupStatus(
   userId: string,
 ): Promise<{ checks: SetupCheck[]; ready: boolean; done: number; total: number }> {
   const env = readEnv();
-  const [resumes, knowledgeAll, attention, gaps, settings] = await Promise.all([
+  const [resumes, knowledgeAll, gaps, settings] = await Promise.all([
     listResumes(userId),
     listKnowledge(userId),
-    loadAttention(userId),
     profileGaps(userId),
     loadUserSettings(userId),
   ]);
   const knowledge = knowledgeAll.filter((k) => k.enabled);
-
-  // If listings are actively blocked on work rights, verification is unfinished.
-  const blockedOnVerification = attention.filter((a) => a.kind === 'verification').length;
 
   let humanizerError = '';
   try {
@@ -108,17 +103,6 @@ export async function setupStatus(
       done: knowledge.length > 0,
       hint: 'Add your CV or notes so screening questions can be answered instead of halting the run.',
       fix: 'documents',
-      required: false,
-    },
-    {
-      id: 'workrights',
-      label: 'Work rights verified on SEEK',
-      done: blockedOnVerification === 0,
-      hint:
-        blockedOnVerification > 0
-          ? `${blockedOnVerification} listings are blocked waiting for this. Complete SEEK Pass once on your SEEK profile to unlock them.`
-          : 'Complete SEEK Pass on your SEEK profile if listings start asking for it.',
-      fix: 'external',
       required: false,
     },
   ];

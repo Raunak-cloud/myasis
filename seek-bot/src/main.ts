@@ -25,6 +25,7 @@ import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import type { Page } from 'patchright';
+import { australianGovernmentDestination } from './site-policy.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -358,6 +359,20 @@ async function main() {
        */
       await jitter(5000, 8000);
 
+      const governmentDestination = australianGovernmentDestination(job);
+      if (governmentDestination) {
+        console.log(`  â€“ ${job.title} @ ${job.company} â€” Australian government application site excluded before AI review`);
+        bump('Australian government application site');
+        logOutcome({
+          status: 'skipped',
+          jobId: job.id,
+          reason: 'Australian government application site excluded.',
+          title: job.title,
+          company: job.company,
+        });
+        continue;
+      }
+
       const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
       let verdict = await judgePage(page, expected);
       if (verdict.state === 'already-applied') {
@@ -390,10 +405,10 @@ async function main() {
         if (!job.description) {
           if (WALL_STATES.has(verdict.state)) {
             const reason = `${verdict.state === 'captcha' ? 'CAPTCHA' : verdict.state === 'login' ? 'Login wall' : 'Verification gate'} before AI fit review — ${verdict.reason}`;
-            console.log(`  ⏸ ${adapter.label} needs manual verification — no AI review was sent`);
+            console.log(`  ↷ ${adapter.label} unavailable before fit review — no AI review was sent`);
             bump(reason);
             reviewBlockedPlatforms.add(adapter.id);
-            logOutcome({ status: 'needs-human', jobId: job.id, reason, url: page.url(), title: job.title, company: job.company });
+            logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company });
             continue;
           }
           console.log(`  ↷ ${job.title} @ ${job.company} — listing unavailable (${verdict.reason})`);

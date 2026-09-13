@@ -98,8 +98,7 @@ export const MAX_SEARCH_TERMS = 5;
 
 export const config = {
   /**
-   * Reuses the already-authenticated Chrome profile. The bot never handles
-   * credentials or automates login — if the session is dead it stops and asks.
+   * Reuses each account's Chrome profile, including its existing sessions.
    */
   userDataDir: process.env.CHROME_PROFILE_DIR ?? 'C:\\Users\\PC\\ChromeDebugProfile',
   chromePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',

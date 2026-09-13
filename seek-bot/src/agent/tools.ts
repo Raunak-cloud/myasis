@@ -17,6 +17,8 @@ import { RunGuards, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
+import { authenticationValue } from '../site-auth.js';
+import { isAustralianGovernmentUrl } from '../site-policy.js';
 
 /**
  * The agent's entire action surface.
@@ -128,6 +130,25 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
   {
+    name: 'complete_authentication',
+    description:
+      'Fill sign-in or account-creation fields using the candidate profile and the private site credential. ' +
+      'Use this for email, username, name, phone, password and password-confirmation fields. Pass every authentication FIELD on the page. ' +
+      'Do not use answer_questions for credentials. After filling, click the sign-in, create-account or continue control.',
+    parameters: {
+      type: 'object',
+      properties: {
+        refs: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Authentication field refs from the current FIELDS list.',
+        },
+        reason: { type: 'string', description: 'Whether this is sign-in, account creation or password reset.' },
+      },
+      required: ['refs', 'reason'],
+    },
+  },
+  {
     name: 'answer_questions',
     description:
       'Answer employer questions. Pass the refs of every FIELD on this step that is a question for the applicant. ' +
@@ -189,7 +210,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
          */
         status: {
           type: 'string',
-          enum: ['needs_human', 'off_platform', 'already_applied', 'nothing_to_apply_to'],
+          enum: ['needs_human', 'cannot_complete', 'off_platform', 'already_applied', 'nothing_to_apply_to'],
         },
         reason: { type: 'string', description: 'One sentence, specific.' },
       },
@@ -282,6 +303,12 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
       .catch(() => null);
     if (href) {
       const destination = new URL(href, ctx.page.url()).href;
+      if (isAustralianGovernmentUrl(destination)) {
+        return {
+          kind: 'terminal',
+          outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' },
+        };
+      }
       if (isForbiddenDestination(destination)) {
         return ok(`Refused: "${action.text}" leads to ${destination}, which this tool never navigates to.`);
       }
@@ -304,6 +331,51 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
   );
 }
 
+async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (isAustralianGovernmentUrl(ctx.page.url())) {
+    return {
+      kind: 'terminal',
+      outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' },
+    };
+  }
+
+  const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
+  const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));
+  if (!fields.length) {
+    return ok('None of those refs are authentication fields on this page. Choose refs from the current FIELDS list.');
+  }
+
+  const values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url()) }));
+  const unsupported = values.filter((entry) => entry.value === null);
+  const missingCredential = unsupported.some((entry) => entry.field.sensitive);
+  if (missingCredential) {
+    return ok('The private site credential is unavailable. Finish with "cannot_complete" so this job is skipped.');
+  }
+
+  const filled: string[] = [];
+  const failed: string[] = [];
+  for (const { field, value } of values) {
+    if (value === null) continue;
+    try {
+      await fillField(ctx.page, field, value);
+      ctx.guards.pendingFields.delete(field.label);
+      filled.push(field.label);
+    } catch (error) {
+      failed.push(`${field.label}: ${(error as Error).message}`);
+    }
+  }
+
+  if (filled.length) ctx.guards.recordProgress();
+  return ok(
+    `${filled.length} authentication field(s) completed${filled.length ? `: ${filled.join('; ')}` : ''}.` +
+      (unsupported.length
+        ? ` Use answer_questions for the remaining profile field(s): ${unsupported.map((entry) => `${entry.field.ref} (${entry.field.label})`).join(', ')}.`
+        : '') +
+      (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
+      ' Continue with the sign-in or account-creation control.',
+  );
+}
+
 async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref));
@@ -320,15 +392,9 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   const credentials = asked.filter((field) => field.sensitive);
   const wanted = asked.filter((field) => !field.sensitive);
   if (credentials.length) {
-    return {
-      kind: 'terminal',
-      outcome: {
-        status: 'needs-human',
-        reason:
-          `This employer requires creating an account (${credentials.map((f) => f.label).join(', ')}). ` +
-          'Passwords are never set or stored here, so this one has to be finished by hand.',
-      },
-    };
+    return ok(
+      `Use complete_authentication for credential fields: ${credentials.map((field) => `${field.ref} (${field.label})`).join(', ')}.`,
+    );
   }
 
   if (!wanted.length) {
@@ -521,18 +587,18 @@ async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
       if (outcome.reason === 'local-file-missing') {
         return ok(
           `The selected resume ("${outcome.wanted}") is missing from local storage and cannot be attached. ` +
-            'Finish with "needs_human".',
+            'Finish with "cannot_complete".',
         );
       }
       if (outcome.reason === 'upload-control-missing') {
         return ok(
           `The selected resume ("${outcome.wanted}") is not on the SEEK account, and this application does not offer an upload control. ` +
-            `Available: ${outcome.available.join(', ') || 'none'}. Finish with "needs_human".`,
+            `Available: ${outcome.available.join(', ') || 'none'}. Finish with "cannot_complete".`,
         );
       }
       return ok(
         `The resume for this run ("${outcome.wanted}") is not on the account and uploading is disabled. ` +
-          `Available: ${outcome.available.join(', ') || 'none'}. Finish with "needs_human".`,
+          `Available: ${outcome.available.join(', ') || 'none'}. Finish with "cannot_complete".`,
       );
     case 'kept-default':
       if (outcome.name !== '(no document step)') {
@@ -580,14 +646,13 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
       /**
        * The model does not get to declare success. Only `detectConfirmation`
        * does, and the loop checks it before every turn — so if we are here,
-       * the page never showed a confirmation and this is a needs-human.
+       * the page never showed a confirmation, so this attempt is skipped.
        */
       return {
         kind: 'terminal',
         outcome: {
-          status: 'needs-human',
+          status: 'skipped',
           reason: 'The application was not confirmed as submitted.',
-          detail: `agent claimed submission but no confirmation page was reached: ${reason}`,
         },
       };
     case 'off_platform':
@@ -596,13 +661,17 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
       return { kind: 'terminal', outcome: { status: 'already-applied', reason } };
     case 'nothing_to_apply_to':
       return { kind: 'terminal', outcome: { status: 'skipped', reason } };
+    case 'cannot_complete':
+      return { kind: 'terminal', outcome: { status: 'skipped', reason } };
     default:
-      // The agent met a challenge. With click-solving on, one attempt is
-      // made before a person is asked; if it clears, the agent carries on.
+      // The agent met a challenge. With click-solving on, one attempt is made;
+      // if it clears, the agent carries on.
       if (/captcha|robot|verify you are human|bot check|security verification/i.test(reason) && captchaEnabled()) {
         if (await trySolveCaptcha(ctx.page)) return ok('The challenge was cleared. Re-observe the page and continue.');
       }
-      return { kind: 'terminal', outcome: { status: 'needs-human', reason } };
+      return ctx.guards.pendingFields.size || ctx.guards.ungrounded.length
+        ? { kind: 'terminal', outcome: { status: 'needs-human', reason } }
+        : { kind: 'terminal', outcome: { status: 'skipped', reason } };
   }
 }
 
@@ -637,6 +706,12 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     )
     .catch(() => null);
   if (!under) return ok('Nothing is under that point. Re-observe and try a ref or a different point.');
+  if (under.href && isAustralianGovernmentUrl(under.href)) {
+    return {
+      kind: 'terminal',
+      outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' },
+    };
+  }
   if (under.href && isForbiddenDestination(under.href)) {
     return ok(`Refused: that point is a link to ${under.href}, which this tool never navigates to.`);
   }
@@ -666,7 +741,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
 
 async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!browserGmailAvailable()) {
-    return ok('No mailbox is signed in for this candidate. Finish with "needs_human".');
+    return ok('No mailbox is signed in for this candidate. Try another authentication option; otherwise finish with "cannot_complete".');
   }
   const field = ctx.observation.fields.find((candidate) => candidate.ref === String(args.ref ?? ''));
   if (!field) return ok("That ref is not a FIELD on this page. Choose the code input's ref from the current FIELDS list.");
@@ -681,8 +756,8 @@ async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown
      * not fix it. Saying so ends the attempt in one step instead of spending
      * another ninety seconds finding out the same thing.
      */
-    if (/signed out/i.test(found.error)) return ok(`${found.error} Finish with "needs_human".`);
-    return ok('No verification email arrived within 90 seconds. If the page has a resend control, click it and call this again once; otherwise finish with "needs_human".');
+    if (/signed out/i.test(found.error)) return ok(`${found.error} Try another authentication option; otherwise finish with "cannot_complete".`);
+    return ok('No verification email arrived within 90 seconds. If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".');
   }
 
   await fillField(ctx.page, field, found.code);
@@ -702,6 +777,8 @@ export async function executeTool(
   switch (name) {
     case 'click':
       return doClick(ctx, args);
+    case 'complete_authentication':
+      return doCompleteAuthentication(ctx, args);
     case 'answer_questions':
       return doAnswerQuestions(ctx, args);
     case 'add_cover_letter':
