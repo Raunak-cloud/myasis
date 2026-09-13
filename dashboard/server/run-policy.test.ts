@@ -13,6 +13,7 @@ const saved = {
   MIN_SCORE: '22',
   MAX_EVALUATIONS: '150',
   COVER_LETTER_MODE: 'reuse',
+  AI_INSTRUCTIONS_B64: 'ZG9udCBhcHBseSBmb3Igc2VuaW9yIHJvbGVz',
 };
 
 const standardManual = applyRunPolicy(saved, { fineTune: false }, 'manual');
@@ -22,12 +23,15 @@ check('removed target roles cannot influence standard runs', standardManual.TARG
 check('standard accounts cannot retain a custom match threshold', standardManual.MIN_SCORE !== saved.MIN_SCORE);
 check('standard accounts cannot retain custom evaluation limits', standardManual.MAX_EVALUATIONS !== saved.MAX_EVALUATIONS);
 check('standard accounts cannot retain custom cover-letter behavior', standardManual.COVER_LETTER_MODE !== saved.COVER_LETTER_MODE);
+check('standard accounts cannot retain fine-tuning prompts', standardManual.AI_INSTRUCTIONS_B64 === '');
 
 const scheduled = applyRunPolicy(saved, { fineTune: false }, 'auto');
 check('scheduled applications always require a 75 percent match', scheduled.MIN_SCORE === String(SCHEDULED_MIN_SCORE));
+check('standard scheduled runs cannot inherit fine-tuning prompts', scheduled.AI_INSTRUCTIONS_B64 === '');
 
 const intensive = applyRunPolicy({ ...saved, MIN_SCORE: '70' }, { fineTune: true }, 'manual');
 check('Intensive accounts keep their fine tuning', intensive.MIN_SCORE === '70');
+check('Intensive live runs keep the saved prompt', intensive.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 check('removed target roles cannot influence Intensive runs', intensive.TARGET_ROLE === '');
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, { fineTune: true }, 'manual');
@@ -37,6 +41,7 @@ const standardAuto = applyRunPolicy(saved, { fineTune: false }, 'auto');
 check('a scheduled run assesses a full day\'s share of listings', standardAuto.MAX_EVALUATIONS === '60');
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, { fineTune: true }, 'auto');
 check('a higher saved ceiling is kept on a scheduled run', adminAuto.MAX_EVALUATIONS === '100');
+check('admin scheduled live runs keep the saved prompt', adminAuto.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);
 check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
 
