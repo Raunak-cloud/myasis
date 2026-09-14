@@ -9,7 +9,7 @@ import {
   waitForInteractiveSurface,
 } from '../browser.js';
 import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
-import { answerFields, coverLetterForJob } from '../llm.js';
+import { answerFields, coverLetterForJob, finishedCoverLetterForJob } from '../llm.js';
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
 import type { BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
@@ -578,13 +578,15 @@ async function doAddCoverLetter(ctx: ToolContext): Promise<ToolResult> {
     : { letter: await coverLetterForJob(ctx.job, ctx.profile) };
   if (draft.error) throw draft.error;
   if (!draft.letter) throw new Error('Cover-letter drafting returned no text.');
+  // Only now, with a box in front of us, is the rewrite worth its time.
+  const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
 
-  await textarea.fill(draft.letter, { timeout: 10_000 });
-  if (await textarea.inputValue() !== draft.letter) throw new Error('Cover letter did not retain the drafted text');
-  ctx.coverLetter = draft.letter;
+  await textarea.fill(letter, { timeout: 10_000 });
+  if (await textarea.inputValue() !== letter) throw new Error('Cover letter did not retain the drafted text');
+  ctx.coverLetter = letter;
   if (config.coverLetter.mode === 'reuse') ctx.log('  ↻ reusable cover letter selected');
   return ok(
-    `Cover letter written (${draft.letter.split(/\s+/).length} words), addressed to ${ctx.job.company}. ` +
+    `Cover letter written (${letter.split(/\s+/).length} words), addressed to ${ctx.job.company}. ` +
       'The cover-letter step is DONE — click the forward control next.',
   );
 }

@@ -17,7 +17,7 @@ import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import { deterministicExclusion, detectInjection, meetsMinimumScore } from './scoring.js';
-import { assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
+import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { judgePage } from './blocker.js';
@@ -213,7 +213,7 @@ async function build() {
       const fitReason = fit.reason;
 
       // Draft the letter now so the reviewer has something to read, not a spinner.
-      const coverLetter = await coverLetterForJob(job, profile);
+      const coverLetter = await finishedCoverLetterForJob(job, profile);
 
       fresh.push({
         jobId: job.id,

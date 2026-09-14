@@ -436,7 +436,41 @@ export function vetComposed(input: FieldAnswer): FieldAnswer {
   };
 }
 
-export async function writeCoverLetter(
+/**
+ * Whether a letter's factual claims are supported by the candidate's evidence.
+ * Used on the draft, and again on every rewrite of it.
+ */
+async function letterIsSupported(candidate: string, profile: CandidateProfile, knowledge: string): Promise<boolean> {
+  const result = await measured('letter-evidence-check', () => json<{ supported: boolean; reason: string }>(`${GUARD}
+Check only factual claims in this letter against candidate evidence. Normal aspirations,
+polite language and paraphrased transferable skills are fine. Reject invented experience,
+qualifications, named employers, work rights, availability or commitments.
+PROFILE: ${profileBlock(profile)}
+DOCUMENTS: <candidate-documents>${knowledge}</candidate-documents>
+LETTER: <untrusted>${candidate}</untrusted>
+Return supported and a brief reason.`, { type: 'OBJECT', properties: { supported: { type: 'BOOLEAN' }, reason: { type: 'STRING' } }, required: ['supported','reason'] }));
+  return result.supported === true;
+}
+
+/**
+ * The finished letter: the grounded draft, rewritten to read as a person
+ * wrote it. Kept apart from drafting because the rewrite is the slow part
+ * and most forms never ask for a letter; it runs only when one is about to
+ * be entered.
+ */
+export async function polishCoverLetter(draft: string, job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
+  const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
+  return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge), true);
+}
+
+/** Drafts, verifies and polishes in one go, for callers that want the finished letter now. */
+export async function writeCoverLetter(job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
+  const draft = await draftCoverLetter(job, profile, knowledgeOverride);
+  return polishCoverLetter(draft, job, profile, knowledgeOverride);
+}
+
+/** A grounded draft: written from the profile and documents, checked against them, not yet rewritten. */
+export async function draftCoverLetter(
   job: JobListing,
   profile: CandidateProfile,
   /** See `answerFields`'s `knowledgeOverride` — same reasoning applies here. */
@@ -515,22 +549,13 @@ ${draft}
     throw new Error(`Drafting service could not produce a cover letter within ${MAX_COVER_LETTER_WORDS} words`);
   }
 
-  const verify = async (candidate: string): Promise<boolean> => {
-    const result = await measured('letter-evidence-check', () => json<{ supported: boolean; reason: string }>(`${GUARD}
-Check only factual claims in this letter against candidate evidence. Normal aspirations,
-polite language and paraphrased transferable skills are fine. Reject invented experience,
-qualifications, named employers, work rights, availability or commitments.
-PROFILE: ${profileBlock(profile)}
-DOCUMENTS: <candidate-documents>${knowledge}</candidate-documents>
-LETTER: <untrusted>${candidate}</untrusted>
-Return supported and a brief reason.`, { type: 'OBJECT', properties: { supported: { type: 'BOOLEAN' }, reason: { type: 'STRING' } }, required: ['supported','reason'] }));
-    return result.supported === true;
-  };
-  if (!(await verify(draft))) throw new Error('Cover letter contains unsupported factual claims; draft withheld.');
-  return humanizeCoverLetter(draft, verify, true);
+  if (!(await letterIsSupported(draft, profile, knowledge))) {
+    throw new Error('Cover letter contains unsupported factual claims; draft withheld.');
+  }
+  return draft;
 }
 
-/** Resolves the run's cover-letter strategy for one application. */
+/** Resolves the run's cover-letter strategy for one application: the reusable text, or a fresh grounded draft. */
 async function coverLetterUncached(job: JobListing, profile: CandidateProfile): Promise<string> {
   if (config.coverLetter.mode === 'reuse') {
     if (!config.coverLetter.reusableText) {
@@ -538,7 +563,27 @@ async function coverLetterUncached(job: JobListing, profile: CandidateProfile): 
     }
     return config.coverLetter.reusableText;
   }
-  return writeCoverLetter(job, profile);
+  return draftCoverLetter(job, profile);
+}
+
+const finishedLetters = new Map<string, Promise<string>>();
+
+/**
+ * The letter as it will be entered: the draft from `coverLetterForJob`,
+ * polished. A reusable letter is entered as written. Cached like the draft,
+ * so a form with two letter boxes gets the same text in both.
+ */
+export async function finishedCoverLetterForJob(job: JobListing, profile: CandidateProfile): Promise<string> {
+  const draft = await coverLetterForJob(job, profile);
+  if (config.coverLetter.mode === 'reuse') return draft;
+  const key = JSON.stringify([config.dataDir, job.id, draft, config.humanizer]);
+  let pending = finishedLetters.get(key);
+  if (!pending) {
+    pending = polishCoverLetter(draft, job, profile);
+    finishedLetters.set(key, pending);
+    void pending.catch(() => finishedLetters.delete(key));
+  }
+  return pending;
 }
 
 export type PageVerdict = {
