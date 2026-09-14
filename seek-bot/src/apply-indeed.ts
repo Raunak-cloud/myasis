@@ -114,6 +114,8 @@ export async function applyToIndeedJob(
   const indeedApplyCta = byName(page, /^(apply with indeed|continue application)/i);
   const externalCta = byName(page, /^apply on company site/i);
   const hosted = (await indeedApplyCta.count()) > 0;
+  // The panel's own button is the truth about where the form lives; discovery only guesses, and cannot when Indeed's data is absent.
+  job.applicationMode = hosted ? 'hosted' : 'external';
   if (!hosted) {
     if (!(await externalCta.count())) {
       return { status: 'skipped', jobId: job.id, reason: 'no apply control found (expired?)' };
