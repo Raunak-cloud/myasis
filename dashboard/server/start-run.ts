@@ -8,6 +8,7 @@ import {
 } from './billing.js';
 import { applyRunPolicy, entitlementsFor, recordRunStart, FINE_TUNING_KEYS } from './entitlements.js';
 import { listResumes } from './files.js';
+import { waitForSigninChecks } from './seek-check.js';
 
 /**
  * The one way a run starts.
@@ -138,6 +139,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       return { ok: false, status: 503, error: `Could not verify run allowance: ${(error as Error).message}` };
     }
   }
+
+  const browserReady = await waitForSigninChecks(userId);
+  if (!browserReady.ok) return { ok: false, status: 409, error: browserReady.error };
 
   const result = await runner.start(
     mode,

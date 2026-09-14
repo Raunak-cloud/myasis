@@ -30,6 +30,37 @@ export function seekCheckInProgress(userId: string, site: SigninSite = 'seek'): 
   return inFlight.has(`${userId}:${site}`);
 }
 
+/** Wait until this account's sign-in probes have released its Chrome profile. */
+export async function waitForSigninChecks(userId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const deadline = Date.now() + CHECK_TIMEOUT_MS * 2 + LOCK_WAIT_MS;
+  const prefix = `${userId}:`;
+
+  for (;;) {
+    if (sessionFor(userId)) {
+      return { ok: false, error: 'Finish or close the job-board sign-in window before starting a run.' };
+    }
+    const checks = [...inFlight.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, task]) => task);
+    if (!checks.length) {
+      // SEEK can resolve and enqueue Indeed in the same turn. Give that
+      // continuation one event-loop turn before declaring the profile idle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (![...inFlight.keys()].some((key) => key.startsWith(prefix))) break;
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      return { ok: false, error: 'The job-board sign-in check is taking too long. Please try the run again.' };
+    }
+    await Promise.allSettled(checks);
+  }
+
+  if (!(await waitForProfileFree(userChromeDir(userId)))) {
+    return { ok: false, error: 'The account browser is still closing. Wait a few seconds, then start the run again.' };
+  }
+  return { ok: true };
+}
+
 /** Chrome drops this the moment it has really exited; SIGTERM alone returns before that. */
 async function waitForProfileFree(profileDir: string): Promise<boolean> {
   const lock = resolve(profileDir, 'SingletonLock');

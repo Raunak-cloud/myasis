@@ -140,6 +140,8 @@ function activityEvents(lines: LogLine[], mode: Mode): ActivityEvent[] {
       add(line, 'Skipped an external application', 'warn', "This application continues on the employer's website.");
     } else if (/(?:✗\s+(?:unexpected )?error:|Fatal:)/i.test(text)) {
       add(line, 'Something went wrong', 'bad', 'The run stopped safely. Please try again.');
+    } else if (/No enabled platform has a working session/i.test(text)) {
+      add(line, 'No job board was available', 'bad', 'Check the board sign-ins above, then start the run again.');
     } else if ((match = text.match(/=== Run complete:\s*(\d+) new application/i))) {
       add(
         line,
