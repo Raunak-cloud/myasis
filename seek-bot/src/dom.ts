@@ -483,16 +483,10 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
      * asks, which is what the answer was for.
      */
     const fresh = await extractFields(page);
-    const same = (label: string) => label.replace(/[*:]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
     const again =
-      fresh.find((candidate) => same(candidate.label) === same(field.label) && candidate.kind === field.kind) ??
-      fresh.find((candidate) => same(candidate.label) === same(field.label)) ??
-      // Same slot in a step that kept its shape but relabelled: the position is the next-best witness.
-      fresh.find((candidate) => candidate.ref === field.ref && candidate.kind === field.kind && candidate.inputType === field.inputType);
-    if (!again) {
-      console.log(`  · "${field.label}" is no longer on the page; it now shows: ${fresh.map((f) => f.label).join(' | ') || '(no fields)'} at ${page.url()}`);
-      throw error;
-    }
+      fresh.find((candidate) => candidate.label === field.label && candidate.kind === field.kind) ??
+      fresh.find((candidate) => candidate.label === field.label);
+    if (!again) throw error;
     field = { ...again, sensitive: field.sensitive };
     await fillFieldUnchecked(page, field, value);
   }
