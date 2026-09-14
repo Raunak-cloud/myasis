@@ -307,3 +307,7 @@
 
 /* The story sits straight on the paper: the slices crop the picture, so a frame on it never closes. */
 .home-intro > .home-hero-figure img { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+
+/* Shorter story: narrower measure and a tighter seam between the two halves. */
+.home-intro > .home-hero-figure { max-width: 880px; }
+.home-intro > .home-hero-figure .home-story-myasis { margin-top: 14px; }
