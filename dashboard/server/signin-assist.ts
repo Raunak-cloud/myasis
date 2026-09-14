@@ -60,10 +60,14 @@ async function targets(debugPort: number): Promise<DevToolsTarget[]> {
 function loginAdvanced(before: DevToolsTarget[], after: DevToolsTarget[]): boolean {
   const prior = new Set(before.map((target) => `${target.id}:${target.url}`));
   return after.some((target) => {
+    const priorTarget = before.find((candidate) => candidate.id === target.id);
+    const leftOriginalLogin = Boolean(
+      priorTarget?.url && /\/(auth|account\/login)\b/i.test(priorTarget.url) && target.url !== priorTarget.url,
+    );
     const changed = !prior.has(`${target.id}:${target.url}`);
     const meaningfulGooglePage = /accounts\.google\.com/i.test(target.url ?? '') && !/\/gsi\/button/i.test(target.url ?? '');
     const leftIndeedLogin = /indeed\./i.test(target.url ?? '') && !/\/(auth|account\/login)\b/i.test(target.url ?? '');
-    return changed && (meaningfulGooglePage || leftIndeedLogin);
+    return changed && (leftOriginalLogin || meaningfulGooglePage || leftIndeedLogin);
   });
 }
 
@@ -179,7 +183,23 @@ export async function assistIndeedGoogleSignin(options: {
         // A user-gesture Runtime click works for the normal button. If Google
         // isolates it in an out-of-process iframe, the translated mouse event
         // below is the compatible fallback.
-        const direct = await evaluatePoint(page, directClickExpression);
+        let direct: ClickPoint | null;
+        try {
+          direct = await evaluatePoint(page, directClickExpression);
+        } catch {
+          // A successful click can destroy this DevTools target immediately
+          // as Indeed redirects. Treat the resulting navigation as success,
+          // not as a failed browser-control command.
+          const navigatedTargets = await targets(debugPort);
+          if (loginAdvanced(pages, navigatedTargets)) {
+            update({
+              state: 'clicked',
+              message: `Selected ${email} with Google. Complete any verification shown, then choose Done.`,
+            });
+            return;
+          }
+          continue;
+        }
         if (!direct) continue;
         await wait(900);
         const afterDirectTargets = await targets(debugPort);
