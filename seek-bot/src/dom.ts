@@ -352,7 +352,19 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string): 
       o.toLowerCase().includes(value.toLowerCase()),
     );
     if (pick < 0) throw new Error(`no radio option matching "${value}" in [${field.options?.join(' | ')}]`);
-    await page.locator(`[data-field-id="${field.ref}:${pick}"]`).check({ force: true });
+    /**
+     * Choose it the way a person does: by clicking its label. Most styled
+     * radio groups hide the input and draw the label; setting the input
+     * checked directly leaves the page's own state behind, and Indeed then
+     * answered "Choose an option to continue" to an option that was visibly
+     * chosen. The input itself is the fallback when no label is drawn.
+     */
+    const input = page.locator(`[data-field-id="${field.ref}:${pick}"]`);
+    const label = input.locator('xpath=ancestor::label[1]').or(page.locator(`label[for="${await input.getAttribute('id').catch(() => '')}"]`));
+    const viaLabel = (await label.count().catch(() => 0)) > 0
+      ? await label.first().click({ timeout: 3_000 }).then(() => true).catch(() => false)
+      : false;
+    if (!viaLabel) await input.check({ force: true });
     return;
   }
 
