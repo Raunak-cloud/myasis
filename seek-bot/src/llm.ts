@@ -183,6 +183,12 @@ You are filling in a job application form on behalf of the candidate below.
 
 CANDIDATE PROFILE
 ${profileBlock(profile)}
+
+IDENTITY FIELDS
+Name, first name, last name, email and phone are copied from the CANDIDATE
+PROFILE exactly as written there: never from the documents, never re-spelled,
+never re-cased. A first-name or last-name field takes that part of the
+profile's Name. If the documents spell the name differently, the profile wins.
 ${
   knowledge
     ? `
