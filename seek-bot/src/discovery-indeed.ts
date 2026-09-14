@@ -260,7 +260,7 @@ export async function search(page: Page, keywords: string, pageNum = 1): Promise
  * Indeed's own SPA makes when you click a card — never a top-level
  * `page.goto()` to a job URL (see the module comment for why).
  */
-export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobListing> {
+async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobListing> {
   // Open the listing through Indeed's normal search-panel route. A real card
   // click lands on this URL and lets Indeed create the current request token;
   // replaying its private embedded endpoint with mosaic.initialData.logTk is
@@ -303,21 +303,25 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
   };
 }
 
-async function fetchJobDetailLegacy(page: Page, job: JobListing): Promise<JobListing> {
-  if (!/indeed\.com/i.test(page.url())) {
-    await page.goto(`${config.indeedBase}/`, { waitUntil: 'domcontentloaded' });
+export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobListing> {
+  if (!/indeed\.com\/jobs(?:\?|$)/i.test(page.url()) || !(await page.locator('[data-jk]').count().catch(() => 0))) {
+    await page.goto(searchUrl(config.keywords[0] ?? '', 1), { waitUntil: 'domcontentloaded' });
+    await waitForChallengeToClear(page, 60_000);
+    await page.waitForSelector('[data-jk]', { timeout: 20_000 }).catch(() => {});
   }
   // `mosaic.initialData.logTk` is set by an inline script shortly after
   // domcontentloaded — wait for it so a cold navigation doesn't fetch with an
   // empty session token (see the same race in browser.ts's sign-in check).
-  await page
-    .waitForFunction(() => (window as any).mosaic?.initialData?.logTk !== undefined, undefined, { timeout: 8_000 })
-    .catch(() => {});
   await jitter(500, 1200);
 
   const result = await page
     .evaluate(async (jobId: string) => {
-      const tk = (window as any).mosaic?.initialData?.logTk ?? '';
+      const html = document.documentElement.innerHTML;
+      const tk =
+        html.match(/hostAppTk=([a-z0-9]+)/i)?.[1] ??
+        html.match(/"hostAppTk":"([^"]+)"/i)?.[1] ??
+        '';
+      if (!tk) return { ok: false as const, reason: 'current search token not found' };
       const url = `/viewjob?jk=${encodeURIComponent(jobId)}&from=vjs&tk=${encodeURIComponent(
         tk,
       )}&viewtype=embedded&spa=1&hidecmpheader=0`;
