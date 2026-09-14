@@ -763,19 +763,19 @@ function dataApi(): Plugin {
             }
             // Same window, same profile; only the page it opens on differs.
             const body = await readBody();
-            const target = body?.target === 'gmail' ? 'gmail' : 'seek';
+            const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'indeed' ? 'indeed' : 'seek';
             const result = await startSignin(userId, target);
             if (!result.ok) return send({ error: result.error }, 409);
             return send({ ok: true, supported: true, session: result.session });
           }
           if (req.method === 'DELETE') {
+            const target = sessionFor(userId)?.target;
             stopSignin(userId);
             /**
-             * Closing the window is not proof of anything. SEEK is asked
-             * directly, in this account's own profile, and the answer is
-             * what the page shows from here on — see server/seek-check.ts.
+             * Closing the SEEK window is not proof of sign-in, so SEEK is
+             * checked directly. Other targets retain the last SEEK state.
              */
-            const seek = await checkSeekSignin(userId);
+            const seek = target === 'seek' ? await checkSeekSignin(userId) : readSeekState(userId);
             return send({ ok: true, session: null, seek, checking: false });
           }
           const seek = readSeekState(userId);
@@ -798,9 +798,10 @@ function dataApi(): Plugin {
           // Only this account's own run blocks it: the profile Chrome would
           // open is this account's, and Chrome locks a profile in use.
           if (runner.stateFor(userId).running) {
-            return send({ error: 'Stop your current run before opening the manual SEEK login.' }, 409);
+            return send({ error: 'Stop your current run before opening a job-board sign-in window.' }, 409);
           }
-          const result = await openSeekManualLogin(readEnv(), userChromeDir(userId));
+          const target = url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
+          const result = await openSeekManualLogin(readEnv(), userChromeDir(userId), target);
           return send(result.ok ? { ok: true } : { error: result.error }, result.ok ? 200 : 409);
         });
       }

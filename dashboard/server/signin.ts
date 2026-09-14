@@ -37,10 +37,11 @@ const FIRST_PORT = 5900;
 const SCREEN = '1280x900x24';
 
 /** What a sign-in window was opened for; only the label and start page differ. */
-export type SigninTarget = 'seek' | 'gmail';
+export type SigninTarget = 'seek' | 'indeed' | 'gmail';
 
 export const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
+  indeed: 'https://secure.indeed.com/account/login?hl=en_AU&co=AU',
   /**
    * Straight to the account chooser rather than mail.google.com, which would
    * land an already-signed-in profile in an inbox instead of offering to add

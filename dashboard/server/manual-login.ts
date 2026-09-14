@@ -7,7 +7,7 @@ export interface ManualLoginResult {
 }
 
 /**
- * Opens SEEK in ordinary desktop Chrome using Myasis's persistent profile.
+ * Opens a job board in ordinary desktop Chrome using Myasis's persistent profile.
  *
  * This is deliberately separate from Patchright and CDP. Security checks such
  * as Cloudflare Turnstile may reject synthetic input even when it came from a
@@ -23,6 +23,7 @@ export function openSeekManualLogin(
    * or worse, finds somebody else's.
    */
   chromeProfileDir?: string,
+  target: 'seek' | 'indeed' = 'seek',
 ): Promise<ManualLoginResult> {
   if (env.BROWSER_CONNECT_CDP === 'true') {
     return Promise.resolve({
@@ -72,7 +73,9 @@ export function openSeekManualLogin(
         '--new-window',
         '--no-first-run',
         '--no-default-browser-check',
-        'https://www.seek.com.au/',
+        target === 'indeed'
+          ? 'https://secure.indeed.com/account/login?hl=en_AU&co=AU'
+          : 'https://www.seek.com.au/',
       ],
       {
         detached: true,

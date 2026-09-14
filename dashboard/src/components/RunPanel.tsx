@@ -113,7 +113,15 @@ function activityEvents(lines: LogLine[], mode: Mode): ActivityEvent[] {
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
       add(line, `${match[2]} ${match[1]} Recommended jobs prioritised`, 'done');
     } else if ((match = text.match(/⚠ (SEEK|Indeed):/i))) {
-      add(line, `${match[1]} is temporarily unavailable`, 'warn', 'Myasis will try again on the next run.');
+      const accountActionNeeded = /sign(?:ed)? in|verification challenge|cloudflare|captcha/i.test(text);
+      add(
+        line,
+        `${match[1]} is temporarily unavailable`,
+        'warn',
+        accountActionNeeded
+          ? `Open ${match[1]} below, finish signing in or verification, then start the run again.`
+          : 'Myasis will try again on the next run.',
+      );
     } else if ((match = text.match(/(\d+) unique listings discovered/i))) {
       add(line, `Found ${match[1]} job listings`, 'done');
     } else if ((match = text.match(/(\d+) qualifying jobs/i))) {
@@ -644,12 +652,12 @@ export function RunPanel({
           </div>
         )}
 
-        {/* Signing in to SEEK lives here rather than in Setup: it is the one
+        {/* Job-board sign-in lives here rather than in Setup: it is the one
             thing a run cannot start without, and the browser it opens is what
             the person needs in front of them. */}
         {!running && (
           <>
-            <SeekSignIn />
+            <SeekSignIn indeedEnabled={platforms.includes('indeed')} />
             <GmailConnect compact />
           </>
         )}

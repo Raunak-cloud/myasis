@@ -21,7 +21,7 @@ interface Session {
   expiresAt: number;
   password: string;
   /** Which sign-in this window was opened for; only the labels differ. */
-  target?: 'seek' | 'gmail';
+  target?: 'seek' | 'indeed' | 'gmail';
 }
 
 /** Last known SEEK sign-in state; null when nobody has ever found out. */
@@ -33,7 +33,7 @@ interface SeekState {
 
 type Status = { supported: boolean; session: Session | null; seek?: SeekState | null; checking?: boolean };
 
-export function SeekSignIn() {
+export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,19 +106,23 @@ export function SeekSignIn() {
     return () => clearInterval(tick);
   }, [status?.session, refresh]);
 
-  async function open() {
+  async function open(target: 'seek' | 'indeed' = 'seek') {
     if (busy) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       // A desktop install has a real screen; use a normal Chrome window there.
-      const path = status?.supported ? '/api/signin/session' : '/api/browser/manual-login';
-      const response = await fetch(path, { method: 'POST' });
+      const path = status?.supported ? '/api/signin/session' : `/api/browser/manual-login?target=${target}`;
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: status?.supported ? { 'Content-Type': 'application/json' } : undefined,
+        body: status?.supported ? JSON.stringify({ target }) : undefined,
+      });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? 'Could not open the browser.');
       if (status?.supported) setStatus({ supported: true, session: body.session });
-      else setNotice('Chrome opened on this computer. Sign in there, then close it.');
+      else setNotice(`Chrome opened on this computer. Sign in to ${target === 'indeed' ? 'Indeed' : 'SEEK'} there, then close it.`);
     } catch (reason) {
       setError((reason as Error).message);
     } finally {
@@ -166,16 +170,16 @@ export function SeekSignIn() {
      * run that finds the session dead records that, and the prompt returns
      * with the reason attached.
      */
-    if (status.seek?.signedIn && !error && !notice) return null;
+    if (status.seek?.signedIn && !indeedEnabled && !error && !notice) return null;
     // SEEK is being asked right now; a prompt would be answered in seconds either way.
-    if (status.checking && !error && !notice) return null;
+    if (status.checking && !indeedEnabled && !error && !notice) return null;
 
     const expired = status.seek?.signedIn === false;
     return (
       <div className="seek-connect">
         {error && <div className="banner banner-bad">{error}</div>}
         {notice && <div className={`banner ${/signed out|could not/i.test(notice) ? 'banner-bad' : 'banner-ok'}`}>{notice}</div>}
-        <div className="seek-connect-row">
+        {!status.seek?.signedIn && !status.checking && <div className="seek-connect-row">
           <div>
             <h3>SEEK account</h3>
             <p className="job-meta">
@@ -184,10 +188,19 @@ export function SeekSignIn() {
                 : 'Sign in once. Applications are sent from your own account.'}
             </p>
           </div>
-          <button className="btn primary" disabled={busy} onClick={open}>
+          <button className="btn primary" disabled={busy} onClick={() => open('seek')}>
             {busy ? 'Opening…' : expired ? 'Sign in again' : 'Open SEEK'}
           </button>
-        </div>
+        </div>}
+        {indeedEnabled && <div className="seek-connect-row">
+          <div>
+            <h3>Indeed access</h3>
+            <p className="job-meta">Open your Indeed browser to sign in or clear a verification check before rerunning.</p>
+          </div>
+          <button className="btn" disabled={busy} onClick={() => open('indeed')}>
+            {busy ? 'Opening…' : 'Open Indeed'}
+          </button>
+        </div>}
       </div>
     );
   }
@@ -207,11 +220,11 @@ export function SeekSignIn() {
         <div className="seek-window-bar">
           <span className={`seek-dot ${connected ? 'on' : ''}`} aria-hidden="true" />
           <span className="seek-window-title">
-            {status.session.target === 'gmail' ? 'Gmail sign-in' : 'SEEK sign-in'}
+            {status.session.target === 'gmail' ? 'Gmail sign-in' : status.session.target === 'indeed' ? 'Indeed sign-in' : 'SEEK sign-in'}
           </span>
           <span className="job-meta seek-window-time">{minutesLeft} min left</span>
           <button className="btn primary btn-small" disabled={busy} onClick={close}>
-            {busy ? 'Checking with SEEK…' : 'Done'}
+            {busy ? (status.session.target === 'seek' ? 'Checking with SEEK…' : 'Closing…') : 'Done'}
           </button>
         </div>
         {error && <div className="banner banner-bad seek-window-error">{error}</div>}

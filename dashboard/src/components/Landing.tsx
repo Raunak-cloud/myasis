@@ -82,7 +82,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
       <section className="home-pricing" id="pricing">
         <div className="home-pricing-title">
-          <h2>Choose how you want<br /><em>Myasis to run.</em></h2>
+          <h2>Choose a Myasis pass.<br /><em>Pay once. No recurring charges.</em></h2>
         </div>
         <div className="home-price-grid">
           <article className="home-price-card">

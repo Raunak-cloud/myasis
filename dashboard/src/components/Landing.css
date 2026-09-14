@@ -274,7 +274,8 @@
 .home-intro .home-intro-heading { margin-top:52px; }
 @media(max-width:800px) { .home-intro { padding-top:28px; } .home-intro .home-intro-heading { margin-top:36px; } }
 
-/* Hero row: the picture on the left, one window on the right. */
-.home-hero-videos { align-items:center; }
+/* Hero row: give the illustrated story enough room to remain legible. */
+.home-hero-videos { grid-template-columns:minmax(0,1.3fr) minmax(330px,.7fr); align-items:center; }
 .home-hero-videos .home-hero-figure { min-width:0; }
-.home-hero-videos .home-hero-figure img { border:0; border-radius:0; box-shadow:none; background:transparent; }
+.home-hero-videos .home-hero-figure img { width:100%; height:auto; object-fit:contain; border:0; border-radius:0; box-shadow:none; background:transparent; }
+@media(max-width:800px) { .home-hero-videos { grid-template-columns:1fr; } }
