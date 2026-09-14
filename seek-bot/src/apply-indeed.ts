@@ -100,50 +100,20 @@ async function detectAlreadyApplied(page: Page): Promise<boolean> {
 }
 
 /** The panel's own URL never leaves au.indeed.com, so an external CTA is the only off-platform signal. */
+const SUBMIT_LABEL = /^submit( your)?( application)?$/i;
 const CONTINUE_LABEL = /^continue$/i;
 /** The wizard lives here; a click that lands anywhere else did not open it. */
 const APPLY_FLOW_URL = /smartapply\.indeed\.com|\/indeedapply\//i;
 const onReviewStep = (url: string) => /\/beta\/indeedapply\/form\/review-module/.test(url);
 
-/**
- * The review step's submit control, wherever Indeed put it.
- *
- * Its exact label has changed before ("Submit your application", "Submit
- * application", "Submit"), and two live applications stopped on this step
- * with the button in plain view because the name did not match. The review
- * step is terminal, so any control there that says Submit is the one; the
- * preview sits in an iframe, so frames are searched too.
- */
-async function findSubmitControl(page: Page) {
-  for (const scope of [page, ...page.frames()]) {
-    const named = scope.getByRole('button', { name: /submit/i });
-    if (await named.count().catch(() => 0)) return named.first();
-    const byText = scope.locator('button:has-text("Submit"), [role="button"]:has-text("Submit"), input[type="submit"]');
-    if (await byText.count().catch(() => 0)) return byText.first();
-  }
-  return null;
-}
-
 async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-withheld' | 'none'> {
   const onReview = onReviewStep(page.url());
-  const submitBtn = onReview ? await findSubmitControl(page) : null;
-  if (onReview && !submitBtn) {
-    const shown = await page
-      .evaluate(() =>
-        [...document.querySelectorAll('button, [role="button"], input[type="submit"]')]
-          .filter((el) => (el as HTMLElement).offsetParent !== null)
-          .map((el) => ((el as HTMLElement).innerText || (el as HTMLInputElement).value || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim())
-          .filter(Boolean)
-          .slice(0, 20),
-      )
-      .catch(() => [] as string[]);
-    console.log(`  · review step has no submit control; buttons: ${shown.join(' | ') || '(none)'}; frames: ${page.frames().length}`);
-  }
-  if (onReview && submitBtn) {
+  const submitBtn = byName(page, SUBMIT_LABEL);
+  if (onReview && (await submitBtn.count())) {
     if (config.dryRun) return 'submit-withheld';
-    console.log(`  · submitting: "${(await submitBtn.innerText().catch(() => 'Submit')).trim()}"`);
     const before = await captureInteractivePageState(page);
     const clicked = await submitBtn
+      .first()
       .click({ timeout: 8_000 })
       .then(() => true)
       .catch(() => false);
