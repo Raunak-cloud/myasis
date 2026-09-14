@@ -13,7 +13,7 @@ import { answerFields, coverLetterForJob } from '../llm.js';
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
 import type { BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
-import { RunGuards, isEntryAction, isForbiddenDestination, isSubmitAction } from './guards.js';
+import { RunGuards, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
@@ -280,9 +280,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
    * `canSubmit`, and it reads configuration and recorded facts only — the
    * model's stated reason has no bearing on it.
    */
-  const entry = isEntryAction(action.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
-  if (entry) ctx.log(`  → opening the application: "${action.text}"`);
-  if (isSubmitAction(action.text) && !entry) {
+  if (isSubmitAction(action.text)) {
     const verdict = ctx.guards.canSubmit(ctx.page.url());
     if (!verdict.allowed) {
       if (verdict.kind === 'dry-run') {
@@ -744,7 +742,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
   if (under.href && isForbiddenDestination(under.href)) {
     return ok(`Refused: that point is a link to ${under.href}, which this tool never navigates to.`);
   }
-  if (isSubmitAction(under.text) && !isEntryAction(under.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) {
+  if (isSubmitAction(under.text)) {
     const verdict = ctx.guards.canSubmit(ctx.page.url());
     if (!verdict.allowed) {
       if (verdict.kind === 'dry-run') {

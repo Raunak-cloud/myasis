@@ -34,18 +34,6 @@ export function isSubmitAction(text: string): boolean {
   return SUBMIT_LABELS.test(clean(text).toLowerCase());
 }
 
-/**
- * "Apply now" on a job advert opens the form; on a completed form it sends
- * it. The label is the same, so the label cannot decide. What decides is
- * whether there is anything to send: an application nobody has typed into,
- * on a page with no fields, cannot be submitted by any button. One live
- * rehearsal on an employer's careers page stopped at step one, "withholding"
- * the link that would have opened the application.
- */
-export function isEntryAction(text: string, state: { captured: number; fields: number }): boolean {
-  return /^apply( now)?$/i.test(clean(text)) && state.captured === 0 && state.fields === 0;
-}
-
 export function isExternal(url: string): boolean {
   if (/\/apply\/external/i.test(url)) return true;
   try {
