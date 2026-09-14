@@ -254,6 +254,48 @@ async function waitUntilEnabled(button: ReturnType<typeof byName>, timeoutMs: nu
   return false;
 }
 
+/**
+ * Diagnostic only (INDEED_REVIEW_DEBUG=1, rehearsal): watches the review
+ * step for a minute and writes what the submit control is doing, because a
+ * live run cannot be paused to look. Never clicks anything.
+ */
+async function describeReviewStep(page: Page): Promise<void> {
+  const snapshot = () =>
+    page
+      .evaluate(() => {
+        const vis = (el: Element) => el.getClientRects().length > 0;
+        const btn = [...document.querySelectorAll('button')].find((b) => /submit/i.test(b.innerText));
+        const rect = btn?.getBoundingClientRect();
+        const at = rect ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) : null;
+        return {
+          submit: btn
+            ? {
+                text: btn.innerText.trim(),
+                disabled: btn.disabled,
+                ariaDisabled: btn.getAttribute('aria-disabled'),
+                coveredBy: at && at !== btn && !btn.contains(at) ? `${at.tagName.toLowerCase()}.${String((at as HTMLElement).className).slice(0, 50)}` : '',
+              }
+            : null,
+          checkboxes: [...document.querySelectorAll('input[type=checkbox]')].map(
+            (c) => `${((c as HTMLInputElement).labels?.[0]?.innerText || '').slice(0, 40)}=${(c as HTMLInputElement).checked}${(c as HTMLInputElement).required ? ' required' : ''}`,
+          ),
+          headings: [...document.querySelectorAll('h1,h2,h3')].filter(vis).map((h) => (h as HTMLElement).innerText.trim()).slice(0, 5),
+          overlays: [...document.querySelectorAll('[class*="loading" i], [class*="spinner" i], [aria-busy="true"], [role="progressbar"]')]
+            .filter(vis)
+            .map((e) => `${e.tagName.toLowerCase()}.${String((e as HTMLElement).className).slice(0, 40)}:${((e as HTMLElement).innerText || '').replace(/\s+/g, ' ').slice(0, 40)}`)
+            .slice(0, 5),
+          iframes: [...document.querySelectorAll('iframe')].map((f) => ((f as HTMLIFrameElement).src || f.title || '').slice(0, 60)),
+          text: (document.body?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 300),
+        };
+      })
+      .catch((error: Error) => ({ error: error.message }));
+  for (const seconds of [0, 10, 25, 45, 60]) {
+    if (seconds) await new Promise((r) => setTimeout(r, seconds === 10 ? 10_000 : 15_000));
+    console.log(`  · review after ${seconds}s: ${JSON.stringify(await snapshot())}`);
+  }
+  await page.screenshot({ path: resolve(config.dataDir, 'indeed-review-debug.png'), fullPage: true }).catch(() => {});
+}
+
 /** Exits an in-progress application cleanly, without submitting. Best-effort. */
 async function saveAndCloseWithoutSubmitting(page: Page): Promise<void> {
   try {
@@ -578,6 +620,7 @@ async function runApplySteps(
      * during a rehearsal except Save and close.
      */
     if (config.dryRun && onReviewStep(applyPage.url())) {
+      if (process.env.INDEED_REVIEW_DEBUG === '1') await describeReviewStep(applyPage);
       await saveAndCloseWithoutSubmitting(applyPage);
       return { status: 'rehearsed', jobId: job.id, coverLetter, answers: captured, stoppedAt: applyPage.url() };
     }
