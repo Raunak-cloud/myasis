@@ -1,6 +1,7 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
 import { waitForInteractiveSurface } from './browser.js';
+import { judgePage, WALL_STATES } from './blocker.js';
 import { coverLetterForJob } from './llm.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
 import { runApplicationAgent } from './agent/loop.js';
@@ -88,10 +89,22 @@ export async function applyToIndeedJob(
     .then(() => true)
     .catch(() => false);
   if (!panelReady) {
+    /**
+     * Say what the page is rather than guessing. A whole run once skipped
+     * every listing as "did not load" and nothing in the log said whether
+     * Indeed was slow, the job had gone, or Cloudflare had stepped in. A
+     * wall is friction, and repeated friction stops Indeed for the run.
+     */
+    const verdict = await judgePage(page, `the Indeed listing "${job.title}"`).catch(() => null);
+    console.log(`  · listing panel did not appear at ${page.url()}: ${verdict ? `${verdict.state} — ${verdict.reason}` : 'page could not be judged'}`);
+    if (verdict && WALL_STATES.has(verdict.state)) {
+      deps.onFriction(verdict.state as 'captcha' | 'identity' | 'login');
+      return { status: 'needs-human', jobId: job.id, reason: `${verdict.state === 'captcha' ? 'CAPTCHA' : 'Verification'} challenge — ${verdict.reason}`, url: page.url() };
+    }
     return {
       status: 'skipped',
       jobId: job.id,
-      reason: 'listing panel did not load in time (expired, removed, or a slow page load)',
+      reason: verdict?.state === 'removed' ? `Listing unavailable: ${verdict.reason}` : 'listing panel did not load in time (expired, removed, or a slow page load)',
     };
   }
 
