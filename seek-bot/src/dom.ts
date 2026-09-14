@@ -399,33 +399,12 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
   const exact = options.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') }).first();
   // "Australia" should pick "Australia (+61)"; a containing match is what a person would click.
   const partial = options.filter({ hasText: new RegExp(escaped, 'i') });
-  /**
-   * Punctuation is not meaning: "Sydney, NSW" is the option "Sydney NSW".
-   * Compared on letters and digits only, and then on words, so a value the
-   * model wrote the natural way still lands on the entry a person would pick.
-   */
-  const loose = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const wantLoose = loose(value);
-  const wantWords = wantLoose.split(' ').filter(Boolean);
-  const looseMatch = async (): Promise<number> => {
-    const texts = (await options.allInnerTexts().catch(() => [])).map(loose);
-    const byText = texts.findIndex((text) => text === wantLoose);
-    if (byText >= 0) return byText;
-    const byContain = texts.findIndex((text) => wantLoose.length > 0 && (text.includes(wantLoose) || wantLoose.includes(text)));
-    if (byContain >= 0) return byContain;
-    return texts.findIndex((text) => wantWords.length > 0 && wantWords.every((word) => text.split(' ').includes(word)));
-  };
   if (await exact.count()) await exact.click({ timeout: 5_000 });
   else if (await partial.count()) await partial.first().click({ timeout: 5_000 });
   else if (await options.count()) {
-    const index = await looseMatch();
-    if (index >= 0) {
-      await options.nth(index).click({ timeout: 5_000 });
-    } else {
-      const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 40);
-      await page.keyboard.press('Escape').catch(() => {});
-      throw new ComboboxOptionsError(value, shown);
-    }
+    const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 40);
+    await page.keyboard.press('Escape').catch(() => {});
+    throw new ComboboxOptionsError(value, shown);
   } else {
     /**
      * Nothing matched is not the same as nothing opened.
