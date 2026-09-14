@@ -139,7 +139,7 @@ async function geminiJson<T>(prompt: string, schema: object): Promise<T> {
     } catch (error) {
       lastError = error;
       const message = (error as Error).message ?? String(error);
-      const transient = /429|resource.?exhausted|5\d\d|econnreset|etimedout|fetch failed/i.test(message);
+      const transient = /\b429\b|resource.?exhausted|\b5\d\d\b|econnreset|etimedout|fetch failed/i.test(message);
       if (!transient || attempt === 2) throw error;
       await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
     }
@@ -183,6 +183,12 @@ You are filling in a job application form on behalf of the candidate below.
 
 CANDIDATE PROFILE
 ${profileBlock(profile)}
+
+IDENTITY FIELDS
+Name, first name, last name, email and phone are copied from the CANDIDATE
+PROFILE exactly as written there: never from the documents, never re-spelled,
+never re-cased. A first-name or last-name field takes that part of the
+profile's Name. If the documents spell the name differently, the profile wins.
 ${
   knowledge
     ? `
@@ -341,7 +347,49 @@ For each field also set "basis", which decides whether it may be filled at all:
       ? vetComposed(answer)
       : { ref: field.ref, value: '', applicationQuestion: true, grounded: false, basis: 'none' as const, rationale: 'Missing or invalid answer; re-observe the field and available options.' };
   });
+  checkIdentityAnswers(fields, answers, profile);
   return { answers, injectionSuspected: result.injectionSuspected === true };
+}
+
+/**
+ * The candidate's name, phone and email are facts on file, so an answer to a
+ * field asking for one of them is checked against the profile the way a
+ * grounded claim is checked against the evidence. The model has returned the
+ * résumé's spelling of a surname and a phone number missing a digit on live
+ * forms; the profile's value replaces such an answer, and the run log says so.
+ */
+export function checkIdentityAnswers(fields: FormField[], answers: FieldAnswer[], profile: CandidateProfile): void {
+  const digits = (value: string) => value.replace(/\D+/g, '');
+  const [first = '', ...rest] = (profile.name ?? '').trim().split(/\s+/);
+  const last = rest.join(' ');
+  for (const answer of answers) {
+    const field = fields.find((candidate) => candidate.ref === answer.ref);
+    if (!field || (field.kind !== 'text' && field.kind !== 'textarea')) continue;
+    const label = field.label.toLowerCase();
+    // Someone else's details: a referee, an employer, a school.
+    if (/\b(company|employer|business|referee|reference|contact person|manager|school|university)\b/.test(label)) continue;
+    let want: string | undefined;
+    let phone = false;
+    if (/\b(mobile|phone|telephone|contact number)\b/.test(label) && profile.phone) {
+      want = profile.phone;
+      phone = true;
+    } else if (/\be-?mail\b/.test(label) && profile.email) {
+      want = profile.email;
+    } else if (/\b(first|given|preferred) name\b/.test(label) && first) {
+      want = first;
+    } else if ((/\b(last|family) name\b/.test(label) || /surname/.test(label)) && first) {
+      want = last || first;
+    } else if (/\b(full name|your name|legal name|applicant name)\b|^name\b/.test(label) && profile.name) {
+      want = profile.name.trim();
+    }
+    if (want === undefined || !answer.value) continue;
+    const same = phone ? digits(answer.value) === digits(want) : answer.value.trim().toLowerCase() === want.toLowerCase();
+    if (same) continue;
+    console.log(`  · "${field.label}": using the profile's "${want}" rather than "${answer.value}"`);
+    answer.value = want;
+    answer.grounded = true;
+    answer.basis = 'profile';
+  }
 }
 
 /**

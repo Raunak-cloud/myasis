@@ -28,16 +28,23 @@ const clean = (s: string) => s.replace(/[​-‍⁠﻿ ]/g, ' ').replace(/\s+/g
  * one, whatever the agent believes it is doing.
  */
 const SUBMIT_LABELS =
-  /^(review and submit|review your application|submit application|submit|send application|apply now|finish application|complete application)$/i;
+  /^(review and submit|review your application|submit your application|submit application|submit|send application|apply now|finish application|complete application)$/i;
 
 export function isSubmitAction(text: string): boolean {
   return SUBMIT_LABELS.test(clean(text).toLowerCase());
 }
 
+/**
+ * Hosts that belong to a job board this tool applies through. An application
+ * form on any of them is the board's own flow; anywhere else is an employer's
+ * site. Indeed's Easy Apply wizard lives on smartapply.indeed.com.
+ */
+const BOARD_HOSTS = /(^|\.)(seek\.com\.au|seek\.com|indeed\.com)$/i;
+
 export function isExternal(url: string): boolean {
   if (/\/apply\/external/i.test(url)) return true;
   try {
-    return !/(^|\.)seek\.com\.au$|(^|\.)seek\.com$/i.test(new URL(url).hostname);
+    return !BOARD_HOSTS.test(new URL(url).hostname);
   } catch {
     return false;
   }

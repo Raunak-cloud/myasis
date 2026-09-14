@@ -352,7 +352,20 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string): 
       o.toLowerCase().includes(value.toLowerCase()),
     );
     if (pick < 0) throw new Error(`no radio option matching "${value}" in [${field.options?.join(' | ')}]`);
-    await page.locator(`[data-field-id="${field.ref}:${pick}"]`).check({ force: true });
+    /**
+     * Most styled radio groups hide the input and draw the label; setting the
+     * input checked directly leaves the page's own state behind, and one form
+     * then answered "Choose an option to continue" to a visibly chosen option.
+     */
+    const input = page.locator(`[data-field-id="${field.ref}:${pick}"]`);
+    const inputId = await input.getAttribute('id').catch(() => null);
+    const label = inputId
+      ? page.locator(`label[for="${inputId}"]`).or(input.locator('xpath=ancestor::label[1]'))
+      : input.locator('xpath=ancestor::label[1]');
+    const viaLabel = (await label.count().catch(() => 0)) > 0
+      ? await label.first().click({ timeout: 3_000 }).then(() => true).catch(() => false)
+      : false;
+    if (!viaLabel) await input.check({ force: true });
     return;
   }
 
@@ -399,12 +412,28 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
   const exact = options.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') }).first();
   // "Australia" should pick "Australia (+61)"; a containing match is what a person would click.
   const partial = options.filter({ hasText: new RegExp(escaped, 'i') });
+  const loose = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const wantLoose = loose(value);
+  const wantWords = wantLoose.split(' ').filter(Boolean);
+  const looseMatch = async (): Promise<number> => {
+    const texts = (await options.allInnerTexts().catch(() => [])).map(loose);
+    const byText = texts.findIndex((text) => text === wantLoose);
+    if (byText >= 0) return byText;
+    const byContain = texts.findIndex((text) => wantLoose.length > 0 && (text.includes(wantLoose) || wantLoose.includes(text)));
+    if (byContain >= 0) return byContain;
+    return texts.findIndex((text) => wantWords.length > 0 && wantWords.every((word) => text.split(' ').includes(word)));
+  };
   if (await exact.count()) await exact.click({ timeout: 5_000 });
   else if (await partial.count()) await partial.first().click({ timeout: 5_000 });
   else if (await options.count()) {
-    const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 40);
-    await page.keyboard.press('Escape').catch(() => {});
-    throw new ComboboxOptionsError(value, shown);
+    const index = await looseMatch();
+    if (index >= 0) {
+      await options.nth(index).click({ timeout: 5_000 });
+    } else {
+      const shown = (await options.allInnerTexts()).map((text) => text.trim()).filter(Boolean).slice(0, 40);
+      await page.keyboard.press('Escape').catch(() => {});
+      throw new ComboboxOptionsError(value, shown);
+    }
   } else {
     /**
      * Nothing matched is not the same as nothing opened.
@@ -490,9 +519,24 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
     if (field.autocomplete || el.getAttribute('role') === 'combobox') {
       // A combobox shows its choice in a sibling, not in the input, and often clears the input after choosing.
       const container = el.closest('[class*="select"], [class*="combobox"], [class*="dropdown"], label') ?? el.parentElement?.parentElement ?? el;
-      const shown = normal(container.textContent ?? '').toLowerCase();
-      const want = normal(value).toLowerCase();
-      return normal(el.value).toLowerCase() === want || (want.length > 0 && shown.includes(want));
+      // Letters and digits only on both sides: the option "Sydney NSW" satisfies "Sydney, NSW".
+      const loose = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const shown = loose(container.textContent ?? '');
+      const want = loose(value);
+      const held = loose(el.value);
+      return held === want || (want.length > 0 && (shown.includes(want) || (held.length > 0 && want.includes(held))));
+    }
+    if (field.inputType === 'tel' || field.inputType === 'number') {
+      /**
+       * A phone or number field may show the value its own way. "0481006011"
+       * becomes "0481 006 011" in one form and "481-006-011" under a +61
+       * country selector in another; both hold what was entered.
+       */
+      const digits = (text: string) => text.replace(/\D+/g, '');
+      const want = digits(value);
+      const got = digits(el.value);
+      const national = want.replace(/^0+/, '');
+      return want.length > 0 && (got === want || got === national || (national.length >= 6 && got.endsWith(national)));
     }
     return normal(el.value) === normal(value);
   }, { field, value }, { timeout: 2000, polling: 100 }).catch(async () => {
