@@ -263,3 +263,8 @@
 .home-why { padding:0 0 64px; }
 .home-why .home-hero-figure { max-width:1100px; margin-inline:auto; }
 @media(max-width:800px) { .home-intro { padding-top:44px; } .home-why { padding-bottom:44px; } }
+
+/* The picture has a transparent ground: no frame, it sits straight on the paper. */
+.home-why { padding:16px 0 56px; }
+.home-why .home-hero-figure { max-width:1180px; }
+.home-why .home-hero-figure img { border:0; border-radius:0; box-shadow:none; background:transparent; }

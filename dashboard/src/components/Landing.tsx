@@ -80,7 +80,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       <section className="home-why" id="why" aria-label="The old way and the Myasis way">
       <picture className="home-hero-figure">
         <source srcSet="/hero/old-way-vs-myasis.webp" type="image/webp" />
-        <img src="/hero/old-way-vs-myasis.jpg" width="1697" height="927" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Myasis way: Myasis finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
+        <img src="/hero/old-way-vs-myasis.png" width="1672" height="941" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Myasis way: Myasis finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
       </picture>
       </section>
 
