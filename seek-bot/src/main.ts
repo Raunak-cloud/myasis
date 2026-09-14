@@ -531,36 +531,8 @@ async function main() {
     /** One attempt per role: SEEK lists the same job once per store or advertiser. */
     const attemptedRoles = new Set<string>();
 
-    /**
-     * Applications are shared evenly between the boards in play.
-     *
-     * The candidate list is one ranked pool, so whichever board scored
-     * higher on the day could take every slot in the run. Instead each next
-     * application goes to the board with the fewest completed so far, so a
-     * run of ten on two boards lands five and five, and a board whose
-     * queue runs dry or that hits a wall hands its remaining slots to the
-     * others rather than leaving them unused. Each board's own queue keeps
-     * its ranking, so the best hosted listing on that board still goes first.
-     */
-    const queues = new Map<PlatformId, typeof candidates>();
-    for (const candidate of candidates) {
-      const id = candidate.job.platform ?? 'seek';
-      if (!queues.has(id)) queues.set(id, []);
-      queues.get(id)!.push(candidate);
-    }
-    const completedBy = new Map<PlatformId, number>();
-    const openQueues = () =>
-      [...queues]
-        .filter(([id, queue]) => queue.length && !abortedPlatforms.has(id))
-        .sort((a, b) => (completedBy.get(a[0]) ?? 0) - (completedBy.get(b[0]) ?? 0));
-    const peekCandidate = () => openQueues()[0]?.[1][0];
-    const takeCandidate = () => openQueues()[0]?.[1].shift();
-    if (queues.size > 1) {
-      console.log(`Applications alternate between ${[...queues.keys()].map((id) => ADAPTERS.get(id)?.label ?? id).join(' and ')}.`);
-    }
-
-    for (let next = takeCandidate(); next; next = takeCandidate()) {
-      const { job, score, reasons } = next;
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+      const { job, score, reasons } = candidates[candidateIndex];
       const platformId = job.platform ?? 'seek';
       const adapter = ADAPTERS.get(platformId);
       if (!adapter) continue;
@@ -643,7 +615,6 @@ async function main() {
       switch (outcome.status) {
         case 'applied':
           applied++;
-          completedBy.set(platformId, (completedBy.get(platformId) ?? 0) + 1);
           if (job.applicationMode === 'external') externalSubmitted++;
           if (applied === 1) metric('first-submission', performance.now() - startedAt);
           frictionStreak.set(platformId, 0);
@@ -669,7 +640,6 @@ async function main() {
           break;
         case 'rehearsed':
           rehearsed++;
-          completedBy.set(platformId, (completedBy.get(platformId) ?? 0) + 1);
           console.log(`  🧪 rehearsed — form completed, submit withheld (DRY_RUN)`);
           if (outcome.coverLetter) {
             console.log(`\n     ── cover letter ──\n${outcome.coverLetter.replace(/^/gm, '     ')}\n`);
@@ -716,11 +686,11 @@ async function main() {
       }
       // A cooldown only protects the next interaction. Do not make a finished
       // run wait another 25–70 seconds before reporting its result.
-      const nextCandidate = peekCandidate();
-      if (nextCandidate) {
+      if (candidateIndex < candidates.length - 1) {
         // Preserve full pacing after a submission or verification wall. An
         // attempt that sent nothing only needs a short, polite request gap.
-        if (!candidateHitFriction) prepare(nextCandidate.job);
+        const nextCandidate = candidates.slice(candidateIndex + 1).find(c => !abortedPlatforms.has(c.job.platform ?? 'seek'));
+        if (nextCandidate && !candidateHitFriction) prepare(nextCandidate.job);
         const fullCooldown = outcome.status === 'applied' || candidateHitFriction;
         await jitter(
           fullCooldown ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
@@ -729,11 +699,6 @@ async function main() {
       }
     }
 
-    if (completedBy.size > 1) {
-      console.log(
-        `By board: ${[...completedBy].map(([id, n]) => `${ADAPTERS.get(id)?.label ?? id} ${n}`).join(' · ')}`,
-      );
-    }
     console.log(`\n=== Run complete: ${applied} new application(s) ===`);
     console.log(`Log: data/run-log.jsonl · Store: data/applied.json`);
   } finally {
