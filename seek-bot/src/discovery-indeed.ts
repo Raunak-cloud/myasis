@@ -1,5 +1,6 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
+import { judgePage } from './blocker.js';
 import { jitter } from './browser.js';
 import type { JobListing } from './types.js';
 
@@ -239,8 +240,21 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
 export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const viaMosaic = await searchViaMosaic(page, keywords, pageNum).catch(() => []);
   if (viaMosaic.length) return viaMosaic.map((job) => ({ ...job, source: 'search' as const }));
-  console.warn(`  [discovery-indeed] mosaic data empty for "${keywords}" p${pageNum} — using DOM`);
-  return (await searchViaDom(page, keywords, pageNum)).map((job) => ({ ...job, source: 'search' as const }));
+  const viaDom = await searchViaDom(page, keywords, pageNum);
+  if (!viaDom.length) {
+    /**
+     * Nothing rendered either. Say what the page is instead of reporting an
+     * empty search as if Indeed had no jobs: a Cloudflare check, a sign-in
+     * wall and a genuinely empty result page look identical as a zero.
+     */
+    const verdict = await judgePage(page, `Indeed search results for "${keywords}"`).catch(() => null);
+    console.warn(
+      `  [discovery-indeed] no results for "${keywords}" p${pageNum}: ` +
+        (verdict ? `${verdict.state} — ${verdict.reason}` : 'page could not be judged') +
+        ` (${page.url()})`,
+    );
+  }
+  return viaDom.map((job) => ({ ...job, source: 'search' as const }));
 }
 
 /**
