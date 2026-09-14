@@ -14,7 +14,6 @@ import { answerFields, classifyPage, coverLetterForJob } from './llm.js';
 import { rewriteLongText } from './humanizer.js';
 import { RESUME_DIR, pickResumeForJob } from './resume.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
-import { runApplicationAgent } from './agent/loop.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 const MAX_STEPS = 12;
@@ -100,14 +99,11 @@ async function detectAlreadyApplied(page: Page): Promise<boolean> {
 }
 
 /** The panel's own URL never leaves au.indeed.com, so an external CTA is the only off-platform signal. */
-const SUBMIT_LABEL = /^submit( your)?( application)?$/i;
+const SUBMIT_LABEL = /^submit your application$/i;
 const CONTINUE_LABEL = /^continue$/i;
-/** The wizard lives here; a click that lands anywhere else did not open it. */
-const APPLY_FLOW_URL = /smartapply\.indeed\.com|\/indeedapply\//i;
-const onReviewStep = (url: string) => /\/beta\/indeedapply\/form\/review-module/.test(url);
 
 async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-withheld' | 'none'> {
-  const onReview = onReviewStep(page.url());
+  const onReview = /\/beta\/indeedapply\/form\/review-module/.test(page.url());
   const submitBtn = byName(page, SUBMIT_LABEL);
   if (onReview && (await submitBtn.count())) {
     if (config.dryRun) return 'submit-withheld';
@@ -159,39 +155,15 @@ async function saveAndCloseWithoutSubmitting(page: Page): Promise<void> {
   }
 }
 
-/**
- * Opens an apply CTA and returns the page the flow landed on, or null when
- * nothing opened.
- *
- * "Apply with Indeed" opens a new tab; an employer's own site may open a tab
- * or replace this one. Either way the result is checked against `expected`
- * before it is trusted: one live run clicked the button, saw no tab inside
- * the wait, fell back to the search page it was standing on, and then read
- * the search box and a "how relevant are these jobs?" widget as screening
- * questions. A click that did not open the form is a fact to report, not a
- * page to fill in.
- */
-async function openApplyFlow(
-  page: Page,
-  applyCta: ReturnType<typeof byName>,
-  expected: RegExp | null,
-): Promise<Page | null> {
-  const startUrl = page.url();
-  const popupPromise = page.context().waitForEvent('page', { timeout: 10_000 }).catch(() => null);
-  await applyCta.first().scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
-  const clicked = await applyCta.first().click({ timeout: 8_000 }).then(() => true).catch(() => false);
-  if (!clicked) return null;
+/** Opens the "Apply with Indeed" flow, which always opens a NEW TAB — verified live twice. */
+async function openApplyFlow(page: Page, applyCta: ReturnType<typeof byName>): Promise<Page> {
+  const popupPromise = page.context().waitForEvent('page', { timeout: 8_000 }).catch(() => null);
+  await applyCta.first().click();
   const popup = await popupPromise;
   const target = popup ?? page;
   await target.waitForLoadState('domcontentloaded').catch(() => {});
   await waitForInteractiveSurface(target);
-  const landed = await target
-    .waitForURL((url) => (expected ? expected.test(url.href) : url.href !== startUrl), { timeout: 15_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (landed) return target;
-  if (popup) await popup.close().catch(() => {});
-  return null;
+  return target;
 }
 
 type ResumeOutcome = { status: 'kept-default' | 'selected' } | { status: 'unavailable'; wanted: string; detail: string };
@@ -281,15 +253,12 @@ export async function applyToIndeedJob(
 
   const indeedApplyCta = byName(page, /^apply with indeed/i);
   const externalCta = byName(page, /^apply on company site/i);
-  const hosted = (await indeedApplyCta.count()) > 0;
-  if (!hosted) {
-    if (!(await externalCta.count())) {
-      return { status: 'skipped', jobId: job.id, reason: 'no apply control found (expired?)' };
-    }
-    if (!config.allowExternalApply) {
+  if (!(await indeedApplyCta.count())) {
+    if (await externalCta.count()) {
       const label = clean((await externalCta.first().innerText().catch(() => '')) || 'Apply on company site');
-      return { status: 'off-platform', jobId: job.id, redirectedTo: `${label} → ${job.applicationUrl ?? job.url}` };
+      return { status: 'off-platform', jobId: job.id, redirectedTo: `${label} → ${job.url}` };
     }
+    return { status: 'skipped', jobId: job.id, reason: 'no apply control found (expired?)' };
   }
 
   if (config.dryRun && process.env.REHEARSE !== 'true') {
@@ -300,21 +269,8 @@ export async function applyToIndeedJob(
     (letter) => ({ letter }),
     (error) => ({ error: error instanceof Error ? error : new Error(String(error)) }),
   );
-
-  // One more try after a scroll before giving up: the panel's button sits under a sticky header on some listings.
-  const cta = hosted ? indeedApplyCta : externalCta;
-  const expected = hosted ? APPLY_FLOW_URL : null;
-  const applyPage = (await openApplyFlow(page, cta, expected)) ?? (await openApplyFlow(page, cta, expected));
-  if (!applyPage) {
-    return {
-      status: 'needs-human',
-      jobId: job.id,
-      reason: `Indeed's "${hosted ? 'Apply with Indeed' : 'Apply on company site'}" button did not open the application form.`,
-      url: page.url(),
-    };
-  }
+  const applyPage = await openApplyFlow(page, indeedApplyCta);
   try {
-    if (!hosted) return await applyOnEmployerSite(applyPage, job, profile, deps, prefetchedLetter);
     return await runApplySteps(applyPage, job, profile, deps, prefetchedLetter);
   } finally {
     /**
@@ -328,50 +284,6 @@ export async function applyToIndeedJob(
      */
     if (applyPage !== page) await applyPage.close().catch(() => {});
     await page.bringToFront().catch(() => {});
-  }
-}
-
-/**
- * An employer's own site, reached from Indeed. The same agent that handles
- * SEEK's employer-site applications drives it; only the way in differs.
- */
-async function applyOnEmployerSite(
-  flowPage: Page,
-  job: JobListing,
-  profile: CandidateProfile,
-  deps: ApplyDeps,
-  prefetchedLetter: Promise<{ letter?: string; error?: Error }>,
-): Promise<ApplyOutcome> {
-  const run = await runApplicationAgent({
-    page: flowPage,
-    job,
-    profile,
-    prefetchedLetter,
-    log: (line) => console.log(line),
-  });
-  console.log(`  agent: ${run.steps} steps · ${run.usage}`);
-  switch (run.outcome.status) {
-    case 'applied':
-      return { status: 'applied', jobId: job.id, at: new Date().toISOString(), coverLetter: run.coverLetter, answers: run.captured };
-    case 'rehearsed':
-      return { status: 'rehearsed', jobId: job.id, coverLetter: run.coverLetter, answers: run.captured, stoppedAt: run.outcome.stoppedAt };
-    case 'off-platform':
-      return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo };
-    case 'already-applied':
-      return { status: 'already-applied', jobId: job.id, reason: run.outcome.reason };
-    case 'skipped':
-      return { status: 'skipped', jobId: job.id, reason: run.outcome.reason };
-    default: {
-      if (/captcha/i.test(run.outcome.reason)) deps.onFriction('captcha');
-      else if (/identity|work-rights/i.test(run.outcome.reason)) deps.onFriction('identity');
-      return {
-        status: 'needs-human',
-        jobId: job.id,
-        reason: run.outcome.reason,
-        url: flowPage.url(),
-        ...(run.outcome.questions?.length ? { questions: run.outcome.questions } : {}),
-      };
-    }
   }
 }
 
@@ -407,19 +319,6 @@ async function runApplySteps(
 
     if (await detectConfirmation(applyPage)) {
       return { status: 'applied', jobId: job.id, at: new Date().toISOString(), coverLetter, answers: captured };
-    }
-
-    /**
-     * The review step is the end of a rehearsal, whatever its buttons are
-     * called. One live rehearsal reached it, failed to recognise the submit
-     * button's current label, asked the model for a next action, and left
-     * the wizard through whatever it clicked — landing on the homepage
-     * behind a Cloudflare check. Nothing on this step is ever clicked
-     * during a rehearsal except Save and close.
-     */
-    if (config.dryRun && onReviewStep(applyPage.url())) {
-      await saveAndCloseWithoutSubmitting(applyPage);
-      return { status: 'rehearsed', jobId: job.id, coverLetter, answers: captured, stoppedAt: applyPage.url() };
     }
 
     const friction = await detectFriction(applyPage);
