@@ -279,24 +279,45 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
     );
   }
   /**
-   * `mosaic.initialData` is set by an inline script that runs after
-   * domcontentloaded fires — on a cold, freshly-launched browser this lost
-   * the race often enough in testing to read as `undefined` (and therefore
-   * "not logged in") on an account that plainly was. Wait for the global to
-   * actually exist before trusting its value.
+   * Signed in, or not, from what the page shows a person.
+   *
+   * This used to read one global, `mosaic.initialData.isLoggedIn`. Indeed
+   * stopped setting it on the homepage, and a signed-in account then read
+   * as signed out on every run and every check. One private flag is a
+   * fragile witness; the page has public ones. A signed-in visitor gets the
+   * account menu and the Messages link in the header and no "Sign in" link.
+   * A signed-out visitor gets the opposite. The flag is still consulted when
+   * it exists, and when the signals disagree nothing is recorded, so a page
+   * that is half-loaded never overwrites a known state.
    */
-  await page
-    .waitForFunction(() => (window as any).mosaic?.initialData !== undefined, undefined, { timeout: 10_000 })
-    .catch(() => {});
-  const loggedIn = await page
-    .evaluate(() => Boolean((window as any).mosaic?.initialData?.isLoggedIn))
-    .catch(() => false);
-  if (!loggedIn) {
+  const verdict = await page
+    .waitForFunction(
+      () => {
+        const flag = (window as any).mosaic?.initialData?.isLoggedIn;
+        const header = document.querySelector('header, nav, #gnav') ?? document.body;
+        const text = header?.textContent ?? '';
+        const accountMenu = Boolean(
+          document.querySelector('[data-gnav-element-name="AccountMenu"], [data-gnav-element-name="Messages"], [aria-label*="account menu" i]'),
+        ) || /Messages/.test(text);
+        const signInLink = Boolean(document.querySelector('a[href*="/account/login"], a[data-gnav-element-name="SignIn"]'));
+        if (flag === true || (accountMenu && !signInLink)) return 'signed-in';
+        if (flag === false || (signInLink && !accountMenu)) return 'signed-out';
+        return false;
+      },
+      undefined,
+      { timeout: 12_000, polling: 300 },
+    )
+    .then((handle) => handle.jsonValue() as Promise<string>)
+    .catch(() => 'unclear');
+  if (verdict === 'signed-out') {
     recordSiteSession('indeed', false);
     throw new Error(
-      'Indeed session is not signed in (mosaic.initialData.isLoggedIn is false). ' +
-        'Open the Chrome profile manually, sign in to au.indeed.com, then re-run. This tool never automates login.',
+      'Indeed session is not signed in. Open the Chrome profile manually, sign in to au.indeed.com, then re-run. ' +
+        'This tool never automates login.',
     );
+  }
+  if (verdict === 'unclear') {
+    throw new Error('Indeed did not finish loading, so the sign-in could not be confirmed. Try again in a moment.');
   }
   // Same rule as SEEK: only a clear answer is written. A challenge page is not one.
   recordSiteSession('indeed', true);
