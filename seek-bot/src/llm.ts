@@ -684,6 +684,9 @@ Interpret those constraints from the whole ad. Do not infer on-site, job type, p
 or a mandatory excluded stack from a loose keyword. An undisclosed salary is neutral unless the
 candidate explicitly said otherwise; reject only when disclosed pay conflicts. If another truly
 decisive detail is absent, use uncertain.
+The configured minimum salary and hourly rate above are the current application preferences.
+An older "Expected salary" value in the profile is background information, not a requirement:
+it can never make the candidate ineligible, and where the two differ the configured minimums govern.
 Treat obvious placeholder, lead-generation or deceptive listings as skip, but do not reject a
 short or unusually worded genuine ad merely because it does not match a template.
 Return decision=apply only when the work is a reasonable fit and no mandatory conflict is evidenced.
@@ -711,7 +714,7 @@ Return JSON.`;
    * a call it was dropped in favour of speed. An uncertain verdict is not
    * cached, so the next run asks again.
    */
-  return cachedAssessment({ version: 'model-owned-fit-v5', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
+  return cachedAssessment({ version: 'model-owned-fit-v6', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
     const raw = await measured('fit', () => json<unknown>(prompt, schema));
     const result = normalizeFitAssessment(raw);
     if (!result) throw new Error('Fit assessment violated its decision schema');
