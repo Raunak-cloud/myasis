@@ -249,3 +249,9 @@
   .home-hero-videos { grid-template-columns:1fr; gap:18px; }
   .home-intro .home-intro-heading { margin-top:36px; }
 }
+
+/* Hero words as a picture: the old way against the Myasis way. */
+.home-visually-hidden { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+.home-intro .home-intro-heading { max-width:1200px; width:100%; }
+.home-hero-figure { display:block; width:100%; }
+.home-hero-figure img { display:block; width:100%; height:auto; border:2px solid var(--ink-line); border-radius:12px; box-shadow:4px 4px 0 var(--ink-line); background:#fff; }

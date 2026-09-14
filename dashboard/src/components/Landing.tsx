@@ -68,8 +68,11 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           </div>
         </div>
         <div className="home-intro-heading">
-          <h1 id="home-heading">Job hunting is a job.<em>Share the workload.</em></h1>
-          <p className="home-hero-summary">Myasis finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
+          <h1 id="home-heading" className="home-visually-hidden">Job hunting is a job. Share the workload.</h1>
+          <picture className="home-hero-figure">
+            <source srcSet="/hero/old-way-vs-myasis.webp" type="image/webp" />
+            <img src="/hero/old-way-vs-myasis.jpg" width="1697" height="927" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Myasis way: Myasis finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
+          </picture>
           {error && <div className="home-error" role="alert">{error}</div>}
           <div className="home-hero-actions">{start()}</div>
           <p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications a month. No card needed.</p>
