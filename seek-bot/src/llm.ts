@@ -347,48 +347,7 @@ For each field also set "basis", which decides whether it may be filled at all:
       ? vetComposed(answer)
       : { ref: field.ref, value: '', applicationQuestion: true, grounded: false, basis: 'none' as const, rationale: 'Missing or invalid answer; re-observe the field and available options.' };
   });
-  pinIdentityAnswers(fields, answers, profile);
   return { answers, injectionSuspected: result.injectionSuspected === true };
-}
-
-/**
- * The candidate's name, phone and email are facts on file, not answers to
- * compose. The model still sees them in the profile, but it has returned the
- * résumé's spelling of a surname, and a phone number with a digit missing.
- * A field that asks for one of these gets the profile's value, whatever the
- * model wrote, and the run log says when that happened.
- */
-export function pinIdentityAnswers(fields: FormField[], answers: FieldAnswer[], profile: CandidateProfile): void {
-  const digits = (value: string) => value.replace(/\D+/g, '');
-  const [first = '', ...rest] = (profile.name ?? '').trim().split(/\s+/);
-  const last = rest.join(' ');
-  for (const answer of answers) {
-    const field = fields.find((candidate) => candidate.ref === answer.ref);
-    if (!field || (field.kind !== 'text' && field.kind !== 'textarea')) continue;
-    const label = field.label.toLowerCase();
-    if (/(company|employer|business|referee|reference|contact person|manager|school|university)/.test(label)) continue;
-    let want: string | undefined;
-    let phone = false;
-    if (/(mobile|phone|telephone|contact number)/.test(label) && profile.phone) {
-      want = profile.phone;
-      phone = true;
-    } else if (/e-?mail/.test(label) && profile.email) {
-      want = profile.email;
-    } else if (/(first|given|preferred) name/.test(label) && first) {
-      want = first;
-    } else if ((/(last|family) name/.test(label) || /surname/.test(label)) && first) {
-      want = last || first;
-    } else if (/(full name|your name|legal name|applicant name)|^name/.test(label) && profile.name) {
-      want = profile.name.trim();
-    }
-    if (want === undefined || !answer.value) continue;
-    const same = phone ? digits(answer.value) === digits(want) : answer.value.trim().toLowerCase() === want.toLowerCase();
-    if (same) continue;
-    console.log(`  · "${field.label}": using the profile's "${want}" rather than "${answer.value}"`);
-    answer.value = want;
-    answer.grounded = true;
-    answer.basis = 'profile';
-  }
 }
 
 /**
