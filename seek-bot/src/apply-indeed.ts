@@ -448,21 +448,7 @@ async function runApplySteps(
   let stagnant = 0;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    let seen = await extractFields(applyPage);
-    /**
-     * A step with nothing on it is usually a step still drawing itself.
-     * Acting on that read sent the fallback classifier a blank page, it
-     * pressed Continue, and the next read was of a step already leaving.
-     * Give the wizard a few seconds to show its fields or move on.
-     */
-    if (!seen.length) {
-      const startedOn = applyPage.url();
-      const until = Date.now() + 6_000;
-      while (Date.now() < until && !seen.length && applyPage.url() === startedOn) {
-        await jitter(500, 800);
-        seen = await extractFields(applyPage);
-      }
-    }
+    const seen = await extractFields(applyPage);
     const state = JSON.stringify(seen.map(f => [f.label, f.currentValue]));
     console.log(`  · step ${step + 1}: ${applyPage.url().replace(/^https:\/\/smartapply\.indeed\.com\/beta\/indeedapply\//, '')} · ${seen.length ? seen.map((f) => f.label).join(' | ') : 'no fields'}`);
     if (applyPage.url() === lastUrl && state === lastState) {
@@ -632,15 +618,12 @@ async function runApplySteps(
       const byLabel = applyPage.getByRole('button', { name: new RegExp(`^${verdict.nextAction.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
       if (await byLabel.count()) {
         const before = await captureInteractivePageState(applyPage);
-        const beforeUrl = applyPage.url();
         const clicked = await byLabel
           .first()
           .click({ timeout: 6_000 })
           .then(() => true)
           .catch(() => false);
         if (clicked) {
-          console.log(`  · pressed "${verdict.nextAction}"`);
-          await applyPage.waitForURL((url) => url.href !== beforeUrl, { timeout: 12_000 }).catch(() => {});
           await waitForInteractivePageChange(applyPage, before);
           await waitForInteractiveSurface(applyPage, 4_000);
           continue;
