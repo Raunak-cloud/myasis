@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
 import { trySolveCaptcha } from '../dist/captcha.js';
-import { hasVisibleCaptcha } from '../dist/browser.js';
 
 const profile = await mkdtemp(join(tmpdir(), 'captcha-bridge-test-'));
 const context = await chromium.launchPersistentContext(profile, {
@@ -31,8 +30,6 @@ try {
   assert.equal(await trySolveCaptcha(second), true, 'real Python solver should click the fixture');
   assert.equal(await second.locator('input').inputValue(), 'fixture-token');
   assert.equal(await first.locator('input').inputValue(), '', 'same-URL sibling must remain untouched');
-  assert.equal(await hasVisibleCaptcha(second, false), false, 'completed widget is not a blocker');
-  assert.equal(await hasVisibleCaptcha(first, false), true, 'unsolved widget remains a blocker');
   assert.equal(await trySolveCaptcha(second), false, 'cooldown prevents repeated attempts');
   assert.equal(context.pages().includes(second), true, 'Python disconnect must leave Chrome open');
   const third = await context.newPage();

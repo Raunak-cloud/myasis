@@ -36,10 +36,11 @@ export async function trySolveCaptcha(page: Page): Promise<boolean> {
       }, (error, stdout) => {
         try {
           const result = JSON.parse(stdout.trim().split(/\r?\n/).at(-1) || '{}');
-          if (error || result.ok !== true) throw new Error('Solver failed');
+          if (error || result.ok !== true) throw new Error(result.error || 'Solver failed');
           resolveResult(true);
-        } catch {
-          console.warn('[captcha] Solve unavailable or unsuccessful; handing off to human.');
+        } catch (reason) {
+          const detail = reason instanceof Error ? ` (${reason.message})` : '';
+          console.warn(`[captcha] Solve unavailable or unsuccessful${detail}; handing off to human.`);
           resolveResult(false);
         }
       });

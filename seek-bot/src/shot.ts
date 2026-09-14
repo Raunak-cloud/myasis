@@ -14,7 +14,7 @@ const page = await browser.newPage({
   viewport: { width: Number(widthArg), height: 844 },
   colorScheme: scheme === 'dark' ? 'dark' : 'light',
 });
-await page.goto(url, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1200);
 await page.screenshot({ path: out, fullPage: true });
 console.log(`saved ${out}`);
