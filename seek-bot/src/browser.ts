@@ -298,7 +298,7 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
         const text = header?.textContent ?? '';
         const accountMenu = Boolean(
           document.querySelector('[data-gnav-element-name="AccountMenu"], [data-gnav-element-name="Messages"], [aria-label*="account menu" i]'),
-        ) || /Messages/.test(text);
+        ) || /\bMessages\b/.test(text);
         const signInLink = Boolean(document.querySelector('a[href*="/account/login"], a[data-gnav-element-name="SignIn"]'));
         if (flag === true || (accountMenu && !signInLink)) return 'signed-in';
         if (flag === false || (signInLink && !accountMenu)) return 'signed-out';
