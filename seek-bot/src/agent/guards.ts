@@ -224,13 +224,14 @@ export class RunGuards {
    * asked: a dropdown became a free-text box, and what they typed rarely
    * matched an option on retry.
    */
-  readonly fieldShapes = new Map<string, { kind?: string; options?: string[]; prompt?: string }>();
+  readonly fieldShapes = new Map<string, { ref?: string; kind?: string; options?: string[]; prompt?: string }>();
 
-  rememberField(field: { label: string; kind?: string; options?: string[] }, prompt?: string): void {
+  rememberField(field: { ref?: string; label: string; kind?: string; options?: string[] }, prompt?: string): void {
     const known = this.fieldShapes.get(field.label);
     // A later sighting can only add choices (a combobox opened), never remove them.
     const options = field.options?.length ? field.options : known?.options;
     this.fieldShapes.set(field.label, {
+      ref: field.ref ?? known?.ref,
       kind: field.kind ?? known?.kind,
       options,
       prompt: prompt?.trim() || known?.prompt,

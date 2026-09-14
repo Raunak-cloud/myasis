@@ -110,7 +110,7 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
       {error && <div className="banner banner-bad">{error}</div>}
       <div className="answer-actions">
         <button className="btn primary" disabled={saving || !answered.length} onClick={save}>
-          {saving ? 'Saving…' : 'Save and retry'}
+          {saving ? 'Saving…' : 'Save and retry in next run'}
         </button>
       </div>
     </div>
@@ -134,7 +134,7 @@ interface TraceStep {
  * at roughly a third of its real size — present, but far too small to read
  * the form that actually blocked the application.
  */
-function TraceSteps({ jobId }: { jobId: string }) {
+function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: BlockedQuestion[] }) {
   const [steps, setSteps] = useState<TraceStep[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** A capture opened over the page, for when full-row width still is not enough. */
@@ -160,6 +160,19 @@ function TraceSteps({ jobId }: { jobId: string }) {
 
   return (
     <div className="trace">
+      {questions.length > 0 && (
+        <div className="trace-question-context">
+          <strong>What the employer needs from you</strong>
+          {questions.map((question) => (
+            <div key={question.question}>
+              {question.prompt?.trim() || `What should Myasis enter for “${question.question}”?`}
+              {question.prompt?.trim() && question.prompt.trim() !== question.question ? (
+                <span className="job-meta">Employer field: “{question.question}”</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
       {error && <div className="job-meta">{error}</div>}
       {!steps && !error && <div className="job-meta">Loading steps…</div>}
       {steps?.map((s) => (
@@ -229,7 +242,7 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
       {showTrace && (
         <tr className="trace-row">
           <td colSpan={5}>
-            <TraceSteps jobId={item.jobId} />
+            <TraceSteps jobId={item.jobId} questions={item.questions} />
           </td>
         </tr>
       )}

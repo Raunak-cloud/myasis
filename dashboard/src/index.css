@@ -1841,6 +1841,19 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   gap: 12px;
   margin: 10px 0;
 }
+.trace-question-context {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.trace-question-context > div { display: grid; gap: 2px; }
 .trace-row > td { background: var(--surface-2); }
 .trace-step { display: grid; gap: 4px; align-content: start; }
 /* Two lines of caption, so one verbose step cannot make the row ragged. */

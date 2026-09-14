@@ -4,6 +4,7 @@ import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { config } from '../config.js';
 import { jitter } from '../browser.js';
+import { extractFields } from '../dom.js';
 import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal } from './guards.js';
@@ -205,6 +206,36 @@ function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceSt
   }
 }
 
+/** Centre the unanswered field before taking the handoff screenshot. */
+async function captureBlockedField(page: Page, ref: string): Promise<string | undefined> {
+  let field: ReturnType<Page['locator']> | undefined;
+  let priorOutline: { outline: string; outlineOffset: string } | undefined;
+  try {
+    field = page.locator(`[data-field-id="${ref}"], [data-field-id^="${ref}:"]`).first();
+    if (!(await field.count())) return undefined;
+    priorOutline = await field.evaluate((element) => {
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const html = element as HTMLElement;
+      const prior = { outline: html.style.outline, outlineOffset: html.style.outlineOffset };
+      html.style.outline = '3px solid #2563a6';
+      html.style.outlineOffset = '3px';
+      return prior;
+    });
+    const shot = await page.screenshot({ type: 'jpeg', quality: 65 });
+    return `data:image/jpeg;base64,${shot.toString('base64')}`;
+  } catch {
+    return undefined;
+  } finally {
+    if (field && priorOutline) {
+      await field.evaluate((element, prior) => {
+        const html = element as HTMLElement;
+        html.style.outline = prior.outline;
+        html.style.outlineOffset = prior.outlineOffset;
+      }, priorOutline).catch(() => {});
+    }
+  }
+}
+
 export interface AgentRunResult {
   outcome: AgentTermination;
   captured: Array<{ question: string; answer: string }>;
@@ -322,7 +353,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastUrl = '';
   let lastFingerprint = '';
 
-  const finish = (outcome: AgentTermination): AgentRunResult => {
+  const finish = async (outcome: AgentTermination): Promise<AgentRunResult> => {
     const criticalQuestions = [...new Set([...guards.pendingFields, ...guards.ungrounded])];
     const finalOutcome: AgentTermination =
       outcome.status === 'needs-human' && criticalQuestions.length === 0
@@ -334,6 +365,34 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * shown on the dashboard, so it carries only the plain reason.
      */
     if (outcome.status === 'needs-human' && outcome.detail) log(`  · ${outcome.detail}`);
+    const visibleFields =
+      finalOutcome.status === 'needs-human' && criticalQuestions.length
+        ? await extractFields(page).catch(() => [])
+        : [];
+    const blockedQuestions = criticalQuestions.map((question) => {
+      const shape = guards.fieldShapes.get(question);
+      return {
+        question,
+        ...(shape?.prompt ? { prompt: shape.prompt } : {}),
+        ...(shape?.kind ? { kind: shape.kind as BlockedQuestion['kind'] } : {}),
+        ...(shape?.options?.length ? { options: shape.options } : {}),
+        ref: visibleFields.find((field) => field.label === question)?.ref ?? shape?.ref,
+      };
+    });
+    if (finalOutcome.status === 'needs-human') {
+      for (const blocked of blockedQuestions) {
+        const screenshot = blocked.ref ? await captureBlockedField(page, blocked.ref) : undefined;
+        trace.push({
+          step: trace.reduce((highest, item) => Math.max(highest, item.step), 0) + 1,
+          url: page.url(),
+          tool: 'needs_human',
+          args: { field: blocked.question },
+          label: `Needs your answer: ${blocked.prompt ?? blocked.question}`,
+          result: `Employer field: ${blocked.question}`,
+          screenshot,
+        });
+      }
+    }
     persistTrace(job, finalOutcome, trace, page.url());
     const plain: AgentTermination = finalOutcome.status === 'needs-human' ? { ...finalOutcome, detail: undefined } : finalOutcome;
     return {
@@ -343,17 +402,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
         plain.status === 'needs-human'
           ? {
               ...plain,
-              questions: criticalQuestions.map(
-                (question) => {
-                  const shape = guards.fieldShapes.get(question);
-                  return {
-                    question,
-                    ...(shape?.prompt ? { prompt: shape.prompt } : {}),
-                    ...(shape?.kind ? { kind: shape.kind as BlockedQuestion['kind'] } : {}),
-                    ...(shape?.options?.length ? { options: shape.options } : {}),
-                  };
-                },
-              ),
+              questions: blockedQuestions.map(({ ref: _ref, ...question }) => question),
             }
           : plain,
       captured: ctx.captured,

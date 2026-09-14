@@ -60,6 +60,15 @@ check('allows an ordinary apply path', !isForbiddenDestination('https://example.
   check('an ungrounded answer blocks submission', !dirty.allowed && dirty.kind === 'ungrounded');
 }
 {
+  const guards = new RunGuards({ maxSteps: 50, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
+  guards.rememberField({ ref: 'f7', label: 'Tell us more:', kind: 'textarea' }, 'Tell us about yourself.');
+  const remembered = guards.fieldShapes.get('Tell us more:');
+  check(
+    'retains the blocked field reference for a focused handoff capture',
+    remembered?.ref === 'f7' && remembered.prompt === 'Tell us about yourself.',
+  );
+}
+{
   /**
    * Regression: the guard must not depend on config's import-time snapshot.
    *
