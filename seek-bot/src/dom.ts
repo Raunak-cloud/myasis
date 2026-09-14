@@ -519,7 +519,11 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
      */
     if (field.inputType === 'tel' || field.inputType === 'number') {
       const digits = (s: string) => s.replace(/\D+/g, '');
-      return digits(value).length > 0 && digits(el.value) === digits(value);
+      const want = digits(value);
+      const got = digits(el.value);
+      // A field with its own country selector keeps the national number: "0481006011" becomes 481-006-011 under +61.
+      const national = want.replace(/^0+/, '');
+      return want.length > 0 && (got === want || got === national || (national.length >= 6 && got.endsWith(national)));
     }
     return normal(el.value) === normal(value);
   }, { field, value }, { timeout: 2000, polling: 100 }).catch(async () => {
