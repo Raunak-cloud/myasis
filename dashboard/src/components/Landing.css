@@ -306,8 +306,3 @@
   .home-intro .home-hero-videos { margin-top: 30px; gap: 18px; grid-template-columns: minmax(0, 1fr); }
   .home-hero-videos .home-hero-figure { padding: 14px 12px; }
 }
-
-/* A wide infographic is unreadable at half the page. Both visuals take the full measure, one under the other. */
-.home-intro .home-hero-videos { grid-template-columns: minmax(0, 1fr); max-width: 1100px; gap: 26px; }
-.home-hero-videos .home-hero-figure { padding: 26px 28px; }
-@media (max-width: 800px) { .home-hero-videos .home-hero-figure { padding: 14px 12px; } }
