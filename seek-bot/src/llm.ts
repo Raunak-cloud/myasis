@@ -139,7 +139,7 @@ async function geminiJson<T>(prompt: string, schema: object): Promise<T> {
     } catch (error) {
       lastError = error;
       const message = (error as Error).message ?? String(error);
-      const transient = /\b429\b|resource.?exhausted|\b5\d\d\b|econnreset|etimedout|fetch failed/i.test(message);
+      const transient = /429|resource.?exhausted|5\d\d|econnreset|etimedout|fetch failed/i.test(message);
       if (!transient || attempt === 2) throw error;
       await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
     }
@@ -366,19 +366,19 @@ export function pinIdentityAnswers(fields: FormField[], answers: FieldAnswer[], 
     const field = fields.find((candidate) => candidate.ref === answer.ref);
     if (!field || (field.kind !== 'text' && field.kind !== 'textarea')) continue;
     const label = field.label.toLowerCase();
-    if (/\b(company|employer|business|referee|reference|contact person|manager|school|university)\b/.test(label)) continue;
+    if (/(company|employer|business|referee|reference|contact person|manager|school|university)/.test(label)) continue;
     let want: string | undefined;
     let phone = false;
-    if (/\b(mobile|phone|telephone|contact number)\b/.test(label) && profile.phone) {
+    if (/(mobile|phone|telephone|contact number)/.test(label) && profile.phone) {
       want = profile.phone;
       phone = true;
-    } else if (/\be-?mail\b/.test(label) && profile.email) {
+    } else if (/e-?mail/.test(label) && profile.email) {
       want = profile.email;
-    } else if (/\b(first|given|preferred) name\b/.test(label) && first) {
+    } else if (/(first|given|preferred) name/.test(label) && first) {
       want = first;
-    } else if ((/\b(last|family) name\b/.test(label) || /surname/.test(label)) && first) {
+    } else if ((/(last|family) name/.test(label) || /surname/.test(label)) && first) {
       want = last || first;
-    } else if (/\b(full name|your name|legal name|applicant name)\b|^name\b/.test(label) && profile.name) {
+    } else if (/(full name|your name|legal name|applicant name)|^name/.test(label) && profile.name) {
       want = profile.name.trim();
     }
     if (want === undefined || !answer.value) continue;
