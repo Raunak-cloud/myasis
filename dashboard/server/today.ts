@@ -28,7 +28,7 @@ export async function loadTodayStats(userId: string): Promise<TodayStats> {
     query<{ n: string }>(
       `SELECT count(*)::text AS n
          FROM applications
-        WHERE user_id = $1 AND applied_at >= ${DAY_START}`,
+        WHERE user_id = $1 AND submitted_by_myasis AND applied_at >= ${DAY_START}`,
       [userId, RUN_TIME_ZONE],
     ),
   ]);

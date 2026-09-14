@@ -146,6 +146,8 @@ export interface AppliedRecord {
   scoreReasons?: string[];
   /** Submitted on an employer's own site rather than the job board. Counted against the daily employer-site allowance. */
   external?: boolean;
+  /** False when the record was only discovered on the job board for duplicate protection. */
+  submittedByMyasis?: boolean;
 }
 
 /** A single interactive field the apply form is asking about. */

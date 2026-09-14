@@ -225,6 +225,14 @@ ALTER TABLE run_events ADD COLUMN IF NOT EXISTS questions JSONB;
 -- cannot be counted from it.
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS external BOOLEAN NOT NULL DEFAULT false;
 
+-- Jobs discovered as "already applied" remain available to duplicate
+-- protection, but they are not submissions made by Myasis and must stay out
+-- of customer history, totals and digests. Live submissions are scored before
+-- submit. A legacy row with neither a score nor a submitted cover letter came
+-- from a discovery-only path; recovered submission artefacts remain visible.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by_myasis BOOLEAN NOT NULL DEFAULT true;
+UPDATE applications SET submitted_by_myasis = false WHERE score = 0 AND cover_letter IS NULL;
+
 -- Read-only Gmail access, per account, so a run can pick up the one-time
 -- codes employer sites email during an application. A secret: never served
 -- to the browser, only handed to that account's own run.

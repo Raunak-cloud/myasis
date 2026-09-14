@@ -75,6 +75,7 @@ interface ApplicationExportRow {
   score_reasons: unknown;
   applied_at: Date | string;
   external: boolean;
+  submitted_by_myasis: boolean;
 }
 
 /**
@@ -107,13 +108,15 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
    */
   const externalToday = await query<{ n: string }>(
     `SELECT count(*)::text AS n FROM applications
-      WHERE user_id = $1 AND external AND applied_at >= date_trunc('day', now())`,
+      WHERE user_id = $1 AND submitted_by_myasis AND external
+        AND applied_at >= date_trunc('day', now())`,
     [userId],
   );
 
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
-            work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at, external
+            work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
+            external, submitted_by_myasis
        FROM applications WHERE user_id = $1 ORDER BY applied_at`,
     [userId],
   );
@@ -133,6 +136,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     answers: a.answers ?? [],
     scoreReasons: a.score_reasons ?? [],
     external: a.external === true,
+    submittedByMyasis: a.submitted_by_myasis,
   }));
   writeFileSync(resolve(dir, 'applied.json'), JSON.stringify(appliedJson, null, 2));
 
@@ -239,8 +243,9 @@ export async function syncRunResultsToDb(
           scoreReasons: a.scoreReasons ?? [],
           appliedAt: a.appliedAt ?? new Date(),
           external: a.external === true,
+          submittedByMyasis: a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
         });
-        if (inserted) applications++;
+        if (inserted && (a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)))) applications++;
       }
     } catch {
       /* leave applied.json as-is for inspection; nothing usable to sync */

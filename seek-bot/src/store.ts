@@ -59,7 +59,11 @@ export class AppliedIndex {
 
   appliedToday(): number {
     const today = new Date().toISOString().slice(0, 10);
-    return this.records.filter((r) => r.appliedAt.startsWith(today)).length;
+    return this.records.filter(
+      (r) =>
+        r.appliedAt.startsWith(today) &&
+        (r.submittedByMyasis ?? (r.score > 0 || Boolean(r.coverLetter))),
+    ).length;
   }
 
   get all(): AppliedRecord[] {
@@ -107,6 +111,7 @@ export async function syncFromSeek(page: import('patchright').Page): Promise<num
       appliedAt: new Date().toISOString(),
       score: 0,
       platform: 'seek',
+      submittedByMyasis: false,
     });
     added++;
   }

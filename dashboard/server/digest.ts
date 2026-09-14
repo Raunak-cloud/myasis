@@ -42,7 +42,7 @@ export async function gatherDigest(userId: string, email: string, name: string |
     ),
     query<{ title: string; company: string; external: boolean }>(
       `SELECT title, company, external FROM applications
-        WHERE user_id = $1 AND applied_at >= ${DAY_START}
+        WHERE user_id = $1 AND submitted_by_myasis AND applied_at >= ${DAY_START}
         ORDER BY applied_at`,
       [userId, RUN_TIME_ZONE],
     ),

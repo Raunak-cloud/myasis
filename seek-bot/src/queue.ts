@@ -85,6 +85,7 @@ async function build() {
       score,
       platform: job.platform ?? 'seek',
       scoreReasons: [reason],
+      submittedByMyasis: false,
     });
   };
   const known = new Set(existing.map((i) => i.jobId));

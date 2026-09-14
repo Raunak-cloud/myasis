@@ -136,6 +136,7 @@ async function main() {
       score: 0,
       platform: job.platform ?? 'seek',
       scoreReasons: [reason],
+      submittedByMyasis: false,
     });
   };
   const already = index.appliedToday();
@@ -633,6 +634,7 @@ async function main() {
             answers: outcome.answers,
             scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...reasons] : reasons,
             external: job.applicationMode === 'external',
+            submittedByMyasis: true,
           });
           console.log(`  ✅ submitted (${applied}/${config.limits.maxApplicationsPerRun})`);
           break;

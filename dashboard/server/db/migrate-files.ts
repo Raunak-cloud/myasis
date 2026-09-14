@@ -201,6 +201,7 @@ export async function migrateFilesToUser(email: string, name?: string) {
       ageDaysAtApply: a.ageDaysAtApply ?? null, coverLetter: a.coverLetter ?? null,
       answers: a.answers ?? [], scoreReasons: a.scoreReasons ?? [],
       outcome: a.outcome ?? null, appliedAt: a.appliedAt ?? new Date(),
+      submittedByMyasis: a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
     });
     if (inserted) insertedApps++;
   }

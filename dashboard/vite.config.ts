@@ -395,13 +395,16 @@ function dataApi(): Plugin {
             // was actually sent to an employer stays immutable.
             const b = await readBody();
             await query(
-              `UPDATE applications SET outcome = $3 WHERE user_id = $1 AND job_id = $2`,
+              `UPDATE applications SET outcome = $3
+                WHERE user_id = $1 AND job_id = $2 AND submitted_by_myasis`,
               [userId, b.jobId, b.patch?.outcome ?? null],
             );
             const rows = await query<ApplicationRow>(
               `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
                       age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at
-                 FROM applications WHERE user_id = $1 ORDER BY applied_at DESC`,
+                 FROM applications
+                WHERE user_id = $1 AND submitted_by_myasis
+                ORDER BY applied_at DESC`,
               [userId],
             );
             return send({ ok: true, applications: rows.map(rowToApplication) });
@@ -409,7 +412,9 @@ function dataApi(): Plugin {
           const rows = await query<ApplicationRow>(
             `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
                     age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at
-               FROM applications WHERE user_id = $1 ORDER BY applied_at DESC`,
+               FROM applications
+              WHERE user_id = $1 AND submitted_by_myasis
+              ORDER BY applied_at DESC`,
             [userId],
           );
           return send(rows.map(rowToApplication));
