@@ -1930,3 +1930,12 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* The scheduled-runs count sits where the start button would be. */
 .run-auto-count { margin: 0; align-self: center; }
+
+/* Signed in to each job board: one green tick per board on the Apply page. */
+.signin-status { display:flex; flex-wrap:wrap; gap:8px; }
+.signin-pill {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:5px 11px 5px 9px; border:1px solid var(--ok); border-radius:99px;
+  background:var(--ok-soft); color:var(--ok); font-size:12px; font-weight:650;
+}
+.signin-pill svg { flex:0 0 auto; }

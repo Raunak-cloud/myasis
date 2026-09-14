@@ -187,7 +187,30 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
      */
     const seekSettled = Boolean(status.seek?.signedIn) || Boolean(status.checking);
     const indeedSettled = !indeedEnabled || Boolean(status.indeed?.signedIn);
-    if (seekSettled && indeedSettled && !error && !notice) return null;
+    /**
+     * Signed in everywhere: say so in one line rather than nothing.
+     *
+     * A green tick per job board is the answer to "did that work?", which
+     * a person asks right after closing the window, and it stays as a quiet
+     * confirmation afterwards. Still nothing while a check is in progress,
+     * since a tick would be a guess.
+     */
+    if (seekSettled && indeedSettled && !error && !notice) {
+      if (status.checking) return null;
+      const boards = [['SEEK', true] as const, ...(indeedEnabled ? [['Indeed', true] as const] : [])];
+      return (
+        <div className="signin-status" role="status" aria-label="Signed in">
+          {boards.map(([name]) => (
+            <span className="signin-pill" key={name}>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              {name}
+            </span>
+          ))}
+        </div>
+      );
+    }
 
     const expired = status.seek?.signedIn === false;
     const indeedExpired = status.indeed?.signedIn === false;
