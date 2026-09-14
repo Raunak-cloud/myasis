@@ -262,6 +262,40 @@ export async function assertSignedIn(page: Page): Promise<void> {
  * and asks) but points the user at the wrong fix — this names the real cause.
  */
 export async function assertIndeedSignedIn(page: Page): Promise<void> {
+  // `/myjobs` is account-protected and therefore authoritative. The public
+  // homepage can retain a stale `isLoggedIn` bootstrap flag after the session
+  // cookie expires, while Apply redirects to secure.indeed.com with loggedIn=0.
+  await page.goto(`${config.indeedBase}/myjobs`, { waitUntil: 'domcontentloaded' });
+  await waitForChallengeToClear(page);
+  const verdict = await page
+    .waitForFunction(
+      () => {
+        if (/secure\.indeed\.com|\/account\/login/i.test(location.href)) return 'signed-out';
+        const text = document.body?.innerText ?? '';
+        if (/create an account or sign in|email address\s*\*/i.test(text)) return 'signed-out';
+        if (/\bmy jobs\b|\bsaved\b|\bapplied\b|\barchived\b/i.test(text)) return 'signed-in';
+        return false;
+      },
+      undefined,
+      { timeout: 15_000, polling: 300 },
+    )
+    .then((handle) => handle.jsonValue() as Promise<string>)
+    .catch(() => 'unclear');
+
+  if (verdict === 'signed-out') {
+    recordSiteSession('indeed', false);
+    throw new Error(
+      'Indeed session is not signed in. Open the Chrome profile manually, sign in to au.indeed.com, then re-run. ' +
+        'This tool never automates login.',
+    );
+  }
+  if (verdict !== 'signed-in') {
+    throw new Error('Indeed did not finish loading My Jobs, so the sign-in could not be confirmed. Try again in a moment.');
+  }
+  recordSiteSession('indeed', true);
+}
+
+async function assertIndeedSignedInLegacy(page: Page): Promise<void> {
   await page.goto(`${config.indeedBase}/`, { waitUntil: 'domcontentloaded' });
   const url = page.url();
   if (/secure\.indeed\.com|\/account\/login/i.test(url)) {
