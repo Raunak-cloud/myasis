@@ -8,6 +8,11 @@ interface Props {
   followUpDays: number;
 }
 
+/** The job board an application went through, named the way the board names itself. */
+const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
+const boardLabel = (platform: string | undefined): string =>
+  BOARD_LABELS[(platform ?? 'seek').toLowerCase()] ?? (platform ? platform[0].toUpperCase() + platform.slice(1) : 'SEEK');
+
 const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
   { id: 'interview', label: 'Interview', tone: 'ok' },
   { id: 'rejected', label: 'Rejected', tone: 'bad' },
@@ -141,7 +146,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                         rel="noreferrer"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        SEEK ↗
+                        {boardLabel(a.platform)} ↗
                       </a>
                     </td>
                   </tr>
@@ -218,7 +223,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
               <div className="section">
                 <h3>Listing</h3>
                 <a href={open.url} target="_blank" rel="noreferrer">
-                  Open on SEEK ↗
+                  Open on {boardLabel(open.platform)} ↗
                 </a>
               </div>
             </div>
