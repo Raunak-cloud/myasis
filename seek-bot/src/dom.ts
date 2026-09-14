@@ -533,12 +533,9 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
     if (field.autocomplete || el.getAttribute('role') === 'combobox') {
       // A combobox shows its choice in a sibling, not in the input, and often clears the input after choosing.
       const container = el.closest('[class*="select"], [class*="combobox"], [class*="dropdown"], label') ?? el.parentElement?.parentElement ?? el;
-      // Punctuation-free on both sides: the option "Sydney NSW" satisfies "Sydney, NSW".
-      const loose = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      const shown = loose(container.textContent ?? '');
-      const want = loose(value);
-      const held = loose(el.value);
-      return held === want || (want.length > 0 && (shown.includes(want) || (held.length > 0 && want.includes(held))));
+      const shown = normal(container.textContent ?? '').toLowerCase();
+      const want = normal(value).toLowerCase();
+      return normal(el.value).toLowerCase() === want || (want.length > 0 && shown.includes(want));
     }
     /**
      * A phone or number field is allowed to show the value its own way —
