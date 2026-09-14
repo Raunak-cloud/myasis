@@ -35,6 +35,18 @@ export function isSubmitAction(text: string): boolean {
 }
 
 /**
+ * "Apply now" on a job advert opens the form; on a completed form it sends
+ * it. The label is the same, so the label cannot decide. What decides is
+ * whether there is anything to send: an application nobody has typed into,
+ * on a page with no fields, cannot be submitted by any button. One rehearsal
+ * on an employer's careers page stopped at step one, "withholding" the link
+ * that would have opened the application, and reported it as completed.
+ */
+export function isEntryAction(text: string, state: { captured: number; fields: number }): boolean {
+  return /^apply( now)?$/i.test(clean(text)) && state.captured === 0 && state.fields === 0;
+}
+
+/**
  * Hosts that belong to a job board this tool applies through. An application
  * form on any of them is the board's own flow; anywhere else is an employer's
  * site. Indeed's Easy Apply wizard lives on smartapply.indeed.com.

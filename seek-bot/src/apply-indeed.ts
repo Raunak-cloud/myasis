@@ -39,6 +39,8 @@ async function detectAlreadyApplied(page: Page): Promise<boolean> {
 
 /** The wizard lives here; a click that lands anywhere else did not open it. */
 const APPLY_FLOW_URL = /smartapply\.indeed\.com|\/indeedapply\//i;
+/** An employer's site is anywhere that is not Indeed; the search page with a changed query string is not it. */
+const OFF_INDEED_URL = /^https?:\/\/(?![^/]*\bindeed\.com)/i;
 
 /**
  * Opens an apply CTA and returns the page the flow landed on, or null when
@@ -47,8 +49,7 @@ const APPLY_FLOW_URL = /smartapply\.indeed\.com|\/indeedapply\//i;
  * `expected` before it is trusted: a click that opened nothing once left the
  * search page to be read as an application form.
  */
-async function openApplyFlow(page: Page, applyCta: ReturnType<typeof byName>, expected: RegExp | null): Promise<Page | null> {
-  const startUrl = page.url();
+async function openApplyFlow(page: Page, applyCta: ReturnType<typeof byName>, expected: RegExp): Promise<Page | null> {
   const popupPromise = page.context().waitForEvent('page', { timeout: 12_000 }).catch(() => null);
   await applyCta.first().scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
   const clicked = await applyCta.first().click({ timeout: 8_000 }).then(() => true).catch(() => false);
@@ -57,10 +58,7 @@ async function openApplyFlow(page: Page, applyCta: ReturnType<typeof byName>, ex
   const target = popup ?? page;
   await target.waitForLoadState('domcontentloaded').catch(() => {});
   const landed = await target
-    .waitForURL(
-      (url) => (expected ? expected.test(url.href) || /secure\.indeed\.com\/auth/i.test(url.href) : url.href !== startUrl),
-      { timeout: 15_000 },
-    )
+    .waitForURL((url) => expected.test(url.href) || /secure\.indeed\.com\/auth/i.test(url.href), { timeout: 15_000 })
     .then(() => true)
     .catch(() => false);
   if (!landed) {
@@ -137,7 +135,7 @@ export async function applyToIndeedJob(
   );
 
   const cta = hosted ? indeedApplyCta : externalCta;
-  const expected = hosted ? APPLY_FLOW_URL : null;
+  const expected = hosted ? APPLY_FLOW_URL : OFF_INDEED_URL;
   // One more try after a scroll before giving up: the panel's button sits under a sticky header on some listings.
   const applyPage = (await openApplyFlow(page, cta, expected)) ?? (await openApplyFlow(page, cta, expected));
   if (!applyPage) {
