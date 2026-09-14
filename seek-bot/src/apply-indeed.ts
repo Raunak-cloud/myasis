@@ -438,7 +438,9 @@ async function runApplySteps(
   let stagnant = 0;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const state = JSON.stringify((await extractFields(applyPage)).map(f => [f.label, f.currentValue]));
+    const seen = await extractFields(applyPage);
+    const state = JSON.stringify(seen.map(f => [f.label, f.currentValue]));
+    console.log(`  · step ${step + 1}: ${applyPage.url().replace(/^https:\/\/smartapply\.indeed\.com\/beta\/indeedapply\//, '')} · ${seen.length ? seen.map((f) => f.label).join(' | ') : 'no fields'}`);
     if (applyPage.url() === lastUrl && state === lastState) {
       if (++stagnant >= 2) {
         return {
@@ -550,9 +552,11 @@ async function runApplySteps(
             }
           }
           try {
+            console.log(`  · filling "${field.label}"${field.sensitive ? '' : ` with "${value.length > 40 ? `${value.slice(0, 40)}…` : value}"`}`);
             await fillField(applyPage, field, value);
             captured.push({ question: field.label, answer: value });
           } catch (err) {
+            console.log(`  · fill failed at ${applyPage.url()}`);
             return { status: 'needs-human', jobId: job.id, reason: `Field fill not verified: ${(err as Error).message}`, url: applyPage.url() };
           }
         }
@@ -571,6 +575,7 @@ async function runApplySteps(
     }
 
     const advanced = await clickContinueOrSubmit(applyPage);
+    if (advanced === 'advanced') console.log(`  · continued → ${applyPage.url().replace(/^https:\/\/smartapply\.indeed\.com\/beta\/indeedapply\//, '')}`);
     if (advanced === 'submit-withheld') {
       await saveAndCloseWithoutSubmitting(applyPage);
       return { status: 'rehearsed', jobId: job.id, coverLetter, answers: captured, stoppedAt: applyPage.url() };
