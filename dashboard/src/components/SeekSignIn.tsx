@@ -51,20 +51,26 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
   const screen = useRef<HTMLDivElement>(null);
   const rfb = useRef<{ disconnect: () => void } | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (verify = false) => {
     try {
-      const response = await fetch('/api/signin/session');
+      const sites = indeedEnabled ? 'seek,indeed' : 'seek';
+      const response = await fetch(
+        verify ? `/api/signin/session?verify=${encodeURIComponent(sites)}` : '/api/signin/session',
+      );
       setStatus(await response.json());
     } catch {
       setStatus({ supported: false, session: null });
     }
-  }, []);
+  }, [indeedEnabled]);
 
   useEffect(() => {
-    void refresh();
+    // A saved green tick is only the last thing a run observed. Verify every
+    // selected board when this indicator appears so it describes the account
+    // now, rather than repeating a result that may be hours or days old.
+    void refresh(true);
   }, [refresh]);
 
-  // While the server is asking SEEK, keep asking the server.
+  // While the server is asking a job board, keep asking the server.
   useEffect(() => {
     if (!status?.checking) return;
     const tick = setInterval(() => void refresh(), 4_000);
@@ -177,6 +183,14 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
   const minutesLeft = status.session ? Math.max(0, Math.round((status.session.expiresAt - now) / 60000)) : 0;
 
   if (!status.session) {
+    if (status.checking) {
+      return (
+        <div className="signin-status" role="status" aria-label="Verifying job-board sign-ins">
+          <span className="signin-pill verifying">Verifying job-board sign-ins…</span>
+        </div>
+      );
+    }
+
     /**
      * Nothing to say to an account that is already signed in.
      *
@@ -185,7 +199,7 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
      * run that finds the session dead records that, and the prompt returns
      * with the reason attached.
      */
-    const seekSettled = Boolean(status.seek?.signedIn) || Boolean(status.checking);
+    const seekSettled = Boolean(status.seek?.signedIn);
     const indeedSettled = !indeedEnabled || Boolean(status.indeed?.signedIn);
     /**
      * Signed in everywhere: say so in one line rather than nothing.
@@ -196,7 +210,6 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
      * since a tick would be a guess.
      */
     if (seekSettled && indeedSettled && !error && !notice) {
-      if (status.checking) return null;
       const boards = [['SEEK', true] as const, ...(indeedEnabled ? [['Indeed', true] as const] : [])];
       return (
         <div className="signin-status" role="status" aria-label="Signed in">

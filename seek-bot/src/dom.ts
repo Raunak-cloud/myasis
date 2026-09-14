@@ -141,6 +141,35 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       return name && !opaqueName(name) ? name : 'unlabelled field';
     };
 
+    /** Supporting instructions associated with a field, separate from its short label. */
+    const descriptionFor = (el: Element, label: string): string => {
+      const root = el.getRootNode() as Document | ShadowRoot;
+      const describedBy = el.getAttribute('aria-describedby');
+      if (describedBy) {
+        const text = describedBy
+          .split(/\s+/)
+          .map((id) => root.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '')
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (text && text !== label && text.length <= 500) return text;
+      }
+
+      let box: Element | null = el.parentElement;
+      for (let depth = 0; depth < 3 && box; depth++, box = box.parentElement) {
+        const candidates = box.querySelectorAll(
+          'small, [class*="hint" i], [class*="help" i], [class*="description" i], [data-testid*="description" i]',
+        );
+        for (const candidate of candidates) {
+          if (candidate.contains(el) || candidate.querySelector('input, select, textarea')) continue;
+          const text = (candidate as HTMLElement).innerText?.replace(/\s+/g, ' ').trim() ?? '';
+          if (text && text !== label && text.length >= 3 && text.length <= 500) return text;
+        }
+      }
+      return '';
+    };
+
     const visible = (el: Element) => {
       const r = (el as HTMLElement).getBoundingClientRect();
       const s = getComputedStyle(el as HTMLElement);
@@ -190,14 +219,17 @@ export async function extractFields(page: Page): Promise<FormField[]> {
 
       const ref = `f${n++}`;
       el.setAttribute('data-field-id', ref);
+      const label = labelFor(el);
+      const description = descriptionFor(el, label);
 
       if (el.tagName === 'SELECT') {
         const sel = el as unknown as HTMLSelectElement;
         fields.push({
           ref,
-          label: labelFor(el),
+          label,
+          ...(description ? { description } : {}),
           kind: 'select',
-          required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || requiredOnThisPage(labelFor(el)),
+          required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label) || requiredOnThisPage(label),
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
           currentValue: sel.value,
           autocomplete: el.getAttribute('role') === 'combobox',
@@ -207,9 +239,10 @@ export async function extractFields(page: Page): Promise<FormField[]> {
 
       fields.push({
         ref,
-        label: labelFor(el),
+        label,
+        ...(description ? { description } : {}),
         kind: el.tagName === 'TEXTAREA' ? 'textarea' : el.type === 'checkbox' ? 'checkbox' : 'text',
-        required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(labelFor(el)) || requiredOnThisPage(labelFor(el)),
+        required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label) || requiredOnThisPage(label),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',
         // Only when it constrains the value; "text" tells the answerer nothing.
@@ -223,7 +256,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
          * replays them on every later form asking the same thing — one typed
          * password would have been reused across unrelated employers.
          */
-        sensitive: el.type === 'password' || /\bpass(word|phrase)\b/i.test(labelFor(el)),
+        sensitive: el.type === 'password' || /\bpass(word|phrase)\b/i.test(label),
       });
       });
 
@@ -249,9 +282,11 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         '';
       // `key` is the input's name, which for SEEK is an opaque questionnaire id.
       const groupLabel = caption || (opaqueName(key) ? 'unlabelled question' : key);
+      const description = descriptionFor(container ?? inputs[0], groupLabel);
       fields.push({
         ref,
         label: groupLabel,
+        ...(description ? { description } : {}),
         kind: 'radio',
         required:
           inputs.some((i) => i.required || i.getAttribute('aria-required') === 'true') ||

@@ -154,6 +154,8 @@ export interface AppliedRecord {
 export interface FormField {
   ref: string;
   label: string;
+  /** Explanatory copy the form associates with this field. */
+  description?: string;
   kind: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
   required: boolean;
   options?: string[];
@@ -182,6 +184,8 @@ export interface FormField {
  */
 export interface BlockedQuestion {
   question: string;
+  /** Complete candidate-facing request; `question` stays the exact form label used on retry. */
+  prompt?: string;
   kind?: FormField['kind'];
   options?: string[];
 }
@@ -202,4 +206,6 @@ export interface FieldAnswer {
    */
   basis?: 'profile' | 'composed' | 'none';
   rationale?: string;
+  /** What to ask the candidate when this answer cannot be grounded. */
+  candidatePrompt?: string;
 }

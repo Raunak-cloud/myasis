@@ -43,5 +43,17 @@ check(
     'The mandatory street address field is not in the candidate profile.',
 );
 
+const prompted = resolveAttention([
+  event('needs-human', 1, [{
+    question: 'Tell us more',
+    prompt: 'Describe yourself and explain why you are interested in this role.',
+    kind: 'textarea',
+  }]),
+], new Set());
+check(
+  'candidate-facing prompts survive attention normalisation',
+  prompted[0]?.questions?.[0]?.prompt === 'Describe yourself and explain why you are interested in this role.',
+);
+
 console.log(`\n${failures} failure(s)`);
 process.exit(failures ? 1 : 0);

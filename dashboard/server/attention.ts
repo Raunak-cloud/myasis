@@ -28,6 +28,8 @@ export interface AttentionItem {
  */
 export interface BlockedQuestion {
   question: string;
+  /** Complete request shown to the candidate; `question` remains the form's exact label. */
+  prompt?: string;
   kind?: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
   options?: string[];
 }
@@ -40,7 +42,7 @@ export function normaliseQuestions(raw: unknown): BlockedQuestion[] {
   if (!Array.isArray(raw)) return [];
   const out: BlockedQuestion[] = [];
   for (const entry of raw) {
-    const item: { question?: unknown; kind?: unknown; options?: unknown } =
+    const item: { question?: unknown; prompt?: unknown; kind?: unknown; options?: unknown } =
       typeof entry === 'string' ? { question: entry } : entry && typeof entry === 'object' ? entry : {};
     if (typeof item.question !== 'string') continue;
     // Labels arrive with the form's own line breaks and required-asterisks; one line reads better.
@@ -55,8 +57,10 @@ export function normaliseQuestions(raw: unknown): BlockedQuestion[] {
      */
     if (/\bpass(word|phrase)\b/i.test(question)) continue;
     const options = Array.isArray(item.options) ? item.options.map(String).filter(Boolean) : [];
+    const prompt = typeof item.prompt === 'string' ? item.prompt.replace(/\s+/g, ' ').trim().slice(0, 500) : '';
     out.push({
       question,
+      ...(prompt ? { prompt } : {}),
       ...(typeof item.kind === 'string' ? { kind: item.kind as BlockedQuestion['kind'] } : {}),
       ...(options.length ? { options } : {}),
     });

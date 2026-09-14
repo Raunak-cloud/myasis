@@ -460,6 +460,10 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
         skipped.push(field.label);
         continue;
       }
+      ctx.guards.rememberField(
+        field,
+        answer.candidatePrompt?.trim() || field.description?.trim() || `What should Myasis enter for “${field.label}”?`,
+      );
       if (ctx.guards.ungrounded.includes(field.label)) repeated.push(field.label);
       ctx.guards.recordUngrounded(field.label);
       continue;

@@ -1819,7 +1819,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 /* One row per question: the wording, then the same control the form used. */
 .answer-form { display: grid; gap: 12px; margin-top: 12px; max-width: 560px; }
 .answer-row { display: grid; gap: 5px; }
-.answer-label { color: var(--text-faint); font-size: 12px; line-height: 1.35; }
+.answer-label { color: var(--text); font-size: 13px; font-weight: 650; line-height: 1.4; }
+.answer-hint { display: block; }
 .answer-form .input { width: 100%; }
 .answer-form textarea.input { resize: vertical; }
 .answer-form select.input { cursor: pointer; }
@@ -1938,4 +1939,5 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   padding:5px 11px 5px 9px; border:1px solid var(--ok); border-radius:99px;
   background:var(--ok-soft); color:var(--ok); font-size:12px; font-weight:650;
 }
+.signin-pill.verifying { border-color:var(--border); background:transparent; color:var(--text-dim); }
 .signin-pill svg { flex:0 0 auto; }

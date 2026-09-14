@@ -787,13 +787,27 @@ function dataApi(): Plugin {
           }
           const seek = readSeekState(userId);
           const indeed = readSiteState(userId, 'indeed');
+          const verifySites = (url.searchParams.get('verify') ?? '')
+            .split(',')
+            .filter((site): site is 'seek' | 'indeed' => site === 'seek' || site === 'indeed');
           /**
-           * An account nobody has ever verified — new, or one that only
-           * declared itself signed in under the old flow — gets checked in
-           * the background the first time its Apply page asks. The page
-           * polls while `checking` is true and settles on SEEK's answer.
+           * A green tick must describe the live account, not a cached answer.
+           * When the Apply page mounts it requests verification for the boards
+           * it displays. Run them sequentially because both checks use the same
+           * Chrome profile, which only one browser process may open at a time.
+           * The page polls while `checking` is true and settles on each site's
+           * freshly recorded answer.
            */
-          if ((!seek || seek.source === 'declared') && !sessionFor(userId) && !runner.stateFor(userId).running) {
+          if (verifySites.length && !sessionFor(userId) && !runner.stateFor(userId).running) {
+            const [firstSite, ...remainingSites] = verifySites;
+            // Start the first check before composing the response so
+            // `checking` is already true and a cached tick cannot flash.
+            let verification = checkSignin(userId, firstSite);
+            for (const site of remainingSites) {
+              verification = verification.then(() => checkSignin(userId, site));
+            }
+            void verification;
+          } else if ((!seek || seek.source === 'declared') && !sessionFor(userId) && !runner.stateFor(userId).running) {
             void checkSeekSignin(userId);
           }
           return send({

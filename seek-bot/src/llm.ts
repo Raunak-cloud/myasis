@@ -257,6 +257,12 @@ For each field also set "basis", which decides whether it may be filled at all:
   start date). Set "grounded": false. For a REQUIRED field the run pauses and
   the candidate is asked; a field that is not required is left blank, so prefer
   an empty "value" here over inventing something.
+- When "basis" is "none", also return "candidatePrompt": one complete, direct
+  question telling the candidate exactly what information to provide. Use the
+  field's description and the job's application instructions when available.
+  Never merely repeat a vague label such as "Tell us more". For example:
+  "Describe one React project you worked on, including your role, the tools you
+  used, and the outcome." Keep it factual and do not invite invented details.
 - For select/radio fields, "value" MUST be exactly one of the given options.
 - When a field has an "inputType", that is what the browser itself will accept,
   and it overrides however the label reads. "date" takes YYYY-MM-DD and nothing
@@ -327,6 +333,7 @@ For each field also set "basis", which decides whether it may be filled at all:
              */
             basis: { type: 'STRING' },
             rationale: { type: 'STRING' },
+            candidatePrompt: { type: 'STRING' },
           },
           required: ['ref', 'value', 'applicationQuestion', 'grounded'],
         },

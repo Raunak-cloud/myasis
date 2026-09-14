@@ -348,6 +348,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
                   const shape = guards.fieldShapes.get(question);
                   return {
                     question,
+                    ...(shape?.prompt ? { prompt: shape.prompt } : {}),
                     ...(shape?.kind ? { kind: shape.kind as BlockedQuestion['kind'] } : {}),
                     ...(shape?.options?.length ? { options: shape.options } : {}),
                   };

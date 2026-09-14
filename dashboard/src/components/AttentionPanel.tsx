@@ -6,6 +6,8 @@ export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platf
 /** A blocked question with the choices the form offered, when it had any. */
 interface BlockedQuestion {
   question: string;
+  /** Complete request for the candidate; the short question remains the retry key. */
+  prompt?: string;
   kind?: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
   options?: string[];
 }
@@ -98,7 +100,10 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
     <div className="answer-form">
       {questions.map((q) => (
         <label key={q.question} className="answer-row">
-          <span className="answer-label">{q.question}</span>
+          <span className="answer-label">{q.prompt?.trim() || `What should Myasis enter for “${q.question}”?`}</span>
+          {q.prompt?.trim() && q.prompt.trim() !== q.question ? (
+            <span className="job-meta answer-hint">Employer field: “{q.question}”</span>
+          ) : null}
           {control(q)}
         </label>
       ))}
