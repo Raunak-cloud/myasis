@@ -486,7 +486,9 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
     const same = (label: string) => label.replace(/[*:]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
     const again =
       fresh.find((candidate) => same(candidate.label) === same(field.label) && candidate.kind === field.kind) ??
-      fresh.find((candidate) => same(candidate.label) === same(field.label));
+      fresh.find((candidate) => same(candidate.label) === same(field.label)) ??
+      // Same slot in a step that kept its shape but relabelled: the position is the next-best witness.
+      fresh.find((candidate) => candidate.ref === field.ref && candidate.kind === field.kind && candidate.inputType === field.inputType);
     if (!again) {
       console.log(`  · "${field.label}" is no longer on the page; it now shows: ${fresh.map((f) => f.label).join(' | ') || '(no fields)'} at ${page.url()}`);
       throw error;

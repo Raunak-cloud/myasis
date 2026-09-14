@@ -134,20 +134,12 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
     const enabled = await waitUntilEnabled(continueBtn.first(), 25_000);
     if (enabled) {
       const before = await captureInteractivePageState(page);
-      const beforeUrl = page.url();
       const clicked = await continueBtn
         .first()
         .click({ timeout: 8_000 })
         .then(() => true)
         .catch(() => false);
       if (clicked) {
-        /**
-         * The wizard names its step in the URL, so a step is only over when
-         * the URL has moved on. Waiting for the content alone returned while
-         * the old step was still on screen, the loop re-read it and started
-         * filling again, and the page changed underneath the second fill.
-         */
-        await page.waitForURL((url) => url.href !== beforeUrl, { timeout: 12_000 }).catch(() => {});
         await waitForInteractivePageChange(page, before);
         await waitForInteractiveSurface(page, 4_000);
         return 'advanced';
@@ -543,17 +535,9 @@ async function runApplySteps(
           };
         }
 
-        const stepUrl = applyPage.url();
-        let stepMoved = false;
         for (const a of answers) {
           const field = answerable.find((f) => f.ref === a.ref);
           if (!field) continue;
-          // The answers belong to the step they were read from; a new step gets read afresh.
-          if (applyPage.url() !== stepUrl) {
-            console.log(`  · the step moved on before "${field.label}" was filled; re-reading`);
-            stepMoved = true;
-            break;
-          }
           let value = a.value;
           if (field.kind === 'text' || field.kind === 'textarea') {
             try {
@@ -576,8 +560,6 @@ async function runApplySteps(
             return { status: 'needs-human', jobId: job.id, reason: `Field fill not verified: ${(err as Error).message}`, url: applyPage.url() };
           }
         }
-
-        if (stepMoved) continue;
 
         const formFriction = await detectFriction(applyPage);
         if (formFriction) {
