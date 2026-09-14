@@ -6,6 +6,8 @@ export interface SigninAssistStatus {
 }
 
 interface DevToolsTarget {
+  id?: string;
+  parentId?: string;
   type?: string;
   url?: string;
   webSocketDebuggerUrl?: string;
@@ -24,8 +26,9 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * present in this Chrome profile. It never fills credentials or chooses a
  * different account.
  */
-export function googleAccountButtonExpression(email: string): string {
+export function googleAccountButtonExpression(email: string, click = false): string {
   const wanted = JSON.stringify(email.trim().toLowerCase());
+  const clickControl = click ? 'control.click();' : '';
   return `(() => {
     const wanted = ${wanted};
     const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
@@ -43,6 +46,7 @@ export function googleAccountButtonExpression(email: string): string {
     if (!control) return null;
     control.scrollIntoView({ block: 'center', inline: 'center' });
     const box = control.getBoundingClientRect();
+    ${clickControl}
     return { x: box.left + box.width / 2, y: box.top + box.height / 2, text: clean(control.innerText || control.textContent) };
   })()`;
 }
@@ -53,73 +57,103 @@ async function targets(debugPort: number): Promise<DevToolsTarget[]> {
   return (await response.json()) as DevToolsTarget[];
 }
 
-async function clickViaDevTools(webSocketUrl: string, expression: string): Promise<ClickPoint | null> {
+function loginAdvanced(before: DevToolsTarget[], after: DevToolsTarget[]): boolean {
+  const prior = new Set(before.map((target) => `${target.id}:${target.url}`));
+  return after.some((target) => {
+    const changed = !prior.has(`${target.id}:${target.url}`);
+    const meaningfulGooglePage = /accounts\.google\.com/i.test(target.url ?? '') && !/\/gsi\/button/i.test(target.url ?? '');
+    const leftIndeedLogin = /indeed\./i.test(target.url ?? '') && !/\/(auth|account\/login)\b/i.test(target.url ?? '');
+    return changed && (meaningfulGooglePage || leftIndeedLogin);
+  });
+}
+
+async function devToolsCommand(webSocketUrl: string, method: string, params: Record<string, unknown>): Promise<any> {
   const socket = new WebSocket(webSocketUrl);
   const timeout = setTimeout(() => socket.terminate(), 4_000);
-  let nextId = 0;
-  const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
-  const rejectPending = (message: string) => {
-    for (const request of pending.values()) request.reject(new Error(message));
-    pending.clear();
-  };
-
-  socket.on('message', (raw) => {
-    try {
-      const message = JSON.parse(String(raw)) as { id?: number; result?: any; error?: { message?: string } };
-      if (!message.id) return;
-      const request = pending.get(message.id);
-      if (!request) return;
-      pending.delete(message.id);
-      if (message.error) request.reject(new Error(message.error.message ?? 'Browser-control command failed.'));
-      else request.resolve(message.result);
-    } catch {
-      /* Ignore protocol events and malformed messages. */
-    }
-  });
-  socket.on('close', () => rejectPending('Browser-control connection closed.'));
-  socket.on('error', () => rejectPending('Browser-control connection failed.'));
 
   try {
     await new Promise<void>((resolve, reject) => {
       socket.once('open', resolve);
       socket.once('error', reject);
     });
-    const command = (method: string, params: Record<string, unknown>) =>
-      new Promise<any>((resolve, reject) => {
-        const id = ++nextId;
-        pending.set(id, { resolve, reject });
-        socket.send(JSON.stringify({ id, method, params }));
+    return await new Promise<any>((resolve, reject) => {
+      socket.on('message', (raw) => {
+        try {
+          const message = JSON.parse(String(raw)) as { id?: number; result?: any; error?: { message?: string } };
+          if (message.id !== 1) return;
+          if (message.error) reject(new Error(message.error.message ?? 'Browser-control command failed.'));
+          else resolve(message.result);
+        } catch (error) {
+          reject(error);
+        }
       });
-
-    const evaluated = await command('Runtime.evaluate', {
-      expression,
-      returnByValue: true,
-      userGesture: true,
+      socket.once('close', () => reject(new Error('Browser-control connection closed.')));
+      socket.once('error', reject);
+      socket.send(JSON.stringify({ id: 1, method, params }));
     });
-    const point = evaluated?.result?.value as ClickPoint | null | undefined;
-    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
-    await command('Input.dispatchMouseEvent', {
+  } finally {
+    clearTimeout(timeout);
+    socket.close();
+  }
+}
+
+async function evaluatePoint(target: DevToolsTarget, expression: string): Promise<ClickPoint | null> {
+  if (!target.webSocketDebuggerUrl) return null;
+  const evaluated = await devToolsCommand(target.webSocketDebuggerUrl, 'Runtime.evaluate', {
+    expression,
+    returnByValue: true,
+    userGesture: true,
+  });
+  const point = evaluated?.result?.value as ClickPoint | null | undefined;
+  return point && Number.isFinite(point.x) && Number.isFinite(point.y) ? point : null;
+}
+
+function frameOffsetExpression(frameUrl: string): string {
+  const wanted = JSON.stringify(frameUrl);
+  return `(() => {
+    const wanted = ${wanted};
+    const frame = [...document.querySelectorAll('iframe')].find((element) => element.src === wanted);
+    if (!frame) return null;
+    const box = frame.getBoundingClientRect();
+    return { x: box.left, y: box.top, text: '' };
+  })()`;
+}
+
+async function dispatchClick(target: DevToolsTarget, point: ClickPoint): Promise<void> {
+  if (!target.webSocketDebuggerUrl) throw new Error('Browser target is unavailable.');
+  await devToolsCommand(target.webSocketDebuggerUrl, 'Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x: point.x,
       y: point.y,
       button: 'left',
       buttons: 1,
       clickCount: 1,
-    });
-    await command('Input.dispatchMouseEvent', {
+  });
+  await devToolsCommand(target.webSocketDebuggerUrl, 'Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x: point.x,
       y: point.y,
       button: 'left',
       buttons: 0,
       clickCount: 1,
-    });
+  });
+}
+
+/** Dispatches through the parent page when Google rendered an out-of-process iframe. */
+async function clickViaDevTools(page: DevToolsTarget, pages: DevToolsTarget[], expression: string): Promise<ClickPoint | null> {
+  const point = await evaluatePoint(page, expression);
+  if (!point) return null;
+  if (!page.parentId) {
+    await dispatchClick(page, point);
     return point;
-  } finally {
-    clearTimeout(timeout);
-    rejectPending('Browser-control connection closed.');
-    socket.close();
   }
+  const parent = pages.find((candidate) => candidate.id === page.parentId);
+  if (!parent || !page.url) return null;
+  const offset = await evaluatePoint(parent, frameOffsetExpression(page.url));
+  if (!offset) return null;
+  const translated = { ...point, x: point.x + offset.x, y: point.y + offset.y };
+  await dispatchClick(parent, translated);
+  return translated;
 }
 
 /**
@@ -134,6 +168,7 @@ export async function assistIndeedGoogleSignin(options: {
 }): Promise<void> {
   const { debugPort, email, active, update } = options;
   const expression = googleAccountButtonExpression(email);
+  const directClickExpression = googleAccountButtonExpression(email, true);
   const deadline = Date.now() + 45_000;
 
   while (active() && Date.now() < deadline) {
@@ -141,8 +176,27 @@ export async function assistIndeedGoogleSignin(options: {
       const pages = await targets(debugPort);
       for (const page of pages) {
         if (!page.webSocketDebuggerUrl || !/(indeed\.|accounts\.google\.com\/gsi\/)/i.test(page.url ?? '')) continue;
-        const clicked = await clickViaDevTools(page.webSocketDebuggerUrl, expression);
+        // A user-gesture Runtime click works for the normal button. If Google
+        // isolates it in an out-of-process iframe, the translated mouse event
+        // below is the compatible fallback.
+        const direct = await evaluatePoint(page, directClickExpression);
+        if (!direct) continue;
+        await wait(900);
+        const afterDirectTargets = await targets(debugPort);
+        const afterDirect = await evaluatePoint(page, expression).catch(() => null);
+        if (!afterDirect || loginAdvanced(pages, afterDirectTargets)) {
+          update({
+            state: 'clicked',
+            message: `Selected ${email} with Google. Complete any verification shown, then choose Done.`,
+          });
+          return;
+        }
+        const clicked = await clickViaDevTools(page, afterDirectTargets, expression);
         if (!clicked) continue;
+        await wait(900);
+        const afterMouseTargets = await targets(debugPort);
+        const stillVisible = await evaluatePoint(page, expression).catch(() => null);
+        if (stillVisible && !loginAdvanced(afterDirectTargets, afterMouseTargets)) continue;
         update({
           state: 'clicked',
           message: `Selected ${email} with Google. Complete any verification shown, then choose Done.`,
