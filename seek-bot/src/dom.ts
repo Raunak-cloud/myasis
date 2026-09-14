@@ -471,25 +471,7 @@ export async function pageSummary(page: Page): Promise<string> {
 
 /** Fill only reports success after the browser accepts and retains the value. */
 export async function fillField(page: Page, field: FormField, value: string): Promise<void> {
-  try {
-    await fillFieldUnchecked(page, field, value);
-  } catch (error) {
-    if (!/could not find/.test((error as Error).message)) throw error;
-    /**
-     * The page re-rendered between reading the fields and filling this one,
-     * and the tag the reader left on the element went with it. A wizard that
-     * redraws its step after the model has answered (Indeed's contact step,
-     * live) lost every field this way. The field is found again by what it
-     * asks, which is what the answer was for.
-     */
-    const fresh = await extractFields(page);
-    const again =
-      fresh.find((candidate) => candidate.label === field.label && candidate.kind === field.kind) ??
-      fresh.find((candidate) => candidate.label === field.label);
-    if (!again) throw error;
-    field = { ...again, sensitive: field.sensitive };
-    await fillFieldUnchecked(page, field, value);
-  }
+  await fillFieldUnchecked(page, field, value);
   await page.waitForFunction(({ field, value }) => {
     const roots: Array<Document | ShadowRoot> = [document];
     const elements: Element[] = [];
@@ -511,15 +493,6 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
       const shown = normal(container.textContent ?? '').toLowerCase();
       const want = normal(value).toLowerCase();
       return normal(el.value).toLowerCase() === want || (want.length > 0 && shown.includes(want));
-    }
-    /**
-     * A phone or number field is allowed to show the value its own way —
-     * "0481 006 011" for "0481006011" is acceptance with formatting, not a
-     * refusal. The digits are what was entered.
-     */
-    if (field.inputType === 'tel' || field.inputType === 'number') {
-      const digits = (s: string) => s.replace(/\D+/g, '');
-      return digits(value).length > 0 && digits(el.value) === digits(value);
     }
     return normal(el.value) === normal(value);
   }, { field, value }, { timeout: 2000, polling: 100 }).catch(async () => {
