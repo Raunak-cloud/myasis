@@ -132,7 +132,6 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
      * the time an upload takes before concluding the step is stuck.
      */
     const enabled = await waitUntilEnabled(continueBtn.first(), 25_000);
-    if (!enabled) console.log('  · Continue stayed disabled for 25s');
     if (enabled) {
       const before = await captureInteractivePageState(page);
       const beforeUrl = page.url();
@@ -141,7 +140,6 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
         .click({ timeout: 8_000 })
         .then(() => true)
         .catch(() => false);
-      if (!clicked) console.log('  · Continue could not be clicked');
       if (clicked) {
         /**
          * The wizard names its step in the URL, so a step is only over when
@@ -494,9 +492,8 @@ async function runApplySteps(
       };
     }
 
-    if (/\/beta\/indeedapply\/form\/resume-selection-module(\/|$|\?)/.test(applyPage.url())) {
+    if (/\/beta\/indeedapply\/form\/resume-selection-module\//.test(applyPage.url())) {
       const outcome = await handleResumeStep(applyPage, job, profile);
-      console.log(`  · résumé step: ${outcome.status}${outcome.status === 'unavailable' ? ` (${outcome.detail})` : ''}`);
       if (outcome.status === 'unavailable') {
         return {
           status: 'needs-human',
