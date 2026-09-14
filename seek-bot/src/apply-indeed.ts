@@ -126,12 +126,7 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
 
   const continueBtn = byName(page, CONTINUE_LABEL);
   if (await continueBtn.count()) {
-    /**
-     * Disabled is often "not yet": the step is still processing something,
-     * such as a résumé that was just added and is being converted. Give it
-     * the time an upload takes before concluding the step is stuck.
-     */
-    const enabled = await waitUntilEnabled(continueBtn.first(), 25_000);
+    const enabled = await continueBtn.first().isEnabled().catch(() => false);
     if (enabled) {
       const before = await captureInteractivePageState(page);
       const clicked = await continueBtn
@@ -147,15 +142,6 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
     }
   }
   return 'none';
-}
-
-async function waitUntilEnabled(button: ReturnType<typeof byName>, timeoutMs: number): Promise<boolean> {
-  const until = Date.now() + timeoutMs;
-  while (Date.now() < until) {
-    if (await button.isEnabled().catch(() => false)) return true;
-    await jitter(400, 700);
-  }
-  return false;
 }
 
 /** Exits an in-progress application cleanly, without submitting. Best-effort. */
