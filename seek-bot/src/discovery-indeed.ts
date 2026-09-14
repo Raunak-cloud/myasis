@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
-import { jitter } from './browser.js';
+import { jitter, waitForChallengeToClear } from './browser.js';
 import type { JobListing } from './types.js';
 
 /**
@@ -267,6 +267,7 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
   // no longer reliable because that global is now absent on search pages.
   const detailUrl = searchUrl('', 1, job.id);
   await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
+  await waitForChallengeToClear(page, 60_000);
   await page.waitForSelector('#jobDescriptionText', { timeout: 20_000 }).catch(() => {});
   await jitter(500, 1200);
 
