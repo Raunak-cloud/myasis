@@ -9,7 +9,7 @@ import {
   waitForInteractiveSurface,
 } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
-import { extractFields, fillField, FieldRejectedError, pageSummary } from './dom.js';
+import { extractFields, fillField, pageSummary } from './dom.js';
 import { answerFields, classifyPage, coverLetterForJob } from './llm.js';
 import { rewriteLongText } from './humanizer.js';
 import { RESUME_DIR, pickResumeForJob } from './resume.js';
@@ -589,32 +589,6 @@ async function runApplySteps(
             await fillField(applyPage, field, value);
             captured.push({ question: field.label, answer: value });
           } catch (err) {
-            /**
-             * The form said what was wrong ("Answer must be a valid number"),
-             * so the question is asked again with that requirement attached,
-             * the way the SEEK agent retries. One more answer, from the same
-             * evidence; only a second refusal goes to the person.
-             */
-            const complaint = err instanceof FieldRejectedError ? err.complaint : '';
-            if (complaint) {
-              console.log(`  · "${field.label}": the form says "${complaint}"; asking again`);
-              const again = await answerFields(
-                [{ ...field, label: `${field.label} (the form requires: ${complaint})` }],
-                job,
-                profile,
-              ).catch(() => null);
-              const retry = again?.answers.find((candidate) => candidate.ref === field.ref);
-              if (retry?.grounded && retry.value) {
-                try {
-                  console.log(`  · filling "${field.label}" with "${retry.value}"`);
-                  await fillField(applyPage, field, retry.value);
-                  captured.push({ question: field.label, answer: retry.value });
-                  continue;
-                } catch (secondErr) {
-                  err = secondErr;
-                }
-              }
-            }
             console.log(`  · fill failed at ${applyPage.url()}`);
             return { status: 'needs-human', jobId: job.id, reason: `Field fill not verified: ${(err as Error).message}`, url: applyPage.url() };
           }
