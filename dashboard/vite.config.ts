@@ -1105,6 +1105,17 @@ function dataApi(): Plugin {
     configurePreviewServer(server) {
       server.middlewares.use(handler);
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
+      /**
+       * Bring the database up to the code before anything queries it.
+       *
+       * schema.sql is idempotent, and a deploy that pulls new code without
+       * running it leaves every query on a new column failing until someone
+       * notices. A run could not even start that way. Doing it here means a
+       * restart is the migration.
+       */
+      void dbMigrate().then((r) => {
+        if (!r.ok) console.error(`Database schema could not be applied: ${r.error}`);
+      });
       startAutoRunner();
     },
   };
