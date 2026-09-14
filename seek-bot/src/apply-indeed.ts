@@ -207,34 +207,68 @@ type ResumeOutcome = { status: 'kept-default' | 'selected' } | { status: 'unavai
  */
 async function handleResumeStep(page: Page, job: JobListing, profile: CandidateProfile): Promise<ResumeOutcome> {
   const wanted = await pickResumeForJob(job, profile);
-  if (!wanted) return { status: 'kept-default' };
-
   const radios = page.locator('input[type=radio]');
-  const count = await radios.count();
-  const needles = [wanted.label, wanted.fileName]
-    .map((s) => s.toLowerCase().replace(/\.(pdf|docx?|rtf)$/i, '').trim())
-    .filter(Boolean);
-  for (let i = 0; i < count; i++) {
-    const label = clean(
-      await radios
-        .nth(i)
-        .evaluate((el) => (el.closest('label')?.textContent ?? '') || '')
-        .catch(() => ''),
-    ).toLowerCase();
-    if (needles.some((needle) => label.includes(needle))) {
-      await radios.nth(i).click({ force: true }).catch(() => {});
-      return { status: 'selected' };
+
+  /** Picks the radio whose label carries the wanted name; false when none does. */
+  const selectWanted = async (): Promise<boolean> => {
+    if (!wanted) return false;
+    const needles = [wanted.label, wanted.fileName]
+      .map((s) => s.toLowerCase().replace(/\.(pdf|docx?|rtf)$/i, '').trim())
+      .filter(Boolean);
+    const count = await radios.count();
+    for (let i = 0; i < count; i++) {
+      const label = clean(
+        await radios
+          .nth(i)
+          .evaluate((el) => (el.closest('label')?.textContent ?? '') || '')
+          .catch(() => ''),
+      ).toLowerCase();
+      if (needles.some((needle) => label.includes(needle))) {
+        await radios.nth(i).click({ force: true }).catch(() => {});
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (await selectWanted()) return { status: 'selected' };
+
+  /**
+   * The step has a file input (verified live: "Add a resume" is a plain
+   * `<input type=file>`), so the résumé chosen for this job can be added
+   * the way SEEK's picker adds one, and it then appears in the list.
+   */
+  const localPath = wanted ? resolve(RESUME_DIR, wanted.fileName) : '';
+  const fileInput = page.locator('input[type=file]').first();
+  if (wanted && existsSync(localPath) && (await fileInput.count())) {
+    const uploaded = await fileInput
+      .setInputFiles(localPath)
+      .then(() => true)
+      .catch(() => false);
+    if (uploaded) {
+      await page.waitForFunction(
+        (name) => [...document.querySelectorAll('label')].some((l) => (l.textContent ?? '').includes(name)),
+        wanted.fileName.replace(/\.(pdf|docx?|rtf)$/i, ''),
+        { timeout: 20_000 },
+      ).catch(() => {});
+      if (await selectWanted()) return { status: 'selected' };
     }
   }
-  // Uploading a new résumé via Indeed's "Resume options" picker was not
-  // exercised live, so this deliberately does not attempt it — see the
-  // needs-human path in applyToIndeedJob. The two cases differ only in what
-  // the human needs to do next: fetch a missing file, or just upload the one
-  // already sitting in data/resumes/.
-  const localPath = resolve(RESUME_DIR, wanted.fileName);
-  return existsSync(localPath)
-    ? { status: 'unavailable', wanted: wanted.label, detail: 'not yet uploaded to Indeed' }
-    : { status: 'unavailable', wanted: wanted.label, detail: `local file data/resumes/${wanted.fileName} is missing too` };
+
+  /**
+   * The résumé already on Indeed is the candidate's own; using it is what
+   * they would do at this step themselves. Stopping here cost every Indeed
+   * application on one live run, over a file name that differed by a "(2)".
+   */
+  const checked = await radios.locator(':scope:checked').count().catch(() => 0);
+  if (checked > 0) return { status: 'kept-default' };
+  if (await radios.count()) {
+    await radios.first().click({ force: true }).catch(() => {});
+    return { status: 'kept-default' };
+  }
+  return wanted
+    ? { status: 'unavailable', wanted: wanted.label, detail: existsSync(localPath) ? 'the step offered nowhere to add it' : `local file data/resumes/${wanted.fileName} is missing too` }
+    : { status: 'unavailable', wanted: 'any résumé', detail: 'the Indeed profile has none on file' };
 }
 
 async function detectConfirmation(page: Page): Promise<boolean> {
@@ -279,7 +313,8 @@ export async function applyToIndeedJob(
     return { status: 'skipped', jobId: job.id, reason: 'Indeed reports already applied' };
   }
 
-  const indeedApplyCta = byName(page, /^apply with indeed/i);
+  // "Continue application" is what Indeed shows once a flow was started and left; same wizard, resumed.
+  const indeedApplyCta = byName(page, /^(apply with indeed|continue application)/i);
   const externalCta = byName(page, /^apply on company site/i);
   const hosted = (await indeedApplyCta.count()) > 0;
   if (!hosted) {
