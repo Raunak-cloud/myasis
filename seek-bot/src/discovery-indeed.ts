@@ -104,6 +104,18 @@ function annualSalaryMin(extracted?: { min?: number; max?: number; type?: string
   return extracted.type === 'YEARLY' ? extracted.min : undefined;
 }
 
+function searchUrl(keywords: string, pageNum: number, selectedJobId?: string): string {
+  const start = (pageNum - 1) * 10;
+  const location = config.search.location || 'Australia';
+  const params = new URLSearchParams({ q: keywords, l: location, sort: 'date' });
+  if (start > 0) params.set('start', String(start));
+  if (config.search.location && config.search.radiusKm > 0) {
+    params.set('radius', String(config.search.radiusKm));
+  }
+  if (selectedJobId) params.set('vjk', selectedJobId);
+  return `${config.indeedBase}/jobs?${params.toString()}`;
+}
+
 function normalise(raw: any): JobListing | null {
   const id = String(raw?.jobkey ?? '').trim();
   const title = raw?.title ?? raw?.displayTitle;
@@ -170,10 +182,7 @@ export async function recommended(page: Page): Promise<JobListing[]> {
 
 /** Primary path: pull the hydrated result set out of `window.mosaic`. */
 export async function searchViaMosaic(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const start = (pageNum - 1) * 10;
-  const url =
-    `${config.indeedBase}/jobs?q=${encodeURIComponent(keywords)}&l=${encodeURIComponent('Australia')}&sort=date` +
-    (start > 0 ? `&start=${start}` : '');
+  const url = searchUrl(keywords, pageNum);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-jk]', { timeout: 15_000 }).catch(() => {});
   await jitter(600, 1400);
@@ -196,10 +205,7 @@ export async function searchViaMosaic(page: Page, keywords: string, pageNum = 1)
 
 /** Fallback: read the rendered cards via Indeed's own `data-jk`/`data-testid` hooks. */
 export async function searchViaDom(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const start = (pageNum - 1) * 10;
-  const url =
-    `${config.indeedBase}/jobs?q=${encodeURIComponent(keywords)}&l=${encodeURIComponent('Australia')}&sort=date` +
-    (start > 0 ? `&start=${start}` : '');
+  const url = searchUrl(keywords, pageNum);
   if (!page.url().startsWith(url)) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-jk]', { timeout: 15_000 }).catch(() => {});
@@ -208,16 +214,20 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
   const rows = await page.evaluate(() => {
     const out: any[] = [];
     document.querySelectorAll('a.jcs-JobTitle[data-jk]').forEach((anchor) => {
+      const box = anchor.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0) return;
       const id = anchor.getAttribute('data-jk');
       if (!id) return;
-      const card = anchor.closest('[data-testid="slider_item"], .job_seen_beacon, li, div');
+      const card = anchor.closest('[data-testid="slider_item"], .job_seen_beacon, li');
       const txt = (sel: string) => card?.querySelector(`[data-testid="${sel}"]`)?.textContent?.trim() || undefined;
+      const cardText = card?.textContent ?? '';
       out.push({
         id,
         title: anchor.textContent?.trim() ?? '',
         company: txt('company-name'),
         location: txt('text-location'),
         salary: card?.querySelector('[data-testid^="attribute_snippet_testid salary"]')?.textContent?.trim(),
+        indeedApplyable: /(?:easily apply|apply with indeed)/i.test(cardText),
       });
     });
     return out;
@@ -233,6 +243,8 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
       salary: r.salary || undefined,
       url: `${config.indeedBase}/viewjob?jk=${r.id}`,
       platform: 'indeed' as const,
+      indeedApplyable: r.indeedApplyable,
+      applicationMode: r.indeedApplyable ? ('hosted' as const) : ('unknown' as const),
     }));
 }
 
@@ -253,7 +265,7 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
   // click lands on this URL and lets Indeed create the current request token;
   // replaying its private embedded endpoint with mosaic.initialData.logTk is
   // no longer reliable because that global is now absent on search pages.
-  const detailUrl = `${config.indeedBase}/jobs?l=${encodeURIComponent('Australia')}&vjk=${encodeURIComponent(job.id)}`;
+  const detailUrl = searchUrl('', 1, job.id);
   await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#jobDescriptionText', { timeout: 20_000 }).catch(() => {});
   await jitter(500, 1200);
