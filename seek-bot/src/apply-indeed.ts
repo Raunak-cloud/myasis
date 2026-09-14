@@ -143,13 +143,30 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
     if (config.dryRun) return 'submit-withheld';
     console.log(`  · submitting: "${(await submitBtn.innerText().catch(() => 'Submit')).trim()}"`);
     const before = await captureInteractivePageState(page);
+    const beforeUrl = page.url();
     const clicked = await submitBtn
       .click({ timeout: 8_000 })
       .then(() => true)
       .catch(() => false);
     if (clicked) {
+      /**
+       * A submission takes a moment. Two live applications were reported as
+       * stuck while Indeed was still sending them: the review page was read
+       * again before it had gone anywhere. Wait for the wizard to leave the
+       * form, or for the page to say the application went, before deciding.
+       */
+      await page
+        .waitForFunction(
+          () =>
+            !/\/beta\/indeedapply\/form\//.test(location.href) ||
+            /application (has been |was )?(submitted|sent)|you'?ve applied|successfully applied|application received/i.test(document.body?.innerText ?? ''),
+          undefined,
+          { timeout: 30_000, polling: 500 },
+        )
+        .catch(() => {});
       await waitForInteractivePageChange(page, before);
       await waitForInteractiveSurface(page, 4_000);
+      console.log(`  · after submit: ${page.url()}${page.url() === beforeUrl ? ' (still on the review step)' : ''}`);
       return 'advanced';
     }
   }
@@ -182,6 +199,18 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
         await page.waitForURL((url) => url.href !== beforeUrl, { timeout: 12_000 }).catch(() => {});
         await waitForInteractivePageChange(page, before);
         await waitForInteractiveSurface(page, 4_000);
+        if (page.url() === beforeUrl) {
+          const complaints = await page
+            .evaluate(() =>
+              [...document.querySelectorAll('[role="alert"], [aria-live], [class*="error" i], [id*="error" i]')]
+                .filter((el) => (el as HTMLElement).offsetParent !== null)
+                .map((el) => ((el as HTMLElement).innerText || '').replace(/\s+/g, ' ').trim())
+                .filter((text) => text && text.length < 200)
+                .slice(0, 5),
+            )
+            .catch(() => [] as string[]);
+          console.log(`  · Continue did not move the step${complaints.length ? `; the form says: ${complaints.join(' | ')}` : ''}`);
+        }
         return 'advanced';
       }
     }
@@ -326,11 +355,10 @@ async function handleResumeStep(page: Page, job: JobListing, profile: CandidateP
 }
 
 async function detectConfirmation(page: Page): Promise<boolean> {
-  if (/\/beta\/indeedapply\/form\//.test(page.url())) return false; // still inside the wizard
   const body = await page.locator('body').innerText().catch(() => '');
-  return /application (has been |was )?(submitted|sent)|you'?ve applied|successfully applied|application received/i.test(
-    body,
-  );
+  const said = /application (has been |was )?(submitted|sent)|you'?ve applied|successfully applied|application received/i.test(body);
+  if (/\/beta\/indeedapply\/form\//.test(page.url())) return said && !/review your application/i.test(body); // still inside the wizard unless it says otherwise
+  return said || /\/post-?apply|\/applied|confirmation/i.test(page.url());
 }
 
 /**
