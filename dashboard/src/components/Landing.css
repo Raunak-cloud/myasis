@@ -285,3 +285,22 @@
 .home-story-myasis { aspect-ratio:1672/511; margin-top:clamp(30px,4vw,58px); }
 .home-story-myasis img { bottom:0; }
 @media(max-width:800px) { .home-hero-videos { grid-template-columns:1fr; } }
+
+/* ---------- Hero: the story across the full width, then the words beside the demo ---------- */
+.home-intro { padding-top: 40px; }
+.home-intro > .home-hero-figure { width: 100%; max-width: 1180px; margin: 0 auto; }
+.home-intro .home-hero-videos {
+  max-width: 1180px; margin-top: 48px; gap: 44px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: center;
+}
+.home-hero-videos .home-intro-heading { margin-top: 0; max-width: none; justify-items: start; text-align: left; }
+.home-hero-videos .home-intro-heading h1 { font-size: clamp(38px, 4.1vw, 58px); }
+.home-hero-videos .home-hero-summary { margin-top: 18px; }
+.home-hero-videos .home-hero-actions { justify-content: flex-start; margin-top: 24px; }
+.home-hero-videos .home-hero-demo { width: 100%; max-width: none; margin: 0; }
+@media (max-width: 800px) {
+  .home-intro { padding-top: 28px; }
+  .home-intro .home-hero-videos { grid-template-columns: minmax(0, 1fr); margin-top: 32px; gap: 26px; }
+  .home-hero-videos .home-intro-heading { justify-items: center; text-align: center; }
+  .home-hero-videos .home-hero-actions { justify-content: center; }
+}
