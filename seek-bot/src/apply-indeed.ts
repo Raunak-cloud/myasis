@@ -99,8 +99,9 @@ async function detectAlreadyApplied(page: Page): Promise<boolean> {
 }
 
 /** The panel's own URL never leaves au.indeed.com, so an external CTA is the only off-platform signal. */
-const SUBMIT_LABEL = /^submit your application$/i;
+const SUBMIT_LABEL = /^submit( your)?( application)?$/i;
 const CONTINUE_LABEL = /^continue$/i;
+const APPLY_FLOW_URL = /smartapply\.indeed\.com|\/indeedapply\//i;
 
 async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-withheld' | 'none'> {
   const onReview = /\/beta\/indeedapply\/form\/review-module/.test(page.url());
@@ -156,14 +157,24 @@ async function saveAndCloseWithoutSubmitting(page: Page): Promise<void> {
 }
 
 /** Opens the "Apply with Indeed" flow, which always opens a NEW TAB — verified live twice. */
-async function openApplyFlow(page: Page, applyCta: ReturnType<typeof byName>): Promise<Page> {
-  const popupPromise = page.context().waitForEvent('page', { timeout: 8_000 }).catch(() => null);
-  await applyCta.first().click();
+async function openApplyFlow(page: Page, applyCta: ReturnType<typeof byName>): Promise<Page | null> {
+  const popupPromise = page.context().waitForEvent('page', { timeout: 12_000 }).catch(() => null);
+  await applyCta.first().scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
+  const clicked = await applyCta.first().click({ timeout: 8_000 }).then(() => true).catch(() => false);
+  if (!clicked) return null;
   const popup = await popupPromise;
-  const target = popup ?? page;
-  await target.waitForLoadState('domcontentloaded').catch(() => {});
-  await waitForInteractiveSurface(target);
-  return target;
+  if (!popup) return null;
+  await popup.waitForLoadState('domcontentloaded').catch(() => {});
+  const landed = await popup
+    .waitForURL((url) => APPLY_FLOW_URL.test(url.href) || /secure\.indeed\.com\/auth/i.test(url.href), { timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!landed) {
+    await popup.close().catch(() => {});
+    return null;
+  }
+  await waitForInteractiveSurface(popup);
+  return popup;
 }
 
 type ResumeOutcome = { status: 'kept-default' | 'selected' } | { status: 'unavailable'; wanted: string; detail: string };
@@ -229,7 +240,8 @@ export async function applyToIndeedJob(
   profile: CandidateProfile,
   deps: ApplyDeps,
 ): Promise<ApplyOutcome> {
-  await page.goto(`${config.indeedBase}/jobs?l=${encodeURIComponent('Australia')}&vjk=${encodeURIComponent(job.id)}`, {
+  const location = config.search.location || 'Australia';
+  await page.goto(`${config.indeedBase}/jobs?l=${encodeURIComponent(location)}&vjk=${encodeURIComponent(job.id)}`, {
     waitUntil: 'domcontentloaded',
   });
 
@@ -269,7 +281,15 @@ export async function applyToIndeedJob(
     (letter) => ({ letter }),
     (error) => ({ error: error instanceof Error ? error : new Error(String(error)) }),
   );
-  const applyPage = await openApplyFlow(page, indeedApplyCta);
+  const applyPage = (await openApplyFlow(page, indeedApplyCta)) ?? (await openApplyFlow(page, indeedApplyCta));
+  if (!applyPage) {
+    return {
+      status: 'needs-human',
+      jobId: job.id,
+      reason: `Indeed's "Apply with Indeed" button did not open the application form.`,
+      url: page.url(),
+    };
+  }
   try {
     return await runApplySteps(applyPage, job, profile, deps, prefetchedLetter);
   } finally {
