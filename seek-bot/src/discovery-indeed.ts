@@ -249,6 +249,48 @@ export async function search(page: Page, keywords: string, pageNum = 1): Promise
  * `page.goto()` to a job URL (see the module comment for why).
  */
 export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobListing> {
+  // Open the listing through Indeed's normal search-panel route. A real card
+  // click lands on this URL and lets Indeed create the current request token;
+  // replaying its private embedded endpoint with mosaic.initialData.logTk is
+  // no longer reliable because that global is now absent on search pages.
+  const detailUrl = `${config.indeedBase}/jobs?l=${encodeURIComponent('Australia')}&vjk=${encodeURIComponent(job.id)}`;
+  await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#jobDescriptionText', { timeout: 20_000 }).catch(() => {});
+  await jitter(500, 1200);
+
+  const detail = await page
+    .evaluate(() => {
+      const descriptionNode = document.querySelector('#jobDescriptionText');
+      const detailPane = descriptionNode?.closest('[data-testid="jobsearch-ViewjobPane"], main, [role="main"]') ?? document.body;
+      const text = (detailPane as HTMLElement).innerText ?? '';
+      const location =
+        document.querySelector('[data-testid="inlineHeader-companyLocation"]')?.textContent?.trim() ||
+        document.querySelector('[data-testid="job-location"]')?.textContent?.trim() ||
+        '';
+      const appliedMatch = text.match(/(?:you applied|application (?:was )?(?:submitted|sent))[^\n.]*/i);
+      return {
+        description: (descriptionNode as HTMLElement | null)?.innerText?.trim() ?? '',
+        location,
+        alreadyApplied: Boolean(appliedMatch),
+        appliedNote: appliedMatch?.[0]?.trim(),
+      };
+    })
+    .catch(() => ({ description: '', location: '', alreadyApplied: false, appliedNote: undefined }));
+
+  if (!detail.description) {
+    console.warn(`  [discovery-indeed] search panel did not load detail for ${job.id}`);
+  }
+
+  return {
+    ...job,
+    description: detail.description || job.teaser || '',
+    location: detail.location || job.location,
+    alreadyApplied: detail.alreadyApplied,
+    appliedNote: detail.appliedNote,
+  };
+}
+
+async function fetchJobDetailLegacy(page: Page, job: JobListing): Promise<JobListing> {
   if (!/indeed\.com/i.test(page.url())) {
     await page.goto(`${config.indeedBase}/`, { waitUntil: 'domcontentloaded' });
   }
