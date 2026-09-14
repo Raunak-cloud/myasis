@@ -255,3 +255,11 @@
 .home-intro .home-intro-heading { max-width:1200px; width:100%; }
 .home-hero-figure { display:block; width:100%; }
 .home-hero-figure img { display:block; width:100%; height:auto; border:2px solid var(--ink-line); border-radius:12px; box-shadow:4px 4px 0 var(--ink-line); background:#fff; }
+
+/* Final order: words and one window in the hero, the second window under the steps, the picture as its own section. */
+.home-intro { padding-top:72px; }
+.home-intro .home-intro-heading { max-width:860px; margin-top:0; }
+.home-explainer .home-hero-demo { max-width:1100px; margin:44px auto 0; }
+.home-why { padding:0 0 64px; }
+.home-why .home-hero-figure { max-width:1100px; margin-inline:auto; }
+@media(max-width:800px) { .home-intro { padding-top:44px; } .home-why { padding-bottom:44px; } }
