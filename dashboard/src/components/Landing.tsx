@@ -69,7 +69,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       
         </div>
         <div className="home-intro-heading">
-          <h1 id="home-heading">Job hunting is a job.<em>Share the workload.</em></h1>
+          <h1 id="home-heading">Job hunting is a job.<em>Not anymore 😌</em></h1>
           <p className="home-hero-summary">Myasis finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
           {error && <div className="home-error" role="alert">{error}</div>}
           <div className="home-hero-actions">{start()}</div>
