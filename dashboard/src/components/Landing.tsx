@@ -1,7 +1,7 @@
 import './Landing.css';
 import { useEffect, useRef, useState } from 'react';
 import { FREE_MONTHLY_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, aud } from '../pricing';
-import { LIVE_DEMO, LIVE_DEMO_2 } from '../liveDemo';
+import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 
 const QUESTIONS = [
@@ -56,17 +56,15 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
     <main className="home-width">
       <section className="home-intro" aria-labelledby="home-heading">
         <div className="home-hero-videos">
+          <picture className="home-hero-figure">
+            <source srcSet="/hero/old-way-vs-myasis.webp" type="image/webp" />
+            <img src="/hero/old-way-vs-myasis.png" width="1672" height="941" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Myasis way: Myasis finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
+          </picture>
           <div className="home-hero-demo" id="demo">
             <div className="home-hero-video-top"><span>Real application run</span><span>Rehearsal mode</span></div>
             <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Myasis applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
             {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
           </div>
-        {/* Second window: same clip for now; swap LIVE_DEMO_2 in liveDemo.ts when the next recording is ready. */}
-        <div className="home-hero-demo">
-          <div className="home-hero-video-top"><span>Real application run</span><span>Rehearsal mode</span></div>
-          <div className="home-video-wrap"><video controls playsInline preload="metadata" poster={LIVE_DEMO_2.poster} aria-label="Myasis applying to a real job on SEEK"><source src={LIVE_DEMO_2.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO_2.captions} srcLang="en" label="English" default /></video></div>
-        </div>
-      
         </div>
         <div className="home-intro-heading">
           <h1 id="home-heading">Job hunting is a job.<em>Not anymore 😌</em></h1>
@@ -79,12 +77,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
       <section className="home-explainer" id="how-it-works"><div className="home-process"><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></span><div><h3>Your résumé. Your preferences.</h3><p>Add your documents and tell Myasis the roles, locations and pay you would accept. It checks jobs against those details before applying.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="3"/></svg></span><div><h3>Give it a rehearsal.</h3><p>Watch it choose a résumé, write a job-specific cover letter and fill in the forms. Rehearsal mode stops at the submit button for your review.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg></span><div><h3>Let it apply. Keep the record.</h3><p>When you’re ready, start a live run. Every application is saved, and anything Myasis cannot answer comes back to you.</p></div></article></div></section>
 
-      <section className="home-why" id="why" aria-label="The old way and the Myasis way">
-      <picture className="home-hero-figure">
-        <source srcSet="/hero/old-way-vs-myasis.webp" type="image/webp" />
-        <img src="/hero/old-way-vs-myasis.png" width="1672" height="941" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Myasis way: Myasis finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
-      </picture>
-      </section>
 
       <aside className="home-promise"><MascotLogo size={54} /><div><h2>A helpful assistant. An honest application.</h2><p>Myasis won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p></div></aside>
 

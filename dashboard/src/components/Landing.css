@@ -273,3 +273,8 @@
 .home-intro { padding-top:40px; }
 .home-intro .home-intro-heading { margin-top:52px; }
 @media(max-width:800px) { .home-intro { padding-top:28px; } .home-intro .home-intro-heading { margin-top:36px; } }
+
+/* Hero row: the picture on the left, one window on the right. */
+.home-hero-videos { align-items:center; }
+.home-hero-videos .home-hero-figure { min-width:0; }
+.home-hero-videos .home-hero-figure img { border:0; border-radius:0; box-shadow:none; background:transparent; }
