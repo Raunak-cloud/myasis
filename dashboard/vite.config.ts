@@ -33,8 +33,8 @@ import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
-import { checkSeekSignin, seekCheckInProgress } from './server/seek-check.js';
-import { readSeekState } from './server/seek-state.js';
+import { checkSeekSignin, checkSignin, seekCheckInProgress } from './server/seek-check.js';
+import { readSeekState, readSiteState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt } from './server/entitlements.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
@@ -777,13 +777,16 @@ function dataApi(): Plugin {
             const target = sessionFor(userId)?.target;
             stopSignin(userId);
             /**
-             * Closing the SEEK window is not proof of sign-in, so SEEK is
-             * checked directly. Other targets retain the last SEEK state.
+             * Closing a window is not proof of sign-in. The site the window
+             * was opened for is asked directly, in this account's own
+             * profile; the other site keeps its last known answer.
              */
-            const seek = target === 'seek' ? await checkSeekSignin(userId) : readSeekState(userId);
-            return send({ ok: true, session: null, seek, checking: false });
+            const seek = target === 'seek' ? await checkSignin(userId, 'seek') : readSeekState(userId);
+            const indeed = target === 'indeed' ? await checkSignin(userId, 'indeed') : readSiteState(userId, 'indeed');
+            return send({ ok: true, session: null, seek, indeed, checking: false });
           }
           const seek = readSeekState(userId);
+          const indeed = readSiteState(userId, 'indeed');
           /**
            * An account nobody has ever verified — new, or one that only
            * declared itself signed in under the old flow — gets checked in
@@ -793,7 +796,13 @@ function dataApi(): Plugin {
           if ((!seek || seek.source === 'declared') && !sessionFor(userId) && !runner.stateFor(userId).running) {
             void checkSeekSignin(userId);
           }
-          return send({ supported: signinSupported(), session: sessionFor(userId), seek, checking: seekCheckInProgress(userId) });
+          return send({
+            supported: signinSupported(),
+            session: sessionFor(userId),
+            seek,
+            indeed,
+            checking: seekCheckInProgress(userId, 'seek') || seekCheckInProgress(userId, 'indeed'),
+          });
         });
       }
 

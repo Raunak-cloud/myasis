@@ -1,4 +1,4 @@
-import { launchBrowser, closeBrowser, getPage, assertSignedIn } from './browser.js';
+import { launchBrowser, closeBrowser, getPage, assertSignedIn, assertIndeedSignedIn, type SigninSite } from './browser.js';
 
 /**
  * Asks SEEK itself whether this profile is signed in, and records the answer.
@@ -8,17 +8,18 @@ import { launchBrowser, closeBrowser, getPage, assertSignedIn } from './browser.
  * profile page a run loads first, and writes the same `seek-session.json` —
  * so the Apply page shows what SEEK says, not what was clicked.
  *
- *   CHROME_PROFILE_DIR=… DATA_DIR=… node dist/check-signin.js
+ *   CHROME_PROFILE_DIR=… DATA_DIR=… SIGNIN_SITE=seek|indeed node dist/check-signin.js
  *
  * Exit 0: signed in. Exit 2: signed out. Exit 3: could not tell (nothing is
  * recorded then, so a slow page never overwrites a known-good state).
  */
 async function main(): Promise<number> {
+  const site: SigninSite = process.env.SIGNIN_SITE === 'indeed' ? 'indeed' : 'seek';
   const context = await launchBrowser();
   try {
     const page = await getPage(context);
-    await assertSignedIn(page);
-    console.log('signed-in');
+    await (site === 'indeed' ? assertIndeedSignedIn(page) : assertSignedIn(page));
+    console.log(`${site}: signed-in`);
     return 0;
   } catch (error) {
     const message = (error as Error).message ?? String(error);

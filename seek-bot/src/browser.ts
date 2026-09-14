@@ -185,16 +185,20 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
  * The dashboard reads this same file; see `dashboard/server/seek-state.ts`,
  * which must keep the shape below in step.
  */
-function recordSeekSession(signedIn: boolean): void {
+export type SigninSite = 'seek' | 'indeed';
+
+function recordSiteSession(site: SigninSite, signedIn: boolean): void {
   try {
     writeFileSync(
-      resolve(config.dataDir, 'seek-session.json'),
+      resolve(config.dataDir, `${site}-session.json`),
       JSON.stringify({ signedIn, checkedAt: new Date().toISOString(), source: 'run' }, null, 2),
     );
   } catch {
     // Never fail a run over a status file the run itself does not read.
   }
 }
+
+const recordSeekSession = (signedIn: boolean) => recordSiteSession('seek', signedIn);
 
 /** Confirms the SEEK session is still alive without touching credentials. */
 export async function assertSignedIn(page: Page): Promise<void> {
@@ -261,6 +265,7 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
   await page.goto(`${config.indeedBase}/`, { waitUntil: 'domcontentloaded' });
   const url = page.url();
   if (/secure\.indeed\.com|\/account\/login/i.test(url)) {
+    recordSiteSession('indeed', false);
     throw new Error(
       'Indeed session is not signed in. Open the Chrome profile manually, sign in to au.indeed.com, then re-run. ' +
         'This tool never automates login.',
@@ -287,11 +292,14 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
     .evaluate(() => Boolean((window as any).mosaic?.initialData?.isLoggedIn))
     .catch(() => false);
   if (!loggedIn) {
+    recordSiteSession('indeed', false);
     throw new Error(
       'Indeed session is not signed in (mosaic.initialData.isLoggedIn is false). ' +
         'Open the Chrome profile manually, sign in to au.indeed.com, then re-run. This tool never automates login.',
     );
   }
+  // Same rule as SEEK: only a clear answer is written. A challenge page is not one.
+  recordSiteSession('indeed', true);
 }
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

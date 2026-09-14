@@ -31,7 +31,15 @@ interface SeekState {
   source: 'run' | 'declared';
 }
 
-type Status = { supported: boolean; session: Session | null; seek?: SeekState | null; checking?: boolean };
+type Status = {
+  supported: boolean;
+  session: Session | null;
+  seek?: SeekState | null;
+  indeed?: SeekState | null;
+  checking?: boolean;
+};
+
+const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed' } as const;
 
 export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean }) {
   const [status, setStatus] = useState<Status | null>(null);
@@ -140,16 +148,23 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
     }
     rfb.current = null;
     setConnected(false);
+    const target = status?.session?.target ?? 'seek';
     try {
       const body = await fetch('/api/signin/session', { method: 'DELETE' }).then((r) => r.json());
       const seek: SeekState | null = body?.seek ?? null;
-      setStatus({ supported: true, session: null, seek });
-      if (!seek?.signedIn) {
-        setNotice(
-          seek?.signedIn === false
-            ? 'SEEK shows this account signed out. Sign in again to keep applying.'
-            : 'Could not confirm the sign-in with SEEK. Open it and try again.',
-        );
+      const indeed: SeekState | null = body?.indeed ?? null;
+      setStatus({ supported: true, session: null, seek, indeed });
+      // Only the site that was just checked can say anything new.
+      if (target === 'seek' || target === 'indeed') {
+        const site = target === 'seek' ? seek : indeed;
+        const name = SITE_NAME[target];
+        if (!site?.signedIn) {
+          setNotice(
+            site?.signedIn === false
+              ? `${name} shows this account signed out. Sign in again to keep applying.`
+              : `Could not confirm the sign-in with ${name}. Open it and try again.`,
+          );
+        }
       }
     } catch {
       setStatus({ supported: true, session: null });
@@ -170,11 +185,12 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
      * run that finds the session dead records that, and the prompt returns
      * with the reason attached.
      */
-    if (status.seek?.signedIn && !indeedEnabled && !error && !notice) return null;
-    // SEEK is being asked right now; a prompt would be answered in seconds either way.
-    if (status.checking && !indeedEnabled && !error && !notice) return null;
+    const seekSettled = Boolean(status.seek?.signedIn) || Boolean(status.checking);
+    const indeedSettled = !indeedEnabled || Boolean(status.indeed?.signedIn);
+    if (seekSettled && indeedSettled && !error && !notice) return null;
 
     const expired = status.seek?.signedIn === false;
+    const indeedExpired = status.indeed?.signedIn === false;
     return (
       <div className="seek-connect">
         {error && <div className="banner banner-bad">{error}</div>}
@@ -192,13 +208,17 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
             {busy ? 'Opening…' : expired ? 'Sign in again' : 'Open SEEK'}
           </button>
         </div>}
-        {indeedEnabled && <div className="seek-connect-row">
+        {indeedEnabled && !status.indeed?.signedIn && <div className="seek-connect-row">
           <div>
-            <h3>Indeed access</h3>
-            <p className="job-meta">Open your Indeed browser to sign in or clear a verification check before rerunning.</p>
+            <h3>Indeed account</h3>
+            <p className="job-meta">
+              {indeedExpired
+                ? 'Indeed shows this account signed out. Sign in again to keep applying.'
+                : 'Sign in once, or clear a verification check, in your own Indeed browser.'}
+            </p>
           </div>
           <button className="btn" disabled={busy} onClick={() => open('indeed')}>
-            {busy ? 'Opening…' : 'Open Indeed'}
+            {busy ? 'Opening…' : indeedExpired ? 'Sign in again' : 'Open Indeed'}
           </button>
         </div>}
       </div>
@@ -224,7 +244,11 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
           </span>
           <span className="job-meta seek-window-time">{minutesLeft} min left</span>
           <button className="btn primary btn-small" disabled={busy} onClick={close}>
-            {busy ? (status.session.target === 'seek' ? 'Checking with SEEK…' : 'Closing…') : 'Done'}
+            {busy
+              ? status.session.target === 'seek' || status.session.target === 'indeed'
+                ? `Checking with ${SITE_NAME[status.session.target]}…`
+                : 'Closing…'
+              : 'Done'}
           </button>
         </div>
         {error && <div className="banner banner-bad seek-window-error">{error}</div>}

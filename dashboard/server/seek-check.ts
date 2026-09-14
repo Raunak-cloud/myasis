@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BOT_DIR, readEnv, runner, MAX_CONCURRENT } from './runner.js';
 import { sessionFor } from './signin.js';
-import { readSeekState, type SeekState } from './seek-state.js';
+import { readSiteState, type SeekState, type SigninSite } from './seek-state.js';
 import { userChromeDir, userDir } from './userdata.js';
 
 /**
@@ -26,8 +26,8 @@ const LOCK_WAIT_MS = 6_000;
 const inFlight = new Map<string, Promise<SeekState | null>>();
 let nextPortOffset = 0;
 
-export function seekCheckInProgress(userId: string): boolean {
-  return inFlight.has(userId);
+export function seekCheckInProgress(userId: string, site: SigninSite = 'seek'): boolean {
+  return inFlight.has(`${userId}:${site}`);
 }
 
 /** Chrome drops this the moment it has really exited; SIGTERM alone returns before that. */
@@ -56,18 +56,25 @@ function checkPort(): number {
  * that cannot run leaves the prompt where it was, which is the safe outcome.
  */
 export function checkSeekSignin(userId: string): Promise<SeekState | null> {
-  const running = inFlight.get(userId);
+  return checkSignin(userId, 'seek');
+}
+
+export function checkSignin(userId: string, site: SigninSite): Promise<SeekState | null> {
+  const key = `${userId}:${site}`;
+  const running = inFlight.get(key);
   if (running) return running;
+  const known = () => readSiteState(userId, site);
 
   const task = (async () => {
-    if (runner.stateFor(userId).running || sessionFor(userId)) return readSeekState(userId);
-    if (!existsSync(resolve(BOT_DIR, 'dist', 'check-signin.js'))) return readSeekState(userId);
+    if (runner.stateFor(userId).running || sessionFor(userId)) return known();
+    if (!existsSync(resolve(BOT_DIR, 'dist', 'check-signin.js'))) return known();
 
     const profileDir = userChromeDir(userId);
-    if (!(await waitForProfileFree(profileDir))) return readSeekState(userId);
+    if (!(await waitForProfileFree(profileDir))) return known();
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      SIGNIN_SITE: site,
       CHROME_PROFILE_DIR: profileDir,
       CDP_PORT: String(checkPort()),
       DATA_DIR: userDir(userId),
@@ -85,9 +92,9 @@ export function checkSeekSignin(userId: string): Promise<SeekState | null> {
         done();
       });
     });
-    return readSeekState(userId);
-  })().finally(() => inFlight.delete(userId));
+    return known();
+  })().finally(() => inFlight.delete(key));
 
-  inFlight.set(userId, task);
+  inFlight.set(key, task);
   return task;
 }

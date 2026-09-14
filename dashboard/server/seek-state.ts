@@ -21,10 +21,11 @@ export interface SeekState {
   source: 'run' | 'declared';
 }
 
-const FILE = 'seek-session.json';
+export type SigninSite = 'seek' | 'indeed';
 
-export function readSeekState(userId: string): SeekState | null {
-  const path = resolve(userDir(userId), FILE);
+/** The same shape for every job board a run signs in to; seek-bot writes `<site>-session.json`. */
+export function readSiteState(userId: string, site: SigninSite): SeekState | null {
+  const path = resolve(userDir(userId), `${site}-session.json`);
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SeekState>;
@@ -39,10 +40,14 @@ export function readSeekState(userId: string): SeekState | null {
   }
 }
 
+export function readSeekState(userId: string): SeekState | null {
+  return readSiteState(userId, 'seek');
+}
+
 export function writeSeekState(userId: string, state: SeekState): void {
   try {
     ensureUserDataDir(userId);
-    writeFileSync(resolve(userDir(userId), FILE), JSON.stringify(state, null, 2));
+    writeFileSync(resolve(userDir(userId), 'seek-session.json'), JSON.stringify(state, null, 2));
   } catch {
     // A prompt shown once too often is not worth failing a request over.
   }
