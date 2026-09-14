@@ -28,7 +28,9 @@ filter_graph = r"""
 [application1][profilesummary1blur]overlay=195:0:enable='between(t\,1.55\,2.2)'[application2];
 [application2][contactcardblur]overlay=195:280:enable='between(t\,2.15\,2.85)'[application3];
 [application3][profilesummary2blur]overlay=195:0:enable='between(t\,2.75\,3.65)'[application4];
-[application4][confirmtopblur]overlay=655:70:enable='between(t\,3.2\,5)'[s2];
+[application4]drawbox=x=190:y=0:w=655:h=255:color=white:t=fill:enable='between(t\,2.0\,2.45)'[application4a];
+[application4a]drawbox=x=190:y=210:w=655:h=280:color=white:t=fill:enable='between(t\,2.25\,3.0)'[application4hidden];
+[application4hidden][confirmtopblur]overlay=655:70:enable='between(t\,3.2\,5)'[s2];
 [v3]trim=start=637:end=637.04,setpts=PTS-STARTPTS,scale=1280:800,loop=loop=86:size=1:start=0,setpts=N/25/TB,split=2[success][private];
 [private]crop=110:42:655:168,boxblur=10:5[privateblur];
 [success][privateblur]overlay=655:168[successprivate];
