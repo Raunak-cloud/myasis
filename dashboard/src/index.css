@@ -1929,6 +1929,15 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .seek-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); flex: none; }
 .seek-dot.on { background: var(--ok); }
 .seek-window-error { margin: 12px; }
+.signin-assist {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.signin-assist.clicked { background: var(--ok-soft); color: var(--ok); }
+.signin-assist.failed, .signin-assist.unavailable { background: var(--warn-soft); color: var(--warn); }
 
 /* Matches the virtual screen (1280x900) so the stream fills the frame exactly
    instead of sitting in letterbox bars. */

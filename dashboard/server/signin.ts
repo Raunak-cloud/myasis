@@ -8,22 +8,23 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { currentUser } from './auth.js';
 import { readEnv } from './runner.js';
 import { userChromeDir, ensureUserDataDir } from './userdata.js';
+import { chromeGoogleAccounts } from './chrome-accounts.js';
+import { assistIndeedGoogleSignin, type SigninAssistStatus } from './signin-assist.js';
 
 /**
- * Signing an account in to SEEK on a headless server.
+ * Signing an account in to a job board on a headless server.
  *
- * The bot never handles credentials, so every account's SEEK session has to
- * be established by that person, in a real browser, on their own Chrome
- * profile. On a desktop that is a Chrome window. On a VPS there is no screen,
+ * The bot never handles credentials. For Indeed it may select a Google account
+ * already present in this Chrome profile; passwords, verification and CAPTCHA
+ * remain with the person. On a desktop this is a Chrome window. On a VPS there is no screen,
  * so this gives each account a private virtual one: its own Xvfb display, its
  * own Chrome on its own profile, and an x11vnc server bound to localhost that
  * the dashboard proxies to the browser over an authenticated WebSocket.
  *
- * Why a real remote desktop rather than the CDP screencast this project
- * already has: protocol-injected keystrokes are exactly what Cloudflare's
- * challenge looks for, and sign-in is the one moment where being rejected is
- * fatal. Here the keyboard and mouse events reach X11 as ordinary input and
- * Chrome cannot tell the difference.
+ * A real remote desktop remains essential for credentials and verification:
+ * its keyboard and mouse events reach X11 as ordinary input. The one automated
+ * exception is choosing an already-known Google account on Indeed; it neither
+ * reads nor types a credential.
  *
  * Nothing here is reachable from outside. x11vnc listens on 127.0.0.1 only,
  * carries a random password generated per session, and the only route to it
@@ -34,6 +35,7 @@ import { userChromeDir, ensureUserDataDir } from './userdata.js';
 const SESSION_MS = 15 * 60_000;
 const FIRST_DISPLAY = 100;
 const FIRST_PORT = 5900;
+const FIRST_DEBUG_PORT = 19222;
 const SCREEN = '1280x900x24';
 
 /** What a sign-in window was opened for; only the label and start page differ. */
@@ -58,6 +60,7 @@ export interface SigninSession {
   startedAt: number;
   expiresAt: number;
   target: SigninTarget;
+  assist?: SigninAssistStatus;
 }
 
 interface Live extends SigninSession {
@@ -66,6 +69,7 @@ interface Live extends SigninSession {
   vnc: ChildProcess;
   passwordDir: string;
   timer: NodeJS.Timeout;
+  debugPort?: number;
 }
 
 const sessions = new Map<string, Live>();
@@ -121,8 +125,8 @@ export function stopSignin(userId: string): { ok: boolean } {
 export function sessionFor(userId: string): SigninSession | null {
   const live = sessions.get(userId);
   if (!live) return null;
-  const { userId: id, display, vncPort, password, startedAt, expiresAt, target } = live;
-  return { userId: id, display, vncPort, password, startedAt, expiresAt, target };
+  const { userId: id, display, vncPort, password, startedAt, expiresAt, target, assist } = live;
+  return { userId: id, display, vncPort, password, startedAt, expiresAt, target, assist };
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -130,10 +134,10 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /**
  * Opens a private browser for this account and returns what the viewer needs.
  *
- * Chrome runs on the account's own profile, so whatever the person signs in
- * to is exactly what their runs will use afterwards. It is deliberately a
- * plain Chrome — no automation flags, no CDP — because this window exists to
- * be driven by a human.
+ * Chrome runs on the account's own profile, so whatever is signed in here is
+ * exactly what later runs use. Indeed alone gets a loopback-only debugging
+ * port for the bounded Google-account click; the remote viewer remains the
+ * path for every credential, verification or CAPTCHA step.
  */
 export async function startSignin(userId: string, target: SigninTarget = 'seek'): Promise<{
   ok: boolean;
@@ -152,6 +156,8 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek')
   ensureUserDataDir(userId);
   const profileDir = userChromeDir(userId);
   const { display, vncPort } = allocate();
+  const googleAccount = target === 'indeed' ? chromeGoogleAccounts(userId)[0] : undefined;
+  const debugPort = googleAccount ? FIRST_DEBUG_PORT + (display - FIRST_DISPLAY) : undefined;
   const password = randomBytes(8).toString('base64url').slice(0, 8);
 
   let passwordDir = '';
@@ -175,17 +181,21 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek')
       );
     }
 
+    const chromeArgs = [
+      `--user-data-dir=${profileDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--window-position=0,0',
+      '--window-size=1280,900',
+      '--test-type',
+      ...(debugPort
+        ? [`--remote-debugging-address=127.0.0.1`, `--remote-debugging-port=${debugPort}`]
+        : []),
+      startUrl,
+    ];
     chrome = spawn(
       chromePath,
-      [
-        `--user-data-dir=${profileDir}`,
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--window-position=0,0',
-        '--window-size=1280,900',
-        '--test-type',
-        startUrl,
-      ],
+      chromeArgs,
       { env: { ...process.env, DISPLAY: `:${display}` }, stdio: 'ignore' },
     );
     chrome.on('error', () => {});
@@ -223,14 +233,31 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek')
       startedAt,
       expiresAt: startedAt + SESSION_MS,
       target,
+      assist:
+        target === 'indeed'
+          ? googleAccount
+            ? { state: 'waiting', message: `Selecting ${googleAccount} with Google...` }
+            : { state: 'unavailable', message: 'No Google account is available in this browser profile. Sign in manually.' }
+          : undefined,
       xvfb,
       chrome,
       vnc,
       passwordDir,
       // A forgotten sign-in window is a logged-in browser left open on a server.
       timer: setTimeout(() => stopSignin(userId), SESSION_MS),
+      debugPort,
     };
     sessions.set(userId, live);
+    if (debugPort && googleAccount) {
+      void assistIndeedGoogleSignin({
+        debugPort,
+        email: googleAccount,
+        active: () => sessions.get(userId) === live,
+        update: (assist) => {
+          if (sessions.get(userId) === live) live.assist = assist;
+        },
+      });
+    }
     return { ok: true, session: sessionFor(userId)! };
   } catch (error) {
     stopProcess(vnc);

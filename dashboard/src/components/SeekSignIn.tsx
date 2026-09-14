@@ -22,6 +22,10 @@ interface Session {
   password: string;
   /** Which sign-in this window was opened for; only the labels differ. */
   target?: 'seek' | 'indeed' | 'gmail';
+  assist?: {
+    state: 'waiting' | 'clicked' | 'unavailable' | 'failed';
+    message: string;
+  };
 }
 
 /** Last known SEEK sign-in state; null when nobody has ever found out. */
@@ -119,6 +123,14 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
     }, 15_000);
     return () => clearInterval(tick);
   }, [status?.session, refresh]);
+
+  // The server selects a known Google account for Indeed after the page has
+  // rendered. Poll only while that one bounded action is still in progress.
+  useEffect(() => {
+    if (status?.session?.assist?.state !== 'waiting') return;
+    const tick = setInterval(() => void refresh(), 1_500);
+    return () => clearInterval(tick);
+  }, [status?.session?.assist?.state, refresh]);
 
   async function open(target: 'seek' | 'indeed' = 'seek') {
     if (busy) return;
@@ -287,6 +299,11 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
               : 'Done'}
           </button>
         </div>
+        {status.session.assist && (
+          <div className={`signin-assist ${status.session.assist.state}`} role="status">
+            {status.session.assist.message}
+          </div>
+        )}
         {error && <div className="banner banner-bad seek-window-error">{error}</div>}
         <div className="seek-window-screen" ref={screen} />
       </div>
