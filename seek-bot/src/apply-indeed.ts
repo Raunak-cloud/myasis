@@ -141,40 +141,13 @@ async function clickContinueOrSubmit(page: Page): Promise<'advanced' | 'submit-w
   }
   if (onReview && submitBtn) {
     if (config.dryRun) return 'submit-withheld';
-    const state = await submitBtn
-      .evaluate((el) => {
-        const rect = el.getBoundingClientRect();
-        const atPoint = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-        return {
-          tag: el.tagName.toLowerCase(),
-          disabled: (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true',
-          visible: rect.width > 0 && rect.height > 0,
-          onScreen: rect.top >= 0 && rect.bottom <= window.innerHeight,
-          covered: Boolean(atPoint && atPoint !== el && !el.contains(atPoint)),
-          coveredBy: atPoint && atPoint !== el && !el.contains(atPoint) ? `${atPoint.tagName.toLowerCase()}.${String((atPoint as HTMLElement).className).slice(0, 40)}` : '',
-        };
-      })
-      .catch(() => null);
-    console.log(`  · submitting: "${(await submitBtn.innerText().catch(() => 'Submit')).trim()}" ${state ? JSON.stringify(state) : ''}`);
+    console.log(`  · submitting: "${(await submitBtn.innerText().catch(() => 'Submit')).trim()}"`);
     const before = await captureInteractivePageState(page);
     const beforeUrl = page.url();
-    let clicked = await submitBtn
+    const clicked = await submitBtn
       .click({ timeout: 8_000 })
       .then(() => true)
-      .catch((error: Error) => {
-        console.log(`  · submit click did not land: ${error.message.split('\n')[0].slice(0, 160)}`);
-        return false;
-      });
-    if (!clicked) {
-      await submitBtn.scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
-      clicked = await submitBtn
-        .click({ timeout: 5_000, force: true })
-        .then(() => true)
-        .catch((error: Error) => {
-          console.log(`  · forced submit click did not land either: ${error.message.split('\n')[0].slice(0, 160)}`);
-          return false;
-        });
-    }
+      .catch(() => false);
     if (clicked) {
       /**
        * A submission takes a moment. Two live applications were reported as
@@ -549,7 +522,7 @@ async function runApplySteps(
       }
     }
     const state = JSON.stringify(seen.map(f => [f.label, f.currentValue]));
-    console.log(`  · step ${step + 1}: ${applyPage.url().replace(/^https:\/\/smartapply\.indeed\.com\/beta\/indeedapply\//, '')} · ${seen.length ? seen.map((f) => `${f.label} [${f.kind}${f.options?.length ? ` ${f.options.length} options` : ''}]`).join(' | ') : 'no fields'}`);
+    console.log(`  · step ${step + 1}: ${applyPage.url().replace(/^https:\/\/smartapply\.indeed\.com\/beta\/indeedapply\//, '')} · ${seen.length ? seen.map((f) => f.label).join(' | ') : 'no fields'}`);
     if (applyPage.url() === lastUrl && state === lastState) {
       if (++stagnant >= 2) {
         return {
