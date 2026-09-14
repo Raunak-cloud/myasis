@@ -285,24 +285,3 @@
 .home-story-myasis { aspect-ratio:1672/511; margin-top:clamp(30px,4vw,58px); }
 .home-story-myasis img { bottom:0; }
 @media(max-width:800px) { .home-hero-videos { grid-template-columns:1fr; } }
-
-/* ---------- Hero, final composition ----------
-   The statement leads. Beneath it the two visuals are one matched pair:
-   the same width, the same frame, aligned top, so neither shouts over the
-   other. Nothing new is said; the order and the framing do the work. */
-.home-intro { padding-top: 64px; }
-.home-intro .home-intro-heading { order: 1; margin-top: 0; }
-.home-intro .home-hero-videos { order: 2; margin-top: 44px; max-width: 1180px; gap: 24px; align-items: stretch; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-.home-hero-videos .home-hero-demo { width: 100%; max-width: none; margin: 0; }
-.home-hero-videos .home-hero-figure {
-  display: flex; align-items: center; justify-content: center;
-  padding: 22px 20px; background: #fff;
-  border: 2px solid var(--ink-line); border-radius: 12px; box-shadow: 4px 4px 0 var(--ink-line);
-}
-.home-hero-videos .home-hero-figure img { width: 100%; max-width: 100%; min-width: 0; height: auto; border: 0; box-shadow: none; }
-.home-hero-videos .home-hero-figure { min-width: 0; }
-@media (max-width: 800px) {
-  .home-intro { padding-top: 40px; }
-  .home-intro .home-hero-videos { margin-top: 30px; gap: 18px; grid-template-columns: minmax(0, 1fr); }
-  .home-hero-videos .home-hero-figure { padding: 14px 12px; }
-}
