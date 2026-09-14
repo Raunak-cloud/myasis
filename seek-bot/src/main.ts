@@ -242,7 +242,36 @@ async function main() {
       const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
       return sourcePriority || (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
     });
-    console.log(`${shortlist.length} after dedupe + age filter (pre-ranked).\n`);
+    /**
+     * The evaluation budget is shared between boards the same way the
+     * applications are.
+     *
+     * Ranked as one pool, SEEK's Recommended feed (a hundred personalised
+     * listings) sorts ahead of everything Indeed found, and a run capped at
+     * thirty evaluations never opened a single Indeed listing, so no Indeed
+     * application could ever exist. Each board keeps its own ranking and the
+     * detail fetches alternate between them; a board with fewer listings
+     * simply drops out of the rotation when its queue ends.
+     */
+    const lanes = new Map<PlatformId, JobListing[]>();
+    for (const job of shortlist) {
+      const id = job.platform ?? 'seek';
+      if (!lanes.has(id)) lanes.set(id, []);
+      lanes.get(id)!.push(job);
+    }
+    if (lanes.size > 1) {
+      const interleaved: JobListing[] = [];
+      const queues = [...lanes.values()];
+      for (let depth = 0; queues.some((queue) => depth < queue.length); depth++) {
+        for (const queue of queues) if (depth < queue.length) interleaved.push(queue[depth]);
+      }
+      shortlist.splice(0, shortlist.length, ...interleaved);
+    }
+    console.log(
+      `${shortlist.length} after dedupe + age filter (pre-ranked` +
+        (lanes.size > 1 ? `, alternating ${[...lanes].map(([id, q]) => `${ADAPTERS.get(id)?.label ?? id} ${q.length}`).join(' / ')}` : '') +
+        ').\n',
+    );
 
     const candidates: Array<{ job: JobListing; score: number; why: string; reasons: string[] }> = [];
     const skips = new Map<string, number>();
