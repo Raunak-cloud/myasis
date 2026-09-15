@@ -178,6 +178,18 @@ function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): s
   return `${runs} a day, ${windowLabel(e.window)}.${jobs} Applies to ${e.scheduledMinScore}%+ matches, written in your own voice.`;
 }
 
+/** "next 6:00 pm" today, "next Wed 9:40 am" on another day. */
+function nextRunShort(schedule: AutoScheduleStatus): string {
+  if (schedule.dueNow) return 'starting shortly';
+  const at = new Date(schedule.nextRunAt);
+  if (Number.isNaN(at.valueOf())) return '';
+  const day = (date: Date) => new Intl.DateTimeFormat('en-AU', { dateStyle: 'short', timeZone: schedule.timeZone }).format(date);
+  const time = new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', timeZone: schedule.timeZone }).format(at);
+  if (day(at) === day(new Date())) return `next ${time}`;
+  const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'short', timeZone: schedule.timeZone }).format(at);
+  return `next ${weekday} ${time}`;
+}
+
 function nextRunLabel(schedule: AutoScheduleStatus): string {
   if (schedule.dueNow) return 'Starting shortly';
   const at = new Date(schedule.nextRunAt);
@@ -588,37 +600,6 @@ export function RunPanel({
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
       <div className="run-side">
       <div className="card run-controls-card">
-        <div className="panel-head">
-          {driving ? (
-            <>
-              <h2>
-                {running && status?.isOwner !== false ? 'Applying now' : 'New run'}
-              </h2>
-              <p className="job-meta">
-                {running && status?.isOwner !== false
-                  ? 'This run submits completed applications.'
-                  : 'Submits applications that match your settings.'}
-              </p>
-            </>
-          ) : (
-            <div className="auto-apply">
-              <span className="btn auto-apply-btn" role="status">
-                <span className="auto-apply-dot" aria-hidden="true" />
-                Auto apply
-              </span>
-              {entitlements && (
-                <span className="field-info auto-apply-info" tabIndex={0} aria-label={`Auto apply: ${autoApplySummary(entitlements)}`}>
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 16v-4" />
-                    <path d="M12 8h.01" />
-                  </svg>
-                  <span className="field-tooltip" role="tooltip">{autoApplySummary(entitlements)}</span>
-                </span>
-              )}
-            </div>
-          )}
-        </div>
         <div className="panel-body">
         {!status?.hasKey && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
@@ -639,25 +620,20 @@ export function RunPanel({
             <button className="btn btn-danger lg" onClick={() => setStopConfirming(true)}>
               ⏹ Stop run
             </button>
-          ) : !driving ? (
-            <p className="job-meta run-auto-count">
-              {entitlements
-                ? `${entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} done today.`
-                : ''}
-            </p>
-          ) : (
+          ) : !driving ? null : (
             <>
               <button className="btn primary lg" disabled={outOfRuns} onClick={() => { setScope('all'); setConfirming(true); }}>
                 Start run
               </button>
               {entitlements?.runScopes && (
                 <button
-                  className="btn lg run-scope-btn"
+                  type="button"
+                  className="run-scope-link"
                   disabled={outOfRuns}
                   title="Applies only where the employer's own site takes the application, on every board in the run."
                   onClick={() => { setScope('external'); setConfirming(true); }}
                 >
-                  Apply on employer sites only
+                  Employer sites only
                 </button>
               )}
               {runsLeft !== null && (
@@ -671,18 +647,27 @@ export function RunPanel({
           )}
         </div>
 
-        {driving && entitlements && entitlements.autoRunsPerDay > 0 && (
-          <div className="run-schedule-status">
-            <div className="run-schedule-head">
-              <strong>Automatic schedule</strong>
-              <span className="badge info">
-                {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
+        {entitlements && entitlements.autoRunsPerDay > 0 && (
+          <div className="run-auto-row">
+            <span className="run-auto-label">
+              <span className="auto-apply-dot" aria-hidden="true" />
+              Auto apply
+            </span>
+            <span className="job-meta">
+              {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
+              {autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}
+            </span>
+            <span
+              className="field-info run-auto-info"
+              tabIndex={0}
+              aria-label={`Auto apply: ${autoApplySummary(entitlements)}${autoSchedule ? ` ${nextRunLabel(autoSchedule)}.` : ''}`}
+            >
+              i
+              <span className="field-tooltip" role="tooltip">
+                {autoApplySummary(entitlements)}
+                {autoSchedule ? ` ${nextRunLabel(autoSchedule)}.` : ''}
               </span>
-            </div>
-            <p className="job-meta">
-              {entitlements.autoRunsPerDay} live {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
-            </p>
-            {autoSchedule && <p className="schedule-next-run">{nextRunLabel(autoSchedule)}</p>}
+            </span>
           </div>
         )}
 
@@ -707,15 +692,11 @@ export function RunPanel({
       </div>
 
       <section className="card saved-search-card" aria-labelledby="saved-search-title">
-        <div className="panel-head">
-          <h2 id="saved-search-title">Your search</h2>
-          <p className="job-meta">
-            {entitlements?.fineTune
-              ? 'Job titles and run instructions apply to every future run until you change them.'
-              : 'Job titles apply to every future run until you change them.'}
-          </p>
-        </div>
         <div className="panel-body">
+          <div className="saved-search-head">
+            <h2 id="saved-search-title">Your search</h2>
+            <span className="job-meta">Applies to all future runs</span>
+          </div>
           <div className="field">
             <div className="saved-search-label">
               <label className="field-label" htmlFor="saved-search-terms">Job titles</label>
@@ -739,20 +720,19 @@ export function RunPanel({
 
           {entitlements?.fineTune && (
             <div className="field">
-              <label className="field-label" htmlFor="saved-search-instructions">
-                Run instructions <span className="optional">optional</span>
-              </label>
-              <span className="job-meta" id="saved-search-instructions-hint">
-                Jobs the AI should avoid or prefer. Checked before every application.
-              </span>
+              <FieldLabel
+                label="Run instructions"
+                optional
+                help="Jobs the AI should avoid or prefer. Checked before every application, in every future run."
+              />
               <textarea
                 id="saved-search-instructions"
                 className="input"
-                rows={3}
+                rows={2}
                 maxLength={4_000}
                 value={runInstructions}
                 placeholder="e.g. Don't apply for senior or manager positions."
-                aria-describedby="saved-search-instructions-hint"
+                aria-label="Run instructions"
                 onChange={(event) => editStanding('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}
               />
             </div>

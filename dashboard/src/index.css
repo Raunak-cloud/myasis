@@ -1997,3 +1997,34 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* ---------- Apply tab, lean ---------- */
+.run-dashboard .dashboard-metrics { gap: 6px 32px; margin-bottom: 18px; }
+.run-dashboard .metric-tile { display: flex; align-items: baseline; gap: 6px; }
+.run-dashboard .metric-tile strong { font-size: 20px; }
+.run-dashboard .page-header { margin-bottom: 12px; }
+.run-dashboard .panel-body { padding: 16px; gap: 14px; }
+.run-dashboard .run-controls-card,
+.run-dashboard .saved-search-card { min-height: 0; }
+.run-dashboard .console-card { min-height: 0; }
+.run-dashboard .console-empty { min-height: 180px; }
+.run-dashboard .last-run-line { margin: 0; padding-top: 0; border-top: 0; }
+
+.run-scope-link {
+  justify-self: center; padding: 2px 6px; border: 0; background: transparent;
+  color: var(--text-dim); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.run-scope-link:hover:not(:disabled) { color: var(--text); }
+.run-scope-link:disabled { opacity: .6; cursor: default; }
+
+.run-auto-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.run-auto-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--text); }
+.run-auto-row .job-meta { margin: 0; }
+.run-auto-row .run-auto-info { position: static; margin-left: auto; }
+.run-auto-row .field-tooltip { top: calc(100% + 6px); left: 0; right: 0; width: auto; max-width: none; font-size: 12px; }
+
+.saved-search-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.saved-search-head h2 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+.saved-search-head .job-meta { margin: 0; }
+
+.run-dashboard .run-actions:empty { display: none; }

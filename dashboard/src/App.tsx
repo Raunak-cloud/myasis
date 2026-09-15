@@ -28,7 +28,7 @@ interface TodayStats {
 const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   run: {
     title: 'Apply for jobs',
-    description: 'Find suitable jobs and submit applications.',
+    description: '',
   },
   attention: {
     title: 'Needs attention',
@@ -207,7 +207,7 @@ export default function App() {
         <header className="page-header">
           <div>
             <h1>{PAGE_COPY[tab].title}</h1>
-            <p>{PAGE_COPY[tab].description}</p>
+            {PAGE_COPY[tab].description && <p>{PAGE_COPY[tab].description}</p>}
           </div>
           <div className="toolbar">
             {running && <span className="badge ok">Running</span>}
@@ -224,42 +224,31 @@ export default function App() {
 
         {tab === 'run' && (
           <section className="dashboard-metrics" aria-label="Application summary">
-            <div className="metric-group">
             <button type="button" className="metric-tile" onClick={() => setTab('applications')}>
               <strong>{stats.week}</strong>
               <span>applied this week</span>
             </button>
-            <button
-              type="button"
-              className={`metric-tile ${stats.awaiting ? 'needs-action' : ''}`}
-              onClick={() => setTab('applications')}
-            >
-              <strong>{stats.awaiting}</strong>
-              <span>ready to follow up</span>
-            </button>
-            <button
-              type="button"
-              className={`metric-tile ${stats.blocked ? 'needs-action' : ''}`}
-              onClick={() => setTab('attention')}
-            >
-              <strong>{stats.blocked}</strong>
-              <span>{stats.verification ? 'need verification' : 'need attention'}</span>
-            </button>
-            </div>
-            <div className="metric-group">
             <div className="metric-tile">
-              <strong>{today.runs}</strong>
-              <span>{today.runs === 1 ? 'run today' : 'runs today'}</span>
+              <strong>{today.submitted}</strong>
+              <span>sent today</span>
             </div>
             <div className="metric-tile">
               <strong>{today.reviewed}</strong>
               <span>jobs reviewed today</span>
             </div>
-            <div className="metric-tile">
-              <strong>{today.submitted}</strong>
-              <span>applications sent today</span>
-            </div>
-            </div>
+            {/* Only when there is something to do: a row of zeros is noise. */}
+            {stats.awaiting > 0 && (
+              <button type="button" className="metric-tile needs-action" onClick={() => setTab('applications')}>
+                <strong>{stats.awaiting}</strong>
+                <span>to follow up</span>
+              </button>
+            )}
+            {stats.blocked > 0 && (
+              <button type="button" className="metric-tile needs-action" onClick={() => setTab('attention')}>
+                <strong>{stats.blocked}</strong>
+                <span>{stats.verification ? 'need verification' : 'need attention'}</span>
+              </button>
+            )}
           </section>
         )}
 
