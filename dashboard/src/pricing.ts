@@ -44,11 +44,22 @@ export const PLAN_PRESENTATION = {
   },
 } as const;
 
+/**
+ * Prices cover a pass used in full.
+ *
+ * Measured over 15 September 2026's preceding week, model spend was about
+ * US$0.05 per successful application — fit checks on every reviewed job,
+ * the browser agent including attempts that did not submit, and letters —
+ * which is roughly A$0.10 once the larger per-application step budget is
+ * allowed for. Each pass is priced so that a holder who uses every
+ * application still leaves a margin after that spend, card fees and GST;
+ * the earlier A$0.04 per application lost money on any pass used in full.
+ */
 export const PAID_PLANS = {
   'job-search-pass': {
     key: 'job-search-pass',
     name: 'Job Search Pass',
-    priceCents: 599,
+    priceCents: 2499,
     applications: 150,
     validDays: 30,
     description: 'A focused month of applications for an active job search.',
@@ -56,7 +67,7 @@ export const PAID_PLANS = {
   'intensive-pass': {
     key: 'intensive-pass',
     name: 'Intensive Pass',
-    priceCents: 1299,
+    priceCents: 4999,
     applications: 320,
     validDays: 30,
     description: 'More application capacity for a broad or urgent search.',
@@ -64,7 +75,7 @@ export const PAID_PLANS = {
   'application-top-up': {
     key: 'application-top-up',
     name: 'Application Top-up',
-    priceCents: 299,
+    priceCents: 999,
     applications: 50,
     validDays: 30,
     description: 'Extra successful applications without changing your plan.',
