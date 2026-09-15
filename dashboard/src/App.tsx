@@ -1,3 +1,4 @@
+import { Wordmark } from './components/Wordmark';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Application } from './types';
 import { RunPanel } from './components/RunPanel';
@@ -155,7 +156,7 @@ export default function App() {
           <span className="product-mark" aria-hidden="true">
             <MascotLogo size={38} />
           </span>
-          <span className="product-name">Myasis</span>
+          <Wordmark className="product-name" />
         </button>
 
         <nav className="side-nav" aria-label="Main navigation">

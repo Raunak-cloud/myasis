@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FREE_MONTHLY_APPLICATIONS, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, aud } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
+import { Wordmark } from './Wordmark';
 
 const QUESTIONS = [
   { question: 'Does it actually submit applications?', answer: 'Yes. Myasis submits applications on your behalf, using your résumé, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
@@ -48,7 +49,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
   return <div className="landing" id="top">
     <header className="home-header home-width">
-      <a href="#top" className="home-brand" aria-label="Myasis home"><MascotLogo size={40} /><span>Myasis</span></a>
+      <a href="#top" className="home-brand" aria-label="myasis home"><MascotLogo size={40} /><Wordmark /></a>
       <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#questions">Questions?</a></nav>
       {googleConfigured && <a className="home-login" href="/api/auth/google">Sign in <span aria-hidden="true">↗</span></a>}
     </header>
@@ -119,6 +120,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       <section className="home-questions" id="questions"><div className="home-faq-list">{QUESTIONS.map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>
       <section className="home-last"><div className="home-last-message"><span className="home-goodbye-lead">Our favourite goodbye</span><p className="home-goodbye">“I got the job.”</p><p className="home-goodbye-detail">The sooner you leave us for your new role, the happier we are.</p></div><div className="home-last-action">{start()}<p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications.<br />No card needed.</p></div></section>
     </main>
-    <footer className="home-footer home-width"><a href="#top" className="home-brand"><MascotLogo size={32} /><span>Myasis</span></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
+    <footer className="home-footer home-width"><a href="#top" className="home-brand"><MascotLogo size={32} /><Wordmark /></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
   </div>;
 }
