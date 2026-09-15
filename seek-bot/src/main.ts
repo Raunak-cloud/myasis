@@ -26,6 +26,7 @@ import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import type { Page } from 'patchright';
 import { australianGovernmentDestination } from './site-policy.js';
+import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -149,6 +150,7 @@ async function main() {
 
   const platforms = enabledPlatforms(config.platforms.join(','));
   console.log(`Platforms this run: ${platforms.map((p) => p.label).join(', ')}`);
+  if (runScope() !== 'all') console.log(`Scope: ${SCOPE_LABEL[runScope()]}`);
 
   const ctx = await launchBrowser();
   const page = await getPage(ctx);
@@ -238,7 +240,14 @@ async function main() {
           return new Map<string, { priority: number; reason: string }>();
         })
       : new Map<string, { priority: number; reason: string }>();
+    const scopeRank = (job: JobListing): number => {
+      if (runScope() === 'all') return 0;
+      if (!job.applicationMode || job.applicationMode === 'unknown') return 1; // the board's panel will say
+      return outsideScope(job.applicationMode) ? 2 : 0;
+    };
     shortlist.sort((a, b) => {
+      const scoped = scopeRank(a) - scopeRank(b);
+      if (scoped) return scoped;
       const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
       return sourcePriority || (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
     });
@@ -537,10 +546,11 @@ async function main() {
       const adapter = ADAPTERS.get(platformId);
       if (!adapter) continue;
 
-      // Diagnostic: APPLY_ONLY=external|hosted restricts a run to one kind of application, for testing a flow in isolation.
-      const only = process.env.APPLY_ONLY;
-      if (only === 'external' && job.applicationMode !== 'external') continue;
-      if (only === 'hosted' && job.applicationMode === 'external') continue;
+      // A listing whose kind is already known and outside this run's scope is not attempted; an unknown one is left to the board's own panel to decide.
+      if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+        logOutcome({ status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company });
+        continue;
+      }
 
       const roleKey = `${job.title}|${job.company}`.toLowerCase().replace(/\s+/g, ' ').trim();
       if (attemptedRoles.has(roleKey)) {

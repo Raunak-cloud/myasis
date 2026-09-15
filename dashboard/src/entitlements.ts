@@ -20,6 +20,7 @@ export interface Entitlements {
   evaluationsPerRun: number | null;
   fineTune: boolean;
   rewriteText: boolean;
+  runScopes: boolean;
   indeedApplications: boolean;
   window: { startHour: number; endHour: number; timeZone: string };
 }

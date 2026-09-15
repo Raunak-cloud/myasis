@@ -5,6 +5,7 @@ import { coverLetterForJob } from '../llm.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from '../types.js';
 import { runApplicationAgent } from './loop.js';
 import { australianGovernmentDestination } from '../site-policy.js';
+import { outsideScope, scopeSkipReason } from '../run-scope.js';
 
 /**
  * Agent-driven replacement for `applyToJob`.
@@ -97,6 +98,10 @@ export async function applyToJobWithAgent(
 
   const label = clean(await applyCta.innerText().catch(() => ''));
   const externalCta = !/quick\s*apply/i.test(label);
+  job.applicationMode = externalCta ? 'external' : 'hosted';
+  if (outsideScope(job.applicationMode)) {
+    return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
+  }
   if (australianGovernmentDestination(job)) {
     return { status: 'skipped', jobId: job.id, reason: 'Australian government application site excluded.' };
   }

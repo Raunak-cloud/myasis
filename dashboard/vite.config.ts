@@ -1062,6 +1062,7 @@ function dataApi(): Plugin {
             mode,
             trigger: 'manual',
             clientOverrides: body?.overrides ?? {},
+            scope: body?.scope,
           });
           return send(result.ok ? { ok: true, mode: result.mode } : { error: result.error }, result.ok ? 200 : result.status);
         });

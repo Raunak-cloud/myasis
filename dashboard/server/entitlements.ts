@@ -114,6 +114,8 @@ export interface Entitlements {
   fineTune: boolean;
   /** May use the rewriting tool. */
   rewriteText: boolean;
+  /** May limit a run to employer-site or board-hosted applications, to test one flow. */
+  runScopes: boolean;
   /** May search and apply to jobs hosted on Indeed as well as SEEK. */
   indeedApplications: boolean;
   window: { startHour: number; endHour: number; timeZone: string };
@@ -227,6 +229,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     evaluationsPerRun,
     fineTune: tier !== 'standard',
     rewriteText: tier === 'admin',
+    runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActivePass,
     window: { ...AUTO_WINDOW, timeZone: RUN_TIME_ZONE },
   };

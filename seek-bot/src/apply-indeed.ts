@@ -6,6 +6,7 @@ import { coverLetterForJob } from './llm.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
 import { runApplicationAgent } from './agent/loop.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
+import { outsideScope, scopeSkipReason } from './run-scope.js';
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
 
@@ -116,6 +117,9 @@ export async function applyToIndeedJob(
   const hosted = (await indeedApplyCta.count()) > 0;
   // The panel's own button is the truth about where the form lives; discovery only guesses, and cannot when Indeed's data is absent.
   job.applicationMode = hosted ? 'hosted' : 'external';
+  if (outsideScope(job.applicationMode)) {
+    return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
+  }
   if (!hosted) {
     if (!(await externalCta.count())) {
       return { status: 'skipped', jobId: job.id, reason: 'no apply control found (expired?)' };

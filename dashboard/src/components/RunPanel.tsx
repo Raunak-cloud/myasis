@@ -231,6 +231,8 @@ export function RunPanel({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
   const [confirming, setConfirming] = useState(false);
+  /** Operator diagnostic: limit the next run to employer-site applications. */
+  const [scope, setScope] = useState<'all' | 'external'>('all');
   const [stopConfirming, setStopConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -488,7 +490,7 @@ export function RunPanel({
       const runResponse = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, confirm: mode === 'live', overrides: updates }),
+        body: JSON.stringify({ mode, confirm: mode === 'live', overrides: updates, scope }),
       });
       if (runResponse.status === 402) {
         setConfirming(false);
@@ -625,9 +627,19 @@ export function RunPanel({
             </p>
           ) : (
             <>
-              <button className="btn primary lg" disabled={outOfRuns} onClick={() => setConfirming(true)}>
+              <button className="btn primary lg" disabled={outOfRuns} onClick={() => { setScope('all'); setConfirming(true); }}>
                 Start {mode === 'rehearse' ? 'rehearsal' : 'live run'}
               </button>
+              {entitlements?.runScopes && (
+                <button
+                  className="btn lg run-scope-btn"
+                  disabled={outOfRuns}
+                  title="Applies only where the employer's own site takes the application, on every board in the run."
+                  onClick={() => { setScope('external'); setConfirming(true); }}
+                >
+                  {mode === 'rehearse' ? 'Rehearse' : 'Apply'} on employer sites only
+                </button>
+              )}
               {runsLeft !== null && (
                 <span className="job-meta">
                   {outOfRuns
@@ -844,7 +856,7 @@ export function RunPanel({
                 <p className="job-meta">Changes made here are saved before the run starts.</p>
               </div>
               <span className={`badge ${mode === 'live' ? 'bad' : 'warn'}`}>
-                {mode === 'live' ? 'Live run' : 'Rehearsal'}
+                {mode === 'live' ? 'Live run' : 'Rehearsal'}{scope === 'external' ? ' · employer sites only' : ''}
               </span>
             </div>
 

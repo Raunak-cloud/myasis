@@ -34,6 +34,8 @@ export interface StartRunRequest {
   trigger: 'manual' | 'auto';
   /** Settings posted with the request. Ignored for scheduled runs. */
   clientOverrides?: Record<string, unknown>;
+  /** Limit the run to one kind of application. Honoured only for accounts entitled to it. */
+  scope?: unknown;
 }
 
 export async function startRun(request: StartRunRequest): Promise<StartRunOutcome> {
@@ -96,6 +98,10 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
     if (!entitlements.fineTune && FINE_TUNING_KEYS.includes(key)) continue;
     if (value !== undefined && value !== null && String(value).length) overrides[key] = String(value);
+  }
+
+  if (request.scope === 'external' || request.scope === 'hosted') {
+    if (entitlements.runScopes) overrides.APPLY_ONLY = request.scope;
   }
 
   let countRehearsals = false;

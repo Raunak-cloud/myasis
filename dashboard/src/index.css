@@ -1963,3 +1963,6 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 }
 .signin-pill.verifying { border-color:var(--border); background:transparent; color:var(--text-dim); }
 .signin-pill svg { flex:0 0 auto; }
+
+/* Operator diagnostic beneath the start button: same width, quieter. */
+.run-dashboard .run-actions .run-scope-btn { width: 100%; border-style: dashed; }
