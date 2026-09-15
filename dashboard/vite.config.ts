@@ -42,6 +42,8 @@ import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
+import { releaseChromeProfile } from './server/chrome-profile.js';
+import { stopAllSignins } from './server/signin.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -1071,6 +1073,8 @@ function dataApi(): Plugin {
           // Same reasoning as /api/run: without this the scan inherits the
           // shared .env's search settings instead of this account's.
           const settings = applyRunPolicy(await runSettingsForUser(userId), entitlements, 'manual');
+          if (sessionFor(userId)) stopSignin(userId);
+          await releaseChromeProfile(userChromeDir(userId));
           const r = await runner.startQueue(userId, settings);
           if (r.ok) await recordRunStart(userId, 'scan', 'manual').catch(() => {});
           return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
@@ -1177,6 +1181,24 @@ function dataApi(): Plugin {
         if (!r.ok) console.error(`Database schema could not be applied: ${r.error}`);
       });
       startAutoRunner();
+
+      /**
+       * Leave nothing behind. pm2 stops this process with a signal; without
+       * this the runs' and sign-ins' browsers outlive it, each still holding
+       * an account's profile, and that account cannot run again until
+       * someone finds the stray Chrome by hand.
+       */
+      let stopping = false;
+      const shutdown = (signal: NodeJS.Signals) => {
+        if (stopping) return;
+        stopping = true;
+        console.log(`[shutdown] ${signal}: stopping runs and sign-in browsers`);
+        runner.stopAll();
+        stopAllSignins();
+        setTimeout(() => process.exit(0), 3000).unref();
+      };
+      process.once('SIGINT', shutdown);
+      process.once('SIGTERM', shutdown);
     },
   };
 }

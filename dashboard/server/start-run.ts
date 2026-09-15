@@ -14,6 +14,9 @@ import {
 } from './entitlements.js';
 import { listResumes } from './files.js';
 import { waitForSigninChecks } from './seek-check.js';
+import { sessionFor, stopSignin } from './signin.js';
+import { releaseChromeProfile } from './chrome-profile.js';
+import { userChromeDir } from './userdata.js';
 
 /**
  * The one way a run starts.
@@ -149,6 +152,19 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       return { ok: false, status: 503, error: `Could not verify run allowance: ${(error as Error).message}` };
     }
   }
+
+  /**
+   * The run needs the account's browser profile to itself.
+   *
+   * A person still signing in keeps it for now if the scheduler is asking;
+   * if they pressed Start themselves, they are done signing in. Anything
+   * else holding the profile is a browser nobody is using any more.
+   */
+  if (sessionFor(userId)) {
+    if (trigger === 'auto') return { ok: false, status: 409, error: 'A sign-in is in progress for this account.' };
+    stopSignin(userId);
+  }
+  await releaseChromeProfile(userChromeDir(userId));
 
   const browserReady = await waitForSigninChecks(userId);
   if (!browserReady.ok) return { ok: false, status: 409, error: browserReady.error };

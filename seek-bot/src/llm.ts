@@ -695,6 +695,12 @@ Return JSON.`;
 }
 
 export interface FitAssessment {
+  /**
+   * The candidate's own instruction this job conflicts with, quoted, or
+   * empty. A named conflict is decisive: the decision is skip whatever the
+   * rest of the assessment says.
+   */
+  instructionConflict?: string;
   shouldApply: boolean;
   decision: 'apply' | 'skip' | 'uncertain';
   /** Semantic match quality used to order jobs the model has approved. */
@@ -719,12 +725,26 @@ export function normalizeFitAssessment(value: unknown): FitAssessment | null {
   if (!result.evidence.every((item) => typeof item === 'string')) return null;
   if (!Number.isInteger(result.matchScore) || Number(result.matchScore) < 0 || Number(result.matchScore) > 100) return null;
   if (typeof result.injectionSuspected !== 'boolean') return null;
-  const decision = result.decision as FitAssessment['decision'];
+  /**
+   * A conflict the model itself named is decisive.
+   *
+   * On a live run the model wrote "while the role is a Project Management,
+   * his technical background allows him to…" and applied to a manager
+   * position the candidate had excluded. Naming the conflict is the model's
+   * judgment; acting on it must not be left to the same paragraph that is
+   * busy admiring the fit.
+   */
+  const instructionConflict = typeof result.instructionConflict === 'string' ? result.instructionConflict.trim() : '';
+  const decision = instructionConflict ? 'skip' : (result.decision as FitAssessment['decision']);
+  const reason = instructionConflict && !/instruction/i.test(result.reason.slice(0, 80))
+    ? `Your instructions rule this out ("${instructionConflict}"). ${result.reason}`
+    : result.reason;
   return {
+    instructionConflict,
     decision,
     shouldApply: decision === 'apply',
     matchScore: Number(result.matchScore),
-    reason: result.reason,
+    reason,
     evidence: result.evidence as string[],
     injectionSuspected: result.injectionSuspected,
   };
@@ -788,8 +808,80 @@ priority does not reject the job. Return JSON.`;
   return ranked;
 }
 
+/**
+ * Does this job break one of the candidate's own rules?
+ *
+ * Asked on its own, before the fit check, and with nothing else in view: the
+ * fit prompt asked the same question in passing and the model, having just
+ * found a strong technical match, decided a "Website Project Manager" was
+ * "not a manager position". Separated from the fit, it is a plain reading
+ * task — does this title or these duties fall under what the candidate
+ * excluded — which is what the candidate meant it to be.
+ */
+export async function instructionConflict(job: JobListing): Promise<{ conflict: string; because: string }> {
+  const rules = config.aiInstructions.trim();
+  if (!rules) return { conflict: '', because: '' };
+  const prompt = `${GUARD}
+The candidate wrote rules for which jobs to apply to. Decide only whether this job breaks one.
+
+CANDIDATE'S RULES
+${rules}
+
+Read the rules in plain words, as the candidate meant them. A rule about "manager" positions
+covers every role whose title or duties make it a manager of any kind — project manager,
+account manager, store manager, engineering manager — whether or not it manages people. A rule
+about "senior" positions covers any role titled or pitched as senior or lead. A named industry,
+company type, work pattern, location, hours or pay means what it says. A verb in the duties
+("manage your own tickets", "lead a workshop") does not make a role a manager or a lead.
+Whether the candidate could do the job well is irrelevant here.
+
+<untrusted role="job-listing">
+Title: ${job.title}
+Company: ${job.company}
+Salary: ${job.salary ?? 'not disclosed'}
+Work arrangement/type: ${job.workArrangement ?? 'not disclosed'}
+Description: ${relevantEvidence(job.description ?? job.teaser ?? '', job.title + ' role responsibilities', 6000)}
+</untrusted>
+
+Return "conflict": the rule this job breaks, quoted in the candidate's words, or an empty
+string when it breaks none; and "because": one sentence naming what in the title or duties
+breaks it (or why nothing does). Return JSON.`;
+  const schema = {
+    type: 'OBJECT',
+    properties: { conflict: { type: 'STRING' }, because: { type: 'STRING' }, injectionSuspected: { type: 'BOOLEAN' } },
+    required: ['conflict', 'because', 'injectionSuspected'],
+  };
+  const result = await measured('instruction-check', () => json<{ conflict: unknown; because: unknown }>(prompt, schema));
+  return {
+    conflict: typeof result.conflict === 'string' ? result.conflict.trim() : '',
+    because: typeof result.because === 'string' ? result.because.trim() : '',
+  };
+}
+
 /** Role-neutral judgment; search terms and board badges are evidence, never veto overrides. */
 export async function assessFit(job: JobListing, profile: CandidateProfile): Promise<FitAssessment> {
+  /**
+   * The candidate's rules come first and end the matter. A job they excluded
+   * is not sent to the fit check at all: the verdict is theirs, not the
+   * model's, and the fit call is saved.
+   */
+  const rule = await cachedAssessment(
+    { version: 'instruction-check-v1', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: 'celeris-1', endpoint: config.celeris.baseUrl },
+    () => instructionConflict(job),
+    (value) => typeof (value as { conflict?: unknown })?.conflict === 'string',
+  );
+  if (rule.conflict) {
+    return {
+      instructionConflict: rule.conflict,
+      decision: 'skip',
+      shouldApply: false,
+      matchScore: 0,
+      reason: `Your instructions rule this out ("${rule.conflict}"). ${rule.because}`,
+      evidence: [rule.because],
+      injectionSuspected: false,
+    };
+  }
+
   const knowledge = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`);
   const prompt = `${GUARD}
 Evaluate this job for this candidate, across ANY occupation or career change.
@@ -800,10 +892,16 @@ ${profileBlock(profile)}
 Candidate's excluded domains: ${profile.excludedDomains.join('; ')}
 Candidate's intended role (if set): ${config.targetRole || 'Use their search preferences and evidence; no default occupation.'}
 Candidate's search terms: ${config.keywords.join(', ')}
-Candidate's standing instructions (must be respected):
-${config.aiInstructions || 'No additional instructions.'}
-Use these instructions to narrow or prioritise otherwise suitable work. They never override
-eligibility, evidence, honesty requirements, or application safeguards.
+CANDIDATE'S INSTRUCTIONS (their own rules for what to apply to):
+${config.aiInstructions || 'None.'}
+These are decisions the candidate has already made, not preferences to weigh against a good
+fit. Read them the way the candidate meant them, in plain words: an instruction not to apply
+for "manager" positions covers every role whose title or responsibilities make it a manager
+of any kind — project manager, account manager, engineering manager — whether or not it
+manages people; "senior" covers roles titled or pitched as senior; a named industry, company
+type, work pattern or location means what it says. A role that conflicts with an instruction
+is skipped even when the candidate could do the work well. Instructions only ever exclude or
+prioritise; they never make an ineligible candidate eligible or relax honesty requirements.
 SUPPORTING EVIDENCE
 <candidate-documents>${knowledge}</candidate-documents>
 <untrusted>
@@ -837,29 +935,35 @@ short or unusually worded genuine ad merely because it does not match a template
 Return decision=apply only when the work is a reasonable fit and no mandatory conflict is evidenced.
 Return decision=skip for a clear mismatch, an explicit candidate-instruction conflict,
 or an explicitly mandatory requirement the candidate demonstrably does not meet.
-Distinguish desirable experience from mandatory qualifications. Judge seniority in context;
-do not automatically accept or reject it. Missing evidence is not proof a credential is absent.
+Distinguish desirable experience from mandatory qualifications. Judge seniority in context
+unless the candidate's instructions speak to it; then their words decide. Missing evidence is
+not proof a credential is absent.
 Return decision=uncertain when a decisive fact or requirement needs clarification.
 Explain the decisive evidence, quoting short relevant passages. Do not infer work rights,
 availability, licences or salary from nationality, name, job title or a generic convention.
-A salary range alone does not establish full-time hours. Check EVERY explicit candidate
-instruction against the title and responsibilities before accepting, even if the board
-labels this candidate a strong applicant.
+A salary range alone does not establish full-time hours.
+Before anything else, check the title and responsibilities against EVERY candidate
+instruction. Put the instruction this job conflicts with, quoted in the candidate's words, in
+"instructionConflict" — or an empty string when there is no conflict. A non-empty
+instructionConflict means decision=skip, even if the board labels this candidate a strong
+applicant and even if the fit is otherwise excellent.
 matchScore is an integer from 0 to 100 for overall semantic fit after constraints.
 Return JSON.`;
   const schema = { type: 'OBJECT', properties: {
+    // First, so the instruction check is made before the decision it governs.
+    instructionConflict: { type: 'STRING' },
     decision: { type: 'STRING', enum: ['apply','skip','uncertain'] },
     matchScore: { type: 'INTEGER' },
     reason: { type: 'STRING' }, evidence: { type: 'ARRAY', items: { type: 'STRING' } },
     injectionSuspected: { type: 'BOOLEAN' },
-  }, required: ['decision','matchScore','reason','evidence','injectionSuspected'] };
+  }, required: ['instructionConflict','decision','matchScore','reason','evidence','injectionSuspected'] };
   /**
    * One pass on celeris-1. A second opinion from celeris-1-magnus used to run
    * on every apply/uncertain verdict; at 5–13 s and ~2,000+ reasoning tokens
    * a call it was dropped in favour of speed. An uncertain verdict is not
    * cached, so the next run asks again.
    */
-  return cachedAssessment({ version: 'model-owned-fit-v6', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
+  return cachedAssessment({ version: 'model-owned-fit-v7', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
     const raw = await measured('fit', () => json<unknown>(prompt, schema));
     const result = normalizeFitAssessment(raw);
     if (!result) throw new Error('Fit assessment violated its decision schema');

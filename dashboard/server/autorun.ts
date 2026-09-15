@@ -2,6 +2,7 @@ import { query } from './db/index.js';
 import { runner, MAX_CONCURRENT } from './runner.js';
 import { startRun } from './start-run.js';
 import { entitlementsFor, AUTO_WINDOW, RUN_TIME_ZONE, type Entitlements } from './entitlements.js';
+import { sessionFor } from './signin.js';
 import { sendDailyDigests, digestDue } from './digest.js';
 
 /**
@@ -223,7 +224,7 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
       done: account.entitlements.autoRunsUsedToday,
       dueAt: slotMinutes(index, account.entitlements.autoRunsUsedToday, scheduled.length, MAX_CONCURRENT, account.entitlements.autoRunsPerDay),
     }))
-    .filter((a) => a.done < a.entitlements.autoRunsPerDay && elapsed >= a.dueAt && !runner.stateFor(a.userId).running)
+    .filter((a) => a.done < a.entitlements.autoRunsPerDay && elapsed >= a.dueAt && !runner.stateFor(a.userId).running && !sessionFor(a.userId))
     .sort((a, b) => a.done - b.done || a.dueAt - b.dueAt);
 
   const started: string[] = [];

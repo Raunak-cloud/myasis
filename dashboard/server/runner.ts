@@ -7,6 +7,13 @@ import { exportUserForRun, syncRunResultsToDb } from './db/run-sync.js';
 export const BOT_DIR = resolve(import.meta.dirname, '..', '..', 'seek-bot');
 const ENV_PATH = resolve(BOT_DIR, '.env');
 
+/** deploy/deploy.sh holds this while it rebuilds; a run launched then would load half-written code. */
+const DEPLOY_LOCK = resolve(BOT_DIR, '..', '.deploying');
+export function deploying(): boolean {
+  return existsSync(DEPLOY_LOCK);
+}
+export const DEPLOYING_MESSAGE = 'Owtomate is installing an update. Try again in a minute.';
+
 export type RunMode = 'search' | 'live';
 
 /** Request bodies are untrusted: only these modes start a run. */
@@ -191,6 +198,7 @@ class Run {
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
+    if (deploying()) return { ok: false, error: DEPLOYING_MESSAGE };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'main.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
@@ -264,6 +272,7 @@ class Run {
   async startQueue(cdpPort: number, overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     if (this.occupiesSlot) return { ok: false, error: 'A scan is already running for this account.' };
+    if (deploying()) return { ok: false, error: DEPLOYING_MESSAGE };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'queue.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
@@ -371,6 +380,17 @@ class RunPool {
   /** Drops finished runs nobody is watching, so the map cannot grow forever. */
   private sweep(): void {
     for (const [userId, run] of this.runs) if (run.disposable) this.runs.delete(userId);
+  }
+
+  /**
+   * Every run asked to stop, for a dashboard that is shutting down. The bot
+   * closes its browser on SIGTERM; a run killed outright leaves Chrome
+   * holding the account's profile and every later run failing on it.
+   */
+  stopAll(): void {
+    for (const run of this.runs.values()) {
+      if (run.state.running) run.stop();
+    }
   }
 
   activeCount(): number {

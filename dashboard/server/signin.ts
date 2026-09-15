@@ -10,6 +10,7 @@ import { readEnv } from './runner.js';
 import { userChromeDir, ensureUserDataDir } from './userdata.js';
 import { chromeGoogleAccounts } from './chrome-accounts.js';
 import { assistIndeedGoogleSignin, type SigninAssistStatus } from './signin-assist.js';
+import { releaseChromeProfile } from './chrome-profile.js';
 
 /**
  * Signing an account in to a job board on a headless server.
@@ -155,6 +156,8 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek')
   const chromePath = env.CHROME_PATH?.trim() || '/usr/bin/google-chrome';
   ensureUserDataDir(userId);
   const profileDir = userChromeDir(userId);
+  // A browser left on this profile by an earlier session would swallow the new one into its own window, on a display nobody is watching.
+  await releaseChromeProfile(profileDir);
   const { display, vncPort } = allocate();
   const googleAccount = target === 'indeed' ? chromeGoogleAccounts(userId)[0] : undefined;
   const debugPort = googleAccount ? FIRST_DEBUG_PORT + (display - FIRST_DISPLAY) : undefined;

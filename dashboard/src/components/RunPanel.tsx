@@ -135,6 +135,8 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
       add(line, 'Needs your attention', 'warn', 'Open Needs attention to review it.');
     } else if (/↪ off-platform/i.test(text)) {
       add(line, 'Skipped an external application', 'warn', "This application continues on the employer's website.");
+    } else if (/already running with this profile/i.test(text)) {
+      add(line, 'The browser was still open from an earlier session', 'bad', 'Owtomate closes it before a run now. Start the run again.');
     } else if (/(?:✗\s+(?:unexpected )?error:|Fatal:)/i.test(text)) {
       add(line, 'Something went wrong', 'bad', 'The run stopped safely. Please try again.');
     } else if (/No enabled platform has a working session/i.test(text)) {

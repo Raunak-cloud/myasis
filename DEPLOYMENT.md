@@ -157,6 +157,15 @@ cd ~/myasis/dashboard && npm ci --include=dev && npm run build
 cd ~/myasis && pm2 startOrReload ecosystem.config.cjs --update-env && pm2 save
 ```
 
+## Deploying a change
+
+Run `bash /home/myasis/myasis/deploy/deploy.sh` as root. It refuses new runs
+(the dashboard sees `.deploying`), waits for runs in flight to finish, pulls,
+builds both packages and restarts the dashboard, which closes its browsers on
+the way down. Do not pull, build or `pm2 restart` by hand while runs can start:
+a run launched mid-build dies on half-written code, and a restart mid-run
+leaves a Chrome holding that account's profile.
+
 ## 6. Backups
 
 `/etc/cron.d/myasis` runs `deploy/maintenance.sh` nightly at 03:15 Sydney time: a
