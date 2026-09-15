@@ -967,17 +967,17 @@ a:focus-visible,
   .mascot-logo:hover .mascot-pupils { animation: none; }
 }
 
-.product-name { font-size: 22px; }
+.product-name { font-size: 23px; }
 
 .wordmark {
-  font-family: 'Fredoka', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
-  font-weight: 600;
-  letter-spacing: -.02em;
-  line-height: 1;
+  font-family: 'Pacifico', 'Brush Script MT', cursive;
+  font-weight: 400;
+  letter-spacing: .01em;
+  line-height: 1.25;
   color: var(--text);
   white-space: nowrap;
 }
-.wordmark-my { color: var(--wordmark-accent, var(--accent)); }
+.wordmark-ow { color: var(--wordmark-accent, var(--accent)); }
 .side-nav { display: flex; flex-direction: column; gap: 4px; }
 
 .nav-label {

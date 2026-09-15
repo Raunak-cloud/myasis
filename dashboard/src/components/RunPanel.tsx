@@ -119,7 +119,7 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
         'warn',
         accountActionNeeded
           ? `Open ${match[1]} below, finish signing in or verification, then start the run again.`
-          : 'Myasis will try again on the next run.',
+          : 'Owtomate will try again on the next run.',
       );
     } else if ((match = text.match(/(\d+) unique listings discovered/i))) {
       add(line, `Found ${match[1]} job listings`, 'done');
@@ -227,7 +227,7 @@ export function RunPanel({
   const [liveViewOpen, setLiveViewOpen] = useState(false);
   /**
    * A standard account does not drive runs: it saves what work it wants and
-   * Myasis applies on a schedule. So it gets a statement of what is happening
+   * Owtomate applies on a schedule. So it gets a statement of what is happening
    * rather than controls that would be refused.
    */
   const entitlements = useEntitlements();
@@ -979,7 +979,7 @@ export function RunPanel({
                   />
                 </div>
                 <label className="field run-review-wide">
-                  <FieldLabel label="Run instructions" optional help="Tell Myasis which otherwise suitable jobs to avoid or prefer. These saved instructions are checked for every job before applying." />
+                  <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. These saved instructions are checked for every job before applying." />
                   <textarea
                     className="input"
                     rows={3}

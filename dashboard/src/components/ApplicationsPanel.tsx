@@ -159,7 +159,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
           <summary>
             <strong>Employer site accounts</strong>
             <span className="job-meta">
-              {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} Myasis created or used for you
+              {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} Owtomate created or used for you
             </span>
           </summary>
           <ul>
@@ -168,7 +168,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                 <div className="minw">
                   <div className="job-title">{account.site}</div>
                   <div className="job-meta">
-                    {account.email} · {account.createdByMyasis ? 'created' : 'used'} by Myasis
+                    {account.email} · {account.createdByMyasis ? 'created' : 'used'} by Owtomate
                     {account.company ? ` while applying to ${account.company}` : ''}
                   </div>
                 </div>
@@ -276,7 +276,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
 
               {open.actions?.length ? (
                 <div className="section">
-                  <h3>What Myasis did for you</h3>
+                  <h3>What Owtomate did for you</h3>
                   <ul className="app-actions">
                     {open.actions.map((action, i) => (
                       <li key={`${action.kind}-${i}`}>

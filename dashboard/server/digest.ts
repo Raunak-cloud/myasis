@@ -78,7 +78,7 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
     ? `${plural(sent, 'application')} sent today`
     : digest.needsAnswer
       ? `${plural(digest.needsAnswer, 'job')} need your answer`
-      : 'Your Myasis summary';
+      : 'Your Owtomate summary';
 
   /** Names arrive however the account was created — "rinu" should not stay "rinu". */
   const firstName = (digest.name ?? '').trim().split(/\s+/)[0] ?? '';
@@ -87,8 +87,8 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
     greeting,
     '',
     sent
-      ? `Myasis sent ${plural(sent, 'application')} for you today across ${plural(digest.runs, 'run')}:`
-      : `Myasis made ${plural(digest.runs, 'run')} today and did not send any applications.`,
+      ? `Owtomate sent ${plural(sent, 'application')} for you today across ${plural(digest.runs, 'run')}:`
+      : `Owtomate made ${plural(digest.runs, 'run')} today and did not send any applications.`,
   ];
 
   for (const a of digest.applications) {
@@ -102,7 +102,7 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
     lines.push('', `${plural(digest.failed, 'run')} ran into a problem and stopped.`);
   }
 
-  lines.push('', `See everything: ${dashboardUrl}`, '', '— Myasis');
+  lines.push('', `See everything: ${dashboardUrl}`, '', '— Owtomate');
   const text = lines.join('\n');
 
   const escape = (value: string) =>
@@ -115,8 +115,8 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
   <p>${escape(greeting)}</p>
   <p>${
     sent
-      ? `Myasis sent <strong>${plural(sent, 'application')}</strong> for you today across ${plural(digest.runs, 'run')}.`
-      : `Myasis made ${plural(digest.runs, 'run')} today and did not send any applications.`
+      ? `Owtomate sent <strong>${plural(sent, 'application')}</strong> for you today across ${plural(digest.runs, 'run')}.`
+      : `Owtomate made ${plural(digest.runs, 'run')} today and did not send any applications.`
   }</p>
   ${items ? `<ul style="padding-left:18px;margin:0 0 16px">${items}</ul>` : ''}
   ${
@@ -126,7 +126,7 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
   }
   ${digest.failed ? `<p>${plural(digest.failed, 'run')} ran into a problem and stopped.</p>` : ''}
   <p style="margin:22px 0"><a href="${escape(dashboardUrl)}" style="background:#2f6fd0;color:#fff;text-decoration:none;padding:11px 20px;border-radius:999px;display:inline-block">Open your dashboard</a></p>
-  <p style="color:#606b7d;font-size:13px">— Myasis</p>
+  <p style="color:#606b7d;font-size:13px">— Owtomate</p>
 </div>`;
 
   return { subject, text, html };

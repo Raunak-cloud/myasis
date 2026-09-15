@@ -6,9 +6,9 @@ import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
 
 const QUESTIONS = [
-  { question: 'Does it actually submit applications?', answer: 'Yes. Myasis submits applications on your behalf, using your résumé, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
-  { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Myasis uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
-  { question: 'Do I need to give Myasis my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Myasis. The application agent reuses that session without asking for your password.' },
+  { question: 'Does it actually submit applications?', answer: 'Yes. Owtomate submits applications on your behalf, using your résumé, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
+  { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
+  { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
   { question: 'Is there a subscription?', answer: 'No. The free plan resets monthly. Paid passes are one-off purchases, valid for 30 days, and do not automatically renew. Prices are in Australian dollars.' },
 ];
@@ -43,13 +43,13 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
     return () => observer.disconnect();
   }, []);
 
-  function start(label = 'Try Myasis for free', subtle = false) {
+  function start(label = 'Try Owtomate for free', subtle = false) {
     return googleConfigured ? <a className={`home-button${subtle ? ' home-button-light' : ''}`} href="/api/auth/google">{label}<Arrow /></a> : <span className="home-unavailable">Sign-in is temporarily unavailable.</span>;
   }
 
   return <div className="landing" id="top">
     <header className="home-header home-width">
-      <a href="#top" className="home-brand" aria-label="myasis home"><MascotLogo size={40} /><Wordmark /></a>
+      <a href="#top" className="home-brand" aria-label="owtomate home"><MascotLogo size={40} /><Wordmark /></a>
       <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#questions">Questions?</a></nav>
       {googleConfigured && <a className="home-login" href="/api/auth/google">Sign in <span aria-hidden="true">↗</span></a>}
     </header>
@@ -58,38 +58,38 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       <section className="home-intro" aria-labelledby="home-heading">
         <div className="home-hero-figure">
           <picture className="home-story-slice home-story-old">
-            <source srcSet="/hero/old-way-vs-myasis.webp" type="image/webp" />
-            <img src="/hero/old-way-vs-myasis.png" width="1672" height="941" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Myasis way: Myasis finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
+            <source srcSet="/hero/old-way-vs-owtomate.webp" type="image/webp" />
+            <img src="/hero/old-way-vs-owtomate.png" width="1672" height="941" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Owtomate way: Owtomate finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
           </picture>
           <picture className="home-story-slice home-story-myasis" aria-hidden="true">
-            <source srcSet="/hero/old-way-vs-myasis.webp" type="image/webp" />
-            <img src="/hero/old-way-vs-myasis.png" width="1672" height="941" alt="" />
+            <source srcSet="/hero/old-way-vs-owtomate.webp" type="image/webp" />
+            <img src="/hero/old-way-vs-owtomate.png" width="1672" height="941" alt="" />
           </picture>
         </div>
         <div className="home-hero-videos">
           <div className="home-intro-heading">
             <h1 id="home-heading">Job hunting is a job.<em>Not anymore 😌</em></h1>
-            <p className="home-hero-summary">Myasis finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
+            <p className="home-hero-summary">Owtomate finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
             {error && <div className="home-error" role="alert">{error}</div>}
             <div className="home-hero-actions">{start()}</div>
             <p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications. No card needed.</p>
           </div>
           <div className="home-hero-demo" id="demo">
             <div className="home-hero-video-top"><span>Real application run</span></div>
-            <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Myasis applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
+            <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Owtomate applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
             {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
           </div>
         </div>
       </section>
 
-      <section className="home-explainer" id="how-it-works"><div className="home-process"><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></span><div><h3>Your résumé. Your preferences.</h3><p>Add your documents and tell Myasis the roles, locations and pay you would accept. It checks jobs against those details before applying.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><div><h3>Written for every job.</h3><p>Myasis chooses the right résumé, writes a job-specific cover letter and fills in each form from your profile.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg></span><div><h3>Let it apply. Keep the record.</h3><p>Myasis submits each application and saves what was sent. Anything it cannot answer comes back to you.</p></div></article></div></section>
+      <section className="home-explainer" id="how-it-works"><div className="home-process"><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></span><div><h3>Your résumé. Your preferences.</h3><p>Add your documents and tell Owtomate the roles, locations and pay you would accept. It checks jobs against those details before applying.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><div><h3>Written for every job.</h3><p>Owtomate chooses the right résumé, writes a job-specific cover letter and fills in each form from your profile.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg></span><div><h3>Let it apply. Keep the record.</h3><p>Owtomate submits each application and saves what was sent. Anything it cannot answer comes back to you.</p></div></article></div></section>
 
 
-      <aside className="home-promise"><MascotLogo size={54} /><div><h2>A helpful assistant. An honest application.</h2><p>Myasis won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p></div></aside>
+      <aside className="home-promise"><MascotLogo size={54} /><div><h2>A helpful assistant. An honest application.</h2><p>Owtomate won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p></div></aside>
 
       <section className="home-pricing" id="pricing">
         <div className="home-pricing-title">
-          <h2>Choose a Myasis pass.<br /><em>Pay once. No recurring charges.</em></h2>
+          <h2>Choose a Owtomate pass.<br /><em>Pay once. No recurring charges.</em></h2>
         </div>
         <div className="home-price-grid">
           <article className="home-price-card">

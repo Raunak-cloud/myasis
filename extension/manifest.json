@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Myasis Assist",
+  "name": "Owtomate Assist",
   "version": "1.0.0",
-  "description": "Fills SEEK application forms from your Myasis profile. You review and submit.",
+  "description": "Fills SEEK application forms from your Owtomate profile. You review and submit.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://*.seek.com.au/*",
@@ -18,5 +18,5 @@
       "run_at": "document_idle"
     }
   ],
-  "action": { "default_popup": "popup.html", "default_title": "Myasis Assist" }
+  "action": { "default_popup": "popup.html", "default_title": "Owtomate Assist" }
 }

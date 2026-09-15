@@ -17,7 +17,7 @@ async function callApi(path, body, method) {
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`Myasis API ${res.status}`);
+  if (!res.ok) throw new Error(`Owtomate API ${res.status}`);
   return res.json();
 }
 

@@ -5,7 +5,7 @@
 .landing a:focus-visible,.landing summary:focus-visible,.landing video:focus-visible { outline:3px solid #2f6fae; outline-offset:5px; }
 .home-width { max-width:1320px; margin-inline:auto; padding-inline:60px; }
 .home-header { display:flex; justify-content:space-between; align-items:center; gap:30px; height:108px; border-bottom:1px solid var(--rule); }
-.home-brand { --wordmark-accent:var(--blue); display:inline-flex; align-items:center; gap:10px; font-size:30px; text-decoration:none!important; }
+.home-brand { --wordmark-accent:var(--blue); display:inline-flex; align-items:center; gap:10px; font-size:29px; text-decoration:none!important; }
 .home-brand .wordmark { color:var(--ink); }
 .home-header nav { display:flex; gap:35px; margin-left:auto; margin-right:45px; font-size:13px; }
 .home-header nav a { text-decoration:none; }

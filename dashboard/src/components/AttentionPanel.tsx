@@ -100,7 +100,7 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
     <div className="answer-form">
       {questions.map((q) => (
         <label key={q.question} className="answer-row">
-          <span className="answer-label">{q.prompt?.trim() || `What should Myasis enter for “${q.question}”?`}</span>
+          <span className="answer-label">{q.prompt?.trim() || `What should Owtomate enter for “${q.question}”?`}</span>
           {q.prompt?.trim() && q.prompt.trim() !== q.question ? (
             <span className="job-meta answer-hint">Employer field: “{q.question}”</span>
           ) : null}
@@ -165,7 +165,7 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
           <strong>What the employer needs from you</strong>
           {questions.map((question) => (
             <div key={question.question}>
-              {question.prompt?.trim() || `What should Myasis enter for “${question.question}”?`}
+              {question.prompt?.trim() || `What should Owtomate enter for “${question.question}”?`}
               {question.prompt?.trim() && question.prompt.trim() !== question.question ? (
                 <span className="job-meta">Employer field: “{question.question}”</span>
               ) : null}

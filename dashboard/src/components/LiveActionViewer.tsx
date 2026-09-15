@@ -49,7 +49,7 @@ export function LiveActionViewer({ onClose }: { onClose: () => void }) {
         <div className="live-action-bar">
           <div>
             <h2 id="live-action-title">Live action</h2>
-            <span className="job-meta">Watch Myasis work in real time.</span>
+            <span className="job-meta">Watch Owtomate work in real time.</span>
           </div>
           <span className={`badge ${connected ? 'ok' : 'muted'}`}>{connected ? 'Live · view only' : message}</span>
           <button className="btn btn-small" onClick={onClose}>Close</button>

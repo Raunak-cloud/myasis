@@ -7,7 +7,7 @@ export interface ManualLoginResult {
 }
 
 /**
- * Opens a job board in ordinary desktop Chrome using Myasis's persistent profile.
+ * Opens a job board in ordinary desktop Chrome using Owtomate's persistent profile.
  *
  * This is deliberately separate from Patchright and CDP. Security checks such
  * as Cloudflare Turnstile may reject synthetic input even when it came from a
@@ -29,7 +29,7 @@ export function openSeekManualLogin(
     return Promise.resolve({
       ok: false,
       error:
-        'This Myasis installation uses a remote managed browser. Open its secure remote desktop to sign in; the dashboard cannot open that browser on this computer.',
+        'This Owtomate installation uses a remote managed browser. Open its secure remote desktop to sign in; the dashboard cannot open that browser on this computer.',
     });
   }
 

@@ -125,7 +125,7 @@ export function PricingPanel() {
 
       <section className="pricing-intro">
         <span className="pricing-kicker">Plans &amp; pricing</span>
-        <h2>Choose how you want Myasis to run</h2>
+        <h2>Choose how you want Owtomate to run</h2>
         <p>Use the automatic schedule, or choose Intensive when you want to start and fine-tune each run yourself.</p>
       </section>
 

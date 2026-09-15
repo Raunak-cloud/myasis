@@ -1,8 +1,8 @@
 /**
- * Myasis Assist — content script.
+ * Owtomate Assist — content script.
  *
  * Runs inside the user's own SEEK session, on their own machine and IP. It
- * reads the application form, asks the local Myasis API for answers, fills
+ * reads the application form, asks the local Owtomate API for answers, fills
  * them in, and shows what it did.
  *
  * It never clicks Submit. That is the design, not an oversight: a human
@@ -27,11 +27,11 @@ function ui() {
   panel.innerHTML = `
     <div class="myasis-head">
       <span class="myasis-dot"></span>
-      <strong>Myasis</strong>
+      <strong>Owtomate</strong>
       <button class="myasis-x" title="Hide">×</button>
     </div>
     <div class="myasis-body"></div>
-    <div class="myasis-foot">You review and submit — Myasis never clicks Submit.</div>`;
+    <div class="myasis-foot">You review and submit — Owtomate never clicks Submit.</div>`;
   document.body.appendChild(panel);
   panel.querySelector('.myasis-x').onclick = () => panel.remove();
   return panel;
@@ -214,14 +214,14 @@ async function assist() {
 
   if (!reply?.ok) {
     say(
-      `Cannot reach Myasis at <code>${API}</code>.<br><small>${reply?.error ?? 'Is the dashboard running?'}</small>`,
+      `Cannot reach Owtomate at <code>${API}</code>.<br><small>${reply?.error ?? 'Is the dashboard running?'}</small>`,
       'bad',
     );
     return;
   }
   const data = reply.data;
   if (!data.ok) {
-    say(`Myasis error: ${data.error}`, 'bad');
+    say(`Owtomate error: ${data.error}`, 'bad');
     return;
   }
 
@@ -298,7 +298,7 @@ async function reportSuccess() {
   say(
     reply?.ok
       ? '<div class="myasis-ok"><strong>Application sent.</strong><br>Marked as applied — it won\'t appear in your queue again.</div>'
-      : '<div class="myasis-warn">Application sent, but Myasis could not record it.<br><small>Mark it applied in the dashboard so it is not re-queued.</small></div>',
+      : '<div class="myasis-warn">Application sent, but Owtomate could not record it.<br><small>Mark it applied in the dashboard so it is not re-queued.</small></div>',
     reply?.ok ? 'ok' : 'warn',
   );
 }
@@ -312,7 +312,7 @@ function boot() {
   const p = ui();
   p.querySelector('.myasis-body').innerHTML =
     '<button class="myasis-go">Fill this form</button>' +
-    '<div class="myasis-hint">Uses your Myasis profile and documents.</div>';
+    '<div class="myasis-hint">Uses your Owtomate profile and documents.</div>';
   p.querySelector('.myasis-go').onclick = assist;
 }
 

@@ -68,7 +68,7 @@ const INTENSIVE = PLAN_LIMITS['intensive-pass'];
 export const PLAN_PRESENTATION = {
   free: {
     label: 'Automatic essentials',
-    description: 'A simple way to let Myasis apply for well-matched SEEK roles.',
+    description: 'A simple way to let Owtomate apply for well-matched SEEK roles.',
     features: [
       `${FREE_MONTHLY_APPLICATIONS} successful applications`,
       `${plural(FREE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
@@ -80,7 +80,7 @@ export const PLAN_PRESENTATION = {
   },
   'job-search-pass': {
     label: 'Automatic job search',
-    description: 'More application capacity while Myasis runs your search for you.',
+    description: 'More application capacity while Owtomate runs your search for you.',
     features: [
       `${PAID_PLANS['job-search-pass'].applications} successful applications`,
       `Up to ${plural(JOB_SEARCH.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,

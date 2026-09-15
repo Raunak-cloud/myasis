@@ -218,7 +218,7 @@ export function SetupPanel() {
         {showAdvanced && (
           <div className="step-body">
             <label className="field">
-              <FieldLabel label="Run instructions" optional help="Tell Myasis which otherwise suitable jobs to avoid or prefer. The model checks these instructions for every job before applying." />
+              <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. The model checks these instructions for every job before applying." />
               <textarea
                 className="input"
                 rows={4}
