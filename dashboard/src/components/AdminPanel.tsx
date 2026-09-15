@@ -85,6 +85,8 @@ const clock = (iso: string) =>
   new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: TIME_ZONE }).format(new Date(iso));
 
 function duration(run: AdminRun): string {
+  // Runs from before finish times were recorded have no end to measure to.
+  if (!run.finishedAt && !run.running) return '—';
   const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
   const seconds = Math.max(0, Math.round((end - Date.parse(run.startedAt)) / 1000));
   const h = Math.floor(seconds / 3600);
@@ -95,7 +97,7 @@ function duration(run: AdminRun): string {
 
 function runStatus(run: AdminRun): { label: string; tone: string } {
   if (run.running) return { label: 'Running', tone: 'info' };
-  if (!run.finishedAt) return { label: 'No record of the end', tone: 'muted' };
+  if (!run.finishedAt) return { label: 'Not recorded', tone: 'muted' };
   if (run.exitCode === 0) return { label: 'Finished', tone: 'ok' };
   if (run.exitCode === null) return { label: 'Stopped', tone: 'warn' };
   return { label: `Failed (exit ${run.exitCode})`, tone: 'bad' };
@@ -384,7 +386,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       >
                         <span className="auto-switch-knob" aria-hidden="true" />
                       </button>
-                      <span>Auto apply {user.autoApply.paused ? 'off' : `on · ${user.autoApply.runsPerDay} runs a day`}</span>
+                      <span>Auto apply {user.autoApply.paused ? 'off' : `on · ${user.autoApply.runsPerDay} ${user.autoApply.runsPerDay === 1 ? 'run' : 'runs'} a day`}</span>
                     </label>
                   )}
                   <div className="admin-button-row">

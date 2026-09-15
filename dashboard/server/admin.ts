@@ -442,7 +442,8 @@ export async function handleAdminRequest(
         return result.ok ? send({ ok: true }) : send({ error: result.error }, 409);
       }
       case 'grant': {
-        await grantPass(target.id, String(body?.plan ?? ''));
+        if (!isPaidPlanKey(body?.plan)) return send({ error: 'Choose a pass to give.' }, 400);
+        await grantPass(target.id, body.plan);
         return send({ ok: true, user: await adminUserDetail(target.id) });
       }
       case 'end-passes': {
