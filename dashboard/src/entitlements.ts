@@ -16,7 +16,7 @@ export interface Entitlements {
   autoRunsPerDay: number;
   /** Automatic runs are switched off for this account. */
   autoApplyPaused: boolean;
-  /** May switch automatic runs off and on (admins). */
+  /** May switch automatic runs off and on (every account with a schedule). */
   canPauseAutoApply: boolean;
   autoRunsUsedToday: number;
   scheduledMinScore: number | null;

@@ -22,8 +22,9 @@ import { accountSetupComplete } from './setup.js';
  * order. Handing each account fixed times spreads the same work evenly and
  * makes a starved account impossible.
  *
- * Admin accounts get ten runs a day on the same timetable, and can switch
- * their automatic runs off; a switched-off account is not scheduled at all.
+ * Admin accounts get ten runs a day on the same timetable. Any account can
+ * switch its automatic runs off — found a job, taking a break — and a
+ * switched-off account is not scheduled at all until it switches them on.
  *
  * Deliberately an interval in this process rather than a job queue. The
  * durable state a queue would give us is already in `run_starts`, which is

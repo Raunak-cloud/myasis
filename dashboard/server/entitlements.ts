@@ -32,7 +32,7 @@ export const INTENSIVE_MANUAL_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].manua
 export const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
 export const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoRunsPerDay;
 
-/** Scheduled runs per local day for an operator of this installation, unless they switch automatic runs off. */
+/** Scheduled runs per local day for an operator of this installation. */
 export const ADMIN_AUTO_RUNS_PER_DAY = 10;
 
 /**
@@ -261,7 +261,8 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     autoRunsPerDay > 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
     one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
   ]);
-  const canPauseAutoApply = tier === 'admin';
+  // Anyone with a schedule can switch it off — they found a job, or want a break — and back on.
+  const canPauseAutoApply = autoRunsPerDay > 0;
 
   return {
     tier,

@@ -791,7 +791,9 @@ export function RunPanel({
                 aria-label="Automatic runs"
                 className={`auto-switch${entitlements.autoApplyPaused ? '' : ' on'}`}
                 disabled={autoToggling}
-                title={entitlements.autoApplyPaused ? 'Turn automatic runs on' : 'Turn automatic runs off'}
+                title={entitlements.autoApplyPaused
+                  ? 'Turn automatic runs back on'
+                  : 'Turn automatic runs off, for example once you have found a job or want a break'}
                 onClick={() => void setAutoApply(entitlements.autoApplyPaused)}
               >
                 <span className="auto-switch-knob" aria-hidden="true" />

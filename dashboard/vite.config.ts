@@ -1046,7 +1046,7 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           const user = await currentUser(req.headers?.cookie);
           const entitlements = await entitlementsFor(userId, user?.email);
-          if (!entitlements.canPauseAutoApply) return send({ error: 'Automatic runs cannot be switched off on your plan.' }, 403);
+          if (!entitlements.canPauseAutoApply) return send({ error: 'Your plan has no automatic runs to switch off.' }, 403);
           const body = await readBody();
           if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether automatic runs should be on or off.' }, 400);
           await setAutoApplyPaused(userId, !body.enabled);
