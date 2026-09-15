@@ -2043,3 +2043,7 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .saved-search-head .job-meta { margin: 0; }
 
 .run-dashboard .run-actions:empty { display: none; }
+
+/* A scheduled run that could not start, and the admin note in the run settings. */
+.run-auto-error { margin: 0; font-size: 13px; line-height: 1.45; }
+.run-review-unlimited { margin: 0 0 12px; }

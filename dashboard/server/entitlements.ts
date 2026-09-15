@@ -21,11 +21,8 @@ export { SCHEDULED_MIN_SCORE };
 
 export type Tier = 'admin' | 'intensive' | 'standard';
 
-/** Local time is what a candidate means by "today" and by "9 to 9". */
+/** Local time is what a candidate means by "today". Scheduled runs happen at any hour of it. */
 export const RUN_TIME_ZONE = process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney';
-
-/** Hours of the local day inside which automatic runs may start. */
-export const AUTO_WINDOW = { startHour: 9, endHour: 21 } as const;
 
 /** Manual runs an Intensive Pass may start per local day. Admins have no cap. */
 export const INTENSIVE_MANUAL_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].manualRunsPerDay;
@@ -37,8 +34,6 @@ export const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoR
 /** Employer-site applications an Intensive Pass may submit per day. */
 export const INTENSIVE_EMPLOYER_SITES_PER_DAY = PLAN_LIMITS['intensive-pass'].employerSitesPerDay;
 
-/** Admins keep scheduled applications alongside unlimited manual runs. */
-export const ADMIN_AUTO_RUNS_PER_DAY = 4;
 
 /** Listings the AI assesses in each run for the three customer plans. */
 export const FREE_EVALUATIONS_PER_RUN = PLAN_LIMITS.free.evaluationsPerRun;
@@ -76,7 +71,7 @@ export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
  */
 export function applyRunPolicy(
   settings: Record<string, string>,
-  entitlement: Pick<Entitlements, 'fineTune' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer'>,
+  entitlement: Pick<Entitlements, 'tier' | 'fineTune' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer'>,
   trigger: 'manual' | 'auto',
 ): Record<string, string> {
   const resolved = { ...settings };
@@ -104,8 +99,19 @@ export function applyRunPolicy(
    * which also keeps paying accounts' letters from waiting behind it.
    */
   if (!entitlement.humanizer) resolved.HUMANIZER_MODE = 'off';
-  if (trigger === 'auto') {
+  if (trigger === 'auto' && entitlement.tier !== 'admin') {
     resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
+  }
+  /**
+   * An operator of this installation has no limits: no applications-per-run,
+   * no daily count, no ceiling on jobs reviewed. "none" reaches the bot, which
+   * honours it only alongside ADMIN_UNLIMITED; an operator narrowing one run
+   * on the command line still can, because those arguments come after this.
+   */
+  if (entitlement.tier === 'admin') {
+    resolved.MAX_APPS_PER_RUN = 'none';
+    resolved.MAX_APPS_PER_DAY = 'none';
+    resolved.MAX_EVALUATIONS = 'none';
   }
   return resolved;
 }
@@ -118,8 +124,8 @@ export interface Entitlements {
   manualRunsPerDay: number | null;
   manualRunsUsedToday: number;
   manualRunsLeftToday: number | null;
-  /** Automatic runs per local day; admins and standard accounts have a schedule. */
-  autoRunsPerDay: number;
+  /** Automatic runs per local day; null runs back to back with no daily count (admins). */
+  autoRunsPerDay: number | null;
   autoRunsUsedToday: number;
   /** Fixed match floor for scheduled applications; null when this tier has no schedule. */
   scheduledMinScore: number | null;
@@ -137,7 +143,7 @@ export interface Entitlements {
   indeedApplications: boolean;
   /** Cover letters are rewritten by the humanizer. Job Search Pass and Intensive Pass only. */
   humanizer: boolean;
-  window: { startHour: number; endHour: number; timeZone: string };
+  timeZone: string;
 }
 
 function tierFor(admin: boolean, intensive: boolean): Tier {
@@ -152,8 +158,8 @@ function tierFor(admin: boolean, intensive: boolean): Tier {
  * Pass bought its automatic runs and keeps them: upgrading must not quietly
  * take away what the first pass promised.
  */
-export function automaticRunsPerDay(tier: Tier, hasActivePass = false, hasJobSearchPass = false): number {
-  if (tier === 'admin') return ADMIN_AUTO_RUNS_PER_DAY;
+export function automaticRunsPerDay(tier: Tier, hasActivePass = false, hasJobSearchPass = false): number | null {
+  if (tier === 'admin') return null;
   if (tier === 'standard') return hasActivePass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : FREE_AUTO_RUNS_PER_DAY;
   return hasJobSearchPass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : 0;
 }
@@ -237,7 +243,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
 
   const [manualRunsUsedToday, autoRunsUsedToday] = await Promise.all([
     manualRuns ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
-    autoRunsPerDay ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
+    autoRunsPerDay !== 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
   ]);
 
   return {
@@ -248,8 +254,9 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     manualRunsLeftToday: manualRunsPerDay === null ? null : Math.max(0, manualRunsPerDay - manualRunsUsedToday),
     autoRunsPerDay,
     autoRunsUsedToday,
-    scheduledMinScore: autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
-    scheduledJobsPerDay: autoRunsPerDay && evaluationsPerRun !== null
+    // Admins apply at their own saved threshold; the 75% floor is for accounts nobody is steering.
+    scheduledMinScore: tier !== 'admin' && autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
+    scheduledJobsPerDay: autoRunsPerDay !== null && autoRunsPerDay > 0 && evaluationsPerRun !== null
       ? autoRunsPerDay * evaluationsPerRun
       : null,
     evaluationsPerRun,
@@ -258,7 +265,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActivePass,
     humanizer: billing.paid.hasActivePass,
-    window: { ...AUTO_WINDOW, timeZone: RUN_TIME_ZONE },
+    timeZone: RUN_TIME_ZONE,
   };
 }
 

@@ -2,7 +2,10 @@ import { Resend } from 'resend';
 import { query } from './db/index.js';
 import { readEnv } from './runner.js';
 import { loadAttention } from './attention.js';
-import { RUN_TIME_ZONE, AUTO_WINDOW } from './entitlements.js';
+import { RUN_TIME_ZONE } from './entitlements.js';
+
+/** The evening summary goes out from this local hour. Runs happen at any hour; the email should not. */
+const DIGEST_HOUR = 21;
 
 /**
  * The evening summary.
@@ -206,8 +209,8 @@ export async function sendDailyDigests(now: Date = new Date()): Promise<string[]
   return sent;
 }
 
-/** After the window shuts, and only for the rest of that evening. */
+/** From 9pm, for the rest of that evening. */
 export function digestDue(at: Date = new Date()): boolean {
   const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: RUN_TIME_ZONE }).format(at));
-  return hour >= AUTO_WINDOW.endHour;
+  return hour >= DIGEST_HOUR;
 }

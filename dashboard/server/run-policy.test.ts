@@ -18,10 +18,10 @@ const saved = {
   AI_INSTRUCTIONS_B64: 'ZG9udCBhcHBseSBmb3Igc2VuaW9yIHJvbGVz',
 };
 
-const freePolicy = { fineTune: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, humanizer: false };
-const jobSearchPolicy = { fineTune: false, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, humanizer: true };
-const intensivePolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, humanizer: true };
-const adminPolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: null, humanizer: true };
+const freePolicy = { tier: 'standard' as const, fineTune: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, humanizer: false };
+const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, humanizer: true };
+const intensivePolicy = { tier: 'intensive' as const, fineTune: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, humanizer: true };
+const adminPolicy = { tier: 'admin' as const, fineTune: true, indeedApplications: true, evaluationsPerRun: null, humanizer: true };
 
 const standardManual = applyRunPolicy(saved, freePolicy, 'manual');
 check('standard accounts keep their job preferences', standardManual.KEYWORDS === saved.KEYWORDS);
@@ -43,12 +43,14 @@ check('removed target roles cannot influence Intensive runs', intensive.TARGET_R
 check('Intensive runs assess 100 jobs', intensive.MAX_EVALUATIONS === '100');
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, adminPolicy, 'manual');
-check('admins keep their fine tuning', admin.MAX_EVALUATIONS === '500');
+check('admins have no limit on jobs reviewed', admin.MAX_EVALUATIONS === 'none');
+check('admins have no limit on applications per run or per day', admin.MAX_APPS_PER_RUN === 'none' && admin.MAX_APPS_PER_DAY === 'none');
 
 const standardAuto = applyRunPolicy(saved, freePolicy, 'auto');
 check('Free runs assess 5 jobs', standardAuto.MAX_EVALUATIONS === '5');
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, adminPolicy, 'auto');
-check('a higher saved ceiling is kept on a scheduled run', adminAuto.MAX_EVALUATIONS === '100');
+check('admin scheduled runs have no limits either', adminAuto.MAX_EVALUATIONS === 'none' && adminAuto.MAX_APPS_PER_DAY === 'none');
+check('admin scheduled runs keep their own match threshold', adminAuto.MIN_SCORE === saved.MIN_SCORE);
 check('admin scheduled live runs keep the saved prompt', adminAuto.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 const jobSearchAuto = applyRunPolicy(saved, jobSearchPolicy, 'auto');
 check('Free runs stay on SEEK', scheduled.PLATFORMS === 'seek');
@@ -59,7 +61,7 @@ check('Job Search Pass runs keep the humanizer', jobSearchAuto.HUMANIZER_MODE !=
 check('Intensive runs keep the humanizer', intensive.HUMANIZER_MODE !== 'off');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Job Search Pass accounts receive four scheduled runs', automaticRunsPerDay('standard', true) === 4);
-check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);
+check('admins run back to back with no daily count', automaticRunsPerDay('admin') === null);
 check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
 check('Intensive keeps the automatic runs of a Job Search Pass it also holds', automaticRunsPerDay('intensive', true, true) === 4);
 

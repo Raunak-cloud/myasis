@@ -650,7 +650,7 @@ async function main() {
             ...(outcome.actions?.length ? { actions: outcome.actions } : {}),
             submittedByMyasis: true,
           });
-          console.log(`  ✅ submitted (${applied}/${config.limits.maxApplicationsPerRun})`);
+          console.log(`  ✅ submitted (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
           break;
         case 'rehearsed':
           rehearsed++;

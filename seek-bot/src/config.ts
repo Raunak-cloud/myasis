@@ -16,6 +16,8 @@ export const adminUnlimited = process.env.ADMIN_UNLIMITED === 'true';
  * admin's run, where the cap is lifted and only the floor remains.
  */
 function ceiling(max: number, value: string | undefined, fallback: number): number {
+  // "none" means no limit at all, and only an operator run may ask for that.
+  if (value?.trim().toLowerCase() === 'none') return adminUnlimited ? Infinity : fallback;
   const wanted = Number(value ?? fallback);
   if (!Number.isFinite(wanted)) return fallback;
   return Math.max(1, adminUnlimited ? Math.floor(wanted) : Math.min(max, wanted));

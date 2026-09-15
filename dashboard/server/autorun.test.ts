@@ -9,7 +9,7 @@ import { slotMinutes } from './autorun.js';
  * things a unit test of one function can show, so this plays the day out.
  */
 
-const WINDOW = 720; // 9am-9pm
+const WINDOW = 1440; // the whole day
 const RUNS = 4;
 const LANES = 2;
 
@@ -55,7 +55,7 @@ const check = (label: string, ok: boolean, detail = '') => {
   if (!ok) bad++;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
-const clock = (m: number) => `${String(9 + Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
 
 // ---- the shape of the timetable itself
 console.log(`timetable for 10 accounts, 2 lanes, ${RUNS} runs each:`);
@@ -66,7 +66,7 @@ for (let i = 0; i < 10; i++) {
 console.log('');
 
 const last = slotMinutes(9, RUNS - 1, 10, LANES, RUNS);
-check('the final slot is inside the window', last < WINDOW, `${clock(last)}`);
+check('the final slot is inside the day', last < WINDOW, `${clock(last)}`);
 
 // At most one lane's worth of accounts may share any single slot time.
 const at = new Map<number, number>();

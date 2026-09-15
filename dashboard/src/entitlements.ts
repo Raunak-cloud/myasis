@@ -13,7 +13,8 @@ export interface Entitlements {
   manualRunsPerDay: number | null;
   manualRunsUsedToday: number;
   manualRunsLeftToday: number | null;
-  autoRunsPerDay: number;
+  /** Null runs back to back with no daily count (admins). */
+  autoRunsPerDay: number | null;
   autoRunsUsedToday: number;
   scheduledMinScore: number | null;
   scheduledJobsPerDay: number | null;
@@ -22,7 +23,7 @@ export interface Entitlements {
   rewriteText: boolean;
   runScopes: boolean;
   indeedApplications: boolean;
-  window: { startHour: number; endHour: number; timeZone: string };
+  timeZone: string;
 }
 
 /**
@@ -45,10 +46,4 @@ export function useEntitlements(): Entitlements | null {
     };
   }, []);
   return entitlements;
-}
-
-/** "9am to 9pm" from the window the server reports. */
-export function windowLabel(window: Entitlements['window']): string {
-  const hour = (h: number) => (h === 12 ? '12pm' : h > 12 ? `${h - 12}pm` : `${h}am`);
-  return `${hour(window.startHour)} to ${hour(window.endHour)}`;
 }

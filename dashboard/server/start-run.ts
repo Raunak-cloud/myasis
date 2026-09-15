@@ -21,6 +21,7 @@ import { submittedToday } from './today.js';
 
 /** The daily limit a run will enforce, resolved exactly as seek-bot's config does. */
 function dailyLimit(overrides: Record<string, string>): number {
+  if (overrides.MAX_APPS_PER_DAY === 'none' && overrides.ADMIN_UNLIMITED === 'true') return Infinity;
   const wanted = Number(overrides.MAX_APPS_PER_DAY || 20);
   if (!Number.isFinite(wanted)) return 20;
   return Math.max(1, overrides.ADMIN_UNLIMITED === 'true' ? Math.floor(wanted) : Math.min(50, wanted));
@@ -173,7 +174,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   if (consumes) {
     const limit = dailyLimit(overrides);
     const sent = await submittedToday(userId).catch(() => 0);
-    if (sent >= limit) {
+    if (Number.isFinite(limit) && sent >= limit) {
       return {
         ok: false,
         status: 429,

@@ -1,7 +1,7 @@
 import { query } from './db/index.js';
 import { runner, MAX_CONCURRENT } from './runner.js';
 import { startRun } from './start-run.js';
-import { entitlementsFor, AUTO_WINDOW, RUN_TIME_ZONE, type Entitlements } from './entitlements.js';
+import { entitlementsFor, lastRunStartedAt, RUN_TIME_ZONE, type Entitlements } from './entitlements.js';
 import { sessionFor } from './signin.js';
 import { sendDailyDigests, digestDue } from './digest.js';
 
@@ -9,15 +9,21 @@ import { sendDailyDigests, digestDue } from './digest.js';
  * Applications for the accounts that do not drive runs themselves.
  *
  * A standard account never presses start. It saves what work it wants and
- * this applies for it a few times across the day, inside waking hours.
+ * this applies for it a few times a day, spread across the whole 24 hours:
+ * listings go up at any hour, and an early application is seen first.
  *
  * Every account has its own timetable rather than competing for whoever the
  * next sweep happens to notice. The machine runs a small number of browsers
- * at once, so with everyone eligible from 9am the naive version was a
- * scramble: two accounts won each tick and the rest were refused, and the
- * same accounts won every time because the sweep read them in the same
+ * at once, so with everyone eligible at the same moment the naive version
+ * was a scramble: two accounts won each tick and the rest were refused, and
+ * the same accounts won every time because the sweep read them in the same
  * order. Handing each account fixed times spreads the same work evenly and
  * makes a starved account impossible.
+ *
+ * Admin accounts have no daily count at all. They run back to back, around
+ * the clock, with a short pause between one run ending and the next
+ * starting, and they yield the lanes to timetabled accounts whose slot is
+ * due.
  *
  * Deliberately an interval in this process rather than a job queue. The
  * durable state a queue would give us is already in `run_starts`, which is
@@ -30,21 +36,31 @@ import { sendDailyDigests, digestDue } from './digest.js';
 /** How often to look. Fine enough to hit a slot, cheap enough to ignore. */
 const TICK_MS = 60_000;
 
-const WINDOW_MINUTES = (AUTO_WINDOW.endHour - AUTO_WINDOW.startHour) * 60;
+const DAY_MINUTES = 24 * 60;
 
 /**
- * When an account's Nth run of the day is due, as minutes after the window
- * opens.
+ * The pause between an admin account's runs.
+ *
+ * Not a limit on how much it applies: a run that just finished has already
+ * reviewed what the boards were showing, and searching again the same minute
+ * mostly re-reads the same listings — traffic of exactly the kind that has
+ * earned a board's bot challenge before.
+ */
+const CONTINUOUS_GAP_MS = Math.max(1, Number(process.env.AUTO_RUN_GAP_MINUTES ?? 15)) * 60_000;
+
+/**
+ * When an account's Nth run of the day is due, as minutes after local
+ * midnight.
  *
  * The day splits into one block per run, and each block splits into a slot
  * per account sharing a lane. Two accounts with the same slot sit in
  * different lanes, so the number starting together never exceeds the number
  * the machine can run.
  *
- * With ten accounts, two lanes and four runs across 9am-9pm: blocks are 180
- * minutes, five accounts share each lane, so slots are 36 minutes. Account 0
- * goes at 9:00, 12:00, 15:00 and 18:00; account 2 at 9:36, 12:36 and so on;
- * accounts 0 and 1 start together because they are in different lanes.
+ * With ten accounts, two lanes and four runs a day: blocks are 360 minutes,
+ * five accounts share each lane, so slots are 72 minutes. Account 0 goes at
+ * 0:00, 6:00, 12:00 and 18:00; account 2 at 1:12, 7:12 and so on; accounts 0
+ * and 1 start together because they are in different lanes.
  */
 export function slotMinutes(
   index: number,
@@ -52,31 +68,19 @@ export function slotMinutes(
   accounts: number,
   lanes: number,
   runsPerDay: number,
-  windowMinutes: number = WINDOW_MINUTES,
+  dayMinutes: number = DAY_MINUTES,
 ): number {
-  const block = windowMinutes / Math.max(1, runsPerDay);
+  const block = dayMinutes / Math.max(1, runsPerDay);
   const perLane = Math.max(1, Math.ceil(accounts / Math.max(1, lanes)));
   const slot = block / perLane;
   const position = Math.floor(index / Math.max(1, lanes));
   return run * block + position * slot;
 }
 
-/** Minutes since the window opened, or null when it is shut. */
-export function minutesIntoWindow(at: Date = new Date(), timeZone = RUN_TIME_ZONE): number | null {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: false,
-    timeZone,
-  }).formatToParts(at);
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
-  if (hour < AUTO_WINDOW.startHour || hour >= AUTO_WINDOW.endHour) return null;
-  return (hour - AUTO_WINDOW.startHour) * 60 + minute;
-}
-
-export function insideWindow(at: Date = new Date()): boolean {
-  return minutesIntoWindow(at) !== null;
+/** Minutes since local midnight. */
+export function minutesIntoDay(at: Date = new Date(), timeZone = RUN_TIME_ZONE): number {
+  const { hour, minute } = localDateTime(at, timeZone);
+  return hour * 60 + minute;
 }
 
 interface Scheduled {
@@ -91,12 +95,17 @@ async function scheduledAccounts(): Promise<Scheduled[]> {
   for (const user of users) {
     try {
       const entitlements = await entitlementsFor(user.id, user.email);
-      if (entitlements.autoRunsPerDay > 0) scheduled.push({ userId: user.id, email: user.email, entitlements });
+      if (entitlements.autoRunsPerDay !== 0) scheduled.push({ userId: user.id, email: user.email, entitlements });
     } catch {
       // One unavailable account must not hide the schedule for everyone else.
     }
   }
   return scheduled;
+}
+
+/** Timetabled accounts, in the stable order their slots are computed from. */
+function timetabled(accounts: Scheduled[]): Scheduled[] {
+  return accounts.filter((account) => account.entitlements.autoRunsPerDay !== null);
 }
 
 interface LocalDateTime {
@@ -141,34 +150,72 @@ function zonedInstant(local: LocalDateTime, timeZone = RUN_TIME_ZONE): Date {
   return new Date(instant);
 }
 
+/**
+ * Why the last scheduled run for an account could not start, until one does.
+ *
+ * Nobody is watching a scheduled run begin, so a refusal — no résumé, no
+ * applications left, today's limit — used to reach only the server log, and
+ * the account simply saw nothing happen. Kept in memory: the next tick after
+ * a restart finds the same reason again.
+ */
+const lastRefusal = new Map<string, { message: string; at: string }>();
+/** When each back-to-back account last tried to start, so a refusal waits the same pause as a finished run. */
+const lastAttempt = new Map<string, number>();
+
 export interface AutoScheduleStatus {
   runsUsedToday: number;
-  runsPerDay: number;
+  /** Null for an account that runs back to back with no daily count. */
+  runsPerDay: number | null;
   nextRunAt: string;
   dueNow: boolean;
   timeZone: string;
+  lastError: { message: string; at: string } | null;
+}
+
+/** When a back-to-back account is next due: a pause after whichever came last, its run ending or its last try. */
+async function continuousDueAt(userId: string): Promise<number> {
+  const state = runner.stateFor(userId);
+  const finished = state.finishedAt ? Date.parse(state.finishedAt) : 0;
+  const started = (await lastRunStartedAt(userId, 'auto'))?.getTime() ?? 0;
+  const last = Math.max(finished, started, lastAttempt.get(userId) ?? 0);
+  return last ? last + CONTINUOUS_GAP_MS : 0;
 }
 
 /** The next slot the same timetable used by `autoRunTick` assigns this account. */
 export async function autoScheduleFor(userId: string, now: Date = new Date()): Promise<AutoScheduleStatus | null> {
   const accounts = await scheduledAccounts();
-  const index = accounts.findIndex((account) => account.userId === userId);
-  if (index < 0) return null;
+  const account = accounts.find((candidate) => candidate.userId === userId);
+  if (!account) return null;
 
-  const account = accounts[index];
   const runsPerDay = account.entitlements.autoRunsPerDay;
   const runsUsedToday = account.entitlements.autoRunsUsedToday;
+  const lastError = lastRefusal.get(userId) ?? null;
+
+  if (runsPerDay === null) {
+    const dueAt = await continuousDueAt(userId);
+    const dueNow = dueAt <= now.getTime();
+    return {
+      runsUsedToday,
+      runsPerDay: null,
+      nextRunAt: new Date(dueNow ? now.getTime() : dueAt).toISOString(),
+      dueNow,
+      timeZone: RUN_TIME_ZONE,
+      lastError,
+    };
+  }
+
+  const order = timetabled(accounts);
+  const index = order.findIndex((candidate) => candidate.userId === userId);
   const localNow = localDateTime(now);
-  const afterWindow = localNow.hour >= AUTO_WINDOW.endHour;
-  const tomorrow = afterWindow || runsUsedToday >= runsPerDay;
+  const tomorrow = runsUsedToday >= runsPerDay;
   const run = tomorrow ? 0 : runsUsedToday;
-  const minutes = slotMinutes(index, run, accounts.length, MAX_CONCURRENT, runsPerDay);
+  const minutes = slotMinutes(index, run, order.length, MAX_CONCURRENT, runsPerDay);
   const calendar = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + (tomorrow ? 1 : 0)));
   const next = zonedInstant({
     year: calendar.getUTCFullYear(),
     month: calendar.getUTCMonth() + 1,
     day: calendar.getUTCDate(),
-    hour: AUTO_WINDOW.startHour + Math.floor(minutes / 60),
+    hour: Math.floor(minutes / 60),
     minute: Math.round(minutes % 60),
   });
   const dueNow = !tomorrow && next.getTime() <= now.getTime();
@@ -179,6 +226,7 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
     nextRunAt: (dueNow ? now : next).toISOString(),
     dueNow,
     timeZone: RUN_TIME_ZONE,
+    lastError,
   };
 }
 
@@ -186,17 +234,14 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
  * One pass. Returns the accounts it started, for the log and for tests.
  */
 export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
-  /**
-   * Checked before the window, deliberately: the summary goes out once the
-   * day's runs are done, which is the moment the window shuts. Putting it
-   * after the early return below would mean it never ran at all.
-   */
+  // The evening summary is independent of when runs happen; it goes out once, after 9pm.
   if (digestDue(now)) {
     await sendDailyDigests(now).catch((error) => console.warn('[digest] failed:', (error as Error).message));
   }
 
-  const elapsed = minutesIntoWindow(now);
-  if (elapsed === null) return [];
+  const scheduled = await scheduledAccounts();
+  if (!scheduled.length) return [];
+  const elapsed = minutesIntoDay(now);
 
   /**
    * The timetable is built from the accounts the scheduler serves, in a
@@ -205,11 +250,11 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
    * little — the count each account has already had is what decides which
    * slot is next, so nobody loses a run to the reshuffle.
    */
-  const scheduled = await scheduledAccounts();
-  if (!scheduled.length) return [];
+  const order = timetabled(scheduled);
+  const free = (userId: string) => !runner.stateFor(userId).running && !sessionFor(userId);
 
   /**
-   * Everyone whose slot has passed, hungriest first.
+   * Timetabled accounts whose slot has passed, hungriest first.
    *
    * Taking them in account order instead looked fine until a day of slow
    * runs was played out: the lanes were always busy by the time the list
@@ -218,19 +263,29 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
    * shortage is shared — everyone loses their fifth run before anyone loses
    * their first.
    */
-  const due = scheduled
+  const dueTimetabled = order
     .map((account, index) => ({
       ...account,
       done: account.entitlements.autoRunsUsedToday,
-      dueAt: slotMinutes(index, account.entitlements.autoRunsUsedToday, scheduled.length, MAX_CONCURRENT, account.entitlements.autoRunsPerDay),
+      dueAt: slotMinutes(index, account.entitlements.autoRunsUsedToday, order.length, MAX_CONCURRENT, account.entitlements.autoRunsPerDay ?? 1),
     }))
-    .filter((a) => a.done < a.entitlements.autoRunsPerDay && elapsed >= a.dueAt && !runner.stateFor(a.userId).running && !sessionFor(a.userId))
+    .filter((a) => a.done < (a.entitlements.autoRunsPerDay ?? 0) && elapsed >= a.dueAt && free(a.userId))
     .sort((a, b) => a.done - b.done || a.dueAt - b.dueAt);
 
+  // Back-to-back accounts take whatever lanes the timetable leaves, longest waiting first.
+  const continuous: Array<Scheduled & { dueAt: number }> = [];
+  for (const account of scheduled) {
+    if (account.entitlements.autoRunsPerDay !== null || !free(account.userId)) continue;
+    const dueAt = await continuousDueAt(account.userId);
+    if (dueAt <= now.getTime()) continuous.push({ ...account, dueAt });
+  }
+  continuous.sort((a, b) => a.dueAt - b.dueAt);
+
   const started: string[] = [];
-  for (const account of due) {
+  for (const account of [...dueTimetabled, ...continuous]) {
     if (runner.activeCount() >= MAX_CONCURRENT) break; // lanes full; the rest wait for the next tick
-    const { userId, email, entitlements, done } = account;
+    const { userId, email, entitlements } = account;
+    if (entitlements.autoRunsPerDay === null) lastAttempt.set(userId, now.getTime());
 
     /**
      * A live run, like every run: nobody is watching a scheduled one. Every
@@ -240,11 +295,17 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
     const result = await startRun({ userId, email, mode: 'live', trigger: 'auto' });
     if (result.ok) {
       started.push(userId);
-      console.log(`[autorun] user ${userId}: run ${done + 1} of ${entitlements.autoRunsPerDay}`);
-    } else if (result.status !== 409 && result.status !== 402 && result.status !== 429) {
-      // 409 is "already running or at capacity", 402 "out of allowance" and
-      // 429 "today's limit reached"; all are ordinary and right themselves.
-      console.warn(`[autorun] user ${userId}: ${result.error}`);
+      lastRefusal.delete(userId);
+      const count = entitlements.autoRunsUsedToday + 1;
+      console.log(
+        `[autorun] user ${userId}: ${entitlements.autoRunsPerDay === null ? `run ${count} today` : `run ${count} of ${entitlements.autoRunsPerDay}`}`,
+      );
+    } else {
+      // 409 is "busy right now" — a lane, a sign-in, a run already going — and rights itself next tick.
+      if (result.status !== 409) lastRefusal.set(userId, { message: result.error, at: now.toISOString() });
+      if (result.status !== 409 && result.status !== 402 && result.status !== 429) {
+        console.warn(`[autorun] user ${userId}: ${result.error}`);
+      }
     }
   }
 
@@ -262,7 +323,7 @@ export function startAutoRunner(): void {
   // Node keeps a process alive for timers; this one must not be the reason it stays up.
   timer.unref?.();
   console.log(
-    `[autorun] ${AUTO_WINDOW.startHour}:00-${AUTO_WINDOW.endHour}:00 ${RUN_TIME_ZONE}, ${MAX_CONCURRENT} at a time`,
+    `[autorun] around the clock (${RUN_TIME_ZONE}), ${MAX_CONCURRENT} at a time, ${CONTINUOUS_GAP_MS / 60_000} min between admin runs`,
   );
   tick();
 }

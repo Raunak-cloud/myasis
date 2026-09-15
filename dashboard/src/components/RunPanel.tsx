@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useEntitlements, windowLabel } from '../entitlements';
+import { useEntitlements } from '../entitlements';
 import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
@@ -41,10 +41,13 @@ interface RunStatus {
 
 interface AutoScheduleStatus {
   runsUsedToday: number;
-  runsPerDay: number;
+  /** Null runs back to back, around the clock. */
+  runsPerDay: number | null;
   nextRunAt: string;
   dueNow: boolean;
   timeZone: string;
+  /** Why the last scheduled run could not start, until one does. */
+  lastError: { message: string; at: string } | null;
 }
 
 const RUN_DEFAULTS: Record<string, string> = {
@@ -93,6 +96,31 @@ function activitySummary(lines: LogLine[]) {
   return { found, reviewed, suitable };
 }
 
+/**
+ * An error as a person can read it: the first line of the message, without
+ * the browser driver's call log, plus the next step where one is known.
+ * The message itself is always shown — "something went wrong" told nobody
+ * what to do.
+ */
+function readableError(raw: string): string {
+  const message = (raw
+    .replace(/^(?:Error:\s*)+/i, '')
+    .split(/\r?\n|\s+Call log:/)[0]
+    .trim()
+    .slice(0, 300) || 'An unknown error occurred.').replace(/[.\s]+$/, '');
+  const nextSteps: Array<[RegExp, string]> = [
+    [/already running with this profile/i, 'Start the run again: Owtomate now closes the leftover browser first.'],
+    [/search terms or target role/i, 'Add job titles under Your search, then start the run again.'],
+    [/matching service is not configured|CELERIS_API_KEY|GEMINI_API_KEY/i, 'An AI service key is missing on the server, so an admin needs to add it.'],
+    [/AuthorMist|humanizer/i, 'The humanizer service on the server is not ready.'],
+    [/browser has disconnected|has been closed|Target closed/i, 'The browser closed during the run. Start the run again.'],
+    [/Timeout \d+ms exceeded|timed out/i, 'The page was slow to respond. Starting again usually works.'],
+    [/net::ERR|ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i, 'The connection dropped for a moment. Start the run again.'],
+  ];
+  const next = nextSteps.find(([pattern]) => pattern.test(message))?.[1];
+  return next ? `${message}. ${next}` : `${message}.`;
+}
+
 function activityEvents(lines: LogLine[]): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string) => {
@@ -100,51 +128,79 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
     if (previous?.title === title && previous.detail === detail) return;
     events.push({ id: `${line.seq}-${events.length}`, title, detail, tone });
   };
+  /** The job in progress, so a failure can say which application it was. */
+  let currentJob = '';
+  /** The last thing the run printed as an error, for a run that exits without saying why. */
+  let lastErrorOutput = '';
+  /** Whether the reason the run stopped has already been shown. */
+  let explained = false;
 
   for (const line of lines) {
     const text = line.text.trim();
     let match: RegExpMatchArray | null;
+    if (line.stream === 'err' && text && !/^Warning:|^at\s/.test(text)) lastErrorOutput = text.replace(/^Fatal:\s*/i, '');
 
     if (/starting live run/i.test(text)) {
       add(line, 'Run started', 'done');
+    } else if (/stop requested/i.test(text)) {
+      add(line, 'Run stopped', 'neutral', 'You stopped this run. Anything already submitted stays submitted.');
+      explained = true;
     } else if ((match = text.match(/(SEEK|Indeed) session OK/i))) {
       add(line, `Connected to ${match[1]}`, 'done');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
       add(line, `${match[2]} ${match[1]} Recommended jobs prioritised`, 'done');
-    } else if ((match = text.match(/⚠ (SEEK|Indeed):/i))) {
+    } else if ((match = text.match(/⚠ (SEEK|Indeed):\s*(.*)/i))) {
       const accountActionNeeded = /sign(?:ed)? in|verification challenge|cloudflare|captcha/i.test(text);
       add(
         line,
-        `${match[1]} is temporarily unavailable`,
-        'warn',
-        accountActionNeeded
-          ? `Open ${match[1]} below, finish signing in or verification, then start the run again.`
-          : 'Owtomate will try again on the next run.',
+        `${match[1]} could not be used this run`,
+        'bad',
+        `${readableError(match[2])} ${accountActionNeeded
+          ? `Sign in to ${match[1]} on the Apply page or finish its verification, then start the run again.`
+          : 'Owtomate will try again on the next run.'}`,
       );
     } else if ((match = text.match(/(\d+) unique listings discovered/i))) {
       add(line, `Found ${match[1]} job listings`, 'done');
     } else if ((match = text.match(/(\d+) qualifying jobs/i))) {
       add(line, `${match[1]} suitable ${Number(match[1]) === 1 ? 'job' : 'jobs'} ready`, 'done');
     } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
+      currentJob = `${match[1]} at ${match[2]}`;
       add(line, `Applying to ${match[1]}`, 'neutral', match[2]);
     } else if (/discarded a stale pre-filled cover letter/i.test(text)) {
       add(line, 'Prepared a fresh cover letter', 'neutral');
     } else if ((match = text.match(/✅ submitted\s*(?:\(([^)]+)\))?/i))) {
       add(line, 'Application submitted', 'done', match[1] ? `${match[1]} this run` : undefined);
-    } else if (/⏸ needs you:/i.test(text)) {
-      add(line, 'Needs your attention', 'warn', 'Open Needs attention to review it.');
+    } else if ((match = text.match(/⏸ needs you:\s*(.*)/i))) {
+      add(line, currentJob ? `${currentJob} needs your attention` : 'Needs your attention', 'warn', `${readableError(match[1])} Open Needs attention to finish it.`);
     } else if (/↪ off-platform/i.test(text)) {
       add(line, 'Skipped an external application', 'warn', "This application continues on the employer's website.");
     } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
       add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
+      explained = true;
     } else if ((match = text.match(/Run cap of (\d+) reached/i))) {
       add(line, 'This run reached its limit', 'done', `${match[1]} applications is the most one run sends.`);
-    } else if (/already running with this profile/i.test(text)) {
-      add(line, 'The browser was still open from an earlier session', 'bad', 'Owtomate closes it before a run now. Start the run again.');
-    } else if (/(?:✗\s+(?:unexpected )?error:|Fatal:)/i.test(text)) {
-      add(line, 'Something went wrong', 'bad', 'The run stopped safely. Please try again.');
+    } else if ((match = text.match(/✗\s+(?:unexpected )?error:\s*(.*)/i))) {
+      add(line, currentJob ? `Could not apply to ${currentJob}` : 'A step failed', 'bad', readableError(match[1]));
+    } else if ((match = text.match(/! fit check failed for (.+?):\s*(.*)/i))) {
+      add(line, `Could not review a job at ${match[1]}`, 'warn', readableError(match[2]));
+    } else if ((match = text.match(/semantic pre-ranking unavailable:\s*(.*)/i))) {
+      add(line, 'Jobs were reviewed in search order', 'warn', readableError(match[1]));
+    } else if (/🛑 The browser closed mid-run/i.test(text)) {
+      add(line, 'The browser closed during the run', 'bad', `Nothing was sent${currentJob ? ` for ${currentJob}` : ''}. Start the run again.`);
+      explained = true;
+    } else if ((match = text.match(/🛑 \[(SEEK|Indeed)\] (\d+) anti-bot challenges/i))) {
+      add(line, `${match[1]} is blocking automated visits`, 'bad', `${match[2]} verification challenges in a row, so ${match[1]} was stopped for this run. Let it rest for a few hours before running again.`);
     } else if (/No enabled platform has a working session/i.test(text)) {
-      add(line, 'No job board was available', 'bad', 'Check the board sign-ins above, then start the run again.');
+      add(line, 'No job board was available', 'bad', 'None of the selected boards is signed in. Sign in on the Apply page, then start the run again.');
+      explained = true;
+    } else if ((match = text.match(/^Fatal:\s*(.*)/i))) {
+      add(line, 'The run could not continue', 'bad', readableError(match[1]));
+      explained = true;
+    } else if ((match = text.match(/spawn failed:\s*(.*)/i))) {
+      add(line, 'The run could not start', 'bad', readableError(match[1]));
+      explained = true;
+    } else if ((match = text.match(/Could not record application usage:\s*(.*)/i))) {
+      add(line, 'An application was sent but not counted', 'warn', readableError(match[1]));
     } else if ((match = text.match(/=== Run complete:\s*(\d+) new application/i))) {
       add(
         line,
@@ -152,12 +208,17 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
         'done',
         `${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'} submitted.`,
       );
-    } else if (/run finished \(exit [^0]/i.test(text)) {
-      add(line, 'Run stopped before completion', 'bad');
+    } else if ((match = text.match(/run finished \(exit ([^)]*)\)/i)) && match[1] !== '0' && !explained) {
+      add(
+        line,
+        'The run stopped unexpectedly',
+        'bad',
+        lastErrorOutput ? readableError(lastErrorOutput) : `It exited with code ${match[1]} before finishing. Start the run again.`,
+      );
     }
   }
 
-  return events.slice(-10);
+  return events.slice(-12);
 }
 
 function dateLabel(value: string): string {
@@ -179,9 +240,13 @@ function formatRunDuration(milliseconds: number): string {
 
 /** What the schedule does, in one breath, for the info icon beside Auto apply. */
 function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): string {
+  const matches = e.scheduledMinScore === null ? 'Applies to jobs that match your settings' : `Applies to ${e.scheduledMinScore}%+ matches`;
+  if (e.autoRunsPerDay === null) {
+    return `Runs back to back around the clock, with a short pause between runs and no limits. ${matches}, written in your own voice.`;
+  }
   const jobs = e.scheduledJobsPerDay === null ? '' : ` Up to ${e.scheduledJobsPerDay} jobs reviewed daily.`;
   const runs = `${e.autoRunsPerDay} ${e.autoRunsPerDay === 1 ? 'run' : 'runs'}`;
-  return `${runs} a day, ${windowLabel(e.window)}.${jobs} Applies to ${e.scheduledMinScore}%+ matches, written in your own voice.`;
+  return `${runs} a day, spread across all 24 hours.${jobs} ${matches}, written in your own voice.`;
 }
 
 /** "next 6:00 pm" today, "next Wed 9:40 am" on another day. */
@@ -238,6 +303,8 @@ export function RunPanel({
    */
   const entitlements = useEntitlements();
   const driving = entitlements?.manualRuns ?? true;
+  /** Admin runs have no limits: the limit fields are hidden and nothing is capped in the form. */
+  const isAdmin = entitlements?.tier === 'admin';
   const runsLeft = entitlements?.manualRunsLeftToday ?? null;
   const outOfRuns = runsLeft !== null && runsLeft < 1;
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -312,7 +379,7 @@ export function RunPanel({
     if (!running) setLiveViewOpen(false);
   }, [running]);
   useEffect(() => {
-    if (!entitlements?.autoRunsPerDay) {
+    if (!entitlements || entitlements.autoRunsPerDay === 0) {
       setAutoSchedule(null);
       return;
     }
@@ -368,7 +435,7 @@ export function RunPanel({
   async function saveStanding() {
     const terms = val('KEYWORDS').split(',').map((term) => term.trim()).filter(Boolean);
     if (!terms.length) return setStandingError('Add at least one job title or search term.');
-    if (terms.length > MAX_SEARCH_TERMS) {
+    if (!isAdmin && terms.length > MAX_SEARCH_TERMS) {
       return setStandingError(`Use at most ${MAX_SEARCH_TERMS} search terms — you have ${terms.length}.`);
     }
     setStandingError(null);
@@ -495,13 +562,14 @@ export function RunPanel({
     setError(null);
     setErrorField(null);
     const updates = Object.fromEntries(REVIEW_KEYS.map((key) => [key, val(key)]));
+    const unlimited = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY'].includes(key);
     const numericKeys = [
       'MIN_SALARY', 'MIN_HOURLY_RATE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS',
       'MIN_SCORE', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
-    ];
+    ].filter((key) => !unlimited(key));
     const positiveKeys = [
       'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
-    ];
+    ].filter((key) => !unlimited(key));
     if (!updates.KEYWORDS.trim()) {
       fail('Add at least one job title or search term.', 'KEYWORDS');
       return;
@@ -534,12 +602,12 @@ export function RunPanel({
      * using another. Telling the user which field and what the ceiling is costs
      * nothing and avoids that.
      */
-    const overCap = RUN_CAPS.find(({ key }) => Number(updates[key]) > RUN_CAP_VALUES[key]);
+    const overCap = isAdmin ? undefined : RUN_CAPS.find(({ key }) => Number(updates[key]) > RUN_CAP_VALUES[key]);
     if (overCap) {
       fail(`${overCap.label} can be at most ${RUN_CAP_VALUES[overCap.key]}.`, overCap.key);
       return;
     }
-    if (termCount > MAX_SEARCH_TERMS) {
+    if (!isAdmin && termCount > MAX_SEARCH_TERMS) {
       fail(`Use at most ${MAX_SEARCH_TERMS} search terms — you have ${termCount}.`, 'KEYWORDS');
       return;
     }
@@ -653,15 +721,16 @@ export function RunPanel({
           )}
         </div>
 
-        {entitlements && entitlements.autoRunsPerDay > 0 && (
+        {entitlements && entitlements.autoRunsPerDay !== 0 && (
           <div className="run-auto-row">
             <span className="run-auto-label">
               <span className="auto-apply-dot" aria-hidden="true" />
               Auto apply
             </span>
             <span className="job-meta">
-              {autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of {autoSchedule?.runsPerDay ?? entitlements.autoRunsPerDay} today
-              {autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}
+              {entitlements.autoRunsPerDay === null
+                ? `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} today · ${running ? 'running now' : autoSchedule ? nextRunShort(autoSchedule) || 'starting shortly' : 'around the clock'}`
+                : `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} today${autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}`}
             </span>
             <span
               className="field-info run-auto-info"
@@ -674,6 +743,11 @@ export function RunPanel({
                 {autoSchedule ? ` ${nextRunLabel(autoSchedule)}.` : ''}
               </span>
             </span>
+          </div>
+        )}
+        {autoSchedule?.lastError && !running && (
+          <div className="banner banner-bad run-auto-error" role="alert">
+            <strong>The last scheduled run could not start.</strong> {autoSchedule.lastError.message}
           </div>
         )}
 
@@ -706,14 +780,14 @@ export function RunPanel({
           <div className="field">
             <div className="saved-search-label">
               <label className="field-label" htmlFor="saved-search-terms">Job titles</label>
-              <span className={`job-meta${termCount >= MAX_SEARCH_TERMS ? ' at-limit' : ''}`}>
-                {termCount} of {MAX_SEARCH_TERMS}
+              <span className={`job-meta${!isAdmin && termCount >= MAX_SEARCH_TERMS ? ' at-limit' : ''}`}>
+                {isAdmin ? `${termCount} ${termCount === 1 ? 'title' : 'titles'}` : `${termCount} of ${MAX_SEARCH_TERMS}`}
               </span>
             </div>
             <TermsInput
               id="saved-search-terms"
               value={val('KEYWORDS')}
-              max={MAX_SEARCH_TERMS}
+              max={isAdmin ? Infinity : MAX_SEARCH_TERMS}
               disabled={standingSaving}
               onChange={(terms) => editStanding('KEYWORDS', terms)}
             />
@@ -974,7 +1048,7 @@ export function RunPanel({
                     id="review-search-terms"
                     dataField="KEYWORDS"
                     value={val('KEYWORDS')}
-                    max={MAX_SEARCH_TERMS}
+                    max={isAdmin ? Infinity : MAX_SEARCH_TERMS}
                     onChange={(terms) => setEdit('KEYWORDS', terms)}
                   />
                   <FieldError field="KEYWORDS" />
@@ -1117,13 +1191,20 @@ export function RunPanel({
               </section>
 
               <section className="run-review-section run-review-limits">
-                <h3>Run limits</h3>
+                <h3>{isAdmin ? 'Run settings' : 'Run limits'}</h3>
+                {isAdmin && (
+                  <p className="job-meta run-review-unlimited">
+                    Admin runs have no limits: no cap on applications per run or per day, or on jobs reviewed.
+                  </p>
+                )}
                 <div className="run-review-grid">
+                  {!isAdmin && (
                   <label className="field">
                     <FieldLabel label="Max applications" help="The most applications this run can complete before stopping. Capped at 10 per run." />
                     <input className="input" data-field="MAX_APPS_PER_RUN" type="number" min="1" max="10" value={val('MAX_APPS_PER_RUN')} onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)} />
                     <FieldError field="MAX_APPS_PER_RUN" />
                   </label>
+                  )}
                   <label className="field">
                     <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />
                     <input className="input" data-field="MIN_SCORE" type="number" min="0" max="100" value={val('MIN_SCORE')} onChange={(e) => setEdit('MIN_SCORE', e.target.value)} />
@@ -1133,14 +1214,21 @@ export function RunPanel({
                     <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />
                     <input className="input" type="number" min="0" value={val('MAX_AGE_DAYS')} onChange={(e) => setEdit('MAX_AGE_DAYS', e.target.value)} />
                   </label>
+                  {!isAdmin && (
                   <label className="field">
                     <FieldLabel label="Daily application cap" help="The total number of applications allowed in one day, across all runs. Capped at 50." />
                     <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max="50" value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
                     <FieldError field="MAX_APPS_PER_DAY" />
                   </label>
+                  )}
                   <label className="field">
-                    <FieldLabel label="Search pages per term" help="How many result pages to check for each search term. This multiplies by your number of search terms, so it is capped at 3." />
-                    <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max="3" value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
+                    <FieldLabel
+                      label="Search pages per term"
+                      help={isAdmin
+                        ? 'How many result pages to check for each search term. More pages find more jobs and make the run longer.'
+                        : 'How many result pages to check for each search term. This multiplies by your number of search terms, so it is capped at 3.'}
+                    />
+                    <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max={isAdmin ? undefined : 3} value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
                     <FieldError field="PAGES_PER_KEYWORD" />
                   </label>
                 </div>
