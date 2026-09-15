@@ -1,0 +1,105 @@
+import { useRef, useState } from 'react';
+
+/** The saved form is a comma-separated string; the terms are what a person edits. */
+export function splitTerms(value: string): string[] {
+  return value.split(',').map((term) => term.trim()).filter(Boolean);
+}
+
+/**
+ * Job titles as removable tags.
+ *
+ * A comma-separated textarea asked people to manage punctuation to edit a
+ * list, and hid most of the list behind a scrollbar. Each term is a tag here:
+ * Enter or a comma adds one, Backspace in the empty box removes the last, and
+ * pasting a comma-separated list adds each part. Duplicates and anything past
+ * the limit are dropped rather than refused, and additions and removals are
+ * announced to screen readers.
+ */
+export function TermsInput({
+  id,
+  value,
+  onChange,
+  max,
+  disabled = false,
+  dataField,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  max: number;
+  disabled?: boolean;
+  /** Lets a form's validation scroll to and focus this field. */
+  dataField?: string;
+}) {
+  const terms = splitTerms(value);
+  const [draft, setDraft] = useState('');
+  const [announcement, setAnnouncement] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const full = terms.length >= max;
+
+  function commit(raw: string) {
+    const next = [...terms];
+    for (const term of splitTerms(raw)) {
+      if (next.length >= max) break;
+      if (!next.some((known) => known.toLowerCase() === term.toLowerCase())) next.push(term);
+    }
+    setDraft('');
+    const added = next.slice(terms.length);
+    if (!added.length) return;
+    onChange(next.join(', '));
+    setAnnouncement(`Added ${added.join(', ')}`);
+  }
+
+  function remove(index: number) {
+    const removed = terms[index];
+    onChange(terms.filter((_, position) => position !== index).join(', '));
+    setAnnouncement(`Removed ${removed}`);
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div
+      className={`terms-input${disabled ? ' disabled' : ''}`}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) inputRef.current?.focus();
+      }}
+    >
+      {terms.map((term, index) => (
+        <span className="terms-chip" key={`${term}-${index}`}>
+          <span>{term}</span>
+          <button type="button" aria-label={`Remove ${term}`} disabled={disabled} onClick={() => remove(index)}>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        ref={inputRef}
+        data-field={dataField}
+        className="terms-entry"
+        value={draft}
+        disabled={disabled || full}
+        placeholder={full ? `Limit of ${max} reached` : terms.length ? 'Add another' : 'Type a job title and press Enter'}
+        onChange={(event) => {
+          const next = event.target.value;
+          if (next.includes(',')) commit(next);
+          else setDraft(next);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit(draft);
+          } else if (event.key === 'Backspace' && !draft && terms.length) {
+            remove(terms.length - 1);
+          }
+        }}
+        onBlur={() => {
+          if (draft.trim()) commit(draft);
+        }}
+      />
+      <span className="sr-only" aria-live="polite">{announcement}</span>
+    </div>
+  );
+}

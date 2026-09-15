@@ -4,6 +4,7 @@ import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
+import { TermsInput } from './TermsInput';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
@@ -381,6 +382,14 @@ export function RunPanel({
     setStandingError(null);
     setEdit(key, value);
   };
+  const discardStanding = () => {
+    setStandingError(null);
+    setEdits((current) => {
+      const next = { ...current };
+      for (const key of standingKeys) delete next[key];
+      return next;
+    });
+  };
   const toggleArrangement = (item: string) => {
     const next = new Set(arrangements);
     if (next.has(item)) next.delete(item);
@@ -577,6 +586,7 @@ export function RunPanel({
   return (
     <div className="run-layout">
       {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
+      <div className="run-side">
       <div className="card run-controls-card">
         <div className="panel-head">
           {driving ? (
@@ -661,47 +671,6 @@ export function RunPanel({
           )}
         </div>
 
-        <section className="standing-search" aria-label="Search terms and run instructions">
-          <div className="field">
-            <FieldLabel label="Job titles and search terms" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
-            <textarea
-              className="input"
-              rows={2}
-              value={val('KEYWORDS')}
-              onChange={(event) => editStanding('KEYWORDS', event.target.value)}
-              aria-describedby="standing-keywords-note"
-            />
-            <SearchTermsGenerator
-              currentTerms={val('KEYWORDS')}
-              disabled={standingSaving}
-              onGenerated={(terms) => editStanding('KEYWORDS', terms)}
-            />
-            <span className="job-meta" id="standing-keywords-note">Applies to all future runs until you change it.</span>
-          </div>
-          {entitlements?.fineTune && (
-            <div className="field">
-              <FieldLabel label="Run instructions" optional help="Tell Myasis which otherwise suitable jobs to avoid or prefer. Checked for every job before applying." />
-              <textarea
-                className="input"
-                rows={3}
-                maxLength={4_000}
-                value={runInstructions}
-                placeholder="Example: Don't apply for senior or manager positions."
-                onChange={(event) => editStanding('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}
-                aria-describedby="standing-instructions-note"
-              />
-              <span className="job-meta" id="standing-instructions-note">This prompt applies to all future runs until you change it.</span>
-            </div>
-          )}
-          {standingError && <div className="banner banner-bad" role="alert">{standingError}</div>}
-          <div className="standing-search-actions">
-            {standingSaved && !standingDirty && <span className="job-meta" role="status">Saved</span>}
-            <button className="btn" disabled={!standingDirty || standingSaving} onClick={() => void saveStanding()}>
-              {standingSaving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </section>
-
         {driving && entitlements && entitlements.autoRunsPerDay > 0 && (
           <div className="run-schedule-status">
             <div className="run-schedule-head">
@@ -735,6 +704,84 @@ export function RunPanel({
           </p>
         )}
         </div>
+      </div>
+
+      <section className="card saved-search-card" aria-labelledby="saved-search-title">
+        <div className="panel-head">
+          <h2 id="saved-search-title">Your search</h2>
+          <p className="job-meta">
+            {entitlements?.fineTune
+              ? 'Job titles and run instructions apply to every future run until you change them.'
+              : 'Job titles apply to every future run until you change them.'}
+          </p>
+        </div>
+        <div className="panel-body">
+          <div className="field">
+            <div className="saved-search-label">
+              <label className="field-label" htmlFor="saved-search-terms">Job titles</label>
+              <span className={`job-meta${termCount >= MAX_SEARCH_TERMS ? ' at-limit' : ''}`}>
+                {termCount} of {MAX_SEARCH_TERMS}
+              </span>
+            </div>
+            <TermsInput
+              id="saved-search-terms"
+              value={val('KEYWORDS')}
+              max={MAX_SEARCH_TERMS}
+              disabled={standingSaving}
+              onChange={(terms) => editStanding('KEYWORDS', terms)}
+            />
+            <SearchTermsGenerator
+              currentTerms={val('KEYWORDS')}
+              disabled={standingSaving}
+              onGenerated={(terms) => editStanding('KEYWORDS', terms)}
+            />
+          </div>
+
+          {entitlements?.fineTune && (
+            <div className="field">
+              <label className="field-label" htmlFor="saved-search-instructions">
+                Run instructions <span className="optional">optional</span>
+              </label>
+              <span className="job-meta" id="saved-search-instructions-hint">
+                Jobs the AI should avoid or prefer. Checked before every application.
+              </span>
+              <textarea
+                id="saved-search-instructions"
+                className="input"
+                rows={3}
+                maxLength={4_000}
+                value={runInstructions}
+                placeholder="e.g. Don't apply for senior or manager positions."
+                aria-describedby="saved-search-instructions-hint"
+                onChange={(event) => editStanding('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}
+              />
+            </div>
+          )}
+
+          {standingError && <div className="banner banner-bad" role="alert">{standingError}</div>}
+
+          {standingDirty ? (
+            <div className="saved-search-bar" role="status">
+              <span>Unsaved changes</span>
+              <div className="saved-search-bar-actions">
+                <button type="button" className="btn btn-small" disabled={standingSaving} onClick={discardStanding}>
+                  Discard
+                </button>
+                <button type="button" className="btn primary btn-small" disabled={standingSaving} onClick={() => void saveStanding()}>
+                  {standingSaving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </div>
+          ) : standingSaved ? (
+            <div className="saved-search-bar saved" role="status">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              <span>Saved. Your next run will use this.</span>
+            </div>
+          ) : null}
+        </div>
+      </section>
       </div>
 
       <div className="card console-card">
@@ -937,12 +984,12 @@ export function RunPanel({
                 </p>
                 <div className="field run-review-wide">
                   <FieldLabel label="Job titles and search terms" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
-                  <textarea
-                    className="input"
-                    data-field="KEYWORDS"
-                    rows={3}
+                  <TermsInput
+                    id="review-search-terms"
+                    dataField="KEYWORDS"
                     value={val('KEYWORDS')}
-                    onChange={(e) => setEdit('KEYWORDS', e.target.value)}
+                    max={MAX_SEARCH_TERMS}
+                    onChange={(terms) => setEdit('KEYWORDS', terms)}
                   />
                   <FieldError field="KEYWORDS" />
                   <SearchTermsGenerator

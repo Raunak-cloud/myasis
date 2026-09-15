@@ -81,7 +81,7 @@ export function SearchTermsGenerator({
       const terms = result.terms.filter((term): term is string => typeof term === 'string');
       onGenerated(terms.join(', '));
       const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected résumés';
-      setMessage(`Gemini created ${terms.length} résumé-matched searches from ${label}. Review them before saving.`);
+      setMessage(`Suggested ${terms.length} job titles from ${label}. Review them, then save.`);
     } catch (error) {
       setFailed(true);
       setMessage((error as Error).message);
@@ -92,12 +92,20 @@ export function SearchTermsGenerator({
 
   return (
     <div className="search-terms-ai">
-      {resumes.length > 0 && (
+      <button
+        type="button"
+        className="btn btn-small search-terms-ai-button"
+        disabled={disabled || generating || !resumes.length}
+        onClick={generate}
+      >
+        {generating ? 'Suggesting…' : '✨ Suggest from my résumés'}
+      </button>
+      {resumes.length > 1 && (
         <details className="search-terms-resumes">
           <summary>
-            Résumés: {selectedResumeIds.length === resumes.length
-              ? `All (${resumes.length})`
-              : `${selectedResumeIds.length} of ${resumes.length}`}
+            {selectedResumeIds.length === resumes.length
+              ? `Using all ${resumes.length} résumés`
+              : `Using ${selectedResumeIds.length} of ${resumes.length} résumés`}
           </summary>
           <div className="search-terms-resume-list">
             {resumes.map((resume) => (
@@ -122,14 +130,6 @@ export function SearchTermsGenerator({
           </div>
         </details>
       )}
-      <button
-        type="button"
-        className="btn search-terms-ai-button"
-        disabled={disabled || generating || !resumes.length}
-        onClick={generate}
-      >
-        {generating ? 'Generating…' : '✨ Generate from selected résumés'}
-      </button>
       {message && (
         <span className={`job-meta search-terms-ai-message ${failed ? 'bad' : ''}`} role={failed ? 'alert' : 'status'}>
           {message}
