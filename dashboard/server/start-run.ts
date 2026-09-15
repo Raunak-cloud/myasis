@@ -18,6 +18,10 @@ import { sessionFor, stopSignin } from './signin.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { userChromeDir } from './userdata.js';
 import { submittedToday } from './today.js';
+import { readSiteState } from './seek-state.js';
+
+const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
+const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
 
 /** The daily limit a run will enforce, resolved exactly as seek-bot's config does. */
 function dailyLimit(overrides: Record<string, string>): number {
@@ -198,6 +202,27 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 
   const browserReady = await waitForSigninChecks(userId);
   if (!browserReady.ok) return { ok: false, status: 409, error: browserReady.error };
+
+  /**
+   * Only boards this account is signed in to.
+   *
+   * A board last seen signed out cannot be searched or applied on, so it is
+   * left out of the run and the run says so; a board never checked is left
+   * in for the run to find out. With no signed-in board left there is
+   * nothing to run, and the reason is given instead of an empty run.
+   */
+  const boards = (overrides.PLATFORMS || 'seek').split(',').map((board) => board.trim()).filter(Boolean);
+  const signedOut = boards.filter((board) => (board === 'seek' || board === 'indeed') && readSiteState(userId, board)?.signedIn === false);
+  const usable = boards.filter((board) => !signedOut.includes(board));
+  if (consumes && !usable.length) {
+    return {
+      ok: false,
+      status: 428,
+      error: `${listNames(signedOut)} ${signedOut.length === 1 ? 'is' : 'are'} not signed in. Sign in on the Apply page, then start the run again.`,
+    };
+  }
+  overrides.PLATFORMS = usable.join(',');
+  if (signedOut.length) overrides.SKIPPED_BOARDS = signedOut.join(',');
 
   const result = await runner.start(
     mode,

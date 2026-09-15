@@ -1,4 +1,4 @@
-import { slotMinutes } from './autorun.js';
+import { dueMinutes, slotMinutes } from './autorun.js';
 
 /**
  * A whole day, minute by minute, against the timetable.
@@ -108,6 +108,25 @@ for (const n of [1, 2, 4, 20]) {
     `peak ${day.peakConcurrent}, total ${day.perUser.reduce((a, b) => a + b, 0)}/${n * RUNS}`,
   );
 }
+
+// ---- times move every day, but never out of their place in the day
+console.log('');
+const days = ['2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20'];
+const firstRuns = days.map((day) => Math.round(dueMinutes('4', day, 0, 0, 10, LANES, RUNS)));
+console.log(`   account 0's first run across a week: ${firstRuns.map(clock).join(', ')}`);
+check('the first run is at a different time every day', new Set(firstRuns).size === days.length, firstRuns.join(','));
+let ordered = true;
+let inBlock = true;
+for (const day of days) {
+  for (let i = 0; i < 10; i++) {
+    const times = Array.from({ length: RUNS }, (_, r) => dueMinutes(String(i + 1), day, i, r, 10, LANES, RUNS));
+    times.forEach((t, r) => { if (t < r * (WINDOW / RUNS) || t >= (r + 1) * (WINDOW / RUNS)) inBlock = false; });
+    if (times.some((t, r) => r > 0 && t <= times[r - 1])) ordered = false;
+  }
+}
+check('every varied time stays inside its own part of the day', inBlock);
+check("an account's runs stay in order within a day", ordered);
+check('the same day always gives the same time (restarts agree)', dueMinutes('4', '2026-09-15', 0, 1, 10, LANES, RUNS) === dueMinutes('4', '2026-09-15', 0, 1, 10, LANES, RUNS));
 
 console.log(`\n${bad} failure(s)`);
 process.exit(bad ? 1 : 0);

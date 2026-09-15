@@ -2047,3 +2047,7 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 /* A scheduled run that could not start, and the admin note in the run settings. */
 .run-auto-error { margin: 0; font-size: 13px; line-height: 1.45; }
 .run-review-unlimited { margin: 0 0 12px; }
+
+/* A job board that is not signed in cannot be chosen. */
+.chip:disabled { opacity: .55; cursor: not-allowed; }
+.board-signin-hint { margin: 6px 0 0; }

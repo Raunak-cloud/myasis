@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { query } from './db/index.js';
 import { runner, MAX_CONCURRENT } from './runner.js';
 import { startRun } from './start-run.js';
@@ -75,6 +76,46 @@ export function slotMinutes(
   const slot = block / perLane;
   const position = Math.floor(index / Math.max(1, lanes));
   return run * block + position * slot;
+}
+
+/** A stable number in [0, 1) for a key: the same on every tick and restart, unrelated for the next key. */
+function unit(key: string): number {
+  return parseInt(createHash('sha256').update(key).digest('hex').slice(0, 8), 16) / 0x1_0000_0000;
+}
+
+/**
+ * When an account's Nth run on a given local day is due, in minutes after
+ * midnight.
+ *
+ * Its timetable slot, moved every day: the slot it takes within the block
+ * rotates, and the minute within that slot is drawn afresh for each account,
+ * date and run. A job board sees an account arrive at a different time each
+ * day instead of 6:00, 12:00 and 18:00 on the dot, which is what an
+ * automated schedule looks like. Seeded rather than random, so every tick
+ * that day — and a restart — agrees on the time. Slots never overlap, so the
+ * lane guarantee of `slotMinutes` still holds.
+ */
+export function dueMinutes(
+  userId: string,
+  day: string,
+  index: number,
+  run: number,
+  accounts: number,
+  lanes: number,
+  runsPerDay: number,
+): number {
+  const block = DAY_MINUTES / Math.max(1, runsPerDay);
+  const perLane = Math.max(1, Math.ceil(accounts / Math.max(1, lanes)));
+  const slot = block / perLane;
+  // One rotation for everyone that day, drawn per date: slots stay disjoint, and the order is not a daily step.
+  const rotation = Math.floor(unit(`rotation|${day}`) * perLane);
+  const position = (Math.floor(index / Math.max(1, lanes)) + rotation) % perLane;
+  return run * block + position * slot + unit(`${userId}|${day}|${run}`) * slot * 0.9;
+}
+
+/** The local calendar date, as YYYY-MM-DD. */
+export function localDay(at: Date = new Date(), timeZone = RUN_TIME_ZONE): string {
+  return at.toLocaleDateString('en-CA', { timeZone });
 }
 
 /** Minutes since local midnight. */
@@ -172,13 +213,18 @@ export interface AutoScheduleStatus {
   lastError: { message: string; at: string } | null;
 }
 
-/** When a back-to-back account is next due: a pause after whichever came last, its run ending or its last try. */
+/**
+ * When a back-to-back account is next due: a pause after whichever came last,
+ * its run ending or its last try. The pause varies, between 60% and 160% of
+ * the configured gap, seeded by that moment so it holds steady until the next
+ * run and is different after it.
+ */
 async function continuousDueAt(userId: string): Promise<number> {
   const state = runner.stateFor(userId);
   const finished = state.finishedAt ? Date.parse(state.finishedAt) : 0;
   const started = (await lastRunStartedAt(userId, 'auto'))?.getTime() ?? 0;
   const last = Math.max(finished, started, lastAttempt.get(userId) ?? 0);
-  return last ? last + CONTINUOUS_GAP_MS : 0;
+  return last ? last + Math.round(CONTINUOUS_GAP_MS * (0.6 + unit(`${userId}|${last}`))) : 0;
 }
 
 /** The next slot the same timetable used by `autoRunTick` assigns this account. */
@@ -209,8 +255,8 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
   const localNow = localDateTime(now);
   const tomorrow = runsUsedToday >= runsPerDay;
   const run = tomorrow ? 0 : runsUsedToday;
-  const minutes = slotMinutes(index, run, order.length, MAX_CONCURRENT, runsPerDay);
   const calendar = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + (tomorrow ? 1 : 0)));
+  const minutes = dueMinutes(userId, calendar.toISOString().slice(0, 10), index, run, order.length, MAX_CONCURRENT, runsPerDay);
   const next = zonedInstant({
     year: calendar.getUTCFullYear(),
     month: calendar.getUTCMonth() + 1,
@@ -251,6 +297,7 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
    * slot is next, so nobody loses a run to the reshuffle.
    */
   const order = timetabled(scheduled);
+  const today = localDay(now);
   const free = (userId: string) => !runner.stateFor(userId).running && !sessionFor(userId);
 
   /**
@@ -267,7 +314,7 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
     .map((account, index) => ({
       ...account,
       done: account.entitlements.autoRunsUsedToday,
-      dueAt: slotMinutes(index, account.entitlements.autoRunsUsedToday, order.length, MAX_CONCURRENT, account.entitlements.autoRunsPerDay ?? 1),
+      dueAt: dueMinutes(account.userId, today, index, account.entitlements.autoRunsUsedToday, order.length, MAX_CONCURRENT, account.entitlements.autoRunsPerDay ?? 1),
     }))
     .filter((a) => a.done < (a.entitlements.autoRunsPerDay ?? 0) && elapsed >= a.dueAt && free(a.userId))
     .sort((a, b) => a.done - b.done || a.dueAt - b.dueAt);
@@ -303,7 +350,7 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
     } else {
       // 409 is "busy right now" — a lane, a sign-in, a run already going — and rights itself next tick.
       if (result.status !== 409) lastRefusal.set(userId, { message: result.error, at: now.toISOString() });
-      if (result.status !== 409 && result.status !== 402 && result.status !== 429) {
+      if (![402, 409, 428, 429].includes(result.status)) {
         console.warn(`[autorun] user ${userId}: ${result.error}`);
       }
     }
@@ -323,7 +370,7 @@ export function startAutoRunner(): void {
   // Node keeps a process alive for timers; this one must not be the reason it stays up.
   timer.unref?.();
   console.log(
-    `[autorun] around the clock (${RUN_TIME_ZONE}), ${MAX_CONCURRENT} at a time, ${CONTINUOUS_GAP_MS / 60_000} min between admin runs`,
+    `[autorun] around the clock (${RUN_TIME_ZONE}), times vary daily, ${MAX_CONCURRENT} at a time, ~${CONTINUOUS_GAP_MS / 60_000} min (varied) between admin runs`,
   );
   tick();
 }

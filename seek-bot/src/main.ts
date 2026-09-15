@@ -150,6 +150,10 @@ async function main() {
 
   const platforms = enabledPlatforms(config.platforms.join(','));
   console.log(`Platforms this run: ${platforms.map((p) => p.label).join(', ')}`);
+  // Boards the dashboard left out because the account is signed out of them.
+  for (const board of (process.env.SKIPPED_BOARDS ?? '').split(',').map((b) => b.trim()).filter(Boolean)) {
+    console.log(`⚠ ${board === 'indeed' ? 'Indeed' : 'SEEK'}: not signed in, so it was left out of this run.`);
+  }
   if (runScope() !== 'all') console.log(`Scope: ${SCOPE_LABEL[runScope()]}`);
 
   const ctx = await launchBrowser();

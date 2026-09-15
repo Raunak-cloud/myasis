@@ -311,6 +311,8 @@ export function RunPanel({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
   const [confirming, setConfirming] = useState(false);
+  /** Each board's last known sign-in, read when the run settings open; null until known. */
+  const [boardSignedIn, setBoardSignedIn] = useState<Record<string, boolean | null> | null>(null);
   /** Operator diagnostic: limit the next run to employer-site applications. */
   const [scope, setScope] = useState<'all' | 'external'>('all');
   const [stopConfirming, setStopConfirming] = useState(false);
@@ -375,6 +377,20 @@ export function RunPanel({
   }, [lines]);
 
   const running = status?.running ?? false;
+  useEffect(() => {
+    if (!confirming) return;
+    let cancelled = false;
+    fetch('/api/signin/session')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((value) => {
+        if (cancelled || !value) return;
+        setBoardSignedIn({ seek: value.seek?.signedIn ?? null, indeed: value.indeed?.signedIn ?? null });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [confirming]);
   useEffect(() => {
     if (!running) setLiveViewOpen(false);
   }, [running]);
@@ -482,6 +498,9 @@ export function RunPanel({
     setEdit('WORK_ARRANGEMENTS', [...next].join(','));
   };
   const platforms = val('PLATFORMS').split(',').map((item) => item.trim()).filter(Boolean);
+  /** Unknown until read; then only a board confirmed signed in can be used. */
+  const boardUsable = (id: string) => boardSignedIn === null || boardSignedIn[id] === true;
+  const unusableBoards = JOB_BOARDS.filter((board) => !boardUsable(board.id));
   const togglePlatform = (id: string) => {
     const next = new Set(platforms);
     if (next.has(id)) next.delete(id);
@@ -580,6 +599,11 @@ export function RunPanel({
     }
     if (!updates.PLATFORMS.trim()) {
       fail('Choose at least one job board.', 'PLATFORMS');
+      return;
+    }
+    if (!platforms.some(boardUsable)) {
+      const chosen = JOB_BOARDS.filter((board) => platforms.includes(board.id)).map((board) => board.label);
+      fail(`${chosen.join(' and ')} ${chosen.length === 1 ? 'is' : 'are'} not signed in. Sign in on the Apply page, or choose a board that is.`, 'PLATFORMS');
       return;
     }
     if (numericKeys.some((key) => !Number.isFinite(Number(updates[key])) || Number(updates[key]) < 0)) {
@@ -1026,17 +1050,30 @@ export function RunPanel({
                 <div className="field run-review-wide">
                   <FieldLabel label="Job boards" help="Which job boards to search and apply on this run. Both are searched, scored and deduplicated together as one combined pool." />
                   <div className="chips" data-field="PLATFORMS">
-                    {JOB_BOARDS.map((board) => (
-                      <button
-                        type="button"
-                        key={board.id}
-                        className={`chip ${platforms.includes(board.id) ? 'on' : ''}`}
-                        onClick={() => togglePlatform(board.id)}
-                      >
-                        {platforms.includes(board.id) ? '✓ ' : ''}{board.label}
-                      </button>
-                    ))}
+                    {JOB_BOARDS.map((board) => {
+                      const usable = boardUsable(board.id);
+                      // A saved choice is kept for when the board is signed in again; it just is not used meanwhile.
+                      const on = usable && platforms.includes(board.id);
+                      return (
+                        <button
+                          type="button"
+                          key={board.id}
+                          className={`chip ${on ? 'on' : ''}`}
+                          disabled={!usable}
+                          aria-disabled={!usable}
+                          title={usable ? undefined : `Sign in to ${board.label} on the Apply page to use it.`}
+                          onClick={() => togglePlatform(board.id)}
+                        >
+                          {on ? '✓ ' : ''}{board.label}{usable ? '' : ' · not signed in'}
+                        </button>
+                      );
+                    })}
                   </div>
+                  {unusableBoards.length > 0 && (
+                    <p className="job-meta board-signin-hint">
+                      {unusableBoards.map((board) => board.label).join(' and ')} {unusableBoards.length === 1 ? 'is' : 'are'} not signed in, so {unusableBoards.length === 1 ? 'it' : 'they'} cannot be used. Sign in on the Apply page first.
+                    </p>
+                  )}
                   <FieldError field="PLATFORMS" />
                 </div>
                 <p className="job-meta recommended-first-note">
