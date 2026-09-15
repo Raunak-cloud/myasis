@@ -82,7 +82,15 @@ export function applyRunPolicy(
   resolved.TARGET_ROLE = RUN_SETTING_DEFAULTS.TARGET_ROLE;
   if (!entitlement.fineTune) {
     for (const key of FINE_TUNING_KEYS) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
-    if (entitlement.indeedApplications) resolved.PLATFORMS = 'seek,indeed';
+  }
+  /**
+   * A pass that includes Indeed adds it for every tier. An account that can
+   * fine-tune keeps a board list it chose itself; the product default is
+   * not a choice, and leaving Indeed off it left paying accounts on SEEK
+   * alone without anyone deciding that.
+   */
+  if (entitlement.indeedApplications && (resolved.PLATFORMS ?? '').trim() === RUN_SETTING_DEFAULTS.PLATFORMS) {
+    resolved.PLATFORMS = 'seek,indeed';
   }
   if (entitlement.evaluationsPerRun !== null) {
     resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);
