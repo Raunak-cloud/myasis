@@ -197,28 +197,30 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
     const port = Number(req.runBrowserPort);
 
     let session: Session | null = null;
-    try {
-      const targets = (await listTargets(port)).filter(
-        (t) => t.type === 'page' && !t.url.startsWith('devtools://'),
-      );
-      const target =
-        targets.find((t) => !t.url.startsWith('chrome://')) ??
-        targets[0];
+    let current: CdpTarget | null = null;
+    /** Page targets in the order they were first seen; the newest is the one the run is working in. */
+    const seen: string[] = [];
+    const viewable = (t: CdpTarget) =>
+      t.type === 'page' && !t.url.startsWith('devtools://') && !t.url.startsWith('chrome://') && Boolean(t.webSocketDebuggerUrl);
 
-      if (!target?.webSocketDebuggerUrl) {
-        client.send(
-          JSON.stringify({
-            type: 'error',
-            message: 'The live view is still getting ready.',
-          }),
-        );
+    const attach = async (target: CdpTarget) => {
+      await session?.stop();
+      current = target;
+      client.send(JSON.stringify({ type: 'attached', target: { id: target.id, url: target.url, title: target.title } }));
+      session = new Session(client, target.webSocketDebuggerUrl!);
+      await session.start(quality, maxWidth);
+    };
+
+    try {
+      const targets = (await listTargets(port)).filter(viewable);
+      for (const t of targets) seen.push(t.id);
+      const target = targets[0];
+      if (!target) {
+        client.send(JSON.stringify({ type: 'error', message: 'The live view is still getting ready.' }));
         client.close();
         return;
       }
-
-      client.send(JSON.stringify({ type: 'attached', target: { id: target.id, url: target.url, title: target.title } }));
-      session = new Session(client, target.webSocketDebuggerUrl);
-      await session.start(quality, maxWidth);
+      await attach(target);
     } catch (e) {
       client.send(
         JSON.stringify({
@@ -230,8 +232,36 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
       return;
     }
 
+    /**
+     * Follow the run into whichever tab it is working in.
+     *
+     * Indeed's application form and every employer site open in a new tab,
+     * and a viewer pinned to the first tab watched the search results sit
+     * still for the whole application. The newest tab still open is where
+     * the work is; when it closes, the view falls back to the one before it.
+     */
+    let switching = false;
+    const follow = setInterval(async () => {
+      if (switching || client.readyState !== WebSocket.OPEN) return;
+      switching = true;
+      try {
+        const targets = (await listTargets(port)).filter(viewable);
+        const byId = new Map(targets.map((t) => [t.id, t]));
+        for (const t of targets) if (!seen.includes(t.id)) seen.push(t.id);
+        const newest = [...seen].reverse().map((id) => byId.get(id)).find(Boolean) ?? null;
+        if (newest && newest.id !== current?.id) await attach(newest);
+      } catch {
+        // The browser may be between pages, or gone; the next tick will see.
+      } finally {
+        switching = false;
+      }
+    }, 1500);
+
     // Deliberately no `message` handler: the browser connection is view-only
     // even if a client manually sends mouse, keyboard or navigation commands.
-    client.on('close', () => session?.stop());
+    client.on('close', () => {
+      clearInterval(follow);
+      void session?.stop();
+    });
   });
 }
