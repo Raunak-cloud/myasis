@@ -36,7 +36,7 @@ import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc }
 import { checkSeekSignin, checkSignin, seekCheckInProgress } from './server/seek-check.js';
 import { readSeekState, readSiteState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt } from './server/entitlements.js';
+import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart } from './server/entitlements.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
@@ -353,6 +353,9 @@ function dataApi(): Plugin {
 
       case '/api/humanizer/sample': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        // Operators only, like the tool it serves. Unguarded, anyone could spend the drafting model's credits.
+        return currentUser(req.headers?.cookie).then((sampleUser) => {
+        if (!isAdmin(sampleUser?.email)) return send({ error: 'Not available on your plan.' }, 403);
         const env = readEnv();
         const apiKey = env.GEMINI_API_KEY ?? '';
         const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
@@ -393,6 +396,7 @@ function dataApi(): Plugin {
         }).catch((error) =>
           send({ error: `Could not reach the drafting service: ${(error as Error).message}` }, 503),
         );
+        });
       }
 
       case '/api/applications': {
@@ -872,6 +876,11 @@ function dataApi(): Plugin {
       case '/api/assist/answer': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
+          // Answers and letters on demand cost model calls no allowance meters; they come with the plan that drives runs by hand.
+          const assistUser = await currentUser(req.headers?.cookie);
+          if (!(await entitlementsFor(userId, assistUser?.email)).manualRuns) {
+            return send({ ok: false, error: 'The browser helper is part of the Intensive Pass.' }, 403);
+          }
           const b = await readBody();
           const r = await answerForm(userId, {
             jobId: b?.jobId, title: b?.title, company: b?.company,
@@ -1052,10 +1061,18 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           const queueUser = await currentUser(req.headers?.cookie);
           const entitlements = await entitlementsFor(userId, queueUser?.email);
+          // A scan reviews jobs and drafts letters, so it is a user-started run and obeys the same daily allowance.
+          if (!entitlements.manualRuns) {
+            return send({ error: 'Your plan applies automatically. Manual runs are part of the Intensive Pass.' }, 403);
+          }
+          if (entitlements.manualRunsLeftToday !== null && entitlements.manualRunsLeftToday < 1) {
+            return send({ error: `You have used all ${entitlements.manualRunsPerDay} runs for today. They reset at midnight.` }, 429);
+          }
           // Same reasoning as /api/run: without this the scan inherits the
           // shared .env's search settings instead of this account's.
           const settings = applyRunPolicy(await runSettingsForUser(userId), entitlements, 'manual');
           const r = await runner.startQueue(userId, settings);
+          if (r.ok) await recordRunStart(userId, 'scan', 'manual').catch(() => {});
           return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
         });
       }

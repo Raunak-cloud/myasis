@@ -136,7 +136,7 @@ export function PricingPanel() {
             <h3>Free</h3>
             <p className="pricing-plan-copy">{PLAN_PRESENTATION.free.description}</p>
           </header>
-          <p className="pricing-price"><strong>A$0</strong><span>monthly allowance</span></p>
+          <p className="pricing-price"><strong>A$0</strong><span>no card needed</span></p>
           <button className="btn pricing-cta" disabled>Included with your account</button>
           <div className="pricing-card-divider" />
           <span className="pricing-includes">What you get</span>
@@ -180,7 +180,10 @@ export function PricingPanel() {
         <div>
           <span className="pricing-plan-label">Keep your current plan</span>
           <h3>{PAID_PLANS['application-top-up'].name}</h3>
-          <p>Add 50 successful applications to your balance for one month.</p>
+          <p>
+            Add {PAID_PLANS['application-top-up'].applications} successful applications to your balance, valid for{' '}
+            {PAID_PLANS['application-top-up'].validDays} days.
+          </p>
         </div>
         <div className="topup-action">
           <p className="pricing-price"><strong>{aud(PAID_PLANS['application-top-up'].priceCents)}</strong><span>one payment</span></p>

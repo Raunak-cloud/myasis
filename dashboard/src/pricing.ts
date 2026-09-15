@@ -3,46 +3,6 @@ export const FREE_MONTHLY_APPLICATIONS = 5;
 /** Humanizer rewrites cover letters in natural words; it comes with a paid pass. */
 export const HUMANIZER_NOTE = 'Humanizer is only available with Job Search Pass and Intensive Pass.';
 
-export const PLAN_PRESENTATION = {
-  free: {
-    label: 'Automatic essentials',
-    description: 'A simple way to let Myasis apply for well-matched SEEK roles.',
-    features: [
-      `${FREE_MONTHLY_APPLICATIONS} successful applications each month`,
-      '1 automatic live run each day',
-      'AI reviews 10 jobs each run',
-      '75% minimum match for scheduled applications',
-      'SEEK applications',
-      'Personalised cover letters and application tracking',
-    ],
-  },
-  'job-search-pass': {
-    label: 'Automatic job search',
-    description: 'More application capacity while Myasis runs your search for you.',
-    features: [
-      '150 successful applications',
-      'Up to 4 automatic live runs each day',
-      'AI reviews 70 jobs each run',
-      '75% minimum match for scheduled applications',
-      'SEEK and Indeed applications',
-      'Personalised cover letters and application tracking',
-      'Humanizer rewrites every cover letter in natural words',
-    ],
-  },
-  'intensive-pass': {
-    label: 'You control each run',
-    description: 'More control, more capacity and support for employer application sites.',
-    features: [
-      '320 successful applications',
-      'Up to 3 user-started runs each day',
-      'AI reviews 100 jobs each run',
-      'SEEK and Indeed applications',
-      'Advanced search controls and standing instructions',
-      'Supported employer-site applications',
-      'Humanizer rewrites every cover letter in natural words',
-    ],
-  },
-} as const;
 
 /**
  * Prices cover a pass used in full, at the model prices due in 2027.
@@ -81,6 +41,68 @@ export const PAID_PLANS = {
     applications: 50,
     validDays: 30,
     description: 'Extra successful applications without changing your plan.',
+  },
+} as const;
+
+/**
+ * What each plan allows.
+ *
+ * Enforced by server/entitlements.ts and server/start-run.ts, and the plan
+ * features below are written from these same numbers, so what a plan says
+ * and what a run does cannot drift apart. Change a number here and both move.
+ */
+export const PLAN_LIMITS = {
+  free: { autoRunsPerDay: 1, evaluationsPerRun: 5 },
+  'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
+  'intensive-pass': { manualRunsPerDay: 3, evaluationsPerRun: 100, employerSitesPerDay: 5 },
+} as const;
+
+/** Scheduled applications must clear this model-assessed match threshold. */
+export const SCHEDULED_MIN_SCORE = 75;
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+const FREE = PLAN_LIMITS.free;
+const JOB_SEARCH = PLAN_LIMITS['job-search-pass'];
+const INTENSIVE = PLAN_LIMITS['intensive-pass'];
+
+export const PLAN_PRESENTATION = {
+  free: {
+    label: 'Automatic essentials',
+    description: 'A simple way to let Myasis apply for well-matched SEEK roles.',
+    features: [
+      `${FREE_MONTHLY_APPLICATIONS} successful applications`,
+      `${plural(FREE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `AI reviews up to ${FREE.evaluationsPerRun} jobs each run`,
+      `${SCHEDULED_MIN_SCORE}% minimum match for scheduled applications`,
+      'SEEK applications',
+      'Personalised cover letters and application tracking',
+    ],
+  },
+  'job-search-pass': {
+    label: 'Automatic job search',
+    description: 'More application capacity while Myasis runs your search for you.',
+    features: [
+      `${PAID_PLANS['job-search-pass'].applications} successful applications`,
+      `Up to ${plural(JOB_SEARCH.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `AI reviews up to ${JOB_SEARCH.evaluationsPerRun} jobs each run`,
+      `${SCHEDULED_MIN_SCORE}% minimum match for scheduled applications`,
+      'SEEK and Indeed applications',
+      'Personalised cover letters and application tracking',
+      'Humanizer rewrites cover letters in natural words',
+    ],
+  },
+  'intensive-pass': {
+    label: 'You control each run',
+    description: 'More control, more capacity and support for employer application sites.',
+    features: [
+      `${PAID_PLANS['intensive-pass'].applications} successful applications`,
+      `Up to ${plural(INTENSIVE.manualRunsPerDay, 'user-started run', 'user-started runs')} each day`,
+      `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
+      'SEEK and Indeed applications',
+      'Advanced search controls and standing instructions',
+      `Employer-site applications, up to ${INTENSIVE.employerSitesPerDay} a day`,
+      'Humanizer rewrites cover letters in natural words',
+    ],
   },
 } as const;
 

@@ -172,8 +172,9 @@ function formatRunDuration(milliseconds: number): string {
 
 /** What the schedule does, in one breath, for the info icon beside Auto apply. */
 function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): string {
-  const jobs = e.scheduledJobsPerDay === null ? '' : ` ${e.scheduledJobsPerDay} jobs reviewed daily.`;
-  return `${e.autoRunsPerDay} runs a day, ${windowLabel(e.window)}.${jobs} Applies to ${e.scheduledMinScore}%+ matches, written in your own voice.`;
+  const jobs = e.scheduledJobsPerDay === null ? '' : ` Up to ${e.scheduledJobsPerDay} jobs reviewed daily.`;
+  const runs = `${e.autoRunsPerDay} ${e.autoRunsPerDay === 1 ? 'run' : 'runs'}`;
+  return `${runs} a day, ${windowLabel(e.window)}.${jobs} Applies to ${e.scheduledMinScore}%+ matches, written in your own voice.`;
 }
 
 function nextRunLabel(schedule: AutoScheduleStatus): string {
@@ -616,7 +617,7 @@ export function RunPanel({
               </span>
             </div>
             <p className="job-meta">
-              {entitlements.autoRunsPerDay} live runs daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
+              {entitlements.autoRunsPerDay} live {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} daily, between {windowLabel(entitlements.window)}. Match threshold {entitlements.scheduledMinScore}%.
             </p>
             {autoSchedule && <p className="schedule-next-run">{nextRunLabel(autoSchedule)}</p>}
           </div>

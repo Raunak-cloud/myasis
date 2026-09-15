@@ -65,6 +65,7 @@ export interface BillingStatus {
     remaining: number;
     expiresAt: string | null;
     hasActivePass: boolean;
+    hasActiveJobSearchPass: boolean;
     hasActiveIntensivePass: boolean;
   };
   totalRemaining: number;
@@ -89,6 +90,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
         remaining: ADMIN_UNLIMITED,
         expiresAt: null,
         hasActivePass: true,
+        hasActiveJobSearchPass: true,
         hasActiveIntensivePass: true,
       },
       totalRemaining: ADMIN_UNLIMITED,
@@ -99,6 +101,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
     remaining: string;
     expires_at: Date | null;
     active_pass_expires_at: Date | null;
+    job_search_pass_expires_at: Date | null;
     intensive_pass_expires_at: Date | null;
   }>(
     `SELECT
@@ -107,6 +110,9 @@ export async function billingStatus(userId: string, email?: string | null): Prom
        max(g.expires_at) FILTER (
          WHERE p.plan_key IN ('job-search-pass', 'intensive-pass')
        ) AS active_pass_expires_at,
+       max(g.expires_at) FILTER (
+         WHERE p.plan_key = 'job-search-pass'
+       ) AS job_search_pass_expires_at,
        max(g.expires_at) FILTER (
          WHERE p.plan_key = 'intensive-pass'
        ) AS intensive_pass_expires_at
@@ -137,6 +143,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
       remaining: paidRemaining,
       expiresAt: paid?.expires_at ? new Date(paid.expires_at).toISOString() : null,
       hasActivePass,
+      hasActiveJobSearchPass: Boolean(paid?.job_search_pass_expires_at),
       hasActiveIntensivePass: Boolean(paid?.intensive_pass_expires_at),
     },
     totalRemaining: freeRemaining + paidRemaining,
@@ -164,7 +171,7 @@ export async function createCheckout(
         unit_amount: plan.priceCents,
         product_data: {
           name: plan.name,
-          description: `${plan.applications} successful applications · valid for one month`,
+          description: `${plan.applications} successful applications · one-time payment, valid for ${plan.validDays} days`,
         },
       },
     }],

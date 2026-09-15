@@ -5,7 +5,13 @@ import {
   consumeSuccessfulApplication,
   isAdmin,
 } from './billing.js';
-import { applyRunPolicy, entitlementsFor, recordRunStart, FINE_TUNING_KEYS } from './entitlements.js';
+import {
+  applyRunPolicy,
+  entitlementsFor,
+  recordRunStart,
+  FINE_TUNING_KEYS,
+  INTENSIVE_EMPLOYER_SITES_PER_DAY,
+} from './entitlements.js';
 import { listResumes } from './files.js';
 import { waitForSigninChecks } from './seek-check.js';
 
@@ -48,9 +54,11 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * Whether this account drives runs at all, checked before anything else.
    *
    * The UI hides these controls for a standard account, but hiding a button
-   * is not a rule — this is.
+   * is not a rule — this is. It covers every mode: a search-only run spends
+   * the same fit checks as a live one, and left outside this check any
+   * account could start as many as it liked.
    */
-  if (trigger === 'manual' && consumes) {
+  if (trigger === 'manual') {
     if (!entitlements.manualRuns) {
       return {
         ok: false,
@@ -81,11 +89,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     };
   }
 
-  const overrides = applyRunPolicy(
-    await runSettingsForUser(userId, { unlimited: admin }),
-    entitlements,
-    trigger,
-  );
+  const settings = await runSettingsForUser(userId, { unlimited: admin });
 
   /**
    * Only known per-account settings are accepted from a browser: without this
@@ -97,8 +101,19 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     if (trigger !== 'manual') break;
     if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
     if (!entitlements.fineTune && FINE_TUNING_KEYS.includes(key)) continue;
-    if (value !== undefined && value !== null && String(value).length) overrides[key] = String(value);
+    if (value !== undefined && value !== null && String(value).length) settings[key] = String(value);
   }
+
+  /**
+   * The plan decides last.
+   *
+   * Posted settings used to be merged after the plan was applied, and the
+   * review screen posts every saved run setting — including the default of 40
+   * jobs to evaluate — so an Intensive Pass sold as 100 jobs a run reviewed 40,
+   * and the Indeed board its pass includes was dropped whenever the account
+   * had not picked boards itself.
+   */
+  const overrides = applyRunPolicy(settings, entitlements, trigger);
 
   if (request.scope === 'external' || request.scope === 'hosted') {
     if (entitlements.runScopes) overrides.APPLY_ONLY = request.scope;
@@ -116,7 +131,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
        * deduction, and their own run settings unclamped.
        */
       if (admin) overrides.ADMIN_UNLIMITED = 'true';
-      else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
+      else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? String(INTENSIVE_EMPLOYER_SITES_PER_DAY) : '0';
 
       if (admin) {
         // No allowance check and no clamp: the operator runs at the size they configured.
@@ -154,7 +169,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * simply tries again on its next tick. A run that starts and then dies
    * does count, which is why this is not tied to the run finishing.
    */
-  if (consumes) await recordRunStart(userId, mode, trigger).catch(() => {});
+  await recordRunStart(userId, mode, trigger).catch(() => {});
 
   return { ok: true, mode };
 }

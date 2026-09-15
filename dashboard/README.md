@@ -19,13 +19,13 @@ The dashboard uses Stripe-hosted Checkout for one-time passes. An application
 is deducted only after the bot reports a successful submission; skipped listings, failed forms, off-platform listings,
 and items that need attention do not count.
 
-Plans are defined in `src/pricing.ts`:
+Plans are defined in `src/pricing.ts`. `PLAN_LIMITS` there is what the server enforces and what the plan features are written from:
 
 | Plan | Price | Allowance and access | Validity |
 |---|---:|---|---:|
-| Free | A$0 | 5 successful applications, 1 automatic run daily, 10 jobs reviewed per run, SEEK, no humanizer | Resets monthly |
-| Job Search Pass | A$19.99 | 150 successful applications, 4 automatic runs daily, 70 jobs reviewed per run, SEEK and Indeed, humanizer | 30 days |
-| Intensive Pass | A$39.99 | 320 successful applications, 3 user-started runs daily, 100 jobs reviewed per run, SEEK, Indeed and supported external sites, humanizer | 30 days |
+| Free | A$0 | 5 successful applications, 1 automatic run daily, up to 5 jobs reviewed per run, SEEK, no humanizer | Allowance renews monthly |
+| Job Search Pass | A$19.99 | 150 successful applications, 4 automatic runs daily, up to 70 jobs reviewed per run, SEEK and Indeed, humanizer | 30 days |
+| Intensive Pass | A$39.99 | 320 successful applications, 3 user-started runs daily, up to 100 jobs reviewed per run, SEEK, Indeed and up to 5 employer-site applications a day, humanizer | 30 days |
 | Application Top-up | A$4.99 | 50 successful applications; run access is unchanged | 30 days |
 
 Passes are one-time payments and do not auto-renew.

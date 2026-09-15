@@ -15,7 +15,7 @@ import { syncRunResultsToDb } from './server/db/run-sync.js';
 import { resolve } from 'node:path';
 import { billingStatus, isAdmin, consumeSuccessfulApplication } from './server/billing.js';
 import { one } from './server/db/index.js';
-import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS } from './server/entitlements.js';
+import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, INTENSIVE_EMPLOYER_SITES_PER_DAY } from './server/entitlements.js';
 
 const [userId, mode, ...rest] = process.argv.slice(2);
 if (!userId || !['search', 'live'].includes(mode ?? '')) {
@@ -51,7 +51,7 @@ overrides.ALLOW_EXTERNAL_APPLY = admin || allowance.paid.hasActiveIntensivePass 
  * settings are used as configured rather than clamped.
  */
 if (admin) overrides.ADMIN_UNLIMITED = 'true';
-else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? '5' : '0';
+else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? String(INTENSIVE_EMPLOYER_SITES_PER_DAY) : '0';
 
 // Admins are exempt from the allowance; everyone else is capped by what remains.
 if (mode === 'live' && !isAdmin(email)) {
