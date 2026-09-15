@@ -231,6 +231,9 @@ export function RunPanel({
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [standingSaving, setStandingSaving] = useState(false);
+  const [standingSaved, setStandingSaved] = useState(false);
+  const [standingError, setStandingError] = useState<string | null>(null);
   /**
    * Which field the message belongs to, so it can be shown where the mistake
    * is rather than only at the bottom of a modal the user may have scrolled
@@ -328,6 +331,56 @@ export function RunPanel({
   const coverLetterMode = val('COVER_LETTER_MODE') === 'reuse' ? 'reuse' : 'tailored';
   const reusableCoverLetter = decodeSettingText(val('COVER_LETTER_TEXT_B64'));
   const runInstructions = decodeSettingText(val('AI_INSTRUCTIONS_B64'));
+
+  /**
+   * The standing search, editable where runs are started.
+   *
+   * Search terms and run instructions are saved settings that every later
+   * run reads, scheduled or started by hand — so they belong on the page, not
+   * only inside the start-run review a scheduled account never opens. Edits
+   * share state with that review, so the two cannot disagree. Instructions
+   * are shown only to plans that include them; the server ignores them for
+   * the rest.
+   */
+  const standingKeys = entitlements?.fineTune ? ['KEYWORDS', 'AI_INSTRUCTIONS_B64'] : ['KEYWORDS'];
+  const standingDirty = standingKeys.some(
+    (key) => edits[key] !== undefined && edits[key] !== (settings[key] ?? RUN_DEFAULTS[key] ?? ''),
+  );
+  async function saveStanding() {
+    const terms = val('KEYWORDS').split(',').map((term) => term.trim()).filter(Boolean);
+    if (!terms.length) return setStandingError('Add at least one job title or search term.');
+    if (terms.length > MAX_SEARCH_TERMS) {
+      return setStandingError(`Use at most ${MAX_SEARCH_TERMS} search terms — you have ${terms.length}.`);
+    }
+    setStandingError(null);
+    setStandingSaving(true);
+    try {
+      const updates = Object.fromEntries(standingKeys.map((key) => [key, val(key)]));
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+      const saved = await response.json();
+      if (!response.ok) throw new Error(saved.error ?? 'Could not save.');
+      if (saved.settings) setSettings(saved.settings);
+      setEdits((current) => {
+        const next = { ...current };
+        for (const key of standingKeys) delete next[key];
+        return next;
+      });
+      setStandingSaved(true);
+    } catch (reason) {
+      setStandingError((reason as Error).message);
+    } finally {
+      setStandingSaving(false);
+    }
+  }
+  const editStanding = (key: string, value: string) => {
+    setStandingSaved(false);
+    setStandingError(null);
+    setEdit(key, value);
+  };
   const toggleArrangement = (item: string) => {
     const next = new Set(arrangements);
     if (next.has(item)) next.delete(item);
@@ -608,6 +661,47 @@ export function RunPanel({
           )}
         </div>
 
+        <section className="standing-search" aria-label="Search terms and run instructions">
+          <div className="field">
+            <FieldLabel label="Job titles and search terms" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
+            <textarea
+              className="input"
+              rows={2}
+              value={val('KEYWORDS')}
+              onChange={(event) => editStanding('KEYWORDS', event.target.value)}
+              aria-describedby="standing-keywords-note"
+            />
+            <SearchTermsGenerator
+              currentTerms={val('KEYWORDS')}
+              disabled={standingSaving}
+              onGenerated={(terms) => editStanding('KEYWORDS', terms)}
+            />
+            <span className="job-meta" id="standing-keywords-note">Applies to all future runs until you change it.</span>
+          </div>
+          {entitlements?.fineTune && (
+            <div className="field">
+              <FieldLabel label="Run instructions" optional help="Tell Myasis which otherwise suitable jobs to avoid or prefer. Checked for every job before applying." />
+              <textarea
+                className="input"
+                rows={3}
+                maxLength={4_000}
+                value={runInstructions}
+                placeholder="Example: Don't apply for senior or manager positions."
+                onChange={(event) => editStanding('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}
+                aria-describedby="standing-instructions-note"
+              />
+              <span className="job-meta" id="standing-instructions-note">This prompt applies to all future runs until you change it.</span>
+            </div>
+          )}
+          {standingError && <div className="banner banner-bad" role="alert">{standingError}</div>}
+          <div className="standing-search-actions">
+            {standingSaved && !standingDirty && <span className="job-meta" role="status">Saved</span>}
+            <button className="btn" disabled={!standingDirty || standingSaving} onClick={() => void saveStanding()}>
+              {standingSaving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </section>
+
         {driving && entitlements && entitlements.autoRunsPerDay > 0 && (
           <div className="run-schedule-status">
             <div className="run-schedule-head">
@@ -868,7 +962,7 @@ export function RunPanel({
                     aria-describedby="run-instructions-help"
                   />
                   <span className="job-meta" id="run-instructions-help">
-                    Used for this and future runs until changed. Example: Don’t apply for senior positions or jobs that require weekend work.
+                    This prompt applies to all future runs until you change it. Example: Don’t apply for senior positions or jobs that require weekend work.
                   </span>
                 </label>
               </section>

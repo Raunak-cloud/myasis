@@ -1951,3 +1951,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .site-accounts { margin-bottom: 14px; padding: 0; }
 .site-accounts summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 14px 18px; }
 .site-accounts ul { list-style: none; margin: 0; padding: 0 18px 16px; display: grid; gap: 8px; }
+
+/* Apply page: the saved search every future run reads. */
+.standing-search { display: grid; gap: 14px; padding-top: 16px; border-top: 1px solid var(--border); }
+.standing-search textarea { resize: vertical; min-height: 0; }
+.standing-search-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
