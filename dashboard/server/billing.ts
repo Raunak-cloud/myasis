@@ -3,7 +3,6 @@ import { getPool, one } from './db/index.js';
 import { readEnv } from './runner.js';
 import {
   FREE_MONTHLY_APPLICATIONS,
-  FREE_MONTHLY_REHEARSALS,
   PAID_PLANS,
   isPaidPlanKey,
   type PaidPlanKey,
@@ -62,12 +61,6 @@ export interface BillingStatus {
     remaining: number;
     resetsAt: string;
   };
-  rehearsals: {
-    allowance: number;
-    used: number;
-    remaining: number;
-    unlimited: boolean;
-  };
   paid: {
     remaining: number;
     expiresAt: string | null;
@@ -91,12 +84,6 @@ export async function billingStatus(userId: string, email?: string | null): Prom
         used: 0,
         remaining: FREE_MONTHLY_APPLICATIONS,
         resetsAt: nextMonthStart().toISOString(),
-      },
-      rehearsals: {
-        allowance: FREE_MONTHLY_REHEARSALS,
-        used: 0,
-        remaining: FREE_MONTHLY_REHEARSALS,
-        unlimited: true,
       },
       paid: {
         remaining: ADMIN_UNLIMITED,
@@ -128,8 +115,8 @@ export async function billingStatus(userId: string, email?: string | null): Prom
      WHERE g.user_id = $1 AND g.expires_at > now()`,
     [userId],
   );
-  const usage = await one<{ used: number; rehearsals_completed: number }>(
-    `SELECT successful_applications AS used, rehearsals_completed
+  const usage = await one<{ used: number }>(
+    `SELECT successful_applications AS used
        FROM monthly_application_usage
       WHERE user_id = $1 AND month_start = date_trunc('month', now())::date`,
     [userId],
@@ -137,7 +124,6 @@ export async function billingStatus(userId: string, email?: string | null): Prom
   const freeUsed = Number(usage?.used ?? 0);
   const freeRemaining = Math.max(0, FREE_MONTHLY_APPLICATIONS - freeUsed);
   const paidRemaining = Number(paid?.remaining ?? 0);
-  const rehearsalUsed = Number(usage?.rehearsals_completed ?? 0);
   const hasActivePass = Boolean(paid?.active_pass_expires_at);
   return {
     configured: paymentsConfigured(),
@@ -147,12 +133,6 @@ export async function billingStatus(userId: string, email?: string | null): Prom
       remaining: freeRemaining,
       resetsAt: nextMonthStart().toISOString(),
     },
-    rehearsals: {
-      allowance: FREE_MONTHLY_REHEARSALS,
-      used: rehearsalUsed,
-      remaining: Math.max(0, FREE_MONTHLY_REHEARSALS - rehearsalUsed),
-      unlimited: hasActivePass,
-    },
     paid: {
       remaining: paidRemaining,
       expiresAt: paid?.expires_at ? new Date(paid.expires_at).toISOString() : null,
@@ -161,33 +141,6 @@ export async function billingStatus(userId: string, email?: string | null): Prom
     },
     totalRemaining: freeRemaining + paidRemaining,
   };
-}
-
-/** Counts a completed rehearsal unless an active paid pass makes rehearsals unlimited. */
-export async function consumeCompletedRehearsal(userId: string): Promise<void> {
-  const result = await getPool().query(
-    `INSERT INTO monthly_application_usage (
-       user_id, month_start, successful_applications, rehearsals_completed
-     )
-     SELECT $1, date_trunc('month', now())::date, 0, 1
-     WHERE NOT EXISTS (
-       SELECT 1
-         FROM application_credit_grants g
-         JOIN billing_purchases p ON p.id = g.purchase_id
-        WHERE g.user_id = $1
-          AND g.expires_at > now()
-          AND p.plan_key IN ('job-search-pass', 'intensive-pass')
-     )
-     ON CONFLICT (user_id, month_start) DO UPDATE SET
-       rehearsals_completed = monthly_application_usage.rehearsals_completed + 1
-     WHERE monthly_application_usage.rehearsals_completed < $2
-     RETURNING rehearsals_completed`,
-    [userId, FREE_MONTHLY_REHEARSALS],
-  );
-  if (!result.rows[0]) {
-    const status = await billingStatus(userId);
-    if (!status.rehearsals.unlimited) throw new Error('No free rehearsals remain this month.');
-  }
 }
 
 export async function createCheckout(

@@ -15,28 +15,30 @@ works standalone.
 
 ## Payments and application allowances
 
-The dashboard uses Stripe-hosted Checkout for one-time passes. The Free plan
-includes 30 completed rehearsals per month, while active paid passes include
-unlimited rehearsals. An application is deducted only after the bot reports a
-successful submission; skipped listings, failed forms, off-platform listings,
+The dashboard uses Stripe-hosted Checkout for one-time passes. An application
+is deducted only after the bot reports a successful submission; skipped listings, failed forms, off-platform listings,
 and items that need attention do not count.
 
 Plans are defined in `src/pricing.ts`:
 
 | Plan | Price | Allowance and access | Validity |
 |---|---:|---|---:|
-| Free | A$0 | 10 successful applications, 1 automatic run daily, 10 jobs reviewed per run, SEEK | Resets monthly |
-| Job Search Pass | A$5.99 | 150 successful applications, 4 automatic runs daily, 70 jobs reviewed per run, SEEK and Indeed | 30 days |
-| Intensive Pass | A$12.99 | 320 successful applications, 3 user-started runs daily, 100 jobs reviewed per run, SEEK, Indeed and supported external sites | 30 days |
+| Free | A$0 | 5 successful applications, 1 automatic run daily, 10 jobs reviewed per run, SEEK, no humanizer | Resets monthly |
+| Job Search Pass | A$5.99 | 150 successful applications, 4 automatic runs daily, 70 jobs reviewed per run, SEEK and Indeed, humanizer | 30 days |
+| Intensive Pass | A$12.99 | 320 successful applications, 3 user-started runs daily, 100 jobs reviewed per run, SEEK, Indeed and supported external sites, humanizer | 30 days |
 | Application Top-up | A$2.99 | 50 successful applications; run access is unchanged | 30 days |
 
 Passes are one-time payments and do not auto-renew.
 
+The humanizer is a paid-pass feature. `applyRunPolicy` sets `HUMANIZER_MODE=off`
+for every run on the Free plan, so its cover letters are sent as drafted and
+verified and never wait for the rewriting model.
+
 External employer-site applications are enabled only while an Intensive Pass
 is active. The dashboard injects this entitlement on the server, so a browser
 request cannot switch it on. Supported forms reuse the selected résumé and
-verified profile details, stop for CAPTCHAs, sign-ins, or unanswerable questions,
-and withhold the final submit during rehearsal mode.
+verified profile details, and stop for CAPTCHAs, sign-ins, or unanswerable
+questions.
 
 ### Stripe setup
 
@@ -109,8 +111,8 @@ time of applying, the **verbatim cover letter that was submitted**, every
 screening question and answer, the scoring rubric's own reasoning, and a run
 history for that job showing each attempt and its outcome.
 
-**Activity** — all 6 outcome types (`applied`, `skipped`, `off-platform`,
-`needs-human`, `rehearsed`, `error`) with filtering, including Gemini's written
+**Activity** — all 5 outcome types (`applied`, `skipped`, `off-platform`,
+`needs-human`, `error`) with filtering, including Gemini's written
 reason for every rejection.
 
 **Insights** — what's actually filtering jobs out (wrong location, stack
@@ -139,7 +141,6 @@ back over server-sent events.
 | Mode | What it does |
 |---|---|
 | **Search only** | Scores and shortlists. Never opens an application form. |
-| **Rehearse** | Fills every form, writes the cover letter, stops at Submit. |
 | **Live apply** | Submits real applications. Irreversible. |
 
 Each run analyses the signed-in user's **SEEK Recommended** feed first, then

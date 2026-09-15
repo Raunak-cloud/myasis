@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { ensureUserDataDir } from './userdata.js';
 import { loadProfile } from './profile.js';
 import { fullContext } from './files.js';
+import { humanizerAllowed } from './entitlements.js';
 import type { CandidateProfile } from './candidate-profile.js';
 
 /**
@@ -73,7 +74,7 @@ export function updateQueueItem(userId: string, jobId: string, patch: Partial<Qu
 async function bot() {
   const url = (f: string) => new URL(`../../seek-bot/dist/${f}`, import.meta.url).href;
   const [gemini, cfg] = await Promise.all([
-    import(/* @vite-ignore */ url('gemini.js')),
+    import(/* @vite-ignore */ url('llm.js')),
     import(/* @vite-ignore */ url('config.js')),
   ]);
   return { gemini, cfg };
@@ -174,7 +175,9 @@ export async function answerForm(
       queued?.coverLetter
         ? Promise.resolve(queued.coverLetter)
         : wantsLetter
-          ? gemini.writeCoverLetter(job, profile, knowledge)
+          ? (await humanizerAllowed(userId))
+            ? gemini.writeCoverLetter(job, profile, knowledge)
+            : gemini.draftCoverLetter(job, profile, knowledge)
           : Promise.resolve(undefined),
     ]);
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { aud, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey } from '../pricing';
+import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey } from '../pricing';
 
 interface BillingStatus {
   configured: boolean;
@@ -174,6 +174,7 @@ export function PricingPanel() {
           );
         })}
       </div>
+      <p className="job-meta pricing-footnote">{HUMANIZER_NOTE}</p>
 
       <section className="topup-card">
         <div>

@@ -232,9 +232,9 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
     const { userId, email, entitlements, done } = account;
 
     /**
-     * A live run, because that is the point of the tier: nobody is watching
-     * to promote a rehearsal into an application. Every allowance check and
-     * deduction still applies — `startRun` is the path the manual button uses.
+     * A live run, like every run: nobody is watching a scheduled one. Every
+     * allowance check and deduction still applies — `startRun` is the path
+     * the manual button uses.
      */
     const result = await startRun({ userId, email, mode: 'live', trigger: 'auto' });
     if (result.ok) {

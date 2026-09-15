@@ -193,14 +193,8 @@ CREATE TABLE IF NOT EXISTS monthly_application_usage (
   user_id                BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   month_start            DATE NOT NULL,
   successful_applications INTEGER NOT NULL DEFAULT 0 CHECK (successful_applications >= 0),
-  rehearsals_completed    INTEGER NOT NULL DEFAULT 0 CHECK (rehearsals_completed >= 0),
   PRIMARY KEY (user_id, month_start)
 );
-
--- Existing installations created before rehearsal limits need the new counter.
-ALTER TABLE monthly_application_usage
-  ADD COLUMN IF NOT EXISTS rehearsals_completed INTEGER NOT NULL DEFAULT 0
-  CHECK (rehearsals_completed >= 0);
 
 -- Existing installations created before résumé notes were added need the column.
 ALTER TABLE resumes ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';

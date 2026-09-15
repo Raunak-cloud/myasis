@@ -1,4 +1,4 @@
-import { query } from './db/index.js';
+import { one, query } from './db/index.js';
 import { billingStatus, isAdmin } from './billing.js';
 import { KEEP_SETTINGS_KEYS, RUN_SETTING_DEFAULTS } from './settings.js';
 
@@ -6,8 +6,8 @@ import { KEEP_SETTINGS_KEYS, RUN_SETTING_DEFAULTS } from './settings.js';
  * What an account is allowed to do — decided in one place, for every caller.
  *
  * Admins can drive runs and also receive scheduled runs. Intensive Pass
- * holders drive runs themselves: they choose rehearse or live, and they tune
- * how a run searches. Standard accounts do not drive anything — their
+ * holders drive runs themselves: they start each run, and they tune how a
+ * run searches. Standard accounts do not drive anything — their
  * applications go out on a schedule from the preferences they saved.
  *
  * Every gate in the app reads this module rather than re-deriving the rule
@@ -73,7 +73,7 @@ export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
  */
 export function applyRunPolicy(
   settings: Record<string, string>,
-  entitlement: Pick<Entitlements, 'fineTune' | 'indeedApplications' | 'evaluationsPerRun'>,
+  entitlement: Pick<Entitlements, 'fineTune' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer'>,
   trigger: 'manual' | 'auto',
 ): Record<string, string> {
   const resolved = { ...settings };
@@ -95,6 +95,12 @@ export function applyRunPolicy(
   if (entitlement.evaluationsPerRun !== null) {
     resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);
   }
+  /**
+   * The humanizer is part of a paid pass. A free run sends the grounded,
+   * fact-checked draft as written and never queues for the rewriting model,
+   * which also keeps paying accounts' letters from waiting behind it.
+   */
+  if (!entitlement.humanizer) resolved.HUMANIZER_MODE = 'off';
   if (trigger === 'auto') {
     resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
   }
@@ -103,7 +109,7 @@ export function applyRunPolicy(
 
 export interface Entitlements {
   tier: Tier;
-  /** May start a rehearsal or a live run by hand. */
+  /** May start a run by hand. */
   manualRuns: boolean;
   /** Manual runs allowed per local day; null means no cap. */
   manualRunsPerDay: number | null;
@@ -126,6 +132,8 @@ export interface Entitlements {
   runScopes: boolean;
   /** May search and apply to jobs hosted on Indeed as well as SEEK. */
   indeedApplications: boolean;
+  /** Cover letters are rewritten by the humanizer. Job Search Pass and Intensive Pass only. */
+  humanizer: boolean;
   window: { startHour: number; endHour: number; timeZone: string };
 }
 
@@ -239,6 +247,13 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     rewriteText: tier === 'admin',
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActivePass,
+    humanizer: billing.paid.hasActivePass,
     window: { ...AUTO_WINDOW, timeZone: RUN_TIME_ZONE },
   };
+}
+
+/** Whether this account's cover letters go through the humanizer, for callers that only know the account id. */
+export async function humanizerAllowed(userId: string): Promise<boolean> {
+  const user = await one<{ email: string | null }>('SELECT email FROM users WHERE id = $1', [userId]);
+  return (await entitlementsFor(userId, user?.email ?? null)).humanizer;
 }

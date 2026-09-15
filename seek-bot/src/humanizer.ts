@@ -59,7 +59,7 @@ export function forgetHumanizerBase(): void {
 
 /** Refuse writing runs until the AuthorMist model is fully loaded. */
 export async function assertHumanizerHealthy(): Promise<void> {
-  if (!config.humanizer.required) return;
+  if (!config.humanizer.enabled || !config.humanizer.required) return;
   const base = await humanizerBase();
   if (!base) {
     throw new Error(
@@ -237,6 +237,7 @@ async function rewriteText(
 
 /** Rewrite long, free-text form responses; short and exact-value fields bypass this. */
 export async function rewriteLongText(text: string): Promise<string> {
+  if (!config.humanizer.enabled) return text;
   // Answers are already drafted in the requested voice; avoid a second style model.
   if (process.env.HUMANIZER_MODE !== 'always') return text;
   const deadline = Date.now() + 15_000;
@@ -276,6 +277,7 @@ export async function humanizeCoverLetter(
   verifyMeaning?: (candidate: string) => Promise<boolean>,
   needsEditing = false,
 ): Promise<string> {
+  if (!config.humanizer.enabled) return letter;
   if (!needsEditing && process.env.HUMANIZER_MODE !== 'always') return letter;
   const deadline = Date.now() + 15_000;
   if (wordCount(letter) > MAX_COVER_LETTER_WORDS) {

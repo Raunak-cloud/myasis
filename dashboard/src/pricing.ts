@@ -1,12 +1,14 @@
-export const FREE_MONTHLY_APPLICATIONS = 10;
-export const FREE_MONTHLY_REHEARSALS = 30;
+export const FREE_MONTHLY_APPLICATIONS = 5;
+
+/** Humanizer rewrites cover letters in natural words; it comes with a paid pass. */
+export const HUMANIZER_NOTE = 'Humanizer is only available with Job Search Pass and Intensive Pass.';
 
 export const PLAN_PRESENTATION = {
   free: {
     label: 'Automatic essentials',
     description: 'A simple way to let Myasis apply for well-matched SEEK roles.',
     features: [
-      '10 successful applications each month',
+      `${FREE_MONTHLY_APPLICATIONS} successful applications each month`,
       '1 automatic live run each day',
       'AI reviews 10 jobs each run',
       '75% minimum match for scheduled applications',
@@ -24,6 +26,7 @@ export const PLAN_PRESENTATION = {
       '75% minimum match for scheduled applications',
       'SEEK and Indeed applications',
       'Personalised cover letters and application tracking',
+      'Humanizer rewrites every cover letter in natural words',
     ],
   },
   'intensive-pass': {
@@ -33,10 +36,10 @@ export const PLAN_PRESENTATION = {
       '320 successful applications each month',
       'Up to 3 user-started runs each day',
       'AI reviews 100 jobs each run',
-      'Choose a live run or a rehearsal',
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',
       'Supported employer-site applications',
+      'Humanizer rewrites every cover letter in natural words',
     ],
   },
 } as const;

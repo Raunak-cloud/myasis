@@ -9,7 +9,6 @@ import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
 import { fmtDateTime } from '../format';
 
-type Mode = 'rehearse' | 'live';
 
 interface LogLine {
   seq: number;
@@ -90,11 +89,10 @@ function activitySummary(lines: LogLine[]) {
   const found = Number(lastMatch(lines, /(\d+) unique listings discovered/i)?.[1] ?? 0);
   const reviewed = lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length;
   const suitable = Number(lastMatch(lines, /(\d+) qualifying jobs/i)?.[1] ?? 0);
-  const rehearsed = lines.filter((line) => /rehearsed/i.test(line.text)).length;
-  return { found, reviewed, suitable, rehearsed };
+  return { found, reviewed, suitable };
 }
 
-function activityEvents(lines: LogLine[], mode: Mode): ActivityEvent[] {
+function activityEvents(lines: LogLine[]): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string) => {
     const previous = events.at(-1);
@@ -106,8 +104,8 @@ function activityEvents(lines: LogLine[], mode: Mode): ActivityEvent[] {
     const text = line.text.trim();
     let match: RegExpMatchArray | null;
 
-    if (/starting (?:rehearse|live) run/i.test(text)) {
-      add(line, mode === 'live' ? 'Applying for real' : 'Rehearsal started', 'done');
+    if (/starting live run/i.test(text)) {
+      add(line, 'Run started', 'done');
     } else if ((match = text.match(/(SEEK|Indeed) session OK/i))) {
       add(line, `Connected to ${match[1]}`, 'done');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
@@ -127,13 +125,11 @@ function activityEvents(lines: LogLine[], mode: Mode): ActivityEvent[] {
     } else if ((match = text.match(/(\d+) qualifying jobs/i))) {
       add(line, `${match[1]} suitable ${Number(match[1]) === 1 ? 'job' : 'jobs'} ready`, 'done');
     } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
-      add(line, `${mode === 'live' ? 'Applying to' : 'Rehearsing'} ${match[1]}`, 'neutral', match[2]);
+      add(line, `Applying to ${match[1]}`, 'neutral', match[2]);
     } else if (/discarded a stale pre-filled cover letter/i.test(text)) {
       add(line, 'Prepared a fresh cover letter', 'neutral');
     } else if ((match = text.match(/✅ submitted\s*(?:\(([^)]+)\))?/i))) {
       add(line, 'Application submitted', 'done', match[1] ? `${match[1]} this run` : undefined);
-    } else if (/🧪 rehearsed/i.test(text)) {
-      add(line, 'Rehearsal completed', 'done', 'The form was completed without submitting.');
     } else if (/⏸ needs you:/i.test(text)) {
       add(line, 'Needs your attention', 'warn', 'Open Needs attention to review it.');
     } else if (/↪ off-platform/i.test(text)) {
@@ -145,11 +141,9 @@ function activityEvents(lines: LogLine[], mode: Mode): ActivityEvent[] {
     } else if ((match = text.match(/=== Run complete:\s*(\d+) new application/i))) {
       add(
         line,
-        mode === 'live' ? 'Live run complete' : 'Rehearsal complete',
+        'Run complete',
         'done',
-        mode === 'live'
-          ? `${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'} submitted.`
-          : 'No applications were submitted.',
+        `${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'} submitted.`,
       );
     } else if (/run finished \(exit [^0]/i.test(text)) {
       add(line, 'Run stopped before completion', 'bad');
@@ -217,7 +211,6 @@ export function RunPanel({
   const [status, setStatus] = useState<RunStatus | null>(null);
   const [autoSchedule, setAutoSchedule] = useState<AutoScheduleStatus | null>(null);
   const [liveViewOpen, setLiveViewOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>('rehearse');
   /**
    * A standard account does not drive runs: it saves what work it wants and
    * Myasis applies on a schedule. So it gets a statement of what is happening
@@ -347,21 +340,20 @@ export function RunPanel({
     else next.add(id);
     setEdit('PLATFORMS', [...next].join(','));
   };
-  const activeRunMode: Mode = status?.mode === 'live' ? 'live' : status?.mode === 'rehearse' ? 'rehearse' : mode;
   const summary = useMemo(() => activitySummary(lines), [lines]);
-  const events = useMemo(() => activityEvents(lines, activeRunMode), [lines, activeRunMode]);
+  const events = useMemo(() => activityEvents(lines), [lines]);
   const latestApplicationLine = [...lines].reverse().find((line) => /→ Applying:/i.test(line.text));
   const latestOutcomeLine = [...lines].reverse().find((line) =>
-    /✅ submitted|🧪 rehearsed|⏸ needs you:|↪ off-platform|✗ (?:unexpected )?error:/i.test(line.text),
+    /✅ submitted|⏸ needs you:|↪ off-platform|✗ (?:unexpected )?error:/i.test(line.text),
   );
   const currentApplication = latestApplicationLine?.text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i);
   const applyingNow = Boolean(
     currentApplication && (!latestOutcomeLine || latestApplicationLine!.seq > latestOutcomeLine.seq),
   );
   const currentActivity = applyingNow
-    ? `${activeRunMode === 'live' ? 'Applying to' : 'Rehearsing'} ${currentApplication![1]} at ${currentApplication![2]}`
+    ? `Applying to ${currentApplication![1]} at ${currentApplication![2]}`
     : summary.suitable
-      ? `Preparing suitable jobs for ${activeRunMode === 'live' ? 'application' : 'rehearsal'}`
+      ? 'Preparing suitable jobs for application'
       : summary.found
         ? `Reviewing ${summary.found} job listings`
         : 'Searching for jobs';
@@ -490,7 +482,7 @@ export function RunPanel({
       const runResponse = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, confirm: mode === 'live', overrides: updates, scope }),
+        body: JSON.stringify({ mode: 'live', confirm: true, overrides: updates, scope }),
       });
       if (runResponse.status === 402) {
         setConfirming(false);
@@ -536,16 +528,12 @@ export function RunPanel({
           {driving ? (
             <>
               <h2>
-                {running && status?.isOwner !== false
-                  ? activeRunMode === 'live' ? 'Applying for real' : 'Rehearsal running'
-                  : 'New run'}
+                {running && status?.isOwner !== false ? 'Applying now' : 'New run'}
               </h2>
               <p className="job-meta">
                 {running && status?.isOwner !== false
-                  ? activeRunMode === 'live'
-                    ? 'This run submits completed applications.'
-                    : 'This run stops before every final submission.'
-                  : 'Rehearse first, then apply when everything looks right.'}
+                  ? 'This run submits completed applications.'
+                  : 'Submits applications that match your settings.'}
               </p>
             </>
           ) : (
@@ -568,38 +556,6 @@ export function RunPanel({
           )}
         </div>
         <div className="panel-body">
-        {driving && (
-          <div className="mode-picker">
-            <div className="mode-switch" role="radiogroup" aria-label="Run mode">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mode === 'rehearse'}
-                className={mode === 'rehearse' ? 'on' : ''}
-                disabled={running}
-                onClick={() => setMode('rehearse')}
-              >
-                Rehearse <span className="badge warn">safe</span>
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mode === 'live'}
-                className={mode === 'live' ? 'on live' : 'live'}
-                disabled={running}
-                onClick={() => setMode('live')}
-              >
-                Apply for real <span className="badge bad">submits</span>
-              </button>
-            </div>
-            <p className="job-meta mode-desc">
-              {mode === 'rehearse'
-                ? 'Completes the full process but stops before submitting.'
-                : 'Sends applications to employers automatically.'}
-            </p>
-          </div>
-        )}
-
         {!status?.hasKey && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
         )}
@@ -628,7 +584,7 @@ export function RunPanel({
           ) : (
             <>
               <button className="btn primary lg" disabled={outOfRuns} onClick={() => { setScope('all'); setConfirming(true); }}>
-                Start {mode === 'rehearse' ? 'rehearsal' : 'live run'}
+                Start run
               </button>
               {entitlements?.runScopes && (
                 <button
@@ -637,7 +593,7 @@ export function RunPanel({
                   title="Applies only where the employer's own site takes the application, on every board in the run."
                   onClick={() => { setScope('external'); setConfirming(true); }}
                 >
-                  {mode === 'rehearse' ? 'Rehearse' : 'Apply'} on employer sites only
+                  Apply on employer sites only
                 </button>
               )}
               {runsLeft !== null && (
@@ -690,12 +646,10 @@ export function RunPanel({
         <div className="console-head">
           <div className="console-status">
             <strong>Activity</strong>
-            <span className={`badge ${running ? activeRunMode === 'live' ? 'bad' : 'info' : 'muted'}`}>
+            <span className={`badge ${running ? 'bad' : 'muted'}`}>
               {running ? (
                 <span className="in-progress-label">
-                  <strong className="active-mode-label">
-                    {activeRunMode === 'live' ? 'Applying for real' : 'Rehearsal'}
-                  </strong>
+                  <strong className="active-mode-label">Applying</strong>
                   <span>In progress</span>
                   {elapsedMs !== null && (
                     <time className="run-elapsed" aria-label={`Running for ${formatRunDuration(elapsedMs)}`}>
@@ -732,8 +686,8 @@ export function RunPanel({
             <div><strong>{summary.reviewed}</strong><span>Reviewed</span></div>
             <div><strong>{summary.suitable}</strong><span>Suitable</span></div>
             <div>
-              <strong>{activeRunMode === 'live' ? status?.applied ?? 0 : summary.rehearsed}</strong>
-              <span>{activeRunMode === 'live' ? 'Submitted' : 'Rehearsed'}</span>
+              <strong>{status?.applied ?? 0}</strong>
+              <span>Submitted</span>
             </div>
           </div>
         )}
@@ -747,10 +701,10 @@ export function RunPanel({
           ) : (
             <>
               {running && (
-                <div className={`activity-current ${activeRunMode === 'live' ? 'live' : 'rehearse'}`}>
+                <div className="activity-current live">
                   <span className="activity-pulse" aria-hidden="true" />
                   <div>
-                    <strong>{activeRunMode === 'live' ? 'Applying now' : 'Rehearsing now'}</strong>
+                    <strong>Applying now</strong>
                     <span>{currentActivity}</span>
                   </div>
                 </div>
@@ -855,17 +809,15 @@ export function RunPanel({
                 <h2 id="run-review-title">Review run settings</h2>
                 <p className="job-meta">Changes made here are saved before the run starts.</p>
               </div>
-              <span className={`badge ${mode === 'live' ? 'bad' : 'warn'}`}>
-                {mode === 'live' ? 'Live run' : 'Rehearsal'}{scope === 'external' ? ' · employer sites only' : ''}
+              <span className="badge bad">
+                Live run{scope === 'external' ? ' · employer sites only' : ''}
               </span>
             </div>
 
             <div className="run-review-body">
-              {mode === 'live' && (
-                <div className="banner banner-bad run-review-warning">
-                  This run submits applications to employers. Submitted applications cannot be withdrawn here.
-                </div>
-              )}
+              <div className="banner banner-bad run-review-warning">
+                This run submits applications to employers. Submitted applications cannot be withdrawn here.
+              </div>
 
               <section className="run-review-section run-review-search">
                 <h3>What to find</h3>
@@ -1074,15 +1026,11 @@ export function RunPanel({
                 Cancel
               </button>
               <button
-                className={`btn ${mode === 'live' ? 'btn-danger-solid' : 'primary'}`}
+                className="btn btn-danger-solid"
                 disabled={starting}
                 onClick={saveAndStart}
               >
-                {starting
-                  ? 'Saving and starting…'
-                  : mode === 'live'
-                    ? 'Save and apply for real'
-                    : 'Save and start rehearsal'}
+                {starting ? 'Saving and starting…' : 'Save and apply'}
               </button>
             </div>
           </div>

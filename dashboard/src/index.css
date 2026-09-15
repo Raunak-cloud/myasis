@@ -1149,39 +1149,6 @@ button.metric-tile:hover strong { color: var(--accent); }
 .auto-apply-info { position: static; }
 .auto-apply .field-tooltip { top: calc(100% - 4px); left: 16px; right: 16px; width: auto; max-width: none; font-size: 12px; }
 
-/* Rehearse / Apply for real as one switch rather than two cards. */
-.mode-picker { display: grid; gap: 8px; }
-.mode-switch {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
-}
-.mode-switch button {
-  flex: 1 1 auto;
-  min-height: 38px;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 13px;
-  font-weight: 600;
-  transition: background .15s, color .15s, box-shadow .15s;
-}
-.mode-switch button:hover:not(:disabled) { color: var(--text); }
-.mode-switch button:disabled { cursor: default; opacity: .7; }
-.mode-switch button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(18, 42, 70, .12); }
-.mode-switch button.on.live { color: var(--bad); }
-.mode-switch .badge { padding: 1px 7px; font-size: 10px; }
-.mode-desc { margin: 0; min-height: 20px; }
 
 .run-dashboard .run-actions { display: grid; gap: 8px; }
 .run-dashboard .run-actions .btn.lg { width: 100%; min-height: 44px; font-size: 14px; }
@@ -1966,3 +1933,6 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* Operator diagnostic beneath the start button: same width, quieter. */
 .run-dashboard .run-actions .run-scope-btn { width: 100%; border-style: dashed; }
+
+/* One line under the plans for what only a pass includes. */
+.pricing-footnote { margin: -4px 0 0; text-align: center; }

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { userChromeDir, userDir } from './server/userdata.js';
-import { runner, readEnv, readEnvSafe, type RunMode } from './server/runner.js';
+import { runner, readEnv, readEnvSafe, isRunMode, type RunMode } from './server/runner.js';
 import {
   listResumes, addResume, updateResume, deleteResume,
   listKnowledge, addKnowledgeFile, addKnowledgeNote, updateKnowledge, deleteKnowledge, knowledgeStats,
@@ -1040,7 +1040,11 @@ function dataApi(): Plugin {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
           const body = await readBody();
-          const mode = (body?.mode ?? 'search') as RunMode;
+          const requested = body?.mode ?? 'search';
+          if (!isRunMode(requested)) {
+            return send({ error: 'This page is out of date. Reload it, then start the run again.' }, 400);
+          }
+          const mode: RunMode = requested;
           /**
            * A live run submits real applications to real employers, so it
            * requires an explicit confirmation flag. The UI asks first; this

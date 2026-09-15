@@ -2,7 +2,6 @@ import { runner, type RunMode } from './runner.js';
 import { runSettingsForUser, USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 import {
   billingStatus,
-  consumeCompletedRehearsal,
   consumeSuccessfulApplication,
   isAdmin,
 } from './billing.js';
@@ -42,7 +41,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   const { userId, email, mode, trigger } = request;
   const admin = isAdmin(email);
   const entitlements = await entitlementsFor(userId, email);
-  const consumes = mode === 'live' || mode === 'rehearse';
+  /** A search-only run never reaches an employer; a live run submits applications. */
+  const consumes = mode === 'live';
 
   /**
    * Whether this account drives runs at all, checked before anything else.
@@ -55,7 +55,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       return {
         ok: false,
         status: 403,
-        error: 'Your plan applies automatically. Rehearsals and manual runs are part of the Intensive Pass.',
+        error: 'Your plan applies automatically. Manual runs are part of the Intensive Pass.',
       };
     }
     if (entitlements.manualRunsLeftToday !== null && entitlements.manualRunsLeftToday < 1) {
@@ -104,7 +104,6 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     if (entitlements.runScopes) overrides.APPLY_ONLY = request.scope;
   }
 
-  let countRehearsals = false;
   if (consumes) {
     try {
       const allowance = await billingStatus(userId, email);
@@ -121,7 +120,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 
       if (admin) {
         // No allowance check and no clamp: the operator runs at the size they configured.
-      } else if (mode === 'live') {
+      } else {
         if (allowance.totalRemaining < 1) {
           return {
             ok: false,
@@ -130,16 +129,6 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
           };
         }
         overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
-      } else if (!allowance.rehearsals.unlimited) {
-        if (allowance.rehearsals.remaining < 1) {
-          return {
-            ok: false,
-            status: 402,
-            error: 'No free rehearsals remain this month. Choose a pass for unlimited rehearsals or wait for the monthly reset.',
-          };
-        }
-        overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.rehearsals.remaining));
-        countRehearsals = true;
       }
     } catch (error) {
       return { ok: false, status: 503, error: `Could not verify run allowance: ${(error as Error).message}` };
@@ -154,7 +143,6 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     overrides,
     userId,
     mode === 'live' && !admin ? () => consumeSuccessfulApplication(userId) : undefined,
-    countRehearsals && !admin ? () => consumeCompletedRehearsal(userId) : undefined,
   );
   if (!result.ok) return { ok: false, status: 409, error: result.error ?? 'Could not start the run.' };
 

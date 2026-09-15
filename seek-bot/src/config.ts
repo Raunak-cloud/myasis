@@ -312,6 +312,8 @@ export const config = {
 
   /** Optional AuthorMist post-processor served by llama.cpp. */
   humanizer: {
+    /** Off for plans without the humanizer: letters are sent as drafted and verified. */
+    enabled: process.env.HUMANIZER_MODE !== 'off',
     url: (process.env.HUMANIZER_URL ?? '').replace(/\/$/, ''),
     /**
      * Where to go when the first URL is unreachable.

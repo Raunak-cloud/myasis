@@ -108,7 +108,6 @@ const PLAIN: Array<[RegExp, string]> = [
   [/^Fields not verified: (.+)/i, 'Required answers could not be confirmed: $1'],
   [/^the model could not ground \d+ answer\(s\): (.+)/i, 'These questions could not be answered from the profile: $1'],
   [/^submit is on an external site/i, "The application continues on the employer's own site."],
-  [/^DRY_RUN/i, 'Rehearsal — nothing was submitted.'],
   /**
    * A thrown error, in the browser driver's own words.
    *

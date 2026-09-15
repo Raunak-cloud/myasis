@@ -7,7 +7,12 @@ import { exportUserForRun, syncRunResultsToDb } from './db/run-sync.js';
 export const BOT_DIR = resolve(import.meta.dirname, '..', '..', 'seek-bot');
 const ENV_PATH = resolve(BOT_DIR, '.env');
 
-export type RunMode = 'search' | 'rehearse' | 'live';
+export type RunMode = 'search' | 'live';
+
+/** Request bodies are untrusted: only these modes start a run. */
+export function isRunMode(value: unknown): value is RunMode {
+  return value === 'search' || value === 'live';
+}
 
 export interface LogLine {
   seq: number;
@@ -58,6 +63,8 @@ const IDLE_STATE: RunState = {
 
 export async function assertHumanizerHealthy(overrides: Record<string, string> = {}): Promise<void> {
   const fileEnv = readEnv();
+  // A run whose plan does not include the humanizer never calls it, so its health is irrelevant.
+  if (overrides.HUMANIZER_MODE === 'off') return;
   if ((overrides.HUMANIZER_REQUIRED ?? process.env.HUMANIZER_REQUIRED ?? fileEnv.HUMANIZER_REQUIRED) !== 'true') return;
   const base = (
     overrides.HUMANIZER_URL ??
@@ -97,7 +104,6 @@ class Run {
   private child: ChildProcess | null = null;
   private cdpPort: number | null = null;
   private onApplicationSubmitted: (() => void | Promise<void>) | null = null;
-  private onRehearsalCompleted: (() => void | Promise<void>) | null = null;
   private lines: LogLine[] = [];
   private seq = 0;
   private listeners = new Set<(l: LogLine) => void>();
@@ -128,11 +134,6 @@ class Run {
             this.push('err', `Could not record application usage: ${(error as Error).message}`),
           );
         }
-      }
-      if (/🧪 rehearsed/.test(raw) && this.onRehearsalCompleted) {
-        void Promise.resolve(this.onRehearsalCompleted()).catch((error) =>
-          this.push('err', `Could not record rehearsal usage: ${(error as Error).message}`),
-        );
       }
       for (const fn of this.listeners) fn(line);
     }
@@ -187,7 +188,6 @@ class Run {
     overrides: Record<string, string>,
     cdpPort: number,
     onApplicationSubmitted?: () => void | Promise<void>,
-    onRehearsalCompleted?: () => void | Promise<void>,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
@@ -224,9 +224,8 @@ class Run {
       // and must never be settable by a caller-supplied override.
       ...profileOverrides,
       CDP_PORT: String(cdpPort),
-      // Rehearse fills every form but withholds the final submit.
+      // Only a live run may submit; a search-only run never opens a form.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
-      ...(mode === 'rehearse' ? { REHEARSE: 'true' } : {}),
       // Always last: no override may point a run at another account's files.
       DATA_DIR: dataDir,
     };
@@ -234,7 +233,6 @@ class Run {
     this.lines = [];
     this.seq = 0;
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
-    this.onRehearsalCompleted = onRehearsalCompleted ?? null;
     this.state = {
       running: true,
       mode,
@@ -327,7 +325,6 @@ class Run {
       this.child = null;
       this.cdpPort = null;
       this.onApplicationSubmitted = null;
-      this.onRehearsalCompleted = null;
       this.push('sys', `■ ${kind} finished (exit ${code})`);
       // Fold what this run actually did — new applications, run events — back
       // into userId's Postgres rows. `syncRunResultsToDb` is idempotent (ON
@@ -425,7 +422,6 @@ class RunPool {
     overrides: Record<string, string>,
     userId: string,
     onApplicationSubmitted?: () => void | Promise<void>,
-    onRehearsalCompleted?: () => void | Promise<void>,
   ): Promise<{ ok: boolean; error?: string }> {
     this.sweep();
     const full = this.atCapacity(userId);
@@ -435,7 +431,6 @@ class RunPool {
       overrides,
       this.availableBrowserPort(),
       onApplicationSubmitted,
-      onRehearsalCompleted,
     );
   }
 

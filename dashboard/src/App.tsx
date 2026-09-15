@@ -28,7 +28,7 @@ interface TodayStats {
 const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   run: {
     title: 'Apply for jobs',
-    description: 'Run a safe rehearsal or submit applications when you are ready.',
+    description: 'Find suitable jobs and submit applications.',
   },
   attention: {
     title: 'Needs attention',

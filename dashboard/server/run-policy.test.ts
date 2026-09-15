@@ -17,10 +17,10 @@ const saved = {
   AI_INSTRUCTIONS_B64: 'ZG9udCBhcHBseSBmb3Igc2VuaW9yIHJvbGVz',
 };
 
-const freePolicy = { fineTune: false, indeedApplications: false, evaluationsPerRun: 10 };
-const jobSearchPolicy = { fineTune: false, indeedApplications: true, evaluationsPerRun: 70 };
-const intensivePolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: 100 };
-const adminPolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: null };
+const freePolicy = { fineTune: false, indeedApplications: false, evaluationsPerRun: 10, humanizer: false };
+const jobSearchPolicy = { fineTune: false, indeedApplications: true, evaluationsPerRun: 70, humanizer: true };
+const intensivePolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: 100, humanizer: true };
+const adminPolicy = { fineTune: true, indeedApplications: true, evaluationsPerRun: null, humanizer: true };
 
 const standardManual = applyRunPolicy(saved, freePolicy, 'manual');
 check('standard accounts keep their job preferences', standardManual.KEYWORDS === saved.KEYWORDS);
@@ -53,6 +53,9 @@ const jobSearchAuto = applyRunPolicy(saved, jobSearchPolicy, 'auto');
 check('Free runs stay on SEEK', scheduled.PLATFORMS === 'seek');
 check('Job Search Pass runs use SEEK and Indeed', jobSearchAuto.PLATFORMS === 'seek,indeed');
 check('Job Search Pass runs assess 70 jobs', jobSearchAuto.MAX_EVALUATIONS === '70');
+check('Free runs never use the humanizer', scheduled.HUMANIZER_MODE === 'off' && standardManual.HUMANIZER_MODE === 'off');
+check('Job Search Pass runs keep the humanizer', jobSearchAuto.HUMANIZER_MODE !== 'off');
+check('Intensive runs keep the humanizer', intensive.HUMANIZER_MODE !== 'off');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Job Search Pass accounts receive four scheduled runs', automaticRunsPerDay('standard', true) === 4);
 check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);

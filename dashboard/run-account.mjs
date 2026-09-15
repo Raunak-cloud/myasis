@@ -7,19 +7,19 @@
  * because /api/run needs that account's signed-in session cookie, which an
  * operator on this machine does not have.
  *
- *   node run-account.mjs <userId> <search|rehearse|live> [KEY=VALUE ...]
+ *   node run-account.mjs <userId> <search|live> [KEY=VALUE ...]
  */
 import { runner } from './server/runner.js';
 import { runSettingsForUser } from './server/settings.js';
 import { syncRunResultsToDb } from './server/db/run-sync.js';
 import { resolve } from 'node:path';
-import { billingStatus, isAdmin, consumeSuccessfulApplication, consumeCompletedRehearsal } from './server/billing.js';
+import { billingStatus, isAdmin, consumeSuccessfulApplication } from './server/billing.js';
 import { one } from './server/db/index.js';
 import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS } from './server/entitlements.js';
 
 const [userId, mode, ...rest] = process.argv.slice(2);
-if (!userId || !['search', 'rehearse', 'live'].includes(mode ?? '')) {
-  console.error('usage: node run-account.mjs <userId> <search|rehearse|live> [KEY=VALUE ...]');
+if (!userId || !['search', 'live'].includes(mode ?? '')) {
+  console.error('usage: node run-account.mjs <userId> <search|live> [KEY=VALUE ...]');
   process.exit(2);
 }
 
@@ -94,7 +94,6 @@ runner.subscribe(userId, (line) => process.stdout.write(`${line.text.replace(/\s
 const usageWrites = [];
 const started = await runner.start(mode, overrides, userId,
   () => { const write = consumeSuccessfulApplication(userId); usageWrites.push(write); return write; },
-  () => { const write = consumeCompletedRehearsal(userId); usageWrites.push(write); return write; },
 );
 if (!started.ok) {
   console.error(`could not start: ${started.error}`);

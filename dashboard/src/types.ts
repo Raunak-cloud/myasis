@@ -29,7 +29,6 @@ export type LogStatus =
   | 'skipped'
   | 'off-platform'
   | 'needs-human'
-  | 'rehearsed'
   | 'error';
 
 export interface LogEntry {
@@ -49,6 +48,5 @@ export const STATUS_META: Record<LogStatus, { label: string; tone: string }> = {
   skipped: { label: 'Skipped', tone: 'muted' },
   'off-platform': { label: 'Off-platform', tone: 'info' },
   'needs-human': { label: 'Needs you', tone: 'warn' },
-  rehearsed: { label: 'Rehearsed', tone: 'info' },
   error: { label: 'Error', tone: 'bad' },
 };
