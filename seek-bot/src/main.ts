@@ -578,7 +578,7 @@ async function main() {
         break;
       }
       if (index.appliedToday() >= config.limits.maxApplicationsPerDay) {
-        console.log('\nDaily cap reached.');
+        console.log(`\nDaily cap of ${config.limits.maxApplicationsPerDay} reached.`);
         break;
       }
 

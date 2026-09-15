@@ -135,6 +135,10 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
       add(line, 'Needs your attention', 'warn', 'Open Needs attention to review it.');
     } else if (/↪ off-platform/i.test(text)) {
       add(line, 'Skipped an external application', 'warn', "This application continues on the employer's website.");
+    } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
+      add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
+    } else if ((match = text.match(/Run cap of (\d+) reached/i))) {
+      add(line, 'This run reached its limit', 'done', `${match[1]} applications is the most one run sends.`);
     } else if (/already running with this profile/i.test(text)) {
       add(line, 'The browser was still open from an earlier session', 'bad', 'Owtomate closes it before a run now. Start the run again.');
     } else if (/(?:✗\s+(?:unexpected )?error:|Fatal:)/i.test(text)) {

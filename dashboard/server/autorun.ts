@@ -241,9 +241,9 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
     if (result.ok) {
       started.push(userId);
       console.log(`[autorun] user ${userId}: run ${done + 1} of ${entitlements.autoRunsPerDay}`);
-    } else if (result.status !== 409 && result.status !== 402) {
-      // 409 is "already running or at capacity" and 402 "out of allowance";
-      // both are ordinary and right themselves.
+    } else if (result.status !== 409 && result.status !== 402 && result.status !== 429) {
+      // 409 is "already running or at capacity", 402 "out of allowance" and
+      // 429 "today's limit reached"; all are ordinary and right themselves.
       console.warn(`[autorun] user ${userId}: ${result.error}`);
     }
   }

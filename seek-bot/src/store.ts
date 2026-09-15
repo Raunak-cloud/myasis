@@ -57,11 +57,20 @@ export class AppliedIndex {
     saveApplied(this.records);
   }
 
+  /**
+   * Submissions since local midnight.
+   *
+   * Compared as UTC dates this reset at 10 am in Sydney, so the bot's "today"
+   * and the dashboard's disagreed for most of every day, and a morning run
+   * could stop on yesterday afternoon's applications.
+   */
   appliedToday(): number {
-    const today = new Date().toISOString().slice(0, 10);
+    const timeZone = process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney';
+    const day = (at: Date) => at.toLocaleDateString('en-CA', { timeZone });
+    const today = day(new Date());
     return this.records.filter(
       (r) =>
-        r.appliedAt.startsWith(today) &&
+        day(new Date(r.appliedAt)) === today &&
         (r.submittedByMyasis ?? (r.score > 0 || Boolean(r.coverLetter))),
     ).length;
   }

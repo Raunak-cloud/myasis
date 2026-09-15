@@ -17,6 +17,14 @@ import { waitForSigninChecks } from './seek-check.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { userChromeDir } from './userdata.js';
+import { submittedToday } from './today.js';
+
+/** The daily limit a run will enforce, resolved exactly as seek-bot's config does. */
+function dailyLimit(overrides: Record<string, string>): number {
+  const wanted = Number(overrides.MAX_APPS_PER_DAY || 20);
+  if (!Number.isFinite(wanted)) return 20;
+  return Math.max(1, overrides.ADMIN_UNLIMITED === 'true' ? Math.floor(wanted) : Math.min(50, wanted));
+}
 
 /**
  * The one way a run starts.
@@ -150,6 +158,27 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       }
     } catch (error) {
       return { ok: false, status: 503, error: `Could not verify run allowance: ${(error as Error).message}` };
+    }
+  }
+
+  /**
+   * A run that could not submit anything is refused, not started.
+   *
+   * The bot checks the daily limit as it starts and stops at once, so a run
+   * begun with the limit already reached finished in under a second with
+   * nothing to show — it looked stalled, and it spent a run from the day's
+   * allowance and a scheduled slot. Counted in the candidate's own day, the
+   * same count the dashboard shows as "sent today".
+   */
+  if (consumes) {
+    const limit = dailyLimit(overrides);
+    const sent = await submittedToday(userId).catch(() => 0);
+    if (sent >= limit) {
+      return {
+        ok: false,
+        status: 429,
+        error: `Today's limit of ${limit} applications is reached (${sent} sent). Runs resume tomorrow${entitlements.fineTune ? ', or raise the daily application cap in the run settings' : ''}.`,
+      };
     }
   }
 
