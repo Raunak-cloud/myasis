@@ -5,6 +5,7 @@ import { startRun } from './start-run.js';
 import { entitlementsFor, lastRunStartedAt, RUN_TIME_ZONE, type Entitlements } from './entitlements.js';
 import { sessionFor } from './signin.js';
 import { sendDailyDigests, digestDue } from './digest.js';
+import { accountSetupComplete } from './setup.js';
 
 /**
  * Applications for the accounts that do not drive runs themselves.
@@ -128,15 +129,35 @@ interface Scheduled {
   userId: string;
   email: string;
   entitlements: Entitlements;
+  /** The account holder has uploaded a résumé and set details, search terms and location. */
+  ready: boolean;
 }
 
 async function scheduledAccounts(): Promise<Scheduled[]> {
-  const users = await query<{ id: string; email: string }>('SELECT id::text AS id, email FROM users ORDER BY id');
+  /**
+   * An account only joins the automatic timetable after onboarding has
+   * produced the one thing every live application requires: a resume.
+   *
+   * Previously every newly-created user was scheduled immediately. The
+   * first due tick then called `startRun`, was (correctly) refused for having
+   * no resume, and surfaced that refusal as "The last scheduled run could
+   * not start". That makes an unfinished setup look like a failed service.
+   * Keeping those accounts out of the timetable also prevents them from
+   * taking slots away from candidates who are ready to apply.
+   */
+  const users = await query<{ id: string; email: string }>(
+    `SELECT u.id::text AS id, u.email
+       FROM users u
+      WHERE EXISTS (SELECT 1 FROM resumes r WHERE r.user_id = u.id)
+      ORDER BY u.id`,
+  );
   const scheduled: Scheduled[] = [];
   for (const user of users) {
     try {
       const entitlements = await entitlementsFor(user.id, user.email);
-      if (entitlements.autoRunsPerDay !== 0) scheduled.push({ userId: user.id, email: user.email, entitlements });
+      if (entitlements.autoRunsPerDay === 0) continue;
+      const ready = await accountSetupComplete(user.id).catch(() => false);
+      scheduled.push({ userId: user.id, email: user.email, entitlements, ready });
     } catch {
       // One unavailable account must not hide the schedule for everyone else.
     }
@@ -144,9 +165,9 @@ async function scheduledAccounts(): Promise<Scheduled[]> {
   return scheduled;
 }
 
-/** Timetabled accounts, in the stable order their slots are computed from. */
+/** Timetabled accounts that are set up, in the stable order their slots are computed from. */
 function timetabled(accounts: Scheduled[]): Scheduled[] {
-  return accounts.filter((account) => account.entitlements.autoRunsPerDay !== null);
+  return accounts.filter((account) => account.ready && account.entitlements.autoRunsPerDay !== null);
 }
 
 interface LocalDateTime {
@@ -207,10 +228,13 @@ export interface AutoScheduleStatus {
   runsUsedToday: number;
   /** Null for an account that runs back to back with no daily count. */
   runsPerDay: number | null;
-  nextRunAt: string;
+  /** Null while the account's setup is unfinished: nothing is scheduled until it is. */
+  nextRunAt: string | null;
   dueNow: boolean;
   timeZone: string;
   lastError: { message: string; at: string } | null;
+  /** The account holder still has setup steps to do before any scheduled run. */
+  waitingForSetup: boolean;
 }
 
 /**
@@ -231,10 +255,19 @@ async function continuousDueAt(userId: string): Promise<number> {
 export async function autoScheduleFor(userId: string, now: Date = new Date()): Promise<AutoScheduleStatus | null> {
   const accounts = await scheduledAccounts();
   const account = accounts.find((candidate) => candidate.userId === userId);
-  if (!account) return null;
+  if (!account) {
+    // Do not retain an onboarding refusal if the account is not yet eligible
+    // for automatic runs. Once a resume is uploaded it starts with a clean
+    // schedule instead of showing an obsolete failure.
+    lastRefusal.delete(userId);
+    return null;
+  }
 
   const runsPerDay = account.entitlements.autoRunsPerDay;
   const runsUsedToday = account.entitlements.autoRunsUsedToday;
+  if (!account.ready) {
+    return { runsUsedToday, runsPerDay, nextRunAt: null, dueNow: false, timeZone: RUN_TIME_ZONE, lastError: null, waitingForSetup: true };
+  }
   const lastError = lastRefusal.get(userId) ?? null;
 
   if (runsPerDay === null) {
@@ -247,6 +280,7 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
       dueNow,
       timeZone: RUN_TIME_ZONE,
       lastError,
+      waitingForSetup: false,
     };
   }
 
@@ -273,6 +307,7 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
     dueNow,
     timeZone: RUN_TIME_ZONE,
     lastError,
+    waitingForSetup: false,
   };
 }
 
@@ -288,6 +323,8 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
   const scheduled = await scheduledAccounts();
   if (!scheduled.length) return [];
   const elapsed = minutesIntoDay(now);
+  // An account still setting up has nothing to report as a failure.
+  for (const account of scheduled) if (!account.ready) lastRefusal.delete(account.userId);
 
   /**
    * The timetable is built from the accounts the scheduler serves, in a
@@ -322,7 +359,7 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
   // Back-to-back accounts take whatever lanes the timetable leaves, longest waiting first.
   const continuous: Array<Scheduled & { dueAt: number }> = [];
   for (const account of scheduled) {
-    if (account.entitlements.autoRunsPerDay !== null || !free(account.userId)) continue;
+    if (!account.ready || account.entitlements.autoRunsPerDay !== null || !free(account.userId)) continue;
     const dueAt = await continuousDueAt(account.userId);
     if (dueAt <= now.getTime()) continuous.push({ ...account, dueAt });
   }

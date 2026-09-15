@@ -43,11 +43,14 @@ interface AutoScheduleStatus {
   runsUsedToday: number;
   /** Null runs back to back, around the clock. */
   runsPerDay: number | null;
-  nextRunAt: string;
+  /** Null while setup is unfinished. */
+  nextRunAt: string | null;
   dueNow: boolean;
   timeZone: string;
   /** Why the last scheduled run could not start, until one does. */
   lastError: { message: string; at: string } | null;
+  /** Nothing is scheduled until the account's setup is finished. */
+  waitingForSetup: boolean;
 }
 
 const RUN_DEFAULTS: Record<string, string> = {
@@ -251,6 +254,7 @@ function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): s
 
 /** "next 6:00 pm" today, "next Wed 9:40 am" on another day. */
 function nextRunShort(schedule: AutoScheduleStatus): string {
+  if (schedule.waitingForSetup || !schedule.nextRunAt) return '';
   if (schedule.dueNow) return 'starting shortly';
   const at = new Date(schedule.nextRunAt);
   if (Number.isNaN(at.valueOf())) return '';
@@ -262,6 +266,7 @@ function nextRunShort(schedule: AutoScheduleStatus): string {
 }
 
 function nextRunLabel(schedule: AutoScheduleStatus): string {
+  if (schedule.waitingForSetup || !schedule.nextRunAt) return 'Automatic runs start once your setup is complete';
   if (schedule.dueNow) return 'Starting shortly';
   const at = new Date(schedule.nextRunAt);
   if (Number.isNaN(at.valueOf())) return 'Next run time unavailable';
@@ -404,7 +409,7 @@ export function RunPanel({
       void fetch('/api/auto-schedule')
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
-          if (!cancelled) setAutoSchedule(value?.nextRunAt ? value as AutoScheduleStatus : null);
+          if (!cancelled) setAutoSchedule(value && typeof value.runsUsedToday === 'number' ? value as AutoScheduleStatus : null);
         })
         .catch(() => {});
     };
@@ -752,7 +757,9 @@ export function RunPanel({
               Auto apply
             </span>
             <span className="job-meta">
-              {entitlements.autoRunsPerDay === null
+              {autoSchedule?.waitingForSetup
+                ? 'starts once your setup is complete'
+                : entitlements.autoRunsPerDay === null
                 ? `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} today · ${running ? 'running now' : autoSchedule ? nextRunShort(autoSchedule) || 'starting shortly' : 'around the clock'}`
                 : `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} today${autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}`}
             </span>

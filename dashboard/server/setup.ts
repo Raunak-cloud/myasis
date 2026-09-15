@@ -25,25 +25,25 @@ export interface SetupCheck {
  * the humanizer are genuinely install-wide, so those two still come from
  * `readEnv()`.
  */
-export async function setupStatus(
-  userId: string,
-): Promise<{ checks: SetupCheck[]; ready: boolean; done: number; total: number }> {
-  const env = readEnv();
+/**
+ * The steps only the account holder can do: résumé, details, search terms,
+ * location. Until they are done there is nothing to apply with, so the
+ * scheduler waits for them rather than trying and failing every minute — a
+ * new account has not had a run fail, it has not finished setting up.
+ */
+export async function accountSetupChecks(userId: string): Promise<{
+  resume: SetupCheck;
+  profile: SetupCheck;
+  keywords: SetupCheck;
+  where: SetupCheck;
+}> {
   const [resumes, gaps, settings] = await Promise.all([
     listResumes(userId),
     profileGaps(userId),
     loadUserSettings(userId),
   ]);
-
-  let humanizerError = '';
-  try {
-    await assertHumanizerHealthy();
-  } catch (error) {
-    humanizerError = (error as Error).message;
-  }
-
-  const checks: SetupCheck[] = [
-    {
+  return {
+    resume: {
       id: 'resume',
       label: 'Résumé uploaded',
       done: resumes.length > 0,
@@ -51,7 +51,7 @@ export async function setupStatus(
       fix: 'documents',
       required: true,
     },
-    {
+    profile: {
       id: 'profile',
       label: 'Remaining details completed',
       done: gaps.length === 0,
@@ -61,6 +61,47 @@ export async function setupStatus(
       fix: 'details',
       required: true,
     },
+    keywords: {
+      id: 'keywords',
+      label: 'Search terms set',
+      done: Boolean(settings.KEYWORDS?.trim()),
+      hint: 'Add the job titles to search for, comma separated.',
+      fix: 'looking',
+      required: true,
+    },
+    where: {
+      id: 'where',
+      label: 'Location and pay set',
+      done: Boolean(settings.ONSITE_CITY?.trim()) && Boolean(settings.WORK_ARRANGEMENTS?.trim()),
+      hint: 'Choose remote/hybrid/on-site and your city so on-site roles are filtered correctly.',
+      fix: 'where',
+      required: true,
+    },
+  };
+}
+
+/** Whether the account holder has done everything only they can do. */
+export async function accountSetupComplete(userId: string): Promise<boolean> {
+  const checks = await accountSetupChecks(userId);
+  return Object.values(checks).every((check) => !check.required || check.done);
+}
+
+export async function setupStatus(
+  userId: string,
+): Promise<{ checks: SetupCheck[]; ready: boolean; done: number; total: number }> {
+  const env = readEnv();
+  const account = await accountSetupChecks(userId);
+
+  let humanizerError = '';
+  try {
+    await assertHumanizerHealthy();
+  } catch (error) {
+    humanizerError = (error as Error).message;
+  }
+
+  const checks: SetupCheck[] = [
+    account.resume,
+    account.profile,
     {
       id: 'key',
       label: 'Matching service connected',
@@ -79,22 +120,8 @@ export async function setupStatus(
       fix: 'external',
       required: true,
     },
-    {
-      id: 'keywords',
-      label: 'Search terms set',
-      done: Boolean(settings.KEYWORDS?.trim()),
-      hint: 'Add the job titles to search for, comma separated.',
-      fix: 'looking',
-      required: true,
-    },
-    {
-      id: 'where',
-      label: 'Location and pay set',
-      done: Boolean(settings.ONSITE_CITY?.trim()) && Boolean(settings.WORK_ARRANGEMENTS?.trim()),
-      hint: 'Choose remote/hybrid/on-site and your city so on-site roles are filtered correctly.',
-      fix: 'where',
-      required: true,
-    },
+    account.keywords,
+    account.where,
   ];
 
   const required = checks.filter((c) => c.required);
