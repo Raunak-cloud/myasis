@@ -45,13 +45,13 @@ check('refuses Australian government destinations', isForbiddenDestination('http
 check('allows an ordinary apply path', !isForbiddenDestination('https://example.com/apply/step-2'));
 
 {
-  const guards = new RunGuards({ maxSteps: 2, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
+  const guards = new RunGuards({ maxSteps: 2, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
   check('first step is within budget', guards.nextStep().ok);
   check('second step is within budget', guards.nextStep().ok);
   check('third step exhausts the step budget', !guards.nextStep().ok);
 }
 {
-  const guards = new RunGuards({ maxSteps: 50, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
+  const guards = new RunGuards({ maxSteps: 50, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
   // DRY_RUN is on for this harness, so a clean ledger must still withhold.
   const clean = guards.canSubmit('https://www.seek.com.au/apply/review');
   check('dry run withholds an otherwise-allowed submit', !clean.allowed && clean.kind === 'dry-run');
@@ -60,7 +60,7 @@ check('allows an ordinary apply path', !isForbiddenDestination('https://example.
   check('an ungrounded answer blocks submission', !dirty.allowed && dirty.kind === 'ungrounded');
 }
 {
-  const guards = new RunGuards({ maxSteps: 50, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
+  const guards = new RunGuards({ maxSteps: 50, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
   guards.rememberField({ ref: 'f7', label: 'Tell us more:', kind: 'textarea' }, 'Tell us about yourself.');
   const remembered = guards.fieldShapes.get('Tell us more:');
   check(
@@ -77,7 +77,7 @@ check('allows an ordinary apply path', !isForbiddenDestination('https://example.
    * imports are hoisted — so config.dryRun was false and the withhold never
    * fired. The guard now reads the environment as well.
    */
-  const guards = new RunGuards({ maxSteps: 50, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
+  const guards = new RunGuards({ maxSteps: 50, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
   const savedEnv = process.env.DRY_RUN;
   const savedConfig = config.dryRun;
   try {

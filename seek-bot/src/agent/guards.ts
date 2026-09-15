@@ -119,6 +119,8 @@ export type SubmitVerdict =
 
 export interface RunGuardOptions {
   maxSteps: number;
+  /** Steps the agent may spend on one page of the form before it counts as stuck there. */
+  maxStepsPerPage: number;
   /**
    * How long the agent may go without getting anywhere.
    *
@@ -196,6 +198,27 @@ export class RunGuards {
 
   get stepCount(): number {
     return this.steps;
+  }
+
+  private readonly stepsByPage = new Map<string, number>();
+
+  /**
+   * One step on this page of the form.
+   *
+   * Counted per page rather than reset by leaving it, so going back and forth
+   * between two pages cannot keep a loop alive.
+   */
+  onPage(key: string): BudgetVerdict {
+    const steps = (this.stepsByPage.get(key) ?? 0) + 1;
+    this.stepsByPage.set(key, steps);
+    if (steps > this.options.maxStepsPerPage) {
+      return {
+        ok: false,
+        reason: 'The application needed more steps than one attempt allows.',
+        detail: `${this.options.maxStepsPerPage} steps on one page without moving on`,
+      };
+    }
+    return { ok: true };
   }
 
   /**

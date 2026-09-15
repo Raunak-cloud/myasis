@@ -287,15 +287,23 @@ export const config = {
     baseUrl: process.env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai',
     timeoutMs: Number(process.env.CELERIS_TIMEOUT_MS ?? 45_000),
 
-    /** Ceilings on one application. An agent loop has no natural stopping point. */
-    maxSteps: Number(process.env.AGENT_MAX_STEPS ?? 24),
+    /**
+     * Ceilings on one application. An agent loop has no natural stopping point.
+     *
+     * Steps are budgeted per page of the form as well as overall. A Workday
+     * application runs to five or six pages and needs forty-odd steps; a flat
+     * 24 ended those mid-form while they were still advancing. What has to be
+     * stopped is time spent on one page, which is what a loop looks like.
+     */
+    maxSteps: Number(process.env.AGENT_MAX_STEPS ?? 60),
+    maxStepsPerPage: Number(process.env.AGENT_MAX_STEPS_PER_PAGE ?? 16),
     /**
      * Stop when the agent is stuck, not merely when it is slow. A slow
      * multi-page employer form that keeps advancing gets as long as it needs.
      */
     maxStuckMs: Number(process.env.AGENT_STUCK_MS ?? 180_000),
     maxTotalMs: Number(process.env.AGENT_MAX_MS ?? 1_800_000),
-    budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? 0.05),
+    budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? 0.1),
 
     /** Turns with no page change before escalating to the reasoning model. */
     escalateAfterStalls: Number(process.env.AGENT_ESCALATE_AFTER ?? 2),

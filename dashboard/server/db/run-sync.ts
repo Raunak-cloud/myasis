@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, unlinkSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { query } from './index.js';
-import { insertApplicationRow, insertRunEventRow } from './records.js';
+import { insertApplicationRow, insertRunEventRow, upsertSiteAccount } from './records.js';
 import { ensureUserDataDir, userChromeDir } from '../userdata.js';
 import { chromeGoogleAccounts } from '../chrome-accounts.js';
 import { normaliseQuestions } from '../attention.js';
@@ -76,6 +76,8 @@ interface ApplicationExportRow {
   applied_at: Date | string;
   external: boolean;
   submitted_by_myasis: boolean;
+  site: string | null;
+  actions: unknown;
 }
 
 /**
@@ -116,7 +118,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
-            external, submitted_by_myasis
+            external, submitted_by_myasis, site, actions
        FROM applications WHERE user_id = $1 ORDER BY applied_at`,
     [userId],
   );
@@ -136,6 +138,8 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     answers: a.answers ?? [],
     scoreReasons: a.score_reasons ?? [],
     external: a.external === true,
+    ...(a.site ? { site: a.site } : {}),
+    ...(Array.isArray(a.actions) && a.actions.length ? { actions: a.actions } : {}),
     submittedByMyasis: a.submitted_by_myasis,
   }));
   writeFileSync(resolve(dir, 'applied.json'), JSON.stringify(appliedJson, null, 2));
@@ -243,6 +247,8 @@ export async function syncRunResultsToDb(
           scoreReasons: a.scoreReasons ?? [],
           appliedAt: a.appliedAt ?? new Date(),
           external: a.external === true,
+          site: typeof a.site === 'string' ? a.site : null,
+          actions: Array.isArray(a.actions) ? a.actions : [],
           submittedByMyasis: a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
         });
         if (inserted && (a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)))) applications++;
@@ -269,6 +275,18 @@ export async function syncRunResultsToDb(
           ts: e.ts ?? new Date(),
           questions: normaliseQuestions(e.questions).slice(0, 30),
         });
+        // Any attempt, finished or not, may have left the candidate with an account.
+        for (const action of Array.isArray(e.actions) ? e.actions : []) {
+          if (!['account-created', 'signed-in', 'password-reset'].includes(action?.kind)) continue;
+          await upsertSiteAccount(userId, {
+            site: String(action.site ?? ''),
+            email: String(action.email ?? ''),
+            createdByMyasis: action.kind === 'account-created',
+            jobTitle: e.title ?? null,
+            company: e.company ?? null,
+            at: action.at ?? e.ts ?? new Date(),
+          });
+        }
         runEvents++;
       } catch {
         /* skip an unparsable line rather than aborting the whole sync */

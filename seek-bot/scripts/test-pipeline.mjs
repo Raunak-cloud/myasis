@@ -36,9 +36,9 @@ try {
   await page.setContent('<label>Required<input required oninput="this.value=\'\'"></label>');
   fields = await extractFields(page);
   await assert.rejects(fillField(page, fields[0], 'rejected'), /did not accept|form rejected/i);
-  const guards = new RunGuards({maxSteps:10,maxStuckMs:10000,maxTotalMs:20000,meter:new CostMeter(1)});
-  const ctx={page,profile,job,guards,observation:{url:page.url(),title:'',actions:[],fields,text:''},captured:[],log:()=>{}};
-  response={answers:[{ref:fields[0].ref,value:'rejected',grounded:true}],injectionSuspected:false};
+  const guards = new RunGuards({maxSteps:10,maxStepsPerPage:16,maxStuckMs:10000,maxTotalMs:20000,meter:new CostMeter(1)});
+  const ctx={page,profile,job,guards,observation:{url:page.url(),title:'',actions:[],fields,text:''},captured:[],log:()=>{},actions:[]};
+  response={answers:[{ref:fields[0].ref,value:'rejected',applicationQuestion:true,grounded:true}],injectionSuspected:false};
   const failed=await executeTool(ctx,'answer_questions',{refs:[fields[0].ref]});
   assert.match(failed.message,/Not accepted/);
   assert.equal(ctx.captured.length,0);
@@ -46,11 +46,11 @@ try {
   await page.setContent('<label>Required<input required></label>');
   fields = await extractFields(page);
   ctx.observation.fields = fields;
-  response={answers:[{ref:fields[0].ref,value:'unsupported',grounded:false}],injectionSuspected:false};
+  response={answers:[{ref:fields[0].ref,value:'unsupported',applicationQuestion:true,grounded:false}],injectionSuspected:false};
   await executeTool(ctx,'answer_questions',{refs:[fields[0].ref]});
   assert.equal(await page.locator('input').inputValue(),'');
   assert.equal(guards.ungrounded.length,1);
-  response={answers:[{ref:fields[0].ref,value:'Supported',grounded:true}],injectionSuspected:false};
+  response={answers:[{ref:fields[0].ref,value:'Supported',applicationQuestion:true,grounded:true}],injectionSuspected:false};
   const recovered = await executeTool(ctx,'answer_questions',{refs:[fields[0].ref]});
   assert.equal(guards.pendingFields.size,0, recovered.message);
   assert.equal(guards.ungrounded.length,0);

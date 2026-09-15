@@ -162,18 +162,27 @@ export async function applyToIndeedJob(
       log: (line) => console.log(line),
     });
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
+    const actions = run.actions.length ? { actions: run.actions } : {};
 
     switch (run.outcome.status) {
       case 'applied':
-        return { status: 'applied', jobId: job.id, at: new Date().toISOString(), coverLetter: run.coverLetter, answers: run.captured };
+        return {
+          status: 'applied',
+          jobId: job.id,
+          at: new Date().toISOString(),
+          ...(run.site ? { site: run.site } : {}),
+          coverLetter: run.coverLetter,
+          answers: run.captured,
+          ...actions,
+        };
       case 'rehearsed':
-        return { status: 'rehearsed', jobId: job.id, coverLetter: run.coverLetter, answers: run.captured, stoppedAt: run.outcome.stoppedAt };
+        return { status: 'rehearsed', jobId: job.id, coverLetter: run.coverLetter, answers: run.captured, stoppedAt: run.outcome.stoppedAt, ...actions };
       case 'off-platform':
-        return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo };
+        return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo, ...actions };
       case 'already-applied':
-        return { status: 'already-applied', jobId: job.id, reason: run.outcome.reason };
+        return { status: 'already-applied', jobId: job.id, reason: run.outcome.reason, ...actions };
       case 'skipped':
-        return { status: 'skipped', jobId: job.id, reason: run.outcome.reason };
+        return { status: 'skipped', jobId: job.id, reason: run.outcome.reason, ...actions };
       case 'needs-human':
       default: {
         // Friction feeds the run-level abort counter, so repeated walls stop Indeed for the run.
@@ -185,6 +194,7 @@ export async function applyToIndeedJob(
           reason: run.outcome.reason,
           url: applyPage.url(),
           ...(run.outcome.questions?.length ? { questions: run.outcome.questions } : {}),
+          ...actions,
         };
       }
     }

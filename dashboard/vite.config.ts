@@ -41,6 +41,7 @@ import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { loadTodayStats } from './server/today.js';
+import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 
 const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
@@ -197,6 +198,9 @@ interface ApplicationRow {
   score_reasons: unknown;
   outcome: string | null;
   applied_at: Date | string;
+  external: boolean;
+  site: string | null;
+  actions: unknown;
 }
 
 function rowToApplication(a: ApplicationRow) {
@@ -216,6 +220,9 @@ function rowToApplication(a: ApplicationRow) {
     scoreReasons: a.score_reasons ?? [],
     outcome: a.outcome ?? undefined,
     appliedAt: new Date(a.applied_at).toISOString(),
+    external: a.external === true,
+    site: a.site ?? undefined,
+    actions: Array.isArray(a.actions) ? a.actions : [],
   };
 }
 
@@ -401,7 +408,8 @@ function dataApi(): Plugin {
             );
             const rows = await query<ApplicationRow>(
               `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
-                      age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at
+                      age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at,
+                      external, site, actions
                  FROM applications
                 WHERE user_id = $1 AND submitted_by_myasis
                 ORDER BY applied_at DESC`,
@@ -411,7 +419,8 @@ function dataApi(): Plugin {
           }
           const rows = await query<ApplicationRow>(
             `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
-                    age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at
+                    age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at,
+                    external, site, actions
                FROM applications
               WHERE user_id = $1 AND submitted_by_myasis
               ORDER BY applied_at DESC`,
@@ -420,6 +429,21 @@ function dataApi(): Plugin {
           return send(rows.map(rowToApplication));
         });
       }
+      case '/api/site-accounts': {
+        if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
+        return withUser(async (userId) => send(await listSiteAccounts(userId)));
+      }
+
+      case '/api/site-accounts/password': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async (userId) => {
+          const body = await readBody();
+          const password = await sitePasswordFor(userId, String(body?.site ?? ''), String(body?.email ?? ''));
+          if (!password) return send({ error: 'Myasis has no account on that site for you.' }, 404);
+          return send({ password });
+        });
+      }
+
       case '/api/log': {
         return withUser(async (userId) => {
           const rows = await query(

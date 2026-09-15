@@ -1,3 +1,5 @@
+import { hostOf as siteHost } from '../site-auth.js';
+import type { ApplicationAction } from '../types.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Page } from 'patchright';
@@ -142,6 +144,15 @@ interface TraceStep {
   screenshot?: string;
 }
 
+function pathOf(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -242,6 +253,10 @@ export interface AgentRunResult {
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
   resumeUsed?: string;
+  /** Side effects the candidate must be told about, whatever the outcome. */
+  actions: ApplicationAction[];
+  /** The employer site the attempt ended on, when it left the job board. */
+  site?: string;
   steps: number;
   usage: string;
 }
@@ -301,6 +316,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   const meter = new CostMeter(config.celeris.budgetUsdPerApplication);
   const guards = new RunGuards({
     maxSteps: config.celeris.maxSteps,
+    maxStepsPerPage: config.celeris.maxStepsPerPage,
     maxStuckMs: config.celeris.maxStuckMs,
     maxTotalMs: config.celeris.maxTotalMs,
     meter,
@@ -315,6 +331,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     captured: [],
     prefetchedLetter: options.prefetchedLetter,
     log,
+    actions: [],
   };
 
   const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt() }];
@@ -409,6 +426,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       captured: ctx.captured,
       coverLetter: ctx.coverLetter,
       resumeUsed: ctx.resumeUsed,
+      actions: ctx.actions,
+      // An application finished on an employer's own site is reported as such.
+      ...(isExternal(page.url()) ? { site: siteHost(page.url()) } : {}),
       steps: guards.stepCount,
       usage: meter.summary(),
     };
@@ -451,6 +471,22 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       await jitter(800, 1_500);
       ctx.observation = await observe(page, { screenshot: wantScreenshot });
     }
+
+    /**
+     * The page of the form this step is on: its path and its headings. A long
+     * form earns steps by moving through its pages; one page does not.
+     */
+    const headings = await page
+      .evaluate(() =>
+        [...document.querySelectorAll('h1, h2, [role="heading"][aria-level="1"], [role="heading"][aria-level="2"]')]
+          .map((node) => (node as HTMLElement).innerText?.trim() ?? '')
+          .filter(Boolean)
+          .slice(0, 3)
+          .join('|'),
+      )
+      .catch(() => '');
+    const pageBudget = guards.onPage(`${pathOf(page.url())}#${headings}`);
+    if (!pageBudget.ok) return finish({ status: 'needs-human', reason: pageBudget.reason, detail: pageBudget.detail });
 
     // A page that has not changed since the last turn means the previous action
     // did nothing. Say so explicitly rather than letting the model repeat it.

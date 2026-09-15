@@ -11,13 +11,13 @@ import {
 import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
 import { answerFields, coverLetterForJob, finishedCoverLetterForJob } from '../llm.js';
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
-import type { BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
+import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
-import { authenticationValue } from '../site-auth.js';
+import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 
 /**
@@ -66,9 +66,24 @@ export interface ToolContext {
   /** Drafted in parallel with the apply UI opening. */
   prefetchedLetter?: Promise<{ letter?: string; error?: Error }>;
   log: (line: string) => void;
+  /** Side effects the candidate must be told about — see `ApplicationAction`. */
+  actions: ApplicationAction[];
 }
 
 const ok = (message: string): ToolResult => ({ kind: 'ok', message });
+
+/** Records a side effect once per kind and site, and says so in the run log. */
+function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {
+  if (ctx.actions.some((known) => known.kind === action.kind && known.site === action.site)) return;
+  ctx.actions.push({ ...action, at: new Date().toISOString() });
+}
+
+/** A site named the way the candidate knows it. */
+function siteName(host: string): string {
+  if (/(^|\.)seek\.com(\.au)?$/.test(host)) return 'SEEK';
+  if (/(^|\.)indeed\.com$/.test(host)) return 'Indeed';
+  return host;
+}
 
 const EMAILED_CODE_TOOL: ToolSchema = {
   name: 'enter_emailed_code',
@@ -143,9 +158,14 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           items: { type: 'string' },
           description: 'Authentication field refs from the current FIELDS list.',
         },
-        reason: { type: 'string', description: 'Whether this is sign-in, account creation or password reset.' },
+        purpose: {
+          type: 'string',
+          enum: ['sign_in', 'create_account', 'reset_password'],
+          description: 'What this page does with the credential: sign in to an existing account, create a new one, or set a new password.',
+        },
+        reason: { type: 'string', description: 'What on the page shows that purpose.' },
       },
-      required: ['refs', 'reason'],
+      required: ['refs', 'purpose', 'reason'],
     },
   },
   {
@@ -368,6 +388,26 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
   }
 
   if (filled.length) ctx.guards.recordProgress();
+  /**
+   * The candidate now has, or has used, an account they may never have heard
+   * of. The purpose is the agent's own reading of the page; the password is
+   * not recorded, because the dashboard can derive it again for its owner.
+   */
+  const credentialFilled = values.some(
+    ({ field, value }) => value !== null && (field.sensitive || field.inputType === 'password') && filled.includes(field.label),
+  );
+  if (credentialFilled) {
+    const site = hostOf(ctx.page.url());
+    const email = ctx.profile.email;
+    const purpose = String(args.purpose ?? '');
+    if (purpose === 'create_account') {
+      noteAction(ctx, { kind: 'account-created', site, email, detail: `Created an account on ${siteName(site)} with ${email}.` });
+    } else if (purpose === 'reset_password') {
+      noteAction(ctx, { kind: 'password-reset', site, email, detail: `Set a new password for your account on ${siteName(site)}.` });
+    } else {
+      noteAction(ctx, { kind: 'signed-in', site, email, detail: `Signed in to your account on ${siteName(site)} with ${email}.` });
+    }
+  }
   return ok(
     `${filled.length} authentication field(s) completed${filled.length ? `: ${filled.join('; ')}` : ''}.` +
       (unsupported.length
@@ -418,7 +458,32 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
       : 'None of those refs are fields on this page. Choose refs from the current FIELDS list.');
   }
 
-  const { answers, injectionSuspected } = await answerFields(wanted, ctx.job, ctx.profile);
+  const first = await answerFields(wanted, ctx.job, ctx.profile);
+  let answers = first.answers;
+  let injectionSuspected = first.injectionSuspected;
+  /**
+   * Before a required question goes to the candidate, the reasoning model
+   * gets one look at it. The fast model answers most questions well, but a
+   * question it could not place — a phone code split from the number, a date
+   * spread over three boxes — is usually one that a moment's thought resolves,
+   * and a paused application costs the candidate far more than a slower call.
+   */
+  const unsure = wanted.filter((field) =>
+    field.required &&
+    !ctx.guards.ungrounded.includes(field.label) &&
+    answers.some((answer) => answer.ref === field.ref && answer.applicationQuestion !== false && !answer.grounded),
+  );
+  if (unsure.length) {
+    ctx.log(`  ↑ thinking again about ${unsure.length} question(s) before asking the candidate`);
+    const second = await answerFields(unsure, ctx.job, ctx.profile, undefined, { reasoning: true }).catch(() => null);
+    if (second) {
+      answers = answers.map((answer) => {
+        const better = second.answers.find((candidate) => candidate.ref === answer.ref);
+        return better && (better.grounded || better.applicationQuestion === false) ? better : answer;
+      });
+      injectionSuspected ||= second.injectionSuspected;
+    }
+  }
   if (injectionSuspected) {
     ctx.log('  ⚠ prompt-injection attempt detected in this listing — ignored');
   }
@@ -617,6 +682,10 @@ async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
     case 'selected':
     case 'uploaded':
       ctx.resumeUsed = outcome.name;
+      if (outcome.status === 'uploaded') {
+        const site = hostOf(ctx.page.url());
+        noteAction(ctx, { kind: 'resume-uploaded', site, detail: `Added "${outcome.name}" to your documents on ${siteName(site)}.` });
+      }
       return ok(`Resume "${outcome.name}" ${outcome.status}. Move on to the next step.`);
     case 'unavailable':
       if (outcome.reason === 'local-file-missing') {
@@ -810,6 +879,14 @@ async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown
   await fillField(ctx.page, field, found.code);
   ctx.guards.recordProgress();
   ctx.log(`  ✉ entered the code from "${found.subject.slice(0, 60)}"`);
+  {
+    const site = hostOf(ctx.page.url());
+    noteAction(ctx, {
+      kind: 'email-code',
+      site,
+      detail: `Used the verification code ${siteName(site)} emailed you ("${found.subject.slice(0, 60)}").`,
+    });
+  }
   return ok(`Entered the emailed code into "${field.label}". Continue with the next control.`);
 }
 

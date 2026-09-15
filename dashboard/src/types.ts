@@ -22,6 +22,30 @@ export interface Application {
   answers?: Answer[];
   scoreReasons?: string[];
   outcome?: Outcome | null;
+  /** Submitted on the employer's own site rather than through the job board. */
+  external?: boolean;
+  /** That employer site's host. */
+  site?: string;
+  /** What Myasis did on the candidate's behalf while applying. */
+  actions?: ApplicationAction[];
+}
+
+export interface ApplicationAction {
+  kind: 'account-created' | 'signed-in' | 'password-reset' | 'resume-uploaded' | 'email-code';
+  site: string;
+  email?: string;
+  detail: string;
+  at: string;
+}
+
+export interface SiteAccount {
+  site: string;
+  email: string;
+  createdByMyasis: boolean;
+  jobTitle: string | null;
+  company: string | null;
+  firstUsedAt: string;
+  lastUsedAt: string;
 }
 
 export type LogStatus =

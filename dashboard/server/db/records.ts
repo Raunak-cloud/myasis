@@ -114,6 +114,10 @@ export interface ApplicationRow {
   appliedAt?: string | Date;
   /** Submitted on an employer's own site — counted against the daily employer-site allowance. */
   external?: boolean;
+  /** That employer site's host. */
+  site?: string | null;
+  /** What Myasis did on the candidate's behalf while applying. */
+  actions?: unknown[];
   /** False when retained only to prevent duplicating an application made elsewhere. */
   submittedByMyasis?: boolean;
 }
@@ -124,8 +128,8 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
     `INSERT INTO applications (
        user_id, job_id, title, company, location, url, platform, score, salary,
        work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons,
-       outcome, applied_at, external, submitted_by_myasis
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       outcome, applied_at, external, submitted_by_myasis, site, actions
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
      ON CONFLICT (user_id, job_id) DO NOTHING
      RETURNING id`,
     [
@@ -135,9 +139,38 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
       JSON.stringify(a.answers ?? []), JSON.stringify(a.scoreReasons ?? []),
       a.outcome ?? null, a.appliedAt ?? new Date(), a.external === true,
       a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
+      a.site ?? null, JSON.stringify(a.actions ?? []),
     ],
   );
   return rows.length > 0;
+}
+
+export interface SiteAccountUse {
+  site: string;
+  email: string;
+  createdByMyasis: boolean;
+  jobTitle?: string | null;
+  company?: string | null;
+  at?: string | Date;
+}
+
+/**
+ * Remembers an employer-site account Myasis created or used.
+ *
+ * Kept apart from applications because an account outlives the attempt that
+ * needed it: one created on a form that later stopped still exists, and its
+ * owner has to be able to find it.
+ */
+export async function upsertSiteAccount(uid: string, use: SiteAccountUse): Promise<void> {
+  if (!use.site || !use.email) return;
+  await query(
+    `INSERT INTO site_accounts (user_id, site, email, created_by_myasis, job_title, company, first_used_at, last_used_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+     ON CONFLICT (user_id, site, email) DO UPDATE SET
+       created_by_myasis = site_accounts.created_by_myasis OR EXCLUDED.created_by_myasis,
+       last_used_at = GREATEST(site_accounts.last_used_at, EXCLUDED.last_used_at)`,
+    [uid, use.site, use.email.toLowerCase(), use.createdByMyasis, use.jobTitle ?? null, use.company ?? null, use.at ?? new Date()],
+  );
 }
 
 export interface RunEventRow {

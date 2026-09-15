@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import type { Application, Outcome } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 
 interface Props {
@@ -12,6 +12,61 @@ interface Props {
 const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const boardLabel = (platform: string | undefined): string =>
   BOARD_LABELS[(platform ?? 'seek').toLowerCase()] ?? (platform ? platform[0].toUpperCase() + platform.slice(1) : 'SEEK');
+
+const ACCOUNT_KINDS: ApplicationAction['kind'][] = ['account-created', 'signed-in', 'password-reset'];
+
+/**
+ * A site account's password, shown only when its owner asks.
+ *
+ * Nothing stores it: the server derives it for a recorded account, and it
+ * lives in this component's state until the drawer or card closes.
+ */
+function SitePassword({ site, email }: { site: string; email: string }) {
+  const [password, setPassword] = useState<string | null>(null);
+  const [state, setState] = useState<'idle' | 'loading' | 'error' | 'copied'>('idle');
+
+  async function reveal() {
+    setState('loading');
+    try {
+      const response = await fetch('/api/site-accounts/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site, email }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.password) throw new Error(result.error ?? 'Unavailable');
+      setPassword(result.password);
+      setState('idle');
+    } catch {
+      setState('error');
+    }
+  }
+
+  async function copy() {
+    if (!password) return;
+    await navigator.clipboard?.writeText(password).catch(() => {});
+    setState('copied');
+    window.setTimeout(() => setState('idle'), 1500);
+  }
+
+  if (!password) {
+    return (
+      <span className="site-password">
+        <button className="btn btn-small" disabled={state === 'loading'} onClick={reveal}>
+          {state === 'loading' ? 'Loading…' : 'Show password'}
+        </button>
+        {state === 'error' && <span className="job-meta">Password unavailable.</span>}
+      </span>
+    );
+  }
+  return (
+    <span className="site-password">
+      <code>{password}</code>
+      <button className="btn btn-small" onClick={copy}>{state === 'copied' ? 'Copied' : 'Copy'}</button>
+      <button className="btn btn-small" onClick={() => setPassword(null)}>Hide</button>
+    </span>
+  );
+}
 
 const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
   { id: 'interview', label: 'Interview', tone: 'ok' },
@@ -30,6 +85,15 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
   const [filter, setFilter] = useState<'all' | 'awaiting' | 'interview' | 'rejected'>('all');
   const [open, setOpen] = useState<Application | null>(null);
   const [query, setQuery] = useState('');
+  const [accounts, setAccounts] = useState<SiteAccount[]>([]);
+
+  // Accounts outlive the applications that needed them, so they are listed on their own.
+  useEffect(() => {
+    fetch('/api/site-accounts')
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows) => setAccounts(Array.isArray(rows) ? rows : []))
+      .catch(() => {});
+  }, [apps]);
 
   async function setOutcome(jobId: string, outcome: Outcome | null) {
     const res = await fetch('/api/applications', {
@@ -90,6 +154,31 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
         />
       </div>
 
+      {accounts.length > 0 && (
+        <details className="card site-accounts">
+          <summary>
+            <strong>Employer site accounts</strong>
+            <span className="job-meta">
+              {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} Myasis created or used for you
+            </span>
+          </summary>
+          <ul>
+            {accounts.map((account) => (
+              <li key={`${account.site}|${account.email}`}>
+                <div className="minw">
+                  <div className="job-title">{account.site}</div>
+                  <div className="job-meta">
+                    {account.email} · {account.createdByMyasis ? 'created' : 'used'} by Myasis
+                    {account.company ? ` while applying to ${account.company}` : ''}
+                  </div>
+                </div>
+                <SitePassword site={account.site} email={account.email} />
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {rows.length === 0 ? (
         <div className="card empty">
           <div className="big">{apps.length ? 'Nothing here' : 'No applications yet'}</div>
@@ -114,7 +203,10 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                 return (
                   <tr key={a.jobId} className="clickable" onClick={() => setOpen(a)}>
                     <td>
-                      <div className="job-title">{a.title}</div>
+                      <div className="job-title">
+                        {a.title}
+                        {a.external && <span className="badge info app-site-badge">Employer site</span>}
+                      </div>
                       <div className="job-meta">
                         {a.company} · {a.location}
                       </div>
@@ -173,6 +265,31 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
             </div>
 
             <div className="drawer-body">
+              <div className="section">
+                <h3>Submitted</h3>
+                <p className="app-submitted">
+                  {open.external
+                    ? <>On the employer's own site{open.site ? <> · <strong>{open.site}</strong></> : null}. Found on {boardLabel(open.platform)}.</>
+                    : <>Through {boardLabel(open.platform)}.</>}
+                </p>
+              </div>
+
+              {open.actions?.length ? (
+                <div className="section">
+                  <h3>What Myasis did for you</h3>
+                  <ul className="app-actions">
+                    {open.actions.map((action, i) => (
+                      <li key={`${action.kind}-${i}`}>
+                        <span>{action.detail}</span>
+                        {ACCOUNT_KINDS.includes(action.kind) && action.email && (
+                          <SitePassword site={action.site} email={action.email} />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className="section">
                 <h3>Outcome</h3>
                 <div className="chips">

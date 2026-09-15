@@ -106,7 +106,7 @@ async function main() {
     }
     console.log(
       `Browser agent: Celeris ` +
-        `(max ${config.celeris.maxSteps} steps, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
+        `(max ${config.celeris.maxSteps} steps, ${config.celeris.maxStepsPerPage} per page, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
     );
   }
   if (!searchOnly) {
@@ -621,6 +621,8 @@ async function main() {
         continue;
       }
       logOutcome({ ...outcome, title: job.title, company: job.company });
+      // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
+      for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
 
       switch (outcome.status) {
         case 'applied':
@@ -644,6 +646,8 @@ async function main() {
             answers: outcome.answers,
             scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...reasons] : reasons,
             external: job.applicationMode === 'external',
+            ...(outcome.site ? { site: outcome.site } : {}),
+            ...(outcome.actions?.length ? { actions: outcome.actions } : {}),
             submittedByMyasis: true,
           });
           console.log(`  ✅ submitted (${applied}/${config.limits.maxApplicationsPerRun})`);

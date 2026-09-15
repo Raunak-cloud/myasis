@@ -1936,3 +1936,18 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* One line under the plans for what only a pass includes. */
 .pricing-footnote { margin: -4px 0 0; text-align: center; }
+
+/* Applications: where it went, and what was done on the candidate's behalf. */
+.app-site-badge { margin-left: 8px; vertical-align: 1px; }
+.app-submitted { margin: 0; line-height: 1.55; }
+.app-actions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.app-actions li,
+.site-accounts li {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 14px;
+}
+.site-password { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.site-password code { font-size: 12.5px; padding: 3px 7px; border-radius: 6px; background: var(--surface-2, var(--surface)); border: 1px solid var(--border); user-select: all; }
+.site-accounts { margin-bottom: 14px; padding: 0; }
+.site-accounts summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 14px 18px; }
+.site-accounts ul { list-style: none; margin: 0; padding: 0 18px 16px; display: grid; gap: 8px; }

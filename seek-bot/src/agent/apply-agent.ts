@@ -137,6 +137,7 @@ export async function applyToJobWithAgent(
     });
 
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
+    const actions = run.actions.length ? { actions: run.actions } : {};
 
     switch (run.outcome.status) {
       case 'applied':
@@ -144,8 +145,10 @@ export async function applyToJobWithAgent(
           status: 'applied',
           jobId: job.id,
           at: new Date().toISOString(),
+          ...(run.site ? { site: run.site } : {}),
           coverLetter: run.coverLetter,
           answers: run.captured,
+          ...actions,
         };
       case 'rehearsed':
         return {
@@ -154,13 +157,14 @@ export async function applyToJobWithAgent(
           coverLetter: run.coverLetter,
           answers: run.captured,
           stoppedAt: run.outcome.stoppedAt,
+          ...actions,
         };
       case 'off-platform':
-        return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo };
+        return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo, ...actions };
       case 'already-applied':
-        return { status: 'already-applied', jobId: job.id, reason: run.outcome.reason };
+        return { status: 'already-applied', jobId: job.id, reason: run.outcome.reason, ...actions };
       case 'skipped':
-        return { status: 'skipped', jobId: job.id, reason: run.outcome.reason };
+        return { status: 'skipped', jobId: job.id, reason: run.outcome.reason, ...actions };
       case 'needs-human':
       default: {
         // Friction signals feed the run-level abort counter exactly as the
@@ -173,6 +177,7 @@ export async function applyToJobWithAgent(
           reason: run.outcome.reason,
           url: flowPage.url(),
           ...(run.outcome.questions?.length ? { questions: run.outcome.questions } : {}),
+          ...actions,
         };
       }
     }

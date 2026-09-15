@@ -280,3 +280,25 @@ CREATE TABLE IF NOT EXISTS daily_digests (
   sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, day)
 );
+
+-- Where an application was submitted when it left the job board, and what
+-- Myasis did on the candidate's behalf while applying: an account created or
+-- signed in to, a document added to their profile, a code read from their inbox.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS site TEXT;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS actions JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Accounts on employer sites that Myasis created or used for a candidate,
+-- whatever became of the application that needed them. One row per site and
+-- email. The password is never stored: it is derived from SITE_AUTH_SECRET,
+-- the email and the site, and shown only to the account's owner on request.
+CREATE TABLE IF NOT EXISTS site_accounts (
+  user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  site              TEXT NOT NULL,
+  email             TEXT NOT NULL,
+  created_by_myasis BOOLEAN NOT NULL DEFAULT false,
+  job_title         TEXT,
+  company           TEXT,
+  first_used_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, site, email)
+);

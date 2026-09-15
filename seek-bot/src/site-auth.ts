@@ -1,7 +1,8 @@
 import { createHmac } from 'node:crypto';
 import type { CandidateProfile, FormField } from './types.js';
 
-function hostOf(url: string): string {
+/** The site a credential belongs to. Shared with the dashboard, which derives the same password on request. */
+export function hostOf(url: string): string {
   try {
     return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
   } catch {

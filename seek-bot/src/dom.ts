@@ -177,6 +177,45 @@ export async function extractFields(page: Page): Promise<FormField[]> {
     };
 
     /**
+     * Where a field sits on the page, so the answerer reads a label the way a
+     * person does: in its place. "Job Title" under "Work Experience 1" is a
+     * job the candidate held; "Month" means nothing until it is "From".
+     * Collected once — the nearest visible heading before the field, then the
+     * named groups around it — and reported, never interpreted, here.
+     */
+    const squash = (node: Element | null | undefined): string =>
+      ((node as HTMLElement | null)?.innerText ?? node?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const nameable = (text: string, label: string): boolean =>
+      text.length > 1 && text.length <= 100 && text !== label && !opaqueName(text);
+    const headings = deepElements().filter(
+      (node) => (/^H[1-6]$/.test(node.tagName) || node.getAttribute('role') === 'heading') && visible(node),
+    );
+    const groupName = (group: Element): string => {
+      const root = group.getRootNode() as Document | ShadowRoot;
+      const labelledBy = (group.getAttribute('aria-labelledby') ?? '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => squash(root.querySelector(`#${CSS.escape(id)}`)))
+        .join(' ');
+      return group.getAttribute('aria-label') || labelledBy || squash(group.querySelector(':scope > legend'));
+    };
+    const sectionFor = (el: Element, label: string): string => {
+      const parts: string[] = [];
+      const groupSelector = 'fieldset, [role="group"], [role="radiogroup"]';
+      for (let group = el.parentElement?.closest(groupSelector) ?? null; group && parts.length < 2; group = group.parentElement?.closest(groupSelector) ?? null) {
+        const name = groupName(group);
+        if (nameable(name, label) && !parts.includes(name)) parts.unshift(name);
+      }
+      let heading = '';
+      for (const candidate of headings) {
+        if (candidate.contains(el)) continue;
+        if (candidate.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) heading = squash(candidate);
+      }
+      if (nameable(heading, label) && !parts.includes(heading)) parts.unshift(heading);
+      return parts.join(' › ');
+    };
+
+    /**
      * SEEK's apply wizard marks nothing as required in the markup yet refuses
      * to advance until every question is answered, so on those pages every
      * field counts as required. Elsewhere the markup is trusted.
@@ -221,6 +260,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       el.setAttribute('data-field-id', ref);
       const label = labelFor(el);
       const description = descriptionFor(el, label);
+      const section = sectionFor(el, label);
 
       if (el.tagName === 'SELECT') {
         const sel = el as unknown as HTMLSelectElement;
@@ -228,6 +268,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           ref,
           label,
           ...(description ? { description } : {}),
+          ...(section ? { section } : {}),
           kind: 'select',
           required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label) || requiredOnThisPage(label),
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
@@ -241,12 +282,15 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         ref,
         label,
         ...(description ? { description } : {}),
+        ...(section ? { section } : {}),
         kind: el.tagName === 'TEXTAREA' ? 'textarea' : el.type === 'checkbox' ? 'checkbox' : 'text',
         required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label) || requiredOnThisPage(label),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',
         // Only when it constrains the value; "text" tells the answerer nothing.
-        ...(el.tagName === 'INPUT' && el.type && el.type !== 'text' ? { inputType: el.type } : {}),
+        ...(el.tagName === 'INPUT' && el.type && el.type !== 'text'
+          ? { inputType: el.type }
+          : el.getAttribute('role') === 'spinbutton' ? { inputType: 'number' } : {}),
         /**
          * A credential, never an employer question.
          *
@@ -283,10 +327,12 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       // `key` is the input's name, which for SEEK is an opaque questionnaire id.
       const groupLabel = caption || (opaqueName(key) ? 'unlabelled question' : key);
       const description = descriptionFor(container ?? inputs[0], groupLabel);
+      const section = sectionFor(container ?? inputs[0], groupLabel);
       fields.push({
         ref,
         label: groupLabel,
         ...(description ? { description } : {}),
+        ...(section ? { section } : {}),
         kind: 'radio',
         required:
           inputs.some((i) => i.required || i.getAttribute('aria-required') === 'true') ||

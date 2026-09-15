@@ -292,7 +292,7 @@ export function renderObservation(observation: Observation): string {
     .map((f) => {
       const options = f.options?.length ? `  options=${JSON.stringify(f.options)}` : '';
       const value = f.currentValue ? `  current=${JSON.stringify(f.currentValue)}` : '';
-      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.label}${options}${value}`;
+      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.section ? `${f.section} › ` : ''}${f.label}${options}${value}`;
     })
     .join('\n');
 

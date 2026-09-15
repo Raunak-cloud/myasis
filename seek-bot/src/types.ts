@@ -95,11 +95,33 @@ export interface ScoreBreakdown {
   reasons: string[];
 }
 
-export type ApplyOutcome =
+/**
+ * Something Myasis did while applying that the candidate has to know about.
+ *
+ * An account created on an employer's site, a sign-in, a document added to a
+ * job-board profile, a code read from their inbox: each changes something the
+ * candidate owns or will be asked about later, so it is recorded where it
+ * happened and shown with the application. A password is never recorded; the
+ * dashboard derives the site's password again when its owner asks for it.
+ */
+export interface ApplicationAction {
+  kind: 'account-created' | 'signed-in' | 'password-reset' | 'resume-uploaded' | 'email-code';
+  /** Host where it happened, e.g. "anglicare.wd105.myworkdayjobs.com". */
+  site: string;
+  /** The email the site account uses, for account actions. */
+  email?: string;
+  /** One plain sentence for the candidate. */
+  detail: string;
+  at: string;
+}
+
+export type ApplyOutcome = (
   | {
       status: 'applied';
       jobId: string;
       at: string;
+      /** The employer site the application was submitted on, when it was not the job board. */
+      site?: string;
       note?: string;
       /** Exactly what was sent, kept for the dashboard and for auditing. */
       coverLetter?: string;
@@ -124,7 +146,11 @@ export type ApplyOutcome =
       /** Employer questions the profile could not answer — the dashboard asks the candidate. */
       questions?: BlockedQuestion[];
     }
-  | { status: 'error'; jobId: string; error: string };
+  | { status: 'error'; jobId: string; error: string }
+) & {
+  /** What this attempt changed or used on the candidate's behalf, whatever its result. */
+  actions?: ApplicationAction[];
+};
 
 export interface AppliedRecord {
   jobId: string;
@@ -146,6 +172,10 @@ export interface AppliedRecord {
   scoreReasons?: string[];
   /** Submitted on an employer's own site rather than the job board. Counted against the daily employer-site allowance. */
   external?: boolean;
+  /** That employer site's host. */
+  site?: string;
+  /** Accounts created, sign-ins and other side effects of this application. */
+  actions?: ApplicationAction[];
   /** False when the record was only discovered on the job board for duplicate protection. */
   submittedByMyasis?: boolean;
 }
@@ -156,6 +186,13 @@ export interface FormField {
   label: string;
   /** Explanatory copy the form associates with this field. */
   description?: string;
+  /**
+   * Where the field sits: the nearest heading above it and any named group
+   * around it, outermost first ("Work Experience 1 › From"). A label alone is
+   * ambiguous — "Job Title" in a work-history entry is a job the candidate
+   * held, not the one being applied for.
+   */
+  section?: string;
   kind: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
   required: boolean;
   options?: string[];
@@ -208,4 +245,10 @@ export interface FieldAnswer {
   rationale?: string;
   /** What to ask the candidate when this answer cannot be grounded. */
   candidatePrompt?: string;
+  /**
+   * The model's reading of which identity detail on file the field asks for:
+   * name, firstName, lastName, email or phone — or none. Such values are
+   * copied from the profile exactly, so a typo cannot reach an employer.
+   */
+  profileField?: string;
 }
