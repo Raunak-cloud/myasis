@@ -80,9 +80,12 @@ export function TermsInput({
         data-field={dataField}
         className="terms-entry"
         value={draft}
-        disabled={disabled || full}
+        disabled={disabled}
+        aria-describedby={full ? `${id}-limit` : undefined}
         placeholder={full ? `Limit of ${max} reached` : terms.length ? 'Add another' : 'Type a job title and press Enter'}
         onChange={(event) => {
+          // At the limit the box stays usable, so Backspace can still remove a tag; it just takes no new text.
+          if (full) return;
           const next = event.target.value;
           if (next.includes(',')) commit(next);
           else setDraft(next);
@@ -99,6 +102,7 @@ export function TermsInput({
           if (draft.trim()) commit(draft);
         }}
       />
+      {full && <span className="sr-only" id={`${id}-limit`}>Limit of {max} reached. Remove one to add another.</span>}
       <span className="sr-only" aria-live="polite">{announcement}</span>
     </div>
   );
