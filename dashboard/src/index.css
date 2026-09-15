@@ -979,7 +979,10 @@ a:focus-visible,
 }
 .wordmark-ow { color: var(--wordmark-accent, var(--accent)); }
 /* The owl is the "o": sized to the letter and sat on the baseline, whatever the font size. */
-.wordmark .wordmark-owl { display: inline-block; width: 1.1em; height: 1.1em; margin-right: .03em; vertical-align: -.18em; }
+.wordmark .wordmark-owl {
+  display: inline-block; width: .92em; height: 1.1em; margin-right: -.06em; vertical-align: -.16em;
+  color: var(--wordmark-accent, var(--accent)); transform: rotate(6deg); transform-origin: 50% 60%;
+}
 .side-nav { display: flex; flex-direction: column; gap: 4px; }
 
 .nav-label {

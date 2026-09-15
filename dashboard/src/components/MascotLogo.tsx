@@ -1,16 +1,24 @@
 interface MascotLogoProps {
   size?: number;
   className?: string;
+  /**
+   * `head` crops to the owl's head so it can stand in for a letter; the full
+   * box leaves room around the head for the standalone mark.
+   */
+  crop?: 'full' | 'head';
+  /** A script-style tail from the cheek into the next letter, in `currentColor`. */
+  tail?: boolean;
 }
 
-export function MascotLogo({ size = 48, className = '' }: MascotLogoProps) {
+export function MascotLogo({ size = 48, className = '', crop = 'full', tail = false }: MascotLogoProps) {
   return (
     <svg
       className={`mascot-logo ${className}`.trim()}
-      width={size}
-      height={size}
-      viewBox="0 0 64 64"
+      width={crop === 'head' ? undefined : size}
+      height={crop === 'head' ? undefined : size}
+      viewBox={crop === 'head' ? '12 8 40 48' : '0 0 64 64'}
       fill="none"
+      overflow="visible"
       aria-hidden="true"
       focusable="false"
     >
@@ -28,6 +36,9 @@ export function MascotLogo({ size = 48, className = '' }: MascotLogoProps) {
         <path className="mascot-smile" d="M21.1 45.1c3.2 2.5 6.8 3.8 10.9 3.8s7.7-1.3 10.9-3.8" stroke="#8FC3F0" strokeWidth="3.4" strokeLinecap="round" />
         <path d="m28.7 40.4 3.3 2.3 3.3-2.3" stroke="#163F70" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
       </g>
+      {tail && (
+        <path d="M47 44 C 52 50, 56 52, 61 47" stroke="currentColor" strokeWidth="3.6" strokeLinecap="round" fill="none" />
+      )}
     </svg>
   );
 }

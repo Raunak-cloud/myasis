@@ -4,6 +4,7 @@ import { FREE_MONTHLY_APPLICATIONS, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATIO
 import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
+import { HeroStory } from './HeroStory';
 
 const QUESTIONS = [
   { question: 'Does it actually submit applications?', answer: 'Yes. Owtomate submits applications on your behalf, using your résumé, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
@@ -56,16 +57,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
     <main className="home-width">
       <section className="home-intro" aria-labelledby="home-heading">
-        <div className="home-hero-figure">
-          <picture className="home-story-slice home-story-old">
-            <source srcSet="/hero/old-way-vs-owtomate.webp" type="image/webp" />
-            <img src="/hero/old-way-vs-owtomate.png" width="1672" height="941" alt="The old way: search and apply to many jobs, get rejections, feel stressed. The Owtomate way: Owtomate finds and matches jobs for you, you get better matches, and whether accepted or rejected there are more opportunities ahead." />
-          </picture>
-          <picture className="home-story-slice home-story-myasis" aria-hidden="true">
-            <source srcSet="/hero/old-way-vs-owtomate.webp" type="image/webp" />
-            <img src="/hero/old-way-vs-owtomate.png" width="1672" height="941" alt="" />
-          </picture>
-        </div>
+        <HeroStory />
         <div className="home-hero-videos">
           <div className="home-intro-heading">
             <h1 id="home-heading">Job hunting is a job.<em>Not anymore 😌</em></h1>
