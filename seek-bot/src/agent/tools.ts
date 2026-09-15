@@ -627,7 +627,7 @@ async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
       }
       if (outcome.reason === 'upload-control-missing') {
         return ok(
-          `The selected resume ("${outcome.wanted}") is not on the SEEK account, and this application does not offer an upload control. ` +
+          `The selected resume ("${outcome.wanted}") is not on this account, and this application offers nowhere to upload it. ` +
             `Available: ${outcome.available.join(', ') || 'none'}. Finish with "cannot_complete".`,
         );
       }

@@ -149,111 +149,136 @@ export type ResumeOutcome =
       reason: 'upload-disabled' | 'local-file-missing' | 'upload-control-missing';
     };
 
+/** A document choice on a board's résumé step, whatever the board calls it. */
+interface DocumentChoice {
+  idx: number;
+  label: string;
+  checked: boolean;
+}
+
+const FILE_LIKE = /\.(docx?|pdf|rtf|txt)\b|uploaded/i;
+
 /**
- * Chooses which résumé this application should use.
+ * Every radio on the page that stands for a document. SEEK names its group
+ * `document-select`; Indeed's list is unnamed but each label is a file
+ * name with an upload date. Any radio whose label reads like a file is one.
+ */
+async function documentChoices(page: Page): Promise<{ radios: ReturnType<Page['locator']>; choices: DocumentChoice[] }> {
+  const radios = page.locator('input[type=radio]');
+  const count = await radios.count().catch(() => 0);
+  const choices: DocumentChoice[] = [];
+  for (let i = 0; i < count; i++) {
+    const info = await radios
+      .nth(i)
+      .evaluate((el) => {
+        const input = el as HTMLInputElement;
+        const wrap = input.closest('label');
+        const id = input.getAttribute('id');
+        const byFor = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
+        const described = (input.getAttribute('aria-labelledby') ?? '')
+          .split(/\s+/)
+          .map((ref) => document.getElementById(ref)?.textContent ?? '')
+          .join(' ');
+        return {
+          label: wrap?.textContent || byFor?.textContent || described || input.getAttribute('aria-label') || '',
+          group: input.name,
+          checked: input.checked || input.getAttribute('aria-checked') === 'true',
+        };
+      })
+      .catch(() => null);
+    if (!info) continue;
+    const label = clean(info.label);
+    if (info.group !== 'document-select' && !FILE_LIKE.test(label)) continue;
+    choices.push({ idx: i, label, checked: info.checked });
+  }
+  return { radios, choices };
+}
+
+/** The choice whose label names this résumé, ignoring extension, spacing and an upload date after it. */
+function matchChoice(choices: DocumentChoice[], wanted: ResumeRecord): DocumentChoice | undefined {
+  const target = normaliseName(wanted.seekName ?? wanted.fileName);
+  if (!target) return undefined;
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The name, then either the end or a word that is not a bare number ("resume 2" is a different file).
+  const pattern = new RegExp(`^${escaped}(?: (?!\\d+\\b)|$)`);
+  return choices.find((choice) => pattern.test(normaliseName(choice.label)));
+}
+
+/**
+ * Chooses which résumé this application should use, on any board or site.
  *
- * Preference order matters. Selecting an existing SEEK document changes
- * nothing about the profile, so it is always tried first. Uploading adds a new
- * document to the user's SEEK account — a profile modification — so it only
- * happens when explicitly allowed.
+ * Preference order matters. Selecting a document already on the account
+ * changes nothing about the profile, so it is always tried first. Uploading
+ * adds a document to the account — a profile modification — so it happens
+ * only when the run allows it. When the résumé chosen for this job is not on
+ * the board and can be uploaded, it is, and then selected; only when there is
+ * nowhere to upload does the step fall back to what the board already holds,
+ * and says so.
  */
 export async function selectResume(
   page: Page,
   wanted: ResumeRecord | null,
   allowUpload: boolean,
 ): Promise<ResumeOutcome> {
-  const radios = page.locator('input[type=radio][name="document-select"]');
-  const count = await radios.count();
-  if (count === 0) return { status: 'kept-default', name: '(no document step)' };
+  const { radios, choices } = await documentChoices(page);
+  const realDocs = choices.filter((o) => !/don't include|do not include/i.test(o.label));
+  const fileInput = page.locator('input[type=file]').first();
+  const canUpload = (await fileInput.count().catch(() => 0)) > 0;
 
-  const options: Array<{ idx: number; label: string }> = [];
-  for (let i = 0; i < count; i++) {
-    const label = clean(
-      await radios
-        .nth(i)
-        .evaluate((el) => {
-          const wrap = (el as HTMLElement).closest('label');
-          if (wrap?.textContent) return wrap.textContent;
-          const id = el.getAttribute('id');
-          const byFor = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
-          return byFor?.textContent ?? '';
-        })
-        .catch(() => ''),
-    );
-    options.push({ idx: i, label });
-  }
-
-  const realDocs = options.filter((o) => !/don't include|do not include/i.test(o.label));
+  if (!realDocs.length && !canUpload) return { status: 'kept-default', name: '(no document step)' };
 
   if (!wanted) {
-    const current = realDocs.find(async (_o) => true);
-    return { status: 'kept-default', name: current?.label ?? realDocs[0]?.label ?? 'unknown' };
+    const current = realDocs.find((o) => o.checked) ?? realDocs[0];
+    return { status: 'kept-default', name: current?.label ?? 'unknown' };
   }
 
-  // 1. Already on SEEK? Just tick it.
-  const target = normaliseName(wanted.seekName ?? wanted.fileName);
-  const match = realDocs.find((o) => normaliseName(o.label) === target);
+  // 1. Already on the account? Choose it.
+  const match = matchChoice(realDocs, wanted);
   if (match) {
-    await checkRadio(radios.nth(match.idx));
+    if (!match.checked) await checkRadio(radios.nth(match.idx));
     return { status: 'selected', name: match.label };
   }
 
-  // 2. Not there — upload only with permission.
+  // 2. Not there — upload only with permission, and only where there is somewhere to upload to.
   const localPath = resolve(RESUME_DIR, wanted.fileName);
-  if (!allowUpload) {
-    return {
-      status: 'unavailable',
-      wanted: wanted.label,
-      available: realDocs.map((o) => o.label),
-      reason: 'upload-disabled',
-    };
-  }
-  if (!existsSync(localPath)) {
-    return {
-      status: 'unavailable',
-      wanted: wanted.label,
-      available: realDocs.map((o) => o.label),
-      reason: 'local-file-missing',
-    };
-  }
-
-  const fileInput = page
-    .locator('input[type=file][accept*="docx"], input[type=file][accept*="pdf"]')
-    .first();
-  if (!(await fileInput.count())) {
-    return {
-      status: 'unavailable',
-      wanted: wanted.label,
-      available: realDocs.map((o) => o.label),
-      reason: 'upload-control-missing',
-    };
-  }
+  const available = realDocs.map((o) => o.label);
+  if (!allowUpload) return { status: 'unavailable', wanted: wanted.label, available, reason: 'upload-disabled' };
+  if (!existsSync(localPath)) return { status: 'unavailable', wanted: wanted.label, available, reason: 'local-file-missing' };
+  if (!canUpload) return { status: 'unavailable', wanted: wanted.label, available, reason: 'upload-control-missing' };
 
   await fileInput.setInputFiles(localPath);
 
-  // SEEK re-renders the radio list once the upload finishes.
+  // The board re-renders its list once the upload finishes; the new file appears by name (extension may change).
+  const stem = basename(wanted.fileName).replace(/\.(docx?|pdf|rtf|txt)$/i, '');
   await page
-    .locator(`text=${basename(wanted.fileName)}`)
+    .locator(`text=${stem}`)
     .first()
-    .waitFor({ state: 'visible', timeout: 20_000 })
+    .waitFor({ state: 'visible', timeout: 25_000 })
     .catch(() => {});
 
   /**
-   * The upload also opens a dialog into `#braid-modal-container`, which
-   * swallows pointer events for the whole page. Left open, the next click on
-   * the step's Continue button is intercepted until it times out. Wait for it
-   * to clear on its own, then press Escape if it lingers.
+   * SEEK's upload opens a dialog into `#braid-modal-container`, which swallows
+   * pointer events for the whole page. Left open, the next click on the step's
+   * Continue button is intercepted until it times out. Wait for it to clear on
+   * its own, then press Escape if it lingers.
    */
   const modalContent = page.locator('#braid-modal-container > *').first();
-  const settled = await modalContent
-    .waitFor({ state: 'hidden', timeout: 8_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!settled) {
-    await page.keyboard.press('Escape').catch(() => {});
-    await modalContent.waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
+  if (await modalContent.count().catch(() => 0)) {
+    const settled = await modalContent
+      .waitFor({ state: 'hidden', timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!settled) {
+      await page.keyboard.press('Escape').catch(() => {});
+      await modalContent.waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
+    }
   }
-  return { status: 'uploaded', name: wanted.fileName };
+
+  // Select the uploaded document when the list now offers it; a list that replaced its only entry has it chosen already.
+  const after = await documentChoices(page);
+  const uploaded = matchChoice(after.choices, wanted);
+  if (uploaded && !uploaded.checked) await checkRadio(after.radios.nth(uploaded.idx));
+  return { status: 'uploaded', name: uploaded?.label ?? wanted.fileName };
 }
 
 const resumeChoices = new Map<string, Promise<ResumeRecord | null>>();
