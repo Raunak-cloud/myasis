@@ -1,4 +1,5 @@
 import { one, query } from './db/index.js';
+import { upsertSettingRow } from './db/records.js';
 import { billingStatus, isAdmin } from './billing.js';
 import { KEEP_SETTINGS_KEYS, RUN_SETTING_DEFAULTS } from './settings.js';
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
@@ -30,6 +31,16 @@ export const INTENSIVE_MANUAL_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].manua
 /** Scheduled runs per local day for Free and Job Search Pass accounts. */
 export const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
 export const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoRunsPerDay;
+
+/** Scheduled runs per local day for an operator of this installation, unless they switch automatic runs off. */
+export const ADMIN_AUTO_RUNS_PER_DAY = 10;
+
+/**
+ * Where an account's own "automatic runs off" choice is kept. A settings row,
+ * but deliberately not a run setting: it never reaches the bot and cannot be
+ * posted through /api/settings.
+ */
+const AUTO_APPLY_PAUSED_KEY = 'AUTO_APPLY_PAUSED';
 
 /** Employer-site applications an Intensive Pass may submit per day. */
 export const INTENSIVE_EMPLOYER_SITES_PER_DAY = PLAN_LIMITS['intensive-pass'].employerSitesPerDay;
@@ -124,8 +135,12 @@ export interface Entitlements {
   manualRunsPerDay: number | null;
   manualRunsUsedToday: number;
   manualRunsLeftToday: number | null;
-  /** Automatic runs per local day; null runs back to back with no daily count (admins). */
-  autoRunsPerDay: number | null;
+  /** Automatic runs per local day. */
+  autoRunsPerDay: number;
+  /** The account has switched its automatic runs off; nothing is scheduled until it switches them back on. */
+  autoApplyPaused: boolean;
+  /** May switch automatic runs off and on. */
+  canPauseAutoApply: boolean;
   autoRunsUsedToday: number;
   /** Fixed match floor for scheduled applications; null when this tier has no schedule. */
   scheduledMinScore: number | null;
@@ -158,8 +173,8 @@ function tierFor(admin: boolean, intensive: boolean): Tier {
  * Pass bought its automatic runs and keeps them: upgrading must not quietly
  * take away what the first pass promised.
  */
-export function automaticRunsPerDay(tier: Tier, hasActivePass = false, hasJobSearchPass = false): number | null {
-  if (tier === 'admin') return null;
+export function automaticRunsPerDay(tier: Tier, hasActivePass = false, hasJobSearchPass = false): number {
+  if (tier === 'admin') return ADMIN_AUTO_RUNS_PER_DAY;
   if (tier === 'standard') return hasActivePass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : FREE_AUTO_RUNS_PER_DAY;
   return hasJobSearchPass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : 0;
 }
@@ -241,10 +256,12 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
         ? JOB_SEARCH_EVALUATIONS_PER_RUN
         : FREE_EVALUATIONS_PER_RUN;
 
-  const [manualRunsUsedToday, autoRunsUsedToday] = await Promise.all([
+  const [manualRunsUsedToday, autoRunsUsedToday, pausedRow] = await Promise.all([
     manualRuns ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
-    autoRunsPerDay !== 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
+    autoRunsPerDay > 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
+    one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
   ]);
+  const canPauseAutoApply = tier === 'admin';
 
   return {
     tier,
@@ -254,9 +271,12 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     manualRunsLeftToday: manualRunsPerDay === null ? null : Math.max(0, manualRunsPerDay - manualRunsUsedToday),
     autoRunsPerDay,
     autoRunsUsedToday,
+    // Only an account allowed to switch automatic runs off can have them off.
+    autoApplyPaused: canPauseAutoApply && pausedRow?.value === 'true',
+    canPauseAutoApply,
     // Admins apply at their own saved threshold; the 75% floor is for accounts nobody is steering.
     scheduledMinScore: tier !== 'admin' && autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
-    scheduledJobsPerDay: autoRunsPerDay !== null && autoRunsPerDay > 0 && evaluationsPerRun !== null
+    scheduledJobsPerDay: autoRunsPerDay > 0 && evaluationsPerRun !== null
       ? autoRunsPerDay * evaluationsPerRun
       : null,
     evaluationsPerRun,
@@ -273,4 +293,9 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
 export async function humanizerAllowed(userId: string): Promise<boolean> {
   const user = await one<{ email: string | null }>('SELECT email FROM users WHERE id = $1', [userId]);
   return (await entitlementsFor(userId, user?.email ?? null)).humanizer;
+}
+
+/** Switches this account's automatic runs off or back on. Callers check `canPauseAutoApply` first. */
+export async function setAutoApplyPaused(userId: string, paused: boolean): Promise<void> {
+  await upsertSettingRow(userId, AUTO_APPLY_PAUSED_KEY, paused ? 'true' : 'false');
 }

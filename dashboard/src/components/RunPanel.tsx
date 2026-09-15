@@ -41,8 +41,7 @@ interface RunStatus {
 
 interface AutoScheduleStatus {
   runsUsedToday: number;
-  /** Null runs back to back, around the clock. */
-  runsPerDay: number | null;
+  runsPerDay: number;
   /** Null while setup is unfinished. */
   nextRunAt: string | null;
   dueNow: boolean;
@@ -244,9 +243,6 @@ function formatRunDuration(milliseconds: number): string {
 /** What the schedule does, in one breath, for the info icon beside Auto apply. */
 function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): string {
   const matches = e.scheduledMinScore === null ? 'Applies to jobs that match your settings' : `Applies to ${e.scheduledMinScore}%+ matches`;
-  if (e.autoRunsPerDay === null) {
-    return `Runs back to back around the clock, with a short pause between runs and no limits. ${matches}, written in your own voice.`;
-  }
   const jobs = e.scheduledJobsPerDay === null ? '' : ` Up to ${e.scheduledJobsPerDay} jobs reviewed daily.`;
   const runs = `${e.autoRunsPerDay} ${e.autoRunsPerDay === 1 ? 'run' : 'runs'}`;
   return `${runs} a day, spread across all 24 hours.${jobs} ${matches}, written in your own voice.`;
@@ -316,6 +312,7 @@ export function RunPanel({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [autoToggling, setAutoToggling] = useState(false);
   /** Each board's last known sign-in, read when the run settings open; null until known. */
   const [boardSignedIn, setBoardSignedIn] = useState<Record<string, boolean | null> | null>(null);
   /** Operator diagnostic: limit the next run to employer-site applications. */
@@ -386,6 +383,25 @@ export function RunPanel({
   }, [lines]);
 
   const running = status?.running ?? false;
+  async function setAutoApply(enabled: boolean) {
+    if (autoToggling) return;
+    setAutoToggling(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/auto-apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Could not change automatic runs.');
+      window.dispatchEvent(new CustomEvent('entitlements-changed', { detail: result.entitlements }));
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setAutoToggling(false);
+    }
+  }
   useEffect(() => {
     if (!confirming) return;
     let cancelled = false;
@@ -423,7 +439,7 @@ export function RunPanel({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [entitlements?.autoRunsPerDay, status?.finishedAt]);
+  }, [entitlements?.autoRunsPerDay, entitlements?.autoApplyPaused, status?.finishedAt]);
   useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => setClock(Date.now()), 1000);
@@ -755,18 +771,32 @@ export function RunPanel({
         </div>
 
         {entitlements && entitlements.autoRunsPerDay !== 0 && (
-          <div className="run-auto-row">
+          <div className={`run-auto-row${entitlements.autoApplyPaused ? ' paused' : ''}`}>
             <span className="run-auto-label">
               <span className="auto-apply-dot" aria-hidden="true" />
               Auto apply
             </span>
             <span className="job-meta">
-              {autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
+              {entitlements.autoApplyPaused
+                ? 'off'
+                : autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
                 ? 'starts once your setup is complete'
-                : entitlements.autoRunsPerDay === null
-                ? `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} today · ${running ? 'running now' : autoSchedule ? nextRunShort(autoSchedule) || 'starting shortly' : 'around the clock'}`
                 : `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} today${autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}`}
             </span>
+            {entitlements.canPauseAutoApply && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!entitlements.autoApplyPaused}
+                aria-label="Automatic runs"
+                className={`auto-switch${entitlements.autoApplyPaused ? '' : ' on'}`}
+                disabled={autoToggling}
+                title={entitlements.autoApplyPaused ? 'Turn automatic runs on' : 'Turn automatic runs off'}
+                onClick={() => void setAutoApply(entitlements.autoApplyPaused)}
+              >
+                <span className="auto-switch-knob" aria-hidden="true" />
+              </button>
+            )}
             <span
               className="field-info run-auto-info"
               tabIndex={0}
@@ -780,7 +810,7 @@ export function RunPanel({
             </span>
           </div>
         )}
-        {autoSchedule?.lastError && !running && (
+        {autoSchedule?.lastError && !running && !entitlements?.autoApplyPaused && (
           <div className="banner banner-bad run-auto-error" role="alert">
             <strong>The last scheduled run could not start.</strong> {autoSchedule.lastError.message}
           </div>

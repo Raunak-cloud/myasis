@@ -2051,3 +2051,19 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 /* A job board that is not signed in cannot be chosen. */
 .chip:disabled { opacity: .55; cursor: not-allowed; }
 .board-signin-hint { margin: 6px 0 0; }
+
+/* Auto apply on/off switch (admins). */
+.auto-switch {
+  position: relative; flex: none; width: 34px; height: 20px; padding: 0; margin-left: auto;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.auto-switch.on { background: var(--ok); border-color: var(--ok); }
+.auto-switch:disabled { opacity: .6; cursor: wait; }
+.auto-switch-knob {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: transform .15s ease;
+}
+.auto-switch.on .auto-switch-knob { transform: translateX(14px); }
+.run-auto-row .auto-switch + .run-auto-info { margin-left: 0; }
+.run-auto-row.paused .auto-apply-dot { background: var(--text-faint); box-shadow: none; }

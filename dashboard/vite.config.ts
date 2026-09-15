@@ -36,7 +36,7 @@ import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc }
 import { checkSeekSignin, checkSignin, seekCheckInProgress } from './server/seek-check.js';
 import { readSeekState, readSiteState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart } from './server/entitlements.js';
+import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused } from './server/entitlements.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
@@ -1038,6 +1038,19 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           const hasKey = Boolean(readEnvSafe().GEMINI_API_KEY);
           return send({ ...runner.stateFor(userId), hasKey, isOwner: true });
+        });
+      }
+
+      case '/api/auto-apply': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async (userId) => {
+          const user = await currentUser(req.headers?.cookie);
+          const entitlements = await entitlementsFor(userId, user?.email);
+          if (!entitlements.canPauseAutoApply) return send({ error: 'Automatic runs cannot be switched off on your plan.' }, 403);
+          const body = await readBody();
+          if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether automatic runs should be on or off.' }, 400);
+          await setAutoApplyPaused(userId, !body.enabled);
+          return send({ ok: true, entitlements: await entitlementsFor(userId, user?.email) });
         });
       }
 

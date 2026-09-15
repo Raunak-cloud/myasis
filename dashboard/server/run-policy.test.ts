@@ -61,7 +61,7 @@ check('Job Search Pass runs keep the humanizer', jobSearchAuto.HUMANIZER_MODE !=
 check('Intensive runs keep the humanizer', intensive.HUMANIZER_MODE !== 'off');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Job Search Pass accounts receive four scheduled runs', automaticRunsPerDay('standard', true) === 4);
-check('admins run back to back with no daily count', automaticRunsPerDay('admin') === null);
+check('admins receive ten scheduled runs', automaticRunsPerDay('admin') === 10);
 check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
 check('Intensive keeps the automatic runs of a Job Search Pass it also holds', automaticRunsPerDay('intensive', true, true) === 4);
 

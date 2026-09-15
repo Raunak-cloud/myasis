@@ -13,8 +13,11 @@ export interface Entitlements {
   manualRunsPerDay: number | null;
   manualRunsUsedToday: number;
   manualRunsLeftToday: number | null;
-  /** Null runs back to back with no daily count (admins). */
-  autoRunsPerDay: number | null;
+  autoRunsPerDay: number;
+  /** Automatic runs are switched off for this account. */
+  autoApplyPaused: boolean;
+  /** May switch automatic runs off and on (admins). */
+  canPauseAutoApply: boolean;
   autoRunsUsedToday: number;
   scheduledMinScore: number | null;
   scheduledJobsPerDay: number | null;
@@ -33,6 +36,12 @@ export interface Entitlements {
  */
 export function useEntitlements(): Entitlements | null {
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
+  // The auto-apply switch hands back fresh entitlements; every hook on the page takes them.
+  useEffect(() => {
+    const update = (event: Event) => setEntitlements((event as CustomEvent<Entitlements>).detail);
+    window.addEventListener('entitlements-changed', update);
+    return () => window.removeEventListener('entitlements-changed', update);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     fetch('/api/entitlements')
