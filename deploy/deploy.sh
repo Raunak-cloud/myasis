@@ -12,7 +12,15 @@ LOCK=$APP/.deploying
 WAIT_MINUTES=${WAIT_MINUTES:-45}
 
 as_app() { sudo -u myasis -H bash -lc "$1"; }
-active_runs() { pgrep -fc '[s]eek-bot/dist/main.js' || true; }
+# A run is `node dist/main.js` (or dist/queue.js) started by the dashboard with seek-bot as its working
+# directory, so its command line never contains "seek-bot/": match the script and check where it runs.
+active_runs() {
+  local n=0 pid
+  for pid in $(pgrep -f 'node dist/(main|queue)\.js' || true); do
+    [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/seek-bot" ] && n=$((n + 1))
+  done
+  echo "$n"
+}
 
 as_app "touch $LOCK"
 trap 'as_app "rm -f $LOCK"' EXIT
