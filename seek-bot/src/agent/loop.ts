@@ -265,7 +265,6 @@ export interface AgentRunOptions {
   page: Page;
   job: JobListing;
   profile: CandidateProfile;
-  prefetchedLetter?: Promise<{ letter?: string; error?: Error }>;
   log?: (line: string) => void;
 }
 
@@ -329,7 +328,6 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     guards,
     observation: { url: page.url(), title: '', actions: [], fields: [], text: '' },
     captured: [],
-    prefetchedLetter: options.prefetchedLetter,
     log,
     actions: [],
   };

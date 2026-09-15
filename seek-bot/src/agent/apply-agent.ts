@@ -1,7 +1,6 @@
 import type { Locator, Page } from 'patchright';
 import { config } from '../config.js';
 import { waitForApplicationSurface } from './observe.js';
-import { coverLetterForJob } from '../llm.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from '../types.js';
 import { runApplicationAgent } from './loop.js';
 import { australianGovernmentDestination } from '../site-policy.js';
@@ -118,13 +117,6 @@ export async function applyToJobWithAgent(
     return { status: 'skipped', jobId: job.id, reason: 'Dry run — forms are not opened.' };
   }
 
-  // Draft while the application UI opens and renders — independent work,
-  // overlapped rather than serialised.
-  const prefetchedLetter = coverLetterForJob(job, profile).then(
-    (letter) => ({ letter }),
-    (error) => ({ error: error instanceof Error ? error : new Error(String(error)) }),
-  );
-
   const flowPage = await openApplyFlow(page, applyCta);
 
   try {
@@ -132,7 +124,6 @@ export async function applyToJobWithAgent(
       page: flowPage,
       job,
       profile,
-      prefetchedLetter,
       log: (line) => console.log(line),
     });
 

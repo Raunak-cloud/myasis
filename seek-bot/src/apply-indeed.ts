@@ -2,7 +2,6 @@ import type { Page } from 'patchright';
 import { config } from './config.js';
 import { waitForInteractiveSurface } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
-import { coverLetterForJob } from './llm.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
 import { runApplicationAgent } from './agent/loop.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -134,12 +133,6 @@ export async function applyToIndeedJob(
     return { status: 'skipped', jobId: job.id, reason: 'DRY_RUN (set REHEARSE=true to fill forms)' };
   }
 
-  // Draft while the form opens — independent work, overlapped rather than serialised.
-  const prefetchedLetter: Promise<{ letter?: string; error?: Error }> = coverLetterForJob(job, profile).then(
-    (letter) => ({ letter }),
-    (error) => ({ error: error instanceof Error ? error : new Error(String(error)) }),
-  );
-
   const cta = hosted ? indeedApplyCta : externalCta;
   const expected = hosted ? APPLY_FLOW_URL : OFF_INDEED_URL;
   // One more try after a scroll before giving up: the panel's button sits under a sticky header on some listings.
@@ -158,7 +151,6 @@ export async function applyToIndeedJob(
       page: applyPage,
       job,
       profile,
-      prefetchedLetter,
       log: (line) => console.log(line),
     });
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);

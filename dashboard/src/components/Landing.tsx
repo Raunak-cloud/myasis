@@ -107,7 +107,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               <span className="home-price-mode">{presentation.label}</span>
               <h3>{plan.name}</h3>
               <p className="home-price-copy">{presentation.description}</p>
-              <p className="home-price">{aud(plan.priceCents)}<span>one payment · one month</span></p>
+              <p className="home-price">{aud(plan.priceCents)}<span>one-time payment · valid 30 days</span></p>
               {start('Get started', key !== 'job-search-pass')}
               <ul>{presentation.features.map(feature => <li key={feature}>{feature}</li>)}</ul>
             </article>;

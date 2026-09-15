@@ -9,7 +9,7 @@ import {
   waitForInteractiveSurface,
 } from '../browser.js';
 import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
-import { answerFields, coverLetterForJob, finishedCoverLetterForJob } from '../llm.js';
+import { answerFields, finishedCoverLetterForJob } from '../llm.js';
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
 import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
@@ -63,8 +63,6 @@ export interface ToolContext {
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
   resumeUsed?: string;
-  /** Drafted in parallel with the apply UI opening. */
-  prefetchedLetter?: Promise<{ letter?: string; error?: Error }>;
   log: (line: string) => void;
   /** Side effects the candidate must be told about — see `ApplicationAction`. */
   actions: ApplicationAction[];
@@ -642,13 +640,17 @@ async function doAddCoverLetter(ctx: ToolContext): Promise<ToolResult> {
     ctx.log(`  ! discarded a stale pre-filled cover letter (not addressed to ${ctx.job.company})`);
   }
 
-  const draft = ctx.prefetchedLetter
-    ? await ctx.prefetchedLetter
-    : { letter: await coverLetterForJob(ctx.job, ctx.profile) };
-  if (draft.error) throw draft.error;
-  if (!draft.letter) throw new Error('Cover-letter drafting returned no text.');
-  // Only now, with a box in front of us, is the rewrite worth its time.
+  /**
+   * Written now, with a box in front of us, and not before.
+   *
+   * Letters used to be drafted as every application opened, in parallel, to
+   * save the few seconds a draft takes. Most forms have no cover-letter box —
+   * Indeed's never does — so six in ten drafts were thrown away, and the
+   * letter model is the largest part of what an application costs. Drafting
+   * and polishing are both cached per job, so a retry does not pay twice.
+   */
   const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
+  if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
 
   await textarea.fill(letter, { timeout: 10_000 });
   if (await textarea.inputValue() !== letter) throw new Error('Cover letter did not retain the drafted text');

@@ -157,7 +157,7 @@ export function PricingPanel() {
                 <h3>{plan.name}</h3>
                 <p className="pricing-plan-copy">{presentation.description}</p>
               </header>
-              <p className="pricing-price"><strong>{aud(plan.priceCents)}</strong><span>one payment · one month</span></p>
+              <p className="pricing-price"><strong>{aud(plan.priceCents)}</strong><span>one-time payment · valid 30 days</span></p>
               <button
                 className={`btn pricing-cta ${recommended ? 'primary' : ''}`}
                 disabled={checkoutDisabled}
