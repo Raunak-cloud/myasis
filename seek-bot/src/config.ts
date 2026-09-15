@@ -351,8 +351,11 @@ export const config = {
     /** Résumé id, label, or filename from data/resumes.json. Empty = SEEK default. */
     select: process.env.RESUME_SELECT ?? '',
     /**
-     * Uploading a new résumé adds it to the user's SEEK profile — a profile
-     * modification — so it stays off unless explicitly enabled.
+     * Uploading a résumé adds it to the account's documents on the job board
+     * — a profile change — so a direct command-line run leaves it off. Every
+     * run the dashboard starts turns it on (db/run-sync.ts), so the résumé
+     * chosen for a job is uploaded to SEEK or Indeed when it is not already
+     * there, and the Applications tab records that it was.
      */
     allowUpload: process.env.RESUME_ALLOW_UPLOAD === 'true',
   },
