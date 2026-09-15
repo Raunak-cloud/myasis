@@ -545,20 +545,25 @@ export function readEnvSafe(): Record<string, string> {
 /** Rewrites only the given keys, preserving comments and ordering. */
 export function writeEnv(updates: Record<string, string>): void {
   const lines = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8').split(/\r?\n/) : [];
-  const remaining = { ...updates };
+  const written = new Set<string>();
 
+  /**
+   * Every line for a key is rewritten, not just the first. `readEnv` keeps the
+   * last value it sees, so a key listed twice — the server's ADMIN_EMAILS is —
+   * would otherwise take the update on its first line and go on reading the
+   * old value from its second.
+   */
   const next = lines.map((line) => {
     const t = line.trim();
     if (!t || t.startsWith('#')) return line;
     const i = t.indexOf('=');
     if (i === -1) return line;
     const key = t.slice(0, i).trim();
-    if (!(key in remaining)) return line;
-    const value = remaining[key];
-    delete remaining[key];
-    return `${key}=${value}`;
+    if (!(key in updates)) return line;
+    written.add(key);
+    return `${key}=${updates[key]}`;
   });
 
-  for (const [k, v] of Object.entries(remaining)) next.push(`${k}=${v}`);
+  for (const [k, v] of Object.entries(updates)) if (!written.has(k)) next.push(`${k}=${v}`);
   writeFileSync(ENV_PATH, next.join('\n'));
 }
