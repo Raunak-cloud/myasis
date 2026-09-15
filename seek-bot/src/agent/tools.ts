@@ -13,7 +13,7 @@ import { answerFields, coverLetterForJob, finishedCoverLetterForJob } from '../l
 import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
 import type { BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
-import { RunGuards, isEntryAction, isForbiddenDestination, isSubmitAction } from './guards.js';
+import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
@@ -691,6 +691,18 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
         },
       };
     case 'off_platform':
+      /**
+       * "Continues elsewhere" is a claim about where the page is, and the
+       * URL settles it. Indeed's wizard has thrown an application back to
+       * the Indeed homepage mid-flow; that is the board closing the form,
+       * not the employer taking over, and it belongs in Needs attention.
+       */
+      if (!isExternal(ctx.page.url())) {
+        return {
+          kind: 'terminal',
+          outcome: { status: 'needs-human', reason: 'The job board closed the application form before it was finished.' },
+        };
+      }
       return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
     case 'already_applied':
       return { kind: 'terminal', outcome: { status: 'already-applied', reason } };

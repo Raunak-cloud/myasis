@@ -188,7 +188,8 @@ function loadSiteHints(): Record<string, SiteHint> {
  */
 function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceStep[], finalUrl: string): void {
   try {
-    if (outcome.status === 'needs-human') {
+    // A skipped application is as worth inspecting as a blocked one: "needed more steps" says nothing without the steps.
+    if (outcome.status === 'needs-human' || outcome.status === 'skipped') {
       mkdirSync(TRACE_DIR(), { recursive: true });
       writeFileSync(
         resolve(TRACE_DIR(), `${job.id}.json`),
