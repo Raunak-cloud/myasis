@@ -6,6 +6,7 @@ import { AttentionPanel, type AttentionItem } from './components/AttentionPanel'
 import { ApplicationsPanel } from './components/ApplicationsPanel';
 import { SetupPanel } from './components/SetupPanel';
 import { HumanizerPanel } from './components/HumanizerPanel';
+import { AdminPanel } from './components/AdminPanel';
 import { PricingPanel } from './components/PricingPanel';
 import { daysSince } from './format';
 import { UserChip, useAuth } from './components/SignIn';
@@ -14,7 +15,7 @@ import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 import { useEntitlements } from './entitlements';
 
-type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup';
+type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'admin';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -39,6 +40,10 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
     title: 'Applications',
     description: 'Track what was sent and record employer responses.',
   },
+  admin: {
+    title: 'Admin',
+    description: 'Every account, every run, and the controls for them.',
+  },
   humanizer: {
     title: 'Rewrite text',
     description: 'Turn a stiff draft into clearer, more natural writing.',
@@ -56,7 +61,7 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     const requested = new URLSearchParams(window.location.search).get('tab');
-    return requested === 'pricing' ? 'pricing' : 'run';
+    return requested === 'pricing' ? 'pricing' : requested === 'admin' ? 'admin' : 'run';
   });
   const [apps, setApps] = useState<Application[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
@@ -76,6 +81,11 @@ export default function App() {
   useEffect(() => {
     if (entitlements && !canRewrite && tab === 'humanizer') setTab('run');
   }, [entitlements, canRewrite, tab]);
+  /** The admin dashboard is only offered to admins; the server refuses everyone else regardless. */
+  const isAdmin = entitlements?.tier === 'admin';
+  useEffect(() => {
+    if (entitlements && !isAdmin && tab === 'admin') setTab('run');
+  }, [entitlements, isAdmin, tab]);
 
   const load = useCallback(async () => {
     const [a, n, lastRun, todayStats] = await Promise.all([
@@ -173,6 +183,19 @@ export default function App() {
             </button>
           ))}
 
+          {isAdmin && (
+            <>
+              <span className="nav-label nav-label-tools">Admin</span>
+              <button
+                className={`side-link ${tab === 'admin' ? 'active' : ''}`}
+                aria-current={tab === 'admin' ? 'page' : undefined}
+                onClick={() => setTab('admin')}
+              >
+                Admin dashboard
+              </button>
+            </>
+          )}
+
           {canRewrite && (
             <>
               <span className="nav-label nav-label-tools">Tools</span>
@@ -267,6 +290,7 @@ export default function App() {
             <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} />
           )}
           {tab === 'humanizer' && canRewrite && <HumanizerPanel />}
+          {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'pricing' && <PricingPanel />}
           {tab === 'setup' && <SetupPanel />}
         </div>

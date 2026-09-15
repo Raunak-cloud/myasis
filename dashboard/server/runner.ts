@@ -1,7 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { exportUserForRun, syncRunResultsToDb } from './db/run-sync.js';
+import { query } from './db/index.js';
+import { userDir } from './userdata.js';
+
+/** Saved run consoles kept per account; older ones are removed as new ones are written. */
+const RUN_LOGS_KEPT = 60;
 
 // `import.meta.dirname` — Vite's native config loader deprecates __dirname.
 export const BOT_DIR = resolve(import.meta.dirname, '..', '..', 'seek-bot');
@@ -111,6 +117,8 @@ class Run {
   private child: ChildProcess | null = null;
   private cdpPort: number | null = null;
   private onApplicationSubmitted: (() => void | Promise<void>) | null = null;
+  /** The run_starts row this run belongs to, when the caller made one. */
+  private runStartId: string | null = null;
   private lines: LogLine[] = [];
   private seq = 0;
   private listeners = new Set<(l: LogLine) => void>();
@@ -195,6 +203,7 @@ class Run {
     overrides: Record<string, string>,
     cdpPort: number,
     onApplicationSubmitted?: () => void | Promise<void>,
+    runStartId?: string | null,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
@@ -241,6 +250,7 @@ class Run {
     this.lines = [];
     this.seq = 0;
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
+    this.runStartId = runStartId ?? null;
     this.state = {
       running: true,
       mode,
@@ -269,7 +279,7 @@ class Run {
    * still reads this account's résumés/knowledge/applied-jobs history to
    * dedupe and draft, off `DATA_DIR`, not the shared folder.
    */
-  async startQueue(cdpPort: number, overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
+  async startQueue(cdpPort: number, overrides: Record<string, string> = {}, runStartId?: string | null): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     if (this.occupiesSlot) return { ok: false, error: 'A scan is already running for this account.' };
     if (deploying()) return { ok: false, error: DEPLOYING_MESSAGE };
@@ -317,6 +327,8 @@ class Run {
       // Always last: no override may point a scan at another account's files.
       DATA_DIR: dataDir,
     };
+    // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
+    this.runStartId = runStartId ?? null;
     this.spawnChild(spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env }), userId, dataDir, 'scan');
     return { ok: true };
   }
@@ -335,6 +347,9 @@ class Run {
       this.cdpPort = null;
       this.onApplicationSubmitted = null;
       this.push('sys', `■ ${kind} finished (exit ${code})`);
+      void this.recordFinish(userId, code).catch((error) =>
+        this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`),
+      );
       // Fold what this run actually did — new applications, run events — back
       // into userId's Postgres rows. `syncRunResultsToDb` is idempotent (ON
       // CONFLICT DO NOTHING on natural keys), so this can never double-count
@@ -343,6 +358,26 @@ class Run {
         .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
         .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`));
     });
+  }
+
+  /**
+   * How the run ended, onto its record, with its console saved beside the
+   * account's data so it can be read after the dashboard restarts.
+   */
+  private async recordFinish(userId: string, code: number | null): Promise<void> {
+    const runStartId = this.runStartId;
+    this.runStartId = null;
+    if (!runStartId) return;
+    const dir = resolve(userDir(userId), 'run-logs');
+    mkdirSync(dir, { recursive: true });
+    const file = `${runStartId}.jsonl`;
+    writeFileSync(resolve(dir, file), this.lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+    const saved = readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort((a, b) => Number(b.split('.')[0]) - Number(a.split('.')[0]));
+    for (const old of saved.slice(RUN_LOGS_KEPT)) rmSync(resolve(dir, old), { force: true });
+    await query(
+      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4 WHERE id = $1',
+      [runStartId, code, this.state.applied, file],
+    );
   }
 
   stop(): { ok: boolean; error?: string } {
@@ -442,6 +477,7 @@ class RunPool {
     overrides: Record<string, string>,
     userId: string,
     onApplicationSubmitted?: () => void | Promise<void>,
+    runStartId?: string | null,
   ): Promise<{ ok: boolean; error?: string }> {
     this.sweep();
     const full = this.atCapacity(userId);
@@ -451,14 +487,15 @@ class RunPool {
       overrides,
       this.availableBrowserPort(),
       onApplicationSubmitted,
+      runStartId,
     );
   }
 
-  async startQueue(userId: string, overrides: Record<string, string> = {}): Promise<{ ok: boolean; error?: string }> {
+  async startQueue(userId: string, overrides: Record<string, string> = {}, runStartId?: string | null): Promise<{ ok: boolean; error?: string }> {
     this.sweep();
     const full = this.atCapacity(userId);
     if (full) return { ok: false, error: full };
-    return this.forUser(userId).startQueue(this.availableBrowserPort(), overrides);
+    return this.forUser(userId).startQueue(this.availableBrowserPort(), overrides, runStartId);
   }
 
   stop(userId: string): { ok: boolean; error?: string } {

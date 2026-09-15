@@ -36,7 +36,8 @@ import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc }
 import { checkSeekSignin, checkSignin, seekCheckInProgress } from './server/seek-check.js';
 import { readSeekState, readSiteState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused } from './server/entitlements.js';
+import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused } from './server/entitlements.js';
+import { handleAdminRequest } from './server/admin.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
@@ -296,6 +297,9 @@ function dataApi(): Plugin {
         if (!user) return send({ error: 'Sign in required.' }, 401);
         return fn(user.id);
       });
+
+    // The operator's dashboard: every route in it checks for an admin on each request.
+    if (route.startsWith('/api/admin/')) return handleAdminRequest(req, res, url, send, readBody);
 
     switch (route) {
       case '/api/billing/status': {
@@ -1088,8 +1092,9 @@ function dataApi(): Plugin {
           const settings = applyRunPolicy(await runSettingsForUser(userId), entitlements, 'manual');
           if (sessionFor(userId)) stopSignin(userId);
           await releaseChromeProfile(userChromeDir(userId));
-          const r = await runner.startQueue(userId, settings);
-          if (r.ok) await recordRunStart(userId, 'scan', 'manual').catch(() => {});
+          const runStartId = await recordRunStart(userId, 'scan', 'manual').catch(() => null);
+          const r = await runner.startQueue(userId, settings, runStartId);
+          if (!r.ok) await discardRunStart(runStartId).catch(() => {});
           return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
         });
       }

@@ -7,6 +7,7 @@ import {
 } from './billing.js';
 import {
   applyRunPolicy,
+  discardRunStart,
   entitlementsFor,
   recordRunStart,
   FINE_TUNING_KEYS,
@@ -51,8 +52,14 @@ export interface StartRunRequest {
   userId: string;
   email?: string | null;
   mode: RunMode;
-  /** Who asked: a person, or the scheduler. */
-  trigger: 'manual' | 'auto';
+  /**
+   * Who asked: the account holder, the scheduler, or an admin acting for the
+   * account. An admin's run follows the account's plan exactly as a scheduled
+   * run does, and does not use up the account's own manual or scheduled runs.
+   */
+  trigger: 'manual' | 'auto' | 'admin';
+  /** The admin who started it, for the record. */
+  startedBy?: string | null;
   /** Settings posted with the request. Ignored for scheduled runs. */
   clientOverrides?: Record<string, unknown>;
   /** Limit the run to one kind of application. Honoured only for accounts entitled to it. */
@@ -129,7 +136,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */
-  const overrides = applyRunPolicy(settings, entitlements, trigger);
+  const overrides = applyRunPolicy(settings, entitlements, trigger === 'manual' ? 'manual' : 'auto');
 
   if (request.scope === 'external' || request.scope === 'hosted') {
     if (entitlements.runScopes) overrides.APPLY_ONLY = request.scope;
@@ -195,7 +202,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * else holding the profile is a browser nobody is using any more.
    */
   if (sessionFor(userId)) {
-    if (trigger === 'auto') return { ok: false, status: 409, error: 'A sign-in is in progress for this account.' };
+    // Only the account holder pressing Start ends their own sign-in; nobody else closes a window they are using.
+    if (trigger !== 'manual') return { ok: false, status: 409, error: 'A sign-in is in progress for this account.' };
     stopSignin(userId);
   }
   await releaseChromeProfile(userChromeDir(userId));
@@ -224,23 +232,27 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   overrides.PLATFORMS = usable.join(',');
   if (signedOut.length) overrides.SKIPPED_BOARDS = signedOut.join(',');
 
-  const result = await runner.start(
-    mode,
-    overrides,
-    userId,
-    mode === 'live' && !admin ? () => consumeSuccessfulApplication(userId) : undefined,
-  );
-  if (!result.ok) return { ok: false, status: 409, error: result.error ?? 'Could not start the run.' };
-
   /**
-   * Recorded once the child is actually spawned.
+   * The run's record is made first, so the runner can write how it ended onto
+   * it, and removed again if the start is refused.
    *
    * A refused start — the pool was full, or this account was already running
    * — never reached an employer, so it must not spend a slot; the scheduler
    * simply tries again on its next tick. A run that starts and then dies
    * does count, which is why this is not tied to the run finishing.
    */
-  await recordRunStart(userId, mode, trigger).catch(() => {});
+  const runStartId = await recordRunStart(userId, mode, trigger, request.startedBy).catch(() => null);
+  const result = await runner.start(
+    mode,
+    overrides,
+    userId,
+    mode === 'live' && !admin ? () => consumeSuccessfulApplication(userId) : undefined,
+    runStartId,
+  );
+  if (!result.ok) {
+    await discardRunStart(runStartId).catch(() => {});
+    return { ok: false, status: 409, error: result.error ?? 'Could not start the run.' };
+  }
 
   return { ok: true, mode };
 }

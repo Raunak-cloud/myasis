@@ -231,12 +231,19 @@ export async function latestRunStartedAt(userId: string): Promise<Date | null> {
 export async function recordRunStart(
   userId: string,
   mode: string,
-  trigger: 'manual' | 'auto',
-): Promise<void> {
-  await query(
-    `INSERT INTO run_starts (user_id, mode, trigger) VALUES ($1, $2, $3)`,
-    [userId, mode, trigger],
+  trigger: 'manual' | 'auto' | 'admin',
+  startedBy?: string | null,
+): Promise<string | null> {
+  const row = await one<{ id: string }>(
+    `INSERT INTO run_starts (user_id, mode, trigger, started_by) VALUES ($1, $2, $3, $4) RETURNING id::text AS id`,
+    [userId, mode, trigger, startedBy ?? null],
   );
+  return row?.id ?? null;
+}
+
+/** A run record for a start that was refused after all: it never reached an employer, so it spends nothing. */
+export async function discardRunStart(id: string | null): Promise<void> {
+  if (id) await query('DELETE FROM run_starts WHERE id = $1', [id]);
 }
 
 export async function entitlementsFor(userId: string, email?: string | null): Promise<Entitlements> {

@@ -302,3 +302,13 @@ CREATE TABLE IF NOT EXISTS site_accounts (
   last_used_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, site, email)
 );
+
+-- How each run ended, written by the runner when the run's process exits, and
+-- who started it when that was an admin acting for the account. log_file is
+-- the run's saved console, under the account's data folder.
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS exit_code INTEGER;
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS applied INTEGER;
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS log_file TEXT;
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS started_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS run_starts_recent_idx ON run_starts(started_at DESC);

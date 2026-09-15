@@ -1,0 +1,715 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PAID_PLANS, aud } from '../pricing';
+
+/**
+ * The operator's dashboard: the whole installation at a glance, every
+ * account with its controls, and every run with its console.
+ *
+ * Everything here is served by /api/admin, which refuses anyone who is not
+ * an admin on every request; this page only decides what to show.
+ */
+
+interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  createdAt: string;
+  lastLoginAt: string | null;
+  admin: boolean;
+  plan: string;
+  allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null };
+  setupMissing: string[];
+  resumes: number;
+  boards: { seek: boolean | null; indeed: boolean | null };
+  autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
+  manualRunsToday: number;
+  applications: { total: number; week: number; today: number };
+  lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
+  running: boolean;
+  signingIn: boolean;
+}
+
+interface AdminRun {
+  id: string;
+  userId: string;
+  email: string;
+  name: string | null;
+  mode: string;
+  trigger: string;
+  startedBy: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  exitCode: number | null;
+  applied: number | null;
+  hasLog: boolean;
+  running: boolean;
+}
+
+interface Overview {
+  users: { total: number; newThisWeek: number; activeThisWeek: number };
+  passes: { jobSearch: number; intensive: number };
+  today: { runs: number; applications: number; failedRuns: number };
+  week: { applications: number };
+  revenueCents: { last30Days: number; total: number };
+  capacity: { running: number; lanes: number };
+  recentRuns: AdminRun[];
+}
+
+interface UserDetail extends AdminUser {
+  passes: Array<{
+    id: string;
+    plan: string;
+    amountPaidCents: number;
+    granted: boolean;
+    paidAt: string;
+    applications: { total: number; used: number };
+    expiresAt: string;
+    active: boolean;
+  }>;
+  runs: AdminRun[];
+  recentApplications: Array<{ jobId: string; title: string; company: string; platform: string; external: boolean; appliedAt: string }>;
+}
+
+interface LogLine {
+  seq?: number;
+  ts: string;
+  stream: string;
+  text: string;
+}
+
+const TIME_ZONE = 'Australia/Sydney';
+const when = (iso: string | null) =>
+  iso ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: TIME_ZONE }).format(new Date(iso)) : '—';
+const clock = (iso: string) =>
+  new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: TIME_ZONE }).format(new Date(iso));
+
+function duration(run: AdminRun): string {
+  const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
+  const seconds = Math.max(0, Math.round((end - Date.parse(run.startedAt)) / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
+}
+
+function runStatus(run: AdminRun): { label: string; tone: string } {
+  if (run.running) return { label: 'Running', tone: 'info' };
+  if (!run.finishedAt) return { label: 'No record of the end', tone: 'muted' };
+  if (run.exitCode === 0) return { label: 'Finished', tone: 'ok' };
+  if (run.exitCode === null) return { label: 'Stopped', tone: 'warn' };
+  return { label: `Failed (exit ${run.exitCode})`, tone: 'bad' };
+}
+
+const TRIGGER_LABEL: Record<string, string> = { manual: 'By the user', auto: 'Scheduled', admin: 'By an admin' };
+
+async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
+  const response = await fetch(`/api/admin${path}`, {
+    ...init,
+    headers: init?.json !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status}).`);
+  return body as T;
+}
+
+// ------------------------------------------------------------------ run console
+function RunLog({ run, onClose }: { run: AdminRun; onClose: () => void }) {
+  const [lines, setLines] = useState<LogLine[]>([]);
+  const [live, setLive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const body = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    let source: EventSource | null = null;
+    let cancelled = false;
+    api<{ lines: LogLine[]; live: boolean; userId: string }>(`/runs/${run.id}/log`)
+      .then((log) => {
+        if (cancelled) return;
+        setLines(log.lines);
+        setLive(log.live);
+        if (log.live) {
+          // Follow a run still going: the stream replays its console, then keeps it coming.
+          setLines([]);
+          source = new EventSource(`/api/admin/users/${log.userId}/stream`);
+          source.onmessage = (event) => {
+            const line = JSON.parse(event.data) as LogLine;
+            setLines((current) => [...current.slice(-4000), line]);
+          };
+        }
+      })
+      .catch((reason) => setError((reason as Error).message));
+    return () => {
+      cancelled = true;
+      source?.close();
+    };
+  }, [run.id]);
+
+  useEffect(() => {
+    body.current?.scrollTo({ top: body.current.scrollHeight });
+  }, [lines]);
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="card admin-log" role="dialog" aria-modal="true" aria-label="Run console" onClick={(event) => event.stopPropagation()}>
+        <div className="admin-log-head">
+          <div>
+            <h2>{run.name || run.email}</h2>
+            <p className="job-meta">
+              {when(run.startedAt)} · {TRIGGER_LABEL[run.trigger] ?? run.trigger}{run.startedBy ? ` (${run.startedBy})` : ''} · {duration(run)}
+              {live ? ' · live' : ''}
+            </p>
+          </div>
+          <button className="btn" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="banner banner-bad">{error}</div>}
+        <pre ref={body} className="admin-log-body">
+          {lines.length
+            ? lines.map((line, index) => (
+                <span key={`${line.seq ?? index}-${index}`} className={`admin-log-line ${line.stream}`}>
+                  <time>{clock(line.ts)}</time> {line.text}
+                  {'\n'}
+                </span>
+              ))
+            : error ? '' : 'No console was saved for this run.'}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ runs table
+function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen: (run: AdminRun) => void; showUser?: boolean }) {
+  if (!runs.length) return <p className="job-meta admin-empty">No runs yet.</p>;
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            {showUser && <th>Account</th>}
+            <th>Started</th>
+            <th>How</th>
+            <th>Took</th>
+            <th>Applied</th>
+            <th>Result</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {runs.map((run) => {
+            const status = runStatus(run);
+            return (
+              <tr key={run.id}>
+                {showUser && (
+                  <td>
+                    <div className="job-title">{run.name || run.email}</div>
+                    {run.name && <div className="job-meta">{run.email}</div>}
+                  </td>
+                )}
+                <td className="nowrap">{when(run.startedAt)}</td>
+                <td>
+                  {run.mode === 'scan' ? 'Queue scan' : TRIGGER_LABEL[run.trigger] ?? run.trigger}
+                  {run.startedBy && <div className="job-meta">{run.startedBy}</div>}
+                </td>
+                <td className="nowrap">{duration(run)}</td>
+                <td>{run.applied ?? '—'}</td>
+                <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
+                <td className="nowrap">
+                  {(run.hasLog || run.running) && (
+                    <button className="btn btn-small" onClick={() => onOpen(run)}>{run.running ? 'Watch' : 'Console'}</button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ overview
+function OverviewView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
+  const [data, setData] = useState<Overview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api<Overview>('/overview').then(setData).catch((reason) => setError((reason as Error).message));
+  }, []);
+  useEffect(() => {
+    load();
+    const id = window.setInterval(load, 20_000);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  if (error) return <div className="banner banner-bad">{error}</div>;
+  if (!data) return <p className="job-meta">Loading…</p>;
+  const tiles = [
+    { label: 'Accounts', value: data.users.total, note: `${data.users.newThisWeek} new · ${data.users.activeThisWeek} signed in this week` },
+    { label: 'Active passes', value: data.passes.jobSearch + data.passes.intensive, note: `${data.passes.jobSearch} Job Search · ${data.passes.intensive} Intensive` },
+    { label: 'Running now', value: `${data.capacity.running} of ${data.capacity.lanes}`, note: 'browser lanes in use' },
+    { label: 'Runs today', value: data.today.runs, note: data.today.failedRuns ? `${data.today.failedRuns} failed` : 'none failed' },
+    { label: 'Applications', value: data.today.applications, note: `today · ${data.week.applications} this week` },
+    { label: 'Revenue', value: aud(data.revenueCents.last30Days), note: `last 30 days · ${aud(data.revenueCents.total)} all time` },
+  ];
+  const running = data.recentRuns.filter((run) => run.running);
+  return (
+    <div className="admin-stack">
+      <div className="admin-tiles">
+        {tiles.map((tile) => (
+          <div className="card admin-tile" key={tile.label}>
+            <span className="job-meta">{tile.label}</span>
+            <strong>{tile.value}</strong>
+            <span className={`job-meta${tile.label === 'Runs today' && data.today.failedRuns ? ' admin-bad' : ''}`}>{tile.note}</span>
+          </div>
+        ))}
+      </div>
+      <section className="card admin-section">
+        <h3>Running now</h3>
+        <RunsTable runs={running} onOpen={onOpenRun} />
+      </section>
+      <section className="card admin-section">
+        <h3>Recent runs</h3>
+        <RunsTable runs={data.recentRuns.slice(0, 15)} onOpen={onOpenRun} />
+      </section>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ one account
+function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
+  userId: string;
+  onClose: () => void;
+  onChanged: () => void;
+  onOpenRun: (run: AdminRun) => void;
+}) {
+  const [user, setUser] = useState<UserDetail | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [grantPlan, setGrantPlan] = useState<string>('job-search-pass');
+  const [confirmEmail, setConfirmEmail] = useState('');
+
+  const load = useCallback(() => {
+    api<UserDetail>(`/users/${userId}`).then(setUser).catch((reason) => setError((reason as Error).message));
+  }, [userId]);
+  useEffect(load, [load]);
+
+  async function act(label: string, path: string, init: RequestInit & { json?: unknown }, done: string) {
+    setBusy(label);
+    setError(null);
+    setNotice(null);
+    try {
+      await api(path, init);
+      setNotice(done);
+      load();
+      onChanged();
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <aside className="drawer admin-drawer" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-head">
+          <div className="minw">
+            <h2>{user?.name || user?.email || 'Account'}</h2>
+            {user && (
+              <div className="job-meta">
+                {user.email} · joined {when(user.createdAt)} · last signed in {when(user.lastLoginAt)}
+              </div>
+            )}
+          </div>
+          <button className="btn" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="drawer-body">
+          {error && <div className="banner banner-bad" role="alert">{error}</div>}
+          {notice && <div className="banner" role="status">{notice}</div>}
+          {!user ? (
+            !error && <p className="job-meta">Loading…</p>
+          ) : (
+            <>
+              <div className="section admin-badges">
+                {user.admin && <span className="badge info">Admin</span>}
+                <span className="badge muted">{user.plan}</span>
+                {user.running && <span className="badge info">Running</span>}
+                {user.signingIn && <span className="badge warn">Signing in</span>}
+                {user.setupMissing.length ? <span className="badge warn">Setup: {user.setupMissing.length} steps left</span> : <span className="badge ok">Set up</span>}
+              </div>
+
+              <div className="section">
+                <h3>Status</h3>
+                <dl className="admin-facts">
+                  <dt>Applications left</dt>
+                  <dd>
+                    {user.admin ? 'Unlimited' : `${user.allowance.freeRemaining} free · ${user.allowance.paidRemaining} paid`}
+                    {user.allowance.paidExpiresAt && <span className="job-meta"> (paid until {when(user.allowance.paidExpiresAt)})</span>}
+                  </dd>
+                  <dt>Applications sent</dt>
+                  <dd>{user.applications.total} total · {user.applications.week} this week · {user.applications.today} today</dd>
+                  <dt>Job boards</dt>
+                  <dd>
+                    SEEK {user.boards.seek === true ? 'signed in' : user.boards.seek === false ? 'signed out' : 'not checked'} ·
+                    {' '}Indeed {user.boards.indeed === true ? 'signed in' : user.boards.indeed === false ? 'signed out' : 'not checked'}
+                  </dd>
+                  <dt>Résumés</dt>
+                  <dd>{user.resumes}</dd>
+                  <dt>Runs today</dt>
+                  <dd>{user.autoApply.usedToday} scheduled · {user.manualRunsToday} by the user</dd>
+                  {user.setupMissing.length > 0 && (
+                    <>
+                      <dt>Setup still needed</dt>
+                      <dd>{user.setupMissing.join(', ')}</dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+
+              <div className="section">
+                <h3>Controls</h3>
+                <div className="admin-controls">
+                  {user.autoApply.runsPerDay > 0 && (
+                    <label className="admin-switch-row">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={!user.autoApply.paused}
+                        className={`auto-switch${user.autoApply.paused ? '' : ' on'}`}
+                        disabled={busy !== null}
+                        onClick={() => act('auto', `/users/${user.id}/auto-apply`, { method: 'POST', json: { enabled: user.autoApply.paused } }, user.autoApply.paused ? 'Automatic runs switched on.' : 'Automatic runs switched off.')}
+                      >
+                        <span className="auto-switch-knob" aria-hidden="true" />
+                      </button>
+                      <span>Auto apply {user.autoApply.paused ? 'off' : `on · ${user.autoApply.runsPerDay} runs a day`}</span>
+                    </label>
+                  )}
+                  <div className="admin-button-row">
+                    {user.running ? (
+                      <button
+                        className="btn btn-danger"
+                        disabled={busy !== null}
+                        onClick={() => window.confirm(`Stop the run for ${user.email}? Anything already submitted stays submitted.`)
+                          && act('stop', `/users/${user.id}/stop`, { method: 'POST', json: {} }, 'Stop requested.')}
+                      >
+                        Stop run
+                      </button>
+                    ) : (
+                      <button
+                        className="btn primary"
+                        disabled={busy !== null}
+                        onClick={() => window.confirm(`Start a live run for ${user.email}? It submits real applications under their plan.`)
+                          && act('run', `/users/${user.id}/run`, { method: 'POST', json: {} }, 'Run started.')}
+                      >
+                        {busy === 'run' ? 'Starting…' : 'Start run'}
+                      </button>
+                    )}
+                    <button
+                      className="btn"
+                      disabled={busy !== null}
+                      onClick={() => window.confirm(`Sign ${user.email} out of every device?`)
+                        && act('sign-out', `/users/${user.id}/sign-out`, { method: 'POST', json: {} }, 'Signed out everywhere.')}
+                    >
+                      Sign out everywhere
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={busy !== null}
+                      onClick={() => window.confirm(user.admin ? `Remove admin access for ${user.email}?` : `Make ${user.email} an admin? Admins control every account.`)
+                        && act('admin', `/users/${user.id}/admin`, { method: 'POST', json: { admin: !user.admin } }, user.admin ? 'Admin access removed.' : 'Admin access given.')}
+                    >
+                      {user.admin ? 'Remove admin' : 'Make admin'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="section">
+                <h3>Passes</h3>
+                {user.passes.length ? (
+                  <ul className="admin-list">
+                    {user.passes.map((pass) => (
+                      <li key={pass.id}>
+                        <div>
+                          <strong>{pass.plan}</strong> {pass.granted ? <span className="badge muted">Given by admin</span> : <span className="job-meta">{aud(pass.amountPaidCents)}</span>}
+                          <div className="job-meta">
+                            {pass.applications.used} of {pass.applications.total} used · {pass.active ? `until ${when(pass.expiresAt)}` : `ended ${when(pass.expiresAt)}`}
+                          </div>
+                        </div>
+                        <span className={`badge ${pass.active ? 'ok' : 'muted'}`}>{pass.active ? 'Active' : 'Ended'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="job-meta">No passes.</p>
+                )}
+                <div className="admin-button-row">
+                  <select className="input" value={grantPlan} onChange={(event) => setGrantPlan(event.target.value)} aria-label="Pass to give">
+                    {Object.values(PAID_PLANS).map((plan) => (
+                      <option key={plan.key} value={plan.key}>{plan.name} · {plan.applications} applications</option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn"
+                    disabled={busy !== null}
+                    onClick={() => window.confirm(`Give ${user.email} a free ${PAID_PLANS[grantPlan as keyof typeof PAID_PLANS]?.name}?`)
+                      && act('grant', `/users/${user.id}/grant`, { method: 'POST', json: { plan: grantPlan } }, 'Pass given.')}
+                  >
+                    Give pass
+                  </button>
+                  {user.passes.some((pass) => pass.active) && (
+                    <button
+                      className="btn btn-danger"
+                      disabled={busy !== null}
+                      onClick={() => window.confirm(`End every active pass for ${user.email} now? Their unused paid applications are lost.`)
+                        && act('end', `/users/${user.id}/end-passes`, { method: 'POST', json: {} }, 'Active passes ended.')}
+                    >
+                      End active passes
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="section">
+                <h3>Runs</h3>
+                <RunsTable runs={user.runs} onOpen={onOpenRun} showUser={false} />
+              </div>
+
+              <div className="section">
+                <h3>Latest applications</h3>
+                {user.recentApplications.length ? (
+                  <ul className="admin-list">
+                    {user.recentApplications.map((app) => (
+                      <li key={app.jobId}>
+                        <div>
+                          <strong>{app.title}</strong>
+                          <div className="job-meta">{app.company} · {app.platform === 'indeed' ? 'Indeed' : 'SEEK'}{app.external ? ' · employer site' : ''}</div>
+                        </div>
+                        <span className="job-meta nowrap">{when(app.appliedAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="job-meta">None yet.</p>
+                )}
+              </div>
+
+              {!user.admin && (
+                <div className="section admin-danger">
+                  <h3>Delete account</h3>
+                  <p className="job-meta">Removes the account, its profile, runs and applications. Its files are moved aside on the server. This cannot be undone here.</p>
+                  <div className="admin-button-row">
+                    <input
+                      className="input"
+                      placeholder={`Type ${user.email} to confirm`}
+                      value={confirmEmail}
+                      onChange={(event) => setConfirmEmail(event.target.value)}
+                    />
+                    <button
+                      className="btn btn-danger-solid"
+                      disabled={busy !== null || confirmEmail.trim().toLowerCase() !== user.email.toLowerCase()}
+                      onClick={async () => {
+                        setBusy('delete');
+                        setError(null);
+                        try {
+                          await api(`/users/${user.id}`, { method: 'DELETE', json: { confirmEmail } });
+                          onChanged();
+                          onClose();
+                        } catch (reason) {
+                          setError((reason as Error).message);
+                        } finally {
+                          setBusy(null);
+                        }
+                      }}
+                    >
+                      Delete account
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ all accounts
+type UserFilter = 'all' | 'running' | 'paid' | 'free' | 'admin' | 'setup' | 'paused';
+
+function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
+  const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<UserFilter>('all');
+  const [open, setOpen] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api<AdminUser[]>('/users').then(setUsers).catch((reason) => setError((reason as Error).message));
+  }, []);
+  useEffect(() => {
+    load();
+    const id = window.setInterval(load, 30_000);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  const matches: Record<UserFilter, (user: AdminUser) => boolean> = {
+    all: () => true,
+    running: (user) => user.running,
+    paid: (user) => user.plan === 'Job Search Pass' || user.plan === 'Intensive Pass',
+    free: (user) => user.plan === 'Free',
+    admin: (user) => user.admin,
+    setup: (user) => user.setupMissing.length > 0,
+    paused: (user) => user.autoApply.paused,
+  };
+  const labels: Record<UserFilter, string> = {
+    all: 'All', running: 'Running', paid: 'Paid', free: 'Free', admin: 'Admins', setup: 'Not set up', paused: 'Auto apply off',
+  };
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (users ?? []).filter(matches[filter]).filter((user) => !q || user.email.toLowerCase().includes(q) || (user.name ?? '').toLowerCase().includes(q));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, search, filter]);
+
+  if (error) return <div className="banner banner-bad">{error}</div>;
+  if (!users) return <p className="job-meta">Loading…</p>;
+
+  return (
+    <div className="admin-stack">
+      <div className="queue-bar">
+        <div className="chips">
+          {(Object.keys(labels) as UserFilter[]).map((key) => (
+            <button key={key} className={`chip ${filter === key ? 'on' : ''}`} onClick={() => setFilter(key)}>
+              {labels[key]} <span className="chip-hint">{users.filter(matches[key]).length}</span>
+            </button>
+          ))}
+        </div>
+        <input className="input" placeholder="Search name or email" value={search} onChange={(event) => setSearch(event.target.value)} />
+      </div>
+      <div className="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Plan</th>
+              <th>Setup</th>
+              <th>Boards</th>
+              <th>Auto apply</th>
+              <th>Applications</th>
+              <th>Last run</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((user) => {
+              const last = user.lastRun;
+              return (
+                <tr key={user.id} className="clickable" onClick={() => setOpen(user.id)}>
+                  <td>
+                    <div className="job-title">
+                      {user.name || user.email} {user.admin && <span className="badge info">Admin</span>} {user.running && <span className="badge info">Running</span>}
+                    </div>
+                    <div className="job-meta">{user.email}</div>
+                  </td>
+                  <td>
+                    {user.plan}
+                    {!user.admin && <div className="job-meta">{user.allowance.freeRemaining + Math.max(0, user.allowance.paidRemaining)} left</div>}
+                  </td>
+                  <td>{user.setupMissing.length ? <span className="badge warn">{user.setupMissing.length} left</span> : <span className="badge ok">Done</span>}</td>
+                  <td className="nowrap">
+                    <span className={`admin-board ${user.boards.seek ? 'on' : ''}`}>SEEK</span>{' '}
+                    <span className={`admin-board ${user.boards.indeed ? 'on' : ''}`}>Indeed</span>
+                  </td>
+                  <td className="nowrap">
+                    {user.autoApply.runsPerDay === 0 ? <span className="job-meta">None</span>
+                      : user.autoApply.paused ? <span className="badge muted">Off</span>
+                      : `${user.autoApply.usedToday} of ${user.autoApply.runsPerDay}`}
+                  </td>
+                  <td>{user.applications.total}<div className="job-meta">{user.applications.today} today</div></td>
+                  <td className="nowrap">
+                    {last ? when(last.startedAt) : '—'}
+                    {last && (
+                      <div className="job-meta">
+                        {user.running ? 'running' : !last.finishedAt ? '—' : last.exitCode === 0 ? 'finished' : last.exitCode === null ? 'stopped' : 'failed'}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {!rows.length && <p className="job-meta admin-empty">No accounts match.</p>}
+      </div>
+      {open && <UserDrawer userId={open} onClose={() => setOpen(null)} onChanged={load} onOpenRun={onOpenRun} />}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ every run
+function RunsView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
+  const [runs, setRuns] = useState<AdminRun[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<'all' | 'running' | 'failed'>('all');
+  const [account, setAccount] = useState('');
+
+  const load = useCallback(() => {
+    api<AdminRun[]>('/runs?limit=300').then(setRuns).catch((reason) => setError((reason as Error).message));
+  }, []);
+  useEffect(() => {
+    load();
+    const id = window.setInterval(load, 15_000);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  if (error) return <div className="banner banner-bad">{error}</div>;
+  if (!runs) return <p className="job-meta">Loading…</p>;
+  const accounts = [...new Map(runs.map((run) => [run.userId, run.name || run.email])).entries()];
+  const shown = runs
+    .filter((run) => !account || run.userId === account)
+    .filter((run) => status === 'all' || (status === 'running' ? run.running : run.finishedAt && run.exitCode !== 0 && run.exitCode !== null));
+
+  return (
+    <div className="admin-stack">
+      <div className="queue-bar">
+        <div className="chips">
+          {(['all', 'running', 'failed'] as const).map((key) => (
+            <button key={key} className={`chip ${status === key ? 'on' : ''}`} onClick={() => setStatus(key)}>
+              {key === 'all' ? 'All' : key === 'running' ? 'Running' : 'Failed'}
+            </button>
+          ))}
+        </div>
+        <select className="input" value={account} onChange={(event) => setAccount(event.target.value)} aria-label="Account">
+          <option value="">Every account</option>
+          {accounts.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+      </div>
+      <div className="card">
+        <RunsTable runs={shown} onOpen={onOpenRun} />
+      </div>
+    </div>
+  );
+}
+
+export function AdminPanel() {
+  const [view, setView] = useState<'overview' | 'users' | 'runs'>('overview');
+  const [openRun, setOpenRun] = useState<AdminRun | null>(null);
+  return (
+    <div className="admin-page">
+      <nav className="admin-nav" aria-label="Admin sections">
+        {(['overview', 'users', 'runs'] as const).map((key) => (
+          <button key={key} className={view === key ? 'on' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => setView(key)}>
+            {key === 'overview' ? 'Overview' : key === 'users' ? 'Users' : 'Runs'}
+          </button>
+        ))}
+      </nav>
+      {view === 'overview' && <OverviewView onOpenRun={setOpenRun} />}
+      {view === 'users' && <UsersView onOpenRun={setOpenRun} />}
+      {view === 'runs' && <RunsView onOpenRun={setOpenRun} />}
+      {openRun && <RunLog run={openRun} onClose={() => setOpenRun(null)} />}
+    </div>
+  );
+}
