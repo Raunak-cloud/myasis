@@ -340,6 +340,10 @@ export function RunPanel({
   const [freeResetsAt, setFreeResetsAt] = useState<string | null>(null);
   const [clock, setClock] = useState(() => Date.now());
   const setup = useSetupStatus();
+  /** The steps only the account holder can do; an account without them is not on the schedule yet. */
+  const accountSetupIncomplete = Boolean(
+    setup?.checks.some((check) => ['resume', 'profile', 'keywords', 'where'].includes(check.id) && !check.done),
+  );
   const consoleRef = useRef<HTMLDivElement>(null);
   const wasRunning = useRef(false);
 
@@ -757,7 +761,7 @@ export function RunPanel({
               Auto apply
             </span>
             <span className="job-meta">
-              {autoSchedule?.waitingForSetup
+              {autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
                 ? 'starts once your setup is complete'
                 : entitlements.autoRunsPerDay === null
                 ? `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} today · ${running ? 'running now' : autoSchedule ? nextRunShort(autoSchedule) || 'starting shortly' : 'around the clock'}`
