@@ -950,7 +950,7 @@ a:focus-visible,
 .product-mark {
   width: 38px;
   height: 38px;
-  display: grid;
+  display: none;
   place-items: center;
 }
 
@@ -967,7 +967,7 @@ a:focus-visible,
   .mascot-logo:hover .mascot-pupils { animation: none; }
 }
 
-.product-name { font-size: 23px; }
+.product-name { font-size: 25px; }
 
 .wordmark {
   font-family: 'Pacifico', 'Brush Script MT', cursive;
@@ -978,6 +978,8 @@ a:focus-visible,
   white-space: nowrap;
 }
 .wordmark-ow { color: var(--wordmark-accent, var(--accent)); }
+/* The owl is the "o": sized to the letter and sat on the baseline, whatever the font size. */
+.wordmark .wordmark-owl { display: inline-block; width: 1.1em; height: 1.1em; margin-right: .03em; vertical-align: -.18em; }
 .side-nav { display: flex; flex-direction: column; gap: 4px; }
 
 .nav-label {
@@ -1245,7 +1247,7 @@ button.metric-tile:hover strong { color: var(--accent); }
   }
   .product { width: auto; flex: 0 0 auto; padding: 0 8px 0 0; }
   .product-name, .nav-label { display: none; }
-  .product-mark { width: 40px; height: 40px; }
+  .product-mark { display: grid; width: 40px; height: 40px; }
   .side-nav { flex-direction: row; }
   .side-link { width: auto; min-height: 36px; padding: 7px 10px; white-space: nowrap; }
   .main-shell { padding: 24px 18px 48px; }
