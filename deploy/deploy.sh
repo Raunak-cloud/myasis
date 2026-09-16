@@ -36,7 +36,14 @@ if [ "$(active_runs)" != 0 ]; then
 fi
 
 as_app "cd $APP && git pull -q origin main && git log --oneline -1"
-as_app "cd $APP/seek-bot && npm run build 2>&1 | tail -1"
-as_app "cd $APP/dashboard && npm run build 2>&1 | tail -1"
+# Dependencies exactly as the lock file says, never rewriting it. A server whose
+# npm differs from the one that wrote the lock would otherwise leave a modified
+# package-lock.json behind, and the next pull refuses to overwrite it — which is
+# how a deploy once stopped at `git pull`. And a release that adds a package
+# cannot build without this step.
+as_app "set -o pipefail; cd $APP/seek-bot && npm ci --no-audit --no-fund 2>&1 | tail -1"
+as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 | tail -1"
+as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
+as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
 # The dashboard closes its browsers on SIGINT; pm2 waits for it before forcing.
 as_app "pm2 restart myasis-dashboard --update-env --kill-timeout 8000 > /dev/null && echo restarted"
