@@ -810,6 +810,10 @@ interface VisitorReport {
   devices: Breakdown[];
   browsers: Breakdown[];
   days: Array<{ day: string; visitors: number; views: number }>;
+  australia: {
+    addresses: number;
+    list: Array<{ ip: string; city: string | null; region: string | null; visits: number; views: number; lastSeenAt: string }>;
+  };
   recent: RecentVisit[];
 }
 
@@ -907,6 +911,7 @@ function VisitorsView() {
       value: totals.views ? `${Math.round((totals.located / totals.views) * 100)}%` : '—',
       note: data.geoConfigured ? 'of views resolved to a place' : 'no location database installed',
     },
+    { label: 'Australian addresses', value: data.australia.addresses, note: 'distinct IP addresses in Australia' },
   ] : [];
 
   return (
@@ -953,6 +958,37 @@ function VisitorsView() {
             <BreakdownTable title="Devices" rows={data.devices} empty="No visits yet." />
             <BreakdownTable title="Browsers" rows={data.browsers} empty="No visits yet." />
           </div>
+
+          <section className="card table-wrap admin-section">
+            <h3>Australian addresses · {data.australia.addresses}</h3>
+            <p className="job-meta">Every distinct IP address that resolved to Australia in this period, most recent first.</p>
+            {data.australia.list.length ? (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Address</th>
+                    <th>Where</th>
+                    <th className="num">Visits</th>
+                    <th className="num">Page views</th>
+                    <th>Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.australia.list.map((row) => (
+                    <tr key={row.ip}>
+                      <td className="nowrap"><code>{row.ip}</code></td>
+                      <td>{[row.city, row.region].filter(Boolean).join(', ') || 'Australia'}</td>
+                      <td className="num">{row.visits}</td>
+                      <td className="num">{row.views}</td>
+                      <td className="nowrap">{when(row.lastSeenAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="job-meta admin-empty">No Australian addresses in this period.</p>
+            )}
+          </section>
 
           <section className="card table-wrap admin-section">
             <h3>Recent visits</h3>

@@ -215,6 +215,11 @@ export interface VisitorReport {
   devices: Breakdown[];
   browsers: Breakdown[];
   days: Array<{ day: string; visitors: number; views: number }>;
+  /** Distinct addresses that resolved to Australia, the market the product serves. */
+  australia: {
+    addresses: number;
+    list: Array<{ ip: string; city: string | null; region: string | null; visits: number; views: number; lastSeenAt: string }>;
+  };
 }
 
 export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> {
@@ -229,7 +234,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       params,
     ).then((rows) => rows.map((row) => ({ ...row, label: row.label ?? 'Unknown' })));
 
-  const [totals, countries, regions, cities, pages, referrers, devices, browsers, days] = await Promise.all([
+  const [totals, countries, regions, cities, pages, referrers, devices, browsers, days, australia] = await Promise.all([
     one<{ visitors: number; visits: number; views: number; signed_in: number; located: number; avg_seconds: number | null }>(
       `SELECT count(DISTINCT visitor_id)::int AS visitors,
               count(DISTINCT session_id)::int AS visits,
@@ -254,6 +259,16 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
          FROM page_views WHERE ${where} GROUP BY 1 ORDER BY 1`,
       [...params, RUN_TIME_ZONE],
     ),
+    // One row per Australian address: where it last resolved to, and how much it looked.
+    query<{ ip: string; city: string | null; region: string | null; visits: number; views: number; last_seen: Date }>(
+      `SELECT host(ip) AS ip,
+              (array_agg(city ORDER BY started_at DESC))[1] AS city,
+              (array_agg(region ORDER BY started_at DESC))[1] AS region,
+              count(DISTINCT session_id)::int AS visits, count(*)::int AS views, max(started_at) AS last_seen
+         FROM page_views WHERE ${where} AND country_code = 'AU' AND ip IS NOT NULL
+        GROUP BY host(ip) ORDER BY max(started_at) DESC LIMIT 200`,
+      params,
+    ),
   ]);
 
   return {
@@ -270,6 +285,17 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       avgSeconds: totals?.avg_seconds ?? null,
     },
     countries, regions, cities, pages, referrers, devices, browsers, days,
+    australia: {
+      addresses: australia.length,
+      list: australia.map((row) => ({
+        ip: row.ip,
+        city: row.city,
+        region: row.region,
+        visits: row.visits,
+        views: row.views,
+        lastSeenAt: new Date(row.last_seen).toISOString(),
+      })),
+    },
   };
 }
 
