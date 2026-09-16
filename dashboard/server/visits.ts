@@ -173,15 +173,21 @@ async function adminUserIds(): Promise<string[]> {
   return users.filter((user) => isAdmin(user.email)).map((user) => user.id);
 }
 
-/** The WHERE clause every report query shares. $1 is always the time zone, for the queries that group by local time. */
+/**
+ * The WHERE clause every report query shares, with only the parameters it
+ * uses: Postgres refuses a query whose text never mentions a parameter it was
+ * given ("could not determine data type of parameter $1"), which is what the
+ * time zone became for every range but today.
+ */
 async function scope(opts: VisitorScope): Promise<{ where: string; params: unknown[] }> {
-  const params: unknown[] = [RUN_TIME_ZONE];
+  const params: unknown[] = [];
   const clauses: string[] = [];
   if (opts.range === 'today') {
-    clauses.push(`started_at >= (date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)`);
+    params.push(RUN_TIME_ZONE);
+    clauses.push(`started_at >= (date_trunc('day', now() AT TIME ZONE $${params.length}) AT TIME ZONE $${params.length})`);
   } else {
     params.push(RANGE_DAYS[opts.range]);
-    clauses.push(`started_at >= now() - make_interval(days => $${params.length})`);
+    clauses.push(`started_at >= now() - make_interval(days => $${params.length}::int)`);
   }
   if (!opts.includeAdmins) {
     const admins = await adminUserIds();
@@ -244,15 +250,15 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     breakdown('device', 'os', 'NULL'),
     breakdown('browser', 'os', 'NULL'),
     query<{ hour: number; views: number }>(
-      `SELECT extract(hour FROM started_at AT TIME ZONE $1)::int AS hour, count(*)::int AS views
+      `SELECT extract(hour FROM started_at AT TIME ZONE $${params.length + 1})::int AS hour, count(*)::int AS views
          FROM page_views WHERE ${where} GROUP BY 1 ORDER BY 1`,
-      params,
+      [...params, RUN_TIME_ZONE],
     ),
     query<{ day: string; visitors: number; views: number }>(
-      `SELECT to_char(started_at AT TIME ZONE $1, 'YYYY-MM-DD') AS day,
+      `SELECT to_char(started_at AT TIME ZONE $${params.length + 1}, 'YYYY-MM-DD') AS day,
               count(DISTINCT visitor_id)::int AS visitors, count(*)::int AS views
          FROM page_views WHERE ${where} GROUP BY 1 ORDER BY 1`,
-      params,
+      [...params, RUN_TIME_ZONE],
     ),
   ]);
 
