@@ -1221,7 +1221,29 @@ function dataApi(): Plugin {
   };
 }
 
+/**
+ * The public names this server answers to, behind the TLS proxy.
+ *
+ * `vite preview` refuses a request whose Host header it was not told about,
+ * and the proxy passes the real one through, so the domain has to be declared
+ * or every request from it returns "Blocked request". Taken from
+ * `APP_BASE_URL` rather than written out here: one setting already decides the
+ * public origin for magic links, Stripe redirects and the secure cookie, and a
+ * second copy of it is a second thing to forget when the domain changes.
+ */
+function publicHosts(): string[] {
+  const configured = process.env.APP_BASE_URL ?? readEnvSafe().APP_BASE_URL ?? '';
+  try {
+    const { hostname } = new URL(configured);
+    if (!hostname || hostname === 'localhost' || /^[\d.]+$/.test(hostname)) return [];
+    return [hostname, hostname.startsWith('www.') ? hostname.slice(4) : `www.${hostname}`];
+  } catch {
+    return [];
+  }
+}
+
 export default defineConfig({
   plugins: [react(), dataApi()],
   server: { port: 5180, open: true },
+  preview: { allowedHosts: publicHosts() },
 });
