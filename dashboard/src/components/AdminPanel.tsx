@@ -1006,7 +1006,7 @@ function VisitorsView() {
           </div>
 
           <section className="card table-wrap admin-section">
-            <h3>{home ? `${homeName} addresses` : `Addresses outside ${homeName}`} · {data.addresses.count}</h3>
+            <h3>Addresses {home ? 'in' : 'outside'} {homeName} · {data.addresses.count}</h3>
             <p className="job-meta">
               Every distinct IP address that resolved {home ? `to ${homeName}` : `outside ${homeName}`} in this period, most recent first.
               Ignore an address to leave its visits out of every report from now on.

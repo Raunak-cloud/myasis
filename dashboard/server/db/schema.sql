@@ -357,3 +357,7 @@ CREATE TABLE IF NOT EXISTS ignored_addresses (
   note       TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- A connection from this machine itself is an operator's — an SSH tunnel to
+-- the dashboard, a check from the shell — never a customer.
+INSERT INTO ignored_addresses (ip, note) VALUES ('127.0.0.1', 'This machine'), ('::1', 'This machine')
+ON CONFLICT (ip) DO NOTHING;
