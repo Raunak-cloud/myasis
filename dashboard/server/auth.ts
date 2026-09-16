@@ -26,13 +26,20 @@ export interface SessionUser {
 
 function creds() {
   const env = readEnv();
+  /**
+   * Where Google sends the visitor back, derived from APP_BASE_URL — the one
+   * setting that decides the public origin. It used to default to the
+   * localhost address of the ssh-tunnel days, so once the site had a domain,
+   * everyone who signed in there was sent to a localhost only the operator's
+   * tunnel could answer. OAUTH_REDIRECT_URI still overrides it. Whichever
+   * value applies must be listed on the OAuth client in Google Cloud Console,
+   * or Google refuses the sign-in with redirect_uri_mismatch.
+   */
+  const baseUrl = (process.env.APP_BASE_URL ?? env.APP_BASE_URL ?? 'http://localhost:5180').replace(/\/$/, '');
   return {
     clientId: process.env.GOOGLE_CLIENT_ID ?? env.GOOGLE_CLIENT_ID ?? '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? env.GOOGLE_CLIENT_SECRET ?? '',
-    redirectUri:
-      process.env.OAUTH_REDIRECT_URI ??
-      env.OAUTH_REDIRECT_URI ??
-      'http://localhost:5180/api/auth/callback/google',
+    redirectUri: process.env.OAUTH_REDIRECT_URI ?? env.OAUTH_REDIRECT_URI ?? `${baseUrl}/api/auth/callback/google`,
   };
 }
 

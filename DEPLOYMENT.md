@@ -42,7 +42,6 @@ GEMINI_API_KEY=
 APP_BASE_URL=https://myasis.example.com
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-OAUTH_REDIRECT_URI=https://myasis.example.com/api/auth/callback/google
 CDP_HOST=127.0.0.1
 CDP_PORT=9333
 BROWSER_CONNECT_CDP=true
@@ -50,6 +49,12 @@ CHROME_PATH=/usr/bin/google-chrome-stable
 CHROME_PROFILE_DIR=/home/your-user/chrome-profile
 PROFILE_PATH=/home/your-user/myasis/profile.txt
 ```
+
+Google sends sign-ins back to `APP_BASE_URL/api/auth/callback/google`. List
+exactly that URI under "Authorised redirect URIs" on the OAuth client in Google
+Cloud Console (APIs & Services → Credentials), and `APP_BASE_URL` itself under
+"Authorised JavaScript origins"; otherwise Google refuses every sign-in with
+`redirect_uri_mismatch`. Set `OAUTH_REDIRECT_URI` only to override that default.
 
 For payments, also set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. Register
 `https://myasis.example.com/api/billing/webhook` in Stripe.
