@@ -34,7 +34,7 @@ export const USER_SETTABLE_SETTINGS_KEYS = KEEP_SETTINGS_KEYS.filter((key) => ke
 
 const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
 /** Mirrors seek-bot's own clamps, so the dashboard shows what a run will really use. */
-const RUN_LIMITS: Record<string, number> = {
+export const RUN_LIMITS: Record<string, number> = {
   MAX_EVALUATIONS: 150,
   MAX_APPS_PER_RUN: 10,
   PAGES_PER_KEYWORD: 3,

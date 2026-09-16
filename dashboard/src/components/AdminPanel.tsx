@@ -23,6 +23,7 @@ interface AdminUser {
   resumes: number;
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
+  overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
   manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
@@ -291,11 +292,40 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   const [notice, setNotice] = useState<string | null>(null);
   const [grantPlan, setGrantPlan] = useState<string>('job-search-pass');
   const [confirmEmail, setConfirmEmail] = useState('');
+  const [evaluationsInput, setEvaluationsInput] = useState('');
+  const [maxAppsInput, setMaxAppsInput] = useState('');
 
   const load = useCallback(() => {
     api<UserDetail>(`/users/${userId}`).then(setUser).catch((reason) => setError((reason as Error).message));
   }, [userId]);
   useEffect(load, [load]);
+  // Reflects the server's own numbers, including after a save is clamped to
+  // the platform ceiling — not just what was typed.
+  useEffect(() => {
+    setEvaluationsInput(user?.overrides.evaluationsPerRun != null ? String(user.overrides.evaluationsPerRun) : '');
+    setMaxAppsInput(user?.overrides.maxApplicationsPerRun != null ? String(user.overrides.maxApplicationsPerRun) : '');
+  }, [user]);
+
+  function saveLimits() {
+    const parse = (raw: string): number | null | 'invalid' => {
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 'invalid';
+    };
+    const evaluationsPerRun = parse(evaluationsInput);
+    const maxApplicationsPerRun = parse(maxAppsInput);
+    if (evaluationsPerRun === 'invalid' || maxApplicationsPerRun === 'invalid') {
+      setError('Limits must be a positive number, or left blank to use the plan default.');
+      return;
+    }
+    void act(
+      'limits',
+      `/users/${user!.id}/limits`,
+      { method: 'POST', json: { evaluationsPerRun, maxApplicationsPerRun } },
+      'Limits saved.',
+    );
+  }
 
   async function act(label: string, path: string, init: RequestInit & { json?: unknown }, done: string) {
     setBusy(label);
@@ -424,6 +454,40 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                         && act('admin', `/users/${user.id}/admin`, { method: 'POST', json: { admin: !user.admin } }, user.admin ? 'Admin access removed.' : 'Admin access given.')}
                     >
                       {user.admin ? 'Remove admin' : 'Make admin'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="section">
+                <h3>Limits</h3>
+                <p className="job-meta">Overrides {user.plan}'s own numbers for this account, for cost control or a one-off case. Leave a field blank to go back to the plan default.</p>
+                <div className="admin-controls">
+                  <label className="admin-switch-row">
+                    <span>Jobs reviewed per run</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      placeholder="Plan default"
+                      value={evaluationsInput}
+                      onChange={(event) => setEvaluationsInput(event.target.value)}
+                    />
+                  </label>
+                  <label className="admin-switch-row">
+                    <span>Applications per run</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      placeholder="Plan default"
+                      value={maxAppsInput}
+                      onChange={(event) => setMaxAppsInput(event.target.value)}
+                    />
+                  </label>
+                  <div className="admin-button-row">
+                    <button className="btn primary" disabled={busy !== null} onClick={saveLimits}>
+                      {busy === 'limits' ? 'Saving…' : 'Save limits'}
                     </button>
                   </div>
                 </div>

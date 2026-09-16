@@ -1,7 +1,7 @@
 import { one, query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { billingStatus, isAdmin } from './billing.js';
-import { KEEP_SETTINGS_KEYS, RUN_SETTING_DEFAULTS } from './settings.js';
+import { KEEP_SETTINGS_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
 
 export { SCHEDULED_MIN_SCORE };
@@ -41,6 +41,69 @@ export const ADMIN_AUTO_RUNS_PER_DAY = 10;
  * posted through /api/settings.
  */
 const AUTO_APPLY_PAUSED_KEY = 'AUTO_APPLY_PAUSED';
+
+/**
+ * Per-account admin overrides: how many listings a run reviews, and how many
+ * applications one run may submit. Set by an operator to give one account
+ * more or less than its plan — for cost control, or a real problem case —
+ * without moving the account to a different plan.
+ *
+ * Stored as settings rows outside `KEEP_SETTINGS_KEYS`, the same way
+ * `AUTO_APPLY_PAUSED_KEY` is: `/api/settings` never exposes them to the
+ * account, and they survive the standard-tier fine-tuning reset in
+ * `applyRunPolicy`, which resets everything in that key set back to the
+ * product default before an operator's override ever gets a say.
+ */
+const ADMIN_EVALUATIONS_OVERRIDE_KEY = 'ADMIN_EVALUATIONS_OVERRIDE';
+const ADMIN_MAX_APPS_OVERRIDE_KEY = 'ADMIN_MAX_APPS_OVERRIDE';
+
+export interface AdminOverrides {
+  /** Listings a run reviews. Null means the account's plan decides. */
+  evaluationsPerRun: number | null;
+  /** Applications one run may submit. Null means the account's own setting or plan default decides. */
+  maxApplicationsPerRun: number | null;
+}
+
+function parsePositiveInt(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** An account's current admin overrides, or nulls where none is set. */
+export async function adminOverridesFor(userId: string): Promise<AdminOverrides> {
+  const rows = await query<{ key: string; value: string }>(
+    `SELECT key, value FROM settings WHERE user_id = $1 AND key = ANY($2)`,
+    [userId, [ADMIN_EVALUATIONS_OVERRIDE_KEY, ADMIN_MAX_APPS_OVERRIDE_KEY]],
+  );
+  const byKey = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  return {
+    evaluationsPerRun: parsePositiveInt(byKey[ADMIN_EVALUATIONS_OVERRIDE_KEY]),
+    maxApplicationsPerRun: parsePositiveInt(byKey[ADMIN_MAX_APPS_OVERRIDE_KEY]),
+  };
+}
+
+/**
+ * Sets or clears one account's admin overrides. A `null` value clears that
+ * override back to the plan default; a number is clamped to the same
+ * ceiling seek-bot enforces for every account (`RUN_LIMITS`), so an operator
+ * cannot hand out more than a run will actually use.
+ */
+export async function setAdminOverrides(
+  userId: string,
+  overrides: { evaluationsPerRun?: number | null; maxApplicationsPerRun?: number | null },
+): Promise<void> {
+  const clamp = (value: number | null | undefined, ceiling: number) =>
+    value === null || value === undefined ? value : Math.max(1, Math.min(ceiling, Math.floor(value)));
+  if (overrides.evaluationsPerRun !== undefined) {
+    const clamped = clamp(overrides.evaluationsPerRun, RUN_LIMITS.MAX_EVALUATIONS);
+    await upsertSettingRow(userId, ADMIN_EVALUATIONS_OVERRIDE_KEY, clamped ? String(clamped) : '');
+  }
+  if (overrides.maxApplicationsPerRun !== undefined) {
+    const clamped = clamp(overrides.maxApplicationsPerRun, RUN_LIMITS.MAX_APPS_PER_RUN);
+    await upsertSettingRow(userId, ADMIN_MAX_APPS_OVERRIDE_KEY, clamped ? String(clamped) : '');
+  }
+}
 
 /** Employer-site applications an Intensive Pass may submit per day. */
 export const INTENSIVE_EMPLOYER_SITES_PER_DAY = PLAN_LIMITS['intensive-pass'].employerSitesPerDay;
@@ -82,7 +145,10 @@ export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
  */
 export function applyRunPolicy(
   settings: Record<string, string>,
-  entitlement: Pick<Entitlements, 'tier' | 'fineTune' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer'>,
+  entitlement: Pick<
+    Entitlements,
+    'tier' | 'fineTune' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer' | 'maxApplicationsPerRunOverride'
+  >,
   trigger: 'manual' | 'auto',
 ): Record<string, string> {
   const resolved = { ...settings };
@@ -123,6 +189,15 @@ export function applyRunPolicy(
     resolved.MAX_APPS_PER_RUN = 'none';
     resolved.MAX_APPS_PER_DAY = 'none';
     resolved.MAX_EVALUATIONS = 'none';
+  } else if (entitlement.maxApplicationsPerRunOverride !== null) {
+    /**
+     * An operator's override wins over both the plan's own default and
+     * whatever the account itself saved — that is the point of setting one.
+     * Applied last, after the fine-tuning reset above, so it survives for a
+     * standard account whose own MAX_APPS_PER_RUN was just wiped back to the
+     * product default.
+     */
+    resolved.MAX_APPS_PER_RUN = String(entitlement.maxApplicationsPerRunOverride);
   }
   return resolved;
 }
@@ -146,8 +221,10 @@ export interface Entitlements {
   scheduledMinScore: number | null;
   /** Listings the schedule assesses over a full day; null without a schedule. */
   scheduledJobsPerDay: number | null;
-  /** Listings the AI assesses in each run; admins keep their configured value. */
+  /** Listings the AI assesses in each run; admins keep their configured value. Reflects an operator's override, if one is set. */
   evaluationsPerRun: number | null;
+  /** Applications one run may submit, forced by an operator; null when no override is set and the account's own setting or plan default applies. */
+  maxApplicationsPerRunOverride: number | null;
   /** May edit the settings that change how a run behaves. */
   fineTune: boolean;
   /** May use the rewriting tool. */
@@ -255,21 +332,22 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
   const manualRuns = tier !== 'standard';
   const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
   const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass, billing.paid.hasActiveJobSearchPass);
-  const evaluationsPerRun = tier === 'admin'
-    ? null
-    : tier === 'intensive'
-      ? INTENSIVE_EVALUATIONS_PER_RUN
-      : billing.paid.hasActivePass
-        ? JOB_SEARCH_EVALUATIONS_PER_RUN
-        : FREE_EVALUATIONS_PER_RUN;
+  const planEvaluationsPerRun = tier === 'intensive'
+    ? INTENSIVE_EVALUATIONS_PER_RUN
+    : billing.paid.hasActivePass
+      ? JOB_SEARCH_EVALUATIONS_PER_RUN
+      : FREE_EVALUATIONS_PER_RUN;
 
-  const [manualRunsUsedToday, autoRunsUsedToday, pausedRow] = await Promise.all([
+  const [manualRunsUsedToday, autoRunsUsedToday, pausedRow, overrides] = await Promise.all([
     manualRuns ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
     autoRunsPerDay > 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
     one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
+    adminOverridesFor(userId),
   ]);
   // Anyone with a schedule can switch it off — they found a job, or want a break — and back on.
   const canPauseAutoApply = autoRunsPerDay > 0;
+  // An operator's override wins over the plan's own number wherever one is set; an operator has no need to override their own account.
+  const evaluationsPerRun = tier === 'admin' ? null : overrides.evaluationsPerRun ?? planEvaluationsPerRun;
 
   return {
     tier,
@@ -288,6 +366,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
       ? autoRunsPerDay * evaluationsPerRun
       : null,
     evaluationsPerRun,
+    maxApplicationsPerRunOverride: tier === 'admin' ? null : overrides.maxApplicationsPerRun,
     fineTune: tier !== 'standard',
     rewriteText: tier === 'admin',
     runScopes: tier === 'admin',

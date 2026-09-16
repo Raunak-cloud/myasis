@@ -4,7 +4,7 @@ import { basename, resolve } from 'node:path';
 import { getPool, one, query } from './db/index.js';
 import { currentUser, type SessionUser } from './auth.js';
 import { billingStatus, isAdmin } from './billing.js';
-import { entitlementsFor, RUN_TIME_ZONE, setAutoApplyPaused } from './entitlements.js';
+import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides, setAutoApplyPaused } from './entitlements.js';
 import { runner, readEnv, writeEnv, MAX_CONCURRENT } from './runner.js';
 import { accountSetupChecks } from './setup.js';
 import { readSiteState } from './seek-state.js';
@@ -50,6 +50,8 @@ export interface AdminUserRow {
   resumes: number;
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
+  /** An operator's per-account overrides for control: how many jobs a run reviews, and how many it may apply to. Null means the plan decides. */
+  overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
   manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
@@ -58,9 +60,10 @@ export interface AdminUserRow {
 }
 
 async function userRow(user: { id: string; email: string; name: string | null; avatar_url: string | null; created_at: Date; last_login_at: Date | null }): Promise<AdminUserRow> {
-  const [billing, entitlements, setup, counts, lastRun] = await Promise.all([
+  const [billing, entitlements, overrides, setup, counts, lastRun] = await Promise.all([
     billingStatus(user.id, user.email),
     entitlementsFor(user.id, user.email),
+    adminOverridesFor(user.id),
     accountSetupChecks(user.id),
     one<{ resumes: string; total: string; week: string; today: string }>(
       `SELECT
@@ -100,6 +103,7 @@ async function userRow(user: { id: string; email: string; name: string | null; a
       paused: entitlements.autoApplyPaused,
       canPause: entitlements.canPauseAutoApply,
     },
+    overrides,
     manualRunsToday: entitlements.manualRunsUsedToday,
     applications: { total: Number(counts?.total ?? 0), week: Number(counts?.week ?? 0), today: Number(counts?.today ?? 0) },
     lastRun: lastRun
@@ -421,6 +425,23 @@ export async function handleAdminRequest(
     const body = await readBody();
 
     switch (action) {
+      case 'limits': {
+        const hasEvaluations = Object.prototype.hasOwnProperty.call(body ?? {}, 'evaluationsPerRun');
+        const hasMaxApps = Object.prototype.hasOwnProperty.call(body ?? {}, 'maxApplicationsPerRun');
+        if (!hasEvaluations && !hasMaxApps) return send({ error: 'Set at least one limit to change.' }, 400);
+        const invalid = (value: unknown) => value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 1);
+        if (hasEvaluations && invalid(body.evaluationsPerRun)) {
+          return send({ error: 'Jobs reviewed per run must be a positive number, or null to use the plan default.' }, 400);
+        }
+        if (hasMaxApps && invalid(body.maxApplicationsPerRun)) {
+          return send({ error: 'Applications per run must be a positive number, or null to use the plan default.' }, 400);
+        }
+        await setAdminOverrides(target.id, {
+          ...(hasEvaluations ? { evaluationsPerRun: body.evaluationsPerRun } : {}),
+          ...(hasMaxApps ? { maxApplicationsPerRun: body.maxApplicationsPerRun } : {}),
+        });
+        return send({ ok: true, user: await userRow(target) });
+      }
       case 'auto-apply': {
         if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether automatic runs should be on or off.' }, 400);
         await setAutoApplyPaused(target.id, !body.enabled);

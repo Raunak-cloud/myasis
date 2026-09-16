@@ -18,10 +18,10 @@ const saved = {
   AI_INSTRUCTIONS_B64: 'ZG9udCBhcHBseSBmb3Igc2VuaW9yIHJvbGVz',
 };
 
-const freePolicy = { tier: 'standard' as const, fineTune: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, humanizer: false };
-const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, humanizer: true };
-const intensivePolicy = { tier: 'intensive' as const, fineTune: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, humanizer: true };
-const adminPolicy = { tier: 'admin' as const, fineTune: true, indeedApplications: true, evaluationsPerRun: null, humanizer: true };
+const freePolicy = { tier: 'standard' as const, fineTune: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, humanizer: false, maxApplicationsPerRunOverride: null };
+const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, humanizer: true, maxApplicationsPerRunOverride: null };
+const intensivePolicy = { tier: 'intensive' as const, fineTune: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, humanizer: true, maxApplicationsPerRunOverride: null };
+const adminPolicy = { tier: 'admin' as const, fineTune: true, indeedApplications: true, evaluationsPerRun: null, humanizer: true, maxApplicationsPerRunOverride: null };
 
 const standardManual = applyRunPolicy(saved, freePolicy, 'manual');
 check('standard accounts keep their job preferences', standardManual.KEYWORDS === saved.KEYWORDS);
@@ -64,6 +64,18 @@ check('Job Search Pass accounts receive four scheduled runs', automaticRunsPerDa
 check('admins receive ten scheduled runs', automaticRunsPerDay('admin') === 10);
 check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
 check('Intensive keeps the automatic runs of a Job Search Pass it also holds', automaticRunsPerDay('intensive', true, true) === 4);
+
+// An operator's per-account override is a control, not a suggestion: it wins
+// over the free plan's own default and survives the fine-tuning reset that
+// wipes anything else a standard account tries to save for this key.
+const freeWithOverride = { ...freePolicy, maxApplicationsPerRunOverride: 2 };
+const overridden = applyRunPolicy(saved, freeWithOverride, 'manual');
+check('an operator override wins over the free plan default', overridden.MAX_APPS_PER_RUN === '2');
+const intensiveWithOverride = { ...intensivePolicy, maxApplicationsPerRunOverride: 1 };
+const overriddenIntensive = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '10' }, intensiveWithOverride, 'manual');
+check('an operator override wins over an Intensive account\'s own saved value', overriddenIntensive.MAX_APPS_PER_RUN === '1');
+const adminWithOverride = applyRunPolicy(saved, { ...adminPolicy, maxApplicationsPerRunOverride: 3 }, 'manual');
+check('an operator has no need to override their own admin account', adminWithOverride.MAX_APPS_PER_RUN === 'none');
 
 // What a manual run posts goes through the plan, not around it.
 const posted = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '40', PLATFORMS: 'seek' }, intensivePolicy, 'manual');
