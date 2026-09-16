@@ -109,6 +109,8 @@ function listen(): void {
  * shown; a change closes the previous page's row and opens a new one.
  */
 export function trackPage(page: string): void {
+  // A browser under automation says so; a scanner is not a visitor.
+  if (navigator.webdriver) return;
   if (current?.page === page) return;
   listen();
   if (current) leave(current);

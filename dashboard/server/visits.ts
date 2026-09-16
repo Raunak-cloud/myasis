@@ -214,7 +214,6 @@ export interface VisitorReport {
   referrers: Breakdown[];
   devices: Breakdown[];
   browsers: Breakdown[];
-  hours: Array<{ hour: number; views: number }>;
   days: Array<{ day: string; visitors: number; views: number }>;
 }
 
@@ -230,7 +229,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       params,
     ).then((rows) => rows.map((row) => ({ ...row, label: row.label ?? 'Unknown' })));
 
-  const [totals, countries, regions, cities, pages, referrers, devices, browsers, hours, days] = await Promise.all([
+  const [totals, countries, regions, cities, pages, referrers, devices, browsers, days] = await Promise.all([
     one<{ visitors: number; visits: number; views: number; signed_in: number; located: number; avg_seconds: number | null }>(
       `SELECT count(DISTINCT visitor_id)::int AS visitors,
               count(DISTINCT session_id)::int AS visits,
@@ -249,11 +248,6 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     breakdown('referrer', 'NULL', 'NULL', 'AND referrer IS NOT NULL', 'count(DISTINCT session_id)'),
     breakdown('device', 'os', 'NULL'),
     breakdown('browser', 'os', 'NULL'),
-    query<{ hour: number; views: number }>(
-      `SELECT extract(hour FROM started_at AT TIME ZONE $${params.length + 1})::int AS hour, count(*)::int AS views
-         FROM page_views WHERE ${where} GROUP BY 1 ORDER BY 1`,
-      [...params, RUN_TIME_ZONE],
-    ),
     query<{ day: string; visitors: number; views: number }>(
       `SELECT to_char(started_at AT TIME ZONE $${params.length + 1}, 'YYYY-MM-DD') AS day,
               count(DISTINCT visitor_id)::int AS visitors, count(*)::int AS views
@@ -275,7 +269,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       located: totals?.located ?? 0,
       avgSeconds: totals?.avg_seconds ?? null,
     },
-    countries, regions, cities, pages, referrers, devices, browsers, hours, days,
+    countries, regions, cities, pages, referrers, devices, browsers, days,
   };
 }
 

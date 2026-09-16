@@ -809,7 +809,6 @@ interface VisitorReport {
   referrers: Breakdown[];
   devices: Breakdown[];
   browsers: Breakdown[];
-  hours: Array<{ hour: number; views: number }>;
   days: Array<{ day: string; visitors: number; views: number }>;
   recent: RecentVisit[];
 }
@@ -898,8 +897,6 @@ function VisitorsView() {
   if (error) return <div className="banner banner-bad">{error}</div>;
 
   const totals = data?.totals;
-  const busiest = Math.max(1, ...(data?.hours ?? []).map((hour) => hour.views));
-  const viewsByHour = new Map((data?.hours ?? []).map((hour) => [hour.hour, hour.views]));
   const tiles = data && totals ? [
     { label: 'Visitors', value: totals.visitors, note: `${totals.signedIn} signed in` },
     { label: 'Visits', value: totals.visits, note: 'browser sessions' },
@@ -946,22 +943,6 @@ function VisitorsView() {
               </div>
             ))}
           </div>
-
-          <section className="card admin-section">
-            <h3>Busiest hours</h3>
-            <div className="admin-hours" aria-label="Page views by hour of day">
-              {Array.from({ length: 24 }, (_, hour) => {
-                const views = viewsByHour.get(hour) ?? 0;
-                return (
-                  <div key={hour} className="admin-hour" title={`${hour}:00 · ${views} ${views === 1 ? 'view' : 'views'}`}>
-                    <span className="admin-hour-bar" style={{ height: `${(views / busiest) * 100}%` }} />
-                    <span className="admin-hour-label">{hour % 6 === 0 ? `${hour}h` : ''}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="job-meta">Local time ({data.timeZone}).</p>
-          </section>
 
           <div className="admin-visitors-grid">
             <BreakdownTable title="Countries" rows={data.countries} empty="No visits yet." label={(row) => <>{flag(row.code)} {row.label}</>} />
