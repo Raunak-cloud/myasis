@@ -12,7 +12,7 @@ import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
 import { userDir } from './userdata.js';
 import { PAID_PLANS, isPaidPlanKey } from '../src/pricing.js';
-import { parseRange, recentVisits, visitorReport } from './visits.js';
+import { clientIp, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
 
 /**
  * The operator's view of the whole installation: every account, every run,
@@ -363,7 +363,12 @@ async function runLog(runId: string): Promise<{ lines: Array<{ stream: string; t
  * these, so the caller can fall through to its own 404.
  */
 export async function handleAdminRequest(
-  req: { method?: string; headers?: Record<string, string | string[] | undefined>; on: (event: string, fn: (...args: any[]) => void) => void },
+  req: {
+    method?: string;
+    headers?: Record<string, string | string[] | undefined>;
+    socket?: { remoteAddress?: string };
+    on: (event: string, fn: (...args: any[]) => void) => void;
+  },
   res: { writeHead: (status: number, headers: Record<string, string>) => void; write: (chunk: string) => void },
   url: URL,
   send: Send,
@@ -386,9 +391,29 @@ export async function handleAdminRequest(
 
     if (path === '/visitors' && method === 'GET') {
       // Who has been looking at the site, from where, and for how long.
-      const scope = { range: parseRange(url.searchParams.get('range')), includeAdmins: url.searchParams.get('admins') === '1' };
-      const [report, recent] = await Promise.all([visitorReport(scope), recentVisits(scope)]);
-      return send({ ...report, recent });
+      const scope = {
+        range: parseRange(url.searchParams.get('range')),
+        market: parseMarket(url.searchParams.get('market')),
+        includeAdmins: url.searchParams.get('admins') === '1',
+      };
+      const [report, recent, ignored] = await Promise.all([visitorReport(scope), recentVisits(scope), ignoredAddresses()]);
+      // The operator's own address, so it can be ignored in one click.
+      return send({ ...report, recent, ignored, yourAddress: clientIp(req) });
+    }
+
+    if (path === '/visitors/ignored' && method === 'POST') {
+      const body = await readBody();
+      const ip = parseAddress(body?.ip);
+      if (!ip) return send({ error: 'Enter a valid IP address.' }, 400);
+      await ignoreAddress(ip, typeof body?.note === 'string' ? body.note : null);
+      return send({ ok: true, ignored: await ignoredAddresses() });
+    }
+
+    if ((match = path.match(/^\/visitors\/ignored\/([0-9A-Fa-f.:]+)$/)) && method === 'DELETE') {
+      const ip = parseAddress(match[1]);
+      if (!ip) return send({ error: 'Enter a valid IP address.' }, 400);
+      await unignoreAddress(ip);
+      return send({ ok: true, ignored: await ignoredAddresses() });
     }
 
     if ((match = path.match(/^\/runs\/(\d+)\/log$/)) && method === 'GET') {

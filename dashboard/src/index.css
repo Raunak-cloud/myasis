@@ -2110,12 +2110,25 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 }
 
 /* ---------- Admin: visitors ---------- */
-.admin-visitors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
-.admin-breakdown table { width: 100%; }
-.admin-breakdown td, .admin-breakdown th { vertical-align: top; }
+.admin-visitors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 12px; }
+/* Breakdowns are one line per row: fixed columns for the numbers, the name takes the rest and is cut with an ellipsis. */
+.admin-breakdown table { width: 100%; table-layout: fixed; }
+.admin-breakdown th, .admin-breakdown td { padding: 5px 8px; vertical-align: middle; }
+.admin-breakdown th:first-child, .admin-breakdown td:first-child { padding-left: 0; }
+.admin-breakdown th:last-child, .admin-breakdown td:last-child { padding-right: 0; }
+.admin-breakdown th.num { width: 58px; }
+.admin-breakdown th.num.time { width: 66px; }
 .admin-breakdown .num, .admin-section .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.admin-bar { display: block; height: 4px; margin-top: 5px; border-radius: 2px; background: var(--accent-soft); overflow: hidden; }
-.admin-bar span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+/* The share of visitors is drawn behind the name, not under it. */
+.admin-fill {
+  padding: 4px 8px; border-radius: 5px; font-size: 13px; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)) no-repeat 0 0 / var(--fill, 0%) 100%;
+}
+.admin-fill-sub { margin-left: 6px; color: var(--text-faint); font-size: 12px; }
+.admin-nav.compact button { padding: 5px 12px; font-size: 13px; }
+.admin-ignored { margin-bottom: 12px; }
+.admin-ignored li { align-items: center; }
 .admin-pages { display: flex; flex-wrap: wrap; gap: 4px; }
 .admin-pages span { padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--surface-2); color: var(--text-dim); white-space: nowrap; }
 .admin-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }

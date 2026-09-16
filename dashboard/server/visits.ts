@@ -23,6 +23,21 @@ const MAX_DURATION_MS = 6 * 60 * 60 * 1000;
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const PAGE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
 
+/**
+ * The market the product serves. Visits from there are the report an
+ * operator opens to; everything else is a second report, so a wave of
+ * scanners from a data centre abroad never buries the customers at home.
+ */
+export const HOME_COUNTRY = (process.env.VISIT_HOME_COUNTRY ?? 'AU').trim().toUpperCase().slice(0, 2) || 'AU';
+
+function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 // ---------------------------------------------------------------- the request
 
 /**
@@ -33,10 +48,15 @@ const PAGE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
  * entries only the last is Caddy's: the ones before it arrived with the
  * request, from whoever sent it, and say whatever they liked.
  */
-export function clientIp(req: IncomingMessage): string | null {
+export interface AddressableRequest {
+  headers?: Record<string, string | string[] | undefined>;
+  socket?: { remoteAddress?: string };
+}
+
+export function clientIp(req: AddressableRequest): string | null {
   const remote = req.socket?.remoteAddress ?? '';
+  const header = req.headers?.['x-forwarded-for'];
   const viaProxy = /^(::1|127\.\d+\.\d+\.\d+|::ffff:127\.\d+\.\d+\.\d+)$/.test(remote);
-  const header = req.headers['x-forwarded-for'];
   const entries = (Array.isArray(header) ? header.join(',') : header ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
   const forwarded = entries[entries.length - 1] ?? '';
   const raw = viaProxy && forwarded ? forwarded : remote;
@@ -118,12 +138,17 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
   const language = typeof b.language === 'string' && /^[A-Za-z-]{2,16}$/.test(b.language) ? b.language : null;
   const timeZone = typeof b.timeZone === 'string' && /^[A-Za-z_/+-]{2,64}$/.test(b.timeZone) ? b.timeZone : null;
 
+  // An ignored address is the operator's own: the view is acknowledged, never kept.
   const row = await one<{ id: string }>(
     `INSERT INTO page_views (
        visitor_id, session_id, user_id, page, referrer, ip,
        country_code, country, region, city, latitude, longitude,
        user_agent, device, browser, os, screen, language, time_zone
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+     )
+     SELECT $1::text, $2::text, $3::bigint, $4::text, $5::text, $6::inet,
+            $7::text, $8::text, $9::text, $10::text, $11::double precision, $12::double precision,
+            $13::text, $14::text, $15::text, $16::text, $17::text, $18::text, $19::text
+      WHERE NOT EXISTS (SELECT 1 FROM ignored_addresses WHERE ip = $6::inet)
      RETURNING id::text AS id`,
     [
       visitorId, sessionId, userId, page, cleanReferrer(b.referrer, host), ip,
@@ -162,8 +187,16 @@ export function parseRange(value: string | null): VisitorRange {
   return value === 'today' || value === '30d' || value === '90d' ? value : '7d';
 }
 
+/** Visits from the home country, or from everywhere else (which includes visits with no known place). */
+export type VisitorMarket = 'home' | 'abroad';
+
+export function parseMarket(value: string | null): VisitorMarket {
+  return value === 'abroad' ? 'abroad' : 'home';
+}
+
 export interface VisitorScope {
   range: VisitorRange;
+  market: VisitorMarket;
   /** Operators' own visits are left out unless asked for: they are not customers. */
   includeAdmins: boolean;
 }
@@ -189,6 +222,9 @@ async function scope(opts: VisitorScope): Promise<{ where: string; params: unkno
     params.push(RANGE_DAYS[opts.range]);
     clauses.push(`started_at >= now() - make_interval(days => $${params.length}::int)`);
   }
+  params.push(HOME_COUNTRY);
+  clauses.push(opts.market === 'home' ? `country_code = $${params.length}` : `country_code IS DISTINCT FROM $${params.length}`);
+  clauses.push('NOT EXISTS (SELECT 1 FROM ignored_addresses i WHERE i.ip = page_views.ip)');
   if (!opts.includeAdmins) {
     const admins = await adminUserIds();
     if (admins.length) {
@@ -199,10 +235,43 @@ async function scope(opts: VisitorScope): Promise<{ where: string; params: unkno
   return { where: clauses.join(' AND '), params };
 }
 
+// ---------------------------------------------------------------- ignored addresses
+
+export interface IgnoredAddress { ip: string; note: string | null; createdAt: string }
+
+/** Every address whose visits are left out, oldest first. */
+export async function ignoredAddresses(): Promise<IgnoredAddress[]> {
+  const rows = await query<{ ip: string; note: string | null; created_at: Date }>(
+    'SELECT host(ip) AS ip, note, created_at FROM ignored_addresses ORDER BY created_at, ip',
+  );
+  return rows.map((row) => ({ ip: row.ip, note: row.note, createdAt: new Date(row.created_at).toISOString() }));
+}
+
+/** A well-formed address to ignore, or null. */
+export function parseAddress(value: unknown): string | null {
+  const ip = String(value ?? '').trim().replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1');
+  return isIP(ip) ? ip : null;
+}
+
+export async function ignoreAddress(ip: string, note: string | null): Promise<void> {
+  await query(
+    `INSERT INTO ignored_addresses (ip, note) VALUES ($1, $2)
+     ON CONFLICT (ip) DO UPDATE SET note = COALESCE(EXCLUDED.note, ignored_addresses.note)`,
+    [ip, note?.trim().slice(0, 120) || null],
+  );
+}
+
+export async function unignoreAddress(ip: string): Promise<void> {
+  await query('DELETE FROM ignored_addresses WHERE ip = $1', [ip]);
+}
+
 interface Breakdown { label: string; sub: string | null; code: string | null; visitors: number; views: number; seconds: number | null }
 
 export interface VisitorReport {
   range: VisitorRange;
+  market: VisitorMarket;
+  /** The country the 'home' market is. */
+  home: { code: string; name: string };
   timeZone: string;
   retentionDays: number;
   geoConfigured: boolean;
@@ -215,15 +284,17 @@ export interface VisitorReport {
   devices: Breakdown[];
   browsers: Breakdown[];
   days: Array<{ day: string; visitors: number; views: number }>;
-  /** Distinct addresses that resolved to Australia, the market the product serves. */
-  australia: {
-    addresses: number;
-    list: Array<{ ip: string; city: string | null; region: string | null; visits: number; views: number; lastSeenAt: string }>;
+  /** Every distinct address in the market, most recently seen first. */
+  addresses: {
+    count: number;
+    list: Array<{ ip: string; city: string | null; region: string | null; country: string | null; visits: number; views: number; lastSeenAt: string }>;
   };
 }
 
 export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> {
   const { where, params } = await scope(opts);
+  // At home the country is a given; abroad it is the first thing to know about a place.
+  const home = opts.market === 'home';
   const breakdown = (label: string, sub: string, code: string, extra = '', views = 'count(*)') =>
     query<{ label: string | null; sub: string | null; code: string | null; visitors: number; views: number; seconds: number | null }>(
       `SELECT ${label} AS label, ${sub} AS sub, ${code} AS code,
@@ -234,7 +305,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       params,
     ).then((rows) => rows.map((row) => ({ ...row, label: row.label ?? 'Unknown' })));
 
-  const [totals, countries, regions, cities, pages, referrers, devices, browsers, days, australia] = await Promise.all([
+  const [totals, countries, regions, cities, pages, referrers, devices, browsers, days, addresses] = await Promise.all([
     one<{ visitors: number; visits: number; views: number; signed_in: number; located: number; avg_seconds: number | null }>(
       `SELECT count(DISTINCT visitor_id)::int AS visitors,
               count(DISTINCT session_id)::int AS visits,
@@ -246,8 +317,8 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       params,
     ),
     breakdown('country', 'NULL', 'country_code'),
-    breakdown('region', 'country', 'country_code', 'AND region IS NOT NULL'),
-    breakdown('city', `concat_ws(', ', region, country)`, 'country_code', 'AND city IS NOT NULL'),
+    breakdown('region', home ? 'NULL' : 'country', 'country_code', 'AND region IS NOT NULL'),
+    breakdown('city', home ? 'region' : `concat_ws(', ', region, country)`, 'country_code', 'AND city IS NOT NULL'),
     breakdown('page', 'NULL', 'NULL'),
     // A source brings a visit, not a page view: the page reports it once, and it is counted once.
     breakdown('referrer', 'NULL', 'NULL', 'AND referrer IS NOT NULL', 'count(DISTINCT session_id)'),
@@ -259,13 +330,14 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
          FROM page_views WHERE ${where} GROUP BY 1 ORDER BY 1`,
       [...params, RUN_TIME_ZONE],
     ),
-    // One row per Australian address: where it last resolved to, and how much it looked.
-    query<{ ip: string; city: string | null; region: string | null; visits: number; views: number; last_seen: Date }>(
+    // One row per address: where it last resolved to, and how much it looked.
+    query<{ ip: string; city: string | null; region: string | null; country: string | null; visits: number; views: number; last_seen: Date }>(
       `SELECT host(ip) AS ip,
               (array_agg(city ORDER BY started_at DESC))[1] AS city,
               (array_agg(region ORDER BY started_at DESC))[1] AS region,
+              (array_agg(country ORDER BY started_at DESC))[1] AS country,
               count(DISTINCT session_id)::int AS visits, count(*)::int AS views, max(started_at) AS last_seen
-         FROM page_views WHERE ${where} AND country_code = 'AU' AND ip IS NOT NULL
+         FROM page_views WHERE ${where} AND ip IS NOT NULL
         GROUP BY host(ip) ORDER BY max(started_at) DESC LIMIT 200`,
       params,
     ),
@@ -273,6 +345,8 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
 
   return {
     range: opts.range,
+    market: opts.market,
+    home: { code: HOME_COUNTRY, name: countryName(HOME_COUNTRY) },
     timeZone: RUN_TIME_ZONE,
     retentionDays: RETENTION_DAYS,
     geoConfigured: geoipConfigured(),
@@ -285,12 +359,13 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       avgSeconds: totals?.avg_seconds ?? null,
     },
     countries, regions, cities, pages, referrers, devices, browsers, days,
-    australia: {
-      addresses: australia.length,
-      list: australia.map((row) => ({
+    addresses: {
+      count: addresses.length,
+      list: addresses.map((row) => ({
         ip: row.ip,
         city: row.city,
         region: row.region,
+        country: row.country,
         visits: row.visits,
         views: row.views,
         lastSeenAt: new Date(row.last_seen).toISOString(),

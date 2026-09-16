@@ -156,6 +156,12 @@ GeoLite2-City (free with an account) is more accurate and drops into the same
 path. Page views are kept for `VISIT_RETENTION_DAYS` (default 180) and then
 removed, because an address with a place is personal information.
 
+The view opens on visits from the country the product serves —
+`VISIT_HOME_COUNTRY`, default `AU` — and keeps every other country (and visits
+with no known place) under "Other countries". Operators' own addresses are
+managed in the view's "Ignored addresses" section: nothing from an ignored
+address is recorded, and earlier visits from it are hidden from every report.
+
 ## 4. Keep the public surface safe
 
 Do not expose port 9333. It grants control of the signed-in browser. Port 5180

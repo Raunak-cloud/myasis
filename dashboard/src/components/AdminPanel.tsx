@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { PAID_PLANS, aud } from '../pricing';
 
 /**
@@ -795,9 +795,13 @@ interface RecentVisit {
 }
 
 type VisitorRange = 'today' | '7d' | '30d' | '90d';
+/** Visits from the country the product serves, or from everywhere else. */
+type VisitorMarket = 'home' | 'abroad';
 
 interface VisitorReport {
   range: VisitorRange;
+  market: VisitorMarket;
+  home: { code: string; name: string };
   timeZone: string;
   retentionDays: number;
   geoConfigured: boolean;
@@ -810,11 +814,15 @@ interface VisitorReport {
   devices: Breakdown[];
   browsers: Breakdown[];
   days: Array<{ day: string; visitors: number; views: number }>;
-  australia: {
-    addresses: number;
-    list: Array<{ ip: string; city: string | null; region: string | null; visits: number; views: number; lastSeenAt: string }>;
+  addresses: {
+    count: number;
+    list: Array<{ ip: string; city: string | null; region: string | null; country: string | null; visits: number; views: number; lastSeenAt: string }>;
   };
   recent: RecentVisit[];
+  /** The operators' own addresses: never recorded, and hidden from every report. */
+  ignored: Array<{ ip: string; note: string | null; createdAt: string }>;
+  /** Where this admin is browsing from right now. */
+  yourAddress: string | null;
 }
 
 const RANGE_LABEL: Record<VisitorRange, string> = { today: 'Today', '7d': '7 days', '30d': '30 days', '90d': '90 days' };
@@ -856,16 +864,22 @@ function BreakdownTable({ title, rows, empty, label = (row) => row.label, viewsL
               <th />
               <th className="num">Visitors</th>
               <th className="num">{viewsLabel}</th>
-              <th className="num">Avg time</th>
+              <th className="num time">Avg time</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
                 <td>
-                  <div>{label(row)}</div>
-                  {row.sub && <div className="job-meta">{row.sub}</div>}
-                  <span className="admin-bar" aria-hidden="true"><span style={{ width: `${(row.visitors / max) * 100}%` }} /></span>
+                  {/* The share of visitors is the fill behind the name: one line per row, however long the name. */}
+                  <div
+                    className="admin-fill"
+                    style={{ '--fill': `${(row.visitors / max) * 100}%` } as CSSProperties}
+                    title={row.sub ? `${row.label}, ${row.sub}` : row.label}
+                  >
+                    {label(row)}
+                    {row.sub && <span className="admin-fill-sub">{row.sub}</span>}
+                  </div>
                 </td>
                 <td className="num">{row.visitors}</td>
                 <td className="num">{row.views}</td>
@@ -883,22 +897,47 @@ function BreakdownTable({ title, rows, empty, label = (row) => row.label, viewsL
 
 function VisitorsView() {
   const [range, setRange] = useState<VisitorRange>('7d');
+  const [market, setMarket] = useState<VisitorMarket>('home');
   const [includeAdmins, setIncludeAdmins] = useState(false);
   const [data, setData] = useState<VisitorReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [newAddress, setNewAddress] = useState({ ip: '', note: '' });
 
   const load = useCallback(() => {
-    api<VisitorReport>(`/visitors?range=${range}&admins=${includeAdmins ? 1 : 0}`)
-      .then(setData)
+    api<VisitorReport>(`/visitors?range=${range}&market=${market}&admins=${includeAdmins ? 1 : 0}`)
+      .then((report) => {
+        setData(report);
+        setError(null);
+      })
       .catch((reason) => setError((reason as Error).message));
-  }, [range, includeAdmins]);
+  }, [range, market, includeAdmins]);
   useEffect(() => {
     load();
     const id = window.setInterval(load, 30_000);
     return () => window.clearInterval(id);
   }, [load]);
 
-  if (error) return <div className="banner banner-bad">{error}</div>;
+  /** Adds or removes an ignored address, then shows the reports without it. */
+  const change = async (request: Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await request;
+      setNewAddress({ ip: '', note: '' });
+      load();
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ignore = (ip: string, note: string | null) => change(api('/visitors/ignored', { method: 'POST', json: { ip, note } }));
+  const unignore = (ip: string) => change(api(`/visitors/ignored/${encodeURIComponent(ip)}`, { method: 'DELETE' }));
+
+  const home = market === 'home';
+  const homeName = data?.home.name ?? 'Home';
+  const yourAddress = data?.yourAddress ?? null;
+  const yourAddressIgnored = !!yourAddress && !!data?.ignored.some((address) => address.ip === yourAddress);
 
   const totals = data?.totals;
   const tiles = data && totals ? [
@@ -906,17 +945,22 @@ function VisitorsView() {
     { label: 'Visits', value: totals.visits, note: 'browser sessions' },
     { label: 'Page views', value: totals.views, note: totals.visits ? `${(totals.views / totals.visits).toFixed(1)} per visit` : '—' },
     { label: 'Avg time on page', value: spent(totals.avgSeconds === null ? null : totals.avgSeconds * 1000), note: 'while the tab was in front' },
-    {
+    // At home every view has a place by definition; abroad is where the unplaced ones land.
+    ...(home ? [] : [{
       label: 'Located',
       value: totals.views ? `${Math.round((totals.located / totals.views) * 100)}%` : '—',
       note: data.geoConfigured ? 'of views resolved to a place' : 'no location database installed',
-    },
-    { label: 'Australian addresses', value: data.australia.addresses, note: 'distinct IP addresses in Australia' },
+    }]),
+    { label: 'Addresses', value: data.addresses.count, note: `distinct IP addresses ${home ? 'in' : 'outside'} ${homeName}` },
   ] : [];
 
   return (
     <div className="admin-stack">
       <div className="queue-bar">
+        <div className="admin-nav compact">
+          <button className={home ? 'on' : ''} onClick={() => setMarket('home')}>{homeName}</button>
+          <button className={home ? '' : 'on'} onClick={() => setMarket('abroad')}>Other countries</button>
+        </div>
         <div className="chips">
           {(Object.keys(RANGE_LABEL) as VisitorRange[]).map((key) => (
             <button key={key} className={`chip ${range === key ? 'on' : ''}`} onClick={() => setRange(key)}>
@@ -930,8 +974,10 @@ function VisitorsView() {
         </label>
       </div>
 
+      {error && <div className="banner banner-bad">{error}</div>}
+
       {!data ? (
-        <p className="job-meta">Loading…</p>
+        !error && <p className="job-meta">Loading…</p>
       ) : (
         <>
           {!data.geoConfigured && (
@@ -950,8 +996,8 @@ function VisitorsView() {
           </div>
 
           <div className="admin-visitors-grid">
-            <BreakdownTable title="Countries" rows={data.countries} empty="No visits yet." label={(row) => <>{flag(row.code)} {row.label}</>} />
-            <BreakdownTable title="States and regions" rows={data.regions} empty="No located visits yet." />
+            {!home && <BreakdownTable title="Countries" rows={data.countries} empty="No visits yet." label={(row) => <>{flag(row.code)} {row.label}</>} />}
+            <BreakdownTable title={data.home.code === 'AU' && home ? 'States and territories' : 'States and regions'} rows={data.regions} empty="No located visits yet." />
             <BreakdownTable title="Cities" rows={data.cities} empty="No located visits yet." />
             <BreakdownTable title="Pages" rows={data.pages} empty="No page views yet." label={(row) => pageLabel(row.label)} />
             <BreakdownTable title="Came from" rows={data.referrers} empty="Every visit arrived directly." viewsLabel="Visits" />
@@ -960,9 +1006,12 @@ function VisitorsView() {
           </div>
 
           <section className="card table-wrap admin-section">
-            <h3>Australian addresses · {data.australia.addresses}</h3>
-            <p className="job-meta">Every distinct IP address that resolved to Australia in this period, most recent first.</p>
-            {data.australia.list.length ? (
+            <h3>{home ? `${homeName} addresses` : `Addresses outside ${homeName}`} · {data.addresses.count}</h3>
+            <p className="job-meta">
+              Every distinct IP address that resolved {home ? `to ${homeName}` : `outside ${homeName}`} in this period, most recent first.
+              Ignore an address to leave its visits out of every report from now on.
+            </p>
+            {data.addresses.list.length ? (
               <table>
                 <thead>
                   <tr>
@@ -971,23 +1020,79 @@ function VisitorsView() {
                     <th className="num">Visits</th>
                     <th className="num">Page views</th>
                     <th>Last seen</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {data.australia.list.map((row) => (
+                  {data.addresses.list.map((row) => (
                     <tr key={row.ip}>
                       <td className="nowrap"><code>{row.ip}</code></td>
-                      <td>{[row.city, row.region].filter(Boolean).join(', ') || 'Australia'}</td>
+                      <td>{[row.city, row.region, home ? null : row.country].filter(Boolean).join(', ') || (home ? homeName : 'Unknown')}</td>
                       <td className="num">{row.visits}</td>
                       <td className="num">{row.views}</td>
                       <td className="nowrap">{when(row.lastSeenAt)}</td>
+                      <td className="num">
+                        <button className="btn btn-small" disabled={busy} onClick={() => void ignore(row.ip, null)}>Ignore</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             ) : (
-              <p className="job-meta admin-empty">No Australian addresses in this period.</p>
+              <p className="job-meta admin-empty">No addresses {home ? `in ${homeName}` : `outside ${homeName}`} in this period.</p>
             )}
+          </section>
+
+          <section className="card admin-section">
+            <h3>Ignored addresses · {data.ignored.length}</h3>
+            <p className="job-meta">
+              Your own homes and offices. Nothing from these addresses is recorded, and what was recorded before is hidden from every report.
+            </p>
+            {yourAddress && (
+              <div className="admin-button-row">
+                <span className="job-meta">
+                  You are browsing from <code>{yourAddress}</code>{yourAddressIgnored ? ', which is ignored.' : '.'}
+                </span>
+                {!yourAddressIgnored && (
+                  <button className="btn btn-small" disabled={busy} onClick={() => void ignore(yourAddress, 'My address')}>Ignore my address</button>
+                )}
+              </div>
+            )}
+            {data.ignored.length > 0 && (
+              <ul className="admin-list admin-ignored">
+                {data.ignored.map((address) => (
+                  <li key={address.ip}>
+                    <div>
+                      <code>{address.ip}</code>
+                      {address.note && <span className="job-meta"> · {address.note}</span>}
+                      <div className="job-meta">since {when(address.createdAt)}</div>
+                    </div>
+                    <button className="btn btn-small" disabled={busy} onClick={() => void unignore(address.ip)}>Stop ignoring</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              className="admin-button-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (newAddress.ip.trim()) void ignore(newAddress.ip, newAddress.note || null);
+              }}
+            >
+              <input
+                className="input"
+                placeholder="IP address"
+                value={newAddress.ip}
+                onChange={(event) => setNewAddress({ ...newAddress, ip: event.target.value })}
+              />
+              <input
+                className="input"
+                placeholder="Note, e.g. Office"
+                value={newAddress.note}
+                onChange={(event) => setNewAddress({ ...newAddress, note: event.target.value })}
+              />
+              <button className="btn" type="submit" disabled={busy || !newAddress.ip.trim()}>Ignore address</button>
+            </form>
           </section>
 
           <section className="card table-wrap admin-section">
@@ -1016,7 +1121,7 @@ function VisitorsView() {
                       {visit.country ? (
                         <>
                           {flag(visit.countryCode)} {[visit.city, visit.region].filter(Boolean).join(', ') || visit.country}
-                          {(visit.city || visit.region) && <div className="job-meta">{visit.country}</div>}
+                          {!home && (visit.city || visit.region) && <div className="job-meta">{visit.country}</div>}
                         </>
                       ) : (
                         <span className="job-meta">Unknown</span>

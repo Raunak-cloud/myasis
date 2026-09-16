@@ -347,3 +347,13 @@ CREATE TABLE IF NOT EXISTS page_views (
 );
 CREATE INDEX IF NOT EXISTS page_views_started_idx ON page_views(started_at DESC);
 CREATE INDEX IF NOT EXISTS page_views_session_idx ON page_views(session_id, started_at);
+CREATE INDEX IF NOT EXISTS page_views_country_idx ON page_views(country_code, started_at DESC);
+
+-- Addresses whose visits are not customers': the operators' own homes and
+-- offices. Nothing from them is recorded, and what was recorded before they
+-- were listed is left out of every report.
+CREATE TABLE IF NOT EXISTS ignored_addresses (
+  ip         INET PRIMARY KEY,
+  note       TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
