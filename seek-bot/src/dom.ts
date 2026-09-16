@@ -470,6 +470,45 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string): 
 }
 
 /**
+ * Opens a select-style combobox and waits for its list.
+ *
+ * The accessible input is frequently not the thing a person clicks. Ant
+ * Design, Dayforce and Workday draw the control as a styled box and leave the
+ * input inside it read-only — sometimes zero-width, sometimes covered by the
+ * box's own overlay — so `click` on the input never becomes actionable and
+ * times out. One employer form spent an entire step budget that way.
+ *
+ * So the widget is opened the way a person opens it: try the input, then the
+ * box that draws it, then a forced click, then the raw pointer sequence. Each
+ * attempt is judged by whether options actually appeared, not by whether the
+ * click resolved, because a click that lands on the wrong layer succeeds and
+ * opens nothing.
+ */
+async function openPicker(page: Page, el: Locator, options: Locator): Promise<void> {
+  const container = el.locator(
+    'xpath=ancestor::*[@role="combobox" or @role="button" or contains(@class,"select") or ' +
+      'contains(@class,"combobox") or contains(@class,"dropdown")][1]',
+  );
+  const attempts: Array<() => Promise<unknown>> = [
+    () => el.click({ timeout: 1_500 }),
+    () => container.first().click({ timeout: 1_500 }),
+    () => el.click({ timeout: 1_500, force: true }),
+    () =>
+      el.evaluate((node) => {
+        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+          node.dispatchEvent(new MouseEvent(type, { bubbles: true, composed: true }));
+        }
+        (node as HTMLElement).focus?.();
+      }),
+  ];
+  for (const attempt of attempts) {
+    if (!(await attempt().then(() => true).catch(() => false))) continue;
+    await options.first().waitFor({ state: 'visible', timeout: 1_200 }).catch(() => {});
+    if (await options.count()) return;
+  }
+}
+
+/**
  * ARIA comboboxes come in two shapes. A searchable one (city, dialling code)
  * filters as you type; a select-style one (title, preferred contact method,
  * "how did you hear") is a read-only input that only opens on click — Ant
@@ -482,12 +521,11 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
     .catch(() => false);
   const options = page.locator('[role="option"]:visible');
   if (typeable) await el.fill(value);
-  else await el.click({ timeout: 3_000 });
+  else await openPicker(page, el, options);
   await options.first().waitFor({ state: 'visible', timeout: 1_500 }).catch(() => {});
   if (!(await options.count()) && typeable) {
     // Some searchable selects only open on a click, not on typing.
-    await el.click({ timeout: 3_000 }).catch(() => {});
-    await options.first().waitFor({ state: 'visible', timeout: 1_500 }).catch(() => {});
+    await openPicker(page, el, options);
   }
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const exact = options.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') }).first();
@@ -598,8 +636,28 @@ export async function fillField(page: Page, field: FormField, value: string): Pr
     if (field.kind === 'checkbox') return (el as HTMLInputElement).checked === (value === 'true');
     if (field.kind === 'select') return [...(el as HTMLSelectElement).selectedOptions].some(o => normal(o.textContent ?? '') === normal(value) || o.value === value);
     if (field.autocomplete || el.getAttribute('role') === 'combobox') {
-      // A combobox shows its choice in a sibling, not in the input, and often clears the input after choosing.
-      const container = el.closest('[class*="select"], [class*="combobox"], [class*="dropdown"], label') ?? el.parentElement?.parentElement ?? el;
+      /**
+       * A combobox shows its choice in a sibling, not in the input, and often
+       * clears the input after choosing — so the check reads the widget, not
+       * the field.
+       *
+       * Which element is the widget matters. `closest('[class*=select]')`
+       * returns the innermost match, and on Ant Design (Dayforce, and every
+       * form built on it) that is `.ant-select-selection-search`: the wrapper
+       * around the hidden input, which never holds the chosen text. A
+       * correctly chosen option then read as a rejected value. So climb
+       * outward to the last wrapper that still contains only this one
+       * control — the widget's own root — and stop at the first ancestor that
+       * has a second field in it, which means the widget has been left.
+       */
+      const isWidget = (node: Element) =>
+        /select|combobox|dropdown|picker/i.test(String(node.className ?? '')) || node.getAttribute('role') === 'combobox';
+      let container: Element = el;
+      let node = el.parentElement;
+      for (let up = 0; up < 4 && node && node.tagName !== 'FORM' && node.tagName !== 'BODY'; up++, node = node.parentElement) {
+        if (node.querySelectorAll('input, select, textarea, [role="combobox"]').length > 1) break;
+        if (isWidget(node)) container = node;
+      }
       // Letters and digits only on both sides: the option "Sydney NSW" satisfies "Sydney, NSW".
       const loose = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       const shown = loose(container.textContent ?? '');

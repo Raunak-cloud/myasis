@@ -241,15 +241,71 @@ export class RunGuards {
   readonly skippedOptional = new Set<string>();
 
   /**
+   * Controls the agent could not operate, and what the page said when it
+   * tried: a read-only dropdown whose click never lands, a box that rejects
+   * every value offered.
+   *
+   * Deliberately a third list rather than more entries in `pendingFields`.
+   * The candidate cannot resolve one of these — the answer was known and the
+   * widget would not take it — so it must block submission without ever
+   * becoming a question on their dashboard. One Dayforce form asked its
+   * candidate for a "Preferred contact method" that the agent had an answer
+   * for and simply could not click.
+   */
+  readonly unfillable = new Map<string, string>();
+  private readonly fillAttempts = new Map<string, number>();
+
+  /**
+   * A fill attempt failed. After two goes at the same control the field moves
+   * to `unfillable`, which is what stops the agent re-answering it forever:
+   * the same tool call, the same rejection, until the page budget is gone.
+   */
+  recordFillFailure(label: string, reason: string): { attempts: number; exhausted: boolean } {
+    const attempts = (this.fillAttempts.get(label) ?? 0) + 1;
+    this.fillAttempts.set(label, attempts);
+    const exhausted = attempts >= 2;
+    if (exhausted) {
+      this.pendingFields.delete(label);
+      this.resolveGrounding(label);
+      this.unfillable.set(label, reason);
+    }
+    return { attempts, exhausted };
+  }
+
+  /** The value went in and the form kept it. */
+  recordFillSuccess(label: string): void {
+    this.pendingFields.delete(label);
+    this.resolveGrounding(label);
+    this.unfillable.delete(label);
+    this.fillAttempts.delete(label);
+  }
+
+  /** Why the application could not be completed, in the candidate's terms. */
+  unfillableReason(): string | null {
+    const labels = [...this.unfillable.keys()];
+    if (!labels.length) return null;
+    const rest = labels.length - 1;
+    return `The “${labels[0]}” control on this form did not accept anything Owtomate tried${
+      rest ? `, and ${rest} other${rest > 1 ? 's' : ''} did not either` : ''
+    }.`;
+  }
+
+  /**
    * What each blocked field looked like on the form — its kind and choices —
    * keyed by label. The pending lists above only hold labels, which was enough
    * to report a blocker but not to ask a person the same question the form
    * asked: a dropdown became a free-text box, and what they typed rarely
    * matched an option on retry.
    */
-  readonly fieldShapes = new Map<string, { ref?: string; kind?: string; options?: string[]; prompt?: string }>();
+  readonly fieldShapes = new Map<
+    string,
+    { ref?: string; kind?: string; options?: string[]; prompt?: string; required?: boolean }
+  >();
 
-  rememberField(field: { ref?: string; label: string; kind?: string; options?: string[] }, prompt?: string): void {
+  rememberField(
+    field: { ref?: string; label: string; kind?: string; options?: string[]; required?: boolean },
+    prompt?: string,
+  ): void {
     const known = this.fieldShapes.get(field.label);
     // A later sighting can only add choices (a combobox opened), never remove them.
     const options = field.options?.length ? field.options : known?.options;
@@ -258,6 +314,7 @@ export class RunGuards {
       kind: field.kind ?? known?.kind,
       options,
       prompt: prompt?.trim() || known?.prompt,
+      required: field.required ?? known?.required,
     });
   }
 
@@ -280,6 +337,14 @@ export class RunGuards {
         reason: `These questions could not be answered from the profile: ${this.ungrounded
           .slice(0, 3)
           .join('; ')}`,
+      };
+    }
+    if (this.unfillable.size) {
+      return {
+        allowed: false,
+        kind: 'ungrounded',
+        reason: this.unfillableReason()!,
+        detail: [...this.unfillable.entries()].map(([label, why]) => `${label}: ${why}`).join('; '),
       };
     }
     if (isExternal(currentUrl) && !config.allowExternalApply) {

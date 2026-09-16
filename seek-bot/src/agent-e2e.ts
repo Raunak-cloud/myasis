@@ -60,6 +60,34 @@ check('allows an ordinary apply path', !isForbiddenDestination('https://example.
   check('an ungrounded answer blocks submission', !dirty.allowed && dirty.kind === 'ungrounded');
 }
 {
+  /**
+   * Regression: a control the form will not operate is not a candidate task.
+   *
+   * A Dayforce form's read-only "Preferred contact method" combobox refused
+   * every click. The field stayed pending, the agent re-answered it nine
+   * times until its page budget was gone, and the candidate was then asked to
+   * type an answer the agent already had — which on retry would have hit the
+   * same unusable dropdown.
+   */
+  const guards = new RunGuards({ maxSteps: 50, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
+  const label = 'Preferred contact method';
+  guards.pendingFields.add(label);
+  guards.rememberField({ ref: 'f12', label, kind: 'text', required: true });
+  const first = guards.recordFillFailure(label, 'locator.click: Timeout 3000ms exceeded');
+  check('one refusal still leaves the control worth retrying', first.attempts === 1 && !first.exhausted);
+  const second = guards.recordFillFailure(label, 'locator.click: Timeout 3000ms exceeded');
+  check('a control that refuses twice is settled', second.exhausted && guards.unfillable.has(label));
+  check(
+    'an unusable control never becomes a question for the candidate',
+    !guards.pendingFields.has(label) && !guards.ungrounded.includes(label),
+  );
+  const verdict = guards.canSubmit('https://www.seek.com.au/apply/review');
+  check('an unusable required control still blocks submission', !verdict.allowed && verdict.kind === 'ungrounded');
+  check('the run reports the control, not a token count', Boolean(guards.unfillableReason()?.includes(label)));
+  guards.recordFillSuccess(label);
+  check('the control is usable again once the page lets it', guards.unfillable.size === 0);
+}
+{
   const guards = new RunGuards({ maxSteps: 50, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) });
   guards.rememberField({ ref: 'f7', label: 'Tell us more:', kind: 'textarea' }, 'Tell us about yourself.');
   const remembered = guards.fieldShapes.get('Tell us more:');

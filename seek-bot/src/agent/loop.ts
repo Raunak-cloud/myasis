@@ -370,10 +370,19 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastFingerprint = '';
 
   const finish = async (outcome: AgentTermination): Promise<AgentRunResult> => {
-    const criticalQuestions = [...new Set([...guards.pendingFields, ...guards.ungrounded])];
+    /**
+     * What is actually worth asking the candidate: a required question the
+     * profile could not answer. A control the form would not operate is not
+     * one of them — their answer changes nothing about a dropdown that never
+     * opens — so it stays a run outcome, with the form's own reason, instead
+     * of arriving as a task they cannot complete.
+     */
+    const answerable = (question: string) =>
+      guards.ungrounded.includes(question) || guards.fieldShapes.get(question)?.required === true;
+    const criticalQuestions = [...new Set([...guards.pendingFields, ...guards.ungrounded])].filter(answerable);
     const finalOutcome: AgentTermination =
       outcome.status === 'needs-human' && criticalQuestions.length === 0
-        ? { status: 'skipped', reason: outcome.reason }
+        ? { status: 'skipped', reason: guards.unfillableReason() ?? outcome.reason }
         : outcome;
     /**
      * The technical detail goes to the log and the trace and stops there.

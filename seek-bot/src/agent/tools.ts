@@ -378,7 +378,7 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
     if (value === null) continue;
     try {
       await fillField(ctx.page, field, value);
-      ctx.guards.pendingFields.delete(field.label);
+      ctx.guards.recordFillSuccess(field.label);
       filled.push(field.label);
     } catch (error) {
       failed.push(`${field.label}: ${(error as Error).message}`);
@@ -443,14 +443,36 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
    * it" — plain text, replayed at every later employer asking the same thing.
    */
   const credentials = asked.filter((field) => field.sensitive && !alreadyComplete.includes(field));
-  const wanted = asked.filter((field) => !field.sensitive && !alreadyComplete.includes(field));
+  /**
+   * A control already proved unusable is not answered again. The answer was
+   * never the problem, so a second model call produces the same value, the
+   * same rejection and one less step to finish the application with.
+   */
+  const unusable = asked.filter(
+    (field) => !field.sensitive && !alreadyComplete.includes(field) && ctx.guards.unfillable.has(field.label),
+  );
+  const wanted = asked.filter(
+    (field) => !field.sensitive && !alreadyComplete.includes(field) && !ctx.guards.unfillable.has(field.label),
+  );
   if (credentials.length) {
     return ok(
       `Use complete_authentication for credential fields: ${credentials.map((field) => `${field.ref} (${field.label})`).join(', ')}.`,
     );
   }
 
+  const unusableNote = unusable.length
+    ? `This form will not let anything be entered in: ${unusable
+        .map((field) => `${field.label} (${ctx.guards.unfillable.get(field.label)})`)
+        .join('; ')}. Do not answer ${unusable.length > 1 ? 'those' : 'that'} again. `
+    : '';
+
   if (!wanted.length) {
+    if (unusable.length) {
+      return ok(
+        `${unusableNote}Carry on with the rest of the form if anything remains, or finish with status ` +
+          `"cannot_complete" if this control is the only thing left.`,
+      );
+    }
     return ok(alreadyComplete.length
       ? 'Those fields are already complete. Continue with the next unanswered application field or the forward control.'
       : 'None of those refs are fields on this page. Choose refs from the current FIELDS list.');
@@ -488,6 +510,8 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
 
   const filled: string[] = [];
   const failed: string[] = [];
+  /** Controls that have now refused twice: reported once, then never retried. */
+  const blocked: string[] = [];
   const skipped: string[] = [];
   const unrelated: string[] = [];
   /** Required fields the answerer has already refused once — asking again cannot help. */
@@ -496,6 +520,16 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     ctx.guards.pendingFields.add(field.label);
     ctx.guards.rememberField(field);
   }
+  /**
+   * A control that would not take the value. Recorded against the field, not
+   * the candidate: after the second attempt it stops being something to retry
+   * and stops being something anyone can be asked about.
+   */
+  const recordFailure = (label: string, message: string) => {
+    const { exhausted } = ctx.guards.recordFillFailure(label, message);
+    (exhausted ? blocked : failed).push(`${label}: ${message}`);
+  };
+
   for (const answer of answers) {
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
@@ -571,16 +605,15 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
         try {
           await fillField(ctx.page, field, value);
         } catch (secondError) {
-          failed.push(`${field.label}: ${(secondError as Error).message}`);
+          recordFailure(field.label, (secondError as Error).message);
           continue;
         }
       } else {
-        failed.push(`${field.label}: ${(error as Error).message}`);
+        recordFailure(field.label, (error as Error).message);
         continue;
       }
     }
-    ctx.guards.resolveGrounding(field.label);
-    ctx.guards.pendingFields.delete(field.label);
+    ctx.guards.recordFillSuccess(field.label);
     const prior = ctx.captured.findIndex(item => item.question === field.label);
     if (prior >= 0) ctx.captured.splice(prior, 1);
     ctx.captured.push({ question: field.label, answer: value });
@@ -590,7 +623,11 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   if (filled.length) ctx.guards.recordProgress();
   const ungroundedNow = ctx.guards.ungrounded.length;
   return ok(
+    unusableNote +
     (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
+    (blocked.length
+      ? `This form refused these twice, so they are settled — do not answer them again:\n${blocked.join('\n')}\n`
+      : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
       (unrelated.length ? `\nIgnored controls that are not application questions: ${unrelated.join('; ')}` : '') +
