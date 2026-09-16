@@ -27,15 +27,18 @@ const PAGE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
 
 /**
  * The visitor's address. The app listens on loopback behind Caddy, which
- * passes the real address in X-Forwarded-For; that header is believed only
+ * appends the address it saw to X-Forwarded-For; that header is believed only
  * when the connection itself came from the proxy, because anything that
- * reached a public port could have written its own.
+ * reached a public port could have written its own. And of the header's
+ * entries only the last is Caddy's: the ones before it arrived with the
+ * request, from whoever sent it, and say whatever they liked.
  */
 export function clientIp(req: IncomingMessage): string | null {
   const remote = req.socket?.remoteAddress ?? '';
   const viaProxy = /^(::1|127\.\d+\.\d+\.\d+|::ffff:127\.\d+\.\d+\.\d+)$/.test(remote);
   const header = req.headers['x-forwarded-for'];
-  const forwarded = (Array.isArray(header) ? header[0] : header ?? '').split(',')[0].trim();
+  const entries = (Array.isArray(header) ? header.join(',') : header ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
+  const forwarded = entries[entries.length - 1] ?? '';
   const raw = viaProxy && forwarded ? forwarded : remote;
   const ip = raw.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, '$1');
   return isIP(ip) ? ip : null;
@@ -73,16 +76,21 @@ function describeAgent(ua: string): Agent {
   return { device, browser, os, bot };
 }
 
+/** Hosts a visitor passes through on the way in, not places they came from: our own, and the sign-in provider's. */
+const NOT_A_SOURCE = new Set(['accounts.google.com']);
+
 /**
  * Where the visitor came from, kept to the site and path. The query string is
  * dropped — it is where tokens and campaign junk live — and a referrer on our
- * own host is internal navigation, not a source.
+ * own host, or on the sign-in provider the page bounces through, is a step in
+ * our own flow, not a source.
  */
 function cleanReferrer(raw: unknown, ownHost: string): string | null {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   try {
     const url = new URL(raw);
-    if (url.hostname.replace(/^www\./, '') === ownHost.replace(/^www\./, '')) return null;
+    const host = url.hostname.replace(/^www\./, '');
+    if (host === ownHost.replace(/^www\./, '') || NOT_A_SOURCE.has(host)) return null;
     return `${url.origin}${url.pathname}`.slice(0, 500);
   } catch {
     return raw.slice(0, 200);
@@ -307,7 +315,7 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
               count(*)::int AS views,
               COALESCE(sum(duration_ms), 0)::int AS duration_ms,
               array_agg(page ORDER BY started_at) AS pages,
-              (array_agg(ip::text ORDER BY started_at))[1] AS ip,
+              (array_agg(host(ip) ORDER BY started_at))[1] AS ip,
               (array_agg(country_code ORDER BY started_at))[1] AS country_code,
               (array_agg(country ORDER BY started_at))[1] AS country,
               (array_agg(region ORDER BY started_at))[1] AS region,
