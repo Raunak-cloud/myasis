@@ -56,6 +56,13 @@ interface View {
 
 let current: View | null = null;
 let listening = false;
+/**
+ * document.referrer is the page load's, not the tab's: it stays the same
+ * through every in-app page change. Reported once, with the first page, and
+ * the visit carries it from there — otherwise a Google search that brought
+ * someone here counted once for every tab they opened.
+ */
+let referrerReported = false;
 
 function elapsed(view: View): number {
   return Math.round(view.visibleMs + (view.visibleSince === null ? 0 : performance.now() - view.visibleSince));
@@ -122,7 +129,7 @@ export function trackPage(page: string): void {
       visitorId,
       sessionId,
       page,
-      referrer: document.referrer,
+      referrer: referrerReported ? '' : document.referrer,
       screen: `${window.screen.width}x${window.screen.height}`,
       language: navigator.language,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -133,5 +140,6 @@ export function trackPage(page: string): void {
       if (typeof body?.id === 'string') view.id = body.id;
     })
     .catch(() => {});
+  referrerReported = true;
   current = view;
 }

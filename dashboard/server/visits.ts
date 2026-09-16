@@ -214,10 +214,10 @@ export interface VisitorReport {
 
 export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> {
   const { where, params } = await scope(opts);
-  const breakdown = (label: string, sub: string, code: string, extra = '') =>
+  const breakdown = (label: string, sub: string, code: string, extra = '', views = 'count(*)') =>
     query<{ label: string | null; sub: string | null; code: string | null; visitors: number; views: number; seconds: number | null }>(
       `SELECT ${label} AS label, ${sub} AS sub, ${code} AS code,
-              count(DISTINCT visitor_id)::int AS visitors, count(*)::int AS views,
+              count(DISTINCT visitor_id)::int AS visitors, ${views}::int AS views,
               round(avg(duration_ms) / 1000)::int AS seconds
          FROM page_views WHERE ${where} ${extra}
         GROUP BY 1, 2, 3 ORDER BY visitors DESC, views DESC LIMIT 25`,
@@ -239,7 +239,8 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     breakdown('region', 'country', 'country_code', 'AND region IS NOT NULL'),
     breakdown('city', `concat_ws(', ', region, country)`, 'country_code', 'AND city IS NOT NULL'),
     breakdown('page', 'NULL', 'NULL'),
-    breakdown('referrer', 'NULL', 'NULL', 'AND referrer IS NOT NULL'),
+    // A source brings a visit, not a page view: the page reports it once, and it is counted once.
+    breakdown('referrer', 'NULL', 'NULL', 'AND referrer IS NOT NULL', 'count(DISTINCT session_id)'),
     breakdown('device', 'os', 'NULL'),
     breakdown('browser', 'os', 'NULL'),
     query<{ hour: number; views: number }>(

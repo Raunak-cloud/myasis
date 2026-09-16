@@ -835,11 +835,12 @@ function spent(ms: number | null | undefined): string {
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-function BreakdownTable({ title, rows, empty, label = (row) => row.label }: {
+function BreakdownTable({ title, rows, empty, label = (row) => row.label, viewsLabel = 'Views' }: {
   title: string;
   rows: Breakdown[];
   empty: string;
   label?: (row: Breakdown) => ReactNode;
+  viewsLabel?: string;
 }) {
   const max = Math.max(1, ...rows.map((row) => row.visitors));
   return (
@@ -851,7 +852,7 @@ function BreakdownTable({ title, rows, empty, label = (row) => row.label }: {
             <tr>
               <th />
               <th className="num">Visitors</th>
-              <th className="num">Views</th>
+              <th className="num">{viewsLabel}</th>
               <th className="num">Avg time</th>
             </tr>
           </thead>
@@ -967,7 +968,7 @@ function VisitorsView() {
             <BreakdownTable title="States and regions" rows={data.regions} empty="No located visits yet." />
             <BreakdownTable title="Cities" rows={data.cities} empty="No located visits yet." />
             <BreakdownTable title="Pages" rows={data.pages} empty="No page views yet." label={(row) => pageLabel(row.label)} />
-            <BreakdownTable title="Came from" rows={data.referrers} empty="Every visit arrived directly." />
+            <BreakdownTable title="Came from" rows={data.referrers} empty="Every visit arrived directly." viewsLabel="Visits" />
             <BreakdownTable title="Devices" rows={data.devices} empty="No visits yet." />
             <BreakdownTable title="Browsers" rows={data.browsers} empty="No visits yet." />
           </div>
