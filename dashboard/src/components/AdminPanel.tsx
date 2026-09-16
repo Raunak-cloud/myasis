@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { PAID_PLANS, aud } from '../pricing';
 
 /**
@@ -760,21 +760,314 @@ function RunsView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
   );
 }
 
+// ------------------------------------------------------------------ visitors
+interface Breakdown {
+  label: string;
+  sub: string | null;
+  code: string | null;
+  visitors: number;
+  views: number;
+  seconds: number | null;
+}
+
+interface RecentVisit {
+  sessionId: string;
+  visitorId: string;
+  visitNumber: number;
+  startedAt: string;
+  endedAt: string;
+  views: number;
+  durationMs: number;
+  pages: string[];
+  ip: string | null;
+  countryCode: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  device: string | null;
+  browser: string | null;
+  os: string | null;
+  screen: string | null;
+  language: string | null;
+  timeZone: string | null;
+  referrer: string | null;
+  email: string | null;
+}
+
+type VisitorRange = 'today' | '7d' | '30d' | '90d';
+
+interface VisitorReport {
+  range: VisitorRange;
+  timeZone: string;
+  retentionDays: number;
+  geoConfigured: boolean;
+  totals: { visitors: number; visits: number; views: number; signedIn: number; located: number; avgSeconds: number | null };
+  countries: Breakdown[];
+  regions: Breakdown[];
+  cities: Breakdown[];
+  pages: Breakdown[];
+  referrers: Breakdown[];
+  devices: Breakdown[];
+  browsers: Breakdown[];
+  hours: Array<{ hour: number; views: number }>;
+  days: Array<{ day: string; visitors: number; views: number }>;
+  recent: RecentVisit[];
+}
+
+const RANGE_LABEL: Record<VisitorRange, string> = { today: 'Today', '7d': '7 days', '30d': '30 days', '90d': '90 days' };
+const PAGE_LABEL: Record<string, string> = {
+  landing: 'Landing page', run: 'Apply', attention: 'Needs attention', applications: 'Applications',
+  humanizer: 'Rewrite text', pricing: 'Pricing', setup: 'Settings', admin: 'Admin',
+};
+const pageLabel = (page: string) => PAGE_LABEL[page] ?? page;
+
+/** A country's flag from its ISO code: the two regional-indicator letters. */
+function flag(code: string | null): string {
+  if (!code || !/^[A-Z]{2}$/i.test(code)) return '';
+  return String.fromCodePoint(...[...code.toUpperCase()].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65));
+}
+
+function spent(ms: number | null | undefined): string {
+  if (!ms) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function BreakdownTable({ title, rows, empty, label = (row) => row.label }: {
+  title: string;
+  rows: Breakdown[];
+  empty: string;
+  label?: (row: Breakdown) => ReactNode;
+}) {
+  const max = Math.max(1, ...rows.map((row) => row.visitors));
+  return (
+    <section className="card admin-section admin-breakdown">
+      <h3>{title}</h3>
+      {rows.length ? (
+        <table>
+          <thead>
+            <tr>
+              <th />
+              <th className="num">Visitors</th>
+              <th className="num">Views</th>
+              <th className="num">Avg time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                <td>
+                  <div>{label(row)}</div>
+                  {row.sub && <div className="job-meta">{row.sub}</div>}
+                  <span className="admin-bar" aria-hidden="true"><span style={{ width: `${(row.visitors / max) * 100}%` }} /></span>
+                </td>
+                <td className="num">{row.visitors}</td>
+                <td className="num">{row.views}</td>
+                <td className="num">{row.seconds === null ? '—' : spent(row.seconds * 1000)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="job-meta admin-empty">{empty}</p>
+      )}
+    </section>
+  );
+}
+
+function VisitorsView() {
+  const [range, setRange] = useState<VisitorRange>('7d');
+  const [includeAdmins, setIncludeAdmins] = useState(false);
+  const [data, setData] = useState<VisitorReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api<VisitorReport>(`/visitors?range=${range}&admins=${includeAdmins ? 1 : 0}`)
+      .then(setData)
+      .catch((reason) => setError((reason as Error).message));
+  }, [range, includeAdmins]);
+  useEffect(() => {
+    load();
+    const id = window.setInterval(load, 30_000);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  if (error) return <div className="banner banner-bad">{error}</div>;
+
+  const totals = data?.totals;
+  const busiest = Math.max(1, ...(data?.hours ?? []).map((hour) => hour.views));
+  const viewsByHour = new Map((data?.hours ?? []).map((hour) => [hour.hour, hour.views]));
+  const tiles = data && totals ? [
+    { label: 'Visitors', value: totals.visitors, note: `${totals.signedIn} signed in` },
+    { label: 'Visits', value: totals.visits, note: 'browser sessions' },
+    { label: 'Page views', value: totals.views, note: totals.visits ? `${(totals.views / totals.visits).toFixed(1)} per visit` : '—' },
+    { label: 'Avg time on page', value: spent(totals.avgSeconds === null ? null : totals.avgSeconds * 1000), note: 'while the tab was in front' },
+    {
+      label: 'Located',
+      value: totals.views ? `${Math.round((totals.located / totals.views) * 100)}%` : '—',
+      note: data.geoConfigured ? 'of views resolved to a place' : 'no location database installed',
+    },
+  ] : [];
+
+  return (
+    <div className="admin-stack">
+      <div className="queue-bar">
+        <div className="chips">
+          {(Object.keys(RANGE_LABEL) as VisitorRange[]).map((key) => (
+            <button key={key} className={`chip ${range === key ? 'on' : ''}`} onClick={() => setRange(key)}>
+              {RANGE_LABEL[key]}
+            </button>
+          ))}
+        </div>
+        <label className="admin-checkbox">
+          <input type="checkbox" checked={includeAdmins} onChange={(event) => setIncludeAdmins(event.target.checked)} />
+          Include admins' own visits
+        </label>
+      </div>
+
+      {!data ? (
+        <p className="job-meta">Loading…</p>
+      ) : (
+        <>
+          {!data.geoConfigured && (
+            <div className="banner">
+              No location database is installed, so visits have no country or city yet. Run <code>deploy/geoip-update.sh</code> on the server (see DEPLOYMENT.md).
+            </div>
+          )}
+          <div className="admin-tiles">
+            {tiles.map((tile) => (
+              <div className="card admin-tile" key={tile.label}>
+                <span className="job-meta">{tile.label}</span>
+                <strong>{tile.value}</strong>
+                <span className="job-meta">{tile.note}</span>
+              </div>
+            ))}
+          </div>
+
+          <section className="card admin-section">
+            <h3>Busiest hours</h3>
+            <div className="admin-hours" aria-label="Page views by hour of day">
+              {Array.from({ length: 24 }, (_, hour) => {
+                const views = viewsByHour.get(hour) ?? 0;
+                return (
+                  <div key={hour} className="admin-hour" title={`${hour}:00 · ${views} ${views === 1 ? 'view' : 'views'}`}>
+                    <span className="admin-hour-bar" style={{ height: `${(views / busiest) * 100}%` }} />
+                    <span className="admin-hour-label">{hour % 6 === 0 ? `${hour}h` : ''}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="job-meta">Local time ({data.timeZone}).</p>
+          </section>
+
+          <div className="admin-visitors-grid">
+            <BreakdownTable title="Countries" rows={data.countries} empty="No visits yet." label={(row) => <>{flag(row.code)} {row.label}</>} />
+            <BreakdownTable title="States and regions" rows={data.regions} empty="No located visits yet." />
+            <BreakdownTable title="Cities" rows={data.cities} empty="No located visits yet." />
+            <BreakdownTable title="Pages" rows={data.pages} empty="No page views yet." label={(row) => pageLabel(row.label)} />
+            <BreakdownTable title="Came from" rows={data.referrers} empty="Every visit arrived directly." />
+            <BreakdownTable title="Devices" rows={data.devices} empty="No visits yet." />
+            <BreakdownTable title="Browsers" rows={data.browsers} empty="No visits yet." />
+          </div>
+
+          <section className="card table-wrap admin-section">
+            <h3>Recent visits</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Where</th>
+                  <th>Address</th>
+                  <th>Visitor</th>
+                  <th>Pages</th>
+                  <th className="num">Time spent</th>
+                  <th>Device</th>
+                  <th>Came from</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recent.map((visit) => (
+                  <tr key={visit.sessionId}>
+                    <td className="nowrap">
+                      {when(visit.startedAt)}
+                      <div className="job-meta">{visit.views} {visit.views === 1 ? 'page' : 'pages'}</div>
+                    </td>
+                    <td>
+                      {visit.country ? (
+                        <>
+                          {flag(visit.countryCode)} {[visit.city, visit.region].filter(Boolean).join(', ') || visit.country}
+                          {(visit.city || visit.region) && <div className="job-meta">{visit.country}</div>}
+                        </>
+                      ) : (
+                        <span className="job-meta">Unknown</span>
+                      )}
+                    </td>
+                    <td className="nowrap">
+                      <code>{visit.ip ?? '—'}</code>
+                      {visit.timeZone && <div className="job-meta">{visit.timeZone}</div>}
+                    </td>
+                    <td>
+                      {visit.email ?? <span className="job-meta">Not signed in</span>}
+                      <div className="job-meta">
+                        {visit.visitNumber === 1 ? 'first visit' : `visit ${visit.visitNumber}`}
+                        {visit.language ? ` · ${visit.language}` : ''}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="admin-pages">
+                        {visit.pages.map((page, index) => <span key={index}>{pageLabel(page)}</span>)}
+                      </div>
+                    </td>
+                    <td className="num">{spent(visit.durationMs)}</td>
+                    <td className="nowrap">
+                      {visit.browser} · {visit.os}
+                      <div className="job-meta">{visit.device}{visit.screen ? ` · ${visit.screen}` : ''}</div>
+                    </td>
+                    <td>
+                      {visit.referrer ? (
+                        <a href={visit.referrer} target="_blank" rel="noreferrer noopener">
+                          {visit.referrer.replace('https://', '').replace('http://', '').slice(0, 60)}
+                        </a>
+                      ) : (
+                        <span className="job-meta">Direct</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!data.recent.length && <p className="job-meta admin-empty">No visits in this period.</p>}
+          </section>
+
+          <p className="job-meta admin-attribution">
+            Page views are kept for {data.retentionDays} days. Location data by{' '}
+            <a href="https://db-ip.com" target="_blank" rel="noreferrer noopener">DB-IP</a>.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function AdminPanel() {
-  const [view, setView] = useState<'overview' | 'users' | 'runs'>('overview');
+  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors'>('overview');
   const [openRun, setOpenRun] = useState<AdminRun | null>(null);
+  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors' } as const;
   return (
     <div className="admin-page">
       <nav className="admin-nav" aria-label="Admin sections">
-        {(['overview', 'users', 'runs'] as const).map((key) => (
+        {(Object.keys(labels) as Array<keyof typeof labels>).map((key) => (
           <button key={key} className={view === key ? 'on' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => setView(key)}>
-            {key === 'overview' ? 'Overview' : key === 'users' ? 'Users' : 'Runs'}
+            {labels[key]}
           </button>
         ))}
       </nav>
       {view === 'overview' && <OverviewView onOpenRun={setOpenRun} />}
       {view === 'users' && <UsersView onOpenRun={setOpenRun} />}
       {view === 'runs' && <RunsView onOpenRun={setOpenRun} />}
+      {view === 'visitors' && <VisitorsView />}
       {openRun && <RunLog run={openRun} onClose={() => setOpenRun(null)} />}
     </div>
   );

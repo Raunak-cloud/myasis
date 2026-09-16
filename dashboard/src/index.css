@@ -2108,3 +2108,19 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   .admin-facts { grid-template-columns: 1fr; }
   .admin-facts dt { margin-top: 6px; }
 }
+
+/* ---------- Admin: visitors ---------- */
+.admin-visitors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.admin-breakdown table { width: 100%; }
+.admin-breakdown td, .admin-breakdown th { vertical-align: top; }
+.admin-breakdown .num, .admin-section .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.admin-bar { display: block; height: 4px; margin-top: 5px; border-radius: 2px; background: var(--accent-soft); overflow: hidden; }
+.admin-bar span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.admin-hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 96px; align-items: end; }
+.admin-hour { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; min-width: 0; }
+.admin-hour-bar { display: block; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .85; }
+.admin-hour-label { height: 14px; margin-top: 2px; font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+.admin-pages { display: flex; flex-wrap: wrap; gap: 4px; }
+.admin-pages span { padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--surface-2); color: var(--text-dim); white-space: nowrap; }
+.admin-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.admin-attribution { margin: 0; }

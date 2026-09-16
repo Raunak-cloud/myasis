@@ -12,6 +12,7 @@ import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
 import { userDir } from './userdata.js';
 import { PAID_PLANS, isPaidPlanKey } from '../src/pricing.js';
+import { parseRange, recentVisits, visitorReport } from './visits.js';
 
 /**
  * The operator's view of the whole installation: every account, every run,
@@ -381,6 +382,13 @@ export async function handleAdminRequest(
     if (path === '/users' && method === 'GET') return send(await adminUsers());
     if (path === '/runs' && method === 'GET') {
       return send(await adminRuns({ userId: url.searchParams.get('user') ?? undefined, limit: Number(url.searchParams.get('limit') ?? 150) }));
+    }
+
+    if (path === '/visitors' && method === 'GET') {
+      // Who has been looking at the site, from where, and for how long.
+      const scope = { range: parseRange(url.searchParams.get('range')), includeAdmins: url.searchParams.get('admins') === '1' };
+      const [report, recent] = await Promise.all([visitorReport(scope), recentVisits(scope)]);
+      return send({ ...report, recent });
     }
 
     if ((match = path.match(/^\/runs\/(\d+)\/log$/)) && method === 'GET') {

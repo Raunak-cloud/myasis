@@ -14,6 +14,7 @@ import { Landing } from './components/Landing';
 import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 import { useEntitlements } from './entitlements';
+import { trackPage } from './analytics';
 
 type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'admin';
 
@@ -86,6 +87,11 @@ export default function App() {
   useEffect(() => {
     if (entitlements && !isAdmin && tab === 'admin') setTab('run');
   }, [entitlements, isAdmin, tab]);
+  /** What is in front of the visitor: the landing page while signed out, otherwise the tab. */
+  useEffect(() => {
+    if (authLoading) return;
+    trackPage(user ? tab : 'landing');
+  }, [authLoading, user, tab]);
 
   const load = useCallback(async () => {
     const [a, n, lastRun, todayStats] = await Promise.all([

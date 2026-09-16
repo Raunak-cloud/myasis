@@ -125,6 +125,32 @@ a humanizer that is down costs you the Rewrite text tab and nothing else. Its
 RSS looks alarming in `ps` (~3GB) because the model file is mmap'd — those
 pages are shared, reclaimable, and not counted in `free`'s used total.
 
+## 3d. Visitor locations
+
+The admin dashboard's Visitors view records which pages were looked at, from
+which address, for how long. Turning an address into a country, state and
+city happens on this machine, from a database file — nothing is sent to a
+third party — and the file is named by `GEOIP_DB` in `seek-bot/.env`:
+
+```dotenv
+GEOIP_DB=/home/myasis/geoip/dbip-city-lite.mmdb
+```
+
+Install and refresh it with the script, which fetches DB-IP's free monthly
+"IP to City Lite" database (no account or key; CC BY 4.0, credited on the
+Visitors page). The dashboard watches the file, so a refresh needs no restart:
+
+```bash
+sudo bash /home/myasis/myasis/deploy/geoip-update.sh
+# monthly, from cron:
+echo '0 4 3 * * root bash /home/myasis/myasis/deploy/geoip-update.sh' | sudo tee /etc/cron.d/owtomate-geoip
+```
+
+Without the file the view still works; visits just have no place. MaxMind's
+GeoLite2-City (free with an account) is more accurate and drops into the same
+path. Page views are kept for `VISIT_RETENTION_DAYS` (default 180) and then
+removed, because an address with a place is personal information.
+
 ## 4. Keep the public surface safe
 
 Do not expose port 9333. It grants control of the signed-in browser. Port 5180

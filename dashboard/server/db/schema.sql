@@ -312,3 +312,38 @@ ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS applied INTEGER;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS log_file TEXT;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS started_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS run_starts_recent_idx ON run_starts(started_at DESC);
+
+-- One row per page a visitor looked at, for the operator's Visitors view.
+--
+-- Written by the page itself: a beacon on arrival opens the row, a beacon on
+-- leaving closes it with how long the page was actually in front of them. The
+-- address is resolved to a place at write time from the offline database named
+-- by GEOIP_DB — nothing is sent to a third party to do it. An address with a
+-- place is personal information, so rows older than the retention period are
+-- removed daily (see visits.ts): the numbers need history, not the addresses.
+CREATE TABLE IF NOT EXISTS page_views (
+  id           BIGSERIAL PRIMARY KEY,
+  visitor_id   TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  user_id      BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  page         TEXT NOT NULL,
+  referrer     TEXT,
+  ip           INET,
+  country_code TEXT,
+  country      TEXT,
+  region       TEXT,
+  city         TEXT,
+  latitude     DOUBLE PRECISION,
+  longitude    DOUBLE PRECISION,
+  user_agent   TEXT,
+  device       TEXT,
+  browser      TEXT,
+  os           TEXT,
+  screen       TEXT,
+  language     TEXT,
+  time_zone    TEXT,
+  started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  duration_ms  INTEGER
+);
+CREATE INDEX IF NOT EXISTS page_views_started_idx ON page_views(started_at DESC);
+CREATE INDEX IF NOT EXISTS page_views_session_idx ON page_views(session_id, started_at);

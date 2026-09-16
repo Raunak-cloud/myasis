@@ -20,6 +20,7 @@ import {
 } from './server/settings.js';
 import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
+import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions } from './server/auth.js';
 import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
@@ -300,6 +301,26 @@ function dataApi(): Plugin {
 
     // The operator's dashboard: every route in it checks for an admin on each request.
     if (route.startsWith('/api/admin/')) return handleAdminRequest(req, res, url, send, readBody);
+
+    /**
+     * Visitor beacons, from the page itself, signed in or not. They answer
+     * kindly whatever happens: analytics must never break a page, and the
+     * sender is not waiting to hear back anyway.
+     */
+    if (route === '/api/visit' && req.method === 'POST') {
+      return readBody().then(async (b) => {
+        const user = await currentUser(req.headers?.cookie).catch(() => null);
+        const id = await recordPageView(req, b, user?.id ?? null).catch(() => null);
+        return send({ id });
+      });
+    }
+    if (route === '/api/visit/leave' && req.method === 'POST') {
+      return readBody().then(async (b) => {
+        await endPageView(b).catch(() => {});
+        res.statusCode = 204;
+        res.end();
+      });
+    }
 
     switch (route) {
       case '/api/billing/status': {
@@ -1199,6 +1220,7 @@ function dataApi(): Plugin {
         if (!r.ok) console.error(`Database schema could not be applied: ${r.error}`);
       });
       startAutoRunner();
+      startVisitMaintenance();
 
       /**
        * Leave nothing behind. pm2 stops this process with a signal; without
