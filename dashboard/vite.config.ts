@@ -1110,7 +1110,7 @@ function dataApi(): Plugin {
           }
           // Same reasoning as /api/run: without this the scan inherits the
           // shared .env's search settings instead of this account's.
-          const settings = applyRunPolicy(await runSettingsForUser(userId), entitlements, 'manual');
+          const settings = applyRunPolicy(await runSettingsForUser(userId, { unlimited: entitlements.tier === 'admin' }), entitlements, 'manual');
           if (sessionFor(userId)) stopSignin(userId);
           await releaseChromeProfile(userChromeDir(userId));
           const runStartId = await recordRunStart(userId, 'scan', 'manual').catch(() => null);

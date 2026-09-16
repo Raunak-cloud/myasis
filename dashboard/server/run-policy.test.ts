@@ -43,13 +43,17 @@ check('removed target roles cannot influence Intensive runs', intensive.TARGET_R
 check('Intensive runs assess 100 jobs', intensive.MAX_EVALUATIONS === '100');
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, adminPolicy, 'manual');
-check('admins have no limit on jobs reviewed', admin.MAX_EVALUATIONS === 'none');
-check('admins have no limit on applications per run or per day', admin.MAX_APPS_PER_RUN === 'none' && admin.MAX_APPS_PER_DAY === 'none');
+check('admins keep a review limit they set, unclamped', admin.MAX_EVALUATIONS === '500');
+check('admins with no saved limit have none on applications per run or per day', admin.MAX_APPS_PER_RUN === 'none' && admin.MAX_APPS_PER_DAY === 'none');
+const adminBlank = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '', MAX_APPS_PER_RUN: '0', MAX_APPS_PER_DAY: ' ' }, adminPolicy, 'manual');
+check('an empty, zero or blank admin limit means none', adminBlank.MAX_EVALUATIONS === 'none' && adminBlank.MAX_APPS_PER_RUN === 'none' && adminBlank.MAX_APPS_PER_DAY === 'none');
+const adminTyped = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '30', MAX_APPS_PER_DAY: '80' }, adminPolicy, 'manual');
+check('admins keep application limits they set, above the plan ceilings', adminTyped.MAX_APPS_PER_RUN === '30' && adminTyped.MAX_APPS_PER_DAY === '80');
 
 const standardAuto = applyRunPolicy(saved, freePolicy, 'auto');
 check('Free runs assess 5 jobs', standardAuto.MAX_EVALUATIONS === '5');
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, adminPolicy, 'auto');
-check('admin scheduled runs have no limits either', adminAuto.MAX_EVALUATIONS === 'none' && adminAuto.MAX_APPS_PER_DAY === 'none');
+check('admin scheduled runs keep their own limits too', adminAuto.MAX_EVALUATIONS === '100' && adminAuto.MAX_APPS_PER_DAY === 'none');
 check('admin scheduled runs keep their own match threshold', adminAuto.MIN_SCORE === saved.MIN_SCORE);
 check('admin scheduled live runs keep the saved prompt', adminAuto.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 const jobSearchAuto = applyRunPolicy(saved, jobSearchPolicy, 'auto');

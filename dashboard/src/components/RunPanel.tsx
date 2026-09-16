@@ -451,7 +451,9 @@ export function RunPanel({
   const elapsedMs = Number.isFinite(startedAtMs)
     ? Math.max(0, (running || !Number.isFinite(finishedAtMs) ? clock : finishedAtMs) - startedAtMs)
     : null;
-  const val = (k: string, d = RUN_DEFAULTS[k] ?? '') => edits[k] ?? settings[k] ?? d;
+  /** An operator's application and review limits have no default: empty means none. */
+  const optionalLimit = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY'].includes(key);
+  const val = (k: string, d = optionalLimit(k) ? '' : RUN_DEFAULTS[k] ?? '') => edits[k] ?? settings[k] ?? d;
   const setEdit = (key: string, value: string) =>
     setEdits((current) => ({ ...current, [key]: value }));
   const arrangements = val('WORK_ARRANGEMENTS').split(',').map((item) => item.trim()).filter(Boolean);
@@ -606,7 +608,8 @@ export function RunPanel({
     setError(null);
     setErrorField(null);
     const updates = Object.fromEntries(REVIEW_KEYS.map((key) => [key, val(key)]));
-    const unlimited = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY'].includes(key);
+    // An operator's limit left empty is no limit; one they typed is checked like any other.
+    const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
       'MIN_SALARY', 'MIN_HOURLY_RATE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS',
       'MIN_SCORE', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
@@ -1274,15 +1277,25 @@ export function RunPanel({
                 <h3>{isAdmin ? 'Run settings' : 'Run limits'}</h3>
                 {isAdmin && (
                   <p className="job-meta run-review-unlimited">
-                    Admin runs have no limits: no cap on applications per run or per day, or on jobs reviewed.
+                    Admin runs have no limits unless you set one here. Leave a field empty for none.
                   </p>
                 )}
                 <div className="run-review-grid">
-                  {!isAdmin && (
                   <label className="field">
-                    <FieldLabel label="Max applications" help="The most applications this run can complete before stopping. Capped at 10 per run." />
-                    <input className="input" data-field="MAX_APPS_PER_RUN" type="number" min="1" max="10" value={val('MAX_APPS_PER_RUN')} onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)} />
+                    <FieldLabel
+                      label="Max applications"
+                      help={isAdmin
+                        ? 'The most applications this run can complete before stopping. Empty means no limit.'
+                        : 'The most applications this run can complete before stopping. Capped at 10 per run.'}
+                    />
+                    <input className="input" data-field="MAX_APPS_PER_RUN" type="number" min="1" max={isAdmin ? undefined : 10} placeholder={isAdmin ? 'No limit' : undefined} value={val('MAX_APPS_PER_RUN')} onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)} />
                     <FieldError field="MAX_APPS_PER_RUN" />
+                  </label>
+                  {isAdmin && (
+                  <label className="field">
+                    <FieldLabel label="Jobs to evaluate" help="How many listings the AI reviews in this run before it stops looking. Empty means no limit." />
+                    <input className="input" data-field="MAX_EVALUATIONS" type="number" min="1" placeholder="No limit" value={val('MAX_EVALUATIONS')} onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)} />
+                    <FieldError field="MAX_EVALUATIONS" />
                   </label>
                   )}
                   <label className="field">
@@ -1294,13 +1307,16 @@ export function RunPanel({
                     <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />
                     <input className="input" type="number" min="0" value={val('MAX_AGE_DAYS')} onChange={(e) => setEdit('MAX_AGE_DAYS', e.target.value)} />
                   </label>
-                  {!isAdmin && (
                   <label className="field">
-                    <FieldLabel label="Daily application cap" help="The total number of applications allowed in one day, across all runs. Capped at 50." />
-                    <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max="50" value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
+                    <FieldLabel
+                      label="Daily application cap"
+                      help={isAdmin
+                        ? 'The total number of applications allowed in one day, across all runs. Empty means no limit.'
+                        : 'The total number of applications allowed in one day, across all runs. Capped at 50.'}
+                    />
+                    <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={isAdmin ? undefined : 50} placeholder={isAdmin ? 'No limit' : undefined} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
                     <FieldError field="MAX_APPS_PER_DAY" />
                   </label>
-                  )}
                   <label className="field">
                     <FieldLabel
                       label="Search pages per term"

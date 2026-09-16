@@ -1,7 +1,7 @@
 import { one, query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { billingStatus, isAdmin } from './billing.js';
-import { KEEP_SETTINGS_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
+import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
 
 export { SCHEDULED_MIN_SCORE };
@@ -180,15 +180,18 @@ export function applyRunPolicy(
     resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
   }
   /**
-   * An operator of this installation has no limits: no applications-per-run,
-   * no daily count, no ceiling on jobs reviewed. "none" reaches the bot, which
-   * honours it only alongside ADMIN_UNLIMITED; an operator narrowing one run
-   * on the command line still can, because those arguments come after this.
+   * An operator of this installation sets their own limits, or none. A number
+   * they saved on the Apply page — applications per run, per day, listings
+   * reviewed — is used as given, unclamped; an empty one means no limit at
+   * all. "none" reaches the bot, which honours it only alongside
+   * ADMIN_UNLIMITED; an operator narrowing one run on the command line still
+   * can, because those arguments come after this.
    */
   if (entitlement.tier === 'admin') {
-    resolved.MAX_APPS_PER_RUN = 'none';
-    resolved.MAX_APPS_PER_DAY = 'none';
-    resolved.MAX_EVALUATIONS = 'none';
+    for (const key of OPTIONAL_LIMIT_KEYS) {
+      const value = (resolved[key] ?? '').trim();
+      resolved[key] = /^\d+$/.test(value) && Number(value) > 0 ? String(Number(value)) : 'none';
+    }
   } else if (entitlement.maxApplicationsPerRunOverride !== null) {
     /**
      * An operator's override wins over both the plan's own default and

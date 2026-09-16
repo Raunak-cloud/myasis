@@ -99,12 +99,22 @@ export async function runSettingsForUser(userId: string, options: { unlimited?: 
   const saved = await loadUserSettings(userId);
   const out: Record<string, string> = {};
   for (const key of KEEP_SETTINGS_KEYS) {
-    const value = saved[key] ?? RUN_SETTING_DEFAULTS[key] ?? '';
+    /**
+     * An operator's limits have no default. The product default of five
+     * applications a run exists for accounts on a plan; filled in for an
+     * operator who set nothing it would silently become their limit, when
+     * nothing set means none — see applyRunPolicy.
+     */
+    const fallback = options.unlimited && (OPTIONAL_LIMIT_KEYS as readonly string[]).includes(key) ? '' : RUN_SETTING_DEFAULTS[key] ?? '';
+    const value = saved[key] ?? fallback;
     // An operator of this installation runs at whatever size they configured.
     out[key] = options.unlimited ? value : normalizeSetting(key, value);
   }
   return out;
 }
+
+/** The limits an operator may leave empty, meaning none: applications per run and per day, and listings reviewed. */
+export const OPTIONAL_LIMIT_KEYS = ['MAX_APPS_PER_RUN', 'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS'] as const;
 
 export async function loadUserSettings(userId: string): Promise<Record<string, string>> {
   const rows = await query<{ key: string; value: string }>(
