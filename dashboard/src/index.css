@@ -1410,7 +1410,16 @@ button.metric-tile:hover strong { color: var(--accent); }
   }
   .run-dashboard .run-actions .btn { width: 100%; }
   .run-dashboard .run-actions .job-meta { font-size: 11.5px; }
-  .run-dashboard { padding-bottom: 132px; }
+  /*
+   * The page reserves exactly the height the bar is using. RunPanel measures
+   * it into --run-bar-h, because that height changes with the state: Stop run
+   * alone while a run goes, a button with a link and a reason when it does
+   * not. A guessed figure was both too small in some states and, once a later
+   * `.main-shell` padding shorthand reset it, ignored altogether — which is
+   * how the bar came to sit on top of the last card. Two classes, so a
+   * single-class shorthand cannot quietly take it back.
+   */
+  .main-shell.run-dashboard { padding-bottom: calc(var(--run-bar-h, 132px) + 16px); }
   /* The drawer and the dimmed page belong over it, not under it. */
   .nav-open .run-dashboard .run-actions { z-index: 30; }
 

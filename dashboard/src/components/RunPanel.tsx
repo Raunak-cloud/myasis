@@ -349,10 +349,33 @@ export function RunPanel({
     setup?.checks.some((check) => ['resume', 'profile', 'keywords', 'where'].includes(check.id) && !check.done),
   );
   const consoleRef = useRef<HTMLDivElement>(null);
+  /** The fixed run bar on a phone; its height is what the page must leave clear. */
+  const runBar = useRef<HTMLDivElement>(null);
   const wasRunning = useRef(false);
 
   useEffect(() => {
     fetch('/api/settings').then((r) => r.json()).then(setSettings).catch(() => {});
+  }, []);
+
+  /**
+   * How tall the run bar is, published for the page to reserve.
+   *
+   * On a phone the bar is fixed to the bottom, so the page has to end above
+   * it. Its height is not a constant — Stop run alone is one row, a start
+   * button with its scope link and a reason is three — so it is measured
+   * rather than guessed, and re-measured whenever it changes.
+   */
+  useEffect(() => {
+    const bar = runBar.current;
+    if (!bar) return;
+    const publish = () => document.documentElement.style.setProperty('--run-bar-h', `${bar.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty('--run-bar-h');
+    };
   }, []);
 
   // The activity modal behaves like the menu drawer: Escape closes it, and the page behind stays put.
@@ -765,7 +788,7 @@ export function RunPanel({
         )}
         {error && <div className="banner banner-bad">{error}</div>}
 
-        <div className="run-actions">
+        <div className="run-actions" ref={runBar}>
           {/* Beside the run button on a phone; the desktop layout hides it. */}
           <button
             type="button"
