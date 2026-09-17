@@ -163,7 +163,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit,minmax(430px,1fr))' }}>
+    <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit,minmax(min(430px, 100%),1fr))' }}>
       {error && (
         <div className="banner" style={{ gridColumn: '1/-1', borderColor: 'var(--bad)', background: 'var(--bad-soft)' }}>
           {error}

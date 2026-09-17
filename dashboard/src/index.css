@@ -542,7 +542,7 @@ tbody tr.clickable { cursor: pointer; }
 
 /* ---------- review queue ---------- */
 .queue-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
-.queue-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+.queue-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr)); }
 .queue-card { padding: 15px 17px; display: flex; flex-direction: column; gap: 9px; }
 .queue-card.applied { opacity: .82; }
 .queue-card.skipped { opacity: .72; }
@@ -558,7 +558,7 @@ tbody tr.clickable { cursor: pointer; }
 .icon-btn { padding: 7px 11px; }
 
 /* actionable stat tiles */
-.stats { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.stats { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
 .stat.action { text-align: left; cursor: pointer; font: inherit; }
 .stat.action:hover { border-color: var(--accent); background: var(--surface-2); }
 
@@ -616,7 +616,7 @@ tbody tr.clickable { cursor: pointer; }
 .follow-hint { background: var(--warn-soft); border-radius: 7px; padding: 9px 11px; margin-top: 10px; }
 
 /* ---- setup ---- */
-.setup { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); align-items: start; }
+.setup { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); align-items: start; }
 .setup-card { padding: 18px; display: grid; gap: 13px; }
 .setup-h { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint); font-weight: 650; margin: 0; }
 .setup-toggle {
@@ -696,7 +696,7 @@ tbody tr.clickable { cursor: pointer; }
 .optional { color: var(--text-faint); font-weight: 400; font-size: 11px; }
 
 /* Setup's file manager is nested in a step, so it should not add its own frame. */
-.step .setup { grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; }
+.step .setup { grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 12px; }
 
 .save-bar {
   position: sticky; bottom: 14px; display: flex; gap: 12px; align-items: center;
@@ -2195,13 +2195,21 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 
   /* A control you have to hit with a thumb, and never a row of them squeezed thin. */
   .btn, .chip, .input, select.input { min-height: 40px; }
+  .auto-switch { width: 46px; height: 26px; }
+  .auto-switch-knob { width: 20px; height: 20px; }
+  .auto-switch.on .auto-switch-knob { transform: translateX(20px); }
+  .setup-toggle, .run-scope-link, .terms-entry { min-height: 36px; }
   .btn { padding: 9px 14px; }
   .btn.lg, .btn.primary { width: 100%; justify-content: center; }
   .toolbar { flex-wrap: wrap; justify-content: flex-end; }
   .admin-button-row .btn, .admin-button-row .btn-small { flex: 1 1 auto; }
   .btn-small { min-height: 34px; }
 
-  .admin-tiles { grid-template-columns: minmax(0, 1fr); }
+  /* Two to a row: a figure and its note do not need the whole screen. */
+  .admin-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .admin-tile { padding: 11px 12px; }
+  .admin-tile strong { font-size: 19px; }
+  .admin-tile .job-meta { font-size: 11px; }
   .dashboard-metrics { gap: 8px 16px; }
   th, td { padding: 9px 9px; }
   td { font-size: 13px; }
