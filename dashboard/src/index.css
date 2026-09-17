@@ -2355,7 +2355,14 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
     gap: 10px;
     padding: 11px 12px;
   }
-  .checklist-btn { min-height: 32px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  .checklist-btn {
+    grid-column: 3;
+    justify-self: end;
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
   .checklist-copy .job-meta { font-size: 11.5px; }
 
   /* A control you have to hit with a thumb, and never a row of them squeezed thin. */
