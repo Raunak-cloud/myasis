@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { PAID_PLANS, aud } from '../pricing';
+import { api } from '../adminApi';
+import { ServerView } from './ServerView';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -106,16 +108,6 @@ function runStatus(run: AdminRun): { label: string; tone: string } {
 
 const TRIGGER_LABEL: Record<string, string> = { manual: 'By the user', auto: 'Scheduled', admin: 'By an admin' };
 
-async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
-  const response = await fetch(`/api/admin${path}`, {
-    ...init,
-    headers: init?.json !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status}).`);
-  return body as T;
-}
 
 // ------------------------------------------------------------------ run console
 function RunLog({ run, onClose }: { run: AdminRun; onClose: () => void }) {
@@ -1179,9 +1171,9 @@ function VisitorsView() {
 }
 
 export function AdminPanel() {
-  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors'>('overview');
+  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'server'>('overview');
   const [openRun, setOpenRun] = useState<AdminRun | null>(null);
-  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors' } as const;
+  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', server: 'Server' } as const;
   return (
     <div className="admin-page">
       <nav className="admin-nav" aria-label="Admin sections">
@@ -1195,6 +1187,7 @@ export function AdminPanel() {
       {view === 'users' && <UsersView onOpenRun={setOpenRun} />}
       {view === 'runs' && <RunsView onOpenRun={setOpenRun} />}
       {view === 'visitors' && <VisitorsView />}
+      {view === 'server' && <ServerView />}
       {openRun && <RunLog run={openRun} onClose={() => setOpenRun(null)} />}
     </div>
   );

@@ -5,6 +5,8 @@ import { getPool, one, query } from './db/index.js';
 import { currentUser, type SessionUser } from './auth.js';
 import { billingStatus, isAdmin } from './billing.js';
 import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides, setAutoApplyPaused } from './entitlements.js';
+import { readServerLogs, serverHealth } from './health.js';
+import { pruneAllProfiles } from './profile-prune.js';
 import { runner, readEnv, writeEnv, MAX_CONCURRENT } from './runner.js';
 import { accountSetupChecks } from './setup.js';
 import { readSiteState } from './seek-state.js';
@@ -387,6 +389,19 @@ export async function handleAdminRequest(
     if (path === '/users' && method === 'GET') return send(await adminUsers());
     if (path === '/runs' && method === 'GET') {
       return send(await adminRuns({ userId: url.searchParams.get('user') ?? undefined, limit: Number(url.searchParams.get('limit') ?? 150) }));
+    }
+
+    if (path === '/health' && method === 'GET') return send(await serverHealth());
+
+    if (path === '/health/logs' && method === 'GET') {
+      const lines = Math.max(20, Math.min(1000, Number(url.searchParams.get('lines') ?? 200) || 200));
+      return send({ lines: await readServerLogs(lines) });
+    }
+
+    if (path === '/health/prune' && method === 'POST') {
+      // The same daily cleanup, on demand, for an operator watching the disk fill.
+      const result = pruneAllProfiles();
+      return send({ ok: true, ...result });
     }
 
     if (path === '/visitors' && method === 'GET') {

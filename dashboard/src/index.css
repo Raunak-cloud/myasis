@@ -2440,6 +2440,38 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .admin-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .admin-attribution { margin: 0; }
 
+/* ---------- Admin: server health ----------
+   Meters, service list and the machine's own console. The three meters read
+   as one row on a desktop and stack on a phone; the colour of a bar is the
+   only thing that has to be noticed from across the room. */
+.server-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 18px; padding: 16px; }
+.server-meter { display: grid; gap: 6px; }
+.server-meter-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--text-dim); }
+.server-meter-head strong { font-size: 18px; color: var(--text); font-variant-numeric: tabular-nums; }
+.server-meter-track { height: 6px; border-radius: 999px; overflow: hidden; background: var(--surface-2); }
+.server-meter-track > span { display: block; height: 100%; border-radius: inherit; background: var(--ok); transition: width .3s ease; }
+.server-meter.tone-warn .server-meter-track > span { background: var(--warn); }
+.server-meter.tone-bad .server-meter-track > span { background: var(--bad); }
+.server-meter.tone-warn .server-meter-head strong { color: var(--warn); }
+.server-meter.tone-bad .server-meter-head strong { color: var(--bad); }
+
+.server-services { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.server-services li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.server-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; align-self: center; }
+.server-dot.bad { background: var(--bad); }
+
+.server-console { display: grid; gap: 10px; padding: 16px; }
+.server-console .queue-bar { margin-bottom: 0; }
+.server-console h3 { margin: 0; }
+/* Fixed height so the page below it stays reachable while the log grows. */
+.server-log {
+  height: min(52vh, 460px); margin: 0; padding: 12px 14px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+  font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+}
+.server-log .log-error { color: var(--bad); }
+
 /* ==========================================================================
    Phones
    --------------------------------------------------------------------------
@@ -2623,6 +2655,9 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   .admin-tile { padding: 11px 12px; }
   .admin-tile strong { font-size: 19px; }
   .admin-tile .job-meta { font-size: 11px; }
+  .server-meters { gap: 14px; padding: 13px; }
+  .server-console { padding: 13px; }
+  .server-log { height: 46vh; font-size: 11px; }
   th, td { padding: 9px 9px; }
   td { font-size: 13px; }
   .admin-facts { grid-template-columns: minmax(0, 1fr); }
