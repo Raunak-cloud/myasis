@@ -1270,6 +1270,8 @@ button.metric-tile:hover strong { color: var(--accent); }
 
 /* The menu button belongs to the narrow layout; the full sidebar is always there above it. */
 .nav-toggle, .nav-scrim { display: none; }
+/* Likewise the activity log's own open and close buttons: it is only a modal on a phone. */
+.activity-open, .activity-close { display: none; }
 
 @media (max-width: 900px) {
   /*
@@ -1411,6 +1413,60 @@ button.metric-tile:hover strong { color: var(--accent); }
   .run-dashboard { padding-bottom: 132px; }
   /* The drawer and the dimmed page belong over it, not under it. */
   .nav-open .run-dashboard .run-actions { z-index: 30; }
+
+  /*
+   * The activity log is a modal here, reached from the bar beside the run
+   * button. Inline it was a card most of a screen tall that says "No
+   * activity yet" nearly all the time, and during a run it sat below the
+   * fold — under the one button you would want next to it.
+   */
+  .run-dashboard .run-actions { grid-template-columns: minmax(0, 1fr) auto; }
+  .run-dashboard .run-actions > .btn.primary,
+  .run-dashboard .run-actions > .btn.btn-danger,
+  .run-dashboard .run-actions > .btn.lg { grid-column: 1; grid-row: 1; }
+  .run-dashboard .run-actions > .activity-open { grid-column: 2; grid-row: 1; }
+  .run-dashboard .run-actions > .run-scope-link,
+  .run-dashboard .run-actions > .job-meta { grid-column: 1 / -1; }
+
+  .activity-open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: auto;
+    min-height: 44px;
+    padding: 9px 14px;
+    white-space: nowrap;
+  }
+  .run-dashboard .run-actions > .activity-open { width: auto; }
+  .activity-open.live { border-color: var(--accent); color: var(--accent); }
+  .activity-open-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: activity-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes activity-pulse { 50% { opacity: .25; } }
+
+  .run-dashboard .console-card { display: none; }
+  .run-dashboard .console-card.open {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    margin: 0;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+  .run-dashboard .console-card.open .console-head { padding-top: calc(10px + env(safe-area-inset-top)); }
+  .run-dashboard .console-card.open .activity-body { flex: 1; max-height: none; overflow-y: auto; }
+  /* Nothing to show yet: centre the line rather than stranding it at the top of a blank screen. */
+  .run-dashboard .console-card.open .activity-body:has(> .console-empty) { display: grid; place-content: center; }
+  .run-dashboard .console-card.open .console-empty { min-height: 0; margin: 0; padding: 24px 16px; }
+  .activity-close { display: inline-flex; min-height: 36px; }
+  body.activity-open { overflow: hidden; }
 }
 
 @media (max-width: 900px) and (prefers-reduced-motion: reduce) {
@@ -1956,6 +2012,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 @media (prefers-reduced-motion: reduce) {
   .run-review-modal[data-shake] { animation: none; }
+  .activity-open-dot { animation: none; }
 }
 
 /* Inline answer form on the attention list. */
@@ -2437,14 +2494,8 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   .run-dashboard .signin-status { gap: 6px; }
   .run-dashboard .signin-pill { padding: 4px 9px 4px 7px; font-size: 11.5px; }
 
-  /* An empty activity log is one line, not a screen's worth of blank card. */
-  .console-card,
-  .run-dashboard .console-card { min-height: 0; }
-  .run-dashboard .console-empty { min-height: 0; margin: 0; padding: 16px 14px; }
-  .run-dashboard .activity-body { max-height: 60vh; overflow-y: auto; }
-
   .run-dashboard .dashboard-metrics { margin-bottom: 12px; }
-  .run-dashboard .run-actions { gap: 4px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  .run-dashboard .run-actions { gap: 4px 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
   .run-dashboard .run-actions .job-meta { font-size: 11px; }
 
   /* A step's action sits beside it rather than on a row of its own, which

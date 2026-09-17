@@ -298,6 +298,13 @@ export function RunPanel({
   const [autoSchedule, setAutoSchedule] = useState<AutoScheduleStatus | null>(null);
   const [liveViewOpen, setLiveViewOpen] = useState(false);
   /**
+   * On a phone the activity log is a modal opened from the run bar, not a
+   * card below the fold: it is only wanted while a run is going, and left
+   * inline it pushed everything else off the screen. Ignored above 900px,
+   * where the log has its own column and is always visible.
+   */
+  const [activityOpen, setActivityOpen] = useState(false);
+  /**
    * A standard account does not drive runs: it saves what work it wants and
    * Owtomate applies on a schedule. So it gets a statement of what is happening
    * rather than controls that would be refused.
@@ -347,6 +354,20 @@ export function RunPanel({
   useEffect(() => {
     fetch('/api/settings').then((r) => r.json()).then(setSettings).catch(() => {});
   }, []);
+
+  // The activity modal behaves like the menu drawer: Escape closes it, and the page behind stays put.
+  useEffect(() => {
+    if (!activityOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActivityOpen(false);
+    };
+    document.body.classList.add('activity-open');
+    window.addEventListener('keydown', close);
+    return () => {
+      document.body.classList.remove('activity-open');
+      window.removeEventListener('keydown', close);
+    };
+  }, [activityOpen]);
 
   useEffect(() => {
     const tick = async () => {
@@ -745,6 +766,16 @@ export function RunPanel({
         {error && <div className="banner banner-bad">{error}</div>}
 
         <div className="run-actions">
+          {/* Beside the run button on a phone; the desktop layout hides it. */}
+          <button
+            type="button"
+            className={`btn activity-open${running ? ' live' : ''}`}
+            aria-haspopup="dialog"
+            onClick={() => setActivityOpen(true)}
+          >
+            {running && <span className="activity-open-dot" aria-hidden="true" />}
+            Activity
+          </button>
           {running && status?.isOwner === false ? (
             <button className="btn primary lg" disabled>
               Busy with another account's run
@@ -926,7 +957,7 @@ export function RunPanel({
       </section>
       </div>
 
-      <div className="card console-card">
+      <div className={`card console-card${activityOpen ? ' open' : ''}`}>
         <div className="console-head">
           <div className="console-status">
             <strong>Activity</strong>
@@ -961,6 +992,10 @@ export function RunPanel({
             {lines.length > 0 && !running && (
               <button className="btn" onClick={() => setLines([])}>Clear</button>
             )}
+            {/* Only ever visible while this card is the phone's modal. */}
+            <button type="button" className="btn activity-close" onClick={() => setActivityOpen(false)}>
+              Close
+            </button>
           </div>
         </div>
 
