@@ -35,7 +35,7 @@ import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { checkSeekSignin, checkSignin, seekCheckInProgress } from './server/seek-check.js';
-import { readSeekState, readSiteState } from './server/seek-state.js';
+import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
@@ -842,9 +842,23 @@ function dataApi(): Plugin {
           }
           const seek = readSeekState(userId);
           const indeed = readSiteState(userId, 'indeed');
+          const priorState: Record<'seek' | 'indeed', SeekState | null> = { seek, indeed };
+          /**
+           * Only re-verify a board this account has some history with.
+           *
+           * An account with no `<site>-session.json` has never been prompted
+           * to sign in to that board — there is nothing "expired" to check,
+           * and probing it anyway used to write `signedIn: false` as fact,
+           * which read back as "SEEK shows this account signed out. Sign in
+           * again" for someone who had never once signed in. Skipping the
+           * probe leaves the state `null`, so the Apply page keeps its
+           * first-time copy ("Sign in once…") until there is a real prior
+           * session worth reconfirming.
+           */
           const verifySites = (url.searchParams.get('verify') ?? '')
             .split(',')
-            .filter((site): site is 'seek' | 'indeed' => site === 'seek' || site === 'indeed');
+            .filter((site): site is 'seek' | 'indeed' => site === 'seek' || site === 'indeed')
+            .filter((site) => priorState[site] !== null);
           /**
            * A green tick must describe the live account, not a cached answer.
            * When the Apply page mounts it requests verification for the boards
@@ -862,7 +876,7 @@ function dataApi(): Plugin {
               verification = verification.then(() => checkSignin(userId, site));
             }
             void verification;
-          } else if ((!seek || seek.source === 'declared') && !sessionFor(userId) && !runner.stateFor(userId).running) {
+          } else if (seek?.source === 'declared' && !sessionFor(userId) && !runner.stateFor(userId).running) {
             void checkSeekSignin(userId);
           }
           return send({
