@@ -338,6 +338,18 @@ export const config = {
     model: process.env.HUMANIZER_MODEL ?? 'authormist-originality',
     required: process.env.HUMANIZER_REQUIRED === 'true',
     timeoutMs: Number(process.env.HUMANIZER_TIMEOUT_MS ?? 120_000),
+    /**
+     * Total time one rewrite may take, across all its retry attempts, before
+     * the grounded original is sent instead.
+     *
+     * This is a budget, not a request timeout: it bounds how long an
+     * application will wait on a style pass. At the old hardcoded 15s every
+     * rewrite timed out on a CPU-only host — a 3B model writing 250 words on
+     * two threads cannot finish that fast — so every letter went out
+     * un-rewritten. Configurable because the right number is a property of
+     * whatever machine is serving the model, not of the code.
+     */
+    rewriteBudgetMs: Number(process.env.HUMANIZER_REWRITE_BUDGET_MS ?? 45_000),
   },
 
   coverLetter: {

@@ -167,7 +167,7 @@ async function rewriteText(
   maxWords: number,
   purpose: string,
   temperature = 0.7,
-  deadline = Date.now() + 15_000,
+  deadline = Date.now() + config.humanizer.rewriteBudgetMs,
 ): Promise<string> {
   /**
    * The draft goes to the model as-is, with its real numbers and URLs.
@@ -240,7 +240,7 @@ export async function rewriteLongText(text: string): Promise<string> {
   if (!config.humanizer.enabled) return text;
   // Answers are already drafted in the requested voice; avoid a second style model.
   if (process.env.HUMANIZER_MODE !== 'always') return text;
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + config.humanizer.rewriteBudgetMs;
   const sourceWords = wordCount(text);
   if (sourceWords <= LONG_TEXT_REWRITE_THRESHOLD) return text;
   if (!config.humanizer.url && !config.humanizer.fallbackUrl) {
@@ -279,7 +279,7 @@ export async function humanizeCoverLetter(
 ): Promise<string> {
   if (!config.humanizer.enabled) return letter;
   if (!needsEditing && process.env.HUMANIZER_MODE !== 'always') return letter;
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + config.humanizer.rewriteBudgetMs;
   if (wordCount(letter) > MAX_COVER_LETTER_WORDS) {
     throw new Error(`Draft exceeds the ${MAX_COVER_LETTER_WORDS}-word cover-letter limit`);
   }
