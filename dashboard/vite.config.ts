@@ -21,6 +21,7 @@ import {
 import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
+import { startProfileMaintenance } from './server/profile-prune.js';
 import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions } from './server/auth.js';
 import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
@@ -1235,6 +1236,7 @@ function dataApi(): Plugin {
       });
       startAutoRunner();
       startVisitMaintenance();
+      startProfileMaintenance();
 
       /**
        * Leave nothing behind. pm2 stops this process with a signal; without
