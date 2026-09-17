@@ -9,7 +9,7 @@ import { HumanizerPanel } from './components/HumanizerPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { PricingPanel } from './components/PricingPanel';
 import { daysSince } from './format';
-import { UserChip, useAuth } from './components/SignIn';
+import { useAuth } from './components/SignIn';
 import { Landing } from './components/Landing';
 import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
@@ -156,7 +156,6 @@ export default function App() {
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
     { id: 'applications', label: 'Applications', badge: apps.length },
   ];
-  const nextTheme = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length];
 
   /**
    * On a narrow screen the destinations live behind a menu button rather
@@ -266,6 +265,39 @@ export default function App() {
           >
             Settings
           </button>
+
+          {/*
+            Who is signed in, and how the app looks, live at the foot of the
+            menu on every screen. They were in the page header, which on a
+            phone left two controls competing with the title for one row.
+          */}
+          <div className="nav-foot">
+            <div className="nav-theme" role="group" aria-label="Theme">
+              {THEME_CYCLE.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={theme === option ? 'on' : ''}
+                  aria-pressed={theme === option}
+                  title={option === 'system' ? `Follow the device (${resolvedTheme('system')})` : `Always ${option}`}
+                  onClick={() => setTheme(option)}
+                >
+                  {THEME_LABEL[option]}
+                </button>
+              ))}
+            </div>
+
+            <div className="nav-account">
+              {user.avatarUrl
+                ? <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                : <span className="nav-account-initial" aria-hidden="true">{(user.name ?? user.email).trim().charAt(0).toUpperCase()}</span>}
+              <span className="nav-account-id">
+                <strong>{user.name ?? 'Signed in'}</strong>
+                <span className="job-meta">{user.email}</span>
+              </span>
+            </div>
+            <button type="button" className="btn nav-signout" onClick={signOut}>Sign out</button>
+          </div>
         </nav>
       </aside>
 
@@ -280,14 +312,6 @@ export default function App() {
           </div>
           <div className="toolbar">
             {running && <span className="badge ok">Running</span>}
-            <button
-              className="btn theme-btn"
-              title={`Theme: ${theme}${theme === 'system' ? ` (${resolvedTheme('system')})` : ''}. Switch to ${nextTheme}.`}
-              onClick={() => setTheme(nextTheme)}
-            >
-              {THEME_LABEL[theme]}
-            </button>
-            <UserChip user={user} onSignOut={signOut} />
           </div>
         </header>
 
