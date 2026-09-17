@@ -755,21 +755,33 @@ export function RunPanel({
             </button>
           ) : !driving ? null : (
             <>
-              <button className="btn primary lg" disabled={outOfRuns} onClick={() => { setScope('all'); setConfirming(true); }}>
+              {/*
+                A run without a résumé, a profile, search terms or a location
+                is refused by the server anyway; the button says so before it
+                is pressed rather than after.
+              */}
+              <button
+                className="btn primary lg"
+                disabled={outOfRuns || accountSetupIncomplete}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : undefined}
+                onClick={() => { setScope('all'); setConfirming(true); }}
+              >
                 Start run
               </button>
               {entitlements?.runScopes && (
                 <button
                   type="button"
                   className="run-scope-link"
-                  disabled={outOfRuns}
+                  disabled={outOfRuns || accountSetupIncomplete}
                   title="Applies only where the employer's own site takes the application, on every board in the run."
                   onClick={() => { setScope('external'); setConfirming(true); }}
                 >
                   Employer sites only
                 </button>
               )}
-              {runsLeft !== null && (
+              {accountSetupIncomplete ? (
+                <span className="job-meta">Finish the setup steps above to start a run.</span>
+              ) : runsLeft !== null && (
                 <span className="job-meta">
                   {outOfRuns
                     ? 'No runs left today.'

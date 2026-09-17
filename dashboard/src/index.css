@@ -1379,6 +1379,32 @@ button.metric-tile:hover strong { color: var(--accent); }
 
   .main-shell { padding: 22px 16px 44px; }
   .page-header { margin-bottom: 18px; }
+
+  /*
+   * Starting and stopping a run is the point of the page, so on a phone it
+   * stays on the screen: the bar is pinned to the bottom while everything
+   * else scrolls under it. The page reserves the height it takes so the last
+   * card is never left underneath it.
+   */
+  .run-dashboard .run-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: grid;
+    justify-items: center;
+    gap: 5px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 -8px 24px rgba(18, 42, 70, .1);
+  }
+  .run-dashboard .run-actions .btn { width: 100%; }
+  .run-dashboard .run-actions .job-meta { font-size: 11.5px; }
+  .run-dashboard { padding-bottom: 132px; }
+  /* The drawer and the dimmed page belong over it, not under it. */
+  .nav-open .run-dashboard .run-actions { z-index: 30; }
 }
 
 @media (max-width: 900px) and (prefers-reduced-motion: reduce) {
