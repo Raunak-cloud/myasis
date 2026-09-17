@@ -56,23 +56,23 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
     </header>
 
     <main className="home-width">
+      {/* The offer and the proof of it. How it works comes after, so the page opens on the point. */}
       <section className="home-intro" aria-labelledby="home-heading">
-        <HeroStory />
-        <div className="home-hero-videos">
-          <div className="home-intro-heading">
-            <h1 id="home-heading">Job hunting is a job.<em>Not anymore 😌</em></h1>
-            <p className="home-hero-summary">Owtomate finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
-            {error && <div className="home-error" role="alert">{error}</div>}
-            <div className="home-hero-actions">{start()}</div>
-            <p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications. No card needed.</p>
-          </div>
-          <div className="home-hero-demo" id="demo">
-            <div className="home-hero-video-top"><span>Real application run</span></div>
-            <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Owtomate applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
-            {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
-          </div>
+        <div className="home-intro-heading">
+          <h1 id="home-heading">Job hunting is a job.<em>Not anymore 😌</em></h1>
+          <p className="home-hero-summary">Owtomate finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
+          {error && <div className="home-error" role="alert">{error}</div>}
+          <div className="home-hero-actions">{start()}</div>
+          <p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications. No card needed.</p>
+        </div>
+        <div className="home-hero-demo" id="demo">
+          <div className="home-hero-video-top"><span>Real application run</span></div>
+          <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Owtomate applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
+          {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
         </div>
       </section>
+
+      <section className="home-story"><HeroStory /></section>
 
       <section className="home-explainer" id="how-it-works"><div className="home-process"><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></span><div><h3>Your résumé. Your preferences.</h3><p>Add your documents and tell Owtomate the roles, locations and pay you would accept. It checks jobs against those details before applying.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><div><h3>Written for every job.</h3><p>Owtomate chooses the right résumé, writes a job-specific cover letter and fills in each form from your profile.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg></span><div><h3>Let it apply. Keep the record.</h3><p>Owtomate submits each application and saves what was sent. Anything it cannot answer comes back to you.</p></div></article></div></section>
 

@@ -320,14 +320,16 @@ tbody tr.clickable { cursor: pointer; }
   cursor: help;
 }
 .field-info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/*
+ * Placed against the viewport, at the end of the document, because every
+ * panel is a card that clips its overflow: a note opening near a card's
+ * bottom edge used to show as a black sliver with the text cut off. The
+ * component sets left/width and either top or bottom.
+ */
 .field-tooltip {
-  position: absolute;
-  z-index: 80;
-  top: calc(100% + 7px);
-  left: 0;
-  display: none;
-  width: max-content;
-  max-width: min(260px, calc(100vw - 48px));
+  position: fixed;
+  z-index: 200;
+  display: block;
   padding: 8px 10px;
   border-radius: 7px;
   background: #111827;
@@ -337,13 +339,7 @@ tbody tr.clickable { cursor: pointer; }
   font-weight: 450;
   line-height: 1.4;
   text-align: left;
-}
-.field-info:hover .field-tooltip,
-.field-info:focus .field-tooltip { display: block; }
-.run-review-grid .field:nth-child(3n) .field-tooltip,
-.run-review-section .grid-2 .field:nth-child(even) .field-tooltip {
-  right: 0;
-  left: auto;
+  pointer-events: none;
 }
 .field .input { min-width: 0; width: 100%; }
 .mono-input { font-family: var(--mono); font-size: 12px; resize: vertical; }
@@ -515,13 +511,10 @@ tbody tr.clickable { cursor: pointer; }
   .run-review-actions .btn { flex: 1 1 auto; }
   .run-review-actions .primary,
   .run-review-actions .btn-danger-solid { min-width: 0; }
-  .run-review-grid .field:nth-child(3n) .field-tooltip { right: auto; left: 0; }
-  .run-review-grid .field:nth-child(even) .field-tooltip { right: 0; left: auto; }
 }
 
 @media (max-width: 420px) {
   .run-review-grid { grid-template-columns: 1fr; }
-  .run-review-grid .field:nth-child(even) .field-tooltip { right: auto; left: 0; }
 }
 
 /* ---------- live browser ---------- */
@@ -1150,20 +1143,7 @@ button.metric-tile:hover strong { color: var(--accent); }
 }
 .auto-apply-btn:hover { background: var(--ok-soft); color: var(--text); }
 .auto-apply-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .2); }
-.auto-apply-info {
-  width: 22px;
-  height: 22px;
-  flex-basis: 22px;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-}
-.auto-apply-info:hover { color: var(--text); }
-.auto-apply-info svg { display: block; }
-/* The tooltip spans the panel rather than hanging off the icon, so it never leaves the card. */
 .panel-head { position: relative; }
-.auto-apply-info { position: static; }
-.auto-apply .field-tooltip { top: calc(100% - 4px); left: 16px; right: 16px; width: auto; max-width: none; font-size: 12px; }
 
 
 .run-dashboard .run-actions { display: grid; gap: 8px; }
@@ -1236,24 +1216,51 @@ button.metric-tile:hover strong { color: var(--accent); }
 .humanizer-grid { gap: 16px; }
 
 @media (max-width: 900px) {
+  /*
+   * The sidebar becomes a tab strip. The owl stays put and only the
+   * destinations scroll, under a fade at the right edge that shows there are
+   * more of them — the strip used to cut the last label in half with nothing
+   * to say it could be scrolled.
+   */
   .app-shell { display: block; }
   .sidebar {
     position: sticky;
+    top: 0;
     height: auto;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: 10px;
-    padding: 10px 14px;
+    padding: 8px 12px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
-    overflow-x: auto;
+    overflow: visible;
   }
-  .product { width: auto; flex: 0 0 auto; padding: 0 8px 0 0; }
+  .product { width: auto; padding: 0; }
   .product-name, .nav-label { display: none; }
-  .product-mark { display: grid; width: 40px; height: 40px; }
-  .side-nav { flex-direction: row; }
-  .side-link { width: auto; min-height: 36px; padding: 7px 10px; white-space: nowrap; }
-  .main-shell { padding: 24px 18px 48px; }
+  .product-mark { display: grid; width: 36px; height: 36px; }
+  .side-nav {
+    flex-direction: row;
+    gap: 6px;
+    min-width: 0;
+    padding-right: 20px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
+  }
+  .side-nav::-webkit-scrollbar { display: none; }
+  .side-link {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 38px;
+    padding: 8px 12px;
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+  .main-shell { padding: 22px 16px 44px; }
   .page-header { margin-bottom: 18px; }
 }
 
@@ -2035,8 +2042,7 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .run-auto-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .run-auto-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--text); }
 .run-auto-row .job-meta { margin: 0; }
-.run-auto-row .run-auto-info { position: static; margin-left: auto; }
-.run-auto-row .field-tooltip { top: calc(100% + 6px); left: 0; right: 0; width: auto; max-width: none; font-size: 12px; }
+.run-auto-row .field-info { margin-left: auto; }
 
 .saved-search-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
 .saved-search-head h2 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
@@ -2065,7 +2071,7 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: transform .15s ease;
 }
 .auto-switch.on .auto-switch-knob { transform: translateX(14px); }
-.run-auto-row .auto-switch + .run-auto-info { margin-left: 0; }
+.run-auto-row .auto-switch + .field-info { margin-left: 0; }
 .run-auto-row.paused .auto-apply-dot { background: var(--text-faint); box-shadow: none; }
 
 /* ---------- Admin dashboard ---------- */
@@ -2133,3 +2139,81 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .admin-pages span { padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--surface-2); color: var(--text-dim); white-space: nowrap; }
 .admin-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .admin-attribution { margin: 0; }
+
+/* ==========================================================================
+   Phones
+   --------------------------------------------------------------------------
+   One place for what a narrow screen needs, after everything it overrides.
+   The rule throughout: one column, nothing cut off without saying so, and
+   every control big enough to hit with a thumb.
+   ========================================================================== */
+
+@media (max-width: 760px) {
+  /*
+   * A table that continues past the edge says so: the shadow appears on
+   * whichever side has more to see and goes when that side is reached. It
+   * costs no markup and no script, and it is the only hint a phone gets that
+   * a table scrolls sideways.
+   */
+  .table-wrap {
+    background:
+      linear-gradient(to right, var(--surface), transparent) 0 0 / 22px 100% no-repeat local,
+      linear-gradient(to left, var(--surface), transparent) 100% 0 / 22px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(18, 42, 70, .16), transparent) 0 0 / 11px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(18, 42, 70, .16), transparent) 100% 0 / 11px 100% no-repeat scroll;
+  }
+  th, td { padding: 10px 11px; }
+  th { font-size: 10px; }
+
+  /* Counts and controls sit under the heading rather than fighting it for the row. */
+  .queue-bar { align-items: flex-start; gap: 10px; }
+  .admin-nav { width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .admin-nav::-webkit-scrollbar { display: none; }
+  .admin-nav button { flex: 0 0 auto; padding: 7px 13px; font-size: 13px; }
+  .admin-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .admin-tile { padding: 12px 13px; }
+  .admin-tile strong { font-size: 20px; }
+  .admin-section { padding: 13px 14px; }
+  .admin-list li { flex-direction: column; align-items: stretch; gap: 8px; }
+  .admin-button-row .input { flex: 1 1 100%; }
+  .admin-drawer { width: 100%; }
+
+  /* Paired fields stop being pairs. */
+  .grid-2, .grid-3, .run-review-body, .checklist-items, .cover-letter-modes { grid-template-columns: minmax(0, 1fr); }
+  .run-review-body { padding: 16px; }
+  .run-review-actions { flex-wrap: wrap; }
+  .run-review-actions .btn { flex: 1 1 140px; }
+}
+
+@media (max-width: 480px) {
+  /* Room is the scarce thing: give it to the content, not the frame. */
+  .main-shell { padding: 16px 12px 36px; }
+  .page-content { max-width: none; }
+  .panel-body { padding: 14px; }
+  .card { border-radius: 12px; }
+  .page-header h1 { font-size: 21px; }
+
+  /* A control you have to hit with a thumb, and never a row of them squeezed thin. */
+  .btn, .chip, .input, select.input { min-height: 40px; }
+  .btn { padding: 9px 14px; }
+  .btn.lg, .btn.primary { width: 100%; justify-content: center; }
+  .toolbar { flex-wrap: wrap; justify-content: flex-end; }
+  .admin-button-row .btn, .admin-button-row .btn-small { flex: 1 1 auto; }
+  .btn-small { min-height: 34px; }
+
+  .admin-tiles { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-metrics { gap: 8px 16px; }
+  th, td { padding: 9px 9px; }
+  td { font-size: 13px; }
+  .admin-facts { grid-template-columns: minmax(0, 1fr); }
+  .admin-drawer .section { padding: 14px; }
+
+  /* A modal is the screen on a phone, not a window floating on it. */
+  .overlay > .card, .admin-log {
+    width: 100%;
+    max-width: none;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { SetupChecklist, useSetupStatus } from './SetupChecklist';
-import { FieldLabel } from './FieldLabel';
+import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { TermsInput } from './TermsInput';
@@ -809,17 +809,10 @@ export function RunPanel({
                 <span className="auto-switch-knob" aria-hidden="true" />
               </button>
             )}
-            <span
-              className="field-info run-auto-info"
-              tabIndex={0}
-              aria-label={`Auto apply: ${autoApplySummary(entitlements)}${autoSchedule ? ` ${nextRunLabel(autoSchedule)}.` : ''}`}
-            >
-              i
-              <span className="field-tooltip" role="tooltip">
-                {autoApplySummary(entitlements)}
-                {autoSchedule ? ` ${nextRunLabel(autoSchedule)}.` : ''}
-              </span>
-            </span>
+            <InfoTip
+              label="Auto apply"
+              help={`${autoApplySummary(entitlements)}${autoSchedule ? ` ${nextRunLabel(autoSchedule)}.` : ''}`}
+            />
           </div>
         )}
         {autoSchedule?.lastError && !running && !entitlements?.autoApplyPaused && (
