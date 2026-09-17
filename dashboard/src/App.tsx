@@ -327,7 +327,7 @@ export default function App() {
             </div>
             <div className="metric-tile">
               <strong>{today.reviewed}</strong>
-              <span>jobs reviewed today</span>
+              <span>reviewed today</span>
             </div>
             {/* Only when there is something to do: a row of zeros is noise. */}
             {stats.awaiting > 0 && (

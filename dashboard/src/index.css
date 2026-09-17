@@ -2379,6 +2379,74 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   .run-dashboard .metric-tile strong { font-size: 20px; }
   .metric-tile span { font-size: 11px; line-height: 1.3; white-space: normal; }
 
+  /*
+   * Anything that needs doing is a row, not a fourth tile. It comes first,
+   * spans the width, and looks like the button it is, with a chevron: a
+   * lone amber tile on a second row read as a statistic, and the most useful
+   * tap on the page went unnoticed. A tile that opens a page says so with
+   * the same chevron.
+   */
+  .metric-tile.needs-action,
+  .run-dashboard .metric-tile.needs-action {
+    grid-column: 1 / -1;
+    order: -1;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 10px 12px;
+    border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+    background: var(--warn-soft, rgba(217, 119, 6, .1));
+  }
+  .metric-tile.needs-action strong,
+  .run-dashboard .metric-tile.needs-action strong { font-size: 18px; }
+  .metric-tile.needs-action span { font-size: 13px; color: var(--text); }
+  .metric-tile.needs-action::after {
+    content: '›';
+    align-self: center;
+    margin-left: auto;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--warn);
+  }
+  button.metric-tile:not(.needs-action) { position: relative; padding-right: 18px; }
+  button.metric-tile:not(.needs-action)::after {
+    content: '›';
+    position: absolute;
+    top: 7px;
+    right: 9px;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--text-faint);
+  }
+
+  /*
+   * The run card is two rows, not four: the switch on one, the board ticks
+   * and the last run on the other. Everything else in it keeps a row of its
+   * own. The start button is fixed to the screen's foot, so it is not here.
+   */
+  .run-dashboard .run-controls-card .panel-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+  }
+  .run-dashboard .run-controls-card .panel-body > * { flex: 1 1 100%; min-width: 0; }
+  .run-dashboard .run-controls-card .panel-body > .signin-status,
+  .run-dashboard .run-controls-card .panel-body > .last-run-line { flex: 0 1 auto; }
+  .run-dashboard .run-controls-card .panel-body > .last-run-line { margin-left: auto; font-size: 12px; }
+  .run-dashboard .signin-status { gap: 6px; }
+  .run-dashboard .signin-pill { padding: 4px 9px 4px 7px; font-size: 11.5px; }
+
+  /* An empty activity log is one line, not a screen's worth of blank card. */
+  .console-card,
+  .run-dashboard .console-card { min-height: 0; }
+  .run-dashboard .console-empty { min-height: 0; margin: 0; padding: 16px 14px; }
+  .run-dashboard .activity-body { max-height: 60vh; overflow-y: auto; }
+
+  .run-dashboard .dashboard-metrics { margin-bottom: 12px; }
+  .run-dashboard .run-actions { gap: 4px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  .run-dashboard .run-actions .job-meta { font-size: 11px; }
+
   /* A step's action sits beside it rather than on a row of its own, which
      was costing a phone about fifty pixels of scrolling per step. */
   .checklist-items li {
