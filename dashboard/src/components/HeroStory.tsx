@@ -1,8 +1,8 @@
 import { MascotLogo } from './MascotLogo';
 
 /**
- * The story the landing page opens with: job hunting by hand against job
- * hunting with Owtomate, as two rows of steps.
+ * Job hunting by hand against job hunting with Owtomate, as two columns of
+ * steps.
  *
  * Drawn in the page's own sketch style rather than shipped as a picture, so
  * it stays sharp at any size, the captions are real text (they wrap, scale
@@ -10,17 +10,6 @@ import { MascotLogo } from './MascotLogo';
  */
 
 const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
-
-function Arrow() {
-  return (
-    <span className="story-arrow" aria-hidden="true">
-      <svg viewBox="0 0 36 18" width="36" height="18" {...stroke}>
-        <path d="M2 9.5c8-2.5 16 2.5 24 0" />
-        <path d="m20 3 7 6.4-7 6.4" />
-      </svg>
-    </span>
-  );
-}
 
 function StackIcon() {
   return (
@@ -93,38 +82,64 @@ function OutcomeIcon({ good }: { good: boolean }) {
   );
 }
 
+/**
+ * The two ways, side by side rather than one above the other.
+ *
+ * A comparison is easier to read as two columns than as two flows: the steps
+ * line up against each other, so a single glance answers what changes. The
+ * steps in each column are joined by one quiet line instead of a row of
+ * arrows, which is what made the old layout busy.
+ */
 export function HeroStory() {
   return (
     <figure className="story" aria-label="Job hunting the old way against job hunting with Owtomate">
-      <div className="story-row story-old">
-        <p className="story-tagline">
+      <section className="story-col story-old">
+        <header className="story-head">
           <span className="story-tag">The old way</span>
           <span className="story-note">Time-consuming and stressful</span>
-        </p>
+        </header>
         <ol className="story-steps">
-          <li className="story-step"><StackIcon /><span>Search and apply to job after job</span></li>
-          <Arrow />
-          <li className="story-step"><RejectedIcon /><span>Rejections pile up</span></li>
-          <Arrow />
-          <li className="story-step"><StressIcon /><span>Feel stressed and discouraged</span></li>
-        </ol>
-      </div>
-      <div className="story-row story-new">
-        <p className="story-tagline">
-          <span className="story-tag">The Owtomate way</span>
-          <span className="story-note">Smarter matching, less stress, more opportunities</span>
-        </p>
-        <ol className="story-steps">
-          <li className="story-step"><OwlAtLaptop /><span>Owtomate finds jobs that fit and applies for you</span></li>
-          <Arrow />
-          <li className="story-step"><MatchIcon /><span>You get better job matches</span></li>
-          <Arrow />
-          <li className="story-fork">
-            <span className="story-outcome bad"><OutcomeIcon good={false} /><span><strong>If rejected:</strong> keep going. More matches are already on the way.</span></span>
-            <span className="story-outcome good"><OutcomeIcon good /><span><strong>If accepted:</strong> you got the job.</span></span>
+          <li className="story-step">
+            <span className="story-dot"><StackIcon /></span>
+            <span>Search and apply to job after job</span>
+          </li>
+          <li className="story-step">
+            <span className="story-dot"><RejectedIcon /></span>
+            <span>Rejections pile up</span>
+          </li>
+          <li className="story-step">
+            <span className="story-dot"><StressIcon /></span>
+            <span>Feel stressed and discouraged</span>
           </li>
         </ol>
-      </div>
+      </section>
+
+      <section className="story-col story-new">
+        <header className="story-head">
+          <span className="story-tag">The Owtomate way</span>
+          <span className="story-note">Smarter matching, less stress, more opportunities</span>
+        </header>
+        <ol className="story-steps">
+          <li className="story-step">
+            <span className="story-dot"><OwlAtLaptop /></span>
+            <span>Owtomate finds jobs that fit and applies for you</span>
+          </li>
+          <li className="story-step">
+            <span className="story-dot"><MatchIcon /></span>
+            <span>You get better job matches</span>
+          </li>
+          <li className="story-step story-step-fork">
+            <span className="story-outcome bad">
+              <OutcomeIcon good={false} />
+              <span><strong>If rejected:</strong> keep going. More matches are already on the way.</span>
+            </span>
+            <span className="story-outcome good">
+              <OutcomeIcon good />
+              <span><strong>If accepted:</strong> you got the job.</span>
+            </span>
+          </li>
+        </ol>
+      </section>
     </figure>
   );
 }

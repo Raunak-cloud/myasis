@@ -1215,20 +1215,23 @@ button.metric-tile:hover strong { color: var(--accent); }
 .humanizer-head { justify-content: flex-end; min-height: 24px; }
 .humanizer-grid { gap: 16px; }
 
+/* The menu button belongs to the narrow layout; the full sidebar is always there above it. */
+.nav-toggle, .nav-scrim { display: none; }
+
 @media (max-width: 900px) {
   /*
-   * The sidebar becomes a tab strip. The owl stays put and only the
-   * destinations scroll, under a fade at the right edge that shows there are
-   * more of them — the strip used to cut the last label in half with nothing
-   * to say it could be scrolled.
+   * The sidebar becomes a bar with a menu button. Seven destinations never
+   * fit across a phone, and a strip that scrolls sideways hid the last of
+   * them behind a cut-off label, so they live in a drawer instead: the same
+   * list as the desktop sidebar, headings and counts included.
    */
   .app-shell { display: block; }
   .sidebar {
     position: sticky;
     top: 0;
     height: auto;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    display: flex;
+    flex-direction: row;
     align-items: center;
     gap: 10px;
     padding: 8px 12px;
@@ -1236,32 +1239,94 @@ button.metric-tile:hover strong { color: var(--accent); }
     border-bottom: 1px solid var(--border);
     overflow: visible;
   }
+  /* The wordmark already has the owl as its first letter; the separate mark would be a second one. */
   .product { width: auto; padding: 0; }
-  .product-name, .nav-label { display: none; }
-  .product-mark { display: grid; width: 36px; height: 36px; }
+  .product-name { display: block; font-size: 22px; }
+  .product-mark { display: none; }
+
+  .nav-toggle {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  .nav-toggle-bars { display: grid; gap: 4px; width: 17px; }
+  .nav-toggle-bars span {
+    display: block;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transition: transform .18s ease, opacity .18s ease;
+  }
+  /* Waiting work is the one thing the closed menu still has to say. */
+  .nav-toggle.has-news::after {
+    content: '';
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 7px;
+    height: 7px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .nav-open .nav-toggle-bars span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .nav-open .nav-toggle-bars span:nth-child(2) { opacity: 0; }
+  .nav-open .nav-toggle-bars span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+  .nav-open .nav-toggle::after { display: none; }
+
   .side-nav {
-    flex-direction: row;
-    gap: 6px;
-    min-width: 0;
-    padding-right: 20px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scroll-snap-type: x proximity;
-    scrollbar-width: none;
-    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
-    mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(290px, 84vw);
+    padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+    gap: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 18px 50px rgba(18, 42, 70, .22);
+    transform: translateX(-102%);
+    visibility: hidden;
+    transition: transform .22s ease, visibility .22s;
   }
-  .side-nav::-webkit-scrollbar { display: none; }
-  .side-link {
-    flex: 0 0 auto;
-    width: auto;
-    min-height: 38px;
-    padding: 8px 12px;
-    white-space: nowrap;
-    scroll-snap-align: start;
+  /* The sticky bar makes its own stacking context, so the drawer inside it
+     only clears the scrim if the bar itself does. */
+  .nav-open.app-shell > .sidebar { z-index: 60; }
+  .nav-open .side-nav { transform: none; visibility: visible; }
+  .nav-label { display: block; }
+  .side-link { width: 100%; min-height: 44px; padding: 10px 12px; }
+
+  .nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: rgba(12, 26, 44, .42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .22s ease;
   }
+  .nav-open .nav-scrim { opacity: 1; pointer-events: auto; }
+  /* The page behind a drawer does not scroll with it. */
+  body.nav-open { overflow: hidden; }
+
   .main-shell { padding: 22px 16px 44px; }
   .page-header { margin-bottom: 18px; }
+}
+
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) {
+  .side-nav, .nav-scrim, .nav-toggle-bars span { transition: none; }
 }
 
 @media (max-width: 1220px) {

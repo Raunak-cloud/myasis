@@ -158,6 +158,31 @@ export default function App() {
   ];
   const nextTheme = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length];
 
+  /**
+   * On a narrow screen the destinations live behind a menu button rather
+   * than in a strip that scrolls sideways: seven of them never fit, and a
+   * label cut in half is worse than one that is put away. The drawer closes
+   * on a choice, on Escape and on a tap outside, and the page underneath
+   * does not scroll while it is open.
+   */
+  const [menuOpen, setMenuOpen] = useState(false);
+  const go = (next: Tab) => {
+    setTab(next);
+    setMenuOpen(false);
+  };
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.body.classList.add('nav-open');
+    window.addEventListener('keydown', close);
+    return () => {
+      document.body.classList.remove('nav-open');
+      window.removeEventListener('keydown', close);
+    };
+  }, [menuOpen]);
+
   if (authLoading) {
     return <div className="signin-wrap"><div className="job-meta">Loading…</div></div>;
   }
@@ -166,23 +191,34 @@ export default function App() {
   if (!user) return <Landing googleConfigured={googleConfigured} />;
 
   return (
-    <div className={`app-shell ${tab === 'run' ? 'apply-shell' : ''}`}>
+    <div className={`app-shell ${tab === 'run' ? 'apply-shell' : ''} ${menuOpen ? 'nav-open' : ''}`}>
       <aside className="sidebar">
-        <button className="product" onClick={() => setTab('run')} aria-label="Go to Apply">
+        <button
+          type="button"
+          className={`nav-toggle ${stats.blocked ? 'has-news' : ''}`}
+          aria-label={menuOpen ? 'Close menu' : 'Menu'}
+          aria-expanded={menuOpen}
+          aria-controls="main-nav"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <span className="nav-toggle-bars" aria-hidden="true"><span /><span /><span /></span>
+        </button>
+
+        <button className="product" onClick={() => go('run')} aria-label="Go to Apply">
           <span className="product-mark" aria-hidden="true">
             <MascotLogo size={38} />
           </span>
           <Wordmark className="product-name" />
         </button>
 
-        <nav className="side-nav" aria-label="Main navigation">
+        <nav className="side-nav" id="main-nav" aria-label="Main navigation">
           <span className="nav-label">Workspace</span>
           {primaryNav.map((item) => (
             <button
               key={item.id}
               className={`side-link ${tab === item.id ? 'active' : ''}`}
               aria-current={tab === item.id ? 'page' : undefined}
-              onClick={() => setTab(item.id)}
+              onClick={() => go(item.id)}
             >
               <span>{item.label}</span>
               {item.badge ? <span className="nav-count">{item.badge}</span> : null}
@@ -195,7 +231,7 @@ export default function App() {
               <button
                 className={`side-link ${tab === 'admin' ? 'active' : ''}`}
                 aria-current={tab === 'admin' ? 'page' : undefined}
-                onClick={() => setTab('admin')}
+                onClick={() => go('admin')}
               >
                 Admin dashboard
               </button>
@@ -208,7 +244,7 @@ export default function App() {
               <button
                 className={`side-link ${tab === 'humanizer' ? 'active' : ''}`}
                 aria-current={tab === 'humanizer' ? 'page' : undefined}
-                onClick={() => setTab('humanizer')}
+                onClick={() => go('humanizer')}
               >
                 Rewrite text
               </button>
@@ -219,19 +255,22 @@ export default function App() {
           <button
             className={`side-link ${tab === 'pricing' ? 'active' : ''}`}
             aria-current={tab === 'pricing' ? 'page' : undefined}
-            onClick={() => setTab('pricing')}
+            onClick={() => go('pricing')}
           >
             Plans & pricing
           </button>
           <button
             className={`side-link ${tab === 'setup' ? 'active' : ''}`}
             aria-current={tab === 'setup' ? 'page' : undefined}
-            onClick={() => setTab('setup')}
+            onClick={() => go('setup')}
           >
             Settings
           </button>
         </nav>
       </aside>
+
+      {/* Tapping beside the drawer closes it, the way every drawer on a phone does. */}
+      <button type="button" className="nav-scrim" tabIndex={-1} aria-hidden="true" onClick={() => setMenuOpen(false)} />
 
       <main className={`main-shell ${tab === 'run' ? 'run-dashboard' : ''}`}>
         <header className="page-header">
