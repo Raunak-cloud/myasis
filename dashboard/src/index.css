@@ -112,6 +112,11 @@ a:hover { text-decoration: underline; }
 .btn:hover { background: var(--surface-2); color: var(--text); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { filter: brightness(1.08); }
+/* A disabled button has to look disabled: without this, Start run stayed
+   full-strength blue whether or not setup was finished. */
+.btn:disabled { opacity: .5; cursor: not-allowed; filter: none; pointer-events: none; }
+.btn:disabled:hover { background: var(--surface); color: var(--text-dim); }
+.btn.primary:disabled:hover { background: var(--accent); color: #fff; }
 
 .search-terms-ai {
   display: flex;
@@ -1282,12 +1287,13 @@ button.metric-tile:hover strong { color: var(--accent); }
     flex-direction: row;
     align-items: center;
     gap: 10px;
-    padding: 8px 12px;
+    padding: 8px 12px 8px 18px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
     overflow: visible;
   }
-  /* The wordmark already has the owl as its first letter; the separate mark would be a second one. */
+  /* The wordmark already has the owl as its first letter; the separate mark would be a second one.
+     A little extra breathing room on the left keeps it off the screen's edge. */
   .product { width: auto; padding: 0; }
   .product-name { display: block; font-size: 22px; }
   .product-mark { display: none; }
