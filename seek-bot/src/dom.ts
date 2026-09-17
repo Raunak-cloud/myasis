@@ -591,6 +591,38 @@ export class ComboboxOptionsError extends Error {
   }
 }
 
+/**
+ * The choices a custom dropdown actually offers, read by opening it.
+ *
+ * `extractFields` can only report options it can see in the DOM, which covers
+ * a native `<select>` and a radio group. A combobox built out of a div and a
+ * popup — Workday's, Ant Design's, most modern employer forms — has no
+ * options in the document until it is opened, so those fields reached the
+ * candidate as a bare text box reading "Select an option" with nothing to
+ * select. This opens the widget the same way `pickFromCombobox` does, reads
+ * the list, and closes it again.
+ *
+ * Called only for the handful of fields that actually blocked an application,
+ * never during normal extraction: opening every dropdown on a page would be
+ * both slow and disruptive.
+ */
+export async function readPickerOptions(page: Page, ref: string): Promise<string[]> {
+  const el = page.locator(`[data-field-id="${ref}"]`).first();
+  if (!(await el.count().catch(() => 0))) return [];
+  const options = page.locator('[role="option"]:visible');
+  try {
+    await openPicker(page, el, options);
+    if (!(await options.count())) return [];
+    const labels = await options.allTextContents();
+    return [...new Set(labels.map((text) => text.replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 40);
+  } catch {
+    return [];
+  } finally {
+    // Leave the form as it was found; an open menu swallows the next click.
+    await page.keyboard.press('Escape').catch(() => {});
+  }
+}
+
 /** Short text summary of the page, for classifying unexpected steps. */
 export async function pageSummary(page: Page): Promise<string> {
   const title = await page.title().catch(() => '');

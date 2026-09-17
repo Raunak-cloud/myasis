@@ -6,7 +6,7 @@ import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { config } from '../config.js';
 import { jitter } from '../browser.js';
-import { extractFields } from '../dom.js';
+import { extractFields, readPickerOptions } from '../dom.js';
 import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal } from './guards.js';
@@ -404,6 +404,28 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
         ref: visibleFields.find((field) => field.label === question)?.ref ?? shape?.ref,
       };
     });
+
+    /**
+     * A dropdown keeps its choices in a popup, so extraction never saw them
+     * and the candidate was asked to free-type an answer to "Select an
+     * option". Before handing these questions over, open each unanswered
+     * picker and record what it really offers, so Needs attention shows the
+     * employer's own list. Only for fields that blocked, and only when the
+     * page is still open.
+     */
+    if (finalOutcome.status === 'needs-human') {
+      for (const blocked of blockedQuestions) {
+        if (blocked.options?.length || !blocked.ref) continue;
+        const field = visibleFields.find((candidate) => candidate.ref === blocked.ref);
+        const looksLikePicker =
+          field?.autocomplete === true ||
+          field?.kind === 'select' ||
+          /select an option|choose|please select/i.test(`${blocked.question} ${blocked.prompt ?? ''}`);
+        if (!looksLikePicker) continue;
+        const options = await readPickerOptions(page, blocked.ref).catch(() => []);
+        if (options.length > 1) blocked.options = options;
+      }
+    }
     if (finalOutcome.status === 'needs-human') {
       for (const blocked of blockedQuestions) {
         const screenshot = blocked.ref ? await captureBlockedField(page, blocked.ref) : undefined;
