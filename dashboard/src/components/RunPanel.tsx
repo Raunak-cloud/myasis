@@ -95,7 +95,14 @@ function activitySummary(lines: LogLine[]) {
   const found = Number(lastMatch(lines, /(\d+) unique listings discovered/i)?.[1] ?? 0);
   const reviewed = lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length;
   const suitable = Number(lastMatch(lines, /(\d+) qualifying jobs/i)?.[1] ?? 0);
-  return { found, reviewed, suitable };
+  /**
+   * Counted from the log like the other three, rather than read from the run
+   * status. The status reports what is running now, so the moment a run ends
+   * its `applied` goes back to zero and the finished summary read "0
+   * Submitted" beside a log that plainly listed four.
+   */
+  const submitted = lines.filter((line) => /✅\s*submitted/i.test(line.text)).length;
+  return { found, reviewed, suitable, submitted };
 }
 
 /**
@@ -1028,7 +1035,8 @@ export function RunPanel({
             <div><strong>{summary.reviewed}</strong><span>Reviewed</span></div>
             <div><strong>{summary.suitable}</strong><span>Suitable</span></div>
             <div>
-              <strong>{status?.applied ?? 0}</strong>
+              {/* Whichever knows more: the live counter mid-run, the log once it has ended. */}
+              <strong>{Math.max(summary.submitted, status?.applied ?? 0)}</strong>
               <span>Submitted</span>
             </div>
           </div>
