@@ -1469,7 +1469,22 @@ button.metric-tile:hover strong { color: var(--accent); }
     border: 0;
     border-radius: 0;
   }
-  .run-dashboard .console-card.open .console-head { padding-top: calc(10px + env(safe-area-inset-top)); }
+  /*
+   * The header wraps instead of running off the edge. "Applying · In progress
+   * · 0m 26s" is wide enough to push the buttons past the right edge of a
+   * phone, and Close went with them — leaving no way out of the modal but the
+   * keyboard, which a phone does not have. The title and status take the
+   * first row, the buttons share the second.
+   */
+  .run-dashboard .console-card.open .console-head {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+  }
+  .run-dashboard .console-card.open .console-status { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
+  .run-dashboard .console-card.open .console-status .badge { white-space: normal; }
+  .run-dashboard .console-card.open .console-actions { flex: 1 1 100%; }
+  .run-dashboard .console-card.open .console-actions .btn { flex: 1 1 auto; justify-content: center; }
   .run-dashboard .console-card.open .activity-body { flex: 1; max-height: none; overflow-y: auto; }
   /* Nothing to show yet: centre the line rather than stranding it at the top of a blank screen. */
   .run-dashboard .console-card.open .activity-body:has(> .console-empty) { display: grid; place-content: center; }
@@ -1735,7 +1750,12 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   gap: 8px;
 }
 
-.live-action-overlay { padding: 24px; }
+/*
+ * Above every other overlay, because it is opened from inside one: on a phone
+ * the activity log is itself a full-screen modal, and at the shared overlay
+ * z-index the live view appeared behind it, so the button looked dead.
+ */
+.live-action-overlay { padding: 24px; z-index: 80; }
 
 .live-action-window {
   width: min(1180px, calc(100vw - 48px));
@@ -1776,9 +1796,19 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   display: flex;
   align-items: center;
   gap: 10px;
+  /*
+   * The dot keeps its size and the sentence wraps. It inherits nowrap from an
+   * ancestor, which ran the message straight off the side of a phone, so the
+   * wrapping is set here rather than left to the cascade.
+   */
+  max-width: min(46ch, 100%);
+  padding-inline: 16px;
+  white-space: normal;
   color: #45556d;
   font-size: 13px;
 }
+.live-action-waiting > .activity-pulse { flex: none; }
+.live-action-waiting > span:last-child { min-width: 0; }
 
 @media (max-width: 640px) {
   .live-action-overlay { padding: 10px; }
