@@ -8,6 +8,7 @@ import { TermsInput } from './TermsInput';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
+import { MascotLogo } from './MascotLogo';
 import { fmtDateTime } from '../format';
 
 
@@ -1052,7 +1053,8 @@ export function RunPanel({
             <>
               {running && (
                 <div className="activity-current live">
-                  <span className="activity-pulse" aria-hidden="true" />
+                  {/* The owl reads the page while the run does: eyes scanning, the odd double-take. */}
+                  <MascotLogo size={36} className="activity-owl" />
                   <div>
                     <strong>Applying now</strong>
                     <span>{currentActivity}</span>
