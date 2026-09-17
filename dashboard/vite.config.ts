@@ -23,6 +23,7 @@ import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { startProfileMaintenance } from './server/profile-prune.js';
 import { startHealthMaintenance } from './server/health.js';
+import { startTraceRetention } from './server/trace-retention.js';
 import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions } from './server/auth.js';
 import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
@@ -1239,6 +1240,7 @@ function dataApi(): Plugin {
       startVisitMaintenance();
       startProfileMaintenance();
       startHealthMaintenance();
+      startTraceRetention();
 
       /**
        * Leave nothing behind. pm2 stops this process with a signal; without

@@ -29,8 +29,15 @@ interface ServerHealth {
     measuring: boolean;
   };
   runs: { active: number; capacity: number };
+  traceRetentionDays: number;
   services: Array<{ name: string; ok: boolean; detail: string }>;
   topProcesses: Array<{ pid: number; name: string; rssMb: number }>;
+}
+
+interface PruneResult {
+  profiles: { freedBytes: number; pruned: number; skipped: number };
+  traces: { freedBytes: number; removed: number; kept: number };
+  traceRetentionDays: number;
 }
 
 interface ServerLog {
@@ -189,12 +196,19 @@ export function ServerView() {
     setPruning(true);
     setPruneResult(null);
     try {
-      const result = await api<{ freedBytes: number; pruned: number; skipped: number }>('/health/prune', { method: 'POST' });
-      const freed = Math.round(result.freedBytes / 1024 / 1024);
+      const result = await api<PruneResult>('/health/prune', { method: 'POST' });
+      const mb = (bytes: number) => Math.round(bytes / 1024 / 1024);
+      const said: string[] = [];
+      if (result.profiles.pruned > 0) {
+        said.push(`freed ${mb(result.profiles.freedBytes)} MB of browser cache from ${result.profiles.pruned} profile${result.profiles.pruned === 1 ? '' : 's'}`);
+      }
+      if (result.traces.removed > 0) {
+        said.push(`removed ${result.traces.removed} trace${result.traces.removed === 1 ? '' : 's'} worth ${mb(result.traces.freedBytes)} MB`);
+      }
       setPruneResult(
-        result.pruned === 0
-          ? 'Every profile was in use, so nothing was cleaned.'
-          : `Freed ${freed} MB from ${result.pruned} profile${result.pruned === 1 ? '' : 's'}${result.skipped ? `, ${result.skipped} in use` : ''}.`,
+        said.length === 0
+          ? 'Nothing to clean: every profile was in use and no trace is old enough yet.'
+          : `Cleanup ${said.join(' and ')}.${result.profiles.skipped ? ` ${result.profiles.skipped} profile(s) in use.` : ''}`,
       );
       load();
     } catch (reason) {
@@ -284,7 +298,7 @@ export function ServerView() {
             </p>
           </div>
           <button className="btn btn-small" onClick={prune} disabled={pruning}>
-            {pruning ? 'Cleaning…' : 'Clean browser caches now'}
+            {pruning ? 'Cleaning…' : 'Free up disk now'}
           </button>
         </div>
         {pruneResult && <div className="banner">{pruneResult}</div>}
@@ -292,7 +306,7 @@ export function ServerView() {
           {[
             { label: 'Database', value: gb(storage.databaseMb), note: 'Postgres, all tables' },
             { label: 'Browser profiles', value: gb(storage.chromeMb), note: 'cleaned daily' },
-            { label: 'Run traces', value: gb(storage.tracesMb), note: 'never pruned' },
+            { label: 'Run traces', value: gb(storage.tracesMb), note: `kept ${health.traceRetentionDays} days` },
             { label: 'Other account data', value: gb(storage.otherMb), note: 'résumés, logs, knowledge' },
           ].map((tile) => (
             <div className="admin-tile" key={tile.label}>

@@ -4,6 +4,7 @@ import { cpus, homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { one } from './db/index.js';
 import { readEnv, runner, MAX_CONCURRENT, BOT_DIR } from './runner.js';
+import { TRACE_RETENTION_DAYS } from './trace-retention.js';
 import { USERS_DIR } from './userdata.js';
 
 /**
@@ -42,6 +43,7 @@ export interface ServerHealth {
   disk: { totalGb: number; usedGb: number; freeGb: number; percent: number };
   storage: StorageBreakdown;
   runs: { active: number; capacity: number };
+  traceRetentionDays: number;
   services: Array<{ name: string; ok: boolean; detail: string }>;
   topProcesses: Array<{ pid: number; name: string; rssMb: number }>;
 }
@@ -381,6 +383,7 @@ export async function serverHealth(): Promise<ServerHealth> {
     disk,
     storage,
     runs: { active: runner.activeCount(), capacity: MAX_CONCURRENT },
+    traceRetentionDays: TRACE_RETENTION_DAYS,
     services,
     topProcesses: processes,
   };

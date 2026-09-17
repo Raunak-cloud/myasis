@@ -7,6 +7,7 @@ import { billingStatus, isAdmin } from './billing.js';
 import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides, setAutoApplyPaused } from './entitlements.js';
 import { readServerLogs, serverHealth } from './health.js';
 import { pruneAllProfiles } from './profile-prune.js';
+import { pruneAllTraces, TRACE_RETENTION_DAYS } from './trace-retention.js';
 import { runner, readEnv, writeEnv, MAX_CONCURRENT } from './runner.js';
 import { accountSetupChecks } from './setup.js';
 import { readSiteState } from './seek-state.js';
@@ -399,9 +400,10 @@ export async function handleAdminRequest(
     }
 
     if (path === '/health/prune' && method === 'POST') {
-      // The same daily cleanup, on demand, for an operator watching the disk fill.
-      const result = pruneAllProfiles();
-      return send({ ok: true, ...result });
+      // The same daily cleanups, on demand, for an operator watching the disk fill.
+      const profiles = pruneAllProfiles();
+      const traces = pruneAllTraces();
+      return send({ ok: true, profiles, traces, traceRetentionDays: TRACE_RETENTION_DAYS });
     }
 
     if (path === '/visitors' && method === 'GET') {
