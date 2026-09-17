@@ -167,8 +167,19 @@ export function applyRunPolicy(
   if (entitlement.indeedApplications && (resolved.PLATFORMS ?? '').trim() === RUN_SETTING_DEFAULTS.PLATFORMS) {
     resolved.PLATFORMS = 'seek,indeed';
   }
+  /**
+   * An operator's numbers for this account win over both the plan's own
+   * default and whatever the account saved — that is the point of setting
+   * one. Applied after the fine-tuning reset above, so they survive for a
+   * standard account whose own MAX_APPS_PER_RUN was just wiped back to the
+   * product default, and before the operator pass below, which keeps any
+   * digits it finds.
+   */
   if (entitlement.evaluationsPerRun !== null) {
     resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);
+  }
+  if (entitlement.maxApplicationsPerRunOverride !== null) {
+    resolved.MAX_APPS_PER_RUN = String(entitlement.maxApplicationsPerRunOverride);
   }
   /**
    * The humanizer is part of a paid pass. A free run sends the grounded,
@@ -192,15 +203,6 @@ export function applyRunPolicy(
       const value = (resolved[key] ?? '').trim();
       resolved[key] = /^\d+$/.test(value) && Number(value) > 0 ? String(Number(value)) : 'none';
     }
-  } else if (entitlement.maxApplicationsPerRunOverride !== null) {
-    /**
-     * An operator's override wins over both the plan's own default and
-     * whatever the account itself saved — that is the point of setting one.
-     * Applied last, after the fine-tuning reset above, so it survives for a
-     * standard account whose own MAX_APPS_PER_RUN was just wiped back to the
-     * product default.
-     */
-    resolved.MAX_APPS_PER_RUN = String(entitlement.maxApplicationsPerRunOverride);
   }
   return resolved;
 }
@@ -349,8 +351,17 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
   ]);
   // Anyone with a schedule can switch it off — they found a job, or want a break — and back on.
   const canPauseAutoApply = autoRunsPerDay > 0;
-  // An operator's override wins over the plan's own number wherever one is set; an operator has no need to override their own account.
-  const evaluationsPerRun = tier === 'admin' ? null : overrides.evaluationsPerRun ?? planEvaluationsPerRun;
+  /**
+   * An operator's override wins over the plan's own number wherever one is
+   * set, on an operator's own account as much as a customer's: a number typed
+   * against an account was typed deliberately. Discarding it for admins meant
+   * an account whose Limits panel read 51 reviewed every listing it found,
+   * because nothing downstream ever saw the number. An admin with no override
+   * still has no limit — that is what the empty field means for them.
+   */
+  const evaluationsPerRun = tier === 'admin'
+    ? overrides.evaluationsPerRun
+    : overrides.evaluationsPerRun ?? planEvaluationsPerRun;
 
   return {
     tier,
@@ -369,7 +380,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
       ? autoRunsPerDay * evaluationsPerRun
       : null,
     evaluationsPerRun,
-    maxApplicationsPerRunOverride: tier === 'admin' ? null : overrides.maxApplicationsPerRun,
+    maxApplicationsPerRunOverride: overrides.maxApplicationsPerRun,
     fineTune: tier !== 'standard',
     rewriteText: tier === 'admin',
     runScopes: tier === 'admin',

@@ -461,7 +461,11 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
 
               <div className="section">
                 <h3>Limits</h3>
-                <p className="job-meta">Overrides {user.plan}'s own numbers for this account, for cost control or a one-off case. Leave a field blank to go back to the plan default.</p>
+                <p className="job-meta">
+                  {user.admin
+                    ? 'Caps this operator account, for cost control or a one-off case. A number here wins over whatever the account sets on its own Apply page. Leave a field blank for no limit.'
+                    : `Overrides ${user.plan}'s own numbers for this account, for cost control or a one-off case. Leave a field blank to go back to the plan default.`}
+                </p>
                 <div className="admin-controls">
                   <label className="admin-switch-row">
                     <span>Jobs reviewed per run</span>
@@ -469,7 +473,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       className="input"
                       type="number"
                       min={1}
-                      placeholder="Plan default"
+                      placeholder={user.admin ? 'No limit' : 'Plan default'}
                       value={evaluationsInput}
                       onChange={(event) => setEvaluationsInput(event.target.value)}
                     />
@@ -480,7 +484,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       className="input"
                       type="number"
                       min={1}
-                      placeholder="Plan default"
+                      placeholder={user.admin ? 'No limit' : 'Plan default'}
                       value={maxAppsInput}
                       onChange={(event) => setMaxAppsInput(event.target.value)}
                     />

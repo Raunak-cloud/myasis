@@ -78,8 +78,22 @@ check('an operator override wins over the free plan default', overridden.MAX_APP
 const intensiveWithOverride = { ...intensivePolicy, maxApplicationsPerRunOverride: 1 };
 const overriddenIntensive = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '10' }, intensiveWithOverride, 'manual');
 check('an operator override wins over an Intensive account\'s own saved value', overriddenIntensive.MAX_APPS_PER_RUN === '1');
+// An override on an operator's own account binds it too. Discarding it let an
+// account whose Limits panel read 51 review every listing it found.
 const adminWithOverride = applyRunPolicy(saved, { ...adminPolicy, maxApplicationsPerRunOverride: 3 }, 'manual');
-check('an operator has no need to override their own admin account', adminWithOverride.MAX_APPS_PER_RUN === 'none');
+check('an operator override binds an admin account as well', adminWithOverride.MAX_APPS_PER_RUN === '3');
+const adminReviewOverride = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '' }, { ...adminPolicy, evaluationsPerRun: 50 }, 'manual');
+check('a review override caps an admin account that set no limit of its own', adminReviewOverride.MAX_EVALUATIONS === '50');
+const adminOverrideWins = applyRunPolicy(
+  { ...saved, MAX_EVALUATIONS: '500', MAX_APPS_PER_RUN: '30' },
+  { ...adminPolicy, evaluationsPerRun: 50, maxApplicationsPerRunOverride: 3 },
+  'manual',
+);
+check('an override wins over the numbers an admin saved itself', adminOverrideWins.MAX_EVALUATIONS === '50' && adminOverrideWins.MAX_APPS_PER_RUN === '3');
+const adminNoOverride = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '' }, adminPolicy, 'manual');
+check('an admin with no override still has no limit', adminNoOverride.MAX_EVALUATIONS === 'none' && adminNoOverride.MAX_APPS_PER_RUN === 'none');
+const adminOverrideAuto = applyRunPolicy(saved, { ...adminPolicy, evaluationsPerRun: 50 }, 'auto');
+check('a review override holds for an admin\'s scheduled runs too', adminOverrideAuto.MAX_EVALUATIONS === '50');
 
 // What a manual run posts goes through the plan, not around it.
 const posted = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '40', PLATFORMS: 'seek' }, intensivePolicy, 'manual');

@@ -453,6 +453,13 @@ export function RunPanel({
     : null;
   /** An operator's application and review limits have no default: empty means none. */
   const optionalLimit = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY'].includes(key);
+  /**
+   * A number an operator set against this account, which runs use whatever is
+   * typed here. Shown in the field rather than left to contradict it: the
+   * review limit is one only for an admin, where the plan sets no number.
+   */
+  const forcedApplications = entitlements?.maxApplicationsPerRunOverride ?? null;
+  const forcedEvaluations = isAdmin ? entitlements?.evaluationsPerRun ?? null : null;
   const val = (k: string, d = optionalLimit(k) ? '' : RUN_DEFAULTS[k] ?? '') => edits[k] ?? settings[k] ?? d;
   const setEdit = (key: string, value: string) =>
     setEdits((current) => ({ ...current, [key]: value }));
@@ -1278,23 +1285,51 @@ export function RunPanel({
                 {isAdmin && (
                   <p className="job-meta run-review-unlimited">
                     Admin runs have no limits unless you set one here. Leave a field empty for none.
+                    {(forcedApplications !== null || forcedEvaluations !== null)
+                      && ' A greyed-out field was set for this account in Admin, and that number wins.'}
                   </p>
                 )}
                 <div className="run-review-grid">
                   <label className="field">
                     <FieldLabel
                       label="Max applications"
-                      help={isAdmin
-                        ? 'The most applications this run can complete before stopping. Empty means no limit.'
-                        : 'The most applications this run can complete before stopping. Capped at 10 per run.'}
+                      help={forcedApplications !== null
+                        ? `An operator has set this account to ${forcedApplications} applications per run. Runs use that number.`
+                        : isAdmin
+                          ? 'The most applications this run can complete before stopping. Empty means no limit.'
+                          : 'The most applications this run can complete before stopping. Capped at 10 per run.'}
                     />
-                    <input className="input" data-field="MAX_APPS_PER_RUN" type="number" min="1" max={isAdmin ? undefined : 10} placeholder={isAdmin ? 'No limit' : undefined} value={val('MAX_APPS_PER_RUN')} onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)} />
+                    <input
+                      className="input"
+                      data-field="MAX_APPS_PER_RUN"
+                      type="number"
+                      min="1"
+                      max={isAdmin ? undefined : 10}
+                      placeholder={isAdmin ? 'No limit' : undefined}
+                      disabled={forcedApplications !== null}
+                      value={forcedApplications !== null ? String(forcedApplications) : val('MAX_APPS_PER_RUN')}
+                      onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)}
+                    />
                     <FieldError field="MAX_APPS_PER_RUN" />
                   </label>
                   {isAdmin && (
                   <label className="field">
-                    <FieldLabel label="Jobs to evaluate" help="How many listings the AI reviews in this run before it stops looking. Empty means no limit." />
-                    <input className="input" data-field="MAX_EVALUATIONS" type="number" min="1" placeholder="No limit" value={val('MAX_EVALUATIONS')} onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)} />
+                    <FieldLabel
+                      label="Jobs to evaluate"
+                      help={forcedEvaluations !== null
+                        ? `An operator has set this account to ${forcedEvaluations} listings a run. Runs use that number.`
+                        : 'How many listings the AI reviews in this run before it stops looking. Empty means no limit.'}
+                    />
+                    <input
+                      className="input"
+                      data-field="MAX_EVALUATIONS"
+                      type="number"
+                      min="1"
+                      placeholder="No limit"
+                      disabled={forcedEvaluations !== null}
+                      value={forcedEvaluations !== null ? String(forcedEvaluations) : val('MAX_EVALUATIONS')}
+                      onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)}
+                    />
                     <FieldError field="MAX_EVALUATIONS" />
                   </label>
                   )}

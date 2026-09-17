@@ -21,7 +21,10 @@ export interface Entitlements {
   autoRunsUsedToday: number;
   scheduledMinScore: number | null;
   scheduledJobsPerDay: number | null;
+  /** Listings each run reviews. For an admin, non-null only where an operator set one. */
   evaluationsPerRun: number | null;
+  /** Applications per run forced by an operator, whatever this account saves; null when none is set. */
+  maxApplicationsPerRunOverride: number | null;
   fineTune: boolean;
   rewriteText: boolean;
   runScopes: boolean;
