@@ -2347,6 +2347,17 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   .run-dashboard .metric-tile strong { font-size: 20px; }
   .metric-tile span { font-size: 11px; line-height: 1.3; white-space: normal; }
 
+  /* A step's action sits beside it rather than on a row of its own, which
+     was costing a phone about fifty pixels of scrolling per step. */
+  .checklist-items li {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+    padding: 11px 12px;
+  }
+  .checklist-btn { min-height: 32px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  .checklist-copy .job-meta { font-size: 11.5px; }
+
   /* A control you have to hit with a thumb, and never a row of them squeezed thin. */
   .btn, .chip, .input, select.input { min-height: 40px; }
   .auto-switch { width: 46px; height: 26px; }
