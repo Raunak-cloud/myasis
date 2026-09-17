@@ -9,6 +9,7 @@ import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
 import { MascotLogo } from './MascotLogo';
+import { useRunStatus } from '../runStatus';
 import { fmtDateTime } from '../format';
 
 
@@ -26,18 +27,6 @@ interface ActivityEvent {
   title: string;
   detail?: string;
   tone: ActivityTone;
-}
-
-interface RunStatus {
-  running: boolean;
-  mode: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  exitCode: number | null;
-  applied: number;
-  hasKey: boolean;
-  /** false when a run is active but belongs to a different account — the server withholds every other field then. */
-  isOwner: boolean;
 }
 
 interface AutoScheduleStatus {
@@ -302,7 +291,8 @@ export function RunPanel({
   onGoSetup: () => void;
   onGoPricing: () => void;
 }) {
-  const [status, setStatus] = useState<RunStatus | null>(null);
+  /** One poll for the whole page; see runStatus.ts. */
+  const status = useRunStatus();
   const [autoSchedule, setAutoSchedule] = useState<AutoScheduleStatus | null>(null);
   const [liveViewOpen, setLiveViewOpen] = useState(false);
   /**
@@ -400,22 +390,13 @@ export function RunPanel({
     };
   }, [activityOpen]);
 
+  // The shared poll supplies the status; this only reacts to a run ending.
   useEffect(() => {
-    const tick = async () => {
-      try {
-        const s: RunStatus = await fetch('/api/run/status').then((r) => r.json());
-        setStatus(s);
-        if (!s.running) setStopConfirming(false);
-        if (wasRunning.current && !s.running) onFinished();
-        wasRunning.current = s.running;
-      } catch {
-        /* server restarting */
-      }
-    };
-    tick();
-    const id = setInterval(tick, 1500);
-    return () => clearInterval(id);
-  }, [onFinished]);
+    if (!status) return;
+    if (!status.running) setStopConfirming(false);
+    if (wasRunning.current && !status.running) onFinished();
+    wasRunning.current = status.running;
+  }, [status, onFinished]);
 
   useEffect(() => {
     // Another account's run: the server refuses the stream outright (its

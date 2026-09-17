@@ -1,5 +1,5 @@
 import { Wordmark } from './components/Wordmark';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Application } from './types';
 import { RunPanel } from './components/RunPanel';
 import { AttentionPanel, type AttentionItem } from './components/AttentionPanel';
@@ -15,6 +15,7 @@ import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 import { useEntitlements } from './entitlements';
 import { trackPage } from './analytics';
+import { useRunStatus } from './runStatus';
 
 type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'admin';
 
@@ -122,25 +123,24 @@ export default function App() {
     return () => media.removeEventListener('change', onChange);
   }, [theme]);
 
+  /**
+   * The same poll the Apply panel reads, not a second one against the same
+   * endpoint. This only watches for the run ending, to refresh the lists and
+   * say so.
+   */
+  const runStatus = useRunStatus();
+  const wasRunning = useRef(false);
   useEffect(() => {
-    let wasRunning = false;
-    const id = window.setInterval(async () => {
-      try {
-        const status = await fetch('/api/run/status').then((response) => response.json());
-        setRunning(Boolean(status.running));
-        if (typeof status.startedAt === 'string') setLastRunAt(status.startedAt);
-        if (wasRunning && !status.running) {
-          void load();
-          setToast(`Run finished${status.applied ? ` — ${status.applied} submitted` : ''}`);
-          window.setTimeout(() => setToast(null), 6000);
-        }
-        wasRunning = Boolean(status.running);
-      } catch {
-        // The local server may be restarting.
-      }
-    }, 2000);
-    return () => window.clearInterval(id);
-  }, [load]);
+    if (!runStatus) return;
+    setRunning(Boolean(runStatus.running));
+    if (typeof runStatus.startedAt === 'string') setLastRunAt(runStatus.startedAt);
+    if (wasRunning.current && !runStatus.running) {
+      void load();
+      setToast(`Run finished${runStatus.applied ? ` — ${runStatus.applied} submitted` : ''}`);
+      window.setTimeout(() => setToast(null), 6000);
+    }
+    wasRunning.current = Boolean(runStatus.running);
+  }, [runStatus, load]);
 
   const stats = useMemo(() => {
     const week = apps.filter((app) => daysSince(app.appliedAt) <= 7).length;
