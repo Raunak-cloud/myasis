@@ -1306,5 +1306,10 @@ export default defineConfig({
   // The legal pages are plain HTML entries, so they exist for crawlers and for anyone with scripts off.
   build: { rollupOptions: { input: { main: 'index.html', privacy: 'privacy.html', terms: 'terms.html' } } },
   server: { port: 5180, open: true },
-  preview: { allowedHosts: publicHosts() },
+  /**
+   * `open` is spelled out because preview inherits `server.open`: production runs
+   * `vite preview` under pm2 with DISPLAY set, so every restart launched a Chrome
+   * on the server showing this dashboard — about 580 MB that nobody was looking at.
+   */
+  preview: { allowedHosts: publicHosts(), open: false },
 });
