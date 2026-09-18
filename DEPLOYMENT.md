@@ -125,9 +125,8 @@ Admin → Server shows whether the key is accepted and the model is warm.
 
 The installer can also set up `myasis-humanizer.service`: llama.cpp serving the
 same model on `127.0.0.1:8091`, CPU only (about five seconds for a short
-rewrite on two cores, ~1.8GB of model). With the hosted API in use it is only
-worth keeping as `HUMANIZER_FALLBACK_URL=http://127.0.0.1:8091`; otherwise stop
-it and give the memory and cores back to runs:
+rewrite on two cores, ~1.8GB of model). With the hosted API in use nothing
+calls it, so stop it and give the memory and cores back to runs:
 
     sudo systemctl disable --now myasis-humanizer
 

@@ -1,4 +1,4 @@
-import { humanizerEndpoints, probeHumanizer } from './humanizer-endpoint.js';
+import { humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
 import { open, readdir, readFile, stat, statfs } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { cpus, homedir } from 'node:os';
@@ -242,19 +242,10 @@ async function serviceChecks(): Promise<ServerHealth['services']> {
   const database = await one<{ ok: number }>('SELECT 1 AS ok').then(() => true).catch(() => false);
   checks.push({ name: 'Database', ok: database, detail: database ? 'answering' : 'not answering' });
 
-  const [primary, fallback] = await humanizerEndpoints();
-  if (primary) {
-    const first = await probeHumanizer(primary, 2_500);
-    const second = !first.ready && fallback ? await probeHumanizer(fallback, 2_500) : null;
-    checks.push({
-      name: 'Humanizer',
-      ok: first.ready || Boolean(second?.ready),
-      detail: first.ready
-        ? `${first.detail} on ${primary.base}`
-        : second?.ready
-          ? `primary down (${first.detail}), using ${fallback.base}`
-          : first.detail,
-    });
+  const humanizer = await humanizerEndpoint();
+  if (humanizer) {
+    const { ready, detail } = await probeHumanizer(humanizer, 2_500);
+    checks.push({ name: 'Humanizer', ok: ready, detail: `${detail} · ${humanizer.base}` });
   }
 
   const payments = paymentsState();

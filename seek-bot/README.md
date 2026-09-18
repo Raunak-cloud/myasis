@@ -177,8 +177,9 @@ a refused request waits and retries inside the rewrite's time budget, as do
 **Self-hosted: llama.cpp.** `winget install llama.cpp`, then `npm run humanizer`
 (the first start downloads the Q4 GGUF). Use `HUMANIZER_URL=http://127.0.0.1:8091`,
 `HUMANIZER_MODEL=authormist-originality` and no key; readiness is its `/health`.
-It can also be named as `HUMANIZER_FALLBACK_URL`, tried whenever the hosted API
-is not ready. The API key is only ever sent to `HUMANIZER_URL`.
+
+There is one endpoint and no fallback: when it cannot serve a rewrite, the
+grounded draft is sent as it is, which costs style and nothing else.
 
 Startup health is required only when `HUMANIZER_REQUIRED=true`. The default
 selective pass runs when the draft requests editing; `HUMANIZER_MODE=always`

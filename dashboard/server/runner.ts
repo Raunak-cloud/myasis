@@ -1,4 +1,4 @@
-import { humanizerEndpoints, probeHumanizer } from './humanizer-endpoint.js';
+import { humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -81,7 +81,7 @@ export async function assertHumanizerHealthy(overrides: Record<string, string> =
   if (overrides.HUMANIZER_MODE === 'off') return;
   if ((overrides.HUMANIZER_REQUIRED ?? process.env.HUMANIZER_REQUIRED ?? fileEnv.HUMANIZER_REQUIRED) !== 'true') return;
 
-  const [endpoint] = await humanizerEndpoints(overrides);
+  const endpoint = await humanizerEndpoint(overrides);
   if (!endpoint) throw new Error('The humanizer is required but HUMANIZER_URL is not configured. Set it in Admin → Config → Humanizer.');
   const { ready, detail } = await probeHumanizer(endpoint);
   if (!ready) throw new Error(`The humanizer is required but is not ready: ${detail}.`);

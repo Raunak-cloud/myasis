@@ -121,9 +121,8 @@ const GROUPS: GroupSpec[] = [
     banner: humanizerBanner,
     keys: [
       { key: 'HUMANIZER_URL', label: 'Humanizer URL', help: 'A hosted OpenAI-compatible API such as https://api.featherless.ai, or a llama.cpp server.', kind: 'url' },
-      { key: 'HUMANIZER_API_KEY', label: 'API key', help: 'For a hosted API. Sent only to the Humanizer URL, never to the fallback. Leave empty for a llama.cpp server.', kind: 'secret' },
+      { key: 'HUMANIZER_API_KEY', label: 'API key', help: 'For a hosted API. Leave empty for a llama.cpp server.', kind: 'secret' },
       { key: 'HUMANIZER_MODEL', label: 'Model name', help: 'As the endpoint knows it. On Featherless: authormist/authormist-originality.', kind: 'text' },
-      { key: 'HUMANIZER_FALLBACK_URL', label: 'Fallback URL', help: 'A llama.cpp server of your own, tried when the first is not ready. Optional.', kind: 'url' },
       { key: 'HUMANIZER_MODE', label: 'Mode', help: 'Empty for the selective pass, "always" to rewrite every letter, "off" to disable.', kind: 'text' },
       { key: 'HUMANIZER_REQUIRED', label: 'Required', help: 'Refuse to start a writing run while the humanizer is down.', kind: 'boolean' },
       { key: 'HUMANIZER_TIMEOUT_MS', label: 'Request timeout (ms)', help: 'One rewrite request.', kind: 'number' },

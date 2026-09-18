@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { chatCompletion, humanizerEndpoints, probeHumanizer } from '../dist/humanizer-endpoint.js';
+import { chatCompletion, humanizerEndpoint, probeHumanizer } from '../dist/humanizer-endpoint.js';
 
 // A stand-in for a hosted API shaped like Featherless, and for a local llama.cpp. Nothing real is contacted.
 const seen = [];
@@ -26,12 +26,11 @@ await new Promise(done => server.listen(0, '127.0.0.1', done));
 const base = `http://127.0.0.1:${server.address().port}`;
 
 try {
-  const [hosted, local] = humanizerEndpoints({
-    HUMANIZER_URL: `${base}/v1/`, HUMANIZER_FALLBACK_URL: `${base}/`, HUMANIZER_API_KEY: 'good-key', HUMANIZER_MODEL: 'authormist/authormist-originality',
-  });
+  const hosted = humanizerEndpoint({ HUMANIZER_URL: `${base}/v1/`, HUMANIZER_API_KEY: 'good-key', HUMANIZER_MODEL: 'authormist/authormist-originality' });
   assert.deepEqual(hosted, { base, apiKey: 'good-key', model: 'authormist/authormist-originality' }, 'a pasted /v1 base is normalised');
-  assert.equal(local.apiKey, undefined, 'the provider key is never given to the fallback machine');
-  assert.deepEqual(humanizerEndpoints({}), [], 'nothing configured means no endpoint');
+  const local = humanizerEndpoint({ HUMANIZER_URL: `${base}/` });
+  assert.deepEqual(local, { base, apiKey: undefined, model: 'authormist-originality' }, 'a keyless endpoint is a llama.cpp server');
+  assert.equal(humanizerEndpoint({}), null, 'nothing configured means no endpoint');
 
   assert.deepEqual(await probeHumanizer(hosted), { ready: true, detail: 'model warm' });
   tier = 'cold';
@@ -56,7 +55,7 @@ try {
   busy = 0;
   assert.equal((await chatCompletion({ ...hosted, apiKey: 'bad-key' }, { messages: [] }, Date.now() + 5_000)).status, 401, 'a refused key is not retried');
 
-  console.log('PASS: endpoint normalisation, key scoping, warm/cold/401/404 probes, llama.cpp health, 429 retry, deadline, no retry on 401');
+  console.log('PASS: endpoint normalisation, warm/cold/401/404 probes, llama.cpp health, 429 retry, deadline, no retry on 401');
 } finally {
   server.close();
 }

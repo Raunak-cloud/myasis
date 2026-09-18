@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { chatCompletion, humanizerEndpoints, probeHumanizer, type HumanizerEndpoint } from './humanizer-endpoint.js';
+import { chatCompletion, humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
 
 type ChatCompletionResponse = {
   choices?: Array<{ message?: { content?: unknown } }>;
@@ -9,51 +9,16 @@ type ChatCompletionResponse = {
 export const MAX_COVER_LETTER_WORDS = 250;
 export const LONG_TEXT_REWRITE_THRESHOLD = 50;
 
-/**
- * The endpoint to use right now, preferring the first that is ready.
- *
- * Resolved per call rather than once at startup, because the whole point of
- * the fallback is that the preferred endpoint comes and goes mid-run. The
- * answer is cached briefly so a run of many letters does not pay a health
- * check for each one, and so an endpoint that drops is noticed in seconds
- * rather than at the next process restart.
- */
-let cached: { endpoint: HumanizerEndpoint; until: number } | null = null;
-const CACHE_MS = 30_000;
-
-const endpoints = () => humanizerEndpoints(process.env);
-
-export async function humanizerEndpoint(): Promise<HumanizerEndpoint | null> {
-  const candidates = endpoints();
-  if (candidates.length <= 1) return candidates[0] ?? null;
-  if (cached && Date.now() < cached.until) return cached.endpoint;
-
-  for (const candidate of candidates) {
-    if ((await probeHumanizer(candidate, 2_500)).ready) {
-      if (candidate.base !== cached?.endpoint.base) console.log(`  · humanizer using ${candidate.base}`);
-      cached = { endpoint: candidate, until: Date.now() + CACHE_MS };
-      return candidate;
-    }
-  }
-
-  // None answered. Return the preferred one so the caller's own error
-  // reporting describes the endpoint that was actually meant to serve it.
-  cached = null;
-  return candidates[0];
-}
-
-/** Drop the cached choice after it has failed a real request, not just a probe. */
-export function forgetHumanizerEndpoint(): void {
-  cached = null;
-}
+/** Read per call, so a run started by the dashboard sees the settings it was given. */
+const endpoint = () => humanizerEndpoint(process.env);
 
 /** Refuse writing runs until the rewriting model can answer. */
 export async function assertHumanizerHealthy(): Promise<void> {
   if (!config.humanizer.enabled || !config.humanizer.required) return;
-  const endpoint = await humanizerEndpoint();
-  if (!endpoint) throw new Error('The humanizer is required but HUMANIZER_URL is not configured.');
-  const { ready, detail } = await probeHumanizer(endpoint);
-  if (!ready) throw new Error(`The humanizer is required but is not ready at ${endpoint.base}: ${detail}.`);
+  const target = endpoint();
+  if (!target) throw new Error('The humanizer is required but HUMANIZER_URL is not configured.');
+  const { ready, detail } = await probeHumanizer(target);
+  if (!ready) throw new Error(`The humanizer is required but is not ready at ${target.base}: ${detail}.`);
 }
 
 /**
@@ -157,15 +122,9 @@ async function rewriteText(
    * mismatch. Removing the masking raises the success rate without weakening
    * the guarantee.
    */
-  /**
-   * Sent to whichever endpoint is alive, retried once if that changes.
-   *
-   * The preferred endpoint is typically a GPU reached over a tunnel, and the
-   * chosen one is cached for half a minute. Without retrying here, a tunnel
-   * that drops mid-run would keep being dialled until that cache expired —
-   * the fallback would exist and still not be used.
-   */
-  const send = (endpoint: HumanizerEndpoint) => chatCompletion(endpoint, {
+  const target = endpoint();
+  if (!target) throw new Error('Rewriting service is not configured');
+  const response = await chatCompletion(target, {
     messages: [
       {
         role: 'system',
@@ -181,19 +140,6 @@ async function rewriteText(
     top_p: 0.9,
     max_tokens: Math.max(256, Math.ceil(maxWords * 2)),
   }, Math.min(deadline, Date.now() + config.humanizer.timeoutMs));
-
-  const endpoint = await humanizerEndpoint();
-  if (!endpoint) throw new Error('Rewriting service is not configured');
-  let response: Response;
-  try {
-    response = await send(endpoint);
-  } catch (reason) {
-    forgetHumanizerEndpoint();
-    const next = await humanizerEndpoint();
-    if (!next || next.base === endpoint.base) throw reason;
-    console.warn(`  ! humanizer at ${endpoint.base} unreachable; falling back to ${next.base}`);
-    response = await send(next);
-  }
 
   const body = (await response.json()) as ChatCompletionResponse;
   if (!response.ok) throw new Error(errorMessage(body, response.status));
@@ -212,7 +158,7 @@ export async function rewriteLongText(text: string): Promise<string> {
   const deadline = Date.now() + config.humanizer.rewriteBudgetMs;
   const sourceWords = wordCount(text);
   if (sourceWords <= LONG_TEXT_REWRITE_THRESHOLD) return text;
-  if (!endpoints().length) {
+  if (!endpoint()) {
     const message = 'Rewriting service is not configured';
     if (config.humanizer.required) throw new Error(message);
     console.warn(`  ! ${message}; using the original response`);
@@ -252,7 +198,7 @@ export async function humanizeCoverLetter(
   if (wordCount(letter) > MAX_COVER_LETTER_WORDS) {
     throw new Error(`Draft exceeds the ${MAX_COVER_LETTER_WORDS}-word cover-letter limit`);
   }
-  if (!endpoints().length) {
+  if (!endpoint()) {
     const message = 'Rewriting service is not configured';
     if (config.humanizer.required) throw new Error(message);
     console.warn(`  ! ${message}; using the original grounded cover letter`);

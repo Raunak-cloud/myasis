@@ -44,7 +44,7 @@ import { readSeekState, readSiteState, type SeekState } from './server/seek-stat
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
-import { chatCompletion, currentHumanizerEndpoint, forgetHumanizerEndpoint, humanizerEndpoints, probeHumanizer } from './server/humanizer-endpoint.js';
+import { chatCompletion, humanizerEndpoint, probeHumanizer } from './server/humanizer-endpoint.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
@@ -568,9 +568,12 @@ function dataApi(): Plugin {
          * spent the full timeout finding that out.
          */
         const maxChars = Number(env.HUMANIZER_MAX_CHARS ?? 8_000);
-        if (!(await humanizerEndpoints()).length) {
+        const configured = await humanizerEndpoint();
+        if (!configured) {
           return send({ configured: false, online: false, error: 'Humanizer URL is not configured.' }, 503);
         }
+        // Named after the check so the nested rewrite function sees it as present.
+        const endpoint = configured;
 
         if (req.method === 'POST') {
           return readBody().then(async (body) => {
@@ -602,14 +605,6 @@ function dataApi(): Plugin {
 
               for (let attempt = 0; attempt < 3; attempt++) {
                 if (Date.now() >= deadline) break;
-                /**
-                 * Re-resolved per attempt, and only cheap because the result is
-                 * cached: if the preferred endpoint died since the last piece,
-                 * the failure below clears that cache and this picks the
-                 * fallback up on the next turn of the loop.
-                 */
-                const endpoint = await currentHumanizerEndpoint();
-                if (!endpoint) return { failure: 'Humanizer URL is not configured.', status: 503 };
                 let response: Response;
                 try {
                   response = await chatCompletion(endpoint, {
@@ -637,14 +632,7 @@ function dataApi(): Plugin {
                     max_tokens: Math.max(600, Math.ceil(sourceWords * 4)),
                   }, deadline);
                 } catch (reason) {
-                  // Unreachable, not a bad answer: drop this endpoint and let
-                  // the next attempt resolve to whatever is still alive.
-                  forgetHumanizerEndpoint();
-                  const next = await currentHumanizerEndpoint();
-                  if (!next || next.base === endpoint.base) {
-                    return { failure: `Could not reach the rewriting service: ${(reason as Error).message}`, status: 503 };
-                  }
-                  continue;
+                  return { failure: `Could not reach the rewriting service: ${(reason as Error).message}`, status: 503 };
                 }
                 const result = await response.json() as {
                   choices?: Array<{ message?: { content?: unknown } }>;
@@ -713,9 +701,8 @@ function dataApi(): Plugin {
         }
 
         if (req.method !== 'GET') return send({ error: 'GET or POST required' }, 405);
-        return currentHumanizerEndpoint()
-          .then(async (endpoint) => {
-            const { ready, detail } = endpoint ? await probeHumanizer(endpoint, 2_500) : { ready: false, detail: 'not configured' };
+        return probeHumanizer(endpoint, 2_500)
+          .then(({ ready, detail }) => {
             if (!ready) throw new Error(detail);
             return send({ configured: true, online: true, maxChars });
           })

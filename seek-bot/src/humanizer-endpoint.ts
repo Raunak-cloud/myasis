@@ -9,7 +9,9 @@
  *    over its concurrency with 429;
  *  - a local llama.cpp `llama-server`: no key, `/health`, one model always loaded.
  *
- * A key is what tells them apart — a keyed endpoint is a hosted one. This
+ * A key is what tells them apart — a keyed endpoint is a hosted one. There is
+ * one endpoint and no fallback: a rewrite that cannot be served costs nothing
+ * but style, because the grounded draft is sent instead. This
  * module is the only place that knows the difference; the bot and the dashboard
  * (which loads it from dist) both go through it, so a run's start-up check, the
  * admin health page and the Rewrite tab can never disagree about whether the
@@ -19,32 +21,28 @@
 export interface HumanizerEndpoint {
   /** Root of the server, without `/v1` or a trailing slash. */
   base: string;
-  /** Present for a hosted API. Never sent to an endpoint it was not issued for. */
+  /** Present for a hosted API. */
   apiKey?: string;
   model: string;
 }
 
 interface EnvLike {
   HUMANIZER_URL?: string;
-  HUMANIZER_FALLBACK_URL?: string;
   HUMANIZER_API_KEY?: string;
   HUMANIZER_MODEL?: string;
 }
 
 const clean = (url: string | undefined) => (url ?? '').trim().replace(/\/(v1\/?)?$/, '');
 
-/**
- * The endpoints to try, in order. The key belongs to HUMANIZER_URL alone: the
- * fallback is a machine of the operator's own, and a provider's key has no
- * business being sent to it.
- */
-export function humanizerEndpoints(env: EnvLike): HumanizerEndpoint[] {
-  const model = env.HUMANIZER_MODEL?.trim() || 'authormist-originality';
-  const apiKey = env.HUMANIZER_API_KEY?.trim() || undefined;
-  return [
-    { base: clean(env.HUMANIZER_URL), apiKey, model },
-    { base: clean(env.HUMANIZER_FALLBACK_URL), model },
-  ].filter(endpoint => endpoint.base);
+/** The configured endpoint, or null when the humanizer has no URL. */
+export function humanizerEndpoint(env: EnvLike): HumanizerEndpoint | null {
+  const base = clean(env.HUMANIZER_URL);
+  if (!base) return null;
+  return {
+    base,
+    apiKey: env.HUMANIZER_API_KEY?.trim() || undefined,
+    model: env.HUMANIZER_MODEL?.trim() || 'authormist-originality',
+  };
 }
 
 /**
@@ -106,8 +104,7 @@ const MAX_RETRIES = 3;
  * it; with several accounts applying at once that is normal, not a fault, and a
  * couple of seconds later there is room. 503 is documented as worth three
  * tries. Everything else — a bad key, a cold model, a malformed request — is
- * returned as it is for the caller to report. Network errors are thrown, so a
- * caller with a fallback endpoint can tell "down" from "said no".
+ * returned as it is for the caller to report. Network errors are thrown.
  */
 export async function chatCompletion(
   endpoint: HumanizerEndpoint,

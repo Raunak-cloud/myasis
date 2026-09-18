@@ -321,9 +321,9 @@ export const config = {
   },
 
   /**
-   * Optional AuthorMist post-processor. Where it is served — a hosted API, a
-   * local llama.cpp, and the fallback between them — is resolved from the
-   * HUMANIZER_URL / _FALLBACK_URL / _API_KEY / _MODEL variables by
+   * Optional AuthorMist post-processor. Where it is served — a hosted API or a
+   * local llama.cpp — is resolved from the HUMANIZER_URL / _API_KEY / _MODEL
+   * variables by
    * humanizer-endpoint.ts, which the dashboard shares.
    */
   humanizer: {
