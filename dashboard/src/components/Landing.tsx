@@ -34,10 +34,6 @@ const STEPS = [
   },
 ];
 
-function Arrow() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7" /></svg>;
-}
-
 export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
   // Also rendered at build time, where there is no page to read the query from.
   const [error] = useState(() => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('auth_error')));
@@ -71,7 +67,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
   function start(label = 'Try Owtomate for free', variant: 'primary' | 'light' | 'white' = 'primary') {
     if (!googleConfigured) return <span className="home-unavailable">Sign-in is temporarily unavailable.</span>;
     const className = `home-button${variant === 'light' ? ' home-button-light' : variant === 'white' ? ' home-button-white' : ''}`;
-    return <a className={className} rel="nofollow" href="/api/auth/google">{label}<Arrow /></a>;
+    return <a className={className} rel="nofollow" href="/api/auth/google">{label}</a>;
   }
 
   return (
@@ -91,8 +87,11 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             <h1 id="home-heading">Auto apply jobs.<em>Job hunting is a job. Not anymore 😌</em></h1>
             <p className="home-hero-summary">Owtomate finds suitable roles on SEEK and Indeed, writes a tailored cover letter for each one and handles the repetitive parts of applying.</p>
             {error && <div className="home-error" role="alert">{error}</div>}
-            <div className="home-hero-actions">{start()}</div>
-            <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
+            {/* The button and what it costs on one line; the legal note quiet beneath, not a third tier of grey. */}
+            <div className="home-hero-actions">
+              {start()}
+              <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
+            </div>
             <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
           </div>
           <div className="home-hero-demo" id="demo">
@@ -205,7 +204,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
       <footer className="home-footer home-width">
         <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
-        <span>Job applications, with a little help. Sydney, Australia.</span>
         <nav className="home-footer-links" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@owtomate.com">Contact</a></nav>
         <a href="#top">Back to top ↑</a>
       </footer>
