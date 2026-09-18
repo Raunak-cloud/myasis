@@ -53,12 +53,13 @@
 .landing h1, .landing h2, .landing h3 { font-family: var(--display); font-weight: 600; color: var(--ink); letter-spacing: -.015em; text-wrap: balance; }
 .landing video:focus-visible, .landing a:focus-visible, .landing summary:focus-visible { outline: 3px solid rgba(36, 102, 168, .35); outline-offset: 2px; }
 
-.home-width { width: 100%; max-width: 1120px; margin-inline: auto; padding-inline: clamp(20px, 4vw, 40px); }
+/* Nine tenths of the screen, with a ceiling so the lines never run too long to read. */
+.home-width { width: min(90%, 1480px); margin-inline: auto; }
 
 /* Small caps label above a section title. */
 /* One drawn stroke under the word the sentence turns on. */
 .ink-mark { position: relative; white-space: nowrap; }
-.ink-mark::after { content: ''; position: absolute; left: -1.5%; right: -1.5%; bottom: -.02em; height: .15em; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12' preserveAspectRatio='none'%3E%3Cpath d='M3 8.5c28-5.5 56 1.5 84-.5s76-4.5 110 2' fill='none' stroke='%232466a8' stroke-width='4.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / 100% 100%; }
+.ink-mark::after { content: ''; position: absolute; left: -1.5%; right: -1.5%; bottom: -.1em; height: .14em; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12' preserveAspectRatio='none'%3E%3Cpath d='M3 8.5c28-5.5 56 1.5 84-.5s76-4.5 110 2' fill='none' stroke='%232466a8' stroke-width='4.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / 100% 100%; }
 
 .home-eyebrow { display: inline-block; margin: 0 0 12px; color: var(--blue); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .home-section-head { max-width: 640px; margin-bottom: clamp(28px, 4vw, 44px); }
@@ -180,6 +181,7 @@
   border: var(--edge); border-radius: var(--radius); background: var(--surface);
 }
 .home-price-card.featured { box-shadow: var(--lift); }
+.home-price-card.featured .home-price-mode { display: block; padding-right: 118px; }
 .home-price-popular { position: absolute; top: 22px; right: 22px; padding: 5px 10px; border: 2px solid var(--ink-line); border-radius: 999px; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .home-price-mode { color: var(--blue); font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .home-price-card h3 { margin: 10px 0 6px; font-size: 25px; }
@@ -234,6 +236,7 @@
 }
 
 @media (max-width: 760px) {
+  .home-width { width: 100%; padding-inline: 22px; }
   /* A two-row header pinned to the top of a phone screen leaves too little room for the page; it scrolls with it instead. */
   .home-header { position: static; backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg); }
   .home-header-inner { min-height: 64px; gap: 14px; }
