@@ -144,15 +144,16 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
 
   const magnus = request.model === 'celeris-1-magnus';
   /**
-   * Deliberately no max_tokens. Magnus reasons before it answers and the
-   * reasoning counts against the budget: a 1,600 cap was consumed entirely by
-   * reasoning on 24 of 29 real fit reviews, returning no answer at all. Both
-   * models accept an uncapped request and stop on their own.
+   * A generous max_tokens, never a tight one. Magnus reasons before it answers
+   * and the reasoning counts against the budget: a 1,600 cap was consumed
+   * entirely by reasoning on 24 of 29 real fit reviews. Sending none is not
+   * "uncapped" either — Celeris then stops at 2,048.
    */
   const body: Record<string, unknown> = {
     model: request.model,
     messages: request.messages,
     temperature: request.temperature ?? 0,
+    max_tokens: config.celeris.maxOutputTokens,
   };
   if (request.tools?.length) {
     body.tools = request.tools.map((tool) => ({

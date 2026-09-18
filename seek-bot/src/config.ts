@@ -288,6 +288,13 @@ export const config = {
      */
     baseUrl: process.env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai',
     timeoutMs: Number(process.env.CELERIS_TIMEOUT_MS ?? 45_000),
+    /**
+     * Sent as max_tokens on every request. Celeris stops a reply at 2,048
+     * tokens when none is given, which cut off job rankings and would cut off
+     * a reasoning reply. Measured: 8,192 is honoured. Kept moderate because the
+     * workspace is rate-limited on output tokens per minute.
+     */
+    maxOutputTokens: Number(process.env.CELERIS_MAX_OUTPUT_TOKENS ?? 8192),
 
     /**
      * Ceilings on one application. An agent loop has no natural stopping point.

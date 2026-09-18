@@ -96,6 +96,7 @@ const GROUPS: GroupSpec[] = [
       { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and every structured model call. Required.', kind: 'secret' },
       { key: 'CELERIS_BASE_URL', label: 'Celeris base URL', help: 'Root only; the model id is added per request.', kind: 'url' },
       { key: 'CELERIS_TIMEOUT_MS', label: 'Celeris timeout (ms)', help: 'How long one model call may take before it is abandoned.', kind: 'number' },
+      { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },
       { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'Cover letters only. Not needed when every account reuses a fixed letter.', kind: 'secret' },
       { key: 'GEMINI_MODEL', label: 'Gemini model', help: 'The model that drafts cover letters.', kind: 'text' },
     ],
