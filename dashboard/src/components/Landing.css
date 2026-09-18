@@ -234,6 +234,8 @@
   color: var(--ink); padding-left: 22px;
   border-left: 2px solid var(--accent);
 }
+/* The paragraph is already italic, so emphasis has to come from colour, not slant. */
+.home-difference-tail em { color: var(--accent); font-style: italic; }
 
 /* ============================================================ how it works (numbered list, magazine-like) */
 
@@ -305,18 +307,29 @@
   list-style: none; margin: 0; padding: 0;
   border-block: 1.5px solid var(--ink);
 }
+/* Four columns, not five. In a mono face the old fifth column squeezed the feature
+   list into a ragged strip fifteen lines tall, so the description and the features
+   now share one wide column and stack instead. */
 .home-price-row {
-  display: grid; grid-template-columns:
-    minmax(220px, 1.2fr)   /* tier */
-    minmax(120px, .8fr)    /* amount */
-    minmax(0, 1.6fr)       /* description */
-    minmax(0, 1.4fr)       /* notes */
+  display: grid;
+  grid-template-columns:
+    minmax(170px, 1fr)     /* tier */
+    minmax(175px, auto)    /* amount: every glyph is one width here, so "A$39.99" needs real room */
+    minmax(260px, 2.4fr)   /* description over features */
     minmax(0, auto);       /* cta */
-  gap: 28px 32px; align-items: start;
-  padding: 36px 4px;
+  grid-template-areas:
+    "tier amount desc cta"
+    "tier amount notes cta";
+  gap: 12px 32px; align-items: start;
+  padding: 32px 4px;
   border-bottom: 1px solid var(--rule);
   position: relative;
 }
+.home-price-tier { grid-area: tier; }
+.home-price-amount { grid-area: amount; }
+.home-price-desc { grid-area: desc; }
+.home-price-notes { grid-area: notes; }
+.home-price-cta { grid-area: cta; }
 .home-price-row:last-child { border-bottom: 0; }
 .home-price-row-feature {
   background: var(--accent-soft);
@@ -337,9 +350,9 @@
   transform: rotate(-2deg);
 }
 .home-price-amount {
-  font-family: var(--display); font-size: clamp(32px, 3vw, 44px);
-  line-height: 1; color: var(--ink); letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--display); font-size: clamp(28px, 2.5vw, 38px);
+  line-height: 1; color: var(--ink); letter-spacing: -.03em;
+  white-space: nowrap;
 }
 .home-price-currency { font-family: var(--display); font-size: .55em; color: var(--muted); margin-right: 4px; vertical-align: .15em; }
 .home-price-desc {
@@ -349,7 +362,7 @@
 .home-price-notes {
   font-size: 13px; color: var(--muted); line-height: 1.6;
 }
-.home-price-cta { align-self: center; }
+.home-price-cta { align-self: center; justify-self: end; }
 .home-price-cta .home-button { min-height: 44px; padding-inline: 22px; }
 .home-price-foot {
   margin: 32px 0 0; max-width: 64ch;
@@ -479,7 +492,6 @@
   font-size: 14px; line-height: 1.5;
 }
 .home-footer-col a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
-.home-footer-blurb { margin: 14px 0 0; font-size: 13.5px; color: var(--body); max-width: 36ch; line-height: 1.55; }
 .home-footer-copyright { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 .home-footer-top {
   display: inline-block; margin-top: 22px;
@@ -566,9 +578,12 @@
 
   .home-price-row {
     grid-template-columns: 1fr;
-    gap: 18px;
-    padding: 32px 0;
+    grid-template-areas: none;
+    gap: 14px;
+    padding: 28px 0;
   }
+  .home-price-row > * { grid-area: auto; }
+  .home-price-cta { justify-self: stretch; }
   .home-price-row-feature { padding-inline: 16px; margin-inline: -16px; }
   .home-price-amount { font-size: 32px; }
   .home-price-flag { transform: rotate(-1deg); }

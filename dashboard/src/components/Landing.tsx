@@ -139,7 +139,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             <h2 className="home-difference-title">Job hunting is a job. <em>Not anymore.</em></h2>
             <HeroStory />
             <p className="home-difference-tail">
-              We are not trying to make it fun. We are trying to <em>remove</em> it from your week. Same number of applications, one of them could land you the job, and you did not have to write the cover letter for it.
+              We can&rsquo;t make job hunting fun. We can <em>get it out of your week</em>. Same applications, same shot at the job, none of your evenings.
             </p>
           </div>
         </section>
@@ -257,7 +257,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
         <div className="home-width home-footer-inner">
           <div className="home-footer-col">
             <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
-            <p className="home-footer-blurb">Owtomate is built and run from Sydney, Australia.</p>
             <p className="home-footer-copyright">&copy; 2026 Owtomate.</p>
           </div>
           <nav className="home-footer-col" aria-label="Site">
