@@ -1,3 +1,4 @@
+import { simulations } from './simulate.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -437,6 +438,7 @@ export async function handleAdminRequest(
     }
 
     if (path === '/env' && method === 'GET') return send(envReport());
+    if (path === '/simulations' && method === 'GET') return send({ simulations: simulations() });
 
     if (path === '/env' && method === 'POST') {
       const body = await readBody();

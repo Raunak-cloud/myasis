@@ -2659,3 +2659,19 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
     border-radius: 0;
   }
 }
+
+/* Admin simulator */
+.simulate-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.simulate-card { display: grid; gap: 8px; align-content: start; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.simulate-card p { margin: 0; }
+.simulate-card .btn { justify-self: start; margin-top: 4px; }
+.simulate-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.simulate-verdict { display: grid; gap: 2px; font-size: .9em; }
+.simulate-refused { color: var(--bad); }
+.simulate-allowed { color: var(--ok); }
+.simulation-bar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  margin-bottom: 12px; padding: 8px 12px;
+  border: 1px solid var(--warn, var(--accent)); border-radius: 10px; background: var(--surface, var(--bg));
+}

@@ -1,6 +1,6 @@
 import { one, query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
-import { billingStatus, isAdmin } from './billing.js';
+import { billingStatus, isAdmin, type BillingStatus } from './billing.js';
 import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
 
@@ -350,11 +350,27 @@ export async function discardRunStart(id: string | null): Promise<void> {
   if (id) await query('DELETE FROM run_starts WHERE id = $1', [id]);
 }
 
-export async function entitlementsFor(userId: string, email?: string | null): Promise<Entitlements> {
-  const admin = isAdmin(email);
-  const billing = await billingStatus(userId, email);
-  const intensive = billing.paid.hasActiveIntensivePass;
-  const tier = tierFor(admin, intensive);
+/** Everything about an account that decides what it may do. Facts only; no database. */
+export interface EntitlementFacts {
+  admin: boolean;
+  billing: Pick<BillingStatus, 'paid'>;
+  manualRunsUsedToday: number;
+  autoRunsUsedToday: number;
+  autoApplyPaused: boolean;
+  overrides: AdminOverrides;
+  searchTermSuggestionsLeft: number | null;
+}
+
+/**
+ * The plan rules, as a pure function of the facts.
+ *
+ * `entitlementsFor` gathers the facts for a real account; the admin simulator
+ * (server/simulate.ts) supplies invented ones. Both go through here, so a
+ * simulated account is shown exactly what a real one in that state would be.
+ */
+export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
+  const { billing, overrides } = facts;
+  const tier = tierFor(facts.admin, billing.paid.hasActiveIntensivePass);
 
   const manualRuns = tier !== 'standard';
   const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
@@ -364,13 +380,6 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     : billing.paid.hasActivePass
       ? JOB_SEARCH_EVALUATIONS_PER_RUN
       : FREE_EVALUATIONS_PER_RUN;
-
-  const [manualRunsUsedToday, autoRunsUsedToday, pausedRow, overrides] = await Promise.all([
-    manualRuns ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
-    autoRunsPerDay > 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
-    one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
-    adminOverridesFor(userId),
-  ]);
   // Anyone with a schedule can switch it off — they found a job, or want a break — and back on.
   const canPauseAutoApply = autoRunsPerDay > 0;
   /**
@@ -389,12 +398,12 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     tier,
     manualRuns,
     manualRunsPerDay,
-    manualRunsUsedToday,
-    manualRunsLeftToday: manualRunsPerDay === null ? null : Math.max(0, manualRunsPerDay - manualRunsUsedToday),
+    manualRunsUsedToday: facts.manualRunsUsedToday,
+    manualRunsLeftToday: manualRunsPerDay === null ? null : Math.max(0, manualRunsPerDay - facts.manualRunsUsedToday),
     autoRunsPerDay,
-    autoRunsUsedToday,
+    autoRunsUsedToday: facts.autoRunsUsedToday,
     // Only an account allowed to switch automatic runs off can have them off.
-    autoApplyPaused: canPauseAutoApply && pausedRow?.value === 'true',
+    autoApplyPaused: canPauseAutoApply && facts.autoApplyPaused,
     canPauseAutoApply,
     // Admins apply at their own saved threshold; the 75% floor is for accounts nobody is steering.
     scheduledMinScore: tier !== 'admin' && autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
@@ -408,9 +417,34 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActivePass,
     humanizer: billing.paid.hasActivePass,
-    searchTermSuggestionsLeft: await searchTermSuggestionsLeft(userId, tier, billing.paid.hasActivePass),
+    searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,
   };
+}
+
+export async function entitlementsFor(userId: string, email?: string | null): Promise<Entitlements> {
+  const admin = isAdmin(email);
+  const billing = await billingStatus(userId, email);
+  const tier = tierFor(admin, billing.paid.hasActiveIntensivePass);
+  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass, billing.paid.hasActiveJobSearchPass);
+
+  const [manualRunsUsedToday, autoRunsUsedToday, pausedRow, overrides, suggestionsLeft] = await Promise.all([
+    tier !== 'standard' ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
+    autoRunsPerDay > 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
+    one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
+    adminOverridesFor(userId),
+    searchTermSuggestionsLeft(userId, tier, billing.paid.hasActivePass),
+  ]);
+
+  return deriveEntitlements({
+    admin,
+    billing,
+    manualRunsUsedToday,
+    autoRunsUsedToday,
+    autoApplyPaused: pausedRow?.value === 'true',
+    overrides,
+    searchTermSuggestionsLeft: suggestionsLeft,
+  });
 }
 
 /** Whether this account's cover letters go through the humanizer, for callers that only know the account id. */

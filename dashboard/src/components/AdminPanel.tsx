@@ -3,6 +3,7 @@ import { PAID_PLANS, aud } from '../pricing';
 import { api } from '../adminApi';
 import { ServerView } from './ServerView';
 import { EnvView } from './EnvView';
+import { SimulateView } from './SimulateView';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -1200,9 +1201,9 @@ function VisitorsView() {
 }
 
 export function AdminPanel() {
-  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'server' | 'config'>('overview');
+  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'server' | 'config' | 'simulate'>('overview');
   const [openRun, setOpenRun] = useState<AdminRun | null>(null);
-  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', server: 'Server', config: 'Config' } as const;
+  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', server: 'Server', config: 'Config', simulate: 'Simulate' } as const;
   return (
     <div className="admin-page">
       <nav className="admin-nav" aria-label="Admin sections">
@@ -1218,6 +1219,7 @@ export function AdminPanel() {
       {view === 'visitors' && <VisitorsView />}
       {view === 'server' && <ServerView />}
       {view === 'config' && <EnvView />}
+      {view === 'simulate' && <SimulateView />}
       {openRun && <RunLog run={openRun} onClose={() => setOpenRun(null)} />}
     </div>
   );

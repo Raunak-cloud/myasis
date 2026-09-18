@@ -4,6 +4,7 @@ import {
   billingStatus,
   consumeSuccessfulApplication,
   isAdmin,
+  type BillingStatus,
 } from './billing.js';
 import {
   applyRunPolicy,
@@ -12,6 +13,7 @@ import {
   recordRunStart,
   FINE_TUNING_KEYS,
   INTENSIVE_EMPLOYER_SITES_PER_DAY,
+  type Entitlements,
 } from './entitlements.js';
 import { listResumes } from './files.js';
 import { waitForSigninChecks } from './seek-check.js';
@@ -66,6 +68,26 @@ export interface StartRunRequest {
   scope?: unknown;
 }
 
+type Refusal = Extract<StartRunOutcome, { ok: false }>;
+
+/** Why this account may not start a run by hand, or null when it may. */
+export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns' | 'manualRunsLeftToday' | 'manualRunsPerDay'>): Refusal | null {
+  if (!entitlements.manualRuns) {
+    return { ok: false, status: 403, error: 'Your plan applies automatically. Manual runs are part of the Intensive Pass.' };
+  }
+  if (entitlements.manualRunsLeftToday !== null && entitlements.manualRunsLeftToday < 1) {
+    return { ok: false, status: 429, error: `You have used all ${entitlements.manualRunsPerDay} runs for today. They reset at midnight.` };
+  }
+  return null;
+}
+
+/** A live run needs at least one application left to spend. The free allowance is given once, so there is nothing to wait for. */
+export function allowanceRefusal(allowance: Pick<BillingStatus, 'totalRemaining'>): Refusal | null {
+  return allowance.totalRemaining < 1
+    ? { ok: false, status: 402, error: 'No successful applications remain. Choose a pass to keep applying.' }
+    : null;
+}
+
 export async function startRun(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
   const admin = isAdmin(email);
@@ -82,20 +104,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * account could start as many as it liked.
    */
   if (trigger === 'manual') {
-    if (!entitlements.manualRuns) {
-      return {
-        ok: false,
-        status: 403,
-        error: 'Your plan applies automatically. Manual runs are part of the Intensive Pass.',
-      };
-    }
-    if (entitlements.manualRunsLeftToday !== null && entitlements.manualRunsLeftToday < 1) {
-      return {
-        ok: false,
-        status: 429,
-        error: `You have used all ${entitlements.manualRunsPerDay} runs for today. They reset at midnight.`,
-      };
-    }
+    const refused = manualRunRefusal(entitlements);
+    if (refused) return refused;
   }
 
   /**
@@ -159,13 +169,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       if (admin) {
         // No allowance check and no clamp: the operator runs at the size they configured.
       } else {
-        if (allowance.totalRemaining < 1) {
-          return {
-            ok: false,
-            status: 402,
-            error: 'No successful applications remain. Choose a pass or wait for the free allowance to reset.',
-          };
-        }
+        const refused = allowanceRefusal(allowance);
+        if (refused) return refused;
         overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
       }
     } catch (error) {

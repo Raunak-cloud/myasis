@@ -20,6 +20,7 @@ import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 import { useEntitlements } from './entitlements';
 import { planName, shortDate, useBillingStatus } from './billing';
+import { stopSimulation, useSimulation } from './simulation';
 import { useBoardsStatus } from './boards';
 import { trackPage } from './analytics';
 import { useRunStatus } from './runStatus';
@@ -82,6 +83,7 @@ export default function App() {
   const { user, googleConfigured, loading: authLoading, signOut } = useAuth();
   const entitlements = useEntitlements();
   const billing = useBillingStatus();
+  const simulation = useSimulation();
   const boards = useBoardsStatus();
   /**
    * The rewriting tool is the operator's, so its tab is not offered. Landing
@@ -436,6 +438,12 @@ export default function App() {
           </section>
         )}
 
+        {simulation && (
+          <div className="simulation-bar" role="status">
+            <span><strong>Preview:</strong> {simulation.group} · {simulation.label}. Nothing you press is sent.</span>
+            <button type="button" className="btn" onClick={() => { stopSimulation(); setTab('admin'); }}>Exit preview</button>
+          </div>
+        )}
         <div className="page-content">
           <Suspense fallback={<div className="job-meta">Loading…</div>}>
           {tab === 'run' && (
