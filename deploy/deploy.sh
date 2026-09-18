@@ -45,5 +45,11 @@ as_app "set -o pipefail; cd $APP/seek-bot && npm ci --no-audit --no-fund 2>&1 | 
 as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
+# pm2 remembers the environment a process was started with, and --update-env only
+# adds what the calling shell has. So the run limit is changed by giving it to this
+# script (MAX_CONCURRENT_RUNS=3 bash deploy.sh): it is handed to pm2 on the restart
+# and saved, and later deploys keep it without being told again.
+RUN_LIMIT=""
+if [[ "${MAX_CONCURRENT_RUNS:-}" =~ ^[1-9][0-9]?$ ]]; then RUN_LIMIT="MAX_CONCURRENT_RUNS=$MAX_CONCURRENT_RUNS "; fi
 # The dashboard closes its browsers on SIGINT; pm2 waits for it before forcing.
-as_app "pm2 restart myasis-dashboard --update-env --kill-timeout 8000 > /dev/null && echo restarted"
+as_app "${RUN_LIMIT}pm2 restart myasis-dashboard --update-env --kill-timeout 8000 > /dev/null && pm2 save > /dev/null && echo restarted"

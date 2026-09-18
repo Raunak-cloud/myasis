@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BOT_DIR, readEnv, runner, MAX_CONCURRENT } from './runner.js';
-import { sessionFor } from './signin.js';
+import { sessionFor, signinSessionCount } from './signin.js';
 import { readSiteState, type SeekState, type SigninSite } from './seek-state.js';
 import { userChromeDir, userDir } from './userdata.js';
 
@@ -14,6 +14,12 @@ import { userChromeDir, userDir } from './userdata.js';
  * fails a day later. This opens the account's own Chrome profile the way a
  * run does and lets `seek-bot`'s own sign-in check answer, so the source of
  * truth is SEEK's profile page, not a button.
+ *
+ * A check is a whole Chrome, and it is the one browser here that nobody is
+ * waiting on, so it only opens while the machine has a lane to spare: runs,
+ * sign-in windows and other checks together are kept within MAX_CONCURRENT.
+ * A check that is skipped leaves the last known state in place, and the page
+ * asks again next time it is opened.
  *
  * One check per account at a time, and none while that profile is in use —
  * Chrome locks a profile directory, so a run or an open sign-in window has
@@ -98,6 +104,10 @@ export function checkSignin(userId: string, site: SigninSite): Promise<SeekState
 
   const task = (async () => {
     if (runner.stateFor(userId).running || sessionFor(userId)) return known();
+    // This account's own checks run one after another on one profile, so they are one browser, not several.
+    const othersChecking = new Set([...inFlight.keys()].map((entry) => entry.split(':')[0]));
+    othersChecking.delete(userId);
+    if (runner.activeCount() + signinSessionCount() + othersChecking.size >= MAX_CONCURRENT) return known();
     if (!existsSync(resolve(BOT_DIR, 'dist', 'check-signin.js'))) return known();
 
     const profileDir = userChromeDir(userId);

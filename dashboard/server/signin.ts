@@ -124,6 +124,11 @@ export function stopSignin(userId: string): { ok: boolean } {
   return { ok: true };
 }
 
+/** Sign-in windows open right now; each is a Chrome of its own. */
+export function signinSessionCount(): number {
+  return sessions.size;
+}
+
 export function sessionFor(userId: string): SigninSession | null {
   const live = sessions.get(userId);
   if (!live) return null;

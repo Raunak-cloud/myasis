@@ -1,3 +1,4 @@
+import { cpus, totalmem } from 'node:os';
 import { humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -55,15 +56,28 @@ const MAX_LINES = 2000;
 /**
  * How many accounts may run at once.
  *
- * Each run holds a headed Chrome, which is roughly 1.2 GB of RAM and a real
- * share of a CPU core, so this is a memory ceiling rather than a policy. On a
- * 4 GB box one run is all that fits; 8 GB comfortably holds three. Set
- * MAX_CONCURRENT_RUNS to match the machine.
+ * Each run drives a headed Chrome. Measured on the production box over six
+ * real runs (September 2026, ten-minute averages): a run takes 0.3 to 0.5 of a
+ * CPU core and adds 0.5 to 1.1 GB of memory, against an idle 0.1 of a core
+ * and about 1 GB. On that machine — 2 cores, 8 GB — the CPU runs out first:
+ * three runs average 45 to 75% of it, four reach 100%, and a saturated
+ * machine shows up as slow pages, timeouts and failed bot checks rather than
+ * as an error. So the limit is whichever of CPU and memory gives out first.
  *
- * It is also the number of lanes the scheduler spreads accounts across, so
- * that at most this many scheduled runs ever start at the same moment.
+ * MAX_CONCURRENT_RUNS overrides it. It is also the number of lanes the
+ * scheduler spreads accounts across, so at most this many scheduled runs ever
+ * start at the same moment.
  */
-export const MAX_CONCURRENT = Math.max(1, Number(process.env.MAX_CONCURRENT_RUNS ?? 2));
+const CORES_PER_RUN = 0.6;
+const GB_PER_RUN = 1.2;
+const GB_RESERVED = 1.5; // the dashboard, Postgres, the display server and the OS
+
+export function machineRunCapacity(cores = cpus().length, memoryGb = totalmem() / 1024 ** 3): number {
+  return Math.max(1, Math.min(Math.floor(cores / CORES_PER_RUN), Math.floor((memoryGb - GB_RESERVED) / GB_PER_RUN)));
+}
+
+const configuredRuns = Number(process.env.MAX_CONCURRENT_RUNS);
+export const MAX_CONCURRENT = Number.isInteger(configuredRuns) && configuredRuns >= 1 ? configuredRuns : machineRunCapacity();
 
 const IDLE_STATE: RunState = {
   running: false,

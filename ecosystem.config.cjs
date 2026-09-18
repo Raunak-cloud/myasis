@@ -29,10 +29,10 @@ module.exports = {
          */
         DISPLAY: process.env.DISPLAY || ':99',
         /**
-         * Accounts that may run at once. Each holds a Chrome, roughly 1.2 GB,
-         * so this is a memory ceiling: 1 on a 4 GB box, 3 on 8 GB, 6 on 16 GB.
+         * Accounts that may run at once. Left unset, the dashboard works it out
+         * from the machine's cores and memory (dashboard/server/runner.ts).
          */
-        MAX_CONCURRENT_RUNS: process.env.MAX_CONCURRENT_RUNS || '3',
+        ...(process.env.MAX_CONCURRENT_RUNS ? { MAX_CONCURRENT_RUNS: process.env.MAX_CONCURRENT_RUNS } : {}),
       },
     },
   ],

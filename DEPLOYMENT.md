@@ -95,15 +95,21 @@ Practical notes:
 - Runs draw on the shared display `:99` (`myasis-xvfb.service`). Sign-in
   sessions take their own displays from `:100` upward.
 
-Set the number of accounts that may run at once to suit the machine, since
-each holds a Chrome of roughly 1.2 GB:
+The number of accounts that may run at once follows the machine unless you set
+it. Each run drives a Chrome — measured in production at 0.3 to 0.5 of a CPU
+core and 0.5 to 1.1 GB — so the dashboard allows whichever of CPU and memory
+runs out first: 1 on 4 GB, 3 on 2 cores and 8 GB, 6 on 4 cores and 16 GB. CPU
+is usually the limit, and a machine past it fails quietly, as slow pages,
+timeouts and failed bot checks. Sign-in checks open a Chrome too, and wait for
+a free lane rather than competing with runs.
+
+To set it yourself, give it to the deploy script once; pm2 keeps it:
 
 ```bash
-pm2 set myasis-dashboard:MAX_CONCURRENT_RUNS 1   # 4 GB box
+MAX_CONCURRENT_RUNS=3 bash /home/myasis/myasis/deploy/deploy.sh
 ```
 
-Or edit `MAX_CONCURRENT_RUNS` in `ecosystem.config.cjs`: 1 on 4 GB, 3 on 8 GB,
-6 on 16 GB.
+Admin → Server shows the limit in use.
 
 > Upgrading from a single-browser install: runs no longer attach to one shared
 > Chrome over CDP. The installer now sets `BROWSER_CONNECT_CDP=false` and

@@ -193,7 +193,7 @@ const GROUPS: GroupSpec[] = [
       { key: 'VISIT_RETENTION_DAYS', label: 'Keep visitor records (days)', help: '', kind: 'number', restart: true },
       { key: 'VISIT_HOME_COUNTRY', label: 'Home country', help: 'Two-letter code. Visitors elsewhere are listed separately.', kind: 'text', restart: true },
       { key: 'GEOIP_DB', label: 'Location database', help: 'Path to the MaxMind file deploy/geoip-update.sh installs.', kind: 'text' },
-      { key: 'MAX_CONCURRENT_RUNS', label: 'Runs at once', help: 'A memory ceiling: each run holds a Chrome of about 1.2 GB.', kind: 'number', restart: true },
+      { key: 'MAX_CONCURRENT_RUNS', label: 'Runs at once', help: 'Each run drives a Chrome: about half a CPU core and 1.2 GB. Empty follows the machine (3 on 2 cores and 8 GB). Set by pm2 on a hosted install.', kind: 'number', restart: true },
     ],
   },
   {
