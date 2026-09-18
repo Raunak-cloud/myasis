@@ -124,7 +124,7 @@ export async function handleGoogleCallback(
   const c = creds();
   if (!c.clientId || !c.clientSecret) return { ok: false, error: 'Google sign-in is not configured.' };
   if (!code) return { ok: false, error: 'No authorisation code returned.' };
-  if (!validState(state)) return { ok: false, error: 'Invalid state — possible CSRF, sign-in aborted.' };
+  if (!validState(state)) return { ok: false, error: 'Invalid state, possible CSRF. Sign-in aborted.' };
 
   const tokenRes = await fetch(TOKEN_URL, {
     method: 'POST',

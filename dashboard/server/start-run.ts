@@ -108,7 +108,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     return {
       ok: false,
       status: 400,
-      error: 'Upload your résumé first — applications are built from it.',
+      error: 'Upload your résumé first. Applications are built from it.',
     };
   }
 

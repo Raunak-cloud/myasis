@@ -163,7 +163,7 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
       <div className="fieldset">
         <h4 className="fieldset-h">Your experience</h4>
         <p className="job-meta fieldset-blurb">
-          Used to judge whether a job is a genuine fit and to write cover letters. Be accurate —
+          Used to judge whether a job is a genuine fit and to write cover letters. Be accurate:
           nothing here will be exaggerated on your behalf.
         </p>
         {text('headline', 'Professional headline', {

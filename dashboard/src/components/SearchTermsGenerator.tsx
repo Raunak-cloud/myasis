@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useEntitlements } from '../entitlements';
 
 interface ResumeOption {
   id: string;
@@ -22,6 +23,11 @@ export function SearchTermsGenerator({
   const [failed, setFailed] = useState(false);
   const [resumes, setResumes] = useState<ResumeOption[]>([]);
   const [selectedResumeIds, setSelectedResumeIds] = useState<string[]>([]);
+  const entitlements = useEntitlements();
+  /** Null until known and when unlimited; a number on the free plan. */
+  const [left, setLeft] = useState<number | null>(null);
+  useEffect(() => setLeft(entitlements?.searchTermSuggestionsLeft ?? null), [entitlements]);
+  const exhausted = left !== null && left <= 0;
 
   useEffect(() => {
     fetch('/api/resumes')
@@ -80,6 +86,7 @@ export function SearchTermsGenerator({
       }
       const terms = result.terms.filter((term): term is string => typeof term === 'string');
       onGenerated(terms.join(', '));
+      if (left !== null) setLeft(left - 1);
       const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected résumés';
       setMessage(`Suggested ${terms.length} job titles from ${label}. Review them, then save.`);
     } catch (error) {
@@ -95,11 +102,18 @@ export function SearchTermsGenerator({
       <button
         type="button"
         className="btn btn-small search-terms-ai-button"
-        disabled={disabled || generating || !resumes.length}
+        disabled={disabled || generating || !resumes.length || exhausted}
+        title={exhausted ? 'Your free suggestion has been used. Passes include unlimited suggestions.' : undefined}
         onClick={generate}
       >
-        {generating ? 'Suggesting…' : '✨ Suggest from my résumés'}
+        {generating ? 'Suggesting…' : exhausted ? '✨ Suggestion used' : '✨ Suggest from my résumés'}
       </button>
+      {left !== null && !exhausted && !generating && (
+        <span className="job-meta search-terms-ai-note">{left === 1 ? 'One free suggestion on your plan.' : `${left} free suggestions on your plan.`}</span>
+      )}
+      {exhausted && !message && (
+        <span className="job-meta search-terms-ai-note">Your free suggestion has been used. Job Search Pass and Intensive Pass include unlimited suggestions.</span>
+      )}
       {resumes.length > 1 && (
         <details className="search-terms-resumes">
           <summary>

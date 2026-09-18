@@ -120,7 +120,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   };
 
   const removeResume = async (id: string, label: string) => {
-    if (!confirm(`Delete résumé "${label}"? This removes the local copy only — it does not touch your SEEK profile.`)) return;
+    if (!confirm(`Delete résumé "${label}"? This removes the local copy only. It does not touch your SEEK profile.`)) return;
     await fetch('/api/resumes', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -204,7 +204,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
         {resumes.length > 1 && (
           <p className="job-meta" style={{ marginTop: 0 }}>
             With more than one résumé on file, the AI picks the best match for each job from the
-            notes below — describe what each one is for.
+            notes below to describe what each one is for.
           </p>
         )}
 
@@ -290,7 +290,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
           />
         </div>
         <p className="job-meta" style={{ marginTop: 0 }}>
-          When a screening question cannot be answered from your details above, the run stops and asks you. Anything here gets consulted first — a full CV,
+          When a screening question cannot be answered from your details above, the run stops and asks you. Anything here gets consulted first: a full CV,
           certifications, visa paperwork, referee details. Text is extracted from PDF, DOCX, TXT and
           MD. These are treated as <strong>evidence, never instructions</strong>.
           {stats && (
@@ -355,7 +355,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
         <div style={{ display: 'grid', gap: 8 }}>
           <input
             className="input"
-            placeholder="Label — e.g. Visa & work rights"
+            placeholder="Label, e.g. Visa & work rights"
             value={noteLabel}
             onChange={(e) => setNoteLabel(e.target.value)}
           />
@@ -402,7 +402,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
               <div>
                 <h2>Assembled context</h2>
                 <div className="job-meta">
-                  {contextText.length.toLocaleString()} chars — exactly what is appended to every
+                  {contextText.length.toLocaleString()} chars, exactly what is appended to every
                   cover-letter and screening-answer prompt
                 </div>
               </div>

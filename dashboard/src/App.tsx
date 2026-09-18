@@ -120,11 +120,16 @@ export default function App() {
     saveThemePref(theme);
   }, [theme]);
 
+  // Auto follows the Sydney clock, so it has to be looked at again as the evening arrives.
   useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: light)');
-    const onChange = () => theme === 'system' && applyTheme('system');
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
+    if (theme !== 'system') return;
+    const tick = () => applyTheme('system');
+    const timer = window.setInterval(tick, 60_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
   }, [theme]);
 
   /**
@@ -140,7 +145,7 @@ export default function App() {
     if (typeof runStatus.startedAt === 'string') setLastRunAt(runStatus.startedAt);
     if (wasRunning.current && !runStatus.running) {
       void load();
-      setToast(`Run finished${runStatus.applied ? ` — ${runStatus.applied} submitted` : ''}`);
+      setToast(`Run finished${runStatus.applied ? `, ${runStatus.applied} submitted` : ''}`);
       window.setTimeout(() => setToast(null), 6000);
     }
     wasRunning.current = Boolean(runStatus.running);
@@ -283,7 +288,7 @@ export default function App() {
                   type="button"
                   className={theme === option ? 'on' : ''}
                   aria-pressed={theme === option}
-                  title={option === 'system' ? `Follow the device (${resolvedTheme('system')})` : `Always ${option}`}
+                  title={option === 'system' ? `Dark from 7 pm to 7 am, Sydney time (${resolvedTheme('system')} now)` : `Always ${option}`}
                   onClick={() => setTheme(option)}
                 >
                   {THEME_LABEL[option]}

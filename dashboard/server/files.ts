@@ -351,7 +351,7 @@ export async function previewText(
       return {
         ok: true,
         label: found.label,
-        text: `(No text could be extracted from ${found.fileName}.\nThe application assistant cannot use content from this file — add a note with the key details instead.)`,
+        text: `(No text could be extracted from ${found.fileName}.\nThe application assistant cannot use content from this file. Add a note with the key details instead.)`,
       };
     }
     return { ok: true, text, label: found.label };
@@ -394,7 +394,7 @@ export async function fullContext(userId: string): Promise<{ ok: boolean; text?:
       } else if (item.fileName) {
         body = await mod.extractText(resolve(userKnowledgeDir(userId), item.fileName)).catch(() => '');
         if (!body.trim()) {
-          body = `(could not extract text from ${item.fileName} — add a note with the key details instead)`;
+          body = `(could not extract text from ${item.fileName}. Add a note with the key details instead)`;
         }
       }
       body = body.replace(/\s+\n/g, '\n').trim();

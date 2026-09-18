@@ -165,7 +165,7 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
     latest.set(e.job_id, {
       jobId: e.job_id,
       title: e.title ?? `Job ${e.job_id}`,
-      company: e.company ?? '—',
+      company: e.company ?? '-',
       kind: 'question',
       reason: plainReason(String(reason)).slice(0, 300),
       url: e.url ?? `https://www.seek.com.au/job/${e.job_id}`,

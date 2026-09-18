@@ -40,7 +40,7 @@ import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc }
 import { checkSeekSignin, checkSignin, seekCheckInProgress } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused } from './server/entitlements.js';
+import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
@@ -526,8 +526,15 @@ function dataApi(): Plugin {
       case '/api/search-terms/generate': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
+          // The free plan gets a fixed number of these; checked here, where the model call is made, not only on the page.
+          const user = await currentUser(req.headers?.cookie);
+          const allowance = (await entitlementsFor(userId, user?.email)).searchTermSuggestionsLeft;
+          if (allowance !== null && allowance <= 0) {
+            return send({ error: 'You have used your free suggestion. Job Search Pass and Intensive Pass include unlimited suggestions.' }, 403);
+          }
           const body = await readBody();
           const result = await generateSearchTerms(userId, body ?? {});
+          if (result.ok && allowance !== null) await recordFeatureUse(userId, SEARCH_TERMS_FEATURE);
           return send(result.ok ? result : { error: result.error }, result.ok ? 200 : result.status ?? 500);
         });
       }

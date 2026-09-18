@@ -29,6 +29,9 @@ export interface Entitlements {
   rewriteText: boolean;
   runScopes: boolean;
   indeedApplications: boolean;
+  humanizer: boolean;
+  /** Suggestions from résumés left; null means no limit. */
+  searchTermSuggestionsLeft: number | null;
   timeZone: string;
 }
 

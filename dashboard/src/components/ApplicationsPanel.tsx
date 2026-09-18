@@ -229,7 +229,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                       )}
                     </td>
                     <td>
-                      <span className={`score ${scoreClass(a.score)}`}>{a.score || '—'}</span>
+                      <span className={`score ${scoreClass(a.score)}`}>{a.score || '-'}</span>
                     </td>
                     <td className="nowrap">
                       <a
@@ -310,7 +310,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                 </div>
                 {!open.outcome && daysSince(open.appliedAt) >= followUpDays && (
                   <p className="job-meta follow-hint">
-                    Sent {daysSince(open.appliedAt)} days ago with no outcome recorded — a short
+                    Sent {daysSince(open.appliedAt)} days ago with no outcome recorded. A short
                     follow-up to the recruiter is reasonable at this point.
                   </p>
                 )}

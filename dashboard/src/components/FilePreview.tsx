@@ -99,7 +99,7 @@ export function FilePreview({ kind, id, label, fileName, onClose }: Props) {
               <h3>Original file</h3>
               <p className="job-meta" style={{ marginTop: 0 }}>
                 "Open" renders the file in a new tab where the browser can display it (PDF, TXT).
-                DOCX will download instead — browsers cannot render it inline.
+                DOCX will download instead, because browsers cannot render it inline.
               </p>
             </div>
           )}

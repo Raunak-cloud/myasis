@@ -11,22 +11,29 @@ export function saveThemePref(p: ThemePref) {
   p === 'system' ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, p);
 }
 
+/** The hours, Sydney time, between which Auto is dark: from 7 pm until 7 am. */
+export const AUTO_DARK_FROM = 19;
+export const AUTO_DARK_UNTIL = 7;
+export const AUTO_TIME_ZONE = 'Australia/Sydney';
+
 /**
- * Applies a preference to the document.
- *
- * "system" removes the attribute entirely rather than resolving it here, so the
- * CSS `prefers-color-scheme` media query stays in charge — that way the page
- * follows the OS live, including its own time-of-day scheduling, without the
- * app polling anything.
+ * What Auto means: dark in the evening and overnight, light in the day, by
+ * the clock in Sydney rather than by the device. Every account is in
+ * Australia and the device setting is often wrong (a laptop left on light
+ * all day, a phone on dark all day), so the time of day is the honest
+ * signal for a job-search tool used at night.
  */
+export function autoTheme(now: Date = new Date()): 'light' | 'dark' {
+  const hour = Number(new Intl.DateTimeFormat('en-AU', { timeZone: AUTO_TIME_ZONE, hour: 'numeric', hour12: false }).format(now));
+  return hour >= AUTO_DARK_FROM || hour < AUTO_DARK_UNTIL ? 'dark' : 'light';
+}
+
+/** Applies a preference to the document; Auto resolves to the time of day right now. */
 export function applyTheme(p: ThemePref) {
-  const root = document.documentElement;
-  if (p === 'system') root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', p);
+  document.documentElement.setAttribute('data-theme', resolvedTheme(p));
 }
 
 /** What the user will actually see right now, given the preference. */
 export function resolvedTheme(p: ThemePref): 'light' | 'dark' {
-  if (p !== 'system') return p;
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  return p === 'system' ? autoTheme() : p;
 }

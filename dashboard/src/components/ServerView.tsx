@@ -240,7 +240,7 @@ export function ServerView() {
     { label: 'Disk free', value: `${disk.freeGb} GB`, note: `of ${disk.totalGb} GB, ${disk.percent}% used` },
     { label: 'Memory free', value: gb(memory.availableMb), note: `of ${gb(memory.totalMb)}` },
     { label: 'Runs', value: `${runs.active} / ${runs.capacity}`, note: runs.active >= runs.capacity ? 'at capacity' : 'slots free' },
-    { label: 'CPU', value: cpu.busyPercent === null ? '—' : `${cpu.busyPercent}%`, note: `${cpu.cores} cores, load ${cpu.loadAverage[0].toFixed(2)}` },
+    { label: 'CPU', value: cpu.busyPercent === null ? '-' : `${cpu.busyPercent}%`, note: `${cpu.cores} cores, load ${cpu.loadAverage[0].toFixed(2)}` },
     { label: 'Uptime', value: duration(health.hostUptimeSeconds), note: `app running ${duration(health.processUptimeSeconds)}` },
   ];
 

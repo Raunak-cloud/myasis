@@ -345,7 +345,7 @@ export function AttentionPanel({
         <div className="banner attention-hero">
           <strong>{counts.verification} listings are waiting on work-rights verification.</strong>
           <br />
-          Completing SEEK Pass once on your account unlocks all of them — it's the single highest-value
+          Completing SEEK Pass once on your account unlocks all of them. It is the single highest-value
           thing you can do here.
         </div>
       ) : null}

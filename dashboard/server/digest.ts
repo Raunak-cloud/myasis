@@ -14,7 +14,7 @@ const DIGEST_HOUR = 21;
  * happen, so once the window closes they get one email: what went out, what
  * stalled on a question only they can answer, and a link to the rest. It is
  * the only thing that turns a background service into something a person can
- * trust — silence all day and no account of it is indistinguishable from
+ * trust, silence all day and no account of it is indistinguishable from
  * nothing working.
  *
  * Deliberately not sent when the day was empty. An account that did nothing
@@ -83,7 +83,7 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
       ? `${plural(digest.needsAnswer, 'job')} need your answer`
       : 'Your Owtomate summary';
 
-  /** Names arrive however the account was created — "rinu" should not stay "rinu". */
+  /** Names arrive however the account was created, "rinu" should not stay "rinu". */
   const firstName = (digest.name ?? '').trim().split(/\s+/)[0] ?? '';
   const greeting = firstName ? `Hi ${firstName[0].toUpperCase()}${firstName.slice(1)},` : 'Hi,';
   const lines = [
@@ -95,23 +95,23 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
   ];
 
   for (const a of digest.applications) {
-    lines.push(`  • ${a.title} — ${a.company}${a.external ? " (employer's own site)" : ''}`);
+    lines.push(`  • ${a.title} at ${a.company}${a.external ? " (employer's own site)" : ''}`);
   }
 
   if (digest.needsAnswer) {
-    lines.push('', `${plural(digest.needsAnswer, 'job')} stopped on a question only you can answer — things like a police check or years of experience. Answering once saves the answer for every later application.`);
+    lines.push('', `${plural(digest.needsAnswer, 'job')} stopped on a question only you can answer, things like a police check or years of experience. Answering once saves the answer for every later application.`);
   }
   if (digest.failed) {
     lines.push('', `${plural(digest.failed, 'run')} ran into a problem and stopped.`);
   }
 
-  lines.push('', `See everything: ${dashboardUrl}`, '', '— Owtomate');
+  lines.push('', `See everything: ${dashboardUrl}`, '', 'Owtomate');
   const text = lines.join('\n');
 
   const escape = (value: string) =>
     value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const items = digest.applications
-    .map((a) => `<li style="margin:0 0 6px"><strong>${escape(a.title)}</strong> — ${escape(a.company)}${a.external ? ' <span style="color:#606b7d">(employer\'s own site)</span>' : ''}</li>`)
+    .map((a) => `<li style="margin:0 0 6px"><strong>${escape(a.title)}</strong> at ${escape(a.company)}${a.external ? ' <span style="color:#606b7d">(employer\'s own site)</span>' : ''}</li>`)
     .join('');
 
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#11141c;max-width:520px">
@@ -124,12 +124,12 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
   ${items ? `<ul style="padding-left:18px;margin:0 0 16px">${items}</ul>` : ''}
   ${
     digest.needsAnswer
-      ? `<p style="background:#f4f6f9;border-radius:8px;padding:12px 14px;margin:0 0 16px"><strong>${plural(digest.needsAnswer, 'job')} need your answer.</strong><br>They stopped on something only you can confirm — a police check, years of experience, a start date. Answering once saves it for every later application.</p>`
+      ? `<p style="background:#f4f6f9;border-radius:8px;padding:12px 14px;margin:0 0 16px"><strong>${plural(digest.needsAnswer, 'job')} need your answer.</strong><br>They stopped on something only you can confirm, a police check, years of experience, a start date. Answering once saves it for every later application.</p>`
       : ''
   }
   ${digest.failed ? `<p>${plural(digest.failed, 'run')} ran into a problem and stopped.</p>` : ''}
   <p style="margin:22px 0"><a href="${escape(dashboardUrl)}" style="background:#2f6fd0;color:#fff;text-decoration:none;padding:11px 20px;border-radius:999px;display:inline-block">Open your dashboard</a></p>
-  <p style="color:#606b7d;font-size:13px">— Owtomate</p>
+  <p style="color:#606b7d;font-size:13px">Owtomate</p>
 </div>`;
 
   return { subject, text, html };

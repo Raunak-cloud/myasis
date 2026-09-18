@@ -349,7 +349,8 @@ tbody tr.clickable { cursor: pointer; }
 .group-body { padding: 0 16px 16px; display: grid; gap: 12px; }
 .group-hint { margin: 0; }
 
-.field { display: grid; gap: 5px; }
+/* Start-aligned so a field beside a taller one keeps its own height instead of stretching its control. */
+.field { display: grid; gap: 5px; align-content: start; }
 .field-label { font-size: 12px; color: var(--text-dim); font-weight: 550; }
 .field-label-with-info { display: inline-flex; align-items: center; gap: 6px; width: fit-content; }
 .field-info {
@@ -394,6 +395,7 @@ tbody tr.clickable { cursor: pointer; }
 .field .input { min-width: 0; width: 100%; }
 .mono-input { font-family: var(--mono); font-size: 12px; resize: vertical; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.search-terms-ai-note { align-self: center; }
 @media (max-width: 520px) { .grid-2 { grid-template-columns: 1fr; } }
 
 .modes { display: grid; gap: 8px; }

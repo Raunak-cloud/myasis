@@ -266,7 +266,7 @@ class Run {
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64'].includes(k) ? '<provided>' : v}`)
       .join('  ');
     if (shown) this.push('sys', `  overrides: ${shown}`);
-    if (mode === 'live') this.push('sys', '  ⚠ LIVE — applications will be submitted');
+    if (mode === 'live') this.push('sys', '  ⚠ LIVE: applications will be submitted');
 
     this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env }), userId, dataDir, 'run');
     return { ok: true };
@@ -382,7 +382,7 @@ class Run {
 
   stop(): { ok: boolean; error?: string } {
     if (!this.child) return { ok: false, error: 'Nothing is running.' };
-    this.push('sys', '⏹ stop requested — terminating');
+    this.push('sys', '⏹ stop requested, terminating');
     // Windows needs the tree killed; the bot owns a Chrome child process.
     if (process.platform === 'win32') {
       spawn('taskkill', ['/pid', String(this.child.pid), '/T', '/F']);

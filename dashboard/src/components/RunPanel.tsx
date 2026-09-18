@@ -519,7 +519,7 @@ export function RunPanel({
     const terms = val('KEYWORDS').split(',').map((term) => term.trim()).filter(Boolean);
     if (!terms.length) return setStandingError('Add at least one job title or search term.');
     if (!isAdmin && terms.length > MAX_SEARCH_TERMS) {
-      return setStandingError(`Use at most ${MAX_SEARCH_TERMS} search terms — you have ${terms.length}.`);
+      return setStandingError(`Use at most ${MAX_SEARCH_TERMS} search terms; you have ${terms.length}.`);
     }
     setStandingError(null);
     setStandingSaving(true);
@@ -700,7 +700,7 @@ export function RunPanel({
       return;
     }
     if (!isAdmin && termCount > MAX_SEARCH_TERMS) {
-      fail(`Use at most ${MAX_SEARCH_TERMS} search terms — you have ${termCount}.`, 'KEYWORDS');
+      fail(`Use at most ${MAX_SEARCH_TERMS} search terms; you have ${termCount}.`, 'KEYWORDS');
       return;
     }
     if (updates.COVER_LETTER_MODE === 'reuse' && !decodeSettingText(updates.COVER_LETTER_TEXT_B64).trim()) {
@@ -772,7 +772,7 @@ export function RunPanel({
         )}
         {running && status?.isOwner === false && (
           <div className="banner">
-            Another account is currently running — the shared browser can only do one run at a time. Try again once it finishes.
+            Another account is currently running, and the shared browser can only do one run at a time. Try again once it finishes.
           </div>
         )}
         {error && <div className="banner banner-bad">{error}</div>}
@@ -1105,7 +1105,7 @@ export function RunPanel({
             <h2 id="out-of-apps-title">You're out of applications</h2>
             <p id="out-of-apps-description" className="dim">
               {freeResetsAt
-                ? `You've used all your applications for now. Get a pass to keep applying today, or wait — your free applications reset on ${dateLabel(freeResetsAt)}.`
+                ? `You've used all your applications for now. Get a pass to keep applying today, or wait: your free applications reset on ${dateLabel(freeResetsAt)}.`
                 : "You've used all your applications for now. Get a pass to keep applying today, or wait for your free applications to reset next month."}
             </p>
             <div className="confirm-actions">

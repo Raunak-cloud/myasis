@@ -34,7 +34,7 @@ const WHY =
   'Many employer sites email a one-time code before an application can be sent. With a mailbox it can read, the agent enters that code itself instead of stopping to ask you.';
 
 const SEPARATE =
-  'Create a new Gmail account just for this at gmail.com — not your real inbox. Everything in it is readable by the agent for as long as it stays signed in.';
+  'Create a new Gmail account just for this at gmail.com, not your real inbox. Everything in it is readable by the agent for as long as it stays signed in.';
 
 export function GmailConnect({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<GmailStatus | null>(null);

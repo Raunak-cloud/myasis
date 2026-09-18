@@ -113,7 +113,7 @@ export function HumanizerPanel() {
             <label htmlFor="humanizer-input">Original</label>
             <span className={`job-meta ${tooLong ? 'over-limit' : ''}`}>
               {tooLong
-                ? `${input.length.toLocaleString()} / ${maxChars.toLocaleString()} characters — too long to rewrite`
+                ? `${input.length.toLocaleString()} / ${maxChars.toLocaleString()} characters, too long to rewrite`
                 : `${inputWords} words`}
             </span>
           </div>

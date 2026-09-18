@@ -86,13 +86,13 @@ interface LogLine {
 
 const TIME_ZONE = 'Australia/Sydney';
 const when = (iso: string | null) =>
-  iso ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: TIME_ZONE }).format(new Date(iso)) : '—';
+  iso ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: TIME_ZONE }).format(new Date(iso)) : '-';
 const clock = (iso: string) =>
   new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: TIME_ZONE }).format(new Date(iso));
 
 function duration(run: AdminRun): string {
   // Runs from before finish times were recorded have no end to measure to.
-  if (!run.finishedAt && !run.running) return '—';
+  if (!run.finishedAt && !run.running) return '-';
   const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
   const seconds = Math.max(0, Math.round((end - Date.parse(run.startedAt)) / 1000));
   const h = Math.floor(seconds / 3600);
@@ -211,7 +211,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
                   {run.startedBy && <div className="job-meta">{run.startedBy}</div>}
                 </td>
                 <td className="nowrap">{duration(run)}</td>
-                <td>{run.applied ?? '—'}</td>
+                <td>{run.applied ?? '-'}</td>
                 <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
                 <td className="nowrap">
                   {(run.hasLog || run.running) && (
@@ -720,10 +720,10 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                   </td>
                   <td>{user.applications.total}<div className="job-meta">{user.applications.today} today</div></td>
                   <td className="nowrap">
-                    {last ? when(last.startedAt) : '—'}
+                    {last ? when(last.startedAt) : '-'}
                     {last && (
                       <div className="job-meta">
-                        {user.running ? 'running' : !last.finishedAt ? '—' : last.exitCode === 0 ? 'finished' : last.exitCode === null ? 'stopped' : 'failed'}
+                        {user.running ? 'running' : !last.finishedAt ? '-' : last.exitCode === 0 ? 'finished' : last.exitCode === null ? 'stopped' : 'failed'}
                       </div>
                     )}
                   </td>
@@ -863,7 +863,7 @@ function flag(code: string | null): string {
 }
 
 function spent(ms: number | null | undefined): string {
-  if (!ms) return '—';
+  if (!ms) return '-';
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -907,7 +907,7 @@ function BreakdownTable({ title, rows, empty, label = (row) => row.label, viewsL
                 </td>
                 <td className="num">{row.visitors}</td>
                 <td className="num">{row.views}</td>
-                <td className="num">{row.seconds === null ? '—' : spent(row.seconds * 1000)}</td>
+                <td className="num">{row.seconds === null ? '-' : spent(row.seconds * 1000)}</td>
               </tr>
             ))}
           </tbody>
@@ -967,12 +967,12 @@ function VisitorsView() {
   const tiles = data && totals ? [
     { label: 'Visitors', value: totals.visitors, note: `${totals.signedIn} signed in` },
     { label: 'Visits', value: totals.visits, note: 'browser sessions' },
-    { label: 'Page views', value: totals.views, note: totals.visits ? `${(totals.views / totals.visits).toFixed(1)} per visit` : '—' },
+    { label: 'Page views', value: totals.views, note: totals.visits ? `${(totals.views / totals.visits).toFixed(1)} per visit` : '-' },
     { label: 'Avg time on page', value: spent(totals.avgSeconds === null ? null : totals.avgSeconds * 1000), note: 'while the tab was in front' },
     // At home every view has a place by definition; abroad is where the unplaced ones land.
     ...(home ? [] : [{
       label: 'Located',
-      value: totals.views ? `${Math.round((totals.located / totals.views) * 100)}%` : '—',
+      value: totals.views ? `${Math.round((totals.located / totals.views) * 100)}%` : '-',
       note: data.geoConfigured ? 'of views resolved to a place' : 'no location database installed',
     }]),
     { label: 'Addresses', value: data.addresses.count, note: `distinct IP addresses ${home ? 'in' : 'outside'} ${homeName}` },
@@ -1152,7 +1152,7 @@ function VisitorsView() {
                       )}
                     </td>
                     <td className="nowrap">
-                      <code>{visit.ip ?? '—'}</code>
+                      <code>{visit.ip ?? '-'}</code>
                       {visit.timeZone && <div className="job-meta">{visit.timeZone}</div>}
                     </td>
                     <td>

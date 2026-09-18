@@ -240,7 +240,29 @@ export interface Entitlements {
   indeedApplications: boolean;
   /** Cover letters are rewritten by the humanizer. Job Search Pass and Intensive Pass only. */
   humanizer: boolean;
+  /**
+   * Search-term suggestions from résumés left. Null means no limit. The free
+   * plan gets one: enough to see what it does, and the reason to buy a pass
+   * if it was useful.
+   */
+  searchTermSuggestionsLeft: number | null;
   timeZone: string;
+}
+
+/** What the free plan gets of the résumé-to-search-terms suggestion. */
+export const FREE_SEARCH_TERM_SUGGESTIONS = 1;
+
+export const SEARCH_TERMS_FEATURE = 'search-term-suggestion';
+
+async function searchTermSuggestionsLeft(userId: string, tier: Tier, hasActivePass: boolean): Promise<number | null> {
+  if (tier === 'admin' || hasActivePass) return null;
+  const used = await one<{ n: string }>('SELECT count(*)::text AS n FROM feature_uses WHERE user_id = $1 AND feature = $2', [userId, SEARCH_TERMS_FEATURE]);
+  return Math.max(0, FREE_SEARCH_TERM_SUGGESTIONS - Number(used?.n ?? 0));
+}
+
+/** Records one use, for the count above. */
+export async function recordFeatureUse(userId: string, feature: string): Promise<void> {
+  await query('INSERT INTO feature_uses (user_id, feature) VALUES ($1, $2)', [userId, feature]);
 }
 
 function tierFor(admin: boolean, intensive: boolean): Tier {
@@ -386,6 +408,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActivePass,
     humanizer: billing.paid.hasActivePass,
+    searchTermSuggestionsLeft: await searchTermSuggestionsLeft(userId, tier, billing.paid.hasActivePass),
     timeZone: RUN_TIME_ZONE,
   };
 }

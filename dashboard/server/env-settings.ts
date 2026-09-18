@@ -77,7 +77,7 @@ const GROUPS: GroupSpec[] = [
     keys: [
       {
         key: 'STRIPE_MODE', label: 'Mode', help: 'Live charges real cards. Test uses the test keys below and Stripe test cards such as 4242 4242 4242 4242.',
-        kind: 'choice', options: [{ value: 'live', label: 'Live — real money' }, { value: 'test', label: 'Test — no real money' }],
+        kind: 'choice', options: [{ value: 'live', label: 'Live: real money' }, { value: 'test', label: 'Test: no real money' }],
       },
       { key: 'STRIPE_SECRET_KEY', label: 'Live secret key', help: 'Starts with sk_live_. From Developers → API keys with Test mode off.', kind: 'secret' },
       { key: 'STRIPE_WEBHOOK_SECRET', label: 'Live webhook signing secret', help: 'Starts with whsec_. From the live endpoint under Developers → Webhooks.', kind: 'secret' },

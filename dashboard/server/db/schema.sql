@@ -363,3 +363,14 @@ CREATE TABLE IF NOT EXISTS ignored_addresses (
 -- the dashboard, a check from the shell — never a customer.
 INSERT INTO ignored_addresses (ip, note) VALUES ('127.0.0.1', 'This machine'), ('::1', 'This machine')
 ON CONFLICT (ip) DO NOTHING;
+
+-- Features with a per-account allowance that is not applications: one row
+-- per use, so "how many times has this account used X" is a count, and the
+-- allowance can be changed without touching the record.
+CREATE TABLE IF NOT EXISTS feature_uses (
+  id      BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feature TEXT NOT NULL,
+  used_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS feature_uses_user_feature_idx ON feature_uses (user_id, feature);
