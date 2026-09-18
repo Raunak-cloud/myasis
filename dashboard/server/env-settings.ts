@@ -169,6 +169,9 @@ const GROUPS: GroupSpec[] = [
         ],
       },
       { key: 'CAPMONSTER_API_KEY', label: 'CapMonster API key', help: 'From dash.capmonster.cloud. Solves Turnstile, Cloudflare challenges and reCAPTCHA v2; not hCaptcha.', kind: 'secret' },
+      { key: 'CAPMONSTER_RECAPTCHA_V3', label: 'Replace reCAPTCHA v3 tokens', help: 'Keep off unless a site is rejecting applications. Every v3 check is then paid for, and in testing CapMonster tokens scored 0.1 to 0.3 while this browser scored 0.3 to 0.7 on its own.', kind: 'boolean' },
+      { key: 'CAPMONSTER_V3_SITES', label: 'v3: only on these sites', help: 'Comma-separated hostnames, e.g. jobs.example.com. Empty means every site that uses v3.', kind: 'text' },
+      { key: 'CAPMONSTER_V3_MIN_SCORE', label: 'v3: score to ask for', help: '0.1 to 0.9. Default 0.7. A request, not a guarantee.', kind: 'number' },
     ],
   },
   {

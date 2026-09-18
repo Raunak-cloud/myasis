@@ -1,6 +1,7 @@
-import type { Page } from 'patchright';
+import type { BrowserContext, Page } from 'patchright';
 import { capMonsterSolver } from './captcha/capmonster.js';
 import { detectChallenge, type Solver } from './captcha/detect.js';
+import { watchRecaptchaV3 } from './captcha/recaptcha-v3.js';
 
 export { reportRejectedToken } from './captcha/capmonster.js';
 
@@ -16,6 +17,14 @@ const chain = (): Solver[] =>
   (process.env.CAPTCHA_SOLVER ?? '').split(',').flatMap(name => SOLVERS[name.trim().toLowerCase()] ?? []);
 
 export const captchaEnabled = () => chain().length > 0;
+
+/**
+ * Challenges that never show a wall cannot wait for the page judge to notice
+ * them; they are handled as the browser meets them. Called once per context.
+ */
+export function watchCaptchas(context: BrowserContext): void {
+  if (chain().includes(capMonsterSolver) && process.env.CAPMONSTER_RECAPTCHA_V3 === 'true') watchRecaptchaV3(context);
+}
 
 /** Returns true only when a solver applied a solution; callers must re-check the page. */
 export async function trySolveCaptcha(page: Page): Promise<boolean> {

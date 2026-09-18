@@ -55,15 +55,15 @@ async function call<T extends ApiReply>(method: string, body: Record<string, unk
 
 const sleep = (ms: number) => new Promise(done => setTimeout(done, ms));
 
-async function solveTask(task: Record<string, unknown>): Promise<{ taskId: number; solution: Record<string, unknown> }> {
+export async function solveTask(task: Record<string, unknown>, deadlineMs = SOLVE_DEADLINE_MS): Promise<{ taskId: number; solution: Record<string, unknown> }> {
   const { taskId } = await call<ApiReply & { taskId: number }>('createTask', { task });
-  const deadline = Date.now() + SOLVE_DEADLINE_MS;
+  const deadline = Date.now() + deadlineMs;
   for (let wait = FIRST_POLL_MS; Date.now() + wait < deadline; wait = POLL_MS) {
     await sleep(wait);
     const reply = await call<ApiReply & { status: string; solution?: Record<string, unknown> }>('getTaskResult', { taskId });
     if (reply.status === 'ready' && reply.solution) return { taskId, solution: reply.solution };
   }
-  throw new CapMonsterError('TIMEOUT', `task ${taskId} was not solved in ${SOLVE_DEADLINE_MS / 1000}s`);
+  throw new CapMonsterError('TIMEOUT', `task ${taskId} was not solved in ${deadlineMs / 1000}s`);
 }
 
 export async function capMonsterBalance(): Promise<number> {
@@ -247,15 +247,18 @@ async function solveCloudflareChallenge(page: Page): Promise<number | null> {
 
 let warnedNoKey = false;
 
+/** A key is set and the account has not failed this run. */
+export function capMonsterReady(): boolean {
+  if (accountError) return false;
+  if (apiKey()) return true;
+  if (!warnedNoKey) console.warn('[captcha] capmonster: CAPMONSTER_API_KEY is not set; solver skipped.');
+  warnedNoKey = true;
+  return false;
+}
+
 export const capMonsterSolver: Solver = {
   name: 'capmonster',
-  supports() {
-    if (accountError) return false;
-    if (apiKey()) return true;
-    if (!warnedNoKey) console.warn('[captcha] capmonster: CAPMONSTER_API_KEY is not set; solver skipped.');
-    warnedNoKey = true;
-    return false;
-  },
+  supports: capMonsterReady,
   async solve(page, challenge) {
     try {
       const taskId = challenge.kind === 'turnstile' ? await solveTurnstile(page, challenge)

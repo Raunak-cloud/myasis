@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
-import { reportRejectedToken, trySolveCaptcha } from '../dist/captcha.js';
+import { reportRejectedToken, trySolveCaptcha, watchCaptchas } from '../dist/captcha.js';
 
 // A stand-in for api.capmonster.cloud: no real task is created and nothing is spent.
 const calls = [];
@@ -30,7 +30,20 @@ process.env.CAPMONSTER_API_KEY = 'fixture-key';
 
 const TS_KEY = '0x4AAAAAAAfixtureKey000000';
 const RC_KEY = '6LfixtureRecaptchaKey';
+// Google's hidden iframe: asked for a token, it POSTs the action (protobuf field 8) to /reload and hands back what it gets.
+const ANCHOR = `<script>addEventListener('message', async (event) => {
+  if (!event.data?.action) return;
+  const action = new TextEncoder().encode(event.data.action);
+  const reply = await (await fetch('/recaptcha/api2/reload?k=' + new URLSearchParams(location.search).get('k'),
+    { method: 'POST', body: new Uint8Array([0x42, action.length, ...action]) })).text();
+  parent.postMessage({ token: JSON.parse(reply.slice(reply.indexOf('[')))[1] }, '*');
+});</script>`;
+const invisible = script => `${script}<iframe id="anchor" src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RC_KEY}&size=invisible"></iframe>
+  <button onclick="document.getElementById('anchor').contentWindow.postMessage({ action: 'apply_submit' }, '*')">Apply</button>
+  <script>addEventListener('message', event => { if (event.data?.token) document.title = 'token:' + event.data.token })</script>`;
 const PAGES = {
+  'v3.test': invisible(`<script src="https://www.google.com/recaptcha/api.js?render=${RC_KEY}"></script>`),
+  'v2-invisible.test': invisible(''),
   'turnstile.test': `<form><div class="cf-turnstile" data-sitekey="${TS_KEY}" data-action="apply" data-callback="onSolved"></div>
     <input name="cf-turnstile-response"><iframe src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/x/${TS_KEY}/auto/"></iframe></form>
     <script>window.onSolved = token => { document.title = 'callback:' + token }</script>`,
@@ -45,7 +58,11 @@ const PAGES = {
 
 const context = await chromium.launchPersistentContext(await mkdtemp(join(tmpdir(), 'capmonster-test-')), { channel: 'chrome', headless: true });
 try {
-  await context.route('**/*', route => route.fulfill({ contentType: 'text/html', body: PAGES[new URL(route.request().url()).hostname] ?? '' }));
+  await context.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    const google = url.pathname.endsWith('/reload') ? `)]}'\n["rresp","native-token",null,120]` : url.pathname.endsWith('/anchor') ? ANCHOR : '';
+    return route.fulfill({ contentType: 'text/html', body: url.hostname === 'www.google.com' ? google : PAGES[url.hostname] ?? '' });
+  });
   const open = async (host) => {
     const page = await context.newPage();
     await page.goto(`http://${host}/`);
@@ -90,6 +107,21 @@ try {
   assert.equal(await challenge.evaluate(() => Object.getOwnPropertyDescriptor(window, 'turnstile') === undefined, undefined, undefined, false), true,
     'the stand-in does not outlive the solve');
 
+  // reCAPTCHA v3 shows no wall: the token is swapped inside Google's own /reload response.
+  process.env.CAPMONSTER_RECAPTCHA_V3 = 'true';
+  watchCaptchas(context);
+  const v3 = await open('v3.test');
+  await v3.getByRole('button').click();
+  await v3.waitForFunction(() => document.title.startsWith('token:'));
+  assert.match(await v3.title(), /^token:rc-\d+$/, 'CapMonster token replaces the native one');
+  assert.deepEqual(task(), { type: 'RecaptchaV3TaskProxyless', websiteURL: 'http://v3.test/', websiteKey: RC_KEY, pageAction: 'apply_submit', minScore: 0.7, isEnterprise: false });
+  const solves = calls.filter(call => call.method === 'createTask').length;
+  const v2 = await open('v2-invisible.test');
+  await v2.getByRole('button').click();
+  await v2.waitForFunction(() => document.title.startsWith('token:'));
+  assert.equal(await v2.title(), 'token:native-token', 'an invisible v2 widget keeps its own token');
+  assert.equal(calls.filter(call => call.method === 'createTask').length, solves, 'and costs nothing');
+
   balance = 0;
   const broke = await open('turnstile.test');
   assert.equal(await trySolveCaptcha(broke), false, 'an empty balance hands off to a human');
@@ -97,7 +129,7 @@ try {
   assert.equal(await trySolveCaptcha(await open('turnstile.test')), false);
   assert.equal(calls.length, before, 'an account error stops further API calls for the run');
 
-  console.log('PASS: turnstile, embedded reCAPTCHA v2, Cloudflare challenge, legacy solver name, cooldown, token report, account-error shutoff');
+  console.log('PASS: turnstile, embedded reCAPTCHA v2, Cloudflare challenge, reCAPTCHA v3 swap, legacy solver name, cooldown, token report, account-error shutoff');
 } finally {
   await context.close();
   api.close();

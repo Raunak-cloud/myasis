@@ -215,12 +215,24 @@ cooldown, and the bot rechecks the page afterward.
 | Cloudflare full-page challenge | `TurnstileTask`, `cloudflareTaskType: token` | the challenge page's own callback |
 | reCAPTCHA v2 / Enterprise (checkbox, or invisible once its image challenge opens) | `RecaptchaV2Task` / `RecaptchaV2EnterpriseTask` | `g-recaptcha-response` + the callback in grecaptcha's config |
 
+| reCAPTCHA v3 / Enterprise (opt-in, `CAPMONSTER_RECAPTCHA_V3=true`) | `RecaptchaV3TaskProxyless` | swapped into Google's own `/reload` response |
+
 hCaptcha is not offered by CapMonster and still needs a human. Widgets inside
 embedded (iframe) forms are solved for, and written into, that frame.
 
 The full-page challenge only reveals its parameters to a `turnstile.render()`
 stand-in, so that one case registers a script on the blocked tab over CDP,
 reloads it once, and removes the script. Nothing is injected anywhere else.
+
+reCAPTCHA v3 shows no wall, so it is handled as the browser meets it: the hidden
+Google iframe's `/reload` response is paused over CDP on that iframe's own
+session, and CapMonster's token replaces Google's. No page script is involved
+and no other request is intercepted. grecaptcha abandons a held `/reload` after
+about 10 seconds, so a solve not back in 9 is dropped and the browser's own
+token goes through. It is off by default for a reason: measured on a live demo,
+CapMonster's tokens scored 0.1-0.3 against 0.3-0.7 for this browser's own, and
+every check on every page is billed. `CAPMONSTER_V3_SITES` limits it to the
+hostnames that need it.
 
 CapMonster receives the page URL and site key, never form contents, and solves
 through its own proxies. A token is only ever placed; submitting stays with

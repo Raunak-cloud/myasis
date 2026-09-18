@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
 import { judgePage } from './blocker.js';
+import { watchCaptchas } from './captcha.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -67,6 +68,7 @@ export async function launchBrowser(): Promise<BrowserContext> {
       attachedBrowsers.set(defaultContext, browser);
       defaultContext.setDefaultTimeout(30_000);
       await installEsbuildNameShim(defaultContext);
+      watchCaptchas(defaultContext);
       return defaultContext;
     }
 
@@ -154,6 +156,7 @@ export async function launchBrowser(): Promise<BrowserContext> {
   }
   ctx.setDefaultTimeout(30_000);
   await installEsbuildNameShim(ctx);
+  watchCaptchas(ctx);
   return ctx;
 }
 
