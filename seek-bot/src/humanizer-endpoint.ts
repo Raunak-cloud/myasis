@@ -93,6 +93,15 @@ export async function probeHumanizer(endpoint: HumanizerEndpoint, timeoutMs = 5_
   }
 }
 
+/**
+ * Sampling that a request leaves out is filled in by the server, and servers
+ * disagree: llama.cpp cuts to the 40 likeliest tokens and drops any under 5% of
+ * the top one, while a hosted vLLM-style API applies neither. The rewriting
+ * prompts and their validation were tuned against llama.cpp, so its defaults
+ * are sent explicitly and the same request samples the same way anywhere.
+ */
+const SAMPLING_DEFAULTS = { top_k: 40, min_p: 0.05, repetition_penalty: 1, presence_penalty: 0, frequency_penalty: 0 };
+
 /** Over the plan's concurrency, or the provider is briefly out of capacity: both clear by themselves. */
 const RETRYABLE = new Set([429, 500, 503]);
 const MAX_RETRIES = 3;
@@ -115,7 +124,7 @@ export async function chatCompletion(
     const response = await fetch(`${endpoint.base}/v1/chat/completions`, {
       method: 'POST',
       headers: headers(endpoint),
-      body: JSON.stringify({ ...body, model: endpoint.model, stream: false }),
+      body: JSON.stringify({ ...SAMPLING_DEFAULTS, ...body, model: endpoint.model, stream: false }),
       signal: AbortSignal.timeout(Math.max(1_000, deadline - Date.now())),
     });
     const wait = 1_500 * (attempt + 1);

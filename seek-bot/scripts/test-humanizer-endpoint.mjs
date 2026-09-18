@@ -18,7 +18,7 @@ const server = createServer((request, response) => {
     request.on('data', chunk => (raw += chunk));
     return request.on('end', () => (busy-- > 0
       ? reply(429, { error: { message: 'Concurrency limit exceeded' } })
-      : reply(200, { choices: [{ message: { content: `model=${JSON.parse(raw).model}` } }] })));
+      : reply(200, { choices: [{ message: { content: `model=${JSON.parse(raw).model}` } }], echo: JSON.parse(raw) })));
   }
   reply(404, {});
 });
@@ -47,15 +47,19 @@ try {
   const before = seen.length;
   const reply = await chatCompletion(hosted, { messages: [{ role: 'user', content: 'hi' }] }, Date.now() + 30_000);
   assert.equal(reply.status, 200, 'a plan at its concurrency limit is retried, not failed');
-  assert.equal((await reply.json()).choices[0].message.content, 'model=authormist/authormist-originality');
+  const served = await reply.json();
+  assert.equal(served.choices[0].message.content, 'model=authormist/authormist-originality');
+  assert.deepEqual([served.echo.top_k, served.echo.min_p, served.echo.repetition_penalty], [40, 0.05, 1], 'the sampling defaults of llama.cpp are sent, not left to the server');
   assert.equal(seen.length - before, 3, 'two refusals, then served');
+  const tuned = await (await chatCompletion(hosted, { messages: [], top_k: 20 }, Date.now() + 5_000)).json();
+  assert.equal(tuned.echo.top_k, 20, 'a value the caller sets wins');
 
   busy = 9;
   assert.equal((await chatCompletion(hosted, { messages: [] }, Date.now() + 2_000)).status, 429, 'retries stop at the caller\'s deadline');
   busy = 0;
   assert.equal((await chatCompletion({ ...hosted, apiKey: 'bad-key' }, { messages: [] }, Date.now() + 5_000)).status, 401, 'a refused key is not retried');
 
-  console.log('PASS: endpoint normalisation, warm/cold/401/404 probes, llama.cpp health, 429 retry, deadline, no retry on 401');
+  console.log('PASS: endpoint normalisation, pinned sampling, warm/cold/401/404 probes, llama.cpp health, 429 retry, deadline, no retry on 401');
 } finally {
   server.close();
 }
