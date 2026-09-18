@@ -6,6 +6,7 @@ import { entitlementsFor, RUN_TIME_ZONE, type Entitlements } from './entitlement
 import { sessionFor } from './signin.js';
 import { sendDailyDigests, digestDue } from './digest.js';
 import { accountSetupComplete } from './setup.js';
+import { readSiteState } from './seek-state.js';
 
 /**
  * Applications for the accounts that do not drive runs themselves.
@@ -146,7 +147,7 @@ async function scheduledAccounts(): Promise<Scheduled[]> {
     try {
       const entitlements = await entitlementsFor(user.id, user.email);
       if (entitlements.autoRunsPerDay === 0 || entitlements.autoApplyPaused) continue;
-      const ready = await accountSetupComplete(user.id).catch(() => false);
+      const ready = (await accountSetupComplete(user.id).catch(() => false)) && boardAvailable(user.id);
       scheduled.push({ userId: user.id, email: user.email, entitlements, ready });
     } catch {
       // One unavailable account must not hide the schedule for everyone else.
@@ -225,6 +226,19 @@ export interface AutoScheduleStatus {
 }
 
 /** The next slot the same timetable used by `autoRunTick` assigns this account. */
+/**
+ * A run can only apply through a board the account is signed in to. An
+ * account whose every known board session is dead is left off the
+ * timetable rather than given a run that fails at the sign-in check and
+ * reports a broken service. A board never checked is not held against it:
+ * the first run is how that gets found out.
+ */
+function boardAvailable(userId: string): boolean {
+  const states = [readSiteState(userId, 'seek'), readSiteState(userId, 'indeed')];
+  const known = states.filter((state) => state !== null);
+  return known.length === 0 || known.some((state) => state!.signedIn);
+}
+
 export async function autoScheduleFor(userId: string, now: Date = new Date()): Promise<AutoScheduleStatus | null> {
   const accounts = await scheduledAccounts();
   const account = accounts.find((candidate) => candidate.userId === userId);

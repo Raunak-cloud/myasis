@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
+import { useBoardsStatus } from '../boards';
 import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
@@ -308,6 +309,9 @@ export function RunPanel({
    * rather than controls that would be refused.
    */
   const entitlements = useEntitlements();
+  const boards = useBoardsStatus();
+  /** No board signed in means no run can apply, so automatic runs have nothing to do until that is fixed. */
+  const signedOutEverywhere = boards !== null && !boards.seek?.signedIn && !boards.indeed?.signedIn;
   const driving = entitlements?.manualRuns ?? true;
   /** Admin runs have no limits: the limit fields are hidden and nothing is capped in the form. */
   const isAdmin = entitlements?.tier === 'admin';
@@ -836,7 +840,7 @@ export function RunPanel({
         </div>
 
         {entitlements && entitlements.autoRunsPerDay !== 0 && (
-          <div className={`run-auto-row${entitlements.autoApplyPaused ? ' paused' : ''}`}>
+          <div className={`run-auto-row${entitlements.autoApplyPaused || signedOutEverywhere ? ' paused' : ''}`}>
             <span className="run-auto-label">
               <span className="auto-apply-dot" aria-hidden="true" />
               Auto apply
@@ -844,6 +848,8 @@ export function RunPanel({
             <span className="job-meta">
               {entitlements.autoApplyPaused
                 ? 'off'
+                : signedOutEverywhere
+                ? 'waiting until you sign in to a job board'
                 : autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
                 ? 'starts once your setup is complete'
                 : `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} today${autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}`}
@@ -854,9 +860,11 @@ export function RunPanel({
                 role="switch"
                 aria-checked={!entitlements.autoApplyPaused}
                 aria-label="Automatic runs"
-                className={`auto-switch${entitlements.autoApplyPaused ? '' : ' on'}`}
-                disabled={autoToggling}
-                title={entitlements.autoApplyPaused
+                className={`auto-switch${entitlements.autoApplyPaused || signedOutEverywhere ? '' : ' on'}`}
+                disabled={autoToggling || signedOutEverywhere}
+                title={signedOutEverywhere
+                  ? 'Automatic runs need a signed-in job board. Sign in below first.'
+                  : entitlements.autoApplyPaused
                   ? 'Turn automatic runs back on'
                   : 'Turn automatic runs off, for example once you have found a job or want a break'}
                 onClick={() => void setAutoApply(entitlements.autoApplyPaused)}
@@ -870,7 +878,7 @@ export function RunPanel({
             />
           </div>
         )}
-        {autoSchedule?.lastError && !running && !entitlements?.autoApplyPaused && (
+        {autoSchedule?.lastError && !running && !entitlements?.autoApplyPaused && !signedOutEverywhere && (
           <div className="banner banner-bad run-auto-error" role="alert">
             <strong>The last scheduled run could not start.</strong> {autoSchedule.lastError.message}
           </div>
