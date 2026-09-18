@@ -115,7 +115,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
         <section className="home-explainer" id="how-it-works">
           <div className="home-section-head">
-            <span className="home-eyebrow">How it works</span>
             <h2>How Owtomate applies to jobs for you</h2>
             <p>Three steps, and the first one is the only one that needs you.</p>
           </div>
@@ -141,7 +140,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
         <section className="home-pricing" id="pricing">
           <div className="home-section-head">
-            <span className="home-eyebrow">Pricing</span>
             <h2>Choose an Owtomate pass.</h2>
             <p>Pay once. No recurring charges. Prices in Australian dollars.</p>
           </div>
@@ -176,7 +174,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
         <section className="home-questions" id="questions">
           <div className="home-section-head">
-            <span className="home-eyebrow">Questions</span>
             <h2>Questions about automatic job applications</h2>
           </div>
           <div className="home-faq-list">
