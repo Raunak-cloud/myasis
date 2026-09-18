@@ -1024,10 +1024,9 @@ a:focus-visible,
   white-space: nowrap;
 }
 .wordmark-ow { color: var(--wordmark-accent, var(--accent)); }
-/* The owl is the "o": sized to the letter and sat on the baseline, whatever the font size. */
+/* The tile is the "o": sized to the letter and sat just under the baseline, whatever the font size. */
 .wordmark .wordmark-owl {
-  display: inline-block; width: .92em; height: 1.1em; margin-right: -.06em; vertical-align: -.16em;
-  color: var(--wordmark-accent, var(--accent)); transform: rotate(6deg); transform-origin: 50% 60%;
+  display: inline-block; width: 1em; height: 1em; margin-right: .06em; vertical-align: -.13em;
 }
 /* The list fills the sidebar so its foot sits at the bottom, not under the last link. */
 .side-nav { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; }
@@ -1884,7 +1883,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
    Three cards in a row whose prices and buttons line up, a strip that says
    which plan this account is on, and the terms in one line under the grid.
    The buttons sit at the bottom of every card whatever the feature count. */
-.pricing-page { display: grid; gap: 26px; max-width: 1120px; }
+.pricing-page { display: grid; gap: 26px; }
 
 .pricing-notice { padding: 12px 15px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
 .pricing-notice.ok { border-color: var(--ok); background: var(--ok-soft); }
@@ -1896,7 +1895,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 }
 .pricing-kicker { color: var(--accent); }
 
-.pricing-head { max-width: 640px; }
+.pricing-head { max-width: none; }
 .pricing-head h2 { margin: 8px 0 8px; font-size: clamp(24px, 3vw, 32px); line-height: 1.15; letter-spacing: -.035em; }
 .pricing-head p { margin: 0; color: var(--text-dim); font-size: 15px; line-height: 1.6; }
 
