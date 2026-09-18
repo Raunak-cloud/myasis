@@ -1057,6 +1057,18 @@ a:focus-visible,
 .nav-theme button:hover:not(.on) { color: var(--text); }
 
 .nav-account { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 2px; }
+/* Which boards the account is signed in to: one quiet row, a dot per board. */
+.nav-boards {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; padding: 8px 12px; text-align: left;
+  border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--text);
+  font: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .15s ease;
+}
+.nav-boards:hover { border-color: var(--accent); }
+.nav-boards-label { font-size: 11px; color: var(--text-dim); }
+.nav-board { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.nav-board-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.nav-board.off { color: var(--text-dim); font-weight: 500; }
+.nav-board.off .nav-board-dot { background: var(--bad); }
 /* The plan, as a quiet card that is also the way to the pricing page. */
 .nav-plan {
   display: grid; gap: 2px; width: 100%; padding: 10px 12px; text-align: left;

@@ -15,6 +15,7 @@ import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 import { useEntitlements } from './entitlements';
 import { planName, shortDate, useBillingStatus } from './billing';
+import { useBoardsStatus } from './boards';
 import { trackPage } from './analytics';
 import { useRunStatus } from './runStatus';
 
@@ -76,6 +77,7 @@ export default function App() {
   const { user, googleConfigured, loading: authLoading, signOut } = useAuth();
   const entitlements = useEntitlements();
   const billing = useBillingStatus();
+  const boards = useBoardsStatus();
   /**
    * The rewriting tool is the operator's, so its tab is not offered. Landing
    * on it by an old link or a stale tab falls back to Apply rather than
@@ -294,6 +296,36 @@ export default function App() {
               should never have to open the pricing page to learn whether
               tonight's run will be allowed to apply.
             */}
+            {/*
+              Which job boards the account is signed in to, from every screen.
+              It used to sit among the run controls, where two green ticks read
+              as "both boards are switched on". Here, beside the plan, it reads
+              as what it is: the state of the account. Signing in still happens
+              on the Apply page, which is where this row leads.
+            */}
+            {boards && (boards.seek || boards.indeed) && (
+              <button
+                type="button"
+                className="nav-boards"
+                onClick={() => go('run')}
+                aria-label="Job board sign-in. Opens the Apply page."
+                title="Sign in or refresh a sign-in on the Apply page."
+              >
+                <span className="nav-boards-label">Signed in to</span>
+                {(['seek', 'indeed'] as const).map((board) => {
+                  const state = boards[board];
+                  if (!state) return null;
+                  return (
+                    <span key={board} className={`nav-board ${state.signedIn ? 'on' : 'off'}`}>
+                      <span className="nav-board-dot" aria-hidden="true" />
+                      {board === 'seek' ? 'SEEK' : 'Indeed'}
+                      {!state.signedIn && <span className="job-meta"> · signed out</span>}
+                    </span>
+                  );
+                })}
+              </button>
+            )}
+
             {billing && entitlements && (
               <button
                 type="button"

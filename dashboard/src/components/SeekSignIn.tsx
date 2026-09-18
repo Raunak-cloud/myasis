@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BOARDS_CHANGED } from '../boards';
 
 /**
  * Signing in to SEEK, in a browser this account controls.
@@ -62,6 +63,7 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
         verify ? `/api/signin/session?verify=${encodeURIComponent(sites)}` : '/api/signin/session',
       );
       setStatus(await response.json());
+      window.dispatchEvent(new Event(BOARDS_CHANGED));
     } catch {
       setStatus({ supported: false, session: null });
     }
@@ -214,30 +216,11 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
     const seekSettled = Boolean(status.seek?.signedIn);
     const indeedSettled = !indeedEnabled || Boolean(status.indeed?.signedIn);
     /**
-     * Signed in everywhere: say so in one line rather than nothing.
-     *
-     * A green tick per job board is the answer to "did that work?", which
-     * a person asks right after closing the window, and it stays as a quiet
-     * confirmation afterwards. Still nothing while a check is in progress,
-     * since a tick would be a guess.
+     * Signed in everywhere: nothing to show here. The menu foot carries the
+     * signed-in state on every screen, so repeating it among the run
+     * controls only made it look like a setting.
      */
-    if (seekSettled && indeedSettled && !error && !notice) {
-      const boards = [['SEEK', true] as const, ...(indeedEnabled ? [['Indeed', true] as const] : [])];
-      return (
-        <div className="signin-status" role="status" aria-label="Signed in">
-          {/* Says what the ticks mean. Bare ticks read as "both boards are switched on", which is chosen in Start run, not here. */}
-          <span className="signin-status-label">Signed in to</span>
-          {boards.map(([name]) => (
-            <span className="signin-pill" key={name} title={`Your ${name} session is active. Which boards a run uses is chosen when you start a run.`}>
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-              {name}
-            </span>
-          ))}
-        </div>
-      );
-    }
+    if (seekSettled && indeedSettled && !error && !notice) return null;
 
     const expired = status.seek?.signedIn === false;
     const indeedExpired = status.indeed?.signedIn === false;
