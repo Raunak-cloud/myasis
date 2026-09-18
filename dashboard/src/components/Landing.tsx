@@ -5,6 +5,7 @@ import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
 import { HeroStory } from './HeroStory';
+import { TrustStrip } from './TrustStrip';
 
 /** Mirrored word for word in index.html's FAQ structured data; change both together. */
 const QUESTIONS = [
@@ -108,6 +109,8 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             {error && <div className="home-error" role="alert">{error}</div>}
           </div>
         </section>
+
+        <TrustStrip />
 
         <section className="home-demo" id="demo" aria-label="A real recorded run of Owtomate submitting a job application.">
           <div className="home-width home-demo-inner">

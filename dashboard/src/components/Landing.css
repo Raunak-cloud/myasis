@@ -144,6 +144,75 @@
   font-size: 13.5px; border-radius: var(--radius-soft);
 }
 
+/* ============================================================ trust (user count + placement ticker) */
+
+.home-trust {
+  padding: 22px 0;
+  border-block: var(--edge-thin);
+  background: var(--paper-2);
+}
+.home-trust-inner {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px clamp(28px, 4vw, 56px); align-items: center;
+}
+.home-trust-stat {
+  margin: 0; display: grid; gap: 2px; justify-items: start;
+  padding-right: clamp(20px, 3vw, 40px);
+  border-right: 1px solid var(--rule);
+}
+.home-trust-kicker {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  letter-spacing: .08em; text-transform: lowercase; white-space: nowrap;
+}
+.home-trust-count {
+  font-family: var(--display); font-size: clamp(30px, 3vw, 40px);
+  line-height: 1; color: var(--ink); letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.home-trust-ticker { min-width: 0; display: grid; gap: 10px; }
+.home-trust-label {
+  margin: 0; font-family: var(--mono); font-size: 11px; color: var(--muted);
+  letter-spacing: .08em; text-transform: lowercase;
+}
+/* Two copies of the row sit side by side; the track slides exactly one row width,
+   so the second copy lands where the first began and the loop has no seam. */
+.home-trust-window {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+.home-trust-track {
+  display: flex; width: max-content;
+  animation: trust-scroll 70s linear infinite;
+}
+.home-trust-window:hover .home-trust-track,
+.home-trust-window:focus-within .home-trust-track { animation-play-state: paused; }
+@keyframes trust-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.home-trust-row {
+  list-style: none; margin: 0; padding: 0 8px 4px 0;
+  display: flex; gap: 14px; flex: none;
+}
+.home-trust-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px 8px 8px;
+  border: var(--edge-thin); background: var(--paper);
+  box-shadow: 2px 2px 0 var(--rule);
+  white-space: nowrap;
+}
+.home-trust-mono {
+  display: grid; place-items: center; flex: none;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-deep);
+  font-family: var(--display); font-size: 13px; font-weight: 600;
+}
+.home-trust-text { display: grid; line-height: 1.3; }
+.home-trust-who { font-size: 13px; color: var(--ink-2); }
+.home-trust-where { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+.home-trust-where strong { color: var(--ink); font-weight: 600; }
+
 /* ============================================================ demo (video frame + tape-on note) */
 
 .home-demo { padding: clamp(48px, 6vw, 72px) 0 clamp(48px, 6vw, 88px); }
@@ -560,6 +629,12 @@
   .home-hero-actions .home-button { width: 100%; }
   .home-hero-actions .home-hero-note { text-align: left; }
 
+  .home-trust-inner { grid-template-columns: minmax(0, 1fr); }
+  .home-trust-stat { grid-template-columns: auto auto; justify-content: start; align-items: baseline; gap: 10px; padding-right: 0; border-right: 0; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+  .home-trust-stat .home-trust-kicker:first-child { grid-column: 1 / -1; }
+  /* The ticker sits inside .home-width's padding; let the cards run to the screen edge instead. */
+  .home-trust-window { margin-inline: -20px; padding-inline: 20px; }
+
   .home-demo-rec-top { font-size: 10.5px; gap: 10px; padding: 10px 12px; }
   .home-demo-rec-name { display: none; }
 
@@ -612,6 +687,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .home-demo-rec-dot { animation: none; }
+  .home-trust-track { animation: none; width: auto; }
+  .home-trust-row[aria-hidden] { display: none; }
+  .home-trust-window { overflow-x: auto; scrollbar-width: thin; -webkit-mask-image: none; mask-image: none; }
   .landing .home-button, .home-login, .home-faq-toggle { transition: none; }
   .mascot-head, .mascot-pupils { animation: none !important; }
 }
