@@ -17,6 +17,22 @@ const KNOWLEDGE_EXT = new Set(['.pdf', '.doc', '.docx', '.txt', '.md', '.json', 
 const MAX_BYTES = 8 * 1024 * 1024;
 
 /**
+ * The first bytes each binary type always starts with. A file is refused when
+ * its name says one thing and its bytes another; plain-text types have no
+ * signature and are taken at their word.
+ */
+const SIGNATURE: Record<string, (b: Buffer) => boolean> = {
+  '.pdf': (b) => b.subarray(0, 5).toString('latin1') === '%PDF-',
+  '.docx': (b) => b[0] === 0x50 && b[1] === 0x4b,
+  '.doc': (b) => b[0] === 0xd0 && b[1] === 0xcf,
+  '.rtf': (b) => b.subarray(0, 5).toString('latin1') === '{\\rtf',
+};
+function bytesMatch(ext: string, buf: Buffer): boolean {
+  const check = SIGNATURE[ext];
+  return check ? check(buf) : true;
+}
+
+/**
  * Strips any path component from a client-supplied name.
  * The upload endpoints are local-only, but a name like `../../.env` would
  * otherwise let a request write outside the account's data directory.
@@ -95,6 +111,7 @@ export async function addResume(
   const buf = Buffer.from(input.base64, 'base64');
   if (!buf.length) return { ok: false, error: 'Empty file.' };
   if (buf.length > MAX_BYTES) return { ok: false, error: 'File is larger than 8 MB.' };
+  if (!bytesMatch(ext, buf)) return { ok: false, error: `This does not look like a ${ext.slice(1).toUpperCase()} file.` };
 
   ensureUserDataDir(userId);
   const resumeDir = userResumeDir(userId);
@@ -220,6 +237,7 @@ export async function addKnowledgeFile(
   const buf = Buffer.from(input.base64, 'base64');
   if (!buf.length) return { ok: false, error: 'Empty file.' };
   if (buf.length > MAX_BYTES) return { ok: false, error: 'File is larger than 8 MB.' };
+  if (!bytesMatch(ext, buf)) return { ok: false, error: `This does not look like a ${ext.slice(1).toUpperCase()} file.` };
 
   ensureUserDataDir(userId);
   const knowledgeDir = userKnowledgeDir(userId);
@@ -356,10 +374,8 @@ export async function previewText(
     }
     return { ok: true, text, label: found.label };
   } catch (e) {
-    return {
-      ok: false,
-      error: `Could not extract text: ${(e as Error).message}. Is seek-bot built? Run \`npm run build\` there.`,
-    };
+    console.warn('[files] text extraction failed:', (e as Error).message);
+    return { ok: false, error: 'The text of this file could not be read. A PDF or DOCX exported again from its editor usually works.' };
   }
 }
 

@@ -140,22 +140,3 @@ export async function saveUserSettings(
   return loadUserSettings(userId);
 }
 
-/**
- * `/api/settings` shows shared install-level config (`env`, from
- * `readEnvSafe()`) alongside this account's own per-user settings. A
- * `KEEP_SETTINGS_KEYS` entry must NEVER be answered from `env`: the shared
- * `.env` still has real values left over from before per-user settings
- * existed (e.g. the previous single account's KEYWORDS), and falling back to
- * them for a brand-new account with no saved settings yet would leak that
- * account's search preferences into every other account's blank defaults.
- */
-export function mergeWithSharedEnv(
-  env: Record<string, string>,
-  userSettings: Record<string, string>,
-): Record<string, string> {
-  const shared: Record<string, string> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (!KEEP_SET.has(key)) shared[key] = value;
-  }
-  return { ...shared, ...userSettings };
-}

@@ -1,4 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import { upgradeOriginAllowed } from './http-guards.js';
 import { currentUser } from './auth.js';
 import { readEnv, runner } from './runner.js';
 
@@ -175,6 +176,11 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
 
   server.on('upgrade', (req: any, socket: any, head: any) => {
     if (!req.url?.startsWith('/ws/screencast')) return; // leave HMR alone
+    if (!upgradeOriginAllowed(req)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     void currentUser(req.headers?.cookie).then((user) => {
       const port = user ? runner.browserPortFor(user.id) : null;
       if (!user || !port) {

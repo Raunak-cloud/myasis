@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { userChromeDir, userDir } from './server/userdata.js';
 import { runner, readEnv, readEnvSafe, isRunMode, type RunMode } from './server/runner.js';
@@ -15,16 +15,18 @@ import { loadAttention, dismissAllAttention } from './server/attention.js';
 import { setupStatus } from './server/setup.js';
 import { loadProfile as loadCandidate, saveProfile } from './server/profile.js';
 import {
-  loadUserSettings, saveUserSettings, mergeWithSharedEnv, runSettingsForUser,
+  loadUserSettings, saveUserSettings, runSettingsForUser,
   USER_SETTABLE_SETTINGS_KEYS,
 } from './server/settings.js';
 import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
+import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
+import { isAdmin as isAdminEmail } from './server/billing.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { startProfileMaintenance } from './server/profile-prune.js';
 import { startHealthMaintenance } from './server/health.js';
 import { startTraceRetention } from './server/trace-retention.js';
-import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions } from './server/auth.js';
+import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions, clearOauthCookie } from './server/auth.js';
 import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
   billingStatus,
@@ -50,7 +52,6 @@ import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 import { releaseChromeProfile } from './server/chrome-profile.js';
 import { stopAllSignins } from './server/signin.js';
 
-const DATA_DIR = resolve(import.meta.dirname, '..', 'seek-bot', 'data');
 
 const exactValuePattern = /(?:https?:\/\/|www\.)\S+|[\w.+-]+@[\w.-]+\.\w+|\b\d+(?:[.,]\d+)*%?\b/gi;
 
@@ -255,14 +256,39 @@ function rowToApplication(a: ApplicationRow) {
  */
 function dataApi(): Plugin {
   const handler = (req: any, res: any, next: any) => {
+    /**
+     * The landing page is baked into the built HTML for crawlers. Someone
+     * arriving with a session is about to see the app, and would otherwise
+     * watch the landing flash past first, so they get the shell without it.
+     */
+    if (req.method === 'GET' && /^\/(?:index\.html)?(?:\?|$)/.test(req.url ?? '') && hasSessionCookie(req)) {
+      const shell = signedInShell(resolve(import.meta.dirname, 'dist'));
+      if (shell) {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Vary', 'Cookie');
+        return res.end(shell);
+      }
+    }
     if (!req.url?.startsWith('/api/')) return next();
 
-    // The extension runs on seek.com.au and calls this local API, so the
-    // browser needs an explicit allow. Nothing sensitive is served here and it
-    // only ever listens on localhost.
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    // Nothing under /api is a page; keep it out of search results.
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    /**
+     * Cross-origin reads are allowed only to callers with a reason: the
+     * browser extension and a developer's localhost. The site's own pages are
+     * same-origin and need none of this; anyone else gets no allow header.
+     */
+    const origin = allowedOrigin(req);
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+      res.setHeader('Vary', 'Origin');
+    }
     if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
 
     const send = (body: unknown, status = 200) => {
@@ -275,31 +301,53 @@ function dataApi(): Plugin {
     const url = new URL(req.url, 'http://localhost');
     const route = url.pathname;
 
-    const readBody = (): Promise<any> =>
-      new Promise((res2) => {
-        let raw = '';
-        req.on('data', (c: any) => (raw += c));
-        req.on('end', () => {
-          try {
-            res2(JSON.parse(raw || '{}'));
-          } catch {
-            res2({});
-          }
-        });
-      });
+    // Every body is capped; a route that takes an upload passes the larger limit.
+    const readBody = (limit = DEFAULT_BODY_LIMIT): Promise<any> => readJsonBody(req, limit);
+    const readRawBody = (limit = DEFAULT_BODY_LIMIT): Promise<Buffer> => readRawBodyLimited(req, limit);
 
-    const readRawBody = (): Promise<Buffer> =>
-      new Promise((resolveBody) => {
-        const chunks: Buffer[] = [];
-        req.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-        req.on('end', () => resolveBody(Buffer.concat(chunks)));
-      });
+    /**
+     * Requests a browser marks as started by another site are refused on
+     * anything that changes state, and on the one GET with a side effect.
+     * Stripe and other non-browser callers send no such header and are
+     * left to each route's own authentication.
+     */
+    const mutating = req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
+    if (mutating && route !== '/api/billing/webhook' && crossSite(req)) {
+      return send({ error: 'Cross-site requests are not accepted.' }, 403);
+    }
+
+    /**
+     * Rate limits, per address for what needs no sign-in and per account
+     * for what costs money. A limit that trips answers 429 and does nothing.
+     */
+    const address = requesterAddress(req);
+    const limits: Array<[RegExp, number, number, string]> = [
+      [/^\/api\/auth\//, 30, 10 * 60_000, 'sign-in'],
+      [/^\/api\/visit/, 120, 60_000, 'visits'],
+      [/^\/api\/billing\//, 30, 10 * 60_000, 'billing'],
+      [/^\/api\/search-terms\/generate$/, 10, 60 * 60_000, 'suggestions'],
+      [/^\/api\/assist\/answer$/, 60, 60 * 60_000, 'answers'],
+      [/^\/api\/(resumes|knowledge)$/, 30, 60 * 60_000, 'uploads'],
+      [/^\/api\//, 600, 60_000, 'api'],
+    ];
+    for (const [pattern, limit, windowMs, name] of limits) {
+      if (!pattern.test(route)) continue;
+      if (name === 'uploads' && req.method !== 'POST') continue;
+      if (rateLimited(`${name}:${address}`, limit, windowMs)) {
+        res.setHeader('Retry-After', String(Math.ceil(windowMs / 1000)));
+        return send({ error: 'Too many requests. Try again in a little while.' }, 429);
+      }
+      break;
+    }
 
     /** Every account-scoped route funnels through this — 401 if not signed in. */
     const withUser = (fn: (userId: string) => Promise<void> | void) =>
       currentUser(req.headers?.cookie).then((user) => {
         if (!user) return send({ error: 'Sign in required.' }, 401);
         return fn(user.id);
+      }).catch((error) => {
+        if (error instanceof BodyTooLarge) return send({ error: error.message }, 413);
+        throw error;
       });
 
     // The operator's dashboard: every route in it checks for an admin on each request.
@@ -346,7 +394,11 @@ function dataApi(): Plugin {
           try {
             return send(await createCheckout(user, body.planKey));
           } catch (error) {
-            return send({ error: (error as Error).message }, 503);
+            const message = (error as Error).message;
+            // Our own refusals are written for the customer; anything from Stripe is logged and replaced.
+            const ours = /not configured|top-up adds/i.test(message);
+            if (!ours) console.warn('[billing] checkout failed:', message);
+            return send({ error: ours ? message : 'Checkout could not be opened. Try again in a minute.' }, 503);
           }
         });
       }
@@ -361,7 +413,8 @@ function dataApi(): Plugin {
             const result = await fulfillCheckoutSession(sessionId, user.id);
             return send({ ok: true, ...result, status: await billingStatus(user.id) });
           } catch (error) {
-            return send({ error: (error as Error).message }, 400);
+            console.warn('[billing] confirm failed:', (error as Error).message);
+            return send({ error: 'The payment could not be confirmed yet. If you were charged, it will be credited within a few minutes.' }, 400);
           }
         });
       }
@@ -371,7 +424,7 @@ function dataApi(): Plugin {
         const signatureHeader = req.headers?.['stripe-signature'];
         const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
         if (!signature) return send({ error: 'Missing payment signature.' }, 400);
-        return readRawBody().then(async (rawBody) => {
+        return readRawBody(DEFAULT_BODY_LIMIT).then(async (rawBody) => {
           try {
             await handleStripeWebhook(rawBody, signature);
             return send({ received: true });
@@ -488,17 +541,6 @@ function dataApi(): Plugin {
           return send(rows);
         });
       }
-      case '/api/meta': {
-        // Diagnostic only (a local path + timestamp, not account data) — kept
-        // unauthenticated like the browser/screencast debug endpoints below.
-        const p = resolve(DATA_DIR, 'applied.json');
-        return send({
-          dataDir: DATA_DIR,
-          exists: existsSync(p),
-          lastModified: existsSync(p) ? statSync(p).mtime.toISOString() : null,
-        });
-      }
-
       case '/api/settings': {
         return withUser(async (userId) => {
           if (req.method === 'POST') {
@@ -517,9 +559,9 @@ function dataApi(): Plugin {
               updates[key] = String(value ?? '');
             }
             const settings = await saveUserSettings(userId, updates);
-            return send({ ok: true, settings: mergeWithSharedEnv(readEnvSafe(), settings) });
+            return send({ ok: true, settings });
           }
-          return send(mergeWithSharedEnv(readEnvSafe(), await loadUserSettings(userId)));
+          return send(await loadUserSettings(userId));
         });
       }
 
@@ -728,7 +770,7 @@ function dataApi(): Plugin {
       case '/api/resumes': {
         return withUser(async (userId) => {
           if (req.method === 'POST') {
-            const b = await readBody();
+            const b = await readBody(UPLOAD_BODY_LIMIT);
             const r = await addResume(userId, b);
             if (!r.ok) return send({ error: r.error }, 400);
             /**
@@ -760,7 +802,7 @@ function dataApi(): Plugin {
       case '/api/knowledge': {
         return withUser(async (userId) => {
           if (req.method === 'POST') {
-            const b = await readBody();
+            const b = await readBody(UPLOAD_BODY_LIMIT);
             if (b?.kind === 'note') {
               if (!b.text?.trim()) return send({ error: 'Note text is required.' }, 400);
               await addKnowledgeNote(userId, { label: b.label ?? 'Note', text: b.text });
@@ -790,8 +832,11 @@ function dataApi(): Plugin {
           const found = await resolveStored(userId, kind, id);
           if (!found || !existsSync(found.path)) return send({ error: 'File not found.' }, 404);
           const ext = found.fileName.slice(found.fileName.lastIndexOf('.')).toLowerCase();
-          const disposition = url.searchParams.get('download') === '1' ? 'attachment' : 'inline';
+          // Only a PDF or plain text is shown in the browser; anything else is a download whatever was asked.
+          const viewable = ext === '.pdf' || ext === '.txt' || ext === '.md' || ext === '.csv' || ext === '.json';
+          const disposition = url.searchParams.get('download') === '1' || !viewable ? 'attachment' : 'inline';
           res.statusCode = 200;
+          res.setHeader('X-Content-Type-Options', 'nosniff');
           res.setHeader('Content-Type', MIME[ext] ?? 'application/octet-stream');
           res.setHeader(
             'Content-Disposition',
@@ -865,7 +910,7 @@ function dataApi(): Plugin {
            * first-time copy ("Sign in once…") until there is a real prior
            * session worth reconfirming.
            */
-          const verifySites = (url.searchParams.get('verify') ?? '')
+          const verifySites = (crossSite(req) ? '' : url.searchParams.get('verify') ?? '')
             .split(',')
             .filter((site): site is 'seek' | 'indeed' => site === 'seek' || site === 'indeed')
             .filter((site) => priorState[site] !== null);
@@ -952,22 +997,25 @@ function dataApi(): Plugin {
         const r = googleAuthUrl();
         if (!r.ok) return send({ error: r.error }, 400);
         res.statusCode = 302;
+        // The nonce inside `state` is also set here, so the callback can prove the same browser started this.
+        res.setHeader('Set-Cookie', r.cookie);
         res.setHeader('Location', r.url);
         return res.end();
       }
 
       case '/api/auth/callback/google': {
-        return handleGoogleCallback(url.searchParams.get('code'), url.searchParams.get('state')).then(
+        return handleGoogleCallback(url.searchParams.get('code'), url.searchParams.get('state'), req.headers?.cookie).then(
           (r) => {
             if (!r.ok) {
               // Send the reason back to the app rather than a bare JSON error.
               res.statusCode = 302;
+              res.setHeader('Set-Cookie', clearOauthCookie());
               res.setHeader('Location', '/?auth_error=' + encodeURIComponent(r.error ?? 'failed'));
               return res.end();
             }
             void pruneSessions();
             res.statusCode = 302;
-            res.setHeader('Set-Cookie', r.cookie);
+            res.setHeader('Set-Cookie', [r.cookie, clearOauthCookie()]);
             res.setHeader('Location', '/');
             return res.end();
           },
@@ -975,6 +1023,7 @@ function dataApi(): Plugin {
       }
 
       case '/api/auth/logout': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return logout(req.headers?.cookie).then((cookie) => {
           res.setHeader('Set-Cookie', cookie);
           return send({ ok: true });
@@ -982,11 +1031,21 @@ function dataApi(): Plugin {
       }
 
       case '/api/db/health':
-        return dbHealth().then((h) => send(h, h.ok ? 200 : 503));
+        return currentUser(req.headers?.cookie).then(async (u) => {
+          if (!u || !isAdminEmail(u.email)) return send({ error: 'Admins only.' }, 403);
+          const h = await dbHealth();
+          return send({ ok: h.ok }, h.ok ? 200 : 503);
+        });
 
       case '/api/db/migrate': {
+        /**
+         * A one-time import of the pre-database files into an account. It
+         * creates the account it is told to, so it is for an admin alone:
+         * open, it would let anyone claim the previous owner's résumés.
+         */
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
-        return readBody().then(async (b) => {
+        return Promise.all([currentUser(req.headers?.cookie), readBody()]).then(async ([actor, b]) => {
+          if (!actor || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
           const m = await dbMigrate();
           if (!m.ok) return send({ error: m.error }, 500);
           if (!b?.email) return send({ ok: true, schema: 'applied' });
@@ -1293,6 +1352,13 @@ function publicHosts(): string[] {
 
 export default defineConfig({
   plugins: [react(), dataApi()],
+  /**
+   * Not "spa": the app lives at / alone, with tabs in the query string, so
+   * any other path is a mistake and should say so. In spa mode every typo
+   * answered 200 with the landing page, which search engines index as a
+   * duplicate of it.
+   */
+  appType: 'mpa',
   server: { port: 5180, open: true },
   preview: { allowedHosts: publicHosts() },
 });

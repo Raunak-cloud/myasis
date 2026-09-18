@@ -284,6 +284,7 @@
 
 /* -------------------------------------------------------------- how it works */
 .home-explainer { padding-bottom: var(--gap-section); scroll-margin-top: 24px; }
+.home-explainer > h2 { margin: 0 0 26px; font-size: clamp(24px, 3vw, 34px); line-height: 1.14; }
 .home-process { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .home-process article {
   display: flex;
@@ -330,7 +331,7 @@
 /* ----------------------------------------------------------------- pricing */
 .home-pricing { padding-block: var(--gap-section); scroll-margin-top: 24px; }
 .home-pricing h2,
-.home-questions h2 { margin: 0; font-size: clamp(27px, 3.4vw, 40px); line-height: 1.14; }
+.home-questions h2 { margin: 0 0 22px; font-size: clamp(27px, 3.4vw, 40px); line-height: 1.14; }
 .home-pricing h2 em { color: var(--blue-deep); font-weight: 400; }
 .home-pricing-title { margin-bottom: var(--gap-block); }
 .home-price-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

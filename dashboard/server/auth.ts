@@ -1,4 +1,4 @@
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { query, one } from './db/index.js';
 import { readEnv } from './runner.js';
 
@@ -68,41 +68,63 @@ function sessionCookie(token: string, maxAgeSec: number): string {
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
-    ...(baseUrl.startsWith('https://') ? ['Secure'] : []),
+    ...(secureCookies(baseUrl) ? ['Secure'] : []),
     `Max-Age=${maxAgeSec}`,
   ].join('; ');
+}
+
+/** Production always, whatever the configured URL says; local HTTP keeps working. */
+function secureCookies(baseUrl: string): boolean {
+  return process.env.NODE_ENV === 'production' || baseUrl.startsWith('https://');
+}
+
+const OAUTH_COOKIE = 'myasis_oauth';
+
+/** The nonce the sign-in started with, kept for the ten minutes a Google round trip can take. */
+function oauthCookie(nonce: string): string {
+  const baseUrl = process.env.APP_BASE_URL ?? readEnv().APP_BASE_URL ?? '';
+  return [`${OAUTH_COOKIE}=${nonce}`, 'Path=/api/auth', 'HttpOnly', 'SameSite=Lax', ...(secureCookies(baseUrl) ? ['Secure'] : []), 'Max-Age=600'].join('; ');
+}
+
+export function clearOauthCookie(): string {
+  return `${OAUTH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
 // ---------------------------------------------------------------- state
 
 /**
- * CSRF state, signed rather than stored.
+ * CSRF state: `nonce.hmac`, and the nonce is also set as a cookie on the
+ * browser that started the sign-in.
  *
- * The value is `nonce.hmac`, so the callback can prove the state came from us
- * without keeping server-side state between the two requests.
+ * The signature proves the state came from us; the cookie proves it came
+ * from this browser. Without the second half, a state minted in one browser
+ * was valid in any other, which let a page elsewhere finish a sign-in it
+ * had started and leave a visitor signed in to someone else's account.
  */
-function makeState(): string {
+function makeState(): { state: string; nonce: string } {
   const nonce = randomBytes(16).toString('hex');
-  return `${nonce}.${signState(nonce)}`;
+  return { state: `${nonce}.${signState(nonce)}`, nonce };
 }
 
 function signState(nonce: string): string {
   const secret = creds().clientSecret || 'myasis-dev';
-  return createHash('sha256').update(`${nonce}:${secret}`).digest('hex').slice(0, 32);
+  return createHmac('sha256', secret).update(nonce).digest('hex').slice(0, 32);
 }
 
-function validState(state: string | null): boolean {
+function validState(state: string | null, cookieHeader?: string): boolean {
   if (!state) return false;
   const [nonce, sig] = state.split('.');
   if (!nonce || !sig) return false;
   const expected = Buffer.from(signState(nonce));
   const got = Buffer.from(sig);
-  return expected.length === got.length && timingSafeEqual(expected, got);
+  if (expected.length !== got.length || !timingSafeEqual(expected, got)) return false;
+  const started = parseCookies(cookieHeader)[OAUTH_COOKIE];
+  return Boolean(started) && started === nonce;
 }
 
 // ---------------------------------------------------------------- flow
 
-export function googleAuthUrl(): { ok: boolean; url?: string; error?: string } {
+export function googleAuthUrl(): { ok: false; error: string } | { ok: true; url: string; cookie: string } {
   const c = creds();
   if (!c.clientId || !c.clientSecret) {
     return { ok: false, error: 'Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.' };
@@ -112,19 +134,21 @@ export function googleAuthUrl(): { ok: boolean; url?: string; error?: string } {
   u.searchParams.set('redirect_uri', c.redirectUri);
   u.searchParams.set('response_type', 'code');
   u.searchParams.set('scope', 'openid email profile');
-  u.searchParams.set('state', makeState());
+  const { state, nonce } = makeState();
+  u.searchParams.set('state', state);
   u.searchParams.set('prompt', 'select_account');
-  return { ok: true, url: u.toString() };
+  return { ok: true, url: u.toString(), cookie: oauthCookie(nonce) };
 }
 
 export async function handleGoogleCallback(
   code: string | null,
   state: string | null,
+  cookieHeader?: string,
 ): Promise<{ ok: boolean; cookie?: string; error?: string }> {
   const c = creds();
   if (!c.clientId || !c.clientSecret) return { ok: false, error: 'Google sign-in is not configured.' };
   if (!code) return { ok: false, error: 'No authorisation code returned.' };
-  if (!validState(state)) return { ok: false, error: 'Invalid state, possible CSRF. Sign-in aborted.' };
+  if (!validState(state, cookieHeader)) return { ok: false, error: 'Invalid state, possible CSRF. Sign-in aborted.' };
 
   const tokenRes = await fetch(TOKEN_URL, {
     method: 'POST',

@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /*?tab=
+Disallow: /*?auth_error=
+
+Sitemap: https://owtomate.com/sitemap.xml

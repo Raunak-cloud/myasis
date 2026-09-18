@@ -1,13 +1,112 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-AU">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Owtomate: auto-apply to SEEK and Indeed jobs in Australia</title>
+    <meta name="description" content="Owtomate reviews SEEK and Indeed listings, writes a tailored cover letter for each role and submits the application from your own account. 5 free applications, no card needed." />
+    <link rel="canonical" href="https://owtomate.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <link rel="alternate" hreflang="en-au" href="https://owtomate.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://owtomate.com/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Owtomate" />
+    <meta property="og:locale" content="en_AU" />
+    <meta property="og:url" content="https://owtomate.com/" />
+    <meta property="og:title" content="Owtomate: auto-apply to SEEK and Indeed jobs in Australia" />
+    <meta property="og:description" content="Owtomate reviews SEEK and Indeed listings, writes a tailored cover letter for each role and submits the application from your own account. 5 free applications, no card needed." />
+    <meta property="og:image" content="https://owtomate.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Owtomate. Job hunting is a job. Not anymore." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Owtomate: auto-apply to SEEK and Indeed jobs in Australia" />
+    <meta name="twitter:description" content="Owtomate reviews SEEK and Indeed listings, writes tailored cover letters and submits applications from your own account." />
+    <meta name="twitter:image" content="https://owtomate.com/og-image.png" />
+
+    <meta name="theme-color" content="#2f73b9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14243d" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pacifico&family=Shantell+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>owtomate</title>
+
+    <!-- Read by search engines, never executed. The FAQ text mirrors src/components/Landing.tsx word for word; keep them together. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://owtomate.com/#organization",
+          "name": "Owtomate",
+          "url": "https://owtomate.com/",
+          "logo": { "@type": "ImageObject", "url": "https://owtomate.com/icon-512.png", "width": 512, "height": 512 },
+          "description": "Owtomate is an Australian job-application assistant. It reviews SEEK and Indeed listings against your résumé, writes a tailored cover letter for each role and submits the application from your own account.",
+          "areaServed": { "@type": "Country", "name": "Australia" }
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://owtomate.com/#website",
+          "url": "https://owtomate.com/",
+          "name": "Owtomate",
+          "inLanguage": "en-AU",
+          "publisher": { "@id": "https://owtomate.com/#organization" }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://owtomate.com/#app",
+          "name": "Owtomate",
+          "url": "https://owtomate.com/",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web browser",
+          "inLanguage": "en-AU",
+          "publisher": { "@id": "https://owtomate.com/#organization" },
+          "description": "Owtomate reviews SEEK and Indeed job listings against your résumé and preferences, writes a cover letter for each role and submits the application from your own account.",
+          "featureList": [
+            "Automatic SEEK and Indeed job matching",
+            "A cover letter written for every application",
+            "Screening questions answered from your profile",
+            "A full record of every application sent"
+          ],
+          "offers": [
+            { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "AUD", "description": "5 successful applications. No card needed.", "availability": "https://schema.org/InStock", "url": "https://owtomate.com/#pricing" },
+            { "@type": "Offer", "name": "Job Search Pass", "price": "19.99", "priceCurrency": "AUD", "description": "150 successful applications, valid 30 days. One payment, no renewal.", "availability": "https://schema.org/InStock", "url": "https://owtomate.com/#pricing" },
+            { "@type": "Offer", "name": "Intensive Pass", "price": "39.99", "priceCurrency": "AUD", "description": "320 successful applications, valid 30 days. One payment, no renewal.", "availability": "https://schema.org/InStock", "url": "https://owtomate.com/#pricing" },
+            { "@type": "Offer", "name": "Application Top-up", "price": "4.99", "priceCurrency": "AUD", "description": "50 more successful applications for pass holders, valid 30 days.", "availability": "https://schema.org/InStock", "url": "https://owtomate.com/#pricing" }
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://owtomate.com/#faq",
+          "inLanguage": "en-AU",
+          "mainEntity": [
+            { "@type": "Question", "name": "Does it actually submit applications?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Owtomate submits applications on your behalf, using your résumé, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent." } },
+            { "@type": "Question", "name": "Is Owtomate a job application bot?", "acceptedAnswer": { "@type": "Answer", "text": "Owtomate is an application assistant, not a spam bot. Scheduled runs apply only to jobs that score at least 75% against your profile, every application goes through your own SEEK or Indeed session, and it stops and asks you whenever it cannot answer something honestly." } },
+            { "@type": "Question", "name": "What happens when it cannot answer a question?", "acceptedAnswer": { "@type": "Answer", "text": "It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights." } },
+            { "@type": "Question", "name": "Do I need to give Owtomate my SEEK password?", "acceptedAnswer": { "@type": "Answer", "text": "No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password." } },
+            { "@type": "Question", "name": "Can I see what was sent?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search." } },
+            { "@type": "Question", "name": "Is there a subscription?", "acceptedAnswer": { "@type": "Answer", "text": "No. The free plan is a one-time allowance. Paid passes are one-off purchases, valid for 30 days, and do not automatically renew. Prices are in Australian dollars." } }
+          ]
+        },
+        {
+          "@type": "VideoObject",
+          "name": "Owtomate applying to a real job on SEEK",
+          "description": "A recorded run of Owtomate reviewing a SEEK listing, writing a cover letter and submitting the application.",
+          "thumbnailUrl": "https://owtomate.com/demo/myasis-live-run-poster.jpg",
+          "contentUrl": "https://owtomate.com/demo/myasis-live-run.mp4",
+          "uploadDate": "2026-09-14",
+          "inLanguage": "en-AU"
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

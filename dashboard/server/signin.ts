@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { upgradeOriginAllowed } from './http-guards.js';
 import { createConnection } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
@@ -298,6 +299,12 @@ export function attachSigninVnc(server: { on: (ev: string, cb: (...a: any[]) => 
 
   server.on('upgrade', (req: any, socket: any, head: any) => {
     if (!req.url?.startsWith('/ws/signin')) return; // leave HMR and the screencast alone
+    // A page on another site must never drive this browser, whatever cookies it carries.
+    if (!upgradeOriginAllowed(req)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     void currentUser(req.headers?.cookie).then((user) => {
       const live = user ? sessions.get(user.id) : null;
       if (!live) {

@@ -1,15 +1,20 @@
 import { Wordmark } from './components/Wordmark';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Application } from './types';
-import { RunPanel } from './components/RunPanel';
-import { AttentionPanel, type AttentionItem } from './components/AttentionPanel';
-import { ApplicationsPanel } from './components/ApplicationsPanel';
-import { SetupPanel } from './components/SetupPanel';
-import { HumanizerPanel } from './components/HumanizerPanel';
-import { AdminPanel } from './components/AdminPanel';
-import { PricingPanel } from './components/PricingPanel';
+import type { AttentionItem } from './components/AttentionPanel';
+/**
+ * Everything behind sign-in loads only once someone has signed in. A visitor
+ * reading the landing page used to download the whole dashboard first.
+ */
+const RunPanel = lazy(() => import('./components/RunPanel').then((m) => ({ default: m.RunPanel })));
+const AttentionPanel = lazy(() => import('./components/AttentionPanel').then((m) => ({ default: m.AttentionPanel })));
+const ApplicationsPanel = lazy(() => import('./components/ApplicationsPanel').then((m) => ({ default: m.ApplicationsPanel })));
+const SetupPanel = lazy(() => import('./components/SetupPanel').then((m) => ({ default: m.SetupPanel })));
+const HumanizerPanel = lazy(() => import('./components/HumanizerPanel').then((m) => ({ default: m.HumanizerPanel })));
+const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
+const PricingPanel = lazy(() => import('./components/PricingPanel').then((m) => ({ default: m.PricingPanel })));
 import { daysSince } from './format';
-import { useAuth } from './components/SignIn';
+import { useAuth, wasSignedIn } from './components/SignIn';
 import { Landing } from './components/Landing';
 import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
@@ -192,6 +197,8 @@ export default function App() {
   }, [menuOpen]);
 
   if (authLoading) {
+    // A visitor who has never signed in here sees the landing straight away; the answer will almost certainly be "signed out".
+    if (!wasSignedIn()) return <Landing googleConfigured={googleConfigured} />;
     return <div className="signin-wrap"><div className="job-meta">Loading…</div></div>;
   }
   // Signed out, a visitor gets the landing page rather than a bare sign-in box:
@@ -418,6 +425,7 @@ export default function App() {
         )}
 
         <div className="page-content">
+          <Suspense fallback={<div className="job-meta">Loading…</div>}>
           {tab === 'run' && (
             <RunPanel
               lastRunAt={lastRunAt}
@@ -434,6 +442,7 @@ export default function App() {
           {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'pricing' && <PricingPanel />}
           {tab === 'setup' && <SetupPanel />}
+          </Suspense>
         </div>
       </main>
 
