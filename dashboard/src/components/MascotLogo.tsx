@@ -3,16 +3,14 @@ interface MascotLogoProps {
   className?: string;
   /**
    * `head` crops to the owl's head so it can stand in for a letter; the full
-   * box leaves room around the head for the standalone mark; `laptop` is the
-   * owl at work behind its laptop, in a rounded tile — the product's mark.
+   * box leaves room around the head for the standalone mark.
    */
-  crop?: 'full' | 'head' | 'laptop';
+  crop?: 'full' | 'head';
   /** A script-style tail from the cheek into the next letter, in `currentColor`. */
   tail?: boolean;
 }
 
 export function MascotLogo({ size = 48, className = '', crop = 'full', tail = false }: MascotLogoProps) {
-  if (crop === 'laptop') return <OwlAtLaptop size={size} className={className} />;
   return (
     <svg
       className={`mascot-logo ${className}`.trim()}
@@ -41,51 +39,6 @@ export function MascotLogo({ size = 48, className = '', crop = 'full', tail = fa
       {tail && (
         <path d="M47 44 C 52 50, 56 52, 61 47" stroke="currentColor" strokeWidth="3.6" strokeLinecap="round" fill="none" />
       )}
-    </svg>
-  );
-}
-
-/**
- * The owl at its laptop, in a rounded tile — the product's mark.
- *
- * The whole owl, not a head peering over a lid: ear tufts, big eyes with a
- * catchlight, wings resting on the laptop, and a bold outline around every
- * shape so it still reads as an owl at a computer at sixteen pixels. The
- * tile is a fixed light blue whatever the theme: a mark keeps its colours,
- * and this drawing is also the favicon.
- */
-function OwlAtLaptop({ size, className }: { size: number; className: string }) {
-  return (
-    <svg
-      className={`mascot-logo mascot-tile ${className}`.trim()}
-      width={size}
-      height={size}
-      viewBox="0 0 64 64"
-      fill="none"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <rect x="1" y="1" width="62" height="62" rx="14" fill="#EAF3FC" stroke="#C9DDF2" strokeWidth="2" />
-      <g className="mascot-head">
-        <path d="M15 24 17.5 8 28 18Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
-        <path d="M49 24 46.5 8 36 18Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
-        <ellipse cx="32" cy="31" rx="19.5" ry="17.5" fill="#2F73B9" stroke="#14243D" strokeWidth="2.2" />
-        <path d="M17.5 30c0-7.5 6.5-12.5 14.5-12.5S46.5 22.5 46.5 30c0 6-4 10.5-8 10.5h-13c-4 0-8-4.5-8-10.5Z" fill="#6FA8E0" />
-        <circle cx="24.5" cy="28" r="7.2" fill="#FFFFFF" stroke="#14243D" strokeWidth="2.2" />
-        <circle cx="39.5" cy="28" r="7.2" fill="#FFFFFF" stroke="#14243D" strokeWidth="2.2" />
-        <g className="mascot-pupils">
-          <circle cx="25.6" cy="28.6" r="3.4" fill="#14243D" />
-          <circle cx="40.6" cy="28.6" r="3.4" fill="#14243D" />
-          <circle cx="27" cy="27" r="1.2" fill="#FFFFFF" />
-          <circle cx="42" cy="27" r="1.2" fill="#FFFFFF" />
-        </g>
-        <path d="m32 37.5-3.4-3h6.8Z" fill="#F4A340" stroke="#14243D" strokeWidth="1.8" strokeLinejoin="round" />
-      </g>
-      <path d="M13 32c-4 6-3 13 5 15l4-6Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
-      <path d="M51 32c4 6 3 13-5 15l-4-6Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
-      <rect x="17" y="41" width="30" height="14" rx="2.5" fill="#F8FBFF" stroke="#14243D" strokeWidth="2.2" />
-      <circle cx="32" cy="48" r="2" fill="#2F73B9" />
-      <path d="M9 55h46l-3 5.5H12Z" fill="#DCE6F2" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
     </svg>
   );
 }

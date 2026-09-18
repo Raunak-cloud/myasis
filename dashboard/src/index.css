@@ -1024,9 +1024,10 @@ a:focus-visible,
   white-space: nowrap;
 }
 .wordmark-ow { color: var(--wordmark-accent, var(--accent)); }
-/* The tile is the "o": sized to the letter and sat just under the baseline, whatever the font size. */
+/* The owl is the "o": sized to the letter and sat on the baseline, whatever the font size. */
 .wordmark .wordmark-owl {
-  display: inline-block; width: 1em; height: 1em; margin-right: .06em; vertical-align: -.13em;
+  display: inline-block; width: .92em; height: 1.1em; margin-right: -.06em; vertical-align: -.16em;
+  color: var(--wordmark-accent, var(--accent)); transform: rotate(6deg); transform-origin: 50% 60%;
 }
 /* The list fills the sidebar so its foot sits at the bottom, not under the last link. */
 .side-nav { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; }
