@@ -2472,6 +2472,39 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 }
 .server-log .log-error { color: var(--bad); }
 
+/* ---------- Admin: configuration ----------
+   One row per setting: what it is on the left, the control on the right.
+   A row the operator has touched is marked until it is saved, and the save
+   bar stays in view however far the page scrolls. */
+.env-page { padding-bottom: 72px; }
+.env-group { padding: 16px; }
+.env-group-head { margin-bottom: 8px; }
+.env-group-head h3 { margin: 0 0 2px; }
+.env-group-head .job-meta { margin: 0; }
+.env-rows { display: grid; }
+.env-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px 20px;
+  padding: 12px 0; border-top: 1px solid var(--border);
+}
+.env-row:first-child { border-top: 0; }
+.env-row.dirty { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; margin-left: -13px; }
+.env-meta { display: grid; gap: 3px; align-content: start; }
+.env-key { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.env-meta .admin-badges:empty { display: none; }
+.env-control { display: grid; align-content: start; }
+.env-control .input { width: 100%; min-width: 0; }
+.env-control .input:disabled { opacity: .55; cursor: not-allowed; }
+.env-secret { display: flex; gap: 8px; align-items: center; }
+.env-secret .input { flex: 1; }
+.env-bar {
+  position: sticky; bottom: 12px; z-index: 5;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+}
+.env-bar .job-meta { overflow-wrap: anywhere; }
+.env-bar-actions { display: flex; gap: 8px; flex: none; }
+
 /* ==========================================================================
    Phones
    --------------------------------------------------------------------------
@@ -2658,6 +2691,11 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   .server-meters { gap: 14px; padding: 13px; }
   .server-console { padding: 13px; }
   .server-log { height: 46vh; font-size: 11px; }
+  .env-row { grid-template-columns: 1fr; gap: 6px; }
+  .env-row.dirty { padding-left: 8px; margin-left: -11px; }
+  .env-bar { bottom: calc(var(--run-bar-h, 0px) + 8px); padding: 10px 12px; }
+  .env-bar-actions { width: 100%; }
+  .env-bar-actions .btn { flex: 1; }
   th, td { padding: 9px 9px; }
   td { font-size: 13px; }
   .admin-facts { grid-template-columns: minmax(0, 1fr); }

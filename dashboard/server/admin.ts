@@ -5,6 +5,7 @@ import { getPool, one, query } from './db/index.js';
 import { currentUser, type SessionUser } from './auth.js';
 import { billingStatus, isAdmin } from './billing.js';
 import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides, setAutoApplyPaused } from './entitlements.js';
+import { applyEnvChanges, envReport, restartDashboard } from './env-settings.js';
 import { readServerLogs, serverHealth } from './health.js';
 import { pruneAllProfiles } from './profile-prune.js';
 import { pruneAllTraces, TRACE_RETENTION_DAYS } from './trace-retention.js';
@@ -390,6 +391,25 @@ export async function handleAdminRequest(
     if (path === '/users' && method === 'GET') return send(await adminUsers());
     if (path === '/runs' && method === 'GET') {
       return send(await adminRuns({ userId: url.searchParams.get('user') ?? undefined, limit: Number(url.searchParams.get('limit') ?? 150) }));
+    }
+
+    if (path === '/env' && method === 'GET') return send(envReport());
+
+    if (path === '/env' && method === 'POST') {
+      const body = await readBody();
+      const changes = body?.changes;
+      if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return send({ error: 'Send the changes as an object.' }, 400);
+      if (Object.keys(changes).length > 200) return send({ error: 'Too many changes at once.' }, 400);
+      try {
+        return send({ ok: true, ...applyEnvChanges(changes, actor.email) });
+      } catch (error) {
+        return send({ error: (error as Error).message }, 400);
+      }
+    }
+
+    if (path === '/env/restart' && method === 'POST') {
+      const result = restartDashboard(actor.email);
+      return result.ok ? send({ ok: true }) : send({ error: result.error }, 409);
     }
 
     if (path === '/health' && method === 'GET') return send(await serverHealth());

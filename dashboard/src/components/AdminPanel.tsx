@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { PAID_PLANS, aud } from '../pricing';
 import { api } from '../adminApi';
 import { ServerView } from './ServerView';
+import { EnvView } from './EnvView';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -1171,9 +1172,9 @@ function VisitorsView() {
 }
 
 export function AdminPanel() {
-  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'server'>('overview');
+  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'server' | 'config'>('overview');
   const [openRun, setOpenRun] = useState<AdminRun | null>(null);
-  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', server: 'Server' } as const;
+  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', server: 'Server', config: 'Config' } as const;
   return (
     <div className="admin-page">
       <nav className="admin-nav" aria-label="Admin sections">
@@ -1188,6 +1189,7 @@ export function AdminPanel() {
       {view === 'runs' && <RunsView onOpenRun={setOpenRun} />}
       {view === 'visitors' && <VisitorsView />}
       {view === 'server' && <ServerView />}
+      {view === 'config' && <EnvView />}
       {openRun && <RunLog run={openRun} onClose={() => setOpenRun(null)} />}
     </div>
   );
