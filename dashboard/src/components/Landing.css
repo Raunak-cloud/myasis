@@ -331,7 +331,8 @@
 /* ----------------------------------------------------------------- pricing */
 .home-pricing { padding-block: var(--gap-section); scroll-margin-top: 24px; }
 .home-pricing h2,
-.home-questions h2 { margin: 0 0 22px; font-size: clamp(27px, 3.4vw, 40px); line-height: 1.14; }
+/* The section opens with a drawn rule; the title needs air under it or the two touch. */
+.home-questions h2 { margin: 0 0 22px; padding-top: clamp(22px, 3vw, 34px); font-size: clamp(27px, 3.4vw, 40px); line-height: 1.14; }
 .home-pricing h2 em { color: var(--blue-deep); font-weight: 400; }
 .home-pricing-title { margin-bottom: var(--gap-block); }
 .home-price-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -471,8 +472,6 @@
      lines, and the raised edges lift less so the cards do not crowd the
      narrow page. Every button is the full width of the screen. */
   .landing { --gap-section: 40px; --gap-block: 20px; --lift: 3px 3px 0 var(--ink-line); --lift-sm: 2px 2px 0 var(--ink-line); }
-  /* Room at the sides: text that touches the edge of a phone reads as unfinished. */
-  .home-width { padding-inline: 24px; }
   .home-header { flex-wrap: wrap; row-gap: 6px; padding-block: 12px 10px; }
   .home-header nav { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; gap: 20px; font-size: 12.5px; font-weight: 500; }
   .home-login { margin-left: auto; font-size: 12.5px; }
