@@ -14,7 +14,7 @@ html { background: var(--bg); }
 body {
   margin: 0;
   color: var(--text);
-  font: 16px/1.7 'Public Sans', 'Segoe UI', system-ui, sans-serif;
+  font: 16px/1.7 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   -webkit-font-smoothing: antialiased;
   padding-inline: clamp(20px, 4vw, 40px);
 }
@@ -30,10 +30,10 @@ body {
 .legal-header nav a[aria-current="page"] { color: var(--ink); }
 
 .legal { max-width: 760px; margin-inline: auto; padding-block: 40px 64px; }
-.legal h1 { margin: 0 0 8px; font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: clamp(32px, 4vw, 44px); line-height: 1.1; letter-spacing: -.02em; color: var(--ink); }
+.legal h1 { margin: 0 0 8px; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: clamp(28px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -.02em; color: var(--ink); }
 .legal-meta { margin: 0 0 24px; color: var(--muted); font-size: 13.5px; }
 .legal-lead { margin: 0 0 36px; padding: 18px 20px; border: 1px solid #c5d9ee; border-radius: 14px; background: var(--blue-tint); font-size: 15.5px; }
-.legal h2 { margin: 40px 0 10px; font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 23px; line-height: 1.2; letter-spacing: -.01em; color: var(--ink); }
+.legal h2 { margin: 40px 0 10px; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; color: var(--ink); }
 .legal h3 { margin: 22px 0 4px; font-size: 15px; font-weight: 700; color: var(--blue-deep); }
 .legal p, .legal li { max-width: 68ch; }
 .legal p { margin: 0 0 12px; }

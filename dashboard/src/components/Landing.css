@@ -28,9 +28,11 @@
   --edge-thin: 1px solid var(--rule);
   --lift: 4px 4px 0 var(--ink);
   --lift-sm: 3px 3px 0 var(--ink);
-  --display: 'Fraunces', 'Times New Roman', Georgia, serif;
-  --body-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* A coding font throughout, chosen for legibility rather than terminal compactness: JetBrains Mono
+     has a taller x-height than most monospace faces and tells 0/O and 1/l/I apart at a glance. */
+  --display: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --body-font: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 0px;
   --radius-soft: 6px;
 
