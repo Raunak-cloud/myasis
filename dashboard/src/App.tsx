@@ -14,6 +14,7 @@ import { Landing } from './components/Landing';
 import { MascotLogo } from './components/MascotLogo';
 import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref } from './theme';
 import { useEntitlements } from './entitlements';
+import { planName, shortDate, useBillingStatus } from './billing';
 import { trackPage } from './analytics';
 import { useRunStatus } from './runStatus';
 
@@ -74,6 +75,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const { user, googleConfigured, loading: authLoading, signOut } = useAuth();
   const entitlements = useEntitlements();
+  const billing = useBillingStatus();
   /**
    * The rewriting tool is the operator's, so its tab is not offered. Landing
    * on it by an old link or a stale tab falls back to Apply rather than
@@ -286,6 +288,36 @@ export default function App() {
                 </button>
               ))}
             </div>
+
+            {/*
+              The plan and what is left on it, on every screen. An account
+              should never have to open the pricing page to learn whether
+              tonight's run will be allowed to apply.
+            */}
+            {billing && entitlements && (
+              <button
+                type="button"
+                className={`nav-plan ${tab === 'pricing' ? 'active' : ''}`}
+                onClick={() => go('pricing')}
+                aria-label="Plan and applications remaining. Opens plans and pricing."
+              >
+                <span className="nav-plan-name">{planName(billing, entitlements.tier === 'admin')}</span>
+                {entitlements.tier === 'admin' ? (
+                  <span className="nav-plan-left">No application limits</span>
+                ) : (
+                  <>
+                    <span className="nav-plan-left">
+                      <strong>{billing.totalRemaining}</strong> application{billing.totalRemaining === 1 ? '' : 's'} left
+                    </span>
+                    <span className="nav-plan-note">
+                      {billing.paid.hasActivePass && billing.paid.expiresAt
+                        ? `${billing.paid.remaining} on your pass until ${shortDate(billing.paid.expiresAt)}`
+                        : `${billing.free.remaining} of ${billing.free.allowance} free this month · resets ${shortDate(billing.free.resetsAt)}`}
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
 
             <div className="nav-account">
               {user.avatarUrl

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey } from '../pricing';
+import { BILLING_CHANGED } from '../billing';
 
 interface BillingStatus {
   configured: boolean;
@@ -53,6 +54,7 @@ export function PricingPanel() {
           const body = await response.json();
           if (!response.ok) throw new Error(body.error || 'Could not confirm the payment.');
           setStatus(body.status);
+          window.dispatchEvent(new Event(BILLING_CHANGED));
           setNotice({ kind: 'ok', text: `${body.applications} applications were added to your account.` });
         } else {
           await loadStatus();

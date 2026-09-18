@@ -1057,6 +1057,17 @@ a:focus-visible,
 .nav-theme button:hover:not(.on) { color: var(--text); }
 
 .nav-account { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 2px; }
+/* The plan, as a quiet card that is also the way to the pricing page. */
+.nav-plan {
+  display: grid; gap: 2px; width: 100%; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text);
+  font: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease;
+}
+.nav-plan:hover, .nav-plan.active { border-color: var(--accent); background: var(--accent-soft); }
+.nav-plan-name { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }
+.nav-plan-left { font-size: 13px; }
+.nav-plan-left strong { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.nav-plan-note { font-size: 11px; color: var(--text-dim); line-height: 1.35; }
 .nav-account img,
 .nav-account-initial {
   flex: none;
@@ -2245,7 +2256,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .run-auto-count { margin: 0; align-self: center; }
 
 /* Signed in to each job board: one green tick per board on the Apply page. */
-.signin-status { display:flex; flex-wrap:wrap; gap:8px; }
+.signin-status { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.signin-status-label { font-size:12px; color:var(--text-dim); }
 .signin-pill {
   display:inline-flex; align-items:center; gap:6px;
   padding:5px 11px 5px 9px; border:1px solid var(--ok); border-radius:99px;

@@ -225,8 +225,10 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
       const boards = [['SEEK', true] as const, ...(indeedEnabled ? [['Indeed', true] as const] : [])];
       return (
         <div className="signin-status" role="status" aria-label="Signed in">
+          {/* Says what the ticks mean. Bare ticks read as "both boards are switched on", which is chosen in Start run, not here. */}
+          <span className="signin-status-label">Signed in to</span>
           {boards.map(([name]) => (
-            <span className="signin-pill" key={name}>
+            <span className="signin-pill" key={name} title={`Your ${name} session is active. Which boards a run uses is chosen when you start a run.`}>
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20 6 9 17l-5-5" />
               </svg>
