@@ -68,6 +68,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           {error && <div className="home-error" role="alert">{error}</div>}
           <div className="home-hero-actions">{start()}</div>
           <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
+          <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
         </div>
         <div className="home-hero-demo" id="demo">
           <div className="home-hero-video-top"><span>Real application run</span></div>
@@ -116,6 +117,11 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       <section className="home-questions" id="questions"><h2>Questions about automatic job applications</h2><div className="home-faq-list">{QUESTIONS.map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>
       <section className="home-last"><div className="home-last-message"><span className="home-goodbye-lead">Our favourite goodbye</span><p className="home-goodbye">“I got the job.”</p><p className="home-goodbye-detail">The sooner you leave us for your new role, the happier we are.</p></div><div className="home-last-action">{start()}<p className="home-small">{FREE_APPLICATIONS} free applications.<br />No card needed.</p></div></section>
     </main>
-    <footer className="home-footer home-width"><a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
+    <footer className="home-footer home-width">
+      <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
+      <span>Job applications, with a little help.</span>
+      <nav className="home-footer-links" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@owtomate.com">Contact</a></nav>
+      <a href="#top">Back to top ↑</a>
+    </footer>
   </div>;
 }
