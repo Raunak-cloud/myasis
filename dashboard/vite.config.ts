@@ -301,6 +301,15 @@ function dataApi(): Plugin {
     const url = new URL(req.url, 'http://localhost');
     const route = url.pathname;
 
+    /**
+     * A body the sender declares to be over the cap is refused before a byte
+     * of it is read, with a 413 the client can act on. The readers below keep
+     * a second cap on what actually arrives, for senders that do not say.
+     */
+    const declaredLength = Number(req.headers['content-length'] ?? 0);
+    const routeCap = /^\/api\/(resumes|knowledge)$/.test(route) ? UPLOAD_BODY_LIMIT : DEFAULT_BODY_LIMIT;
+    if (declaredLength > routeCap) return send({ error: `The request is larger than ${Math.round(routeCap / 1024)} KB.` }, 413);
+
     // Every body is capped; a route that takes an upload passes the larger limit.
     const readBody = (limit = DEFAULT_BODY_LIMIT): Promise<any> => readJsonBody(req, limit);
     const readRawBody = (limit = DEFAULT_BODY_LIMIT): Promise<Buffer> => readRawBodyLimited(req, limit);
