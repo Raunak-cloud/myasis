@@ -43,6 +43,8 @@ interface GroupSpec {
   key: string;
   title: string;
   note?: string;
+  /** A one-line verdict across the top of the group, from the file as it stands. */
+  banner?: (env: Record<string, string>) => GroupBanner | undefined;
   keys: Spec[];
 }
 
@@ -73,6 +75,7 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'payments',
     title: 'Payments',
+    banner: paymentsBanner,
     note: 'Both sets of keys are kept; the switch says which one checkout uses. Test mode accepts only Stripe test cards and declines real ones.',
     keys: [
       {
@@ -150,8 +153,25 @@ const GROUPS: GroupSpec[] = [
       { key: 'HEADLESS', label: 'Headless', help: 'Keep off: headless is what bot detection looks for.', kind: 'boolean' },
       { key: 'BROWSER_CONNECT_CDP', label: 'Attach to a shared browser', help: 'Keep off: each run needs its own Chrome on its own profile.', kind: 'boolean' },
       { key: 'CDP_HOST', label: 'CDP host', help: 'Only used when attaching to a shared browser.', kind: 'text' },
-      { key: 'CAPTCHA_SOLVER', label: 'CAPTCHA solver', help: 'Optional Cloudflare interstitial clicker. Empty to disable.', kind: 'text' },
-      { key: 'CAPTCHA_PYTHON', label: 'Python for the solver', help: 'Path to the interpreter with requirements-captcha.txt installed.', kind: 'text' },
+    ],
+  },
+  {
+    key: 'captcha',
+    title: 'CAPTCHA solving',
+    note: 'Takes effect on the next run. A challenge no solver clears skips that job.',
+    banner: captchaBanner,
+    keys: [
+      {
+        key: 'CAPTCHA_SOLVER', label: 'Solver', help: 'Solvers are tried in order, so the free clicker can go first.',
+        kind: 'choice', options: [
+          { value: 'off', label: 'Off' },
+          { value: 'click', label: 'Cloudflare clicker (free)' },
+          { value: 'capmonster', label: 'CapMonster Cloud (paid)' },
+          { value: 'click,capmonster', label: 'Clicker first, then CapMonster' },
+        ],
+      },
+      { key: 'CAPMONSTER_API_KEY', label: 'CapMonster API key', help: 'From dash.capmonster.cloud. Solves Turnstile, Cloudflare challenges and reCAPTCHA v2; not hCaptcha.', kind: 'secret' },
+      { key: 'CAPTCHA_PYTHON', label: 'Python for the clicker', help: 'Path to the interpreter with requirements-captcha.txt installed.', kind: 'text' },
     ],
   },
   {
@@ -271,13 +291,22 @@ function paymentsBanner(): GroupBanner {
   return { tone: 'ok', text: 'LIVE mode. Real cards are charged.' };
 }
 
+/** Catches the one way this group is silently useless: CapMonster chosen, no key to call it with. */
+function captchaBanner(env: Record<string, string>): GroupBanner | undefined {
+  const solvers = (env.CAPTCHA_SOLVER ?? '').split(',').map((name) => name.trim());
+  if (!solvers.includes('capmonster')) return undefined;
+  return (process.env.CAPMONSTER_API_KEY ?? env.CAPMONSTER_API_KEY)
+    ? { tone: 'ok', text: 'CapMonster is on. Each solve is billed to your CapMonster balance.' }
+    : { tone: 'bad', text: 'CapMonster is selected but has no API key, so it solves nothing.' };
+}
+
 export function envReport(): EnvReport {
   const env = readEnv();
   const groups: EnvReport['groups'] = GROUPS.map((group) => ({
     key: group.key,
     title: group.title,
     note: group.note,
-    banner: group.key === 'payments' ? paymentsBanner() : undefined,
+    banner: group.banner?.(env),
     entries: group.keys.map((spec) => entryFor(spec.key, spec, env)),
   }));
 

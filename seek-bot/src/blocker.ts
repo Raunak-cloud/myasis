@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import { celerisChat } from './agent/celeris.js';
-import { captchaEnabled, trySolveCaptcha } from './captcha.js';
+import { captchaEnabled, reportRejectedToken, trySolveCaptcha } from './captcha.js';
 
 /**
  * Why is this page not showing what it should?
@@ -140,8 +140,8 @@ Return JSON: {"state":"ok|captcha|login|identity|removed|already-applied|loading
 
 /**
  * The model's verdict on the current page. When the verdict is a captcha and
- * click-solving is enabled, one solve attempt is made and the page is judged
- * again, so a Turnstile the solver cleared does not stop the run. A failed
+ * a solver is enabled, one solve attempt is made and the page is judged
+ * again, so a challenge the solver cleared does not stop the run. A failed
  * check reads as "loading": callers retry rather than inventing a state.
  */
 export async function judgePage(page: Page, expected: string, options: { attemptSolve?: boolean } = {}): Promise<PageVerdict> {
@@ -149,7 +149,9 @@ export async function judgePage(page: Page, expected: string, options: { attempt
     const verdict = await ask(await collectEvidence(page), expected);
     if (verdict.state !== 'captcha' || options.attemptSolve === false || !captchaEnabled()) return verdict;
     if (!(await trySolveCaptcha(page))) return verdict;
-    return await ask(await collectEvidence(page), expected);
+    const after = await ask(await collectEvidence(page), expected);
+    if (after.state === 'captcha') await reportRejectedToken(page);
+    return after;
   } catch (error) {
     console.warn(`  ! page check unavailable: ${(error as Error).message}`);
     return { state: 'loading', reason: 'page check unavailable' };

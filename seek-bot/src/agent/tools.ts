@@ -819,7 +819,7 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
     case 'cannot_complete':
       return { kind: 'terminal', outcome: { status: 'skipped', reason } };
     default:
-      // The agent met a challenge. With click-solving on, one attempt is made;
+      // The agent met a challenge. With a solver on, one attempt is made;
       // if it clears, the agent carries on.
       if (/captcha|robot|verify you are human|bot check|security verification/i.test(reason) && captchaEnabled()) {
         if (await trySolveCaptcha(ctx.page)) return ok('The challenge was cleared. Re-observe the page and continue.');

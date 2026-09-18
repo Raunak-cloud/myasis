@@ -194,7 +194,7 @@ By design, not limitation:
 
 | Situation | Behaviour |
 |---|---|
-| CAPTCHA | optionally tries Cloudflare click solving, then skips the job if still blocked |
+| CAPTCHA | optionally tries the configured solvers (Cloudflare clicker, CapMonster Cloud), then skips the job if still blocked |
 | Employer sign-in or sign-up | completes the form, uses connected Gmail for emailed codes, then skips if authentication still cannot complete |
 | Australian government destination | skips before AI review or application |
 | SEEK Pass / work-rights wall | skips the job without creating a user task |
@@ -233,6 +233,35 @@ form-submission functionality. Rate limits and identity checks remain in place.
 Verification: `npm run build` then `node scripts/test-captcha.mjs` runs the real
 Python solver against locally fulfilled browser fixtures. It requires Chrome
 and the Python dependencies; it does not contact job boards or CAPTCHA services.
+
+### Optional CapMonster Cloud integration
+
+`CAPTCHA_SOLVER` is an ordered chain. `click,capmonster` tries the free clicker
+first and falls back to the paid [CapMonster Cloud](https://docs.capmonster.cloud)
+API; `capmonster` alone skips the clicker. Set `CAPMONSTER_API_KEY` from
+dash.capmonster.cloud.
+
+| Challenge | Task sent | How the token is applied |
+|---|---|---|
+| Cloudflare Turnstile | `TurnstileTask` | `cf-turnstile-response` input + the widget's `data-callback` |
+| Cloudflare full-page challenge | `TurnstileTask`, `cloudflareTaskType: token` | the challenge page's own callback |
+| reCAPTCHA v2 / Enterprise (checkbox, or invisible once its image challenge opens) | `RecaptchaV2Task` / `RecaptchaV2EnterpriseTask` | `g-recaptcha-response` + the callback in grecaptcha's config |
+
+hCaptcha is not offered by CapMonster and still needs a human. Widgets inside
+embedded (iframe) forms are solved for, and written into, that frame.
+
+The full-page challenge only reveals its parameters to a `turnstile.render()`
+stand-in, so that one case registers a script on the blocked tab over CDP,
+reloads it once, and removes the script. Nothing is injected anywhere else.
+
+CapMonster receives the page URL and site key, never form contents, and solves
+through its own proxies. A token is only ever placed; submitting stays with
+the agent's guards. A token the page rejects is reported back to CapMonster,
+and an account-level error (bad key, empty balance, banned IP) turns the solver
+off for the rest of the run. Each solve waits at most 100 seconds.
+
+Verification: `npm run test:capmonster` drives all three challenge types
+against a local stand-in for the API. It spends nothing.
 
 ## Honesty guarantees
 
