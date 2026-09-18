@@ -1,40 +1,40 @@
-/* The two legal pages: the landing's paper and ink, set for reading. */
+/* The two legal pages, in the landing's palette and type, set for reading. */
 :root {
-  --paper: #f8fbff;
-  --ink: #14243d;
-  --ink-line: #2b3f5c;
-  --muted: #5d6c80;
-  --rule: #d8e1ec;
-  --blue: #2f6fae;
+  --bg: #f6f8fb;
+  --surface: #ffffff;
+  --ink: #0f1b2d;
+  --text: #22304a;
+  --muted: #5e6b80;
+  --line: #e2e8f0;
+  --blue: #2466a8;
   --blue-deep: #163f70;
+  --blue-tint: #f3f7fc;
 }
-html { background: var(--paper); }
+html { background: var(--bg); }
 body {
   margin: 0;
-  color: var(--ink);
-  font: 16px/1.7 Arial, Helvetica, sans-serif;
-  background:
-    radial-gradient(circle, rgba(20, 36, 61, .13) 1px, transparent 1.6px) 0 0 / 22px 22px,
-    var(--paper);
-  padding-inline: clamp(18px, 4vw, 56px);
+  color: var(--text);
+  font: 16px/1.7 'Manrope', 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding-inline: clamp(20px, 4vw, 40px);
 }
 .legal-header, .legal-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
   max-width: 760px; margin-inline: auto;
 }
-.legal-header { padding-block: 18px 14px; border-bottom: 2px solid var(--ink-line); }
+.legal-header { min-height: 72px; border-bottom: 1px solid var(--line); }
 .legal-brand { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); text-decoration: none; font-family: 'Pacifico', cursive; font-size: 24px; }
 .legal-brand em { font-style: normal; color: var(--blue); }
-.legal-header nav { display: flex; gap: 18px; font-size: 13px; }
+.legal-header nav { display: flex; gap: 22px; font-size: 14px; font-weight: 600; }
 .legal-header nav a { color: var(--muted); text-decoration: none; }
-.legal-header nav a[aria-current="page"] { color: var(--ink); font-weight: 700; }
+.legal-header nav a[aria-current="page"] { color: var(--ink); }
 
-.legal { max-width: 760px; margin-inline: auto; padding-block: 28px 56px; }
-.legal h1 { margin: 0 0 6px; font-family: 'Shantell Sans', system-ui, sans-serif; font-weight: 600; font-size: clamp(30px, 4vw, 44px); line-height: 1.1; }
-.legal-meta { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
-.legal-lead { margin: 0 0 30px; padding: 16px 18px; border: 2px solid var(--ink-line); border-radius: 12px; background: #fff; box-shadow: 4px 4px 0 var(--ink-line); font-size: 15.5px; }
-.legal h2 { margin: 36px 0 10px; font-family: 'Shantell Sans', system-ui, sans-serif; font-weight: 600; font-size: 22px; line-height: 1.2; }
-.legal h3 { margin: 20px 0 4px; font-size: 15px; font-weight: 700; color: var(--blue-deep); }
+.legal { max-width: 760px; margin-inline: auto; padding-block: 40px 64px; }
+.legal h1 { margin: 0 0 8px; font-family: 'Sora', 'Segoe UI', system-ui, sans-serif; font-weight: 700; font-size: clamp(30px, 4vw, 42px); line-height: 1.1; letter-spacing: -.02em; color: var(--ink); }
+.legal-meta { margin: 0 0 24px; color: var(--muted); font-size: 13.5px; }
+.legal-lead { margin: 0 0 36px; padding: 18px 20px; border: 1px solid #c5d9ee; border-radius: 14px; background: var(--blue-tint); font-size: 15.5px; }
+.legal h2 { margin: 40px 0 10px; font-family: 'Sora', 'Segoe UI', system-ui, sans-serif; font-weight: 700; font-size: 22px; line-height: 1.2; letter-spacing: -.01em; color: var(--ink); }
+.legal h3 { margin: 22px 0 4px; font-size: 15px; font-weight: 700; color: var(--blue-deep); }
 .legal p, .legal li { max-width: 68ch; }
 .legal p { margin: 0 0 12px; }
 .legal ul { margin: 0 0 12px; padding-left: 22px; }
@@ -42,13 +42,13 @@ body {
 .legal a { color: var(--blue); }
 .legal strong { color: var(--ink); }
 
-.legal-footer { padding-block: 18px 40px; border-top: 2px solid var(--ink-line); font-size: 13px; }
+.legal-footer { padding-block: 20px 44px; border-top: 1px solid var(--line); font-size: 13px; }
 .legal-footer a { color: var(--muted); text-decoration: none; }
 .legal-footer a:hover { color: var(--ink); }
 
 @media (max-width: 480px) {
   body { font-size: 15px; }
-  .legal { padding-block: 22px 44px; }
-  .legal-lead { padding: 14px 15px; font-size: 14.5px; box-shadow: 3px 3px 0 var(--ink-line); }
-  .legal h2 { margin-top: 30px; font-size: 20px; }
+  .legal { padding-block: 26px 44px; }
+  .legal-lead { padding: 14px 16px; font-size: 14.5px; }
+  .legal h2 { margin-top: 32px; font-size: 20px; }
 }

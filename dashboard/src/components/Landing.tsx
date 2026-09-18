@@ -6,6 +6,7 @@ import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
 import { HeroStory } from './HeroStory';
 
+/** Mirrored word for word in index.html's FAQ structured data; change both together. */
 const QUESTIONS = [
   { question: 'Does it actually submit applications?', answer: 'Yes. Owtomate submits applications on your behalf, using your résumé, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
   { question: 'Is Owtomate a job application bot?', answer: `Owtomate is an application assistant, not a spam bot. Scheduled runs apply only to jobs that score at least ${SCHEDULED_MIN_SCORE}% against your profile, every application goes through your own SEEK or Indeed session, and it stops and asks you whenever it cannot answer something honestly.` },
@@ -15,8 +16,26 @@ const QUESTIONS = [
   { question: 'Is there a subscription?', answer: 'No. The free plan is a one-time allowance. Paid passes are one-off purchases, valid for 30 days, and do not automatically renew. Prices are in Australian dollars.' },
 ];
 
+const STEPS = [
+  {
+    title: 'Your résumé. Your preferences.',
+    copy: 'Add your documents and tell Owtomate the roles, locations and pay you would accept. It checks jobs against those details before applying.',
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>,
+  },
+  {
+    title: 'Written for every job.',
+    copy: 'Owtomate chooses the right résumé, writes a job-specific cover letter and fills in each form from your profile.',
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>,
+  },
+  {
+    title: 'Let it apply. Keep the record.',
+    copy: 'Owtomate submits each application and saves what was sent. Anything it cannot answer comes back to you.',
+    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4z" /></svg>,
+  },
+];
+
 function Arrow() {
-  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7" /></svg>;
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7" /></svg>;
 }
 
 export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
@@ -25,6 +44,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
   const [playError, setPlayError] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const autoPlayed = useRef(false);
+
   useEffect(() => {
     if (!error) return;
     const url = new URL(location.href);
@@ -48,80 +68,153 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
     return () => observer.disconnect();
   }, []);
 
-  function start(label = 'Try Owtomate for free', subtle = false) {
-    return googleConfigured ? <a className={`home-button${subtle ? ' home-button-light' : ''}`} rel="nofollow" href="/api/auth/google">{label}<Arrow /></a> : <span className="home-unavailable">Sign-in is temporarily unavailable.</span>;
+  function start(label = 'Try Owtomate for free', variant: 'primary' | 'light' | 'white' = 'primary') {
+    if (!googleConfigured) return <span className="home-unavailable">Sign-in is temporarily unavailable.</span>;
+    const className = `home-button${variant === 'light' ? ' home-button-light' : variant === 'white' ? ' home-button-white' : ''}`;
+    return <a className={className} rel="nofollow" href="/api/auth/google">{label}<Arrow /></a>;
   }
 
-  return <div className="landing" id="top">
-    <header className="home-header home-width">
-      <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
-      <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#questions">Questions?</a></nav>
-      {googleConfigured && <a className="home-login" rel="nofollow" href="/api/auth/google">Sign in <span aria-hidden="true">↗</span></a>}
-    </header>
-
-    <main className="home-width">
-      {/* The offer and the proof of it. How it works comes after, so the page opens on the point. */}
-      <section className="home-intro" aria-labelledby="home-heading">
-        <div className="home-intro-heading">
-          <h1 id="home-heading">Auto apply jobs.<em>Job hunting is a job. Not anymore 😌</em></h1>
-          <p className="home-hero-summary">Owtomate finds suitable roles on SEEK and Indeed, writes a tailored cover letter for each one and handles the repetitive parts of applying.</p>
-          {error && <div className="home-error" role="alert">{error}</div>}
-          <div className="home-hero-actions">{start()}</div>
-          <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
-          <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
+  return (
+    <div className="landing" id="top">
+      <header className="home-header">
+        <div className="home-width home-header-inner">
+          <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
+          <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#questions">Questions</a></nav>
+          {googleConfigured && <a className="home-login" rel="nofollow" href="/api/auth/google">Sign in</a>}
         </div>
-        <div className="home-hero-demo" id="demo">
-          <div className="home-hero-video-top"><span>Real application run</span></div>
-          <div className="home-video-wrap">{LIVE_DEMO.available ? <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Owtomate applying to a real job on SEEK" onError={() => setPlayError(true)}><source src={LIVE_DEMO.src} type="video/mp4" /><track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a></video> : <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>}</div>
-          {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
-        </div>
-      </section>
+      </header>
 
-      <section className="home-story"><HeroStory /></section>
+      <main className="home-width">
+        {/* The offer and the proof of it. How it works comes after, so the page opens on the point. */}
+        <section className="home-intro" aria-labelledby="home-heading">
+          <div className="home-intro-heading">
+            <span className="home-eyebrow">Job applications, done for you</span>
+            <h1 id="home-heading">Auto apply jobs.<em>Job hunting is a job. Not anymore 😌</em></h1>
+            <p className="home-hero-summary">Owtomate finds suitable roles on SEEK and Indeed, writes a tailored cover letter for each one and handles the repetitive parts of applying.</p>
+            {error && <div className="home-error" role="alert">{error}</div>}
+            <div className="home-hero-actions">{start()}</div>
+            <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
+            <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
+            <ul className="home-hero-proof" aria-label="What you get">
+              <li>Applies from your own SEEK account</li>
+              <li>A cover letter for every job</li>
+              <li>Nothing invented, ever</li>
+            </ul>
+          </div>
+          <div className="home-hero-demo" id="demo">
+            <div className="home-hero-video-top"><span>Real application run</span></div>
+            <div className="home-video-wrap">
+              {LIVE_DEMO.available ? (
+                <video ref={video} controls playsInline preload="metadata" poster={LIVE_DEMO.poster} aria-label="Owtomate applying to a real job on SEEK" onError={() => setPlayError(true)}>
+                  <source src={LIVE_DEMO.src} type="video/mp4" />
+                  <track kind="captions" src={LIVE_DEMO.captions} srcLang="en" label="English" default />
+                  Your browser does not support video. <a href={LIVE_DEMO.src}>Download the recording.</a>
+                </video>
+              ) : (
+                <div className="home-recording-pending"><MascotLogo size={60} /><p>The live run is being recorded.</p><span>The finished recording will appear here.</span></div>
+              )}
+            </div>
+            {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
+          </div>
+        </section>
 
-      <section className="home-explainer" id="how-it-works"><h2>How Owtomate applies to jobs for you</h2><div className="home-process"><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></span><div><h3>Your résumé. Your preferences.</h3><p>Add your documents and tell Owtomate the roles, locations and pay you would accept. It checks jobs against those details before applying.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><div><h3>Written for every job.</h3><p>Owtomate chooses the right résumé, writes a job-specific cover letter and fills in each form from your profile.</p></div></article><article><span className="home-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg></span><div><h3>Let it apply. Keep the record.</h3><p>Owtomate submits each application and saves what was sent. Anything it cannot answer comes back to you.</p></div></article></div></section>
+        <section className="home-story" aria-label="The old way and the Owtomate way"><HeroStory /></section>
 
+        <section className="home-explainer" id="how-it-works">
+          <div className="home-section-head">
+            <span className="home-eyebrow">How it works</span>
+            <h2>How Owtomate applies to jobs for you</h2>
+            <p>Three steps, and the first one is the only one that needs you.</p>
+          </div>
+          <div className="home-process">
+            {STEPS.map((step, index) => (
+              <article key={step.title}>
+                <span className="home-step-number" aria-hidden="true">{index + 1}</span>
+                <span className="home-step-icon" aria-hidden="true">{step.icon}</span>
+                <h3>{step.title}</h3>
+                <p>{step.copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
 
-      <aside className="home-promise"><MascotLogo size={54} /><div><h2>A helpful assistant. An honest application.</h2><p>Owtomate won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p></div></aside>
+        <aside className="home-promise">
+          <MascotLogo size={56} />
+          <div>
+            <h2>A helpful assistant. An honest application.</h2>
+            <p>Owtomate won’t invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours, too.</p>
+          </div>
+        </aside>
 
-      <section className="home-pricing" id="pricing">
-        <div className="home-pricing-title">
-          <h2>Choose an Owtomate pass.<br /><em>Pay once. No recurring charges.</em></h2>
-        </div>
-        <div className="home-price-grid">
-          <article className="home-price-card">
-            <span className="home-price-mode">{PLAN_PRESENTATION.free.label}</span>
-            <h3>Free</h3>
-            <p className="home-price-copy">{PLAN_PRESENTATION.free.description}</p>
-            <p className="home-price">A$0<span>no card needed</span></p>
-            {start('Start free', true)}
-            <ul>{PLAN_PRESENTATION.free.features.map(feature => <li key={feature}>{feature}</li>)}</ul>
-          </article>
-          {(['job-search-pass', 'intensive-pass'] as const).map(key => {
-            const plan = PAID_PLANS[key];
-            const presentation = PLAN_PRESENTATION[key];
-            return <article className={`home-price-card${key === 'job-search-pass' ? ' featured' : ''}`} key={key}>
-              {key === 'job-search-pass' && <span className="home-price-popular">Most popular</span>}
-              <span className="home-price-mode">{presentation.label}</span>
-              <h3>{plan.name}</h3>
-              <p className="home-price-copy">{presentation.description}</p>
-              <p className="home-price">{aud(plan.priceCents)}<span>one-time payment · valid 30 days</span></p>
-              {start('Get started', key !== 'job-search-pass')}
-              <ul>{presentation.features.map(feature => <li key={feature}>{feature}</li>)}</ul>
-            </article>;
-          })}
-        </div>
-        <p className="home-price-note">Only successful submissions use your application allowance. Paid passes do not renew automatically. {HUMANIZER_NOTE}</p>
-      </section>
+        <section className="home-pricing" id="pricing">
+          <div className="home-section-head">
+            <span className="home-eyebrow">Pricing</span>
+            <h2>Choose an Owtomate pass.</h2>
+            <p>Pay once. No recurring charges. Prices in Australian dollars.</p>
+          </div>
+          <div className="home-price-grid">
+            <article className="home-price-card">
+              <span className="home-price-mode">{PLAN_PRESENTATION.free.label}</span>
+              <h3>Free</h3>
+              <p className="home-price-copy">{PLAN_PRESENTATION.free.description}</p>
+              <p className="home-price">A$0<span>no card needed</span></p>
+              {start('Start free', 'light')}
+              <ul>{PLAN_PRESENTATION.free.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+            </article>
+            {(['job-search-pass', 'intensive-pass'] as const).map((key) => {
+              const plan = PAID_PLANS[key];
+              const presentation = PLAN_PRESENTATION[key];
+              const featured = key === 'job-search-pass';
+              return (
+                <article className={`home-price-card${featured ? ' featured' : ''}`} key={key}>
+                  {featured && <span className="home-price-popular">Most popular</span>}
+                  <span className="home-price-mode">{presentation.label}</span>
+                  <h3>{plan.name}</h3>
+                  <p className="home-price-copy">{presentation.description}</p>
+                  <p className="home-price">{aud(plan.priceCents)}<span>one payment · 30 days</span></p>
+                  {start('Get started', featured ? 'primary' : 'light')}
+                  <ul>{presentation.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+                </article>
+              );
+            })}
+          </div>
+          <p className="home-price-note">Only successful submissions use your application allowance. Paid passes do not renew automatically. {HUMANIZER_NOTE}</p>
+        </section>
 
-      <section className="home-questions" id="questions"><h2>Questions about automatic job applications</h2><div className="home-faq-list">{QUESTIONS.map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>
-      <section className="home-last"><div className="home-last-message"><span className="home-goodbye-lead">Our favourite goodbye</span><p className="home-goodbye">“I got the job.”</p><p className="home-goodbye-detail">The sooner you leave us for your new role, the happier we are.</p></div><div className="home-last-action">{start()}<p className="home-small">{FREE_APPLICATIONS} free applications.<br />No card needed.</p></div></section>
-    </main>
-    <footer className="home-footer home-width">
-      <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
-      <span>Job applications, with a little help.</span>
-      <nav className="home-footer-links" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@owtomate.com">Contact</a></nav>
-      <a href="#top">Back to top ↑</a>
-    </footer>
-  </div>;
+        <section className="home-questions" id="questions">
+          <div className="home-section-head">
+            <span className="home-eyebrow">Questions</span>
+            <h2>Questions about automatic job applications</h2>
+          </div>
+          <div className="home-faq-list">
+            {QUESTIONS.map((item) => (
+              <details key={item.question}>
+                <summary>{item.question}<span aria-hidden="true">+</span></summary>
+                <p>{item.answer}</p>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        <section className="home-last" aria-label="Get started">
+          <div className="home-last-message">
+            <span className="home-goodbye-lead">Our favourite goodbye</span>
+            <p className="home-goodbye">“I got the job.”</p>
+            <p className="home-goodbye-detail">The sooner you leave us for your new role, the happier we are.</p>
+          </div>
+          <div className="home-last-action">
+            {start('Try Owtomate for free', 'white')}
+            <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
+          </div>
+        </section>
+      </main>
+
+      <footer className="home-footer home-width">
+        <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
+        <span>Job applications, with a little help. Sydney, Australia.</span>
+        <nav className="home-footer-links" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@owtomate.com">Contact</a></nav>
+        <a href="#top">Back to top ↑</a>
+      </footer>
+    </div>
+  );
 }
