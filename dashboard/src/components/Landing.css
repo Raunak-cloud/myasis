@@ -61,7 +61,6 @@
 .ink-mark { position: relative; white-space: nowrap; }
 .ink-mark::after { content: ''; position: absolute; left: -1.5%; right: -1.5%; bottom: -.1em; height: .14em; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12' preserveAspectRatio='none'%3E%3Cpath d='M3 8.5c28-5.5 56 1.5 84-.5s76-4.5 110 2' fill='none' stroke='%232466a8' stroke-width='4.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / 100% 100%; }
 
-.home-eyebrow { display: inline-block; margin: 0 0 12px; color: var(--blue); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .home-section-head { max-width: 640px; margin-bottom: clamp(28px, 4vw, 44px); }
 .home-section-head h2 { margin: 0; font-size: clamp(30px, 3.6vw, 44px); line-height: 1.1; }
 .home-section-head p { margin: 12px 0 0; color: var(--muted); font-size: 17px; }
