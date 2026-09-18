@@ -311,6 +311,8 @@ ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS exit_code INTEGER;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS applied INTEGER;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS log_file TEXT;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS started_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+-- Set by an admin. A blocked account cannot sign in, keeps no session, and is left out of every schedule.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS run_starts_recent_idx ON run_starts(started_at DESC);
 
 -- One row per page a visitor looked at, for the operator's Visitors view.

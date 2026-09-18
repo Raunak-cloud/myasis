@@ -158,7 +158,7 @@ export async function handleGoogleCallback(
 
   // Matching on email links a Google login to an account already migrated from
   // the local files, rather than creating a second empty one.
-  const user = await one<{ id: string }>(
+  const user = await one<{ id: string; blocked_at: Date | null }>(
     `INSERT INTO users (email, name, avatar_url, google_id, last_login_at)
      VALUES ($1,$2,$3,$4, now())
      ON CONFLICT (email) DO UPDATE SET
@@ -166,10 +166,12 @@ export async function handleGoogleCallback(
        avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
        google_id = COALESCE(users.google_id, EXCLUDED.google_id),
        last_login_at = now()
-     RETURNING id`,
+     RETURNING id, blocked_at`,
     [info.email.toLowerCase(), info.name ?? null, info.picture ?? null, info.sub],
   );
   if (!user) return { ok: false, error: 'Could not create the account.' };
+  // Blocked by an admin: the account exists so it cannot be re-created, and it gets no session.
+  if (user.blocked_at) return { ok: false, error: 'This account has been suspended. Contact support if you think this is a mistake.' };
 
   const token = randomBytes(32).toString('hex');
   const maxAge = SESSION_DAYS * 24 * 60 * 60;
@@ -186,7 +188,7 @@ export async function currentUser(cookieHeader?: string): Promise<SessionUser | 
   return one<SessionUser>(
     `SELECT u.id::text AS id, u.email, u.name, u.avatar_url AS "avatarUrl"
        FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.token = $1 AND s.expires_at > now()`,
+      WHERE s.token = $1 AND s.expires_at > now() AND u.blocked_at IS NULL`,
     [token],
   );
 }

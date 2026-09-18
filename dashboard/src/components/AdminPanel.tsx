@@ -19,6 +19,7 @@ interface AdminUser {
   avatarUrl: string | null;
   createdAt: string;
   lastLoginAt: string | null;
+  blockedAt: string | null;
   admin: boolean;
   plan: string;
   allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null };
@@ -360,6 +361,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
             <>
               <div className="section admin-badges">
                 {user.admin && <span className="badge info">Admin</span>}
+                {user.blockedAt && <span className="badge bad">Blocked</span>}
                 <span className="badge muted">{user.plan}</span>
                 {user.running && <span className="badge info">Running</span>}
                 {user.signingIn && <span className="badge warn">Signing in</span>}
@@ -562,8 +564,29 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
 
               {!user.admin && (
                 <div className="section admin-danger">
+                  <h3>{user.blockedAt ? 'Blocked account' : 'Block account'}</h3>
+                  <p className="job-meta">
+                    {user.blockedAt
+                      ? `Blocked ${when(user.blockedAt)}. It cannot sign in, has no sessions, and is left out of every schedule. Its data is untouched; unblocking restores it as it was.`
+                      : 'Signs the account out everywhere, refuses its sign-in, stops any run and leaves it out of every schedule. Its data is kept, so this can be undone.'}
+                  </p>
+                  <div className="admin-button-row">
+                    <button
+                      className={`btn ${user.blockedAt ? '' : 'btn-danger'}`}
+                      disabled={busy !== null}
+                      onClick={() => window.confirm(user.blockedAt ? `Unblock ${user.email}?` : `Block ${user.email}? They are signed out at once and cannot sign in again until unblocked.`)
+                        && act('block', `/users/${user.id}/block`, { method: 'POST', json: { blocked: !user.blockedAt } }, user.blockedAt ? 'Account unblocked.' : 'Account blocked.')}
+                    >
+                      {busy === 'block' ? 'Working…' : user.blockedAt ? 'Unblock account' : 'Block account'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!user.admin && (
+                <div className="section admin-danger">
                   <h3>Delete account</h3>
-                  <p className="job-meta">Removes the account, its profile, runs and applications. Its files are moved aside on the server. This cannot be undone here.</p>
+                  <p className="job-meta">Permanently removes the account and everything linked to it: résumés, runs, applications, visit records, and every file on the server including its browser profile. Nothing is kept and nothing can be recovered.</p>
                   <div className="admin-button-row">
                     <input
                       className="input"
@@ -673,7 +696,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                 <tr key={user.id} className="clickable" onClick={() => setOpen(user.id)}>
                   <td>
                     <div className="job-title">
-                      {user.name || user.email} {user.admin && <span className="badge info">Admin</span>} {user.running && <span className="badge info">Running</span>}
+                      {user.name || user.email} {user.admin && <span className="badge info">Admin</span>} {user.blockedAt && <span className="badge bad">Blocked</span>} {user.running && <span className="badge info">Running</span>}
                     </div>
                     <div className="job-meta">{user.email}</div>
                   </td>

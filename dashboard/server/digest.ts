@@ -168,7 +168,7 @@ export async function sendDailyDigests(now: Date = new Date()): Promise<string[]
     `SELECT u.id::text AS id, u.email, u.name
        FROM users u
        LEFT JOIN daily_digests d ON d.user_id = u.id AND d.day = $1::date
-      WHERE d.user_id IS NULL`,
+      WHERE d.user_id IS NULL AND u.blocked_at IS NULL`,
     [day],
   );
   if (!users.length) return [];

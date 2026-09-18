@@ -138,6 +138,7 @@ async function scheduledAccounts(): Promise<Scheduled[]> {
     `SELECT u.id::text AS id, u.email
        FROM users u
       WHERE EXISTS (SELECT 1 FROM resumes r WHERE r.user_id = u.id)
+        AND u.blocked_at IS NULL
       ORDER BY u.id`,
   );
   const scheduled: Scheduled[] = [];

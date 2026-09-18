@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { getPool, one, query } from './db/index.js';
 import { currentUser, type SessionUser } from './auth.js';
@@ -48,6 +48,8 @@ export interface AdminUserRow {
   avatarUrl: string | null;
   createdAt: string;
   lastLoginAt: string | null;
+  /** When an admin blocked the account; null while it may sign in. */
+  blockedAt: string | null;
   admin: boolean;
   plan: string;
   allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null };
@@ -64,7 +66,7 @@ export interface AdminUserRow {
   signingIn: boolean;
 }
 
-async function userRow(user: { id: string; email: string; name: string | null; avatar_url: string | null; created_at: Date; last_login_at: Date | null }): Promise<AdminUserRow> {
+async function userRow(user: UserRecord): Promise<AdminUserRow> {
   const [billing, entitlements, overrides, setup, counts, lastRun] = await Promise.all([
     billingStatus(user.id, user.email),
     entitlementsFor(user.id, user.email),
@@ -91,6 +93,7 @@ async function userRow(user: { id: string; email: string; name: string | null; a
     avatarUrl: user.avatar_url,
     createdAt: new Date(user.created_at).toISOString(),
     lastLoginAt: user.last_login_at ? new Date(user.last_login_at).toISOString() : null,
+    blockedAt: user.blocked_at ? new Date(user.blocked_at).toISOString() : null,
     admin,
     plan: planLabel(billing.paid, admin),
     allowance: admin
@@ -124,19 +127,19 @@ async function userRow(user: { id: string; email: string; name: string | null; a
   };
 }
 
-type UserRecord = { id: string; email: string; name: string | null; avatar_url: string | null; created_at: Date; last_login_at: Date | null };
+type UserRecord = { id: string; email: string; name: string | null; avatar_url: string | null; created_at: Date; last_login_at: Date | null; blocked_at: Date | null };
 
 async function findUser(id: string): Promise<UserRecord | null> {
   if (!/^\d+$/.test(id)) return null;
   return one<UserRecord>(
-    'SELECT id::text AS id, email, name, avatar_url, created_at, last_login_at FROM users WHERE id = $1',
+    'SELECT id::text AS id, email, name, avatar_url, created_at, last_login_at, blocked_at FROM users WHERE id = $1',
     [id],
   );
 }
 
 export async function adminUsers(): Promise<AdminUserRow[]> {
   const users = await query<UserRecord>(
-    'SELECT id::text AS id, email, name, avatar_url, created_at, last_login_at FROM users ORDER BY created_at DESC',
+    'SELECT id::text AS id, email, name, avatar_url, created_at, last_login_at, blocked_at FROM users ORDER BY created_at DESC',
   );
   const rows: AdminUserRow[] = [];
   // One account at a time: each needs several queries, and the pool is shared with live runs.
@@ -326,16 +329,47 @@ function setAdminEmail(email: string, admin: boolean): void {
   writeEnv({ ADMIN_EMAILS: next.join(',') });
 }
 
-/** Removes an account and everything it owns; its files are moved aside rather than destroyed. */
-async function deleteAccount(user: UserRecord): Promise<void> {
+/** Ends whatever the account has going: its run, its sign-in window, and every session it holds. */
+async function cutOff(user: UserRecord): Promise<void> {
   if (runner.stateFor(user.id).running) runner.stop(user.id);
   if (sessionFor(user.id)) stopSignin(user.id);
+  await query('DELETE FROM sessions WHERE user_id = $1', [user.id]);
+}
+
+/**
+ * Blocks or unblocks an account.
+ *
+ * A block keeps the row — so the same email cannot simply sign up again —
+ * and takes away everything else: sessions end now, sign-in is refused, and
+ * the schedule and the evening email leave the account out. Its data stays,
+ * so an unblock puts it back exactly as it was.
+ */
+async function setBlocked(user: UserRecord, blocked: boolean): Promise<void> {
+  if (blocked) await cutOff(user);
+  await query('UPDATE users SET blocked_at = $2 WHERE id = $1', [user.id, blocked ? new Date() : null]);
+}
+
+/**
+ * Removes an account and everything it owns, for good.
+ *
+ * The database rows go with the user row (every table cascades), the visit
+ * records that named the account go too, and its directory — résumés,
+ * knowledge, run logs, traces, the Chrome profile with its job-board
+ * sessions — is destroyed rather than moved aside. Earlier deletions parked
+ * their files under `deleted/`; any left there for this account are removed
+ * as well, so nothing of it remains on the machine.
+ */
+async function deleteAccount(user: UserRecord): Promise<void> {
+  await cutOff(user);
+  await query('DELETE FROM page_views WHERE user_id = $1', [user.id]);
   await query('DELETE FROM users WHERE id = $1', [user.id]);
   const dir = userDir(user.id);
-  if (existsSync(dir)) {
-    const bin = resolve(dir, '..', '..', 'deleted');
-    mkdirSync(bin, { recursive: true });
-    renameSync(dir, resolve(bin, `${user.id}-${Date.now()}`));
+  rmSync(dir, { recursive: true, force: true });
+  const bin = resolve(dir, '..', '..', 'deleted');
+  if (existsSync(bin)) {
+    for (const entry of readdirSync(bin)) {
+      if (entry.startsWith(`${user.id}-`)) rmSync(resolve(bin, entry), { recursive: true, force: true });
+    }
   }
 }
 
@@ -544,6 +578,13 @@ export async function handleAdminRequest(
       case 'sign-out': {
         const removed = await query('DELETE FROM sessions WHERE user_id = $1 RETURNING token', [target.id]);
         return send({ ok: true, sessions: removed.length });
+      }
+      case 'block': {
+        if (typeof body?.blocked !== 'boolean') return send({ error: 'Say whether the account should be blocked.' }, 400);
+        if (self) return send({ error: 'You cannot block your own account.' }, 400);
+        if (isAdmin(target.email)) return send({ error: 'Remove admin access before blocking an admin account.' }, 400);
+        await setBlocked(target, body.blocked);
+        return send({ ok: true, user: await adminUserDetail(target.id) });
       }
       case 'admin': {
         if (typeof body?.admin !== 'boolean') return send({ error: 'Say whether this account should be an admin.' }, 400);
