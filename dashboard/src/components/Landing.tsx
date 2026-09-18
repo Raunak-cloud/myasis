@@ -95,14 +95,14 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           <div className="home-width home-hero-inner">
             <h1 id="home-heading" className="home-hero-title">
               Stop applying for jobs.<br />
-              <span className="home-hero-mark">Owtomate</span> does it <em>for</em> you, from your own account.
+              <span className="home-hero-mark">Owtomate</span> does it <em>for</em> you.
             </h1>
             <p className="home-hero-summary">
-              Owtomate reads SEEK and Indeed listings against your résumé, writes a cover letter for each one and submits it through the session you are already signed in to. If it cannot answer something honestly, it stops and asks you. If it can, you do not see the form.
+              It reads SEEK and Indeed against your résumé, writes a cover letter for each job, and applies from your own account. If it cannot answer something honestly, it asks you.
             </p>
             <div className="home-hero-actions">
               {start()}
-              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> applications on us. Job Search Pass is <strong>{aud(1999)}</strong> for 150 over 30 days. No subscription, no auto-renew, no card for the free plan.</p>
+              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications, no card. Then <strong>{aud(1999)}</strong> for 150 over 30 days.</p>
             </div>
             <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
             {error && <div className="home-error" role="alert">{error}</div>}

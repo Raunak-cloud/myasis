@@ -107,18 +107,18 @@
 .home-hero { padding: clamp(56px, 7vw, 104px) 0 clamp(40px, 5vw, 72px); }
 .home-hero-inner { max-width: 920px; }
 .home-hero-title {
-  font-size: clamp(40px, 6vw, 78px);
-  line-height: 1.02; letter-spacing: -.025em;
+  font-size: clamp(30px, 4.6vw, 62px);
+  line-height: 1.08; letter-spacing: -.03em;
 }
 .home-hero-title em { font-family: var(--display); font-weight: 500; font-style: italic; color: var(--accent); }
 .home-hero-mark {
   position: relative; display: inline-block;
-  background: linear-gradient(180deg, transparent 60%, color-mix(in srgb, var(--accent) 22%, transparent) 60%);
+  background: linear-gradient(180deg, transparent 82%, color-mix(in srgb, var(--accent) 30%, transparent) 82%);
   padding: 0 .05em;
 }
 .home-hero-summary {
-  max-width: 56ch; margin: 28px 0 0;
-  font-size: clamp(17px, 1.4vw, 19px); line-height: 1.6; color: var(--body);
+  max-width: 62ch; margin: 26px 0 0;
+  font-size: clamp(15px, 1.15vw, 17px); line-height: 1.65; color: var(--body);
 }
 .home-hero-actions {
   display: flex; flex-wrap: wrap; align-items: center; gap: 20px 28px;
@@ -530,11 +530,17 @@
   .home-header { position: static; backdrop-filter: none; }
   .home-header-inner { flex-wrap: wrap; row-gap: 6px; padding-block: 12px; min-height: 0; }
   .home-brand { font-size: 24px; }
-  .home-header nav { order: 3; width: 100%; margin-left: 0; gap: 18px; font-size: 13px; padding-top: 10px; border-top: 1px solid var(--rule); }
+  .home-header nav {
+    order: 3; width: 100%; margin-left: 0; gap: 16px; font-size: 12px;
+    padding-top: 10px; border-top: 1px solid var(--rule);
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  }
+  .home-header nav::-webkit-scrollbar { display: none; }
+  .home-header nav a { white-space: nowrap; }
   .home-login { margin-left: auto; min-height: 32px; font-size: 11px; }
 
-  .home-hero-title { font-size: 38px; }
-  .home-hero-summary { font-size: 16.5px; }
+  .home-hero-title { font-size: 32px; }
+  .home-hero-summary { font-size: 15px; }
   .home-hero-actions { flex-direction: column; align-items: stretch; gap: 16px; }
   .home-hero-actions .home-button { width: 100%; }
   .home-hero-actions .home-hero-note { text-align: left; }
@@ -577,10 +583,10 @@
 }
 
 @media (max-width: 480px) {
-  .home-hero-title { font-size: 34px; }
-  .home-hero-title br { display: none; }
-  .home-hero-title { white-space: normal; }
+  /* The line break stays: hiding it ran "jobs." straight into "Owtomate" with no space. */
+  .home-hero-title { font-size: 27px; letter-spacing: -.035em; }
   .home-hero-mark { padding: 0; }
+  .home-hero-summary { font-size: 14.5px; }
   .home-difference-title { font-size: 26px; }
   .home-last-quote blockquote { font-size: 44px; }
   .home-last-quote figcaption { font-size: 15px; }
