@@ -59,8 +59,7 @@ try {
   assert.equal(calls.length, 0);
 
   process.env.CAPTCHA_SOLVER = 'click, capmonster';
-  process.env.CAPTCHA_PYTHON = 'nonexistent-captcha-python';
-  assert.equal(await trySolveCaptcha(turnstile), true, 'chain falls through a failed click solver');
+  assert.equal(await trySolveCaptcha(turnstile), true, 'a removed solver still named in an old .env is ignored');
   assert.deepEqual(task(), { type: 'TurnstileTask', websiteURL: 'http://turnstile.test/', websiteKey: TS_KEY, pageAction: 'apply' });
   assert.match(await turnstile.locator('input').inputValue(), /^ts-\d+$/);
   assert.match(await turnstile.title(), /^callback:ts-/);
@@ -98,7 +97,7 @@ try {
   assert.equal(await trySolveCaptcha(await open('turnstile.test')), false);
   assert.equal(calls.length, before, 'an account error stops further API calls for the run');
 
-  console.log('PASS: turnstile, embedded reCAPTCHA v2, Cloudflare challenge, chain order, cooldown, token report, account-error shutoff');
+  console.log('PASS: turnstile, embedded reCAPTCHA v2, Cloudflare challenge, legacy solver name, cooldown, token report, account-error shutoff');
 } finally {
   await context.close();
   api.close();

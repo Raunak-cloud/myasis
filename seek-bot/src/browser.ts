@@ -39,7 +39,7 @@ async function installEsbuildNameShim(ctx: BrowserContext): Promise<void> {
  * Deliberate choices:
  *  - persistent context, so we inherit the real session (no credential handling,
  *    no login automation, no stored passwords).
- *  - optional Cloudflare click solving; unresolved challenges hand back to a human.
+ *  - optional CAPTCHA solving through CapMonster; unresolved challenges hand back to a human.
  */
 export async function launchBrowser(): Promise<BrowserContext> {
   let ctx: BrowserContext;

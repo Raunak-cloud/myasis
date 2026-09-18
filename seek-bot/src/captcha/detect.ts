@@ -7,8 +7,7 @@ import type { Frame, Page } from 'patchright';
  * costs no detection surface. `host` is the frame the widget lives in: employer
  * forms are often embedded, and both the URL a solver is told and the place the
  * token goes belong to that frame, not the top page. `siteKey` is null when a
- * Turnstile renders without exposing one: the click solver does not need it,
- * an API solver does.
+ * Turnstile renders without exposing one, which an API solver cannot work with.
  */
 export type Challenge =
   | { kind: 'cloudflare-challenge' }

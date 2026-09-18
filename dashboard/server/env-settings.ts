@@ -162,16 +162,13 @@ const GROUPS: GroupSpec[] = [
     banner: captchaBanner,
     keys: [
       {
-        key: 'CAPTCHA_SOLVER', label: 'Solver', help: 'Solvers are tried in order, so the free clicker can go first.',
+        key: 'CAPTCHA_SOLVER', label: 'Solver', help: 'Each solve is billed to the CapMonster balance.',
         kind: 'choice', options: [
           { value: 'off', label: 'Off' },
-          { value: 'click', label: 'Cloudflare clicker (free)' },
-          { value: 'capmonster', label: 'CapMonster Cloud (paid)' },
-          { value: 'click,capmonster', label: 'Clicker first, then CapMonster' },
+          { value: 'capmonster', label: 'CapMonster Cloud' },
         ],
       },
       { key: 'CAPMONSTER_API_KEY', label: 'CapMonster API key', help: 'From dash.capmonster.cloud. Solves Turnstile, Cloudflare challenges and reCAPTCHA v2; not hCaptcha.', kind: 'secret' },
-      { key: 'CAPTCHA_PYTHON', label: 'Python for the clicker', help: 'Path to the interpreter with requirements-captcha.txt installed.', kind: 'text' },
     ],
   },
   {

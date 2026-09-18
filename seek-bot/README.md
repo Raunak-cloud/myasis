@@ -194,7 +194,7 @@ By design, not limitation:
 
 | Situation | Behaviour |
 |---|---|
-| CAPTCHA | optionally tries the configured solvers (Cloudflare clicker, CapMonster Cloud), then skips the job if still blocked |
+| CAPTCHA | optionally tries CapMonster Cloud, then skips the job if still blocked |
 | Employer sign-in or sign-up | completes the form, uses connected Gmail for emailed codes, then skips if authentication still cannot complete |
 | Australian government destination | skips before AI review or application |
 | SEEK Pass / work-rights wall | skips the job without creating a user task |
@@ -202,44 +202,12 @@ By design, not limitation:
 | A required question not answerable from the verified profile | stops before submitting and asks the candidate |
 | 2 friction signals in a row | aborts the whole run |
 
-### Optional Patchright CAPTCHA integration
-
-The Python [playwright-captcha](https://github.com/techinz/playwright-captcha)
-library connects to the TypeScript bot's existing Patchright tab over CDP.
-It supports Cloudflare Turnstile and interstitial click solving without an API key.
-reCAPTCHA, unsupported challenges, and unsuccessful attempts still need a human.
-
-Install from the `seek-bot` directory (Python 3.11+ and Git required):
-
-```powershell
-python -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements-captcha.txt
-```
-
-On Linux, use `.venv/bin/python` for the pip command. Set `CAPTCHA_SOLVER=click`
-in `.env` to enable, or `off` to disable. The bot finds this virtual environment
-automatically; `CAPTCHA_PYTHON` can override its interpreter path.
-Restart the bot after enabling so Chrome launches with a loopback CDP port
-(`CDP_PORT`, default 9222). Choose a different free port for concurrent browsers.
-With `BROWSER_CONNECT_CDP=true`, the bridge uses the existing `CDP_HOST` and
-`CDP_PORT` instead. No extra Python browser download is needed.
-
-The bridge targets the exact CDP tab ID, performs one solve attempt with a
-45-second Python timeout and a 50-second process limit, then disconnects.
-Attempts on the same tab and URL have a 60-second cooldown. The bot rechecks
-the page afterward. The bridge does not reload forms or invoke an API solver's
-form-submission functionality. Rate limits and identity checks remain in place.
-
-Verification: `npm run build` then `node scripts/test-captcha.mjs` runs the real
-Python solver against locally fulfilled browser fixtures. It requires Chrome
-and the Python dependencies; it does not contact job boards or CAPTCHA services.
-
 ### Optional CapMonster Cloud integration
 
-`CAPTCHA_SOLVER` is an ordered chain. `click,capmonster` tries the free clicker
-first and falls back to the paid [CapMonster Cloud](https://docs.capmonster.cloud)
-API; `capmonster` alone skips the clicker. Set `CAPMONSTER_API_KEY` from
-dash.capmonster.cloud.
+Set `CAPTCHA_SOLVER=capmonster` and `CAPMONSTER_API_KEY` (from dash.capmonster.cloud)
+to solve challenges through the paid [CapMonster Cloud](https://docs.capmonster.cloud)
+API; `off` disables it. One attempt is made per tab and URL, with a 60-second
+cooldown, and the bot rechecks the page afterward.
 
 | Challenge | Task sent | How the token is applied |
 |---|---|---|

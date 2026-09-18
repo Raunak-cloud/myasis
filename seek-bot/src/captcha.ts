@@ -1,16 +1,15 @@
 import type { Page } from 'patchright';
 import { capMonsterSolver } from './captcha/capmonster.js';
-import { clickSolver } from './captcha/click.js';
 import { detectChallenge, type Solver } from './captcha/detect.js';
 
 export { reportRejectedToken } from './captcha/capmonster.js';
 
 /**
- * CAPTCHA_SOLVER is an ordered chain, e.g. `click,capmonster`: each solver
- * that supports the challenge on the page gets one try, in order, until one
- * applies a solution. `off`, empty, or unknown names solve nothing.
+ * CAPTCHA_SOLVER names the solvers to use, comma-separated and tried in order
+ * until one applies a solution. `off`, empty, or unknown names solve nothing —
+ * so a value naming a solver that has since been removed degrades to the rest.
  */
-const SOLVERS: Record<string, Solver> = { click: clickSolver, capmonster: capMonsterSolver };
+const SOLVERS: Record<string, Solver> = { capmonster: capMonsterSolver };
 const attempts = new WeakMap<Page, { url: string; time: number }>();
 
 const chain = (): Solver[] =>
