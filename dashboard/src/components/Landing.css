@@ -466,20 +466,27 @@
 }
 
 @media (max-width: 480px) {
-  /* A phone: one column, nothing decorative competing with the words, and
-     every button the full width of the screen so it is easy to hit. */
-  .home-header { flex-wrap: wrap; row-gap: 8px; padding-block: 12px; }
-  .home-header nav { order: 3; width: 100%; margin-left: 0; justify-content: space-between; gap: 10px; font-size: 12px; }
-  .home-login { margin-left: auto; }
+  /* A phone. One column, and one clear rank of type: the headline leads,
+     every tagline sits under it as a subline, section titles fit in two
+     lines, and the raised edges lift less so the cards do not crowd the
+     narrow page. Every button is the full width of the screen. */
+  .landing { --gap-section: 40px; --gap-block: 20px; --lift: 3px 3px 0 var(--ink-line); --lift-sm: 2px 2px 0 var(--ink-line); }
+  .home-header { flex-wrap: wrap; row-gap: 6px; padding-block: 12px 10px; }
+  .home-header nav { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; gap: 20px; font-size: 12.5px; font-weight: 500; }
+  .home-login { margin-left: auto; font-size: 12.5px; }
   .home-brand { font-size: 23px; }
   .home-brand .mascot-logo { width: 30px; height: 30px; }
-  .home-intro { padding-block: 22px 26px; gap: 24px; }
-  .home-intro h1 { font-size: 30px; }
-  .home-hero-summary { margin-top: 14px; font-size: 14px; }
-  .home-hero-actions { margin-top: 20px; }
+
+  .home-intro { padding-block: 22px 26px; gap: 22px; }
+  .home-intro h1 { font-size: 34px; line-height: 1.08; letter-spacing: -.01em; }
+  .home-intro h1 em { margin-top: 10px; color: var(--muted); font-size: 18px; font-style: normal; font-weight: 500; line-height: 1.35; }
+  .home-hero-summary { margin-top: 14px; font-size: 15px; line-height: 1.55; }
+  .home-hero-actions { margin-top: 18px; }
   .home-hero-actions .home-button,
   .home-last-action .home-button { width: 100%; }
-  .home-hero-video-top { font-size: 8px; }
+  .home-intro .home-small { margin-top: 10px; text-align: center; }
+  .home-hero-video-top { min-height: 30px; font-size: 10px; }
+
   .story-col { padding: 18px 16px; gap: 14px; }
   .story-step { grid-template-columns: 40px minmax(0, 1fr); gap: 12px; font-size: 13.5px; }
   .story-step + .story-step::before { left: 20px; }
@@ -488,10 +495,28 @@
   .story-owl { width: 32px; height: 30px; }
   .story-owl-face { width: 26px; height: 26px; left: 3px; }
   .story-laptop { width: 32px; height: 13px; }
+
+  .home-explainer > h2,
+  .home-questions h2 { font-size: 26px; line-height: 1.15; }
+  .home-explainer > h2 { margin-bottom: 18px; }
+  .home-process h3 { font-size: 16px; }
   .home-promise .mascot-logo { width: 36px; height: 36px; }
-  .home-price-card { padding: 22px 18px; }
-  .home-faq-list summary { font-size: 13px; }
-  .home-footer { padding-block: 22px; }
+  .home-promise h2 { font-size: 20px; }
+
+  .home-pricing-title h2 { font-size: 26px; line-height: 1.15; }
+  .home-pricing-title h2 br { display: none; }
+  .home-pricing-title h2 em { display: block; margin-top: 8px; color: var(--muted); font-size: 15px; font-style: normal; font-weight: 500; }
+  .home-price-grid { gap: 14px; }
+  .home-price-card { padding: 20px 18px 18px; }
+  .home-price-card h3 { font-size: 22px; }
+  .home-price { margin: 14px 0 14px; font-size: 30px; }
+  .home-price-card ul { gap: 8px; margin-top: 16px; padding-top: 16px; font-size: 12px; }
+  .home-price-popular { top: 14px; right: 14px; }
+
+  .home-faq-list summary { padding: 14px 0; font-size: 13.5px; }
+  .home-goodbye { font-size: 26px; }
+  .home-last .home-small { text-align: center; }
+  .home-footer { padding-block: 20px; }
   .home-footer > span { display: none; }
 }
 
