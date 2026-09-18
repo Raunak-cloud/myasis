@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
  */
 export interface BillingStatus {
   configured: boolean;
-  free: { allowance: number; used: number; remaining: number; resetsAt: string };
+  free: { allowance: number; used: number; remaining: number };
   paid: {
     remaining: number;
     expiresAt: string | null;

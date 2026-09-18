@@ -221,12 +221,6 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
   return events.slice(-12);
 }
 
-function dateLabel(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf())
-    ? 'next month'
-    : new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short' }).format(date);
-}
 
 function formatRunDuration(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -343,7 +337,6 @@ export function RunPanel({
   /** Counts rejected attempts, so the same field failing twice still reacts. */
   const [attempt, setAttempt] = useState(0);
   const [outOfApplications, setOutOfApplications] = useState(false);
-  const [freeResetsAt, setFreeResetsAt] = useState<string | null>(null);
   const [clock, setClock] = useState(() => Date.now());
   const setup = useSetupStatus();
   /** The steps only the account holder can do; an account without them is not on the schedule yet. */
@@ -732,10 +725,6 @@ export function RunPanel({
       if (runResponse.status === 402) {
         setConfirming(false);
         setOutOfApplications(true);
-        fetch('/api/billing/status')
-          .then((r) => r.json())
-          .then((s) => setFreeResetsAt(s?.free?.resetsAt ?? null))
-          .catch(() => {});
         return;
       }
       const result = await runResponse.json();
@@ -1112,9 +1101,7 @@ export function RunPanel({
           >
             <h2 id="out-of-apps-title">You're out of applications</h2>
             <p id="out-of-apps-description" className="dim">
-              {freeResetsAt
-                ? `You've used all your applications for now. Get a pass to keep applying today, or wait: your free applications reset on ${dateLabel(freeResetsAt)}.`
-                : "You've used all your applications for now. Get a pass to keep applying today, or wait for your free applications to reset next month."}
+              You have used all your applications. Get a pass to keep applying.
             </p>
             <div className="confirm-actions">
               <button className="btn" onClick={() => setOutOfApplications(false)}>

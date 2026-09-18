@@ -1,4 +1,4 @@
-export const FREE_MONTHLY_APPLICATIONS = 5;
+export const FREE_APPLICATIONS = 5;
 
 /** Humanizer rewrites cover letters in natural words; it comes with a paid pass. */
 export const HUMANIZER_NOTE = 'Humanizer is only available with Job Search Pass and Intensive Pass.';
@@ -70,7 +70,7 @@ export const PLAN_PRESENTATION = {
     label: 'Automatic essentials',
     description: 'A simple way to let Owtomate apply for well-matched SEEK roles.',
     features: [
-      `${FREE_MONTHLY_APPLICATIONS} successful applications`,
+      `${FREE_APPLICATIONS} successful applications`,
       `${plural(FREE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
       `AI reviews up to ${FREE.evaluationsPerRun} jobs each run`,
       `${SCHEDULED_MIN_SCORE}% minimum match for scheduled applications`,

@@ -134,7 +134,7 @@ export function PricingPanel() {
           </div>
           <div className="pricing-status-stat">
             <strong>{status.free.remaining}<em> / {status.free.allowance}</em></strong>
-            <span>free this month · resets {dateLabel(status.free.resetsAt)}</span>
+            <span>free applications</span>
           </div>
           <div className="pricing-status-stat">
             <strong>{status.paid.remaining}</strong>

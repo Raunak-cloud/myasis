@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import { getPool, one } from './db/index.js';
 import { readEnv } from './runner.js';
 import {
-  FREE_MONTHLY_APPLICATIONS,
+  FREE_APPLICATIONS,
   PAID_PLANS,
   isPaidPlanKey,
   type PaidPlanKey,
@@ -108,7 +108,6 @@ export interface BillingStatus {
     allowance: number;
     used: number;
     remaining: number;
-    resetsAt: string;
   };
   paid: {
     remaining: number;
@@ -120,20 +119,14 @@ export interface BillingStatus {
   totalRemaining: number;
 }
 
-function nextMonthStart(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-}
-
 export async function billingStatus(userId: string, email?: string | null): Promise<BillingStatus> {
   if (isAdmin(email)) {
     return {
       configured: paymentsConfigured(),
       free: {
-        allowance: FREE_MONTHLY_APPLICATIONS,
+        allowance: FREE_APPLICATIONS,
         used: 0,
-        remaining: FREE_MONTHLY_APPLICATIONS,
-        resetsAt: nextMonthStart().toISOString(),
+        remaining: FREE_APPLICATIONS,
       },
       paid: {
         remaining: ADMIN_UNLIMITED,
@@ -170,23 +163,23 @@ export async function billingStatus(userId: string, email?: string | null): Prom
      WHERE g.user_id = $1 AND g.expires_at > now()`,
     [userId],
   );
-  const usage = await one<{ used: number }>(
-    `SELECT successful_applications AS used
+  // The free allowance is for the life of the account, not the month: every row counts.
+  const usage = await one<{ used: string }>(
+    `SELECT COALESCE(sum(successful_applications), 0)::text AS used
        FROM monthly_application_usage
-      WHERE user_id = $1 AND month_start = date_trunc('month', now())::date`,
+      WHERE user_id = $1`,
     [userId],
   );
   const freeUsed = Number(usage?.used ?? 0);
-  const freeRemaining = Math.max(0, FREE_MONTHLY_APPLICATIONS - freeUsed);
+  const freeRemaining = Math.max(0, FREE_APPLICATIONS - freeUsed);
   const paidRemaining = Number(paid?.remaining ?? 0);
   const hasActivePass = Boolean(paid?.active_pass_expires_at);
   return {
     configured: paymentsConfigured(),
     free: {
-      allowance: FREE_MONTHLY_APPLICATIONS,
+      allowance: FREE_APPLICATIONS,
       used: freeUsed,
       remaining: freeRemaining,
-      resetsAt: nextMonthStart().toISOString(),
     },
     paid: {
       remaining: paidRemaining,
@@ -312,14 +305,15 @@ export async function consumeSuccessfulApplication(userId: string): Promise<void
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
-    const usage = await client.query<{ successful_applications: number }>(
-      `SELECT successful_applications
+    // One account at a time through this check, so two runs cannot both take the last free application.
+    await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
+    const usage = await client.query<{ used: string }>(
+      `SELECT COALESCE(sum(successful_applications), 0)::text AS used
          FROM monthly_application_usage
-        WHERE user_id = $1 AND month_start = date_trunc('month', now())::date
-        FOR UPDATE`,
+        WHERE user_id = $1`,
       [userId],
     );
-    if (Number(usage.rows[0]?.successful_applications ?? 0) < FREE_MONTHLY_APPLICATIONS) {
+    if (Number(usage.rows[0]?.used ?? 0) < FREE_APPLICATIONS) {
       await client.query(
         `INSERT INTO monthly_application_usage (user_id, month_start, successful_applications)
          VALUES ($1, date_trunc('month', now())::date, 1)

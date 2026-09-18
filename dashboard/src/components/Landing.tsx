@@ -1,6 +1,6 @@
 import './Landing.css';
 import { useEffect, useRef, useState } from 'react';
-import { FREE_MONTHLY_APPLICATIONS, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, aud } from '../pricing';
+import { FREE_APPLICATIONS, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, aud } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
@@ -11,7 +11,7 @@ const QUESTIONS = [
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
-  { question: 'Is there a subscription?', answer: 'No. The free plan resets monthly. Paid passes are one-off purchases, valid for 30 days, and do not automatically renew. Prices are in Australian dollars.' },
+  { question: 'Is there a subscription?', answer: 'No. The free plan is a one-time allowance. Paid passes are one-off purchases, valid for 30 days, and do not automatically renew. Prices are in Australian dollars.' },
 ];
 
 function Arrow() {
@@ -63,7 +63,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           <p className="home-hero-summary">Owtomate finds suitable roles, prepares tailored cover letters and handles the repetitive parts of applying.</p>
           {error && <div className="home-error" role="alert">{error}</div>}
           <div className="home-hero-actions">{start()}</div>
-          <p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications. No card needed.</p>
+          <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
         </div>
         <div className="home-hero-demo" id="demo">
           <div className="home-hero-video-top"><span>Real application run</span></div>
@@ -110,7 +110,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       </section>
 
       <section className="home-questions" id="questions"><div className="home-faq-list">{QUESTIONS.map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>
-      <section className="home-last"><div className="home-last-message"><span className="home-goodbye-lead">Our favourite goodbye</span><p className="home-goodbye">“I got the job.”</p><p className="home-goodbye-detail">The sooner you leave us for your new role, the happier we are.</p></div><div className="home-last-action">{start()}<p className="home-small">{FREE_MONTHLY_APPLICATIONS} free applications.<br />No card needed.</p></div></section>
+      <section className="home-last"><div className="home-last-message"><span className="home-goodbye-lead">Our favourite goodbye</span><p className="home-goodbye">“I got the job.”</p><p className="home-goodbye-detail">The sooner you leave us for your new role, the happier we are.</p></div><div className="home-last-action">{start()}<p className="home-small">{FREE_APPLICATIONS} free applications.<br />No card needed.</p></div></section>
     </main>
     <footer className="home-footer home-width"><a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a><span>Job applications, with a little help.</span><a href="#top">Back to top ↑</a></footer>
   </div>;
