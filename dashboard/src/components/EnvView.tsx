@@ -20,6 +20,7 @@ interface EnvEntry {
   value: string | null;
   set: boolean;
   length: number;
+  hint: string | null;
   locked: string | null;
   shadowed: boolean;
   restart: boolean;
@@ -58,15 +59,24 @@ function Field({ entry, draft, onChange }: { entry: EnvEntry; draft: string | un
   }
 
   if (entry.kind === 'secret') {
+    const removing = dirty && draft === '';
+    const kindWord = entry.hint?.includes('live') ? 'live key' : entry.hint?.includes('test') ? 'test key' : null;
     return (
       <div className="env-secret">
+        <span className={`env-status ${entry.set ? 'on' : ''}`}>
+          {removing
+            ? 'Will be removed on save'
+            : entry.set
+              ? `Set${kindWord ? ` · ${kindWord}` : ''}${entry.hint ? ` · ${entry.hint}…` : ''} · ${entry.length} characters`
+              : 'Not set'}
+        </span>
         <input
           className="input"
           type="password"
           autoComplete="new-password"
           spellCheck={false}
           disabled={disabled}
-          placeholder={entry.set ? `Set · ${entry.length} characters. Type to replace.` : 'Not set'}
+          placeholder={entry.set ? 'Type a new value to replace it' : 'Enter a value'}
           value={draft ?? ''}
           onChange={(event) => onChange(event.target.value === '' ? undefined : event.target.value)}
           aria-label={entry.label}
@@ -74,11 +84,11 @@ function Field({ entry, draft, onChange }: { entry: EnvEntry; draft: string | un
         {entry.set && !disabled && (
           <button
             type="button"
-            className={`btn btn-small ${dirty && draft === '' ? 'btn-danger' : ''}`}
-            onClick={() => onChange(dirty && draft === '' ? undefined : '')}
+            className={`btn btn-small ${removing ? 'btn-danger' : ''}`}
+            onClick={() => onChange(removing ? undefined : '')}
             title="Remove this value on save"
           >
-            {dirty && draft === '' ? 'Will be removed' : 'Remove'}
+            {removing ? 'Keep it' : 'Remove'}
           </button>
         )}
       </div>

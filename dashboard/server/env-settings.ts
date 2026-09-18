@@ -182,6 +182,9 @@ const GROUPS: GroupSpec[] = [
   },
 ];
 
+/** Prefixes that identify a key's kind. Only these are ever sent back for a secret. */
+const KNOWN_PREFIX = /^(sk_live_|sk_test_|rk_live_|rk_test_|whsec_|pk_live_|pk_test_|re_|AIza|postgres(?:ql)?:\/\/)/;
+
 const KNOWN = new Map<string, Spec>();
 for (const group of GROUPS) for (const spec of group.keys) KNOWN.set(spec.key, spec);
 
@@ -202,6 +205,12 @@ export interface EnvEntry {
   value: string | null;
   set: boolean;
   length: number;
+  /**
+   * The recognisable prefix of a secret — sk_live_, whsec_ — and nothing
+   * more. It says which kind of key is there (live or test) without saying
+   * anything an attacker could use.
+   */
+  hint: string | null;
   locked: string | null;
   /** Carried by the server process itself, so a file write would be ignored. */
   shadowed: boolean;
@@ -230,6 +239,7 @@ function entryFor(key: string, spec: Spec | undefined, env: Record<string, strin
     value: kind === 'secret' ? null : raw,
     set: raw.length > 0,
     length: raw.length,
+    hint: kind === 'secret' ? (raw.match(KNOWN_PREFIX)?.[0] ?? null) : null,
     locked: LOCKED[key] ?? null,
     shadowed: process.env[key] !== undefined,
     restart: spec?.restart ?? false,

@@ -2494,8 +2494,11 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .env-control { display: grid; align-content: start; }
 .env-control .input { width: 100%; min-width: 0; }
 .env-control .input:disabled { opacity: .55; cursor: not-allowed; }
-.env-secret { display: flex; gap: 8px; align-items: center; }
-.env-secret .input { flex: 1; }
+.env-secret { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; }
+/* The state of a secret is written out, never left to a placeholder that reads as empty. */
+.env-status { grid-column: 1 / -1; font-size: 12px; color: var(--text-faint); }
+.env-status.on { color: var(--ok); font-weight: 600; }
+.env-status.on::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--ok); vertical-align: 1px; }
 .env-bar {
   position: sticky; bottom: 12px; z-index: 5;
   display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
