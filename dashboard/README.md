@@ -23,10 +23,10 @@ Plans are defined in `src/pricing.ts`. `PLAN_LIMITS` there is what the server en
 
 | Plan | Price | Allowance and access | Validity |
 |---|---:|---|---:|
-| Free | A$0 | 5 successful applications, 1 automatic run daily (any hour), up to 5 jobs reviewed per run, SEEK, no humanizer | Allowance renews monthly |
-| Job Search Pass | A$19.99 | 150 successful applications, 4 automatic runs daily, spread across 24 hours, up to 70 jobs reviewed per run, SEEK and Indeed, humanizer | 30 days |
-| Intensive Pass | A$39.99 | 320 successful applications, 3 user-started runs daily, up to 100 jobs reviewed per run, SEEK, Indeed and up to 5 employer-site applications a day, humanizer | 30 days |
-| Application Top-up | A$4.99 | 50 successful applications; run access is unchanged | 30 days |
+| Free | A$0 | 5 successful applications, 1 automatic run daily (any hour), up to 5 jobs reviewed per run, SEEK, no humanizer | Once per account |
+| Job Search Pass | A$19.99 | 200 successful applications, 4 automatic runs daily, spread across 24 hours, up to 70 jobs reviewed per run, SEEK and Indeed, humanizer | Never expires |
+| Intensive Pass | A$39.99 | 400 successful applications, 3 user-started runs daily, up to 100 jobs reviewed per run, SEEK, Indeed and up to 5 employer-site applications a day, humanizer | Never expires |
+| Application Top-up | A$4.99 | 50 successful applications; run access is unchanged | Never expires |
 
 Passes are one-time payments and do not auto-renew.
 

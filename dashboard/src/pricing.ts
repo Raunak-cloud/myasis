@@ -16,20 +16,25 @@ export const HUMANIZER_NOTE = 'Humanizer is only available with Job Search Pass 
  * Intensive every employer-site slot — after card fees and GST, with room
  * left over. Change the allowances or runs here and that check has to be
  * done again.
+ *
+ * The 200/400 allowances (18 September 2026) hold on typical use — about
+ * A$10 of cost on a Job Search Pass, A$26 on an Intensive Pass spent on Quick
+ * Apply. They do not hold on the worst case: passes no longer expire, so an
+ * Intensive Pass can spend all 400 on employer sites at 10-20x the cost.
  */
 export const PAID_PLANS = {
   'job-search-pass': {
     key: 'job-search-pass',
     name: 'Job Search Pass',
     priceCents: 1999,
-    applications: 150,
+    applications: 200,
     description: 'A focused block of applications for an active job search.',
   },
   'intensive-pass': {
     key: 'intensive-pass',
     name: 'Intensive Pass',
     priceCents: 3999,
-    applications: 320,
+    applications: 400,
     description: 'More application capacity for a broad or urgent search.',
   },
   'application-top-up': {
