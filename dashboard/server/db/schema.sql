@@ -156,7 +156,9 @@ CREATE TABLE IF NOT EXISTS application_credit_grants (
   purchase_id   BIGINT NOT NULL UNIQUE REFERENCES billing_purchases(id) ON DELETE CASCADE,
   credits_total INTEGER NOT NULL CHECK (credits_total > 0),
   credits_used  INTEGER NOT NULL DEFAULT 0 CHECK (credits_used >= 0 AND credits_used <= credits_total),
-  expires_at    TIMESTAMPTZ NOT NULL,
+  -- NULL means the credits never expire, which is the normal state: passes are
+  -- sold without a time limit. A date is only ever set to end a pass early.
+  expires_at    TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS application_credit_grants_active_idx
@@ -175,7 +177,7 @@ UPDATE application_credit_grants AS g
    )
   FROM billing_purchases AS p
  WHERE g.purchase_id = p.id
-   AND g.expires_at > now()
+   AND (g.expires_at IS NULL OR g.expires_at > now())
    AND (
      (p.plan_key = 'job-search-pass' AND p.applications_granted < 150)
      OR (p.plan_key = 'intensive-pass' AND p.applications_granted < 320)
@@ -188,6 +190,13 @@ UPDATE billing_purchases
    END
  WHERE (plan_key = 'job-search-pass' AND applications_granted < 150)
     OR (plan_key = 'intensive-pass' AND applications_granted < 320);
+
+-- Passes are no longer time-limited. The column stays nullable rather than
+-- being dropped so a pass can still be ended early from the admin page.
+-- Grants sold under the old 30-day terms lose their deadline too: a customer
+-- who paid for credits keeps them.
+ALTER TABLE application_credit_grants ALTER COLUMN expires_at DROP NOT NULL;
+UPDATE application_credit_grants SET expires_at = NULL WHERE expires_at > now();
 
 CREATE TABLE IF NOT EXISTS monthly_application_usage (
   user_id                BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

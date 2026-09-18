@@ -13,7 +13,7 @@ const QUESTIONS = [
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
-  { question: 'Is there a subscription?', answer: 'No. The free plan is a one-time allowance. Paid passes are one-off purchases, valid for 30 days, and do not automatically renew. Prices are in Australian dollars.' },
+  { question: 'Is there a subscription?', answer: 'No. The free plan is a one-time allowance. Paid passes are one-off purchases, they do not expire, and they do not automatically renew. Prices are in Australian dollars.' },
 ];
 
 const STEPS = [
@@ -102,7 +102,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             </p>
             <div className="home-hero-actions">
               {start()}
-              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications, no card. Then <strong>{aud(1999)}</strong> for 150 over 30 days.</p>
+              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications, no card. Then <strong>{aud(1999)}</strong> for 150 that never expire.</p>
             </div>
             <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
             {error && <div className="home-error" role="alert">{error}</div>}
@@ -187,20 +187,20 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               <li className="home-price-row home-price-row-feature">
                 <span className="home-price-tier">Job Search Pass<span className="home-price-flag">most picked</span></span>
                 <span className="home-price-amount"><span className="home-price-currency">A$</span>{audPrice(PAID_PLANS['job-search-pass'].priceCents)}</span>
-                <span className="home-price-desc">{PLAN_PRESENTATION['job-search-pass'].description} 150 successful applications. Valid 30 days. One payment.</span>
+                <span className="home-price-desc">{PLAN_PRESENTATION['job-search-pass'].description} 150 successful applications. No expiry. One payment.</span>
                 <span className="home-price-notes">{PLAN_PRESENTATION['job-search-pass'].features.join(' · ')}.</span>
                 <span className="home-price-cta">{start('Buy a Job Search Pass', 'primary')}</span>
               </li>
               <li className="home-price-row">
                 <span className="home-price-tier">Intensive Pass</span>
                 <span className="home-price-amount"><span className="home-price-currency">A$</span>{audPrice(PAID_PLANS['intensive-pass'].priceCents)}</span>
-                <span className="home-price-desc">{PLAN_PRESENTATION['intensive-pass'].description} 320 successful applications. Valid 30 days. One payment.</span>
+                <span className="home-price-desc">{PLAN_PRESENTATION['intensive-pass'].description} 320 successful applications. No expiry. One payment.</span>
                 <span className="home-price-notes">{PLAN_PRESENTATION['intensive-pass'].features.join(' · ')}.</span>
                 <span className="home-price-cta">{start('Buy an Intensive Pass', 'light')}</span>
               </li>
             </ol>
             <p className="home-price-foot">
-              Already bought a pass and chewed through it? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for 50 more successful applications, valid 30 days &mdash; ask in-app after you start. {HUMANIZER_NOTE}
+              Already bought a pass and chewed through it? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for 50 more successful applications &mdash; ask in-app after you start. {HUMANIZER_NOTE}
             </p>
           </div>
         </section>

@@ -23,11 +23,11 @@ const PLAN_CARDS: Array<{
   { key: 'free', name: 'Free', price: aud(0), term: 'no card needed', recommended: false, presentation: PLAN_PRESENTATION.free },
   {
     key: 'job-search-pass', name: PAID_PLANS['job-search-pass'].name, price: aud(PAID_PLANS['job-search-pass'].priceCents),
-    term: 'one payment · 30 days', recommended: true, presentation: PLAN_PRESENTATION['job-search-pass'],
+    term: 'one payment · never expires', recommended: true, presentation: PLAN_PRESENTATION['job-search-pass'],
   },
   {
     key: 'intensive-pass', name: PAID_PLANS['intensive-pass'].name, price: aud(PAID_PLANS['intensive-pass'].priceCents),
-    term: 'one payment · 30 days', recommended: false, presentation: PLAN_PRESENTATION['intensive-pass'],
+    term: 'one payment · never expires', recommended: false, presentation: PLAN_PRESENTATION['intensive-pass'],
   },
 ];
 
@@ -118,8 +118,8 @@ export function PricingPanel() {
 
       <header className="pricing-head">
         <span className="pricing-kicker">Plans &amp; pricing</span>
-        <h2>A month of applications, not a subscription</h2>
-        <p>Every pass is one payment that lasts 30 days and never renews by itself. Only applications that are actually submitted count.</p>
+        <h2>Applications you keep, not a subscription</h2>
+        <p>Every pass is one payment. The applications do not expire and nothing renews by itself. Only applications that are actually submitted count.</p>
       </header>
 
       {status && (
@@ -138,7 +138,13 @@ export function PricingPanel() {
           </div>
           <div className="pricing-status-stat">
             <strong>{status.paid.remaining}</strong>
-            <span>{status.paid.expiresAt ? `on your pass · until ${dateLabel(status.paid.expiresAt)}` : 'on a pass · none active'}</span>
+            <span>
+              {status.paid.remaining === 0
+                ? 'on a pass · none active'
+                : status.paid.expiresAt
+                  ? `on your pass · until ${dateLabel(status.paid.expiresAt)}`
+                  : 'on your pass · no expiry'}
+            </span>
           </div>
         </section>
       )}
@@ -217,7 +223,7 @@ export function PricingPanel() {
           <p>
             {current === 'free'
               ? 'Adds applications to a Job Search Pass or Intensive Pass. Choose a pass first.'
-              : `Adds to your balance for ${PAID_PLANS['application-top-up'].validDays} days without changing how your plan runs.`}
+              : 'Adds to your balance without changing how your plan runs.'}
           </p>
         </div>
         <div className="pricing-topup-action">
@@ -242,8 +248,8 @@ export function PricingPanel() {
           <p>Skipped jobs, failed forms and anything that needs your attention do not use your allowance.</p>
         </article>
         <article>
-          <strong>Passes last 30 days</strong>
-          <p>Applications stay available until the pass ends. Nothing renews or charges again on its own.</p>
+          <strong>Passes do not expire</strong>
+          <p>Applications stay on your account until you use them. Nothing renews or charges again on its own.</p>
         </article>
         <article>
           <strong>Top-ups add capacity</strong>

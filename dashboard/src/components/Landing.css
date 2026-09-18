@@ -11,6 +11,9 @@
   --paper: #ffffff;
   --paper-2: #ffffff;
   --ink: #1d1814;
+  /* The app's global rules (.wordmark) resolve --text; without this they fall
+     through to the dashboard's dark-theme token and render near-white on paper. */
+  --text: #1d1814;
   --ink-2: #403731;
   --body: #514640;
   --muted: #7d6f63;

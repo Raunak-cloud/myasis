@@ -23,15 +23,13 @@ export const PAID_PLANS = {
     name: 'Job Search Pass',
     priceCents: 1999,
     applications: 150,
-    validDays: 30,
-    description: 'A focused month of applications for an active job search.',
+    description: 'A focused block of applications for an active job search.',
   },
   'intensive-pass': {
     key: 'intensive-pass',
     name: 'Intensive Pass',
     priceCents: 3999,
     applications: 320,
-    validDays: 30,
     description: 'More application capacity for a broad or urgent search.',
   },
   'application-top-up': {
@@ -39,7 +37,6 @@ export const PAID_PLANS = {
     name: 'Application Top-up',
     priceCents: 499,
     applications: 50,
-    validDays: 30,
     description: 'Extra successful applications without changing your plan.',
   },
 } as const;

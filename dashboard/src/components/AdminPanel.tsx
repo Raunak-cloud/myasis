@@ -70,7 +70,8 @@ interface UserDetail extends AdminUser {
     test: boolean;
     paidAt: string;
     applications: { total: number; used: number };
-    expiresAt: string;
+    /** Null unless the pass was ended early: passes are sold without an expiry. */
+    expiresAt: string | null;
     active: boolean;
   }>;
   runs: AdminRun[];
@@ -505,7 +506,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                             ? <span className="badge muted">Given by admin</span>
                             : <span className="job-meta">{aud(pass.amountPaidCents)}{pass.test && <> <span className="badge warn">Test payment</span></>}</span>}
                           <div className="job-meta">
-                            {pass.applications.used} of {pass.applications.total} used · {pass.active ? `until ${when(pass.expiresAt)}` : `ended ${when(pass.expiresAt)}`}
+                            {pass.applications.used} of {pass.applications.total} used{pass.expiresAt ? ` · ${pass.active ? 'until' : 'ended'} ${when(pass.expiresAt)}` : pass.active ? ' · no expiry' : ' · fully used'}
                           </div>
                         </div>
                         <span className={`badge ${pass.active ? 'ok' : 'muted'}`}>{pass.active ? 'Active' : 'Ended'}</span>

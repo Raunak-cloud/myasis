@@ -139,28 +139,29 @@ export async function billingStatus(userId: string, email?: string | null): Prom
     };
   }
 
+  /**
+   * Passes have no time limit, so what a pass entitles you to lasts as long as
+   * its credits do: a pass counts as active while it still has an unspent
+   * application on it, not merely because the grant row exists.
+   */
   const paid = await one<{
     remaining: string;
     expires_at: Date | null;
-    active_pass_expires_at: Date | null;
-    job_search_pass_expires_at: Date | null;
-    intensive_pass_expires_at: Date | null;
+    job_search_pass: boolean;
+    intensive_pass: boolean;
   }>(
     `SELECT
        COALESCE(sum(g.credits_total - g.credits_used), 0)::text AS remaining,
        max(g.expires_at) AS expires_at,
-       max(g.expires_at) FILTER (
-         WHERE p.plan_key IN ('job-search-pass', 'intensive-pass')
-       ) AS active_pass_expires_at,
-       max(g.expires_at) FILTER (
-         WHERE p.plan_key = 'job-search-pass'
-       ) AS job_search_pass_expires_at,
-       max(g.expires_at) FILTER (
-         WHERE p.plan_key = 'intensive-pass'
-       ) AS intensive_pass_expires_at
+       COALESCE(bool_or(
+         p.plan_key = 'job-search-pass' AND g.credits_used < g.credits_total
+       ), false) AS job_search_pass,
+       COALESCE(bool_or(
+         p.plan_key = 'intensive-pass' AND g.credits_used < g.credits_total
+       ), false) AS intensive_pass
      FROM application_credit_grants g
      JOIN billing_purchases p ON p.id = g.purchase_id
-     WHERE g.user_id = $1 AND g.expires_at > now()`,
+     WHERE g.user_id = $1 AND (g.expires_at IS NULL OR g.expires_at > now())`,
     [userId],
   );
   // The free allowance is for the life of the account, not the month: every row counts.
@@ -173,7 +174,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
   const freeUsed = Number(usage?.used ?? 0);
   const freeRemaining = Math.max(0, FREE_APPLICATIONS - freeUsed);
   const paidRemaining = Number(paid?.remaining ?? 0);
-  const hasActivePass = Boolean(paid?.active_pass_expires_at);
+  const hasActivePass = Boolean(paid?.job_search_pass || paid?.intensive_pass);
   return {
     configured: paymentsConfigured(),
     free: {
@@ -185,8 +186,8 @@ export async function billingStatus(userId: string, email?: string | null): Prom
       remaining: paidRemaining,
       expiresAt: paid?.expires_at ? new Date(paid.expires_at).toISOString() : null,
       hasActivePass,
-      hasActiveJobSearchPass: Boolean(paid?.job_search_pass_expires_at),
-      hasActiveIntensivePass: Boolean(paid?.intensive_pass_expires_at),
+      hasActiveJobSearchPass: Boolean(paid?.job_search_pass),
+      hasActiveIntensivePass: Boolean(paid?.intensive_pass),
     },
     totalRemaining: freeRemaining + paidRemaining,
   };
@@ -224,7 +225,7 @@ export async function createCheckout(
         unit_amount: plan.priceCents,
         product_data: {
           name: plan.name,
-          description: `${plan.applications} successful applications · one-time payment, valid for ${plan.validDays} days`,
+          description: `${plan.applications} successful applications · one-time payment, no expiry`,
         },
       },
     }],
@@ -276,8 +277,8 @@ export async function fulfillCheckoutSession(
     await client.query(
       `INSERT INTO application_credit_grants (
          user_id, purchase_id, credits_total, expires_at
-       ) VALUES ($1,$2,$3, now() + ($4 || ' days')::interval)`,
-      [userId, purchase.rows[0].id, plan.applications, String(plan.validDays)],
+       ) VALUES ($1,$2,$3, NULL)`,
+      [userId, purchase.rows[0].id, plan.applications],
     );
     await client.query('COMMIT');
     return { fulfilled: true, planKey: planKeyValue, applications: plan.applications };
@@ -300,7 +301,7 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string): P
   }
 }
 
-/** Uses the monthly free allowance first, then the paid grant that expires soonest. */
+/** Uses the free allowance first, then paid grants, any that expire before the rest. */
 export async function consumeSuccessfulApplication(userId: string): Promise<void> {
   const client = await getPool().connect();
   try {
@@ -325,8 +326,10 @@ export async function consumeSuccessfulApplication(userId: string): Promise<void
       const grant = await client.query<{ id: string }>(
         `SELECT id
            FROM application_credit_grants
-          WHERE user_id = $1 AND expires_at > now() AND credits_used < credits_total
-          ORDER BY expires_at, id
+          WHERE user_id = $1
+            AND (expires_at IS NULL OR expires_at > now())
+            AND credits_used < credits_total
+          ORDER BY expires_at NULLS LAST, id
           LIMIT 1
           FOR UPDATE`,
         [userId],

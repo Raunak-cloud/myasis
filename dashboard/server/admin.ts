@@ -214,7 +214,9 @@ export async function adminOverview() {
     query<{ plan_key: string; n: string }>(
       `SELECT p.plan_key, count(DISTINCT g.user_id)::text AS n
          FROM application_credit_grants g JOIN billing_purchases p ON p.id = g.purchase_id
-        WHERE g.expires_at > now() AND p.plan_key IN ('job-search-pass', 'intensive-pass')
+        WHERE (g.expires_at IS NULL OR g.expires_at > now())
+          AND g.credits_used < g.credits_total
+          AND p.plan_key IN ('job-search-pass', 'intensive-pass')
         GROUP BY p.plan_key`,
     ),
     one<{ runs: string; applications: string }>(
@@ -255,7 +257,7 @@ export async function adminUserDetail(id: string) {
   if (!user) return null;
   const [row, passes, runs, applications] = await Promise.all([
     userRow(user),
-    query<{ id: string; plan_key: string; amount_paid: number; paid_at: Date; credits_total: number; credits_used: number; expires_at: Date; granted: boolean; test: boolean }>(
+    query<{ id: string; plan_key: string; amount_paid: number; paid_at: Date; credits_total: number; credits_used: number; expires_at: Date | null; granted: boolean; test: boolean }>(
       `SELECT p.id::text AS id, p.plan_key, p.amount_paid, p.paid_at, g.credits_total, g.credits_used, g.expires_at,
               (p.stripe_checkout_session_id LIKE 'cs_test_%') AS test,
               p.stripe_checkout_session_id LIKE 'admin-grant:%' AS granted
@@ -281,8 +283,10 @@ export async function adminUserDetail(id: string) {
       test: pass.test,
       paidAt: new Date(pass.paid_at).toISOString(),
       applications: { total: pass.credits_total, used: pass.credits_used },
-      expiresAt: new Date(pass.expires_at).toISOString(),
-      active: new Date(pass.expires_at).getTime() > Date.now(),
+      // Null unless the pass was ended early: passes are sold without an expiry.
+      expiresAt: pass.expires_at ? new Date(pass.expires_at).toISOString() : null,
+      active: (!pass.expires_at || new Date(pass.expires_at).getTime() > Date.now())
+        && pass.credits_used < pass.credits_total,
     })),
     runs,
     // Not "applications": that name already holds the account's counts.
@@ -311,8 +315,8 @@ async function grantPass(userId: string, planKey: string): Promise<void> {
     );
     await client.query(
       `INSERT INTO application_credit_grants (user_id, purchase_id, credits_total, expires_at)
-       VALUES ($1, $2, $3, now() + ($4 || ' days')::interval)`,
-      [userId, purchase.rows[0].id, plan.applications, String(plan.validDays)],
+       VALUES ($1, $2, $3, NULL)`,
+      [userId, purchase.rows[0].id, plan.applications],
     );
     await client.query('COMMIT');
   } catch (error) {
@@ -577,7 +581,7 @@ export async function handleAdminRequest(
         return send({ ok: true, user: await adminUserDetail(target.id) });
       }
       case 'end-passes': {
-        await query('UPDATE application_credit_grants SET expires_at = now() WHERE user_id = $1 AND expires_at > now()', [target.id]);
+        await query('UPDATE application_credit_grants SET expires_at = now() WHERE user_id = $1 AND (expires_at IS NULL OR expires_at > now())', [target.id]);
         return send({ ok: true, user: await adminUserDetail(target.id) });
       }
       case 'sign-out': {
