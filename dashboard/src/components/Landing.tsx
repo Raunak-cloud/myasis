@@ -88,7 +88,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
         {/* The offer and the proof of it. How it works comes after, so the page opens on the point. */}
         <section className="home-intro" aria-labelledby="home-heading">
           <div className="home-intro-heading">
-            <span className="home-eyebrow">Job applications, done for you</span>
             <h1 id="home-heading">Auto apply jobs.<em>Job hunting is a job. Not anymore 😌</em></h1>
             <p className="home-hero-summary">Owtomate finds suitable roles on SEEK and Indeed, writes a tailored cover letter for each one and handles the repetitive parts of applying.</p>
             {error && <div className="home-error" role="alert">{error}</div>}
