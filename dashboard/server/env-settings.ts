@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { paymentsState } from './billing.js';
 import { BOT_DIR, deploying, readEnv, runner, writeEnv } from './runner.js';
 import { KEEP_SETTINGS_KEYS } from './settings.js';
 import { stopAllSignins } from './signin.js';
@@ -25,13 +26,15 @@ import { stopAllSignins } from './signin.js';
  *   would be silently ignored in favour of the process value.
  */
 
-export type Kind = 'text' | 'secret' | 'number' | 'boolean' | 'url';
+export type Kind = 'text' | 'secret' | 'number' | 'boolean' | 'url' | 'choice';
 
 interface Spec {
   key: string;
   label: string;
   help: string;
   kind: Kind;
+  /** For a choice: the allowed values, as stored. */
+  options?: Array<{ value: string; label: string }>;
   /** Read once at boot, so a change waits for a restart to take effect. */
   restart?: boolean;
 }
@@ -70,10 +73,16 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'payments',
     title: 'Payments',
-    note: 'Checkout stays off until both Stripe secrets are set. Use test keys until a purchase has been tried.',
+    note: 'Both sets of keys are kept; the switch says which one checkout uses. Test mode accepts only Stripe test cards and declines real ones.',
     keys: [
-      { key: 'STRIPE_SECRET_KEY', label: 'Stripe secret key', help: 'Starts with sk_live_ or sk_test_. From Developers → API keys.', kind: 'secret' },
-      { key: 'STRIPE_WEBHOOK_SECRET', label: 'Stripe webhook signing secret', help: 'Starts with whsec_. From the endpoint under Developers → Webhooks.', kind: 'secret' },
+      {
+        key: 'STRIPE_MODE', label: 'Mode', help: 'Live charges real cards. Test uses the test keys below and Stripe test cards such as 4242 4242 4242 4242.',
+        kind: 'choice', options: [{ value: 'live', label: 'Live — real money' }, { value: 'test', label: 'Test — no real money' }],
+      },
+      { key: 'STRIPE_SECRET_KEY', label: 'Live secret key', help: 'Starts with sk_live_. From Developers → API keys with Test mode off.', kind: 'secret' },
+      { key: 'STRIPE_WEBHOOK_SECRET', label: 'Live webhook signing secret', help: 'Starts with whsec_. From the live endpoint under Developers → Webhooks.', kind: 'secret' },
+      { key: 'STRIPE_TEST_SECRET_KEY', label: 'Test secret key', help: 'Starts with sk_test_. From Developers → API keys with Test mode on.', kind: 'secret' },
+      { key: 'STRIPE_TEST_WEBHOOK_SECRET', label: 'Test webhook signing secret', help: 'From a second endpoint at the same URL, created with Test mode on.', kind: 'secret' },
       { key: 'STRIPE_AUTOMATIC_TAX', label: 'Automatic GST', help: 'Let Stripe Tax add GST at checkout. Needs tax settings completed in Stripe.', kind: 'boolean' },
     ],
   },
@@ -216,10 +225,16 @@ export interface EnvEntry {
   shadowed: boolean;
   restart: boolean;
   known: boolean;
+  options?: Array<{ value: string; label: string }>;
+}
+
+export interface GroupBanner {
+  tone: 'ok' | 'warn' | 'bad';
+  text: string;
 }
 
 export interface EnvReport {
-  groups: Array<{ key: string; title: string; note?: string; entries: EnvEntry[] }>;
+  groups: Array<{ key: string; title: string; note?: string; banner?: GroupBanner; entries: EnvEntry[] }>;
   hidden: number;
   restartPending: boolean;
   file: string;
@@ -244,15 +259,25 @@ function entryFor(key: string, spec: Spec | undefined, env: Record<string, strin
     shadowed: process.env[key] !== undefined,
     restart: spec?.restart ?? false,
     known: spec !== undefined,
+    options: spec?.options,
   };
+}
+
+/** What the payments group says across its top, from the same check checkout itself runs. */
+function paymentsBanner(): GroupBanner {
+  const state = paymentsState();
+  if (!state.configured) return { tone: 'bad', text: `Checkout is off. ${state.problem}` };
+  if (state.mode === 'test') return { tone: 'warn', text: 'TEST mode. Only Stripe test cards work; a real customer cannot pay.' };
+  return { tone: 'ok', text: 'LIVE mode. Real cards are charged.' };
 }
 
 export function envReport(): EnvReport {
   const env = readEnv();
-  const groups = GROUPS.map((group) => ({
+  const groups: EnvReport['groups'] = GROUPS.map((group) => ({
     key: group.key,
     title: group.title,
     note: group.note,
+    banner: group.key === 'payments' ? paymentsBanner() : undefined,
     entries: group.keys.map((spec) => entryFor(spec.key, spec, env)),
   }));
 
@@ -288,6 +313,11 @@ function normalise(key: string, spec: Spec | undefined, raw: unknown): string {
     case 'url':
       if (!/^https?:\/\/\S+$/.test(value)) throw new Error(`${key}: must start with http:// or https://.`);
       return value.replace(/\/+$/, '');
+    case 'choice':
+      if (!spec?.options?.some((option) => option.value === value)) {
+        throw new Error(`${key}: must be one of ${(spec?.options ?? []).map((option) => option.value).join(', ')}.`);
+      }
+      return value;
     default:
       return value;
   }

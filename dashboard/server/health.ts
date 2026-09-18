@@ -2,6 +2,7 @@ import { open, readdir, readFile, stat, statfs } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { cpus, homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { paymentsState } from './billing.js';
 import { one } from './db/index.js';
 import { readEnv, runner, MAX_CONCURRENT, BOT_DIR } from './runner.js';
 import { TRACE_RETENTION_DAYS } from './trace-retention.js';
@@ -261,11 +262,15 @@ async function serviceChecks(): Promise<ServerHealth['services']> {
     });
   }
 
-  const stripeConfigured = Boolean((process.env.STRIPE_SECRET_KEY ?? env.STRIPE_SECRET_KEY ?? '').trim());
+  const payments = paymentsState();
   checks.push({
     name: 'Payments',
-    ok: stripeConfigured,
-    detail: stripeConfigured ? 'Stripe keys present' : 'Stripe keys not set — checkout is disabled',
+    ok: payments.configured,
+    detail: !payments.configured
+      ? `${payments.problem} Checkout is disabled.`
+      : payments.mode === 'test'
+        ? 'TEST mode: Stripe test cards only, real cards are declined'
+        : 'LIVE mode: real cards are charged',
   });
 
   const geoip = (process.env.GEOIP_DB ?? env.GEOIP_DB ?? '').trim();

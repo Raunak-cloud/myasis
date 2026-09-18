@@ -10,7 +10,7 @@ import { api } from '../adminApi';
  * writes everything at once or nothing at all.
  */
 
-type Kind = 'text' | 'secret' | 'number' | 'boolean' | 'url';
+type Kind = 'text' | 'secret' | 'number' | 'boolean' | 'url' | 'choice';
 
 interface EnvEntry {
   key: string;
@@ -25,10 +25,16 @@ interface EnvEntry {
   shadowed: boolean;
   restart: boolean;
   known: boolean;
+  options?: Array<{ value: string; label: string }>;
+}
+
+interface GroupBanner {
+  tone: 'ok' | 'warn' | 'bad';
+  text: string;
 }
 
 interface EnvReport {
-  groups: Array<{ key: string; title: string; note?: string; entries: EnvEntry[] }>;
+  groups: Array<{ key: string; title: string; note?: string; banner?: GroupBanner; entries: EnvEntry[] }>;
   hidden: number;
   restartPending: boolean;
   file: string;
@@ -40,6 +46,25 @@ type Drafts = Record<string, string>;
 function Field({ entry, draft, onChange }: { entry: EnvEntry; draft: string | undefined; onChange: (value: string | undefined) => void }) {
   const disabled = Boolean(entry.locked) || entry.shadowed;
   const dirty = draft !== undefined;
+
+  if (entry.kind === 'choice') {
+    const current = draft ?? entry.value ?? '';
+    const listed = entry.options?.some((option) => option.value === current) ?? false;
+    return (
+      <select
+        className="input"
+        value={current}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value === (entry.value ?? '') ? undefined : event.target.value)}
+        aria-label={entry.label}
+      >
+        {!listed && <option value={current}>{current || 'Not set'}</option>}
+        {entry.options?.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    );
+  }
 
   if (entry.kind === 'boolean') {
     const current = draft ?? entry.value ?? '';
@@ -216,6 +241,7 @@ export function EnvView() {
             <h3>{group.title}</h3>
             {group.note && <p className="job-meta">{group.note}</p>}
           </div>
+          {group.banner && <div className={`env-banner tone-${group.banner.tone}`}>{group.banner.text}</div>}
           <div className="env-rows">
             {group.entries.map((entry) => {
               const draft = drafts[entry.key];

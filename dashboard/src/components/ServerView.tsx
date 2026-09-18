@@ -274,7 +274,7 @@ export function ServerView() {
         {swap.totalMb > 0 && <Meter label="Swap" percent={swap.percent} detail={`${gb(swap.usedMb)} of ${gb(swap.totalMb)}`} />}
       </section>
 
-      <section className="card">
+      <section className="card admin-section">
         <h3>Services</h3>
         <ul className="server-services">
           {health.services.map((service) => (
@@ -287,7 +287,7 @@ export function ServerView() {
         </ul>
       </section>
 
-      <section className="card">
+      <section className="card admin-section">
         <div className="queue-bar">
           <div>
             <h3>What is using the disk</h3>
@@ -309,7 +309,7 @@ export function ServerView() {
             { label: 'Run traces', value: gb(storage.tracesMb), note: `kept ${health.traceRetentionDays} days` },
             { label: 'Other account data', value: gb(storage.otherMb), note: 'résumés, logs, knowledge' },
           ].map((tile) => (
-            <div className="admin-tile" key={tile.label}>
+            <div className="admin-tile server-storage-tile" key={tile.label}>
               <span className="job-meta">{tile.label}</span>
               <strong>{tile.value}</strong>
               <span className="job-meta">{tile.note}</span>
@@ -324,7 +324,7 @@ export function ServerView() {
         )}
         {storage.perUser.length > 0 && (
           <div className="table-wrap">
-            <table>
+            <table className="server-table">
               <thead>
                 <tr>
                   <th>Account</th>
@@ -348,7 +348,7 @@ export function ServerView() {
         )}
       </section>
 
-      <section className="card">
+      <section className="card admin-section">
         <h3>Heaviest processes</h3>
         <ul className="server-services">
           {health.topProcesses.map((process) => (

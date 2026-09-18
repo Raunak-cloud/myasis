@@ -32,25 +32,74 @@ export function isAdmin(email?: string | null): boolean {
 /** Large but finite so JSON/arithmetic (e.g. Math.min with a run cap) stays well-behaved — Infinity serialises to null. */
 const ADMIN_UNLIMITED = 1_000_000;
 
+export type StripeMode = 'live' | 'test';
+
+/**
+ * Which of the two sets of Stripe keys is in use.
+ *
+ * Live and test are separate worlds as far as Stripe is concerned: separate
+ * keys, separate webhooks, separate customers. Keeping both sets in the file
+ * and switching between them means a test run never involves re-pasting
+ * keys, which is how a live key once ended up in a chat.
+ */
+export function stripeMode(): StripeMode {
+  const env = readEnv();
+  const mode = (process.env.STRIPE_MODE ?? env.STRIPE_MODE ?? '').trim().toLowerCase();
+  return mode === 'test' ? 'test' : 'live';
+}
+
+export interface PaymentsState {
+  mode: StripeMode;
+  configured: boolean;
+  /** Why checkout is off, in words the operator can act on. */
+  problem: string | null;
+}
+
+/**
+ * Whether checkout can run, and if not, why.
+ *
+ * A key in the wrong slot is refused rather than tolerated: a test key in
+ * the live slot would process test payments while the dashboard said live,
+ * which is the one mistake this switch exists to prevent.
+ */
+export function paymentsState(): PaymentsState {
+  const { mode, secretKey, webhookSecret } = billingEnv();
+  if (!secretKey && !webhookSecret) return { mode, configured: false, problem: `No ${mode} keys are set.` };
+  if (!secretKey) return { mode, configured: false, problem: `The ${mode} secret key is not set.` };
+  if (!webhookSecret) return { mode, configured: false, problem: `The ${mode} webhook signing secret is not set.` };
+  if (mode === 'live' && /^[sr]k_test_/.test(secretKey)) {
+    return { mode, configured: false, problem: 'Live mode is selected but the key in the live slot is a test key.' };
+  }
+  if (mode === 'test' && /^[sr]k_live_/.test(secretKey)) {
+    return { mode, configured: false, problem: 'Test mode is selected but the key in the test slot is a live key.' };
+  }
+  return { mode, configured: true, problem: null };
+}
+
 function billingEnv() {
   const env = readEnv();
+  const mode = stripeMode();
+  const pick = (liveKey: string, testKey: string) => {
+    const key = mode === 'test' ? testKey : liveKey;
+    return (process.env[key] ?? env[key] ?? '').trim();
+  };
   return {
-    secretKey: process.env.STRIPE_SECRET_KEY ?? env.STRIPE_SECRET_KEY ?? '',
-    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? env.STRIPE_WEBHOOK_SECRET ?? '',
+    mode,
+    secretKey: pick('STRIPE_SECRET_KEY', 'STRIPE_TEST_SECRET_KEY'),
+    webhookSecret: pick('STRIPE_WEBHOOK_SECRET', 'STRIPE_TEST_WEBHOOK_SECRET'),
     baseUrl: (process.env.APP_BASE_URL ?? env.APP_BASE_URL ?? 'http://localhost:5180').replace(/\/$/, ''),
     automaticTax: (process.env.STRIPE_AUTOMATIC_TAX ?? env.STRIPE_AUTOMATIC_TAX) === 'true',
   };
 }
 
 function stripeClient(): Stripe {
-  const { secretKey } = billingEnv();
-  if (!secretKey) throw new Error('Payments are not configured yet.');
-  return new Stripe(secretKey);
+  const state = paymentsState();
+  if (!state.configured) throw new Error(`Payments are not configured yet. ${state.problem}`);
+  return new Stripe(billingEnv().secretKey);
 }
 
 export function paymentsConfigured(): boolean {
-  const env = billingEnv();
-  return Boolean(env.secretKey && env.webhookSecret);
+  return paymentsState().configured;
 }
 
 export interface BillingStatus {
