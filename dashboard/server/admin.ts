@@ -226,9 +226,11 @@ export async function adminOverview() {
       `SELECT count(*)::text AS applications FROM applications WHERE submitted_by_myasis AND applied_at > now() - interval '7 days'`,
     ),
     one<{ month: string; total: string }>(
+      // Live money only. A test-mode purchase has a cs_test_ session id and an admin grant costs nothing; neither is revenue.
       `SELECT COALESCE(sum(amount_paid) FILTER (WHERE paid_at > now() - interval '30 days'), 0)::text AS month,
               COALESCE(sum(amount_paid), 0)::text AS total
-         FROM billing_purchases`,
+         FROM billing_purchases
+        WHERE stripe_checkout_session_id LIKE 'cs_live_%'`,
     ),
     one<{ failed: string }>(
       `SELECT count(*)::text AS failed FROM run_starts WHERE started_at >= ${DAY_START} AND exit_code IS NOT NULL AND exit_code <> 0`,
@@ -253,8 +255,9 @@ export async function adminUserDetail(id: string) {
   if (!user) return null;
   const [row, passes, runs, applications] = await Promise.all([
     userRow(user),
-    query<{ id: string; plan_key: string; amount_paid: number; paid_at: Date; credits_total: number; credits_used: number; expires_at: Date; granted: boolean }>(
+    query<{ id: string; plan_key: string; amount_paid: number; paid_at: Date; credits_total: number; credits_used: number; expires_at: Date; granted: boolean; test: boolean }>(
       `SELECT p.id::text AS id, p.plan_key, p.amount_paid, p.paid_at, g.credits_total, g.credits_used, g.expires_at,
+              (p.stripe_checkout_session_id LIKE 'cs_test_%') AS test,
               p.stripe_checkout_session_id LIKE 'admin-grant:%' AS granted
          FROM billing_purchases p JOIN application_credit_grants g ON g.purchase_id = p.id
         WHERE p.user_id = $1 ORDER BY p.paid_at DESC`,
@@ -274,6 +277,8 @@ export async function adminUserDetail(id: string) {
       plan: PAID_PLANS[pass.plan_key as keyof typeof PAID_PLANS]?.name ?? pass.plan_key,
       amountPaidCents: pass.amount_paid,
       granted: pass.granted,
+      /** Bought in Stripe test mode: no real money moved. */
+      test: pass.test,
       paidAt: new Date(pass.paid_at).toISOString(),
       applications: { total: pass.credits_total, used: pass.credits_used },
       expiresAt: new Date(pass.expires_at).toISOString(),

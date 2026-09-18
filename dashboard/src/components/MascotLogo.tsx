@@ -46,12 +46,13 @@ export function MascotLogo({ size = 48, className = '', crop = 'full', tail = fa
 }
 
 /**
- * The owl behind its laptop, in a rounded tile.
+ * The owl at its laptop, in a rounded tile — the product's mark.
  *
- * The head is the same drawing as above, scaled down and sat behind the
- * laptop's lid so only the eyes and brow show over it, the way someone looks
- * up from a screen. The tile is a fixed light blue whatever the theme: a
- * mark keeps its colours, and this one is also the favicon.
+ * The whole owl, not a head peering over a lid: ear tufts, big eyes with a
+ * catchlight, wings resting on the laptop, and a bold outline around every
+ * shape so it still reads as an owl at a computer at sixteen pixels. The
+ * tile is a fixed light blue whatever the theme: a mark keeps its colours,
+ * and this drawing is also the favicon.
  */
 function OwlAtLaptop({ size, className }: { size: number; className: string }) {
   return (
@@ -65,22 +66,26 @@ function OwlAtLaptop({ size, className }: { size: number; className: string }) {
       focusable="false"
     >
       <rect x="1" y="1" width="62" height="62" rx="14" fill="#EAF3FC" stroke="#C9DDF2" strokeWidth="2" />
-      <g className="mascot-head" transform="translate(12.2 3) scale(.62)">
-        <path d="M13.5 25.5 16.7 8.4l12 7.3a30 30 0 0 1 6.6 0l12-7.3 3.2 17.1Z" fill="#2466A8" />
-        <path d="M15.6 15.1 17.2 10l5.8 4.1Z" fill="#78AFE2" />
-        <path d="m48.4 15.1-1.6-5.1-5.8 4.1Z" fill="#78AFE2" />
-        <path d="M51.5 31.3C51.5 46.9 42.8 56 32 56S12.5 46.9 12.5 31.3 20 14.4 32 14.4s19.5 1.3 19.5 16.9Z" fill="#2F73B9" />
-        <ellipse cx="23.4" cy="31.1" rx="8.8" ry="9.4" fill="#F8FBFF" />
-        <ellipse cx="40.6" cy="31.1" rx="8.8" ry="9.4" fill="#F8FBFF" />
-        <g className="mascot-pupils" fill="#14243D">
-          <circle cx="23.4" cy="31.4" r="3.8" />
-          <circle cx="40.6" cy="31.4" r="3.8" />
+      <g className="mascot-head">
+        <path d="M15 24 17.5 8 28 18Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
+        <path d="M49 24 46.5 8 36 18Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
+        <ellipse cx="32" cy="31" rx="19.5" ry="17.5" fill="#2F73B9" stroke="#14243D" strokeWidth="2.2" />
+        <path d="M17.5 30c0-7.5 6.5-12.5 14.5-12.5S46.5 22.5 46.5 30c0 6-4 10.5-8 10.5h-13c-4 0-8-4.5-8-10.5Z" fill="#6FA8E0" />
+        <circle cx="24.5" cy="28" r="7.2" fill="#FFFFFF" stroke="#14243D" strokeWidth="2.2" />
+        <circle cx="39.5" cy="28" r="7.2" fill="#FFFFFF" stroke="#14243D" strokeWidth="2.2" />
+        <g className="mascot-pupils">
+          <circle cx="25.6" cy="28.6" r="3.4" fill="#14243D" />
+          <circle cx="40.6" cy="28.6" r="3.4" fill="#14243D" />
+          <circle cx="27" cy="27" r="1.2" fill="#FFFFFF" />
+          <circle cx="42" cy="27" r="1.2" fill="#FFFFFF" />
         </g>
-        <path d="m28.7 40.4 3.3 2.3 3.3-2.3" stroke="#163F70" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="m32 37.5-3.4-3h6.8Z" fill="#F4A340" stroke="#14243D" strokeWidth="1.8" strokeLinejoin="round" />
       </g>
-      <rect x="16" y="34" width="32" height="18" rx="2.5" fill="#FFFFFF" stroke="#14243D" strokeWidth="2" />
-      <rect x="19.5" y="37.5" width="25" height="11" rx="1.2" fill="#DCEBFA" />
-      <path d="M9 52h46l-3.2 6H12.2z" fill="#FFFFFF" stroke="#14243D" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M13 32c-4 6-3 13 5 15l4-6Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
+      <path d="M51 32c4 6 3 13-5 15l-4-6Z" fill="#2466A8" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
+      <rect x="17" y="41" width="30" height="14" rx="2.5" fill="#F8FBFF" stroke="#14243D" strokeWidth="2.2" />
+      <circle cx="32" cy="48" r="2" fill="#2F73B9" />
+      <path d="M9 55h46l-3 5.5H12Z" fill="#DCE6F2" stroke="#14243D" strokeWidth="2.2" strokeLinejoin="round" />
     </svg>
   );
 }

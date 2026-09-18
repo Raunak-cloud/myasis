@@ -67,6 +67,7 @@ interface UserDetail extends AdminUser {
     plan: string;
     amountPaidCents: number;
     granted: boolean;
+    test: boolean;
     paidAt: string;
     applications: { total: number; used: number };
     expiresAt: string;
@@ -499,7 +500,10 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                     {user.passes.map((pass) => (
                       <li key={pass.id}>
                         <div>
-                          <strong>{pass.plan}</strong> {pass.granted ? <span className="badge muted">Given by admin</span> : <span className="job-meta">{aud(pass.amountPaidCents)}</span>}
+                          <strong>{pass.plan}</strong>{' '}
+                          {pass.granted
+                            ? <span className="badge muted">Given by admin</span>
+                            : <span className="job-meta">{aud(pass.amountPaidCents)}{pass.test && <> <span className="badge warn">Test payment</span></>}</span>}
                           <div className="job-meta">
                             {pass.applications.used} of {pass.applications.total} used · {pass.active ? `until ${when(pass.expiresAt)}` : `ended ${when(pass.expiresAt)}`}
                           </div>
