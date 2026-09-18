@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
+import { MascotLogo } from './MascotLogo';
 
 
 function dateLabel(value: string): string {
@@ -163,6 +164,16 @@ export function PricingPanel() {
                   <span className="pricing-tag">Most popular</span>
                 ) : null}
               </div>
+              {/* The owl at work, on the plans where Owtomate does the work. The same drawing as the landing page. */}
+              {paid && (
+                <span className="pricing-owl" aria-hidden="true">
+                  <MascotLogo size={40} className="pricing-owl-face" />
+                  <svg className="pricing-owl-laptop" viewBox="0 0 56 22" width="56" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+                    <path d="M9 2h38v13H9z" fill="#fff" />
+                    <path d="M3 15h50l-3 5H6z" fill="#fff" />
+                  </svg>
+                </span>
+              )}
               <h3>{card.name}</h3>
               <p className="pricing-plan-copy">{card.presentation.description}</p>
               <p className="pricing-price">
