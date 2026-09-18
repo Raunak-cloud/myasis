@@ -1,10 +1,11 @@
 import { listResumes, previewText } from './files.js';
 import { readEnv } from './runner.js';
+import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
 
 const MAX_RESUME_CHARS = 18_000;
 const MAX_COMBINED_RESUME_CHARS = 60_000;
-/** A run accepts at most 5 search terms (RunPanel's MAX_SEARCH_TERMS), so never hand back more. */
-const MAX_TERMS = 5;
+/** Never hand back more search terms than an account may save. */
+const MAX_TERMS = MAX_SEARCH_TERMS;
 
 export interface SearchTermsResult {
   ok: boolean;
@@ -237,7 +238,7 @@ export async function generateSearchTerms(
   const searchPrompt = `Create the job searches this candidate should actually type into an Australian job board.
 
 Rules:
-- Return 3 to 5 literal search-box queries, strongest first. Each query should usually be 1 to 4 words.
+- Return 3 to ${MAX_TERMS} literal search-box queries, strongest first. Each query should usually be 1 to 4 words.
 - Think like the candidate at the keyboard. Use the common wording a person would naturally search, such as "medical receptionist", "admin assistant" or "retail jobs", when supported. Do not copy a formal résumé heading just because it appears in the document.
 - Ground every query in specific skills or experience stated in the selected résumés. The evidence must explain why the candidate could realistically apply for jobs found by that query today.
 - Include the candidate's strongest direct searches and useful nearby searches supported by transferable experience. Do not turn isolated skills into job searches.

@@ -12,6 +12,7 @@ import { LiveActionViewer } from './LiveActionViewer';
 import { MascotLogo } from './MascotLogo';
 import { useRunStatus } from '../runStatus';
 import { fmtDateTime } from '../format';
+import { MAX_SEARCH_TERMS } from '../search-limits';
 
 
 interface LogLine {
@@ -315,6 +316,8 @@ export function RunPanel({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
   const [confirming, setConfirming] = useState(false);
+  /** A sign-in check has the account's Chrome profile open; a run waits for it, so the button does too. */
+  const [verifyingSignIn, setVerifyingSignIn] = useState(false);
   const [autoToggling, setAutoToggling] = useState(false);
   /** Each board's last known sign-in, read when the run settings open; null until known. */
   const [boardSignedIn, setBoardSignedIn] = useState<Record<string, boolean | null> | null>(null);
@@ -606,7 +609,6 @@ export function RunPanel({
     { key: 'PAGES_PER_KEYWORD', label: 'Search pages per term' },
     { key: 'MAX_APPS_PER_DAY', label: 'Daily application cap' },
   ];
-  const MAX_SEARCH_TERMS = 5;
   const termCount = val('KEYWORDS').split(',').map((t) => t.trim()).filter(Boolean).length;
 
   /** The message for one field, rendered directly beneath it. */
@@ -798,17 +800,17 @@ export function RunPanel({
               */}
               <button
                 className="btn primary lg"
-                disabled={outOfRuns || accountSetupIncomplete}
-                title={accountSetupIncomplete ? 'Finish your setup first.' : undefined}
+                disabled={outOfRuns || accountSetupIncomplete || verifyingSignIn}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn ? 'Checking your job-board sign-ins first.' : undefined}
                 onClick={() => { setScope('all'); setConfirming(true); }}
               >
-                Start run
+                Start auto apply
               </button>
               {entitlements?.runScopes && (
                 <button
                   type="button"
                   className="run-scope-link"
-                  disabled={outOfRuns || accountSetupIncomplete}
+                  disabled={outOfRuns || accountSetupIncomplete || verifyingSignIn}
                   title="Applies only where the employer's own site takes the application, on every board in the run."
                   onClick={() => { setScope('external'); setConfirming(true); }}
                 >
@@ -879,7 +881,7 @@ export function RunPanel({
         {!running && (
           <>
             {/* Same rule the run applies: an account that cannot fine-tune gets Indeed from its pass, not from the setting. */}
-            <SeekSignIn indeedEnabled={platforms.includes('indeed') || Boolean(entitlements?.indeedApplications && platforms.join(',') === 'seek')} />
+            <SeekSignIn onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed') || Boolean(entitlements?.indeedApplications && platforms.join(',') === 'seek')} />
             <GmailConnect compact />
           </>
         )}

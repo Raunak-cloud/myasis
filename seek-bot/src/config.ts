@@ -96,7 +96,7 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
 }
 
 /** Search terms honoured per run — see the note on `keywords` below. */
-export const MAX_SEARCH_TERMS = 5;
+export const MAX_SEARCH_TERMS = 4;
 
 export const config = {
   /**

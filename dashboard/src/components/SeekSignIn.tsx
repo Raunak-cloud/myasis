@@ -46,7 +46,11 @@ type Status = {
 
 const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed' } as const;
 
-export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean }) {
+export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
+  indeedEnabled?: boolean;
+  /** Told whenever a sign-in check starts or settles, so the page can hold a run back until it has. */
+  onVerifyingChange?: (verifying: boolean) => void;
+}) {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +79,13 @@ export function SeekSignIn({ indeedEnabled = false }: { indeedEnabled?: boolean 
     // now, rather than repeating a result that may be hours or days old.
     void refresh(true);
   }, [refresh]);
+
+  // Before the first answer the check has been asked for but not reported, which is still verifying.
+  const verifying = status === null || Boolean(status.checking);
+  useEffect(() => {
+    onVerifyingChange?.(verifying);
+    return () => onVerifyingChange?.(false);
+  }, [verifying, onVerifyingChange]);
 
   // While the server is asking a job board, keep asking the server.
   useEffect(() => {

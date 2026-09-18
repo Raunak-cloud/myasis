@@ -1,5 +1,6 @@
 import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
+import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
 
 /**
  * Per-run search/apply preferences (job titles, work arrangement, run
@@ -41,8 +42,6 @@ export const RUN_LIMITS: Record<string, number> = {
   MAX_APPS_PER_DAY: 50,
 };
 
-/** Mirrors seek-bot's own cap so the dashboard shows what a run will really use. */
-const MAX_SEARCH_TERMS = 5;
 
 function normalizeSetting(key: string, value: string): string {
   if (key === 'KEYWORDS') {

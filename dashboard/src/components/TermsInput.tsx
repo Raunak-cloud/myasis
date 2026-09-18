@@ -11,9 +11,9 @@ export function splitTerms(value: string): string[] {
  * A comma-separated textarea asked people to manage punctuation to edit a
  * list, and hid most of the list behind a scrollbar. Each term is a tag here:
  * Enter or a comma adds one, Backspace in the empty box removes the last, and
- * pasting a comma-separated list adds each part. Duplicates and anything past
- * the limit are dropped rather than refused, and additions and removals are
- * announced to screen readers.
+ * pasting a comma-separated list adds each part. Duplicates are dropped
+ * quietly; anything past the limit is refused with a visible error, and
+ * additions and removals are announced to screen readers.
  */
 export function TermsInput({
   id,
@@ -34,16 +34,22 @@ export function TermsInput({
   const terms = splitTerms(value);
   const [draft, setDraft] = useState('');
   const [announcement, setAnnouncement] = useState('');
+  const [limitError, setLimitError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const full = terms.length >= max;
 
+  const overLimit = `You can have at most ${max} job titles. Remove one to add another.`;
+
   function commit(raw: string) {
     const next = [...terms];
+    let refused = false;
     for (const term of splitTerms(raw)) {
-      if (next.length >= max) break;
-      if (!next.some((known) => known.toLowerCase() === term.toLowerCase())) next.push(term);
+      if (next.some((known) => known.toLowerCase() === term.toLowerCase())) continue;
+      if (next.length >= max) refused = true;
+      else next.push(term);
     }
     setDraft('');
+    setLimitError(refused ? overLimit : '');
     const added = next.slice(terms.length);
     if (!added.length) return;
     onChange(next.join(', '));
@@ -53,11 +59,13 @@ export function TermsInput({
   function remove(index: number) {
     const removed = terms[index];
     onChange(terms.filter((_, position) => position !== index).join(', '));
+    setLimitError('');
     setAnnouncement(`Removed ${removed}`);
     inputRef.current?.focus();
   }
 
   return (
+    <>
     <div
       className={`terms-input${disabled ? ' disabled' : ''}`}
       onClick={(event) => {
@@ -84,8 +92,8 @@ export function TermsInput({
         aria-describedby={full ? `${id}-limit` : undefined}
         placeholder={full ? `Limit of ${max} reached` : terms.length ? 'Add another' : 'Type a job title and press Enter'}
         onChange={(event) => {
-          // At the limit the box stays usable, so Backspace can still remove a tag; it just takes no new text.
-          if (full) return;
+          // At the limit the box stays usable, so Backspace can still remove a tag; new text is refused out loud.
+          if (full) return setLimitError(event.target.value.trim() ? overLimit : '');
           const next = event.target.value;
           if (next.includes(',')) commit(next);
           else setDraft(next);
@@ -105,5 +113,7 @@ export function TermsInput({
       {full && <span className="sr-only" id={`${id}-limit`}>Limit of {max} reached. Remove one to add another.</span>}
       <span className="sr-only" aria-live="polite">{announcement}</span>
     </div>
+    {limitError && <span className="field-error" role="alert">{limitError}</span>}
+    </>
   );
 }
