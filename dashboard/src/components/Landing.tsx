@@ -77,7 +77,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
         <div className="home-width home-header-inner">
           <a href="#top" className="home-brand" aria-label="owtomate home">
             <Wordmark />
-            <span className="home-brand-meta">Sydney, AU</span>
           </a>
           <nav aria-label="Main">
             <a href="#how-it-works">how it works</a>
@@ -94,10 +93,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
       <main>
         <section className="home-hero" aria-labelledby="home-heading">
           <div className="home-width home-hero-inner">
-            <p className="home-hero-kicker">
-              <span className="home-hero-dot" aria-hidden="true" />
-              A job application assistant &mdash; not a recruiter, not a chatbot.
-            </p>
             <h1 id="home-heading" className="home-hero-title">
               Stop applying for jobs.<br />
               <span className="home-hero-mark">Owtomate</span> does it <em>for</em> you, from your own account.
@@ -135,13 +130,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               </div>
               {playError && <p className="home-error" role="status">The video could not play. <a href={LIVE_DEMO.src}>Download the recording instead.</a></p>}
             </div>
-            <aside className="home-demo-note" aria-label="A note about the recording above">
-              <p className="home-demo-note-pin" aria-hidden="true">note</p>
-              <p>
-                This is the same recording used across the site: an unedited run of Owtomate opening a SEEK listing, drafting the cover letter and submitting the application. We blurred the account details and left the rest as it happened.
-              </p>
-              <p className="home-demo-note-tail">&mdash; no retakes.</p>
-            </aside>
           </div>
         </section>
 
@@ -270,6 +258,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           <div className="home-footer-col">
             <a href="#top" className="home-brand" aria-label="owtomate home"><Wordmark /></a>
             <p className="home-footer-blurb">Owtomate is built and run from Sydney, Australia.</p>
+            <p className="home-footer-copyright">&copy; 2026 Owtomate.</p>
           </div>
           <nav className="home-footer-col" aria-label="Site">
             <p className="home-footer-label">site</p>
@@ -284,11 +273,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             <a href="/terms">terms</a>
             <a href="mailto:support@owtomate.com">support@owtomate.com</a>
           </nav>
-          <div className="home-footer-col home-footer-meta">
-            <p className="home-footer-label">based</p>
-            <p>Sydney, Australia</p>
-            <p className="home-footer-copyright">&copy; 2026 Owtomate.</p>
-          </div>
         </div>
         <a className="home-footer-top" href="#top">back to top &uarr;</a>
       </footer>

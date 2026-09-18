@@ -8,8 +8,8 @@
    is scoped under .landing so the workspace dashboard stays clean.
    ============================================================ */
 .landing {
-  --paper: #f6efe1;
-  --paper-2: #efe6d2;
+  --paper: #ffffff;
+  --paper-2: #ffffff;
   --ink: #1d1814;
   --ink-2: #403731;
   --body: #514640;
@@ -76,10 +76,7 @@
 .home-brand {
   display: inline-flex; flex-direction: column; gap: 2px;
   color: var(--ink); text-decoration: none;
-}
-.home-brand-meta {
-  font-family: var(--mono); font-size: 10px; color: var(--muted);
-  letter-spacing: .04em;
+  font-size: 30px;
 }
 .home-header nav {
   display: flex; gap: 22px; margin-left: auto;
@@ -107,16 +104,6 @@
 
 .home-hero { padding: clamp(64px, 9vw, 140px) 0 clamp(56px, 7vw, 96px); }
 .home-hero-inner { max-width: 920px; }
-.home-hero-kicker {
-  display: inline-flex; align-items: center; gap: 10px;
-  margin: 0 0 28px;
-  font-family: var(--mono); font-size: 12px; color: var(--muted);
-  letter-spacing: .04em;
-}
-.home-hero-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--good); box-shadow: 0 0 0 4px var(--good-soft);
-}
 .home-hero-title {
   font-size: clamp(40px, 6vw, 78px);
   line-height: 1.02; letter-spacing: -.025em;
@@ -155,10 +142,7 @@
 /* ============================================================ demo (video frame + tape-on note) */
 
 .home-demo { padding: clamp(56px, 7vw, 96px) 0 clamp(64px, 8vw, 120px); }
-.home-demo-inner {
-  display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: clamp(28px, 4vw, 64px); align-items: start;
-}
+.home-demo-inner { max-width: 980px; margin-inline: auto; }
 .home-demo-stage {
   border: var(--edge); background: #0c0c0f;
   box-shadow: var(--lift);
@@ -195,31 +179,6 @@
 .home-recording-pending p { margin: 12px 0 0; color: #fff; font-weight: 600; }
 .home-recording-pending span { font-size: 12px; font-family: var(--mono); color: #b8b2a3; }
 
-/* The taped-on note: rotated, slightly off, no shadow that looks screen-printed. */
-.home-demo-note {
-  position: relative;
-  margin: 8px 0 0;
-  padding: 26px 26px 22px;
-  background: #fffbe9;
-  border: 1px solid var(--rule);
-  transform: rotate(-1.4deg);
-  /* a soft, narrow rule under the edge, like a torn piece of paper */
-  box-shadow: 0 1px 0 var(--rule), 0 12px 22px -18px rgba(29, 24, 20, .25);
-}
-.home-demo-note-pin {
-  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
-  letter-spacing: .14em; text-transform: uppercase; color: var(--accent);
-  margin: 0 0 10px;
-  padding: 4px 8px;
-  border: 1px solid var(--accent);
-  display: inline-block;
-}
-.home-demo-note p { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
-.home-demo-note p + p { margin-top: 10px; }
-.home-demo-note-tail {
-  font-family: var(--display); font-style: italic; font-size: 14px; color: var(--muted);
-  text-align: right; margin-top: 14px !important;
-}
 
 /* ============================================================ the difference */
 
@@ -501,7 +460,7 @@
   border-top: 1px solid var(--rule);
 }
 .home-footer-inner {
-  display: grid; grid-template-columns: 1.4fr repeat(3, 1fr);
+  display: grid; grid-template-columns: 1.4fr repeat(2, 1fr);
   gap: clamp(28px, 4vw, 64px); align-items: start;
   padding-bottom: 36px;
   border-bottom: 1px solid var(--rule);
@@ -519,8 +478,7 @@
 }
 .home-footer-col a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
 .home-footer-blurb { margin: 14px 0 0; font-size: 13.5px; color: var(--body); max-width: 36ch; line-height: 1.55; }
-.home-footer-meta p { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--ink-2); line-height: 1.6; }
-.home-footer-copyright { color: var(--muted) !important; font-size: 11px !important; margin-top: 10px !important; }
+.home-footer-copyright { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 .home-footer-top {
   display: inline-block; margin-top: 22px;
   font-family: var(--mono); font-size: 11.5px; color: var(--muted);
@@ -559,8 +517,6 @@
 /* ============================================================ responsive */
 
 @media (max-width: 1080px) {
-  .home-demo-inner { grid-template-columns: minmax(0, 1fr); }
-  .home-demo-note { transform: rotate(-1deg); margin-top: 24px; }
   .home-how-inner { grid-template-columns: minmax(0, 1fr); }
   .home-how-head { position: static; margin-bottom: 20px; }
   .home-last-inner { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 40px; }
@@ -571,9 +527,9 @@
   .home-width { width: 100%; padding-inline: 20px; }
   .home-header { position: static; backdrop-filter: none; }
   .home-header-inner { flex-wrap: wrap; row-gap: 6px; padding-block: 12px; min-height: 0; }
+  .home-brand { font-size: 24px; }
   .home-header nav { order: 3; width: 100%; margin-left: 0; gap: 18px; font-size: 13px; padding-top: 10px; border-top: 1px solid var(--rule); }
   .home-login { margin-left: auto; min-height: 32px; font-size: 11px; }
-  .home-brand-meta { display: none; }
 
   .home-hero-title { font-size: 38px; }
   .home-hero-summary { font-size: 16.5px; }
@@ -626,7 +582,6 @@
   .home-difference-title { font-size: 26px; }
   .home-last-quote blockquote { font-size: 44px; }
   .home-last-quote figcaption { font-size: 15px; }
-  .home-demo-note { padding: 20px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
