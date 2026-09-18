@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
+import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
 import { SetupChecklist, useSetupStatus } from './SetupChecklist';
 import { FieldLabel, InfoTip } from './FieldLabel';
@@ -304,12 +305,14 @@ export function RunPanel({
    * rather than controls that would be refused.
    */
   const entitlements = useEntitlements();
+  const billing = useBillingStatus();
   const boards = useBoardsStatus();
   /** No board signed in means no run can apply, so automatic runs have nothing to do until that is fixed. */
   const signedOutEverywhere = boards !== null && !boards.seek?.signedIn && !boards.indeed?.signedIn;
   const driving = entitlements?.manualRuns ?? true;
   /** Admin runs have no limits: the limit fields are hidden and nothing is capped in the form. */
   const isAdmin = entitlements?.tier === 'admin';
+  const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const runsLeft = entitlements?.manualRunsLeftToday ?? null;
   const outOfRuns = runsLeft !== null && runsLeft < 1;
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -771,6 +774,16 @@ export function RunPanel({
           </div>
         )}
         {error && <div className="banner banner-bad">{error}</div>}
+        {/*
+          Running out is silent otherwise: the scheduler just stops starting runs
+          while the switch still reads "on". Found with the admin simulator.
+        */}
+        {outOfAllowance && (
+          <div className="banner banner-bad out-of-applications" role="status">
+            <span><strong>You're out of applications.</strong> Auto apply has stopped and will pick up again as soon as you get a pass.</span>
+            <button type="button" className="btn primary" onClick={onGoPricing}>View plans</button>
+          </div>
+        )}
 
         <div className="run-actions" ref={runBar}>
           {/* Beside the run button on a phone; the desktop layout hides it. */}

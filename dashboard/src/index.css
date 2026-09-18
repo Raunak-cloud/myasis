@@ -2675,3 +2675,6 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   margin-bottom: 12px; padding: 8px 12px;
   border: 1px solid var(--warn, var(--accent)); border-radius: 10px; background: var(--surface, var(--bg));
 }
+.out-of-applications { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.simulate-card { grid-template-rows: auto auto auto auto 1fr; }
+.simulate-card .btn { align-self: end; }
