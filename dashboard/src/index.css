@@ -1964,6 +1964,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2);
 }
 .pricing-topup-copy { min-width: 0; }
+.pricing-topup.unavailable { background: var(--surface); }
+.pricing-topup.unavailable .pricing-price strong { color: var(--text-dim); }
 .pricing-topup h3 { margin: 6px 0 4px; font-size: 18px; letter-spacing: -.02em; }
 .pricing-topup p { margin: 0; color: var(--text-dim); font-size: 13.5px; }
 .pricing-topup-action { display: flex; align-items: center; gap: 18px; flex: none; }

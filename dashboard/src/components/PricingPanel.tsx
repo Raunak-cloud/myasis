@@ -198,19 +198,29 @@ export function PricingPanel() {
         <li>Unused applications stay until the pass ends</li>
       </ul>
 
-      <section className="pricing-topup">
+      {/* A top-up adds to a pass, so on the free plan it is shown but not for sale; the server refuses it too. */}
+      <section className={`pricing-topup ${current === 'free' ? 'unavailable' : ''}`}>
         <div className="pricing-topup-copy">
-          <span className="pricing-plan-label">Top-up</span>
+          <span className="pricing-plan-label">Top-up · for pass holders</span>
           <h3>{PAID_PLANS['application-top-up'].applications} more applications</h3>
-          <p>Adds to your balance for {PAID_PLANS['application-top-up'].validDays} days without changing how your plan runs.</p>
+          <p>
+            {current === 'free'
+              ? 'Adds applications to a Job Search Pass or Intensive Pass. Choose a pass first.'
+              : `Adds to your balance for ${PAID_PLANS['application-top-up'].validDays} days without changing how your plan runs.`}
+          </p>
         </div>
         <div className="pricing-topup-action">
           <p className="pricing-price">
             <strong>{aud(PAID_PLANS['application-top-up'].priceCents)}</strong>
             <span>one payment</span>
           </p>
-          <button className="btn pricing-cta" disabled={checkoutDisabled} onClick={() => void buy('application-top-up')}>
-            {buying === 'application-top-up' ? 'Opening checkout…' : `Add ${PAID_PLANS['application-top-up'].applications} applications`}
+          <button
+            className="btn pricing-cta"
+            disabled={checkoutDisabled || current === 'free'}
+            title={current === 'free' ? 'Available with a Job Search Pass or Intensive Pass.' : undefined}
+            onClick={() => void buy('application-top-up')}
+          >
+            {buying === 'application-top-up' ? 'Opening checkout…' : current === 'free' ? 'Needs a pass' : `Add ${PAID_PLANS['application-top-up'].applications} applications`}
           </button>
         </div>
       </section>

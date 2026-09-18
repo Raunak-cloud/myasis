@@ -204,6 +204,17 @@ export async function createCheckout(
   planKey: PaidPlanKey,
 ): Promise<{ id: string; url: string }> {
   const plan = PAID_PLANS[planKey];
+  /**
+   * A top-up adds to a pass; it is not a way onto the free plan's allowance
+   * at a lower price. Checked here, not only on the page, because the page
+   * is not what decides.
+   */
+  if (planKey === 'application-top-up') {
+    const status = await billingStatus(user.id, user.email);
+    if (!status.paid.hasActiveJobSearchPass && !status.paid.hasActiveIntensivePass) {
+      throw new Error('A top-up adds applications to a pass. Choose a Job Search Pass or Intensive Pass first.');
+    }
+  }
   const env = billingEnv();
   const stripe = stripeClient();
   const session = await stripe.checkout.sessions.create({
