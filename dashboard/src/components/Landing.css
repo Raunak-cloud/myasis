@@ -471,6 +471,8 @@
      lines, and the raised edges lift less so the cards do not crowd the
      narrow page. Every button is the full width of the screen. */
   .landing { --gap-section: 40px; --gap-block: 20px; --lift: 3px 3px 0 var(--ink-line); --lift-sm: 2px 2px 0 var(--ink-line); }
+  /* Room at the sides: text that touches the edge of a phone reads as unfinished. */
+  .home-width { padding-inline: 24px; }
   .home-header { flex-wrap: wrap; row-gap: 6px; padding-block: 12px 10px; }
   .home-header nav { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; gap: 20px; font-size: 12.5px; font-weight: 500; }
   .home-login { margin-left: auto; font-size: 12.5px; }
