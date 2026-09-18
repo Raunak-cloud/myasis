@@ -53,20 +53,21 @@
 .home-section-head p { margin: 12px 0 0; color: var(--muted); font-size: 17px; }
 
 /* ------------------------------------------------------------ buttons */
-.home-button {
+/* Written as .landing .home-button so it outranks the page's generic link colour. */
+.landing .home-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   min-height: 50px; padding: 0 24px; border: 1px solid var(--blue); border-radius: var(--radius-sm);
   background: var(--blue); color: #fff; font-weight: 700; font-size: 15px; text-decoration: none;
   transition: background .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
-.home-button svg { width: 18px; height: 18px; transition: transform .15s ease; }
-.home-button:hover { background: var(--blue-deep); border-color: var(--blue-deep); box-shadow: var(--shadow-lift); }
-.home-button:hover svg { transform: translateX(3px); }
-.home-button:active { transform: translateY(1px); box-shadow: none; }
-.home-button-light { background: var(--surface); color: var(--blue); }
-.home-button-light:hover { background: var(--blue-soft); color: var(--blue-deep); box-shadow: none; }
-.home-button-white { background: #fff; border-color: #fff; color: var(--blue-deep); }
-.home-button-white:hover { background: var(--blue-soft); border-color: var(--blue-soft); color: var(--blue-deep); box-shadow: none; }
+.landing .home-button svg { width: 18px; height: 18px; transition: transform .15s ease; }
+.landing .home-button:hover { background: var(--blue-deep); border-color: var(--blue-deep); box-shadow: var(--shadow-lift); }
+.landing .home-button:hover svg { transform: translateX(3px); }
+.landing .home-button:active { transform: translateY(1px); box-shadow: none; }
+.landing .home-button-light { background: var(--surface); color: var(--blue); }
+.landing .home-button-light:hover { background: var(--blue-soft); color: var(--blue-deep); box-shadow: none; }
+.landing .home-button-white { background: #fff; border-color: #fff; color: var(--blue-deep); }
+.landing .home-button-white:hover { background: var(--blue-soft); border-color: var(--blue-soft); color: var(--blue-deep); box-shadow: none; }
 .home-unavailable { color: var(--muted); font-size: 14px; }
 .home-small { margin: 0; color: var(--muted); font-size: 13.5px; }
 .home-consent { margin: 8px 0 0; color: var(--faint); font-size: 12.5px; }
