@@ -223,7 +223,10 @@
 }
 
 @media (max-width: 760px) {
+  /* A two-row header pinned to the top of a phone screen leaves too little room for the page; it scrolls with it instead. */
+  .home-header { position: static; backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg); }
   .home-header-inner { min-height: 64px; gap: 14px; }
+  .home-explainer, .home-pricing, .home-questions { scroll-margin-top: 16px; }
   .home-header nav { gap: 18px; font-size: 14px; }
   .story { grid-template-columns: minmax(0, 1fr); }
   .home-process { grid-template-columns: minmax(0, 1fr); }
