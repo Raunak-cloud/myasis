@@ -117,11 +117,13 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'humanizer',
     title: 'Humanizer',
-    note: 'Rewrites cover letters in natural words. Leave the URL empty to switch it off.',
+    note: 'Rewrites cover letters in natural words. For Featherless: URL https://api.featherless.ai, model authormist/authormist-originality, and your API key. Leave the URL empty to switch it off.',
+    banner: humanizerBanner,
     keys: [
-      { key: 'HUMANIZER_URL', label: 'Humanizer URL', help: 'The llama.cpp or hosted endpoint, without a trailing slash.', kind: 'url' },
-      { key: 'HUMANIZER_FALLBACK_URL', label: 'Fallback URL', help: 'Tried when the first does not answer.', kind: 'url' },
-      { key: 'HUMANIZER_MODEL', label: 'Model name', help: 'As the endpoint knows it.', kind: 'text' },
+      { key: 'HUMANIZER_URL', label: 'Humanizer URL', help: 'A hosted OpenAI-compatible API such as https://api.featherless.ai, or a llama.cpp server.', kind: 'url' },
+      { key: 'HUMANIZER_API_KEY', label: 'API key', help: 'For a hosted API. Sent only to the Humanizer URL, never to the fallback. Leave empty for a llama.cpp server.', kind: 'secret' },
+      { key: 'HUMANIZER_MODEL', label: 'Model name', help: 'As the endpoint knows it. On Featherless: authormist/authormist-originality.', kind: 'text' },
+      { key: 'HUMANIZER_FALLBACK_URL', label: 'Fallback URL', help: 'A llama.cpp server of your own, tried when the first is not ready. Optional.', kind: 'url' },
       { key: 'HUMANIZER_MODE', label: 'Mode', help: 'Empty for the selective pass, "always" to rewrite every letter, "off" to disable.', kind: 'text' },
       { key: 'HUMANIZER_REQUIRED', label: 'Required', help: 'Refuse to start a writing run while the humanizer is down.', kind: 'boolean' },
       { key: 'HUMANIZER_TIMEOUT_MS', label: 'Request timeout (ms)', help: 'One rewrite request.', kind: 'number' },
@@ -289,6 +291,13 @@ function paymentsBanner(): GroupBanner {
   if (!state.configured) return { tone: 'bad', text: `Checkout is off. ${state.problem}` };
   if (state.mode === 'test') return { tone: 'warn', text: 'TEST mode. Only Stripe test cards work; a real customer cannot pay.' };
   return { tone: 'ok', text: 'LIVE mode. Real cards are charged.' };
+}
+
+/** A hosted endpoint without its key fails every rewrite quietly: letters simply go out un-rewritten. */
+function humanizerBanner(env: Record<string, string>): GroupBanner | undefined {
+  const url = process.env.HUMANIZER_URL ?? env.HUMANIZER_URL ?? '';
+  if (!url.startsWith('https://') || (process.env.HUMANIZER_API_KEY ?? env.HUMANIZER_API_KEY)) return undefined;
+  return { tone: 'warn', text: 'The humanizer URL is a hosted API but no API key is set. The Server tab shows whether it is answering.' };
 }
 
 /** Catches the one way this group is silently useless: CapMonster chosen, no key to call it with. */

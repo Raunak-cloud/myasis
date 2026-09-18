@@ -1,3 +1,4 @@
+import { humanizerEndpoints, probeHumanizer } from './humanizer-endpoint.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -79,29 +80,11 @@ export async function assertHumanizerHealthy(overrides: Record<string, string> =
   // A run whose plan does not include the humanizer never calls it, so its health is irrelevant.
   if (overrides.HUMANIZER_MODE === 'off') return;
   if ((overrides.HUMANIZER_REQUIRED ?? process.env.HUMANIZER_REQUIRED ?? fileEnv.HUMANIZER_REQUIRED) !== 'true') return;
-  const base = (
-    overrides.HUMANIZER_URL ??
-    process.env.HUMANIZER_URL ??
-    fileEnv.HUMANIZER_URL ??
-    ''
-  ).replace(/\/$/, '');
 
-  if (!base) {
-    throw new Error(
-      'AuthorMist is required but HUMANIZER_URL is not configured. Start it in seek-bot with `npm run humanizer`.',
-    );
-  }
-
-  try {
-    const response = await fetch(`${base}/health`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!response.ok) throw new Error(`health check returned HTTP ${response.status}`);
-  } catch (error) {
-    throw new Error(
-      `AuthorMist is required but is not ready. Start it in seek-bot with \`npm run humanizer\`, wait for the model to load, then try again. (${(error as Error).message})`,
-    );
-  }
+  const [endpoint] = await humanizerEndpoints(overrides);
+  if (!endpoint) throw new Error('The humanizer is required but HUMANIZER_URL is not configured. Set it in Admin → Config → Humanizer.');
+  const { ready, detail } = await probeHumanizer(endpoint);
+  if (!ready) throw new Error(`The humanizer is required but is not ready: ${detail}.`);
 }
 
 /**

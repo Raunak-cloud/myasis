@@ -44,6 +44,7 @@ import { readSeekState, readSiteState, type SeekState } from './server/seek-stat
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
+import { chatCompletion, currentHumanizerEndpoint, forgetHumanizerEndpoint, humanizerEndpoints, probeHumanizer } from './server/humanizer-endpoint.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
@@ -74,49 +75,6 @@ function maskExactValues(text: string) {
       return restored;
     },
   };
-}
-
-/**
- * The rewriting endpoint to use right now, preferring the first that answers.
- *
- * The fast copy of this model lives on whichever machine has a GPU, reached
- * over a tunnel — and a tunnel drops. `HUMANIZER_FALLBACK_URL` names the slow
- * local CPU copy to use meanwhile, so losing the tunnel costs speed instead of
- * the feature. Cached briefly so a chunked document does not health-check once
- * per paragraph, but short enough that a dropped tunnel is noticed in seconds.
- */
-let humanizerBaseCache: { url: string; until: number } | null = null;
-
-async function resolveHumanizerBase(env: Record<string, string>): Promise<string> {
-  const candidates = [env.HUMANIZER_URL, env.HUMANIZER_FALLBACK_URL]
-    .map((url) => (url ?? '').replace(/\/$/, ''))
-    .filter(Boolean);
-  if (candidates.length <= 1) return candidates[0] ?? '';
-  if (humanizerBaseCache && Date.now() < humanizerBaseCache.until) return humanizerBaseCache.url;
-
-  for (const candidate of candidates) {
-    try {
-      const response = await fetch(`${candidate}/health`, { signal: AbortSignal.timeout(2_500) });
-      if (!response.ok) continue;
-      humanizerBaseCache = { url: candidate, until: Date.now() + 30_000 };
-      return candidate;
-    } catch {
-      // Try the next one.
-    }
-  }
-  humanizerBaseCache = null;
-  return candidates[0];
-}
-
-/**
- * Forget the cached endpoint once it has failed a real request.
- *
- * Without this, a tunnel that drops mid-window keeps being chosen until the
- * cache expires — so the fallback that exists to prevent an outage would
- * instead cause one, for up to thirty seconds.
- */
-function invalidateHumanizerBase(): void {
-  humanizerBaseCache = null;
 }
 
 /**
@@ -596,7 +554,7 @@ function dataApi(): Plugin {
          * copy for this installation, and it competes with runs for the
          * machine's two cores.
          */
-        return currentUser(req.headers?.cookie).then((toolUser) => {
+        return currentUser(req.headers?.cookie).then(async (toolUser) => {
         if (!isAdmin(toolUser?.email)) return send({ error: 'Not available on your plan.' }, 403);
         const env = readEnv();
         /**
@@ -610,8 +568,7 @@ function dataApi(): Plugin {
          * spent the full timeout finding that out.
          */
         const maxChars = Number(env.HUMANIZER_MAX_CHARS ?? 8_000);
-        const model = env.HUMANIZER_MODEL ?? 'authormist-originality';
-        if (!env.HUMANIZER_URL && !env.HUMANIZER_FALLBACK_URL) {
+        if (!(await humanizerEndpoints()).length) {
           return send({ configured: false, online: false, error: 'Humanizer URL is not configured.' }, 503);
         }
 
@@ -651,14 +608,11 @@ function dataApi(): Plugin {
                  * the failure below clears that cache and this picks the
                  * fallback up on the next turn of the loop.
                  */
-                const endpoint = await resolveHumanizerBase(env);
+                const endpoint = await currentHumanizerEndpoint();
+                if (!endpoint) return { failure: 'Humanizer URL is not configured.', status: 503 };
                 let response: Response;
                 try {
-                  response = await fetch(`${endpoint}/v1/chat/completions`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    model,
+                  response = await chatCompletion(endpoint, {
                     messages: [
                       {
                         role: 'system',
@@ -681,16 +635,13 @@ function dataApi(): Plugin {
                      * rejected after minutes of work for a fault in the request.
                      */
                     max_tokens: Math.max(600, Math.ceil(sourceWords * 4)),
-                    stream: false,
-                  }),
-                  signal: AbortSignal.timeout(Math.max(1_000, deadline - Date.now())),
-                  });
+                  }, deadline);
                 } catch (reason) {
                   // Unreachable, not a bad answer: drop this endpoint and let
                   // the next attempt resolve to whatever is still alive.
-                  invalidateHumanizerBase();
-                  const next = await resolveHumanizerBase(env);
-                  if (next === endpoint) {
+                  forgetHumanizerEndpoint();
+                  const next = await currentHumanizerEndpoint();
+                  if (!next || next.base === endpoint.base) {
                     return { failure: `Could not reach the rewriting service: ${(reason as Error).message}`, status: 503 };
                   }
                   continue;
@@ -762,13 +713,10 @@ function dataApi(): Plugin {
         }
 
         if (req.method !== 'GET') return send({ error: 'GET or POST required' }, 405);
-        return resolveHumanizerBase(env)
-          .then((base) => fetch(`${base}/health`, { signal: AbortSignal.timeout(2_500) }))
-          .then(async (response) => {
-            const result = await response.json() as { status?: unknown; error?: { message?: unknown } };
-            if (!response.ok) {
-              throw new Error(typeof result.error?.message === 'string' ? result.error.message : `HTTP ${response.status}`);
-            }
+        return currentHumanizerEndpoint()
+          .then(async (endpoint) => {
+            const { ready, detail } = endpoint ? await probeHumanizer(endpoint, 2_500) : { ready: false, detail: 'not configured' };
+            if (!ready) throw new Error(detail);
             return send({ configured: true, online: true, maxChars });
           })
           .catch((error) => send({ configured: true, online: false, error: `Could not reach the rewriting service: ${(error as Error).message}` }, 503));

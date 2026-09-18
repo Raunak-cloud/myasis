@@ -320,22 +320,15 @@ export const config = {
     maxTranscriptTokens: Number(process.env.AGENT_MAX_TRANSCRIPT_TOKENS ?? 60_000),
   },
 
-  /** Optional AuthorMist post-processor served by llama.cpp. */
+  /**
+   * Optional AuthorMist post-processor. Where it is served — a hosted API, a
+   * local llama.cpp, and the fallback between them — is resolved from the
+   * HUMANIZER_URL / _FALLBACK_URL / _API_KEY / _MODEL variables by
+   * humanizer-endpoint.ts, which the dashboard shares.
+   */
   humanizer: {
     /** Off for plans without the humanizer: letters are sent as drafted and verified. */
     enabled: process.env.HUMANIZER_MODE !== 'off',
-    url: (process.env.HUMANIZER_URL ?? '').replace(/\/$/, ''),
-    /**
-     * Where to go when the first URL is unreachable.
-     *
-     * The fast copy of this model is whichever machine has a GPU, which for a
-     * hosted server means a tunnel to someone's desktop — and a tunnel is a
-     * thing that drops. Naming a second endpoint keeps that from turning a
-     * dropped tunnel into failed applications: the run simply carries on
-     * against the slower local CPU.
-     */
-    fallbackUrl: (process.env.HUMANIZER_FALLBACK_URL ?? '').replace(/\/$/, ''),
-    model: process.env.HUMANIZER_MODEL ?? 'authormist-originality',
     required: process.env.HUMANIZER_REQUIRED === 'true',
     timeoutMs: Number(process.env.HUMANIZER_TIMEOUT_MS ?? 120_000),
     /**

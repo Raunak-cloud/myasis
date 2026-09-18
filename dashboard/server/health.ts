@@ -1,3 +1,4 @@
+import { humanizerEndpoints, probeHumanizer } from './humanizer-endpoint.js';
 import { open, readdir, readFile, stat, statfs } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { cpus, homedir } from 'node:os';
@@ -234,15 +235,6 @@ export function startHealthMaintenance(): void {
 
 // ---------------------------------------------------------------- services
 
-async function reachable(url: string, timeoutMs = 2_000): Promise<boolean> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 async function serviceChecks(): Promise<ServerHealth['services']> {
   const env = readEnv();
   const checks: ServerHealth['services'] = [];
@@ -250,15 +242,18 @@ async function serviceChecks(): Promise<ServerHealth['services']> {
   const database = await one<{ ok: number }>('SELECT 1 AS ok').then(() => true).catch(() => false);
   checks.push({ name: 'Database', ok: database, detail: database ? 'answering' : 'not answering' });
 
-  const humanizerUrl = (process.env.HUMANIZER_URL ?? env.HUMANIZER_URL ?? '').replace(/\/$/, '');
-  const fallbackUrl = (process.env.HUMANIZER_FALLBACK_URL ?? env.HUMANIZER_FALLBACK_URL ?? '').replace(/\/$/, '');
-  if (humanizerUrl || fallbackUrl) {
-    const primary = humanizerUrl ? await reachable(`${humanizerUrl}/health`) : false;
-    const fallback = !primary && fallbackUrl ? await reachable(`${fallbackUrl}/health`) : false;
+  const [primary, fallback] = await humanizerEndpoints();
+  if (primary) {
+    const first = await probeHumanizer(primary, 2_500);
+    const second = !first.ready && fallback ? await probeHumanizer(fallback, 2_500) : null;
     checks.push({
       name: 'Humanizer',
-      ok: primary || fallback,
-      detail: primary ? `answering on ${humanizerUrl}` : fallback ? `primary down, using ${fallbackUrl}` : 'not answering',
+      ok: first.ready || Boolean(second?.ready),
+      detail: first.ready
+        ? `${first.detail} on ${primary.base}`
+        : second?.ready
+          ? `primary down (${first.detail}), using ${fallback.base}`
+          : first.detail,
     });
   }
 

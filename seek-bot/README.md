@@ -153,25 +153,39 @@ Two things that harness caught, both worth keeping in mind:
 
 ### Optional AuthorMist cover-letter pass
 
-Cover letters can be post-processed locally with `authormist-originality`, a
+Cover letters can be post-processed with `authormist-originality`, a
 Qwen2.5-3B model trained for meaning-preserving human-style rewriting. It is
-not used for fit decisions or application answers. The greeting and sign-off
-are preserved, and unchanged, truncated, expanded, or numerically altered
-rewrites are rejected.
+not used for fit decisions or application answers. Unchanged, truncated,
+expanded, or numerically altered rewrites are rejected.
 
-Install llama.cpp once, then start the quantized local model:
+**Hosted (recommended): [Featherless](https://featherless.ai/docs).** An
+OpenAI-compatible API that serves the model under its Hugging Face id:
 
-```powershell
-winget install llama.cpp
-npm run humanizer
+```
+HUMANIZER_URL=https://api.featherless.ai
+HUMANIZER_API_KEY=<your Featherless key>
+HUMANIZER_MODEL=authormist/authormist-originality
 ```
 
-The first start downloads the Q4 GGUF model. Keep that terminal open, then verify
-`http://127.0.0.1:8091/health`. Set `HUMANIZER_URL` in `.env` to that base URL.
-AuthorMist startup health is required only when `HUMANIZER_REQUIRED=true`.
-The default selective pass runs when the draft requests editing; `HUMANIZER_MODE=always`
-forces it. Rewrites get two attempts within a shared 15-second request deadline.
-A failed rewrite or failed factual check falls back to the original checked draft.
+Readiness is one request to the model's own record, which refuses a bad key
+and says whether the model is warm; a cold model counts as not ready, because
+warming takes minutes. Featherless counts requests in flight against the plan
+(this 3B model costs 1 unit; the $25 plan has 4) and answers 429 above it, so
+a refused request waits and retries inside the rewrite's time budget, as do
+500 and 503. Featherless states it does not log prompts or completions.
+
+**Self-hosted: llama.cpp.** `winget install llama.cpp`, then `npm run humanizer`
+(the first start downloads the Q4 GGUF). Use `HUMANIZER_URL=http://127.0.0.1:8091`,
+`HUMANIZER_MODEL=authormist-originality` and no key; readiness is its `/health`.
+It can also be named as `HUMANIZER_FALLBACK_URL`, tried whenever the hosted API
+is not ready. The API key is only ever sent to `HUMANIZER_URL`.
+
+Startup health is required only when `HUMANIZER_REQUIRED=true`. The default
+selective pass runs when the draft requests editing; `HUMANIZER_MODE=always`
+forces it. Rewrites get two attempts within `HUMANIZER_REWRITE_BUDGET_MS`. A
+failed rewrite or failed factual check falls back to the original checked draft.
+`src/humanizer-endpoint.ts` holds all of this and is shared with the dashboard;
+`npm run test:humanizer-endpoint` exercises it against a local stand-in.
 
 ### Cover-letter strategy
 

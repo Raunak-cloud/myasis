@@ -112,23 +112,28 @@ Or edit `MAX_CONCURRENT_RUNS` in `ecosystem.config.cjs`: 1 on 4 GB, 3 on 8 GB,
 
 ## 3c. The AuthorMist humanizer
 
-The installer sets this up as `myasis-humanizer.service`: llama.cpp serving
-AuthorMist on `127.0.0.1:8091`, CPU only. The model is a 3B quantised to about
-1.8GB, so it needs no GPU — a short rewrite takes roughly five seconds on two
-cores, and the unit is niced and OOM-deprioritised so a run always wins the
-contest for CPU and memory.
+Served by [Featherless](https://featherless.ai): set these in Admin → Config →
+Humanizer (or `seek-bot/.env`), and nothing has to run on the server.
 
-    sudo systemctl status myasis-humanizer
-    curl -s http://127.0.0.1:8091/health        # {"status":"ok"}
+    HUMANIZER_URL=https://api.featherless.ai
+    HUMANIZER_API_KEY=<your Featherless key>
+    HUMANIZER_MODEL=authormist/authormist-originality
+
     curl -s http://127.0.0.1:5180/api/humanizer # {"configured":true,"online":true}
 
-It never listens on anything but loopback, and the dashboard reaches it
-through `HUMANIZER_URL` in `seek-bot/.env`.
+Admin → Server shows whether the key is accepted and the model is warm.
 
-Applications do not depend on it unless `HUMANIZER_REQUIRED=true`; with it off,
-a humanizer that is down costs you the Rewrite text tab and nothing else. Its
-RSS looks alarming in `ps` (~3GB) because the model file is mmap'd — those
-pages are shared, reclaimable, and not counted in `free`'s used total.
+The installer can also set up `myasis-humanizer.service`: llama.cpp serving the
+same model on `127.0.0.1:8091`, CPU only (about five seconds for a short
+rewrite on two cores, ~1.8GB of model). With the hosted API in use it is only
+worth keeping as `HUMANIZER_FALLBACK_URL=http://127.0.0.1:8091`; otherwise stop
+it and give the memory and cores back to runs:
+
+    sudo systemctl disable --now myasis-humanizer
+
+Applications do not depend on the humanizer unless `HUMANIZER_REQUIRED=true`;
+with it off, a humanizer that is down costs you the Rewrite text tab and
+nothing else.
 
 ## 3d. Visitor locations
 
