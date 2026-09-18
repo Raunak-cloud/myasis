@@ -33,63 +33,61 @@ export function wordCount(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
+/** Bare numerals, so "40%" and "40 percent" are the same figure. */
 function numbers(text: string): string[] {
-  return text.match(/\b\d+(?:[.,]\d+)*%?\b/g) ?? [];
+  return (text.match(/\b\d+(?:[.,]\d+)*\b/g) ?? []).map((value) => value.replace(/,/g, ''));
 }
 
+/** Trailing sentence punctuation is not part of the address. */
 function protectedTokens(text: string): string[] {
-  return text.match(/(?:https?:\/\/|www\.)\S+|[\w.+-]+@[\w.-]+\.\w+/gi) ?? [];
+  return (text.match(/(?:https?:\/\/|www\.)\S+|[\w.+-]+@[\w.-]+\.\w+/gi) ?? [])
+    .map((token) => token.replace(/[.,;:!?)\]]+$/, ''));
 }
 
+/**
+ * Substance only.
+ *
+ * Style is the humanizer's whole job, so nothing here judges it: a rewrite may
+ * restructure, lengthen, shorten or re-voice the draft freely. What it may not
+ * do is change a fact, because the letter goes to an employer over the
+ * candidate's name. Length is bounded only by what the form will take.
+ *
+ * Earlier versions also enforced a 0.65-1.45 word band against the source and
+ * required the greeting and sign-off back byte-identical. Both rejected
+ * genuinely good divergent rewrites — the kind that reads as human — so both
+ * are gone.
+ */
 function validateRewrite(
   original: string,
   candidate: string,
   maxWords: number,
 ): string | null {
-  const sourceWords = wordCount(original);
-  const outputWords = wordCount(candidate);
   if (!candidate.trim()) return 'the service returned empty text';
   const normalise = (text: string) => text.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase();
   if (normalise(original) === normalise(candidate)) return 'the service returned the original text unchanged';
-  if (outputWords < sourceWords * 0.65) return 'the rewrite was substantially truncated';
-  if (outputWords > sourceWords * 1.45) return 'the rewrite expanded unexpectedly';
-  if (outputWords > maxWords) return `the rewrite exceeded its ${maxWords}-word limit`;
-  if (numbers(original).join('|') !== numbers(candidate).join('|')) {
-    return 'the rewrite changed a numeric claim';
-  }
-  if (protectedTokens(original).join('|') !== protectedTokens(candidate).join('|')) {
-    return 'the rewrite changed a URL or email address';
-  }
+  if (wordCount(candidate) > maxWords) return `the rewrite exceeded its ${maxWords}-word limit`;
+  /**
+   * Asymmetric on purpose. Spelling "3 years" as "three years", dropping a
+   * figure, or writing "40 percent" for "40%" are style, and style is what the
+   * rewrite is for. Stating a figure the draft never made is a claim the
+   * candidate did not make, so only figures absent from the draft are refused.
+   */
+  const draftNumbers = new Set(numbers(original));
+  const invented = numbers(candidate).find((value) => !draftNumbers.has(value));
+  if (invented) return `the rewrite introduced a figure the draft does not make (${invented})`;
+
+  const draftTokens = new Set(protectedTokens(original).map((token) => token.toLowerCase()));
+  const fabricated = protectedTokens(candidate).find((token) => !draftTokens.has(token.toLowerCase()));
+  if (fabricated) return `the rewrite introduced a URL or email not in the draft (${fabricated})`;
   return null;
 }
 
 /**
  * A rewriting model is allowed to change style, never the substance of an
- * application. These checks catch unchanged output, truncation and altered
- * numeric claims before anything can reach an employer.
+ * application.
  */
-export function validateHumanized(
-  original: string,
-  candidate: string,
-  /**
-   * Whether the caller kept the greeting and sign-off out of the rewrite.
-   *
-   * The edge checks below only make sense in that case. A letter with fewer
-   * than three blocks is rewritten whole — greeting included — so asserting
-   * the greeting came back byte-identical is self-contradictory and failed
-   * every such letter (fatally, when the humanizer is required).
-   */
-  edgesPreserved = true,
-): string | null {
-  const invalid = validateRewrite(original, candidate, MAX_COVER_LETTER_WORDS);
-  if (invalid) return invalid;
-  if (!edgesPreserved) return null;
-
-  const firstBlock = original.trim().split(/\n\s*\n/)[0];
-  const lastBlock = original.trim().split(/\n\s*\n/).at(-1);
-  if (firstBlock && !candidate.includes(firstBlock)) return 'the rewrite changed the greeting';
-  if (lastBlock && !candidate.includes(lastBlock)) return 'the rewrite changed the sign-off';
-  return null;
+export function validateHumanized(original: string, candidate: string): string | null {
+  return validateRewrite(original, candidate, MAX_COVER_LETTER_WORDS);
 }
 
 function errorMessage(body: ChatCompletionResponse, status: number): string {
@@ -223,7 +221,7 @@ export async function humanizeCoverLetter(
         deadline,
       );
       const candidate = rewritten;
-      const invalid = validateHumanized(letter, candidate, false);
+      const invalid = validateHumanized(letter, candidate);
       if (invalid) throw new Error(invalid);
       if (!verifyMeaning || !(await verifyMeaning(candidate))) return letter;
       return candidate;
