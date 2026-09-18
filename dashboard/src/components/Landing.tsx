@@ -94,11 +94,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             <div className="home-hero-actions">{start()}</div>
             <p className="home-small">{FREE_APPLICATIONS} free applications. No card needed.</p>
             <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
-            <ul className="home-hero-proof" aria-label="What you get">
-              <li>Applies from your own SEEK account</li>
-              <li>A cover letter for every job</li>
-              <li>Nothing invented, ever</li>
-            </ul>
           </div>
           <div className="home-hero-demo" id="demo">
             <div className="home-hero-video-top"><span>Real application run</span></div>
