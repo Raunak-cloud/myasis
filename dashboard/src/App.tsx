@@ -280,92 +280,95 @@ export default function App() {
             menu on every screen. They were in the page header, which on a
             phone left two controls competing with the title for one row.
           */}
+          {/*
+            The foot of the menu, as one panel: who is signed in, the plan and
+            what is left on it, whether the job boards are signed in, and the
+            two controls. Four separate boxes read as four separate things;
+            one panel with dividers reads as the account.
+          */}
           <div className="nav-foot">
-            <div className="nav-theme" role="group" aria-label="Theme">
-              {THEME_CYCLE.map((option) => (
+            <div className="nav-card">
+              <div className="nav-account">
+                {user.avatarUrl
+                  ? <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                  : <span className="nav-account-initial" aria-hidden="true">{(user.name ?? user.email).trim().charAt(0).toUpperCase()}</span>}
+                <span className="nav-account-id">
+                  <strong>{user.name ?? 'Signed in'}</strong>
+                  <span className="job-meta">{user.email}</span>
+                </span>
+              </div>
+
+              {billing && entitlements && (
                 <button
-                  key={option}
                   type="button"
-                  className={theme === option ? 'on' : ''}
-                  aria-pressed={theme === option}
-                  title={option === 'system' ? `Dark from 7 pm to 7 am, Sydney time (${resolvedTheme('system')} now)` : `Always ${option}`}
-                  onClick={() => setTheme(option)}
+                  className={`nav-row ${tab === 'pricing' ? 'active' : ''}`}
+                  onClick={() => go('pricing')}
+                  aria-label="Plan and applications remaining. Opens plans and pricing."
                 >
-                  {THEME_LABEL[option]}
+                  <span className="nav-row-main">
+                    <span className="nav-row-title">{planName(billing, entitlements.tier === 'admin')}</span>
+                    <span className="nav-row-sub">
+                      {entitlements.tier === 'admin'
+                        ? 'No application limits'
+                        : billing.paid.hasActivePass && billing.paid.expiresAt
+                          ? `${billing.paid.remaining} on your pass · until ${shortDate(billing.paid.expiresAt)}`
+                          : `${billing.free.remaining} of ${billing.free.allowance} free · resets ${shortDate(billing.free.resetsAt)}`}
+                    </span>
+                  </span>
+                  {entitlements.tier !== 'admin' && (
+                    <span className="nav-row-value">
+                      <strong>{billing.totalRemaining}</strong>
+                      <span>left</span>
+                    </span>
+                  )}
+                  <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
                 </button>
-              ))}
+              )}
+
+              {boards && (boards.seek || boards.indeed) && (
+                <button
+                  type="button"
+                  className="nav-row"
+                  onClick={() => go('run')}
+                  aria-label="Job board sign-in. Opens the Apply page."
+                  title="Sign in or refresh a sign-in on the Apply page."
+                >
+                  <span className="nav-row-main">
+                    <span className="nav-row-title">Job boards</span>
+                    <span className="nav-row-sub">
+                      {(['seek', 'indeed'] as const)
+                        .filter((board) => boards[board])
+                        .map((board) => `${board === 'seek' ? 'SEEK' : 'Indeed'}${boards[board]!.signedIn ? '' : ' signed out'}`)
+                        .join(' · ')}
+                    </span>
+                  </span>
+                  <span className="nav-dots" aria-hidden="true">
+                    {(['seek', 'indeed'] as const).filter((board) => boards[board]).map((board) => (
+                      <span key={board} className={`nav-dot ${boards[board]!.signedIn ? 'on' : 'off'}`} />
+                    ))}
+                  </span>
+                  <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+                </button>
+              )}
+
+              <div className="nav-tools">
+                <div className="nav-theme" role="group" aria-label="Theme">
+                  {THEME_CYCLE.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={theme === option ? 'on' : ''}
+                      aria-pressed={theme === option}
+                      title={option === 'system' ? `Dark from 7 pm to 7 am, Sydney time (${resolvedTheme('system')} now)` : `Always ${option}`}
+                      onClick={() => setTheme(option)}
+                    >
+                      {THEME_LABEL[option]}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" className="nav-signout" onClick={signOut}>Sign out</button>
+              </div>
             </div>
-
-            {/*
-              The plan and what is left on it, on every screen. An account
-              should never have to open the pricing page to learn whether
-              tonight's run will be allowed to apply.
-            */}
-            {/*
-              Which job boards the account is signed in to, from every screen.
-              It used to sit among the run controls, where two green ticks read
-              as "both boards are switched on". Here, beside the plan, it reads
-              as what it is: the state of the account. Signing in still happens
-              on the Apply page, which is where this row leads.
-            */}
-            {boards && (boards.seek || boards.indeed) && (
-              <button
-                type="button"
-                className="nav-boards"
-                onClick={() => go('run')}
-                aria-label="Job board sign-in. Opens the Apply page."
-                title="Sign in or refresh a sign-in on the Apply page."
-              >
-                <span className="nav-boards-label">Signed in to</span>
-                {(['seek', 'indeed'] as const).map((board) => {
-                  const state = boards[board];
-                  if (!state) return null;
-                  return (
-                    <span key={board} className={`nav-board ${state.signedIn ? 'on' : 'off'}`}>
-                      <span className="nav-board-dot" aria-hidden="true" />
-                      {board === 'seek' ? 'SEEK' : 'Indeed'}
-                      {!state.signedIn && <span className="job-meta"> · signed out</span>}
-                    </span>
-                  );
-                })}
-              </button>
-            )}
-
-            {billing && entitlements && (
-              <button
-                type="button"
-                className={`nav-plan ${tab === 'pricing' ? 'active' : ''}`}
-                onClick={() => go('pricing')}
-                aria-label="Plan and applications remaining. Opens plans and pricing."
-              >
-                <span className="nav-plan-name">{planName(billing, entitlements.tier === 'admin')}</span>
-                {entitlements.tier === 'admin' ? (
-                  <span className="nav-plan-left">No application limits</span>
-                ) : (
-                  <>
-                    <span className="nav-plan-left">
-                      <strong>{billing.totalRemaining}</strong> application{billing.totalRemaining === 1 ? '' : 's'} left
-                    </span>
-                    <span className="nav-plan-note">
-                      {billing.paid.hasActivePass && billing.paid.expiresAt
-                        ? `${billing.paid.remaining} on your pass until ${shortDate(billing.paid.expiresAt)}`
-                        : `${billing.free.remaining} of ${billing.free.allowance} free this month · resets ${shortDate(billing.free.resetsAt)}`}
-                    </span>
-                  </>
-                )}
-              </button>
-            )}
-
-            <div className="nav-account">
-              {user.avatarUrl
-                ? <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" />
-                : <span className="nav-account-initial" aria-hidden="true">{(user.name ?? user.email).trim().charAt(0).toUpperCase()}</span>}
-              <span className="nav-account-id">
-                <strong>{user.name ?? 'Signed in'}</strong>
-                <span className="job-meta">{user.email}</span>
-              </span>
-            </div>
-            <button type="button" className="btn nav-signout" onClick={signOut}>Sign out</button>
           </div>
         </nav>
       </aside>
