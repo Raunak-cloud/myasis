@@ -179,10 +179,22 @@ export default function App() {
    * does not scroll while it is open.
    */
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const signOutButton = useRef<HTMLButtonElement>(null);
   const go = (next: Tab) => {
     setTab(next);
     setMenuOpen(false);
   };
+  useEffect(() => {
+    if (!confirmSignOut) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setConfirmSignOut(false);
+    };
+    window.addEventListener('keydown', close);
+    signOutButton.current?.focus();
+    return () => window.removeEventListener('keydown', close);
+  }, [confirmSignOut]);
+
   useEffect(() => {
     if (!menuOpen) return;
     const close = (event: KeyboardEvent) => {
@@ -373,7 +385,7 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <button type="button" className="nav-signout" onClick={() => window.confirm('Sign out of Owtomate?') && signOut()}>Sign out</button>
+                <button type="button" className="nav-signout" onClick={() => setConfirmSignOut(true)}>Sign out</button>
               </div>
             </div>
           </div>
@@ -445,6 +457,30 @@ export default function App() {
           </Suspense>
         </div>
       </main>
+
+      {confirmSignOut && (
+        <div className="overlay center" onClick={() => setConfirmSignOut(false)}>
+          <div
+            className="card confirm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="sign-out-title"
+            aria-describedby="sign-out-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="sign-out-title">Sign out of Owtomate?</h2>
+            <p id="sign-out-description" className="dim">
+              Any run already going keeps running. You will need to sign in again to see it.
+            </p>
+            <div className="confirm-actions">
+              <button className="btn" onClick={() => setConfirmSignOut(false)}>Stay signed in</button>
+              <button ref={signOutButton} className="btn btn-danger-solid" onClick={() => { setConfirmSignOut(false); void signOut(); }}>
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>
