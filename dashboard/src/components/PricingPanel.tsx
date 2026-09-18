@@ -1,28 +1,34 @@
 import { useCallback, useEffect, useState } from 'react';
 import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey } from '../pricing';
-import { BILLING_CHANGED } from '../billing';
+import { BILLING_CHANGED, type BillingStatus } from '../billing';
 
-interface BillingStatus {
-  configured: boolean;
-  free: {
-    allowance: number;
-    used: number;
-    remaining: number;
-    resetsAt: string;
-  };
-  paid: {
-    remaining: number;
-    expiresAt: string | null;
-    hasActivePass: boolean;
-    hasActiveIntensivePass: boolean;
-  };
-  totalRemaining: number;
-}
 
 function dateLabel(value: string): string {
   return new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
     .format(new Date(value));
 }
+
+type PlanCardKey = 'free' | PaidPlanKey;
+
+/** The three plans as the page presents them, in the order they are compared. */
+const PLAN_CARDS: Array<{
+  key: PlanCardKey;
+  name: string;
+  price: string;
+  term: string;
+  recommended: boolean;
+  presentation: { label: string; description: string; features: readonly string[] };
+}> = [
+  { key: 'free', name: 'Free', price: aud(0), term: 'no card needed', recommended: false, presentation: PLAN_PRESENTATION.free },
+  {
+    key: 'job-search-pass', name: PAID_PLANS['job-search-pass'].name, price: aud(PAID_PLANS['job-search-pass'].priceCents),
+    term: 'one payment · 30 days', recommended: true, presentation: PLAN_PRESENTATION['job-search-pass'],
+  },
+  {
+    key: 'intensive-pass', name: PAID_PLANS['intensive-pass'].name, price: aud(PAID_PLANS['intensive-pass'].priceCents),
+    term: 'one payment · 30 days', recommended: false, presentation: PLAN_PRESENTATION['intensive-pass'],
+  },
+];
 
 export function PricingPanel() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
@@ -95,127 +101,136 @@ export function PricingPanel() {
 
   const checkoutDisabled = loading || !status?.configured || buying !== null;
 
+  /** The highest pass held; an account can hold both, and the page marks the one that governs its runs. */
+  const current: PlanCardKey = status?.paid.hasActiveIntensivePass
+    ? 'intensive-pass'
+    : status?.paid.hasActiveJobSearchPass
+      ? 'job-search-pass'
+      : 'free';
+
   return (
     <div className="pricing-page">
       {notice && <div className={`pricing-notice ${notice.kind}`} role="status">{notice.text}</div>}
+      {!loading && status && !status.configured && (
+        <div className="pricing-notice warn">Checkout is not available right now. Your free applications still work.</div>
+      )}
+
+      <header className="pricing-head">
+        <span className="pricing-kicker">Plans &amp; pricing</span>
+        <h2>A month of applications, not a subscription</h2>
+        <p>Every pass is one payment that lasts 30 days and never renews by itself. Only applications that are actually submitted count.</p>
+      </header>
 
       {status && (
-        <section className="allowance-card" aria-label="Application allowance">
-          <div>
-            <span className="allowance-label">Available now</span>
-            <strong>{status.totalRemaining}</strong>
-            <span>successful applications</span>
+        <section className="pricing-status" aria-label="Your plan and allowance">
+          <div className="pricing-status-plan">
+            <span className="pricing-status-label">Your plan</span>
+            <strong>{PLAN_CARDS.find((card) => card.key === current)?.name}</strong>
           </div>
-          <div className="allowance-breakdown">
-            <p>
-              <strong>{status.free.remaining}</strong> of {status.free.allowance} free applications left
-              <span>Resets {dateLabel(status.free.resetsAt)}</span>
-            </p>
-            <p>
-              <strong>{status.paid.remaining}</strong> paid applications left
-              <span>{status.paid.expiresAt ? `Valid until ${dateLabel(status.paid.expiresAt)}` : 'No active pass'}</span>
-            </p>
+          <div className="pricing-status-stat">
+            <strong>{status.totalRemaining}</strong>
+            <span>applications available now</span>
+          </div>
+          <div className="pricing-status-stat">
+            <strong>{status.free.remaining}<em> / {status.free.allowance}</em></strong>
+            <span>free this month · resets {dateLabel(status.free.resetsAt)}</span>
+          </div>
+          <div className="pricing-status-stat">
+            <strong>{status.paid.remaining}</strong>
+            <span>{status.paid.expiresAt ? `on your pass · until ${dateLabel(status.paid.expiresAt)}` : 'on a pass · none active'}</span>
           </div>
         </section>
       )}
 
-      {!loading && status && !status.configured && (
-        <div className="pricing-notice warn">
-          Payments are not configured yet. Add your Stripe keys to enable secure checkout.
-        </div>
-      )}
-
-      <section className="pricing-intro">
-        <span className="pricing-kicker">Plans &amp; pricing</span>
-        <h2>Choose how you want Owtomate to run</h2>
-        <p>Use the automatic schedule, or choose Intensive when you want to start and fine-tune each run yourself.</p>
-      </section>
-
       <div className="pricing-grid">
-        <article className="pricing-card">
-          <header className="pricing-card-head">
-            <span className="pricing-plan-label">{PLAN_PRESENTATION.free.label}</span>
-            <h3>Free</h3>
-            <p className="pricing-plan-copy">{PLAN_PRESENTATION.free.description}</p>
-          </header>
-          <p className="pricing-price"><strong>A$0</strong><span>no card needed</span></p>
-          <button className="btn pricing-cta" disabled>Included with your account</button>
-          <div className="pricing-card-divider" />
-          <span className="pricing-includes">What you get</span>
-          <ul className="pricing-features">
-            {PLAN_PRESENTATION.free.features.map((feature) => <li key={feature}>{feature}</li>)}
-          </ul>
-        </article>
-
-        {(['job-search-pass', 'intensive-pass'] as const).map((key) => {
-          const plan = PAID_PLANS[key];
-          const presentation = PLAN_PRESENTATION[key];
-          const recommended = key === 'job-search-pass';
+        {PLAN_CARDS.map((card) => {
+          const isCurrent = card.key === current;
+          const paid = card.key !== 'free';
+          const label = !paid
+            ? 'Included with every account'
+            : buying === card.key
+              ? 'Opening checkout…'
+              : isCurrent
+                ? 'Add another month'
+                : `Choose ${card.name}`;
           return (
-            <article className={`pricing-card ${recommended ? 'recommended' : ''}`} key={key}>
-              {recommended && <span className="pricing-popular">Most popular</span>}
-              <header className="pricing-card-head">
-                <span className="pricing-plan-label">{presentation.label}</span>
-                <h3>{plan.name}</h3>
-                <p className="pricing-plan-copy">{presentation.description}</p>
-              </header>
-              <p className="pricing-price"><strong>{aud(plan.priceCents)}</strong><span>one-time payment · valid 30 days</span></p>
-              <button
-                className={`btn pricing-cta ${recommended ? 'primary' : ''}`}
-                disabled={checkoutDisabled}
-                onClick={() => void buy(key)}
-              >
-                {buying === key ? 'Opening checkout…' : `Choose ${plan.name}`}
-              </button>
-              <div className="pricing-card-divider" />
-              <span className="pricing-includes">What you get</span>
+            <article className={`pricing-card ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
+              <div className="pricing-card-top">
+                <span className="pricing-plan-label">{card.presentation.label}</span>
+                {isCurrent ? (
+                  <span className="pricing-tag current">Current plan</span>
+                ) : card.recommended ? (
+                  <span className="pricing-tag">Most popular</span>
+                ) : null}
+              </div>
+              <h3>{card.name}</h3>
+              <p className="pricing-plan-copy">{card.presentation.description}</p>
+              <p className="pricing-price">
+                <strong>{card.price}</strong>
+                <span>{card.term}</span>
+              </p>
               <ul className="pricing-features">
-                {presentation.features.map((feature) => <li key={feature}>{feature}</li>)}
+                {card.presentation.features.map((feature) => (
+                  <li key={feature}>
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                    {feature}
+                  </li>
+                ))}
               </ul>
+              <button
+                className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
+                disabled={!paid || checkoutDisabled}
+                onClick={() => card.key !== 'free' && void buy(card.key)}
+              >
+                {label}
+              </button>
             </article>
           );
         })}
       </div>
-      <p className="job-meta pricing-footnote">{HUMANIZER_NOTE}</p>
 
-      <section className="topup-card">
-        <div>
-          <span className="pricing-plan-label">Keep your current plan</span>
-          <h3>{PAID_PLANS['application-top-up'].name}</h3>
-          <p>
-            Add {PAID_PLANS['application-top-up'].applications} successful applications to your balance, valid for{' '}
-            {PAID_PLANS['application-top-up'].validDays} days.
-          </p>
+      <ul className="pricing-trust" aria-label="Payment terms">
+        <li>Secure checkout by Stripe</li>
+        <li>One payment, no renewal</li>
+        <li>Prices in Australian dollars</li>
+        <li>Unused applications stay until the pass ends</li>
+      </ul>
+
+      <section className="pricing-topup">
+        <div className="pricing-topup-copy">
+          <span className="pricing-plan-label">Top-up</span>
+          <h3>{PAID_PLANS['application-top-up'].applications} more applications</h3>
+          <p>Adds to your balance for {PAID_PLANS['application-top-up'].validDays} days without changing how your plan runs.</p>
         </div>
-        <div className="topup-action">
-          <p className="pricing-price"><strong>{aud(PAID_PLANS['application-top-up'].priceCents)}</strong><span>one payment</span></p>
-          <button
-            className="btn pricing-cta"
-            disabled={checkoutDisabled}
-            onClick={() => void buy('application-top-up')}
-          >
-            {buying === 'application-top-up' ? 'Opening checkout…' : 'Add 50 applications'}
+        <div className="pricing-topup-action">
+          <p className="pricing-price">
+            <strong>{aud(PAID_PLANS['application-top-up'].priceCents)}</strong>
+            <span>one payment</span>
+          </p>
+          <button className="btn pricing-cta" disabled={checkoutDisabled} onClick={() => void buy('application-top-up')}>
+            {buying === 'application-top-up' ? 'Opening checkout…' : `Add ${PAID_PLANS['application-top-up'].applications} applications`}
           </button>
         </div>
       </section>
 
-      <section className="pricing-explainer">
-        <h2>How usage works</h2>
-        <div>
-          <article>
-            <strong>Only successful submissions count</strong>
-            <p>Skipped jobs, failed forms, off-platform listings and items needing your attention do not use your allowance.</p>
-          </article>
-          <article>
-            <strong>Passes last one month</strong>
-            <p>Your applications remain available until the pass expires. There is no automatic renewal.</p>
-          </article>
-          <article>
-            <strong>Top-ups add capacity</strong>
-            <p>A top-up adds applications without changing how your current plan runs.</p>
-          </article>
-        </div>
+      <section className="pricing-explainer" aria-label="How usage works">
+        <article>
+          <strong>Only submitted applications count</strong>
+          <p>Skipped jobs, failed forms and anything that needs your attention do not use your allowance.</p>
+        </article>
+        <article>
+          <strong>Passes last 30 days</strong>
+          <p>Applications stay available until the pass ends. Nothing renews or charges again on its own.</p>
+        </article>
+        <article>
+          <strong>Top-ups add capacity</strong>
+          <p>A top-up adds applications without changing how your current plan runs.</p>
+        </article>
       </section>
+
+      <p className="job-meta pricing-footnote">{HUMANIZER_NOTE}</p>
     </div>
   );
 }
