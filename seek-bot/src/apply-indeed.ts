@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
-import { waitForInteractiveSurface } from './browser.js';
+import { waitForInteractiveSurface, workingIn } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
 import { runApplicationAgent } from './agent/loop.js';
@@ -75,6 +75,7 @@ export async function applyToIndeedJob(
   profile: CandidateProfile,
   deps: ApplyDeps,
 ): Promise<ApplyOutcome> {
+  const tabsBefore = new Set(page.context().pages());
   const location = config.search.location || 'Australia';
   await page.goto(`${config.indeedBase}/jobs?l=${encodeURIComponent(location)}&vjk=${encodeURIComponent(job.id)}`, {
     waitUntil: 'domcontentloaded',
@@ -200,7 +201,9 @@ export async function applyToIndeedJob(
      * page, on every exit path, so later candidates in the same run are not
      * silently starved of foreground priority.
      */
-    if (applyPage !== page) await applyPage.close().catch(() => {});
-    await page.bringToFront().catch(() => {});
+    for (const tab of page.context().pages()) {
+      if (!tabsBefore.has(tab) && tab !== page) await tab.close().catch(() => {});
+    }
+    await workingIn(page);
   }
 }

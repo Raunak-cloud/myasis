@@ -1,7 +1,10 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { upgradeOriginAllowed } from './http-guards.js';
 import { currentUser } from './auth.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { readEnv, runner } from './runner.js';
+import { userDir } from './userdata.js';
 
 
 /**
@@ -189,6 +192,7 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
         return;
       }
       req.runBrowserPort = port;
+      req.runUserId = user.id;
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     }).catch(() => {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
@@ -204,8 +208,25 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
 
     let session: Session | null = null;
     let current: CdpTarget | null = null;
-    /** Page targets in the order they were first seen; the newest is the one the run is working in. */
-    const seen: string[] = [];
+    /**
+     * The tab the run says it is working in (seek-bot writes it every time that
+     * changes). Guessing was tried first — "the newest tab" — and measured wrong:
+     * with a few employer sites behind it a run has several tabs open, and the
+     * view sat on one left over from an earlier application while the form being
+     * filled was in another. When the run has not said yet, Chrome lists its tabs
+     * most recently active first, so the first one is the best answer available.
+     */
+    const workingIn = (targets: CdpTarget[]): CdpTarget | null => {
+      try {
+        const file = resolve(userDir(String(req.runUserId)), 'live-target.json');
+        const said = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { targetId?: string }) : null;
+        const named = said?.targetId ? targets.find((t) => t.id === said.targetId) : undefined;
+        if (named) return named;
+      } catch {
+        // A half-written file is a moment, not an answer; the next tick reads it whole.
+      }
+      return targets.find((t) => t.id === current?.id) ?? targets[0] ?? null;
+    };
     const viewable = (t: CdpTarget) =>
       t.type === 'page' && !t.url.startsWith('devtools://') && !t.url.startsWith('chrome://') && Boolean(t.webSocketDebuggerUrl);
 
@@ -218,9 +239,7 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
     };
 
     try {
-      const targets = (await listTargets(port)).filter(viewable);
-      for (const t of targets) seen.push(t.id);
-      const target = targets[0];
+      const target = workingIn((await listTargets(port)).filter(viewable));
       if (!target) {
         client.send(JSON.stringify({ type: 'error', message: 'The live view is still getting ready.' }));
         client.close();
@@ -243,19 +262,15 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
      *
      * Indeed's application form and every employer site open in a new tab,
      * and a viewer pinned to the first tab watched the search results sit
-     * still for the whole application. The newest tab still open is where
-     * the work is; when it closes, the view falls back to the one before it.
+     * still for the whole application.
      */
     let switching = false;
     const follow = setInterval(async () => {
       if (switching || client.readyState !== WebSocket.OPEN) return;
       switching = true;
       try {
-        const targets = (await listTargets(port)).filter(viewable);
-        const byId = new Map(targets.map((t) => [t.id, t]));
-        for (const t of targets) if (!seen.includes(t.id)) seen.push(t.id);
-        const newest = [...seen].reverse().map((id) => byId.get(id)).find(Boolean) ?? null;
-        if (newest && newest.id !== current?.id) await attach(newest);
+        const active = workingIn((await listTargets(port)).filter(viewable));
+        if (active && active.id !== current?.id) await attach(active);
       } catch {
         // The browser may be between pages, or gone; the next tick will see.
       } finally {

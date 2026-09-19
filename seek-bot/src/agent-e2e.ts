@@ -196,6 +196,12 @@ const routes: Record<string, string> = {
     <button onclick="location.href='/apply/done'">Submit application</button>`),
 
   '/apply/done': page('<h1>Your application was sent</h1>'),
+
+  '/job/new-tab': page(`<h1>Fixture Full Stack Developer</h1>
+    <a data-automation="job-detail-apply" href="/new-tab/start">Quick apply</a>`),
+  '/new-tab/start': page(`<h1>Apply for this role</h1>
+    <p>Your application continues on our careers portal.</p>
+    <a href="/apply/review" target="_blank">Continue your application</a>`),
 };
 
 const server = createServer((request, response) => {
@@ -269,6 +275,28 @@ if (!config.celeris.apiKey || !config.celeris.apiKey) {
       for (const answer of outcome.answers) console.log(`    · ${answer.question} → ${answer.answer.slice(0, 60)}`);
     }
     check('never reached the success page', !tab.url().includes('/apply/done'), tab.url());
+
+    /**
+     * An employer site that carries the application on in a new tab. The agent
+     * used to keep looking at the tab it started in, where nothing had changed,
+     * and press the same link again; a real run was found with one application
+     * page open three times over. The tab is also what the dashboard's live view
+     * has to be shown, so the run says which one it is working in.
+     */
+    console.log('\nnew tab');
+    const followed = await applyToJobWithAgent(
+      tab,
+      { id: 'fixture-2', title: 'Fixture Full Stack Developer', company: 'Fixture Pty Ltd', location: 'Sydney NSW', url: `${origin}/job/new-tab` },
+      loadProfile(),
+      { onFriction: () => {} },
+    );
+    console.log(`  outcome: ${followed.status}`);
+    check(
+      'followed the application into the tab the site opened',
+      followed.status === 'rehearsed' && /\/apply\/review/.test(followed.stoppedAt),
+      `got "${followed.status}"${'reason' in followed ? `: ${followed.reason}` : ''}`,
+    );
+    check('closed every tab the application opened', context.pages().length === 1, `${context.pages().length} tabs left open`);
   } catch (error) {
     check('agent run completed', false, (error as Error).message);
   } finally {

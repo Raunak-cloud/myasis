@@ -198,6 +198,36 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
  * The dashboard reads this same file; see `dashboard/server/seek-state.ts`,
  * which must keep the shape below in step.
  */
+/**
+ * Makes `page` the tab in front, and tells the dashboard it is the one being worked in.
+ *
+ * The dashboard's live view has to show the tab the run is acting on, and from
+ * outside there is no way to know which that is: a run that has visited a few
+ * employer sites has several tabs open, and "the newest" was measured showing a
+ * tab left over from an earlier application for a whole minute while the form
+ * being filled was somewhere else. So the run says so itself, in a file beside
+ * its other state, every time the tab it is working in changes.
+ *
+ * Bringing it to the front is for the site as much as for the viewer: Chrome
+ * throttles timers and rendering in a background tab, and forms are slower and
+ * flakier there than they are for a person, who only ever types in the tab they
+ * are looking at.
+ */
+export async function workingIn(page: Page): Promise<void> {
+  try {
+    await page.bringToFront();
+    const session = await page.context().newCDPSession(page);
+    try {
+      const { targetInfo } = await session.send('Target.getTargetInfo');
+      writeFileSync(resolve(config.dataDir, 'live-target.json'), JSON.stringify({ targetId: targetInfo.targetId, at: new Date().toISOString() }));
+    } finally {
+      await session.detach().catch(() => {});
+    }
+  } catch {
+    // A picture for the person watching is never worth failing an application over.
+  }
+}
+
 export type SigninSite = 'seek' | 'indeed';
 
 /**

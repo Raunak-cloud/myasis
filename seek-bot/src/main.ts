@@ -8,6 +8,7 @@ import {
   getPage,
   ensureSignedIn,
   ensureIndeedSignedIn,
+  workingIn,
   jitter,
 } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
@@ -159,6 +160,7 @@ async function main() {
 
   const ctx = await launchBrowser();
   const page = await getPage(ctx);
+  await workingIn(page);
 
   try {
     // ---- per-platform sign-in + discovery ---------------------------------

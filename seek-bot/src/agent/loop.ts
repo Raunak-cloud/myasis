@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { config } from '../config.js';
-import { jitter } from '../browser.js';
+import { jitter, workingIn } from '../browser.js';
 import { extractFields, readPickerOptions } from '../dom.js';
 import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
@@ -309,8 +309,18 @@ function observationMessage(observation: Observation, note?: string): ChatMessag
 }
 
 export async function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
-  const { page, job, profile } = options;
+  const { job, profile } = options;
   const log = options.log ?? ((line: string) => console.log(line));
+  /**
+   * The tab being worked in. It changes: plenty of employer sites open the form,
+   * or its next step, in a new tab. The agent used to keep looking at the tab it
+   * started in, where nothing had changed, and press the same link again — a run
+   * was found with the same application page open three times over, none of them
+   * ever looked at. Whatever tab an action opened is where the application went.
+   */
+  let page = options.page;
+  const tabsBefore = new Set(page.context().pages());
+  const tabsLeft: Page[] = [];
 
   const meter = new CostMeter(config.celeris.budgetUsdPerApplication);
   const guards = new RunGuards({
@@ -463,7 +473,23 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     };
   };
 
+  await workingIn(page);
   for (;;) {
+    const opened = page.context().pages().filter((tab) => !tabsBefore.has(tab) && !tab.isClosed()).at(-1);
+    for (const tab of page.context().pages()) tabsBefore.add(tab);
+    if (opened) {
+      log('  ↪ the site continued in a new tab; following it');
+      tabsLeft.push(page);
+      page = opened;
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+    } else if (page.isClosed() && tabsLeft.length) {
+      // A tab that closes itself hands the application back to the one that opened it.
+      page = tabsLeft.pop()!;
+    }
+    if (ctx.page !== page) {
+      ctx.page = page;
+      await workingIn(page);
+    }
     if (await detectConfirmation(page)) return finish({ status: 'applied' });
     const budget = guards.nextStep();
     if (!budget.ok) return finish({ status: 'needs-human', reason: budget.reason, detail: budget.detail });

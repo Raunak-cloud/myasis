@@ -1,3 +1,4 @@
+import { workingIn } from '../browser.js';
 import type { Locator, Page } from 'patchright';
 import { config } from '../config.js';
 import { waitForApplicationSurface } from './observe.js';
@@ -70,6 +71,7 @@ export async function applyToJobWithAgent(
   profile: CandidateProfile,
   deps: ApplyDeps,
 ): Promise<ApplyOutcome> {
+  const tabsBefore = new Set(page.context().pages());
   await page.goto(job.url, { waitUntil: 'domcontentloaded' });
   await page
     .waitForFunction(
@@ -173,7 +175,14 @@ export async function applyToJobWithAgent(
       }
     }
   } finally {
-    if (flowPage !== page) await flowPage.close().catch(() => {});
-    await page.bringToFront().catch(() => {});
+    /**
+     * Every tab this application opened, not only the first. Employer sites open
+     * more along the way, and left open they pile up — a half-hour run was found
+     * carrying seven, each still running its page, on a machine with two cores.
+     */
+    for (const tab of page.context().pages()) {
+      if (!tabsBefore.has(tab) && tab !== page) await tab.close().catch(() => {});
+    }
+    await workingIn(page);
   }
 }
