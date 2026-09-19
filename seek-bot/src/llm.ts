@@ -512,7 +512,7 @@ Return supported and a brief reason.`, { type: 'OBJECT', properties: { supported
  */
 export async function polishCoverLetter(draft: string, job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
-  return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge), true);
+  return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge), true, [job.company, ...profile.skills]);
 }
 
 /** Drafts, verifies and polishes in one go, for callers that want the finished letter now. */

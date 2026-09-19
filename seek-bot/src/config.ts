@@ -355,9 +355,11 @@ export const config = {
      * sent. The model used to run under llama.cpp, whose defaults included a
      * repetition penalty nobody had asked for, and that penalty was what pushed
      * a rewrite off the draft's own wording. Without it a rewrite kept about
-     * 40% of the draft's four-word runs; with it, about 3%.
+     * 40% of the draft's four-word runs; at 1.05, about 10%. Stronger rewrites
+     * more (1.1 keeps 3%) but respells names such as "Node.js" more often, and
+     * the model is the only thing keeping those right.
      */
-    repetitionPenalty: Number(process.env.HUMANIZER_REPETITION_PENALTY ?? 1.1),
+    repetitionPenalty: Number(process.env.HUMANIZER_REPETITION_PENALTY ?? 1.05),
     topK: Number(process.env.HUMANIZER_TOP_K ?? 40),
   },
 
