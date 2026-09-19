@@ -350,6 +350,15 @@ export const config = {
      * whatever machine is serving the model, not of the code.
      */
     rewriteBudgetMs: Number(process.env.HUMANIZER_REWRITE_BUDGET_MS ?? 45_000),
+    /**
+     * Sent with every rewrite, because a hosted API applies only what it is
+     * sent. The model used to run under llama.cpp, whose defaults included a
+     * repetition penalty nobody had asked for, and that penalty was what pushed
+     * a rewrite off the draft's own wording. Without it a rewrite kept about
+     * 40% of the draft's four-word runs; with it, about 3%.
+     */
+    repetitionPenalty: Number(process.env.HUMANIZER_REPETITION_PENALTY ?? 1.1),
+    topK: Number(process.env.HUMANIZER_TOP_K ?? 40),
   },
 
   coverLetter: {

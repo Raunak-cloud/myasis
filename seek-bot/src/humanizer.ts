@@ -23,10 +23,11 @@ export async function assertHumanizerHealthy(): Promise<void> {
 
 /**
  * Attempts before falling back to the grounded original, and the temperature
- * used for each. Later attempts trade voice for fidelity — by then the failure
- * is usually the model straying from the draft's facts, not a dull rewrite.
+ * used for each. The usual failure is a rewrite that stays too close to the
+ * draft, so the second attempt is bolder, not more careful. The last is the
+ * careful one, for the rarer rewrite that strayed from the draft's facts.
  */
-const TEMPERATURE_LADDER = [0.5, 0.2] as const;
+const TEMPERATURE_LADDER = [0.7, 0.9, 0.5] as const;
 const REWRITE_ATTEMPTS = TEMPERATURE_LADDER.length;
 
 export function wordCount(text: string): number {
@@ -42,6 +43,39 @@ function numbers(text: string): string[] {
 function protectedTokens(text: string): string[] {
   return (text.match(/(?:https?:\/\/|www\.)\S+|[\w.+-]+@[\w.-]+\.\w+/gi) ?? [])
     .map((token) => token.replace(/[.,;:!?)\]]+$/, ''));
+}
+
+/**
+ * Words whose spelling is not a matter of style: an inner capital (DingGo,
+ * PostgreSQL), an acronym (PHP), a dot or a digit inside (Node.js, EC2).
+ */
+function exactSpellings(text: string): string[] {
+  return [...new Set(text.match(/\b(?:[A-Za-z]+[A-Z][A-Za-z]*|[A-Z]{2,}|[A-Za-z]+\.[a-z]{2,}|[A-Za-z]+\d\w*)\b/g) ?? [])];
+}
+
+/**
+ * Puts a name back the way the draft spelled it.
+ *
+ * The repetition penalty that makes a rewrite worth having also discourages
+ * repeating the draft's names, so about half of rewrites come back with
+ * "Ding Go" for DingGo or "NodeJS" for Node.js. Those are the same letters in
+ * the same order, so they are found by that and restored, which no prompt
+ * instruction managed against a penalty applied to the words themselves.
+ * Acronyms match case-sensitively, or "IT" would claim every "it".
+ */
+export function restoreSpellings(original: string, candidate: string): string {
+  let restored = candidate;
+  for (const name of exactSpellings(original)) {
+    const letters = name.replace(/[^A-Za-z0-9]/g, '');
+    if (letters.length < 3) continue;
+    const acronym = /^[A-Z0-9]+$/.test(letters);
+    const pattern = new RegExp(
+      `(?<![A-Za-z0-9])${[...letters].join('[\\s.-]?')}(?![A-Za-z0-9])`,
+      acronym ? 'g' : 'gi',
+    );
+    restored = restored.replace(pattern, name);
+  }
+  return restored;
 }
 
 /**
@@ -96,10 +130,7 @@ function errorMessage(body: ChatCompletionResponse, status: number): string {
   return `HTTP ${status}`;
 }
 
-/**
- * @param temperature lowered on each retry: a faithful rewrite beats a stylish
- * one when the previous attempt already failed validation.
- */
+/** @param temperature set per attempt by TEMPERATURE_LADDER. */
 async function rewriteText(
   text: string,
   maxWords: number,
@@ -136,6 +167,8 @@ async function rewriteText(
     ],
     temperature,
     top_p: 0.9,
+    top_k: config.humanizer.topK,
+    repetition_penalty: config.humanizer.repetitionPenalty,
     max_tokens: Math.max(256, Math.ceil(maxWords * 2)),
   }, Math.min(deadline, Date.now() + config.humanizer.timeoutMs));
 
@@ -145,7 +178,7 @@ async function rewriteText(
   if (typeof content !== 'string' || !content.trim()) {
     throw new Error('response did not contain rewritten text');
   }
-  return content.trim();
+  return restoreSpellings(text, content.trim());
 }
 
 /** Rewrite long, free-text form responses; short and exact-value fields bypass this. */
@@ -227,7 +260,7 @@ export async function humanizeCoverLetter(
       return candidate;
     } catch (error) {
       lastError = (error as Error).message;
-      if (attempt < 2) console.warn(`  ! rewrite attempt ${attempt + 1} rejected (${lastError}) — retrying`);
+      if (attempt < REWRITE_ATTEMPTS - 1) console.warn(`  ! rewrite attempt ${attempt + 1} rejected (${lastError}) — retrying`);
     }
   }
 

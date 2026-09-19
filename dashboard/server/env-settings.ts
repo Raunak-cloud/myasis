@@ -128,6 +128,8 @@ const GROUPS: GroupSpec[] = [
       { key: 'HUMANIZER_REQUIRED', label: 'Required', help: 'Refuse to start a writing run while the humanizer is down.', kind: 'boolean' },
       { key: 'HUMANIZER_TIMEOUT_MS', label: 'Request timeout (ms)', help: 'One rewrite request.', kind: 'number' },
       { key: 'HUMANIZER_REWRITE_BUDGET_MS', label: 'Rewrite budget (ms)', help: 'Total time allowed for all attempts on one letter.', kind: 'number' },
+      { key: 'HUMANIZER_REPETITION_PENALTY', label: 'Repetition penalty', help: 'How hard a rewrite is pushed off the draft wording. 1.0 is off and returns a near copy; the default is 1.1.', kind: 'number' },
+      { key: 'HUMANIZER_TOP_K', label: 'Top-k', help: 'How many candidate words the rewrite chooses between. The default is 40.', kind: 'number' },
       { key: 'HUMANIZER_MAX_CHARS', label: 'Max letter length (chars)', help: 'Letters longer than this are not rewritten.', kind: 'number' },
     ],
   },
