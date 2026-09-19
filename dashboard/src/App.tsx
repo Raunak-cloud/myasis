@@ -382,6 +382,8 @@ export default function App() {
                   className="nav-row nav-row-static"
                   title={route.using === 'home'
                     ? 'Applications go out from your own home internet connection while your computer is on.'
+                    : route.configured && route.homeOnline
+                      ? 'Your home computer reconnected while a browser was already open on the server connection. A browser never changes address part-way, so the next one uses your home internet.'
                     : route.configured
                       ? 'Your home computer is not connected, so applications go out from the Owtomate server.'
                       : 'Applications go out from the Owtomate server.'}
@@ -391,9 +393,11 @@ export default function App() {
                     <span className="nav-row-sub">
                       {route.using === 'home'
                         ? `Your home internet${route.homeAddress ? ` · ${route.homeAddress}` : ''}`
-                        : route.configured
-                          ? 'Owtomate server · home computer off'
-                          : 'Owtomate server'}
+                        : !route.configured
+                          ? 'Owtomate server'
+                          : route.homeOnline
+                            ? 'Owtomate server · back to home after this run'
+                            : 'Owtomate server · home computer off'}
                     </span>
                   </span>
                   <span className="nav-dots" aria-hidden="true">
