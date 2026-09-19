@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { config } from './config.js';
-import { celerisChat, CostMeter, ReplyTruncatedError, type CelerisModel } from './agent/celeris.js';
+import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
 import { cachedAssessment, relevantEvidence, measured } from './pipeline.js';
 import { buildKnowledgeContext, loadSavedAnswers } from './knowledge.js';
@@ -766,8 +766,15 @@ export function reviewKey(job: JobListing): string {
   return `${job.platform ?? 'seek'}:${job.id}`;
 }
 
-/** Reply tokens one ranked job needs, measured at about 40; doubled for headroom. */
-const RANKING_TOKENS_PER_JOB = 80;
+/**
+ * Reply tokens allowed per ranked job: the schema's worst case, not a typical
+ * reply. A typical one is about 40, and 80 was set as "double for headroom" —
+ * then a live batch of 10 ran out of room on both of Celeris's attempts. The
+ * schema already bounds the reply (an enum id, a number, a 120-character
+ * reason, one item per job), so an allowance that covers that bound costs
+ * nothing when unused and can never be outgrown.
+ */
+const RANKING_TOKENS_PER_JOB = 150;
 
 /**
  * One request for one batch.
@@ -839,7 +846,7 @@ export async function rankJobsForReview(
     } catch (error) {
       // Only a bad reply is worth narrowing down. Celeris being unreachable fails every
       // job alike, and retrying each one would stall the run; that goes to the caller.
-      if (!(error instanceof ReplyTruncatedError) && !(error instanceof SyntaxError)) throw error;
+      if (!(error instanceof ReplyUnusableError) && !(error instanceof SyntaxError)) throw error;
       if (batch.length === 1) {
         console.warn(`  ! could not rank "${batch[0].title} @ ${batch[0].company}": ${(error as Error).message}`);
         return;
@@ -849,7 +856,16 @@ export async function rankJobsForReview(
       await rank(batch.slice(middle));
     }
   };
-  for (let start = 0; start < jobs.length; start += 20) await rank(jobs.slice(start, start + 20));
+  for (let start = 0; start < jobs.length; start += 20) {
+    try {
+      await rank(jobs.slice(start, start + 20));
+    } catch (error) {
+      // Celeris itself is failing. Rankings already made are still good; only the rest go in search order.
+      if (!ranked.size) throw error;
+      console.warn(`  ! ranking stopped after ${ranked.size} of ${jobs.length} jobs: ${(error as Error).message}`);
+      break;
+    }
+  }
   return ranked;
 }
 

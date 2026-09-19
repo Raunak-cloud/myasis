@@ -144,7 +144,18 @@ export interface CelerisRequest {
 }
 
 /** The model answered, but never finished: the fault is in this reply, not in reaching Celeris. */
-export class ReplyTruncatedError extends Error {}
+export class ReplyUnusableError extends Error {}
+
+/**
+ * The model answered, but the answer cannot be used: the fault is in this
+ * reply, not in reaching Celeris, and the same request asked again the same
+ * way fails the same way. Celeris reports it two ways — a reply cut off at the
+ * length limit, or a 400 saying its output "did not parse as JSON (or validate
+ * against json_schema) after one resample" — and both have to read as this.
+ * The second used to read as "Celeris is down": one batch of job rankings
+ * that ran out of room threw away the ranking of every job in the run.
+ */
+export class ReplyTruncatedError extends ReplyUnusableError {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
   if (!config.celeris.apiKey) {
@@ -202,6 +213,10 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
 
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
+        if (response.status === 400 && /response_format could not be satisfied/i.test(detail)) {
+          const used = /"completion_tokens":\s*(\d+)/.exec(detail)?.[1] ?? '?';
+          throw new ReplyUnusableError(`Celeris could not produce a reply in the requested format (${used} completion tokens across its attempts)`);
+        }
         throw new Error(`Celeris ${response.status}: ${detail.slice(0, 300)}`);
       }
 
@@ -247,7 +262,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
     } catch (error) {
       lastError = error;
       // The same request truncates the same way, and its token count can look like a 5xx.
-      if (error instanceof ReplyTruncatedError) throw error;
+      if (error instanceof ReplyUnusableError) throw error;
       const detail = (error as Error).message ?? String(error);
       const transient = /\b429\b|\b5\d\d\b|econnreset|etimedout|fetch failed|aborted|timeout/i.test(detail);
       if (!transient || attempt === 2) throw error;

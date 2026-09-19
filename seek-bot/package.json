@@ -17,6 +17,7 @@
     "test:combobox": "tsc && node scripts/test-combobox.mjs",
     "test:pipeline": "tsc && node scripts/test-pipeline.mjs",
     "test:capmonster": "tsc && node scripts/test-capmonster.mjs",
+    "test:ranking": "tsc && node scripts/test-ranking.mjs",
     "test:humanizer-endpoint": "tsc && node scripts/test-humanizer-endpoint.mjs",
     "test:fit-live": "tsc && node scripts/test-fit-live.mjs",
     "queue": "tsc && node dist/queue.js",
