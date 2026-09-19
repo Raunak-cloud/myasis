@@ -9,9 +9,8 @@ export { SCHEDULED_MIN_SCORE };
 /**
  * What an account is allowed to do — decided in one place, for every caller.
  *
- * Admins can drive runs and also receive scheduled runs. Intensive Pass
- * holders drive runs themselves: they start each run, and they tune how a
- * run searches. Standard accounts do not drive anything — their
+ * Admins and Intensive Pass holders can drive runs and also receive scheduled
+ * runs. Intensive users can tune how a run searches. Standard accounts do not drive anything — their
  * applications go out on a schedule from the preferences they saved.
  *
  * Every gate in the app reads this module rather than re-deriving the rule
@@ -28,9 +27,10 @@ export const RUN_TIME_ZONE = process.env.RUN_TIME_ZONE?.trim() || 'Australia/Syd
 /** Manual runs an Intensive Pass may start per local day. Admins have no cap. */
 export const INTENSIVE_MANUAL_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].manualRunsPerDay;
 
-/** Scheduled runs per local day for Free and Job Search Pass accounts. */
+/** Scheduled runs per local day for customer plans. */
 export const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
 export const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoRunsPerDay;
+export const INTENSIVE_AUTO_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].autoRunsPerDay;
 
 /** Scheduled runs per local day for an operator of this installation. */
 export const ADMIN_AUTO_RUNS_PER_DAY = 10;
@@ -274,14 +274,14 @@ function tierFor(admin: boolean, intensive: boolean): Tier {
 /**
  * Scheduled runs a day.
  *
- * Intensive is driven by hand, but an account that also holds a Job Search
- * Pass bought its automatic runs and keeps them: upgrading must not quietly
- * take away what the first pass promised.
+ * Intensive includes the same four-run automatic schedule as Job Search Pass,
+ * in addition to its user-started runs.
  */
-export function automaticRunsPerDay(tier: Tier, hasActivePass = false, hasJobSearchPass = false): number {
+export function automaticRunsPerDay(tier: Tier, hasActivePass = false): number {
   if (tier === 'admin') return ADMIN_AUTO_RUNS_PER_DAY;
+  if (tier === 'intensive') return INTENSIVE_AUTO_RUNS_PER_DAY;
   if (tier === 'standard') return hasActivePass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : FREE_AUTO_RUNS_PER_DAY;
-  return hasJobSearchPass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : 0;
+  return 0;
 }
 
 /**
@@ -375,7 +375,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
 
   const manualRuns = tier !== 'standard';
   const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
-  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass, billing.paid.hasActiveJobSearchPass);
+  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass);
   const planEvaluationsPerRun = tier === 'intensive'
     ? INTENSIVE_EVALUATIONS_PER_RUN
     : billing.paid.hasActivePass
@@ -427,7 +427,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
   const admin = isAdmin(email);
   const billing = await billingStatus(userId, email);
   const tier = tierFor(admin, billing.paid.hasActiveIntensivePass);
-  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass, billing.paid.hasActiveJobSearchPass);
+  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass);
 
   const [manualRunsUsedToday, autoRunsUsedToday, pausedRow, overrides, suggestionsLeft] = await Promise.all([
     tier !== 'standard' ? runsStartedToday(userId, 'manual') : Promise.resolve(0),

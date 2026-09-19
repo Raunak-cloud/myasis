@@ -68,8 +68,7 @@ check('Intensive runs keep the humanizer', intensive.HUMANIZER_MODE !== 'off');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Job Search Pass accounts receive four scheduled runs', automaticRunsPerDay('standard', true) === 4);
 check('admins receive ten scheduled runs', automaticRunsPerDay('admin') === 10);
-check('Intensive remains manual only', automaticRunsPerDay('intensive') === 0);
-check('Intensive keeps the automatic runs of a Job Search Pass it also holds', automaticRunsPerDay('intensive', true, true) === 4);
+check('Intensive includes four automatic runs', automaticRunsPerDay('intensive') === 4);
 
 // An operator's per-account override is a control, not a suggestion: it wins
 // over the free plan's own default and survives the fine-tuning reset that
@@ -106,7 +105,7 @@ check('a posted default board list still includes the Indeed an Intensive Pass p
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
 check('Free says the runs and reviews it gets', said('free').includes(`${automaticRunsPerDay('standard')} automatic live run each day`) && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Job Search Pass says the runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', true)} automatic live runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Intensive says the runs, reviews and employer sites it gets', said('intensive-pass').includes('Up to 3 user-started runs') && said('intensive-pass').includes('up to 100 jobs') && said('intensive-pass').includes('up to 5 a day'));
+check('Intensive says the automatic runs, manual runs, reviews and employer sites it gets', said('intensive-pass').includes('Up to 4 automatic live runs') && said('intensive-pass').includes('Up to 3 user-started runs') && said('intensive-pass').includes('up to 100 jobs') && said('intensive-pass').includes('up to 5 a day'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 console.log(`\n${failures} failure(s)`);

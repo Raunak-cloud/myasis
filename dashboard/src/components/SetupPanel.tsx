@@ -8,6 +8,7 @@ import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { useEntitlements } from '../entitlements';
+import { TermsInput } from './TermsInput';
 
 const ARRANGEMENTS = [
   { id: 'remote', label: 'Remote', hint: 'anywhere in Australia' },
@@ -139,22 +140,22 @@ export function SetupPanel() {
           <span className="job-meta">Comma separated. More terms cast a wider net.</span>
         </div>
 
-        <label className="field">
+        <div className="field">
           <FieldLabel
             label="Companies to avoid"
             optional
             help="Jobs advertised by these employers are rejected before AI review. Close misspellings are matched automatically."
           />
-          <textarea
-            className="input"
-            rows={3}
-            maxLength={5_000}
-            placeholder="e.g. Acme, Example Bank"
+          <TermsInput
+            id="setup-excluded-companies"
             value={val('EXCLUDED_COMPANIES')}
-            onChange={(event) => set('EXCLUDED_COMPANIES', event.target.value)}
+            itemLabel="company"
+            ariaLabel="Companies to avoid"
+            emptyPlaceholder="Type a company and press Enter"
+            onChange={(companies) => set('EXCLUDED_COMPANIES', companies)}
           />
-          <span className="job-meta">Separate company names with commas or new lines. Matching is typo-tolerant, not regex-based.</span>
-        </label>
+          <span className="job-meta">Press Enter or comma to add a company. Matching is typo-tolerant.</span>
+        </div>
 
       </Step>
 

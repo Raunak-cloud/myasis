@@ -2,11 +2,11 @@ import { useRef, useState } from 'react';
 
 /** The saved form is a comma-separated string; the terms are what a person edits. */
 export function splitTerms(value: string): string[] {
-  return value.split(',').map((term) => term.trim()).filter(Boolean);
+  return value.split(/[,\r\n]+/).map((term) => term.trim()).filter(Boolean);
 }
 
 /**
- * Job titles as removable tags.
+ * Short lists as removable tags.
  *
  * A comma-separated textarea asked people to manage punctuation to edit a
  * list, and hid most of the list behind a scrollbar. Each term is a tag here:
@@ -22,30 +22,37 @@ export function TermsInput({
   max,
   disabled = false,
   dataField,
+  itemLabel = 'job title',
+  emptyPlaceholder,
+  ariaLabel,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
-  max: number;
+  max?: number;
   disabled?: boolean;
   /** Lets a form's validation scroll to and focus this field. */
   dataField?: string;
+  /** Singular name used by the placeholder and accessible limit message. */
+  itemLabel?: string;
+  emptyPlaceholder?: string;
+  ariaLabel?: string;
 }) {
   const terms = splitTerms(value);
   const [draft, setDraft] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const [limitError, setLimitError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const full = terms.length >= max;
+  const full = max !== undefined && terms.length >= max;
 
-  const overLimit = `You can have at most ${max} job titles. Remove one to add another.`;
+  const overLimit = `You can have at most ${max} ${itemLabel}${max === 1 ? '' : 's'}. Remove one to add another.`;
 
   function commit(raw: string) {
     const next = [...terms];
     let refused = false;
     for (const term of splitTerms(raw)) {
       if (next.some((known) => known.toLowerCase() === term.toLowerCase())) continue;
-      if (next.length >= max) refused = true;
+      if (max !== undefined && next.length >= max) refused = true;
       else next.push(term);
     }
     setDraft('');
@@ -87,10 +94,11 @@ export function TermsInput({
         ref={inputRef}
         data-field={dataField}
         className="terms-entry"
+        aria-label={ariaLabel}
         value={draft}
         disabled={disabled}
         aria-describedby={full ? `${id}-limit` : undefined}
-        placeholder={full ? `Limit of ${max} reached` : terms.length ? 'Add another' : 'Type a job title and press Enter'}
+        placeholder={full ? `Limit of ${max} reached` : terms.length ? 'Add another' : emptyPlaceholder ?? `Type a ${itemLabel} and press Enter`}
         onChange={(event) => {
           // At the limit the box stays usable, so Backspace can still remove a tag; new text is refused out loud.
           if (full) return setLimitError(event.target.value.trim() ? overLimit : '');

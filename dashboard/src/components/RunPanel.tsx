@@ -956,22 +956,23 @@ export function RunPanel({
             />
           </div>
 
-          <label className="field">
+          <div className="field">
             <FieldLabel
               label="Companies to avoid"
               optional
               help="Listings from these employers are rejected before AI review. Close misspellings are matched automatically."
             />
-            <textarea
-              className="input"
-              rows={2}
-              maxLength={5_000}
+            <TermsInput
+              id="saved-excluded-companies"
               value={val('EXCLUDED_COMPANIES')}
-              placeholder="e.g. Acme, Example Bank"
-              onChange={(event) => editStanding('EXCLUDED_COMPANIES', event.target.value)}
+              disabled={standingSaving}
+              itemLabel="company"
+              ariaLabel="Companies to avoid"
+              emptyPlaceholder="Type a company and press Enter"
+              onChange={(companies) => editStanding('EXCLUDED_COMPANIES', companies)}
             />
-            <span className="job-meta">Comma or new-line separated. Matching is typo-tolerant, not regex-based.</span>
-          </label>
+            <span className="job-meta">Press Enter or comma to add a company. Matching is typo-tolerant.</span>
+          </div>
 
           {entitlements?.fineTune && (
             <div className="field">
@@ -1250,22 +1251,23 @@ export function RunPanel({
                     onGenerated={(terms) => setEdit('KEYWORDS', terms)}
                   />
                 </div>
-                <label className="field run-review-wide">
+                <div className="field run-review-wide">
                   <FieldLabel
                     label="Companies to avoid"
                     optional
                     help="Listings from these employers are rejected before ranking or AI fit review."
                   />
-                  <textarea
-                    className="input"
-                    rows={2}
-                    maxLength={5_000}
+                  <TermsInput
+                    id="review-excluded-companies"
+                    dataField="EXCLUDED_COMPANIES"
                     value={val('EXCLUDED_COMPANIES')}
-                    placeholder="e.g. Acme, Example Bank"
-                    onChange={(event) => setEdit('EXCLUDED_COMPANIES', event.target.value)}
+                    itemLabel="company"
+                    ariaLabel="Companies to avoid"
+                    emptyPlaceholder="Type a company and press Enter"
+                    onChange={(companies) => setEdit('EXCLUDED_COMPANIES', companies)}
                   />
-                  <span className="job-meta">Close misspellings are matched automatically; regex patterns are not used.</span>
-                </label>
+                  <span className="job-meta">Press Enter or comma to add a company. Matching is typo-tolerant.</span>
+                </div>
                 <label className="field run-review-wide">
                   <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. These saved instructions are checked for every job before applying." />
                   <textarea

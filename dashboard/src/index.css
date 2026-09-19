@@ -2222,7 +2222,7 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .saved-search-bar-actions { display: flex; gap: 8px; margin-left: auto; }
 .saved-search-bar.saved { justify-content: flex-start; background: var(--ok-soft, var(--surface-2)); color: var(--ok, var(--text)); }
 
-/* Job titles as tags. */
+/* Short editable lists, such as job titles and excluded companies, as tags. */
 .terms-input {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   min-height: 42px; padding: 6px 8px; cursor: text;

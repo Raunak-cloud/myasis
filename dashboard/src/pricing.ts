@@ -56,7 +56,7 @@ export const PAID_PLANS = {
 export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 5 },
   'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
-  'intensive-pass': { manualRunsPerDay: 3, evaluationsPerRun: 100, employerSitesPerDay: 5 },
+  'intensive-pass': { autoRunsPerDay: 4, manualRunsPerDay: 3, evaluationsPerRun: 100, employerSitesPerDay: 5 },
 } as const;
 
 /** Scheduled applications must clear this model-assessed match threshold. */
@@ -94,10 +94,11 @@ export const PLAN_PRESENTATION = {
     ],
   },
   'intensive-pass': {
-    label: 'You control each run',
-    description: 'More control, more capacity and support for employer application sites.',
+    label: 'Automatic search with full control',
+    description: 'Automatic applications plus extra user-started runs and support for employer application sites.',
     features: [
       `${PAID_PLANS['intensive-pass'].applications} successful applications`,
+      `Up to ${plural(INTENSIVE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
       `Up to ${plural(INTENSIVE.manualRunsPerDay, 'user-started run', 'user-started runs')} each day`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
