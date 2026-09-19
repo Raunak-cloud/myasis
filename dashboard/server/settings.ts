@@ -20,7 +20,7 @@ import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
  * oversight.
  */
 export const KEEP_SETTINGS_KEYS = [
-  'KEYWORDS', 'TARGET_ROLE', 'PLATFORMS', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
+  'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
   'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
@@ -48,6 +48,19 @@ function normalizeSetting(key: string, value: string): string {
     const terms = value.split(',').map((t) => t.trim()).filter(Boolean);
     return terms.slice(0, MAX_SEARCH_TERMS).join(', ');
   }
+  if (key === 'EXCLUDED_COMPANIES') {
+    const seen = new Set<string>();
+    const companies: string[] = [];
+    for (const raw of value.split(/[,;\r\n]+/)) {
+      const company = raw.replace(/\s+/g, ' ').trim().slice(0, 100);
+      const dedupe = company.toLowerCase();
+      if (!company || seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      companies.push(company);
+      if (companies.length >= 50) break;
+    }
+    return companies.join(', ');
+  }
   const ceiling = RUN_LIMITS[key];
   if (ceiling === undefined) return value;
   const parsed = Number(value);
@@ -69,6 +82,7 @@ function normalizeSetting(key: string, value: string): string {
 export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
   TARGET_ROLE: '',
+  EXCLUDED_COMPANIES: '',
   PLATFORMS: 'seek',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   JOB_TYPES: '',
@@ -147,7 +161,8 @@ export async function saveUserSettings(
 ): Promise<Record<string, string>> {
   for (const [key, value] of Object.entries(updates)) {
     if (!KEEP_SET.has(key)) continue;
-    await upsertSettingRow(userId, key, String(value ?? '').slice(0, 20_000));
+    const raw = String(value ?? '').slice(0, 20_000);
+    await upsertSettingRow(userId, key, key === 'EXCLUDED_COMPANIES' ? normalizeSetting(key, raw) : raw);
   }
   return loadUserSettings(userId);
 }

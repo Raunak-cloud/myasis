@@ -150,10 +150,18 @@ async function build() {
     }
     console.log(`\n${seen.size} unique listings discovered.`);
 
+    const skips = new Map<string, number>();
+    const bump = (r: string) => skips.set(r, (skips.get(r) ?? 0) + 1);
     const shortlist = [...seen.values()]
       .filter((j) => !known.has(j.id))
       .filter((j) => !index.has(j.id, j.company, j.title, j.location))
-      .filter((j) => j.ageDays === undefined || j.ageDays <= config.rules.maxAgeDays);
+      .filter((job) => {
+        const excluded = deterministicExclusion(job);
+        if (!excluded) return true;
+        bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
+        console.log(`  – ${job.title} @ ${job.company} — ${excluded}`);
+        return false;
+      });
     const reviewPriorities = await rankJobsForReview(shortlist, profile).catch((error) => {
       console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
       return new Map<string, { priority: number; reason: string }>();
@@ -165,8 +173,6 @@ async function build() {
 
     console.log(`${shortlist.length} new to evaluate (pre-ranked).\n`);
 
-    const skips = new Map<string, number>();
-    const bump = (r: string) => skips.set(r, (skips.get(r) ?? 0) + 1);
     let evaluated = 0;
 
     for (const stub of shortlist) {

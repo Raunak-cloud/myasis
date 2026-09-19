@@ -127,7 +127,7 @@ export async function migrateFilesToUser(email: string, name?: string) {
   // ---- settings (from .env, only user-scoped keys) -----------------------
   const envPath = resolve(BOT_DIR, '.env');
   const KEEP = new Set([
-    'KEYWORDS', 'TARGET_ROLE', 'PLATFORMS', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
+    'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
     'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
     'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
     'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64',

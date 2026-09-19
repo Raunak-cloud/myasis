@@ -9,6 +9,7 @@ function check(label: string, condition: boolean): void {
 
 const saved = {
   KEYWORDS: 'medical receptionist',
+  EXCLUDED_COMPANIES: 'Acme, Example Bank',
   PLATFORMS: 'seek',
   TARGET_ROLE: 'legacy hidden role',
   ONSITE_CITY: 'Sydney',
@@ -25,6 +26,7 @@ const adminPolicy = { tier: 'admin' as const, fineTune: true, indeedApplications
 
 const standardManual = applyRunPolicy(saved, freePolicy, 'manual');
 check('standard accounts keep their job preferences', standardManual.KEYWORDS === saved.KEYWORDS);
+check('standard accounts keep their excluded companies', standardManual.EXCLUDED_COMPANIES === saved.EXCLUDED_COMPANIES);
 check('standard accounts keep their location preference', standardManual.ONSITE_CITY === saved.ONSITE_CITY);
 check('removed target roles cannot influence standard runs', standardManual.TARGET_ROLE === '');
 check('standard accounts cannot retain a custom match threshold', standardManual.MIN_SCORE !== saved.MIN_SCORE);

@@ -228,9 +228,17 @@ async function main() {
 
     // ---- cheap filtering before we spend page loads or model calls --------
     const shortlist: JobListing[] = [];
+    const skips = new Map<string, number>();
+    const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
     for (const job of seen.values()) {
       if (index.has(job.id, job.company, job.title, job.location)) continue;
-      if (job.ageDays !== undefined && job.ageDays > config.rules.maxAgeDays) continue;
+      const excluded = deterministicExclusion(job);
+      if (excluded) {
+        bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
+        console.log(`  – ${job.title} @ ${job.company} — ${excluded}`);
+        logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
+        continue;
+      }
       shortlist.push(job);
     }
     /**
@@ -258,11 +266,9 @@ async function main() {
       const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
       return sourcePriority || (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
     });
-    console.log(`${shortlist.length} after dedupe + age filter (pre-ranked).\n`);
+    console.log(`${shortlist.length} after dedupe + age/company filters (pre-ranked).\n`);
 
     const candidates: Array<{ job: JobListing; score: number; why: string; reasons: string[] }> = [];
-    const skips = new Map<string, number>();
-    const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
     const pendingFits: Array<{
       job: JobListing;
       score: number;

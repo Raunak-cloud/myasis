@@ -194,6 +194,13 @@ export const config = {
    */
   targetRole: process.env.TARGET_ROLE ?? '',
 
+  /** Employers this account never wants to apply to. Matched fuzzily in the pipeline. */
+  excludedCompanies: (process.env.EXCLUDED_COMPANIES ?? '')
+    .split(/[,;\r\n]+/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 50),
+
   /**
    * Free-text standing instructions the account holder wrote for their own
    * search ("no senior or manager positions", "weekends only").

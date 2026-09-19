@@ -139,6 +139,23 @@ export function SetupPanel() {
           <span className="job-meta">Comma separated. More terms cast a wider net.</span>
         </div>
 
+        <label className="field">
+          <FieldLabel
+            label="Companies to avoid"
+            optional
+            help="Jobs advertised by these employers are rejected before AI review. Close misspellings are matched automatically."
+          />
+          <textarea
+            className="input"
+            rows={3}
+            maxLength={5_000}
+            placeholder="e.g. Acme, Example Bank"
+            value={val('EXCLUDED_COMPANIES')}
+            onChange={(event) => set('EXCLUDED_COMPANIES', event.target.value)}
+          />
+          <span className="job-meta">Separate company names with commas or new lines. Matching is typo-tolerant, not regex-based.</span>
+        </label>
+
       </Step>
 
       <Step

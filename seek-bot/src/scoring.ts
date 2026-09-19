@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import type { CandidateProfile, JobListing, ScoreBreakdown } from './types.js';
+import { matchingExcludedCompany } from './company-match.js';
 
 export interface ParsedSalaryRate {
   period: 'hourly' | 'daily' | 'annual';
@@ -158,6 +159,9 @@ export function deterministicExclusion(job: JobListing): string | null {
   // Only explicit machine-readable facts may stop a listing before model
   // review. Meaning in prose belongs to assessFit(), which can use context
   // and express uncertainty rather than silently discarding the listing.
+  const excludedCompany = matchingExcludedCompany(job.company, config.excludedCompanies);
+  if (excludedCompany) return `excluded company: matched “${excludedCompany}” to “${job.company}”`;
+
   if (job.ageDays !== undefined && job.ageDays > config.rules.maxAgeDays)
     return `posted ${job.ageDays}d ago (>${config.rules.maxAgeDays}d)`;
 

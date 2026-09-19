@@ -123,6 +123,7 @@ export const INTENSIVE_EVALUATIONS_PER_RUN = PLAN_LIMITS['intensive-pass'].evalu
  */
 export const BASIC_SETTINGS_KEYS = [
   'KEYWORDS',
+  'EXCLUDED_COMPANIES',
   'WORK_ARRANGEMENTS',
   'ONSITE_CITY',
   'MIN_SALARY',
