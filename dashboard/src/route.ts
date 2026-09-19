@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Which connection this account's browser goes out on: the person's own home
- * address while their machine is connected, or this service's server.
- * Reported, never chosen here — the server decides, and says.
+ * Which connection this account's browser goes out on: its better address —
+ * the person's own home connection while their machine is connected, or a
+ * dedicated proxy — or this service's server when that address is not
+ * answering. Reported, never chosen here — the server decides, and says.
  */
 export interface RouteStatus {
-  configured: boolean;
-  using: 'home' | 'server';
-  homeOnline: boolean;
-  homeAddress: string | null;
+  exit: 'home' | 'proxy' | null;
+  using: 'home' | 'proxy' | 'server';
+  exitOnline: boolean;
+  exitAddress: string | null;
 }
 
 export function useRouteStatus(): RouteStatus | null {

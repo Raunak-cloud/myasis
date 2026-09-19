@@ -4,6 +4,7 @@ import { api } from '../adminApi';
 import { ServerView } from './ServerView';
 import { EnvView } from './EnvView';
 import { SimulateView } from './SimulateView';
+import type { RouteStatus } from '../route';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -12,6 +13,13 @@ import { SimulateView } from './SimulateView';
  * Everything here is served by /api/admin, which refuses anyone who is not
  * an admin on every request; this page only decides what to show.
  */
+
+/** What an account's exit is doing, in one line. */
+function exitLine(status: RouteStatus & { exitProblem: string | null }, name: string): string {
+  if (!status.exitOnline) return `${name} not answering${status.exitProblem ? `: ${status.exitProblem}` : ''} · applying from the server`;
+  const address = status.exitAddress ? ` · ${status.exitAddress}` : '';
+  return `${name} connected${address} · using ${status.using === 'server' ? 'the server until its browser closes' : 'it'}`;
+}
 
 interface AdminUser {
   id: string;
@@ -29,7 +37,11 @@ interface AdminUser {
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
   overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
-  homeRoute: { port: number | null; status: { configured: boolean; using: 'home' | 'server'; homeOnline: boolean; homeAddress: string | null } };
+  route: {
+    homePort: number | null;
+    proxy: { address: string; username: string } | null;
+    status: RouteStatus & { exitProblem: string | null };
+  };
   manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
@@ -293,6 +305,9 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   const [evaluationsInput, setEvaluationsInput] = useState('');
   const [maxAppsInput, setMaxAppsInput] = useState('');
   const [homeRouteInput, setHomeRouteInput] = useState('');
+  // The saved proxy's password never comes back from the server, so the field shows a stand-in and is only sent when edited.
+  const [proxyInput, setProxyInput] = useState('');
+  const savedProxy = user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '';
 
   const load = useCallback(() => {
     api<UserDetail>(`/users/${userId}`).then(setUser).catch((reason) => setError((reason as Error).message));
@@ -303,7 +318,8 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   useEffect(() => {
     setEvaluationsInput(user?.overrides.evaluationsPerRun != null ? String(user.overrides.evaluationsPerRun) : '');
     setMaxAppsInput(user?.overrides.maxApplicationsPerRun != null ? String(user.overrides.maxApplicationsPerRun) : '');
-    setHomeRouteInput(user?.homeRoute.port != null ? String(user.homeRoute.port) : '');
+    setHomeRouteInput(user?.route.homePort != null ? String(user.route.homePort) : '');
+    setProxyInput(user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '');
   }, [user]);
 
   function saveLimits() {
@@ -324,10 +340,11 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
       setError('Limits must be a positive number, or left blank to use the plan default.');
       return;
     }
+    const proxyChanged = proxyInput.trim() !== savedProxy;
     void act(
       'limits',
       `/users/${user!.id}/limits`,
-      { method: 'POST', json: { evaluationsPerRun, maxApplicationsPerRun, homeRoutePort } },
+      { method: 'POST', json: { evaluationsPerRun, maxApplicationsPerRun, homeRoutePort, ...(proxyChanged ? { proxy: proxyInput.trim() || null } : {}) } },
       'Limits saved.',
     );
   }
@@ -499,11 +516,11 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                     <span>
                       Home route port
                       <span className="job-meta" style={{ display: 'block' }}>
-                        {user.homeRoute.port === null
-                          ? 'None: this account applies from the server.'
-                          : user.homeRoute.status.homeOnline
-                            ? `Home machine connected${user.homeRoute.status.homeAddress ? ` · ${user.homeRoute.status.homeAddress}` : ''} · using ${user.homeRoute.status.using === 'home' ? 'the home connection' : 'the server until its browser closes'}`
-                            : 'Home machine not connected · applying from the server'}
+                        {user.route.homePort === null
+                          ? 'None.'
+                          : user.route.proxy
+                            ? 'Not used while a proxy is set.'
+                            : exitLine(user.route.status, 'Home machine')}
                       </span>
                     </span>
                     <input
@@ -514,6 +531,26 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       placeholder="None"
                       value={homeRouteInput}
                       onChange={(event) => setHomeRouteInput(event.target.value)}
+                    />
+                  </label>
+                  <label className="admin-switch-row">
+                    <span>
+                      Proxy
+                      <span className="job-meta" style={{ display: 'block' }}>
+                        {user.route.proxy
+                          ? exitLine(user.route.status, 'Proxy')
+                          : 'None. SOCKS5 only: socks5://user:pass@host:port, or host:port:user:pass. Used instead of the home route.'}
+                      </span>
+                    </span>
+                    <input
+                      className="input"
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="None"
+                      value={proxyInput}
+                      onFocus={(event) => proxyInput === savedProxy && savedProxy && event.target.select()}
+                      onChange={(event) => setProxyInput(event.target.value)}
                     />
                   </label>
                   <div className="admin-button-row">

@@ -1,6 +1,6 @@
 import { simulations } from './simulate.js';
 import { previewAccountAlerts } from './alerts.js';
-import { homeRoutePort, routeStatus, setHomeRoutePort, type RouteStatus } from './route.js';
+import { homeRoutePort, proxySummary, routeStatus, setHomeRoutePort, setProxy, type RouteStatus } from './route.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -62,8 +62,12 @@ export interface AdminUserRow {
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
   /** An operator's per-account overrides for control: how many jobs a run reviews, and how many it may apply to. Null means the plan decides. */
   overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
-  /** The loopback port this account's home tunnel lands on, and what the route is doing now. Null port: no home route. */
-  homeRoute: { port: number | null; status: RouteStatus };
+  /**
+   * Where this account's browsers go out: the loopback port its home tunnel
+   * lands on, its proxy (never the password), and what the route is doing now.
+   * A proxy, when set, is used instead of the home route.
+   */
+  route: { homePort: number | null; proxy: { address: string; username: string } | null; status: RouteStatus };
   manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
@@ -117,7 +121,7 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
       canPause: entitlements.canPauseAutoApply,
     },
     overrides,
-    homeRoute: { port: await homeRoutePort(user.id), status: await routeStatus(user.id) },
+    route: { homePort: await homeRoutePort(user.id), proxy: await proxySummary(user.id), status: await routeStatus(user.id) },
     manualRunsToday: entitlements.manualRunsUsedToday,
     applications: { total: Number(counts?.total ?? 0), week: Number(counts?.week ?? 0), today: Number(counts?.today ?? 0) },
     lastRun: lastRun
@@ -550,9 +554,15 @@ export async function handleAdminRequest(
         const hasEvaluations = Object.prototype.hasOwnProperty.call(body ?? {}, 'evaluationsPerRun');
         const hasMaxApps = Object.prototype.hasOwnProperty.call(body ?? {}, 'maxApplicationsPerRun');
         const hasHomeRoute = Object.prototype.hasOwnProperty.call(body ?? {}, 'homeRoutePort');
-        if (!hasEvaluations && !hasMaxApps && !hasHomeRoute) return send({ error: 'Set at least one limit to change.' }, 400);
+        const hasProxy = Object.prototype.hasOwnProperty.call(body ?? {}, 'proxy');
+        if (!hasEvaluations && !hasMaxApps && !hasHomeRoute && !hasProxy) return send({ error: 'Set at least one limit to change.' }, 400);
         if (hasHomeRoute && body.homeRoutePort !== null && !(Number.isInteger(body.homeRoutePort) && body.homeRoutePort >= 1024 && body.homeRoutePort <= 65535)) {
           return send({ error: 'The home route port must be a whole number from 1024 to 65535, or empty for none.' }, 400);
+        }
+        if (hasProxy && body.proxy !== null && typeof body.proxy !== 'string') return send({ error: 'The proxy must be text, or null for none.' }, 400);
+        if (hasProxy) {
+          const refused = await setProxy(target.id, body.proxy);
+          if (refused) return send({ error: refused }, 400);
         }
         if (hasHomeRoute) await setHomeRoutePort(target.id, body.homeRoutePort);
         const invalid = (value: unknown) => value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 1);

@@ -382,26 +382,30 @@ export default function App() {
                   className="nav-row nav-row-static"
                   title={route.using === 'home'
                     ? 'Applications go out from your own home internet connection while your computer is on.'
-                    : route.configured && route.homeOnline
-                      ? 'Your home computer reconnected while a browser was already open on the server connection. A browser never changes address part-way, so the next one uses your home internet.'
-                    : route.configured
+                    : route.using === 'proxy'
+                      ? 'Applications go out from an internet address dedicated to your account.'
+                    : route.exit && route.exitOnline
+                      ? `Your ${route.exit === 'home' ? 'home computer' : 'dedicated address'} came back while a browser was already open on the server connection. A browser never changes address part-way, so the next one uses it again.`
+                    : route.exit === 'home'
                       ? 'Your home computer is not connected, so applications go out from the Owtomate server.'
+                    : route.exit === 'proxy'
+                      ? 'Your dedicated address is not answering, so applications go out from the Owtomate server.'
                       : 'Applications go out from the Owtomate server.'}
                 >
                   <span className="nav-row-main">
                     <span className="nav-row-title">Connection</span>
                     <span className="nav-row-sub">
-                      {route.using === 'home'
-                        ? `Your home internet${route.homeAddress ? ` · ${route.homeAddress}` : ''}`
-                        : !route.configured
+                      {route.using !== 'server'
+                        ? `${route.using === 'home' ? 'Your home internet' : 'Dedicated address'}${route.exitAddress ? ` · ${route.exitAddress}` : ''}`
+                        : !route.exit
                           ? 'Owtomate server'
-                          : route.homeOnline
-                            ? 'Owtomate server · back to home after this run'
-                            : 'Owtomate server · home computer off'}
+                          : route.exitOnline
+                            ? `Owtomate server · back to ${route.exit === 'home' ? 'home' : 'your address'} after this run`
+                            : `Owtomate server · ${route.exit === 'home' ? 'home computer off' : 'dedicated address down'}`}
                     </span>
                   </span>
                   <span className="nav-dots" aria-hidden="true">
-                    <span className={`nav-dot ${route.using === 'home' || !route.configured ? 'on' : 'off'}`} />
+                    <span className={`nav-dot ${route.using !== 'server' || !route.exit ? 'on' : 'off'}`} />
                   </span>
                 </div>
               )}

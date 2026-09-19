@@ -753,7 +753,11 @@ function dataApi(): Plugin {
 
       // ---- which connection this account's browser goes out on ----
       case '/api/route': {
-        return withUser(async (userId) => send(await routeStatus(userId)));
+        return withUser(async (userId) => {
+          // Why an exit is failing is the operator's to act on, not the account's.
+          const { exitProblem: _operatorOnly, ...status } = await routeStatus(userId);
+          return send(status);
+        });
       }
 
       // ---- résumé library ----
