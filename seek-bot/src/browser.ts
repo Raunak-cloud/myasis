@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
 import { judgePage } from './blocker.js';
+import { signInAutomatically } from './signin-agent.js';
 import { watchCaptchas } from './captcha.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
@@ -213,6 +214,32 @@ function recordSiteSession(site: SigninSite, signedIn: boolean): void {
 const recordSeekSession = (signedIn: boolean) => recordSiteSession('seek', signedIn);
 
 /** Confirms the SEEK session is still alive without touching credentials. */
+/**
+ * Signed in, or signed back in.
+ *
+ * A lapsed session used to stop the board until a person opened a window and
+ * pressed the one button waiting for them. The board's own check still decides
+ * — before, and again after — and only a "signed out" verdict starts a
+ * sign-in; a page that would not load is reported as it always was.
+ */
+async function ensure(page: Page, site: string, check: (page: Page) => Promise<void>): Promise<void> {
+  try {
+    return await check(page);
+  } catch (error) {
+    if (!/not signed in/i.test((error as Error).message)) throw error;
+    console.log(`  ! ${site} session has lapsed; signing back in with the account this browser already has`);
+  }
+  const attempt = await signInAutomatically(page, site, () => check(page).then(() => true, () => false));
+  if (attempt.ok) {
+    console.log(`  ✓ signed back in to ${site}`);
+    return;
+  }
+  throw new Error(`${site} session is not signed in, and signing back in automatically did not work: ${attempt.reason}. Sign in on the Apply page.`);
+}
+
+export const ensureSignedIn = (page: Page): Promise<void> => ensure(page, 'SEEK', assertSignedIn);
+export const ensureIndeedSignedIn = (page: Page): Promise<void> => ensure(page, 'Indeed', assertIndeedSignedIn);
+
 export async function assertSignedIn(page: Page): Promise<void> {
   await page.goto(`${config.seekBase}/profile/me`, { waitUntil: 'domcontentloaded' });
   await waitForChallengeToClear(page);

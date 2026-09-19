@@ -6,8 +6,8 @@ import {
   launchBrowser,
   closeBrowser,
   getPage,
-  assertSignedIn,
-  assertIndeedSignedIn,
+  ensureSignedIn,
+  ensureIndeedSignedIn,
   jitter,
 } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
@@ -56,7 +56,7 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
       id: 'seek',
       label: 'SEEK',
       pageSize: 32,
-      assertSignedIn,
+      assertSignedIn: ensureSignedIn,
       recommended,
       search,
       fetchJobDetail,
@@ -69,7 +69,7 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
       id: 'indeed',
       label: 'Indeed',
       pageSize: 10,
-      assertSignedIn: assertIndeedSignedIn,
+      assertSignedIn: ensureIndeedSignedIn,
       recommended: recommendedIndeed,
       search: searchIndeed,
       fetchJobDetail: fetchJobDetailIndeed,

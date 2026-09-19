@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { closeSync, existsSync, openSync, statSync, truncateSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BOT_DIR, readEnv, runner, MAX_CONCURRENT } from './runner.js';
 import { sessionFor, signinSessionCount } from './signin.js';
 import { readSiteState, type SeekState, type SigninSite } from './seek-state.js';
 import { userChromeDir, userDir } from './userdata.js';
 import { browserRoute } from './route.js';
+import { chromeGoogleAccounts } from './chrome-accounts.js';
 
 /**
  * Finds out whether an account is really signed in to SEEK.
@@ -28,7 +29,8 @@ import { browserRoute } from './route.js';
  * own DevTools port outside the range the runs use.
  */
 
-const CHECK_TIMEOUT_MS = 90_000;
+/** Long enough for a lapsed session to be signed back in (seek-bot's signin-agent), not just looked at. */
+const CHECK_TIMEOUT_MS = 240_000;
 const LOCK_WAIT_MS = 6_000;
 const inFlight = new Map<string, Promise<SeekState | null>>();
 let nextPortOffset = 0;
@@ -120,13 +122,20 @@ export function checkSignin(userId: string, site: SigninSite): Promise<SeekState
       ...process.env,
       ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
       SIGNIN_SITE: site,
+      // Which of the browser's Google accounts is the person's, for signing back in and for reading an emailed code.
+      GMAIL_BROWSER_ACCOUNT: chromeGoogleAccounts(userId)[0] ?? '',
       CHROME_PROFILE_DIR: profileDir,
       CDP_PORT: String(checkPort()),
       DATA_DIR: userDir(userId),
     };
 
+    // What the check did — above all, how a sign-in attempt went — kept beside the account's other files.
+    const logPath = resolve(userDir(userId), 'signin-check.log');
+    if (existsSync(logPath) && statSync(logPath).size > 256 * 1024) truncateSync(logPath);
+    const logFile = openSync(logPath, 'a');
+
     await new Promise<void>((done) => {
-      const child = spawn(process.execPath, ['dist/check-signin.js'], { cwd: BOT_DIR, env, stdio: 'ignore' });
+      const child = spawn(process.execPath, ['dist/check-signin.js'], { cwd: BOT_DIR, env, stdio: ['ignore', logFile, logFile] });
       const timer = setTimeout(() => child.kill('SIGKILL'), CHECK_TIMEOUT_MS);
       child.on('error', () => {
         clearTimeout(timer);
@@ -136,7 +145,7 @@ export function checkSignin(userId: string, site: SigninSite): Promise<SeekState
         clearTimeout(timer);
         done();
       });
-    });
+    }).finally(() => closeSync(logFile));
     return known();
   })().finally(() => inFlight.delete(key));
 

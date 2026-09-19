@@ -16,7 +16,7 @@ import {
   type Entitlements,
 } from './entitlements.js';
 import { listResumes } from './files.js';
-import { waitForSigninChecks } from './seek-check.js';
+import { checkSignin, waitForSigninChecks } from './seek-check.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { userChromeDir } from './userdata.js';
@@ -226,6 +226,15 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * nothing to run, and the reason is given instead of an empty run.
    */
   const boards = (overrides.PLATFORMS || 'seek').split(',').map((board) => board.trim()).filter(Boolean);
+  /**
+   * A board last seen signed out gets one fresh check before it is written
+   * off. The check signs a lapsed session back in with the account the
+   * browser already holds, so a session that expired overnight costs a minute
+   * here instead of every run until a person notices.
+   */
+  for (const board of boards) {
+    if ((board === 'seek' || board === 'indeed') && readSiteState(userId, board)?.signedIn === false) await checkSignin(userId, board);
+  }
   const signedOut = boards.filter((board) => (board === 'seek' || board === 'indeed') && readSiteState(userId, board)?.signedIn === false);
   const usable = boards.filter((board) => !signedOut.includes(board));
   if (consumes && !usable.length) {

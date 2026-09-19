@@ -1,4 +1,4 @@
-import { launchBrowser, closeBrowser, getPage, assertSignedIn, assertIndeedSignedIn, type SigninSite } from './browser.js';
+import { launchBrowser, closeBrowser, getPage, ensureSignedIn, ensureIndeedSignedIn, type SigninSite } from './browser.js';
 
 /**
  * Asks SEEK itself whether this profile is signed in, and records the answer.
@@ -10,6 +10,9 @@ import { launchBrowser, closeBrowser, getPage, assertSignedIn, assertIndeedSigne
  *
  *   CHROME_PROFILE_DIR=… DATA_DIR=… SIGNIN_SITE=seek|indeed node dist/check-signin.js
  *
+ * A lapsed session is signed back in with the account the browser already
+ * holds (signin-agent.ts) before the answer is recorded.
+ *
  * Exit 0: signed in. Exit 2: signed out. Exit 3: could not tell (nothing is
  * recorded then, so a slow page never overwrites a known-good state).
  */
@@ -18,7 +21,7 @@ async function main(): Promise<number> {
   const context = await launchBrowser();
   try {
     const page = await getPage(context);
-    await (site === 'indeed' ? assertIndeedSignedIn(page) : assertSignedIn(page));
+    await (site === 'indeed' ? ensureIndeedSignedIn(page) : ensureSignedIn(page));
     console.log(`${site}: signed-in`);
     return 0;
   } catch (error) {
