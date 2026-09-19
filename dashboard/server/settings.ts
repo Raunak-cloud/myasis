@@ -106,8 +106,9 @@ export async function runSettingsForUser(userId: string, options: { unlimited?: 
      */
     const fallback = options.unlimited && (OPTIONAL_LIMIT_KEYS as readonly string[]).includes(key) ? '' : RUN_SETTING_DEFAULTS[key] ?? '';
     const value = saved[key] ?? fallback;
-    // An operator of this installation runs at whatever size they configured.
-    out[key] = options.unlimited ? value : normalizeSetting(key, value);
+    // An operator of this installation runs at whatever size they configured —
+    // except the number of search terms, which is search traffic and is capped for everyone.
+    out[key] = options.unlimited && key !== 'KEYWORDS' ? value : normalizeSetting(key, value);
   }
   return out;
 }

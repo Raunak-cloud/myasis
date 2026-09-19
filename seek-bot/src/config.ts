@@ -153,11 +153,12 @@ export const config = {
      *
      * Ten terms at five pages is fifty result pages before a single job is
      * opened, and repeated runs at that volume are what triggered a Cloudflare
-     * challenge that blocked the account for everything. Five terms keeps a run
+     * challenge that blocked the account for everything. Four terms keeps a run
      * quiet enough to stay unremarkable, and the terms further down a list are
-     * rarely the ones producing applications anyway.
+     * rarely the ones producing applications anyway. Operators included: the
+     * limit is about how a run looks to the job board, not about a plan.
      */
-    .slice(0, adminUnlimited ? Infinity : MAX_SEARCH_TERMS),
+    .slice(0, MAX_SEARCH_TERMS),
 
   /** seek.md rules, as data. */
   rules: {

@@ -521,7 +521,7 @@ export function RunPanel({
   async function saveStanding() {
     const terms = val('KEYWORDS').split(',').map((term) => term.trim()).filter(Boolean);
     if (!terms.length) return setStandingError('Add at least one job title or search term.');
-    if (!isAdmin && terms.length > MAX_SEARCH_TERMS) {
+    if (terms.length > MAX_SEARCH_TERMS) {
       return setStandingError(`Use at most ${MAX_SEARCH_TERMS} search terms; you have ${terms.length}.`);
     }
     setStandingError(null);
@@ -701,7 +701,7 @@ export function RunPanel({
       fail(`${overCap.label} can be at most ${RUN_CAP_VALUES[overCap.key]}.`, overCap.key);
       return;
     }
-    if (!isAdmin && termCount > MAX_SEARCH_TERMS) {
+    if (termCount > MAX_SEARCH_TERMS) {
       fail(`Use at most ${MAX_SEARCH_TERMS} search terms; you have ${termCount}.`, 'KEYWORDS');
       return;
     }
@@ -917,14 +917,14 @@ export function RunPanel({
           <div className="field">
             <div className="saved-search-label">
               <label className="field-label" htmlFor="saved-search-terms">Job titles</label>
-              <span className={`job-meta${!isAdmin && termCount >= MAX_SEARCH_TERMS ? ' at-limit' : ''}`}>
-                {isAdmin ? `${termCount} ${termCount === 1 ? 'title' : 'titles'}` : `${termCount} of ${MAX_SEARCH_TERMS}`}
+              <span className={`job-meta${termCount >= MAX_SEARCH_TERMS ? ' at-limit' : ''}`}>
+                {`${termCount} of ${MAX_SEARCH_TERMS}`}
               </span>
             </div>
             <TermsInput
               id="saved-search-terms"
               value={val('KEYWORDS')}
-              max={isAdmin ? Infinity : MAX_SEARCH_TERMS}
+              max={MAX_SEARCH_TERMS}
               disabled={standingSaving}
               onChange={(terms) => editStanding('KEYWORDS', terms)}
             />
@@ -1202,7 +1202,7 @@ export function RunPanel({
                     id="review-search-terms"
                     dataField="KEYWORDS"
                     value={val('KEYWORDS')}
-                    max={isAdmin ? Infinity : MAX_SEARCH_TERMS}
+                    max={MAX_SEARCH_TERMS}
                     onChange={(terms) => setEdit('KEYWORDS', terms)}
                   />
                   <FieldError field="KEYWORDS" />
