@@ -183,7 +183,10 @@ async function gatherFacts(userId: string, email: string): Promise<Facts> {
   return {
     billing,
     granted: Number(grants?.total ?? 0) + billing.free.allowance,
-    signedOutBoards: boards.filter((board) => readSiteState(userId, board as 'seek' | 'indeed')?.signedIn === false).map((board) => BOARD_NAMES[board]),
+    signedOutBoards: boards.filter((board) => {
+      const state = readSiteState(userId, board as 'seek' | 'indeed');
+      return state?.signedIn === false && !state.signedOutByPerson;
+    }).map((board) => BOARD_NAMES[board]),
     recentRuns: runs.map((run) => ({ failed: (run.exit_code ?? 0) !== 0 && !run.applied, stopped: Boolean(run.stopped) })),
     missingSetup: Object.values(setup).filter((check) => check.required && !check.done).map((check) => check.label),
     hasAutoRuns: entitlements.autoRunsPerDay > 0 && !entitlements.autoApplyPaused,

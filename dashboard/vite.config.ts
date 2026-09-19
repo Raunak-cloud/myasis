@@ -39,7 +39,7 @@ import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
-import { checkSeekSignin, checkSignin, seekCheckInProgress } from './server/seek-check.js';
+import { checkSeekSignin, checkSignin, seekCheckInProgress, signOutOfBoard } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
@@ -712,6 +712,18 @@ function dataApi(): Plugin {
         });
       }
 
+      // ---- signing out of a job board ----
+      case '/api/signin/signout': {
+        return withUser(async (userId) => {
+          if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+          const body = await readBody();
+          if (body?.site !== 'seek' && body?.site !== 'indeed') return send({ error: 'Say which job board to sign out of.' }, 400);
+          const result = await signOutOfBoard(userId, body.site);
+          if (!result.ok) return send({ error: result.error }, 409);
+          return send({ ok: true, seek: readSeekState(userId), indeed: readSiteState(userId, 'indeed') });
+        });
+      }
+
       // ---- emails about problems with the account ----
       case '/api/email-alerts/off': {
         /**
@@ -857,7 +869,7 @@ function dataApi(): Plugin {
             // Same window, same profile; only the page it opens on differs.
             const body = await readBody();
             const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'indeed' ? 'indeed' : 'seek';
-            const result = await startSignin(userId, target);
+            const result = await startSignin(userId, target, { assist: body?.manual !== true });
             if (!result.ok) return send({ error: result.error }, 409);
             return send({ ok: true, supported: true, session: result.session });
           }

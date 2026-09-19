@@ -23,6 +23,7 @@ import { planName, shortDate, useBillingStatus } from './billing';
 import { stopSimulation, useSimulation } from './simulation';
 import { useBoardsStatus } from './boards';
 import { useRouteStatus } from './route';
+import { JobBoardsDialog } from './components/JobBoardsDialog';
 import { trackPage } from './analytics';
 import { useRunStatus } from './runStatus';
 
@@ -87,6 +88,7 @@ export default function App() {
   const simulation = useSimulation();
   const boards = useBoardsStatus();
   const route = useRouteStatus();
+  const [boardsOpen, setBoardsOpen] = useState(false);
   /**
    * The rewriting tool is the operator's, so its tab is not offered. Landing
    * on it by an old link or a stale tab falls back to Apply rather than
@@ -352,9 +354,10 @@ export default function App() {
                 <button
                   type="button"
                   className="nav-row"
-                  onClick={() => go('run')}
-                  aria-label="Job board sign-in. Opens the Apply page."
-                  title="Sign in or refresh a sign-in on the Apply page."
+                  onClick={() => setBoardsOpen(true)}
+                  aria-haspopup="dialog"
+                  aria-label="Job boards: which account is signed in, sign out, sign in."
+                  title="See which account each job board is signed in with, sign out, or sign in yourself."
                 >
                   <span className="nav-row-main">
                     <span className="nav-row-title">Job boards</span>
@@ -492,6 +495,8 @@ export default function App() {
           </Suspense>
         </div>
       </main>
+
+      {boardsOpen && boards && <JobBoardsDialog boards={boards} onClose={() => setBoardsOpen(false)} onSignIn={() => go('run')} />}
 
       {confirmSignOut && (
         <div className="overlay center" onClick={() => setConfirmSignOut(false)}>

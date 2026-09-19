@@ -2680,3 +2680,8 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .simulate-card .btn { align-self: end; }
 .nav-row-static { cursor: default; }
 .email-alerts { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; }
+.boards-dialog { max-width: 520px; }
+.boards-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 0; border-top: 1px solid var(--border); }
+.boards-row-main { display: grid; gap: 2px; min-width: 0; }
+.boards-row-main .job-meta { overflow-wrap: anywhere; }
+.boards-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

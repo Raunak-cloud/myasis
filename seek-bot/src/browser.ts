@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
@@ -200,15 +200,63 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
  */
 export type SigninSite = 'seek' | 'indeed';
 
-function recordSiteSession(site: SigninSite, signedIn: boolean): void {
+/**
+ * What is remembered about a board between checks: whether it was signed in,
+ * as whom, and whether the person signed it out themselves. That last one is
+ * what keeps the automatic sign-in from undoing a deliberate sign-out — it
+ * stays until the person signs in again.
+ */
+interface SiteSession {
+  signedIn: boolean;
+  account?: string | null;
+  signedOutByPerson?: boolean;
+}
+
+function readSiteSession(site: SigninSite): SiteSession | null {
   try {
+    return JSON.parse(readFileSync(resolve(config.dataDir, `${site}-session.json`), 'utf8')) as SiteSession;
+  } catch {
+    return null;
+  }
+}
+
+export function recordSiteSession(site: SigninSite, signedIn: boolean, extra: { account?: string | null; signedOutByPerson?: boolean } = {}): void {
+  try {
+    // A failed check says nothing new about who signed out; a successful one ends a deliberate sign-out.
+    const signedOutByPerson = signedIn ? false : extra.signedOutByPerson ?? readSiteSession(site)?.signedOutByPerson ?? false;
     writeFileSync(
       resolve(config.dataDir, `${site}-session.json`),
-      JSON.stringify({ signedIn, checkedAt: new Date().toISOString(), source: 'run' }, null, 2),
+      JSON.stringify({ signedIn, checkedAt: new Date().toISOString(), source: 'run', account: signedIn ? extra.account ?? null : null, signedOutByPerson }, null, 2),
     );
   } catch {
     // Never fail a run over a status file the run itself does not read.
   }
+}
+
+/**
+ * The address the board knows this account by, read off the board's own account
+ * page while it is on screen. SEEK prints it on the profile; Indeed carries it
+ * in the page's data. Both come out the same way: on a person's own account page
+ * the address that appears is theirs, and if several do, theirs appears most.
+ */
+async function accountOnPage(page: Page): Promise<string | null> {
+  return page
+    .evaluate(() => {
+      const pattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+      const shown = (document.body?.innerText ?? '').match(pattern) ?? [];
+      const source = shown.length ? shown : document.documentElement.innerHTML.match(pattern) ?? [];
+      const counts = new Map<string, number>();
+      for (const found of source) {
+        const address = found.toLowerCase();
+        // Asset names and the site's own mailboxes are not anybody's account.
+        if (/\.(png|jpe?g|gif|svg|webp|js|css)$/.test(address) || /@(seek|indeed|sentry|example)\./.test(address)) continue;
+        counts.set(address, (counts.get(address) ?? 0) + 1);
+      }
+      let best: string | null = null;
+      for (const [address, count] of counts) if (best === null || count > (counts.get(best) ?? 0)) best = address;
+      return best;
+    })
+    .catch(() => null);
 }
 
 const recordSeekSession = (signedIn: boolean) => recordSiteSession('seek', signedIn);
@@ -227,6 +275,7 @@ async function ensure(page: Page, site: string, check: (page: Page) => Promise<v
     return await check(page);
   } catch (error) {
     if (!/not signed in/i.test((error as Error).message)) throw error;
+    if (readSiteSession(site === 'SEEK' ? 'seek' : 'indeed')?.signedOutByPerson) throw error;
     console.log(`  ! ${site} session has lapsed; signing back in with the account this browser already has`);
   }
   const attempt = await signInAutomatically(page, site, () => check(page).then(() => true, () => false));
@@ -280,7 +329,7 @@ export async function assertSignedIn(page: Page): Promise<void> {
   // page that failed to load is not evidence either way, and overwriting a
   // known-good state with a guess would put the sign-in prompt back in front
   // of someone who is perfectly well signed in.
-  if (verdict === 'signed-in') recordSeekSession(true);
+  if (verdict === 'signed-in') recordSiteSession('seek', true, { account: await accountOnPage(page) });
 }
 
 /**
@@ -331,7 +380,7 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
   if (verdict !== 'signed-in') {
     throw new Error('Indeed did not finish loading My Jobs, so the sign-in could not be confirmed. Try again in a moment.');
   }
-  recordSiteSession('indeed', true);
+  recordSiteSession('indeed', true, { account: await accountOnPage(page) });
 }
 
 async function assertIndeedSignedInLegacy(page: Page): Promise<void> {

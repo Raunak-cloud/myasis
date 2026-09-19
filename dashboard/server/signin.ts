@@ -147,7 +147,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * port for the bounded Google-account click; the remote viewer remains the
  * path for every credential, verification or CAPTCHA step.
  */
-export async function startSignin(userId: string, target: SigninTarget = 'seek'): Promise<{
+export async function startSignin(userId: string, target: SigninTarget = 'seek', options: { assist?: boolean } = {}): Promise<{
   ok: boolean;
   error?: string;
   session?: SigninSession;
@@ -166,7 +166,7 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek')
   // A browser left on this profile by an earlier session would swallow the new one into its own window, on a display nobody is watching.
   await releaseChromeProfile(profileDir);
   const { display, vncPort } = allocate();
-  const googleAccount = target === 'indeed' ? chromeGoogleAccounts(userId)[0] : undefined;
+  const googleAccount = target === 'indeed' && options.assist !== false ? chromeGoogleAccounts(userId)[0] : undefined;
   const debugPort = googleAccount ? FIRST_DEBUG_PORT + (display - FIRST_DISPLAY) : undefined;
   const password = randomBytes(8).toString('base64url').slice(0, 8);
 

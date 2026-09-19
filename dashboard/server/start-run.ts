@@ -233,7 +233,10 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * here instead of every run until a person notices.
    */
   for (const board of boards) {
-    if ((board === 'seek' || board === 'indeed') && readSiteState(userId, board)?.signedIn === false) await checkSignin(userId, board);
+    if (board !== 'seek' && board !== 'indeed') continue;
+    const state = readSiteState(userId, board);
+    // Not a board the person signed out of themselves: that one stays out until they sign in again.
+    if (state?.signedIn === false && !state.signedOutByPerson) await checkSignin(userId, board);
   }
   const signedOut = boards.filter((board) => (board === 'seek' || board === 'indeed') && readSiteState(userId, board)?.signedIn === false);
   const usable = boards.filter((board) => !signedOut.includes(board));

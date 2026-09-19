@@ -70,6 +70,36 @@ export async function waitForSigninChecks(userId: string): Promise<{ ok: true } 
   return { ok: true };
 }
 
+/**
+ * Signs the account out of one board because its owner asked to, from the
+ * dashboard. It needs the profile to itself, so it is refused while a run or a
+ * sign-in window has it, and waits for a check that is already going.
+ */
+export async function signOutOfBoard(userId: string, site: SigninSite): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (runner.stateFor(userId).running) return { ok: false, error: 'A run is using this account right now. Sign out once it has finished.' };
+  if (sessionFor(userId)) return { ok: false, error: 'Close the sign-in window first.' };
+  const free = await waitForSigninChecks(userId);
+  if (!free.ok) return free;
+  if (!existsSync(resolve(BOT_DIR, 'dist', 'signout.js'))) return { ok: false, error: 'Signing out is not available on this installation yet.' };
+
+  const route = await browserRoute(userId);
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
+    SIGNIN_SITE: site,
+    CHROME_PROFILE_DIR: userChromeDir(userId),
+    CDP_PORT: String(checkPort()),
+    DATA_DIR: userDir(userId),
+  };
+  const code = await new Promise<number | null>((done) => {
+    const child = spawn(process.execPath, ['dist/signout.js'], { cwd: BOT_DIR, env, stdio: 'ignore' });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 60_000);
+    child.on('error', () => { clearTimeout(timer); done(null); });
+    child.on('close', (exit) => { clearTimeout(timer); done(exit); });
+  });
+  return code === 0 ? { ok: true } : { ok: false, error: 'Could not sign out. Please try again in a moment.' };
+}
+
 /** Chrome drops this the moment it has really exited; SIGTERM alone returns before that. */
 async function waitForProfileFree(profileDir: string): Promise<boolean> {
   const lock = resolve(profileDir, 'SingletonLock');

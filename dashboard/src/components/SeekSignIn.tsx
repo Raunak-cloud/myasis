@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BOARDS_CHANGED } from '../boards';
+import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN } from '../boards';
 
 /**
  * Signing in to SEEK, in a browser this account controls.
@@ -145,7 +145,7 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
     return () => clearInterval(tick);
   }, [status?.session?.assist?.state, refresh]);
 
-  async function open(target: 'seek' | 'indeed' = 'seek') {
+  async function open(target: 'seek' | 'indeed' = 'seek', manual = false) {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -156,7 +156,7 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
       const response = await fetch(path, {
         method: 'POST',
         headers: status?.supported ? { 'Content-Type': 'application/json' } : undefined,
-        body: status?.supported ? JSON.stringify({ target }) : undefined,
+        body: status?.supported ? JSON.stringify({ target, manual }) : undefined,
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? 'Could not open the browser.');
@@ -203,6 +203,15 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
       setBusy(false);
     }
   }
+
+  // Asked for from the Job boards dialog: the person is signing in themselves, so nothing picks an account for them.
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => {
+    const onAsk = (event: Event) => void openRef.current((event as CustomEvent<'seek' | 'indeed'>).detail, true);
+    window.addEventListener(OPEN_BOARD_SIGNIN, onAsk);
+    return () => window.removeEventListener(OPEN_BOARD_SIGNIN, onAsk);
+  }, []);
 
   if (!status) return null;
   const minutesLeft = status.session ? Math.max(0, Math.round((status.session.expiresAt - now) / 60000)) : 0;

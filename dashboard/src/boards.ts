@@ -10,6 +10,10 @@ import { useEffect, useState } from 'react';
 export interface BoardState {
   signedIn: boolean;
   checkedAt: string;
+  /** The address the board knows the account by, when it was last seen signed in. */
+  account?: string | null;
+  /** The person signed this board out themselves; nothing signs it back in for them. */
+  signedOutByPerson?: boolean;
 }
 
 export interface BoardsStatus {
@@ -19,6 +23,9 @@ export interface BoardsStatus {
 
 /** Fired by the Apply page after a sign-in window closes, so the menu updates without waiting for the next poll. */
 export const BOARDS_CHANGED = 'boards-changed';
+
+/** Asks the Apply page to open its sign-in window for a board (detail: 'seek' | 'indeed'), with nothing choosing an account for the person. */
+export const OPEN_BOARD_SIGNIN = 'open-board-signin';
 
 export function useBoardsStatus(): BoardsStatus | null {
   const [status, setStatus] = useState<BoardsStatus | null>(null);
