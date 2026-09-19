@@ -134,8 +134,17 @@ export interface CelerisRequest {
    * should choose an action.
    */
   responseSchema?: Record<string, unknown>;
+  /**
+   * The longest reply this call can legitimately need. A caller that knows its
+   * answer is small should say so: a reply that runs away is then cut off in
+   * a fraction of a second instead of generating to the installation's limit.
+   */
+  maxTokens?: number;
   meter?: CostMeter;
 }
+
+/** The model answered, but never finished: the fault is in this reply, not in reaching Celeris. */
+export class ReplyTruncatedError extends Error {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
   if (!config.celeris.apiKey) {
@@ -153,7 +162,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
     model: request.model,
     messages: request.messages,
     temperature: request.temperature ?? 0,
-    max_tokens: config.celeris.maxOutputTokens,
+    max_tokens: request.maxTokens ?? config.celeris.maxOutputTokens,
   };
   if (request.tools?.length) {
     body.tools = request.tools.map((tool) => ({
@@ -213,7 +222,9 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       if (choice.finish_reason === 'length') {
         const used = payload.usage?.completion_tokens ?? 0;
         const reasoning = payload.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
-        throw new Error(`Celeris reply truncated by a length limit after ${used} completion tokens (${reasoning} reasoning)`);
+        // The end of what it was writing says why it never stopped; without it the cause is invisible.
+        const tail = (message.content ?? '').slice(-160).replace(/\s+/g, ' ');
+        throw new ReplyTruncatedError(`Celeris reply truncated by a length limit after ${used} completion tokens (${reasoning} reasoning); it ended: ${tail || '(nothing)'}`);
       }
 
       const toolCalls: ToolCall[] = (message.tool_calls ?? []).map((call) => {
@@ -235,6 +246,8 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       };
     } catch (error) {
       lastError = error;
+      // The same request truncates the same way, and its token count can look like a 5xx.
+      if (error instanceof ReplyTruncatedError) throw error;
       const detail = (error as Error).message ?? String(error);
       const transient = /\b429\b|\b5\d\d\b|econnreset|etimedout|fetch failed|aborted|timeout/i.test(detail);
       if (!transient || attempt === 2) throw error;
