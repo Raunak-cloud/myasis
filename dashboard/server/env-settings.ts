@@ -184,6 +184,7 @@ const GROUPS: GroupSpec[] = [
     keys: [
       { key: 'RESEND_API_KEY', label: 'Resend API key', help: 'For the evening summary email.', kind: 'secret' },
       { key: 'RESEND_FROM', label: 'From address', help: 'Must be on a domain verified in Resend.', kind: 'text' },
+      { key: 'ACCOUNT_ALERT_EMAILS', label: 'Alert emails', help: 'Email an account when it is nearly or fully out of applications, signed out of a job board, failing runs, or stuck on setup. One email per problem. On unless set to Off.', kind: 'boolean' },
       { key: 'DASHBOARD_URL', label: 'Dashboard link in emails', help: '', kind: 'url' },
     ],
   },

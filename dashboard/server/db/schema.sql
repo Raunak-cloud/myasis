@@ -290,6 +290,24 @@ CREATE TABLE IF NOT EXISTS daily_digests (
   PRIMARY KEY (user_id, day)
 );
 
+-- One row per account per problem it has been (or is about to be) emailed
+-- about: out of applications, signed out of a board, runs failing, setup never
+-- finished (server/alerts.ts).
+--
+-- The row is the memory that makes an alert a one-off. It appears when the
+-- problem is first seen, `sent_at` is set when the email goes out, and the row
+-- is deleted when the problem goes away — so the same problem coming back
+-- later is news again, and a problem that is still there is never repeated.
+-- `first_seen_at` is what lets an alert wait: a board that signs itself back
+-- in within the hour never costs anyone an email.
+CREATE TABLE IF NOT EXISTS account_alerts (
+  user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at       TIMESTAMPTZ,
+  PRIMARY KEY (user_id, kind)
+);
+
 -- Where an application was submitted when it left the job board, and what
 -- Myasis did on the candidate's behalf while applying: an account created or
 -- signed in to, a document added to their profile, a code read from their inbox.
@@ -320,6 +338,10 @@ ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS exit_code INTEGER;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS applied INTEGER;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS log_file TEXT;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS started_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+-- A run somebody pressed Stop on ends with the same exit code as one that
+-- crashed. This is what tells them apart, so "your runs keep failing" is never
+-- said about runs the person ended themselves.
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS stopped BOOLEAN NOT NULL DEFAULT false;
 -- Set by an admin. A blocked account cannot sign in, keeps no session, and is left out of every schedule.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS run_starts_recent_idx ON run_starts(started_at DESC);

@@ -46,6 +46,7 @@ import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, lat
 import { handleAdminRequest } from './server/admin.js';
 import { chatCompletion, humanizerEndpoint, probeHumanizer } from './server/humanizer-endpoint.js';
 import { routeStatus } from './server/route.js';
+import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
@@ -708,6 +709,33 @@ function dataApi(): Plugin {
             return send({ configured: true, online: true, maxChars });
           })
           .catch((error) => send({ configured: true, online: false, error: `Could not reach the rewriting service: ${(error as Error).message}` }, 503));
+        });
+      }
+
+      // ---- emails about problems with the account ----
+      case '/api/email-alerts/off': {
+        /**
+         * The link at the foot of every alert. It carries its own proof — a
+         * signature over the account id — so it works from a mail app with
+         * nobody signed in, and for that account only. Mail providers call it
+         * with POST for their one-click unsubscribe; a person opens it with GET.
+         */
+        const account = url.searchParams.get('u') ?? '';
+        if (!alertsOffTokenValid(account, url.searchParams.get('t') ?? '')) return send({ error: 'This link is not valid.' }, 400);
+        return setAlertsEnabled(account, false).then(() => {
+          if (req.method === 'POST') return send({ ok: true });
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Owtomate</title><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:15vh auto;padding:0 20px;line-height:1.6;color:#11141c"><h1 style="font-size:20px">Alert emails are off</h1><p>Owtomate will no longer email you about problems with your account. You can turn them back on in Settings at any time.</p><p><a href="/">Open Owtomate</a></p></body>');
+        });
+      }
+      case '/api/email-alerts': {
+        return withUser(async (userId) => {
+          if (req.method === 'POST') {
+            const body = await readBody();
+            if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether the emails should be on or off.' }, 400);
+            await setAlertsEnabled(userId, body.enabled);
+          }
+          return send({ enabled: await alertsEnabled(userId) });
         });
       }
 

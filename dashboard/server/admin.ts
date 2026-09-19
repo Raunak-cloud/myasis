@@ -1,4 +1,5 @@
 import { simulations } from './simulate.js';
+import { previewAccountAlerts } from './alerts.js';
 import { homeRoutePort, routeStatus, setHomeRoutePort, type RouteStatus } from './route.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -443,6 +444,7 @@ export async function handleAdminRequest(
 
     if (path === '/env' && method === 'GET') return send(envReport());
     if (path === '/simulations' && method === 'GET') return send({ simulations: simulations() });
+    if (path === '/alerts-preview' && method === 'GET') return send(await previewAccountAlerts());
 
     if (path === '/env' && method === 'POST') {
       const body = await readBody();

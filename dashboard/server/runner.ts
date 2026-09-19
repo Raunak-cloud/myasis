@@ -116,6 +116,8 @@ class Run {
   private onApplicationSubmitted: (() => void | Promise<void>) | null = null;
   /** The run_starts row this run belongs to, when the caller made one. */
   private runStartId: string | null = null;
+  /** Somebody pressed Stop. Such a run exits like a crash does, and must not be counted as one. */
+  private stoppedByPerson = false;
   private lines: LogLine[] = [];
   private seq = 0;
   private listeners = new Set<(l: LogLine) => void>();
@@ -248,6 +250,7 @@ class Run {
     this.seq = 0;
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
     this.runStartId = runStartId ?? null;
+    this.stoppedByPerson = false;
     this.state = {
       running: true,
       mode,
@@ -326,6 +329,7 @@ class Run {
     };
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
+    this.stoppedByPerson = false;
     this.spawnChild(spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env }), userId, dataDir, 'scan');
     return { ok: true };
   }
@@ -372,13 +376,14 @@ class Run {
     const saved = readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort((a, b) => Number(b.split('.')[0]) - Number(a.split('.')[0]));
     for (const old of saved.slice(RUN_LOGS_KEPT)) rmSync(resolve(dir, old), { force: true });
     await query(
-      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4 WHERE id = $1',
-      [runStartId, code, this.state.applied, file],
+      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4, stopped = $5 WHERE id = $1',
+      [runStartId, code, this.state.applied, file, this.stoppedByPerson],
     );
   }
 
   stop(): { ok: boolean; error?: string } {
     if (!this.child) return { ok: false, error: 'Nothing is running.' };
+    this.stoppedByPerson = true;
     this.push('sys', '⏹ stop requested, terminating');
     // Windows needs the tree killed; the bot owns a Chrome child process.
     if (process.platform === 'win32') {

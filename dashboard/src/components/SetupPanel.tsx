@@ -1,3 +1,4 @@
+import { EmailAlertsToggle } from './EmailAlertsToggle';
 import { useEffect, useState } from 'react';
 import { GmailConnect } from './GmailConnect';
 import { FilesPanel } from './FilesPanel';
@@ -276,6 +277,8 @@ export function SetupPanel() {
           </div>
         )}
       </div>}
+
+      <EmailAlertsToggle />
 
       {dirty && (
         <div className="save-bar">
