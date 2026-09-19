@@ -139,11 +139,63 @@ export interface SigninAttempt {
 }
 
 /**
- * Drives the sign-in from the page it is on. `isSignedIn` is the board's own
- * answer — it navigates, so it is only asked when the model believes it is
- * done, and once more when it has run out of steps.
+ * Answers the sign-in prompt that Chrome itself draws.
+ *
+ * "Continue with Google" on a modern site is FedCM: the account chooser is
+ * browser UI, not part of any page, so it is in no DOM and no screenshot, and
+ * nothing that looks at pages can press it. Found the hard way on Indeed — the
+ * first visit signed in by itself (Chrome re-authenticates a returning account
+ * silently), and every attempt in the ten minutes after that stalled on a
+ * dialog nobody could see, because Chrome allows the silent path once per ten
+ * minutes and asks otherwise.
+ *
+ * Chrome has a DevTools domain for exactly this prompt. While it is enabled
+ * the dialog is reported here instead of being drawn, and the only answer ever
+ * given is the person's own account: another account on the list, or a prompt
+ * that lists none, is dismissed and left to the page's other options.
+ */
+async function answerBrowserSigninPrompts(page: Page, account: string, log: (line: string) => void): Promise<() => Promise<void>> {
+  const session = await page.context().newCDPSession(page).catch(() => null);
+  if (!session) return async () => {};
+  session.on('FedCm.dialogShown', (event: { dialogId: string; accounts?: Array<{ email?: string }> }) => {
+    const index = account ? (event.accounts ?? []).findIndex(listed => listed.email?.toLowerCase() === account.toLowerCase()) : -1;
+    if (index < 0) {
+      log("  ↪ sign-in: the browser's own prompt did not offer this person's account; dismissed it");
+      void session.send('FedCm.dismissDialog', { dialogId: event.dialogId }).catch(() => {});
+      return;
+    }
+    log(`  ↪ sign-in: chose ${account} in the browser's own sign-in prompt`);
+    void session.send('FedCm.selectAccount', { dialogId: event.dialogId, accountIndex: index }).catch(() => {});
+  });
+  await session.send('FedCm.enable', { disableRejectionDelay: true }).catch(() => {});
+  return async () => {
+    await session.send('FedCm.disable').catch(() => {});
+    await session.detach().catch(() => {});
+  };
+}
+
+/**
+ * Signs in from the page it is on. `isSignedIn` is the board's own answer — it
+ * navigates, so it is only asked when the model believes it is done, and once
+ * more when it has run out of steps.
  */
 export async function signInAutomatically(
+  page: Page,
+  site: string,
+  isSignedIn: () => Promise<boolean>,
+  log: (line: string) => void = line => console.log(line),
+): Promise<SigninAttempt> {
+  const stopAnswering = await answerBrowserSigninPrompts(page, browserGmailAccount(), log);
+  try {
+    // The prompt hook has to be in place before the sign-in page asks, so the page is loaded again under it.
+    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+    return await drive(page, site, isSignedIn, log);
+  } finally {
+    await stopAnswering();
+  }
+}
+
+async function drive(
   page: Page,
   site: string,
   isSignedIn: () => Promise<boolean>,
@@ -156,9 +208,30 @@ export async function signInAutomatically(
   let lastObservationIndex = -1;
   let before = '';
 
+  /**
+   * Google and Apple finish a sign-in in a window of their own. Whatever window
+   * the flow opened last is the one waiting for an answer, so that is the one
+   * looked at and clicked in until it closes, and then the board's page again.
+   * Seen live: the agent pressed "Continue with Google", the account chooser
+   * opened as a popup, and it spent the rest of its steps on the page behind it.
+   */
+  const context = page.context();
+  const already = new Set(context.pages());
+  const current = (): Page => context.pages().filter(open => !already.has(open) && !open.isClosed()).at(-1) ?? page;
+  let watching = page;
+
+  // A sign-in page finishes drawing after it loads: Google's button turns into "Continue as <name>" a few seconds in.
+  await page.waitForTimeout(4_000);
+
   for (let step = 1; step <= MAX_STEPS; step++) {
-    const observation = await observe(page, { screenshot: true });
-    const embedded = await embeddedButtons(page);
+    const target = current();
+    if (target !== watching) {
+      log(target === page ? '  ↪ sign-in: back on the site\'s own page' : '  ↪ sign-in: following the window the sign-in opened');
+      watching = target;
+      await target.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
+    }
+    const observation = await observe(target, { screenshot: true });
+    const embedded = await embeddedButtons(target);
     // Every click "worked" as far as the mouse is concerned; whether the page moved is what the model needs to hear.
     const now = `${observation.url}|${observation.actions.length}|${observation.fields.length}|${embedded.map(button => button.text).join('|')}`;
     if (step > 1 && now === before && /^Clicked/.test(note)) note += ' The page looks exactly as it did before that click, so it had no effect.';
@@ -194,8 +267,8 @@ export async function signInAutomatically(
           if (widget) {
             log(`  ↪ sign-in: click "${widget.text.slice(0, 60)}"`);
             // Arrive, then press: a pointer that teleports onto a sign-in button is not how anyone clicks one.
-            await page.mouse.move(widget.x - 24, widget.y + 3, { steps: 8 });
-            await page.mouse.click(widget.x, widget.y);
+            await target.mouse.move(widget.x - 24, widget.y + 3, { steps: 8 });
+            await target.mouse.click(widget.x, widget.y);
             result = `Clicked "${widget.text}".`;
             break;
           }
@@ -204,7 +277,7 @@ export async function signInAutomatically(
           else if (action.disabled) result = `"${action.text}" is disabled.`;
           else {
             log(`  ↪ sign-in: click "${action.text.slice(0, 60)}"`);
-            await page.locator(`[data-ref-id="${action.ref}"]`).first().click({ timeout: 8_000 });
+            await target.locator(`[data-ref-id="${action.ref}"]`).first().click({ timeout: 8_000 });
             result = `Clicked "${action.text}".`;
           }
           break;
@@ -214,9 +287,9 @@ export async function signInAutomatically(
           const y = Number(args.y);
           if (!(x >= 0 && x <= 1000 && y >= 0 && y <= 1000)) result = 'x and y must be on the 0-1000 grid.';
           else {
-            const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight })).catch(() => ({ width: 1440, height: 960 }));
+            const size = await target.evaluate(() => ({ width: innerWidth, height: innerHeight })).catch(() => ({ width: 1440, height: 960 }));
             log(`  ↪ sign-in: click ${String(args.reason ?? 'a point').slice(0, 70)}`);
-            await page.mouse.click((x / 1000) * size.width, (y / 1000) * size.height);
+            await target.mouse.click((x / 1000) * size.width, (y / 1000) * size.height);
             result = 'Clicked.';
           }
           break;
@@ -227,7 +300,7 @@ export async function signInAutomatically(
           else if (!field) result = 'No FIELD has that ref on this page.';
           else {
             log('  ↪ sign-in: entered the account email');
-            await fillField(page, field, account);
+            await fillField(target, field, account);
             result = `Entered ${account}.`;
           }
           break;
@@ -241,23 +314,25 @@ export async function signInAutomatically(
             const found = await findCodeInBrowser(page.context(), { hint: site, timeoutMs: 90_000, log });
             if ('error' in found) result = `${found.error} If there is a resend control, click it and try once more; otherwise give_up.`;
             else {
-              await fillField(page, field, found.code);
+              await fillField(target, field, found.code);
               result = 'Entered the emailed code.';
             }
           }
           break;
         }
         case 'clear_bot_check':
-          result = (await trySolveCaptcha(page)) ? 'The check was cleared.' : 'The check could not be cleared. If nothing else is possible, give_up.';
+          result = (await trySolveCaptcha(target)) ? 'The check was cleared.' : 'The check could not be cleared. If nothing else is possible, give_up.';
           break;
         case 'wait':
           result = 'Waited.';
           break;
         case 'signed_in':
+          log('  ↪ sign-in: believes it is signed in; asking the site');
           if (await isSignedIn()) return { ok: true, reason: 'signed in', steps: step };
           result = `${site} still says this browser is signed out. Look at the page again.`;
           break;
         case 'give_up':
+          log(`  ↪ sign-in: gave up — ${String(args.reason ?? '').slice(0, 160)}`);
           return { ok: false, reason: String(args.reason ?? 'the page offered no way to sign in').slice(0, 240), steps: step };
         default:
           result = 'That tool does not exist.';
@@ -271,8 +346,27 @@ export async function signInAutomatically(
     for (const extra of reply.toolCalls.slice(1)) messages.push({ role: 'tool', tool_call_id: extra.id, content: 'Not executed: one action at a time.' });
     note = result;
     // Sign-in flows redirect between hosts; give each step a moment to land before it is looked at.
-    await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
-    await page.waitForTimeout(2_500);
+    /**
+     * Give the press time to land before looking again.
+     *
+     * Measured on Indeed: "Continue as <name>" leaves the page untouched for six
+     * to eight seconds while Google and the board exchange the credential, and
+     * then it redirects. Looking again after two seconds showed an unchanged
+     * page, the model was told the click had done nothing, and it typed an email
+     * address into the form — cancelling a sign-in that was about to succeed.
+     * So wait until something moves: the address, or a window opening or closing.
+     */
+    const urlBefore = target.isClosed() ? '' : target.url();
+    const windowsBefore = context.pages().length;
+    const settleBy = Date.now() + (/^Clicked/.test(result) ? 12_000 : 2_500);
+    while (Date.now() < settleBy) {
+      await page.waitForTimeout(500);
+      if (target.isClosed() || target.url() !== urlBefore || context.pages().length !== windowsBefore) break;
+    }
+    // The window acted on may have just closed itself, which is how a sign-in popup says it is finished.
+    const next = current();
+    await next.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
+    await next.waitForTimeout(2_000).catch(() => {});
     if (meter.exhausted) break;
   }
 

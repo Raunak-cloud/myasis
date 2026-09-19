@@ -27,7 +27,7 @@ async function main(): Promise<number> {
   } catch (error) {
     const message = (error as Error).message ?? String(error);
     if (/not signed in/i.test(message)) {
-      console.log('signed-out');
+      console.log(`signed-out: ${message}`);
       return 2;
     }
     console.log(`unclear: ${message}`);

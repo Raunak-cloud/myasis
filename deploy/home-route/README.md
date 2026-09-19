@@ -39,6 +39,12 @@ console says `Applying from: …` when it starts.
 
        powershell -ExecutionPolicy Bypass -File deploy\home-route\install-windows.ps1
 
+   It builds `home-route.exe` from `HomeRoute.cs` with the compiler that ships
+   with Windows, and registers a task that starts it at sign-in and re-asks
+   every minute. It is a windowless program on purpose: a console script doing
+   this job was closed along with other console windows within seconds on a
+   developer's desktop. Its log is `%LOCALAPPDATA%owtomate-home-route.log`.
+
 4. In the dashboard: Admin → Users → the account → Limits → **Home route port**
    = the port from step 2.
 
