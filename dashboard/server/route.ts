@@ -1,7 +1,8 @@
-import { BlockList, connect, createServer, isIP, type Server, type Socket } from 'node:net';
-import { lookup } from 'node:dns/promises';
+import { connect, createServer, type Server, type Socket } from 'node:net';
 import { one } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
+import { endpointOf, parseProxy, proxyUrl, resolvesPublic, type ProxyDetails } from './proxy-address.js';
+import { onPoolChange, poolHolderOf, pooledProxyFor, reconcilePool } from './proxy-pool.js';
 
 /**
  * Which connection an account's browser goes out on.
@@ -88,80 +89,24 @@ export async function setHomeRoutePort(userId: string, port: number | null): Pro
   forget(userId);
 }
 
-export interface ProxyDetails {
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-}
-
 /**
- * Reads a proxy as a provider hands it over: `socks5://user:pass@host:port`,
- * or the `host:port:user:pass` lines of a downloaded proxy list. Only SOCKS5:
- * the switch speaks SOCKS to the exit, and a plain HTTP proxy cannot carry it.
+ * Saves, or with null removes, the account's hand-set proxy. Returns why it
+ * was refused, if it was. Either way the pool is reconciled after: an account
+ * with a hand-set proxy gives up its pooled one, and one without may get one.
  */
-export function parseProxy(raw: string): ProxyDetails | string {
-  const text = raw.trim();
-  const parts = text.split(':');
-  if (!text.includes('://') && parts.length === 4) {
-    const [host, port, username, password] = parts;
-    return checked({ host, port: Number(port), username, password });
-  }
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    return 'Paste the proxy as socks5://username:password@host:port, or host:port:username:password.';
-  }
-  if (url.protocol !== 'socks5:' && url.protocol !== 'socks5h:') return 'Use the proxy\'s SOCKS5 address (socks5://…): the connection switch speaks SOCKS5, not HTTP.';
-  return checked({
-    host: url.hostname.replace(/^\[|\]$/g, ''),
-    port: Number(url.port),
-    username: decodeURIComponent(url.username),
-    password: decodeURIComponent(url.password),
-  });
-}
-
-function checked(proxy: ProxyDetails): ProxyDetails | string {
-  if (!proxy.host) return 'The proxy has no host.';
-  if (!Number.isInteger(proxy.port) || proxy.port < 1 || proxy.port > 65535) return 'The proxy port must be a whole number from 1 to 65535.';
-  if (!proxy.username || !proxy.password) return 'The proxy needs its username and password.';
-  // RFC 1929 gives each one byte of length.
-  if (Buffer.byteLength(proxy.username) > 255 || Buffer.byteLength(proxy.password) > 255) return 'The proxy username or password is too long.';
-  return proxy;
-}
-
-/** Everything that is this server's own network, or no one's. */
-const PRIVATE = new BlockList();
-for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 3]] as const) {
-  PRIVATE.addSubnet(net, bits, 'ipv4');
-}
-for (const [net, bits] of [['::', 127], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) PRIVATE.addSubnet(net, bits, 'ipv6');
-
-function isPublic(address: string): boolean {
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1];
-  if (mapped) return isPublic(mapped);
-  return !PRIVATE.check(address, isIP(address) === 6 ? 'ipv6' : 'ipv4');
-}
-
-async function publicAddressOf(host: string): Promise<string | null> {
-  const addresses = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((entry) => entry.address);
-  return addresses.length && addresses.every(isPublic) ? host : null;
-}
-
-/** Saves, or with null removes, the account's proxy. Returns why it was refused, if it was. */
 export async function setProxy(userId: string, raw: string | null): Promise<string | null> {
   if (raw === null || !raw.trim()) {
     await upsertSettingRow(userId, PROXY_KEY, '');
-    forget(userId);
-    return null;
+  } else {
+    const proxy = parseProxy(raw);
+    if (typeof proxy === 'string') return proxy;
+    if (!(await resolvesPublic(proxy.host))) return 'The proxy must be on the public internet: its host does not resolve, or resolves to a private address.';
+    const holder = await poolHolderOf(endpointOf(proxy));
+    if (holder && holder !== userId) return 'That proxy is already given to another account from the Webshare pool.';
+    await upsertSettingRow(userId, PROXY_KEY, proxyUrl(proxy));
   }
-  const proxy = parseProxy(raw);
-  if (typeof proxy === 'string') return proxy;
-  if (!(await publicAddressOf(proxy.host))) return 'The proxy must be on the public internet: its host does not resolve, or resolves to a private address.';
-  const host = isIP(proxy.host) === 6 ? `[${proxy.host}]` : proxy.host;
-  await upsertSettingRow(userId, PROXY_KEY, `socks5://${encodeURIComponent(proxy.username)}:${encodeURIComponent(proxy.password)}@${host}:${proxy.port}`);
   forget(userId);
+  await reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
   return null;
 }
 
@@ -178,8 +123,13 @@ export async function proxySummary(userId: string): Promise<{ address: string; u
   return proxy ? { address: `${proxy.host}:${proxy.port}`, username: proxy.username } : null;
 }
 
-async function exitFor(userId: string): Promise<Exit | null> {
-  const proxy = await savedProxy(userId);
+/**
+ * The account's exit, most specific first: a proxy an operator set for it by
+ * hand, then the one it holds from the Webshare pool, then its home route.
+ * `assign` lets the pool give it a proxy on the spot, for a browser about to open.
+ */
+async function exitFor(userId: string, assign: boolean): Promise<Exit | null> {
+  const proxy = (await savedProxy(userId)) ?? (await pooledProxyFor(userId, assign));
   if (proxy) {
     return { kind: 'proxy', host: proxy.host, port: proxy.port, auth: { username: proxy.username, password: proxy.password } };
   }
@@ -494,10 +444,13 @@ function forget(userId: string): void {
   switches.delete(userId);
 }
 
-async function switchFor(userId: string): Promise<RouteSwitch | null> {
+// A proxy given, taken back or swapped by the pool is a changed setting like any other.
+onPoolChange(forget);
+
+async function switchFor(userId: string, assign = false): Promise<RouteSwitch | null> {
   const existing = switches.get(userId);
   if (existing) return existing;
-  const exit = await exitFor(userId);
+  const exit = await exitFor(userId, assign);
   if (!exit) return null;
   const created = new RouteSwitch(userId, exit);
   switches.set(userId, created);
@@ -520,7 +473,7 @@ export async function routeStatus(userId: string): Promise<RouteStatus> {
  * starts exactly as it always has.
  */
 export async function browserRoute(userId: string): Promise<{ proxyServer: string | null; args: string[]; status: RouteStatus }> {
-  const route = await switchFor(userId);
+  const route = await switchFor(userId, true);
   if (!route) return { proxyServer: null, args: [], status: SERVER_ONLY };
   await route.check(true);
   const proxyServer = `socks5://127.0.0.1:${await route.port()}`;

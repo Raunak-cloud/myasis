@@ -46,6 +46,7 @@ import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, lat
 import { handleAdminRequest } from './server/admin.js';
 import { chatCompletion, humanizerEndpoint, probeHumanizer } from './server/humanizer-endpoint.js';
 import { routeStatus } from './server/route.js';
+import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
 import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
@@ -380,6 +381,8 @@ function dataApi(): Plugin {
           if (!/^cs_/.test(sessionId)) return send({ error: 'Invalid checkout session.' }, 400);
           try {
             const result = await fulfillCheckoutSession(sessionId, user.id);
+            // A paying account gets its dedicated address now, not at the next reconcile.
+            void reconcilePool().catch((error) => console.warn('[proxy-pool] reconcile after payment failed:', (error as Error).message));
             return send({ ok: true, ...result, status: await billingStatus(user.id) });
           } catch (error) {
             console.warn('[billing] confirm failed:', (error as Error).message);
@@ -396,6 +399,7 @@ function dataApi(): Plugin {
         return readRawBody(DEFAULT_BODY_LIMIT).then(async (rawBody) => {
           try {
             await handleStripeWebhook(rawBody, signature);
+            void reconcilePool().catch((error) => console.warn('[proxy-pool] reconcile after payment failed:', (error as Error).message));
             return send({ received: true });
           } catch (error) {
             return send({ error: `Webhook rejected: ${(error as Error).message}` }, 400);
@@ -1301,6 +1305,7 @@ function dataApi(): Plugin {
       startProfileMaintenance();
       startHealthMaintenance();
       startTraceRetention();
+      startProxyPool();
 
       /**
        * Leave nothing behind. pm2 stops this process with a signal; without

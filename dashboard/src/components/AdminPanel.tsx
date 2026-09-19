@@ -4,6 +4,7 @@ import { api } from '../adminApi';
 import { ServerView } from './ServerView';
 import { EnvView } from './EnvView';
 import { SimulateView } from './SimulateView';
+import { ProxiesView } from './ProxiesView';
 import type { RouteStatus } from '../route';
 
 /**
@@ -40,6 +41,7 @@ interface AdminUser {
   route: {
     homePort: number | null;
     proxy: { address: string; username: string } | null;
+    pooled: string | null;
     status: RouteStatus & { exitProblem: string | null };
   };
   manualRunsToday: number;
@@ -539,7 +541,9 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       <span className="job-meta" style={{ display: 'block' }}>
                         {user.route.proxy
                           ? exitLine(user.route.status, 'Proxy')
-                          : 'None. SOCKS5 only: socks5://user:pass@host:port, or host:port:user:pass. Used instead of the home route.'}
+                          : user.route.pooled
+                            ? `From the Webshare pool: ${user.route.pooled} · ${exitLine(user.route.status, 'proxy')}. A proxy set here replaces it.`
+                            : 'None. SOCKS5 only: socks5://user:pass@host:port, or host:port:user:pass. Used instead of the pool and the home route.'}
                       </span>
                     </span>
                     <input
@@ -1267,9 +1271,9 @@ function VisitorsView() {
 }
 
 export function AdminPanel() {
-  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'server' | 'config' | 'simulate'>('overview');
+  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'proxies' | 'server' | 'config' | 'simulate'>('overview');
   const [openRun, setOpenRun] = useState<AdminRun | null>(null);
-  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', server: 'Server', config: 'Config', simulate: 'Simulate' } as const;
+  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', proxies: 'Proxies', server: 'Server', config: 'Config', simulate: 'Simulate' } as const;
   return (
     <div className="admin-page">
       <nav className="admin-nav" aria-label="Admin sections">
@@ -1283,6 +1287,7 @@ export function AdminPanel() {
       {view === 'users' && <UsersView onOpenRun={setOpenRun} />}
       {view === 'runs' && <RunsView onOpenRun={setOpenRun} />}
       {view === 'visitors' && <VisitorsView />}
+      {view === 'proxies' && <ProxiesView />}
       {view === 'server' && <ServerView />}
       {view === 'config' && <EnvView />}
       {view === 'simulate' && <SimulateView />}

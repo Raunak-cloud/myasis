@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { paymentsState } from './billing.js';
+import { poolState } from './proxy-pool.js';
 import { BOT_DIR, deploying, readEnv, runner, writeEnv } from './runner.js';
 import { KEEP_SETTINGS_KEYS } from './settings.js';
 import { stopAllSignins } from './signin.js';
@@ -179,6 +180,16 @@ const GROUPS: GroupSpec[] = [
     ],
   },
   {
+    key: 'proxies',
+    title: 'Dedicated addresses',
+    note: 'Every account with paid applications left is given one static residential proxy from your Webshare plans, and gives it back when they run out. The Proxies tab shows who holds which.',
+    banner: proxyPoolBanner,
+    keys: [
+      { key: 'WEBSHARE_API_KEY', label: 'Webshare API key', help: 'From dashboard.webshare.io → API → Keys. Empty turns the pool off: accounts then apply from the server.', kind: 'secret' },
+      { key: 'PROXY_POOL_COUNTRIES', label: 'Countries to give out', help: 'Two-letter codes, comma-separated. Default AU. A proxy elsewhere stays unused.', kind: 'text' },
+    ],
+  },
+  {
     key: 'email',
     title: 'Email',
     keys: [
@@ -301,6 +312,15 @@ function humanizerBanner(env: Record<string, string>): GroupBanner | undefined {
   const url = process.env.HUMANIZER_URL ?? env.HUMANIZER_URL ?? '';
   if (!url.startsWith('https://') || (process.env.HUMANIZER_API_KEY ?? env.HUMANIZER_API_KEY)) return undefined;
   return { tone: 'warn', text: 'The humanizer URL is a hosted API but no API key is set. The Server tab shows whether it is answering.' };
+}
+
+/** Whether the pool is reaching Webshare, and whether any paying account is going without. */
+function proxyPoolBanner(env: Record<string, string>): GroupBanner | undefined {
+  if (!(process.env.WEBSHARE_API_KEY ?? env.WEBSHARE_API_KEY)) return { tone: 'warn', text: 'Off. Paying accounts apply from the server\'s address.' };
+  const pool = poolState();
+  if (pool.lastSyncError) return { tone: 'bad', text: `Last sync failed: ${pool.lastSyncError}` };
+  if (pool.waiting.length) return { tone: 'bad', text: `${pool.waiting.length} paying account(s) have no proxy: buy more in Webshare, then Sync on the Proxies tab.` };
+  return pool.lastSyncAt ? { tone: 'ok', text: 'On. Synced with Webshare every 15 minutes.' } : { tone: 'warn', text: 'On, not synced yet. Saving the key starts a sync; the Proxies tab shows the result.' };
 }
 
 /** Catches the one way this group is silently useless: CapMonster chosen, no key to call it with. */

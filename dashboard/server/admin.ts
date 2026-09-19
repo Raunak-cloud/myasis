@@ -1,6 +1,7 @@
 import { simulations } from './simulate.js';
 import { previewAccountAlerts } from './alerts.js';
 import { homeRoutePort, proxySummary, routeStatus, setHomeRoutePort, setProxy, type RouteStatus } from './route.js';
+import { pooledProxyFor, poolEnabled, poolReport, reconcilePool, syncPool } from './proxy-pool.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -67,7 +68,13 @@ export interface AdminUserRow {
    * lands on, its proxy (never the password), and what the route is doing now.
    * A proxy, when set, is used instead of the home route.
    */
-  route: { homePort: number | null; proxy: { address: string; username: string } | null; status: RouteStatus };
+  route: {
+    homePort: number | null;
+    proxy: { address: string; username: string } | null;
+    /** The address this account holds from the Webshare pool, if any. */
+    pooled: string | null;
+    status: RouteStatus;
+  };
   manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
@@ -121,7 +128,12 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
       canPause: entitlements.canPauseAutoApply,
     },
     overrides,
-    route: { homePort: await homeRoutePort(user.id), proxy: await proxySummary(user.id), status: await routeStatus(user.id) },
+    route: {
+      homePort: await homeRoutePort(user.id),
+      proxy: await proxySummary(user.id),
+      pooled: await pooledProxyFor(user.id, false).then((proxy) => (proxy ? `${proxy.host}:${proxy.port}` : null)),
+      status: await routeStatus(user.id),
+    },
     manualRunsToday: entitlements.manualRunsUsedToday,
     applications: { total: Number(counts?.total ?? 0), week: Number(counts?.week ?? 0), today: Number(counts?.today ?? 0) },
     lastRun: lastRun
@@ -450,13 +462,27 @@ export async function handleAdminRequest(
     if (path === '/simulations' && method === 'GET') return send({ simulations: simulations() });
     if (path === '/alerts-preview' && method === 'GET') return send(await previewAccountAlerts());
 
+    if (path === '/proxies' && method === 'GET') return send(await poolReport());
+    if (path === '/proxies/sync' && method === 'POST') {
+      if (!poolEnabled()) return send({ error: 'Add a Webshare API key in Config first.' }, 400);
+      try {
+        await syncPool();
+      } catch (error) {
+        return send({ error: (error as Error).message }, 502);
+      }
+      return send(await poolReport());
+    }
+
     if (path === '/env' && method === 'POST') {
       const body = await readBody();
       const changes = body?.changes;
       if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return send({ error: 'Send the changes as an object.' }, 400);
       if (Object.keys(changes).length > 200) return send({ error: 'Too many changes at once.' }, 400);
       try {
-        return send({ ok: true, ...applyEnvChanges(changes, actor.email) });
+        const applied = applyEnvChanges(changes, actor.email);
+        // A new Webshare key or country list is acted on now, not at the next quarter-hour.
+        if ('WEBSHARE_API_KEY' in changes || 'PROXY_POOL_COUNTRIES' in changes) void syncPool().catch(() => {});
+        return send({ ok: true, ...applied });
       } catch (error) {
         return send({ error: (error as Error).message }, 400);
       }
@@ -601,10 +627,13 @@ export async function handleAdminRequest(
       case 'grant': {
         if (!isPaidPlanKey(body?.plan)) return send({ error: 'Choose a pass to give.' }, 400);
         await grantPass(target.id, body.plan);
+        // A pass given is a pass paid for, as far as the account's address goes.
+        await reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
         return send({ ok: true, user: await adminUserDetail(target.id) });
       }
       case 'end-passes': {
         await query('UPDATE application_credit_grants SET expires_at = now() WHERE user_id = $1 AND (expires_at IS NULL OR expires_at > now())', [target.id]);
+        await reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
         return send({ ok: true, user: await adminUserDetail(target.id) });
       }
       case 'sign-out': {

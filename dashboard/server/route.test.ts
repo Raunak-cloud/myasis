@@ -1,5 +1,6 @@
 import { connect, createServer, type Server, type Socket } from 'node:net';
-import { parseProxy, RouteSwitch, setProxy } from './route.js';
+import { RouteSwitch, setProxy } from './route.js';
+import { parseProxy } from './proxy-address.js';
 
 /**
  * The route switch against a stand-in tunnel, a stand-in proxy and a
