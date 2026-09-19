@@ -148,6 +148,11 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   // THIS run wrote — never re-syncs an earlier run's already-migrated lines.
   const logPath = resolve(dir, 'run-log.jsonl');
   if (existsSync(logPath)) unlinkSync(logPath);
+  // Written only after a run reaches its final fit-qualified candidate count.
+  // Removing it here prevents a failed/aborted run from inheriting an older
+  // run's count and needlessly changing the account's search terms.
+  const summaryPath = resolve(dir, 'run-summary.json');
+  if (existsSync(summaryPath)) unlinkSync(summaryPath);
 
   return {
     dir,

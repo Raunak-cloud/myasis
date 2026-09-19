@@ -23,6 +23,8 @@ export function SearchTermsGenerator({
   const [failed, setFailed] = useState(false);
   const [resumes, setResumes] = useState<ResumeOption[]>([]);
   const [selectedResumeIds, setSelectedResumeIds] = useState<string[]>([]);
+  /** Suggestions already shown in this session must not cycle back later. */
+  const [priorSuggestedTerms, setPriorSuggestedTerms] = useState<string[]>([]);
   const entitlements = useEntitlements();
   /** Null until known and when unlimited; a number on the free plan. */
   const [left, setLeft] = useState<number | null>(null);
@@ -46,6 +48,7 @@ export function SearchTermsGenerator({
           : [];
         setResumes(next);
         setSelectedResumeIds(next.map((resume) => resume.id));
+        setPriorSuggestedTerms([]);
       })
       .catch((error) => {
         setFailed(true);
@@ -73,7 +76,11 @@ export function SearchTermsGenerator({
       const response = await fetch('/api/search-terms/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentTerms, resumeIds: selectedResumeIds }),
+        body: JSON.stringify({
+          currentTerms,
+          resumeIds: selectedResumeIds,
+          excludeTerms: priorSuggestedTerms,
+        }),
       });
       const result = await response.json() as {
         terms?: unknown;
@@ -85,6 +92,10 @@ export function SearchTermsGenerator({
         throw new Error(typeof result.error === 'string' ? result.error : 'Could not generate search terms.');
       }
       const terms = result.terms.filter((term): term is string => typeof term === 'string');
+      const current = currentTerms.split(/[,;|\r\n]+/).map((term) => term.trim()).filter(Boolean);
+      setPriorSuggestedTerms((previous) => (
+        [...new Set([...previous, ...current, ...terms].map((term) => term.toLowerCase()))]
+      ));
       onGenerated(terms.join(', '));
       if (left !== null) setLeft(left - 1);
       const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected résumés';

@@ -51,6 +51,13 @@ export interface RunState {
   ownerUserId: string | null;
 }
 
+export interface KeywordRenewalContext {
+  /** The normalized terms the child actually searched. */
+  termsUsed: string;
+  /** Exact database value at start, used for a conditional post-run save. */
+  expectedSavedTerms: string;
+}
+
 const MAX_LINES = 2000;
 
 /**
@@ -89,6 +96,19 @@ const IDLE_STATE: RunState = {
   ownerUserId: null,
 };
 
+function readQualifyingJobs(dataDir: string): number | null {
+  const path = resolve(dataDir, 'run-summary.json');
+  if (!existsSync(path)) return null;
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8')) as { qualifyingJobs?: unknown };
+    return typeof value.qualifyingJobs === 'number' && Number.isInteger(value.qualifyingJobs) && value.qualifyingJobs >= 0
+      ? value.qualifyingJobs
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function assertHumanizerHealthy(overrides: Record<string, string> = {}): Promise<void> {
   const fileEnv = readEnv();
   // A run whose plan does not include the humanizer never calls it, so its health is irrelevant.
@@ -118,6 +138,9 @@ class Run {
   private runStartId: string | null = null;
   /** Somebody pressed Stop. Such a run exits like a crash does, and must not be counted as one. */
   private stoppedByPerson = false;
+  /** Keeps the account's next run out until result sync and keyword renewal finish. */
+  private postProcessing = false;
+  private keywordRenewal: KeywordRenewalContext | null = null;
   private lines: LogLine[] = [];
   private seq = 0;
   private listeners = new Set<(l: LogLine) => void>();
@@ -171,7 +194,7 @@ class Run {
   }
 
   get occupiesSlot(): boolean {
-    return this.state.running || this.cdpPort !== null;
+    return this.state.running || this.cdpPort !== null || this.postProcessing;
   }
 
   /**
@@ -183,7 +206,7 @@ class Run {
    * child then spawned against an orphaned object, invisible and unstoppable.
    */
   get disposable(): boolean {
-    return !this.state.running && this.state.finishedAt !== null && this.listeners.size === 0;
+    return !this.state.running && !this.postProcessing && this.state.finishedAt !== null && this.listeners.size === 0;
   }
 
   /**
@@ -203,6 +226,7 @@ class Run {
     cdpPort: number,
     onApplicationSubmitted?: () => void | Promise<void>,
     runStartId?: string | null,
+    keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
@@ -250,6 +274,7 @@ class Run {
     this.seq = 0;
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
     this.runStartId = runStartId ?? null;
+    this.keywordRenewal = keywordRenewal ?? null;
     this.stoppedByPerson = false;
     this.state = {
       running: true,
@@ -329,6 +354,7 @@ class Run {
     };
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
+    this.keywordRenewal = null;
     this.stoppedByPerson = false;
     this.spawnChild(spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env }), userId, dataDir, 'scan');
     return { ok: true };
@@ -340,25 +366,60 @@ class Run {
     child.stdout?.on('data', (b) => this.push('out', b.toString()));
     child.stderr?.on('data', (b) => this.push('err', b.toString()));
     child.on('error', (e) => this.push('err', `spawn failed: ${e.message}`));
-    child.on('close', (code) => {
-      this.state.running = false;
-      this.state.exitCode = code;
-      this.state.finishedAt = new Date().toISOString();
-      this.child = null;
-      this.cdpPort = null;
-      this.onApplicationSubmitted = null;
-      this.push('sys', `■ ${kind} finished (exit ${code})`);
-      void this.recordFinish(userId, code).catch((error) =>
-        this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`),
-      );
+    child.on('close', (code) => void this.finishChild(userId, dataDir, kind, code));
+  }
+
+  private async finishChild(userId: string, dataDir: string, kind: 'run' | 'scan', code: number | null): Promise<void> {
+    this.state.running = false;
+    this.state.exitCode = code;
+    this.state.finishedAt = new Date().toISOString();
+    this.child = null;
+    this.cdpPort = null;
+    this.onApplicationSubmitted = null;
+    this.postProcessing = true;
+    const renewal = this.keywordRenewal;
+    this.keywordRenewal = null;
+    this.push('sys', `■ ${kind} finished (exit ${code})`);
+
+    const postRunTasks: Array<Promise<void>> = [
       // Fold what this run actually did — new applications, run events — back
-      // into userId's Postgres rows. `syncRunResultsToDb` is idempotent (ON
-      // CONFLICT DO NOTHING on natural keys), so this can never double-count
-      // even if it were somehow triggered twice for the same run.
-      void syncRunResultsToDb(userId, dataDir)
+      // into userId's Postgres rows. The sync is idempotent, so retries cannot
+      // double-count an application or event.
+      syncRunResultsToDb(userId, dataDir)
         .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
-        .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`));
-    });
+        .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`)),
+    ];
+
+    const qualifyingJobs = kind === 'run' && code === 0 ? readQualifyingJobs(dataDir) : null;
+    if (renewal && qualifyingJobs !== null && qualifyingJobs < 2) {
+      postRunTasks.push(
+        import('./search-terms.js')
+          .then(({ renewSearchTermsAfterSparseRun }) => (
+            renewSearchTermsAfterSparseRun(userId, renewal.termsUsed, renewal.expectedSavedTerms)
+          ))
+          .then((result) => {
+            if (result.status === 'renewed') {
+              this.push('sys', `  ↻ Search terms renewed for the next run: ${result.terms.join(', ')}`);
+            } else if (result.status === 'user-changed') {
+              this.push('sys', '  Search terms were not auto-renewed because you changed them during the run.');
+            } else {
+              this.push('err', `Could not auto-renew search terms: ${result.error}`);
+            }
+          })
+          .catch((error) => this.push('err', `Could not auto-renew search terms: ${(error as Error).message}`)),
+      );
+    }
+
+    try {
+      // Keep this account out of another run until its next-run settings and
+      // result records are durable.
+      await Promise.all(postRunTasks);
+      await this.recordFinish(userId, code);
+    } catch (error) {
+      this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
+    } finally {
+      this.postProcessing = false;
+    }
   }
 
   /**
@@ -469,7 +530,7 @@ class RunPool {
   }
 
   private atCapacity(userId: string): string | null {
-    if (this.runs.get(userId)?.running) return null; // its own guard reports better
+    if (this.runs.get(userId)?.occupiesSlot) return null; // its own guard reports better
     if (this.activeCount() < MAX_CONCURRENT) return null;
     return `The server is already running ${MAX_CONCURRENT} applications at once. Try again in a few minutes.`;
   }
@@ -480,6 +541,7 @@ class RunPool {
     userId: string,
     onApplicationSubmitted?: () => void | Promise<void>,
     runStartId?: string | null,
+    keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {
     this.sweep();
     const full = this.atCapacity(userId);
@@ -490,6 +552,7 @@ class RunPool {
       this.availableBrowserPort(),
       onApplicationSubmitted,
       runStartId,
+      keywordRenewal,
     );
   }
 

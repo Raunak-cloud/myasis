@@ -21,7 +21,7 @@ import {
 import { scoreJob, deterministicExclusion, detectInjection, meetsMinimumScore } from './scoring.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
-import { AppliedIndex, logOutcome, syncFromSeek } from './store.js';
+import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -514,6 +514,7 @@ async function main() {
       }
     }
     console.log(`\n${candidates.length} qualifying jobs.\n`);
+    saveRunSummary(candidates.length);
 
     if (searchOnly) {
       console.table(

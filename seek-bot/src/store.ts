@@ -5,6 +5,7 @@ import type { AppliedRecord, ApplyOutcome } from './types.js';
 
 const APPLIED = resolve(config.dataDir, 'applied.json');
 const LOG = resolve(config.dataDir, 'run-log.jsonl');
+const RUN_SUMMARY = resolve(config.dataDir, 'run-summary.json');
 
 function ensureDir() {
   if (!existsSync(config.dataDir)) mkdirSync(config.dataDir, { recursive: true });
@@ -84,6 +85,19 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });
   writeFileSync(LOG, line + '\n', { flag: 'a' });
+}
+
+/**
+ * A small machine-readable handoff to the dashboard after a run.
+ *
+ * The dashboard must not scrape console wording to decide whether a search
+ * was sparse: log copy changes, whereas this file is an explicit contract.
+ * `exportUserForRun` removes the previous file before every run, so a failed
+ * run can never accidentally reuse an older result.
+ */
+export function saveRunSummary(qualifyingJobs: number): void {
+  ensureDir();
+  writeFileSync(RUN_SUMMARY, JSON.stringify({ qualifyingJobs, completedAt: new Date().toISOString() }, null, 2));
 }
 
 /**

@@ -1,5 +1,5 @@
 import { runner, type RunMode } from './runner.js';
-import { runSettingsForUser, USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
+import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 import {
   billingStatus,
   consumeSuccessfulApplication,
@@ -123,7 +123,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     };
   }
 
-  const settings = await runSettingsForUser(userId, { unlimited: admin });
+  const settingsSnapshot = await runSettingsSnapshotForUser(userId, { unlimited: admin });
+  const settings = settingsSnapshot.settings;
 
   /**
    * Only known per-account settings are accepted from a browser: without this
@@ -273,6 +274,10 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     userId,
     mode === 'live' && !admin ? () => consumeSuccessfulApplication(userId) : undefined,
     runStartId,
+    {
+      termsUsed: overrides.KEYWORDS ?? '',
+      expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
+    },
   );
   if (!result.ok) {
     await discardRunStart(runStartId).catch(() => {});

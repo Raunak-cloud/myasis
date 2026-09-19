@@ -350,6 +350,7 @@ export function RunPanel({
     setup?.checks.some((check) => ['resume', 'profile', 'keywords', 'where'].includes(check.id) && !check.done),
   );
   const consoleRef = useRef<HTMLDivElement>(null);
+  const renewedTermsSeq = useRef(0);
   /** The fixed run bar on a phone; its height is what the page must leave clear. */
   const runBar = useRef<HTMLDivElement>(null);
   const wasRunning = useRef(false);
@@ -416,6 +417,23 @@ export function RunPanel({
 
   useEffect(() => {
     consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
+  }, [lines]);
+
+  useEffect(() => {
+    const renewed = [...lines].reverse().find((line) => (
+      line.seq > renewedTermsSeq.current && line.text.includes('Search terms renewed for the next run:')
+    ));
+    if (!renewed) return;
+    renewedTermsSeq.current = renewed.seq;
+    // Pull the conditional server-side update into the open form. Unsaved
+    // edits still take precedence through `val`, so a person typing at the
+    // same time keeps full control of the next run.
+    void fetch('/api/settings')
+      .then((response) => response.ok ? response.json() : null)
+      .then((value) => {
+        if (value && typeof value === 'object') setSettings(value as Record<string, string>);
+      })
+      .catch(() => {});
   }, [lines]);
 
   const running = status?.running ?? false;

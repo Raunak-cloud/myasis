@@ -95,6 +95,18 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
  * cannot inherit another account's.
  */
 export async function runSettingsForUser(userId: string, options: { unlimited?: boolean } = {}): Promise<Record<string, string>> {
+  return (await runSettingsSnapshotForUser(userId, options)).settings;
+}
+
+/**
+ * Resolves run settings and returns the exact saved values they came from in
+ * one read. The snapshot lets post-run automation use an atomic compare and
+ * swap, so an edit made while a run is active is never overwritten.
+ */
+export async function runSettingsSnapshotForUser(
+  userId: string,
+  options: { unlimited?: boolean } = {},
+): Promise<{ settings: Record<string, string>; saved: Record<string, string> }> {
   const saved = await loadUserSettings(userId);
   const out: Record<string, string> = {};
   for (const key of KEEP_SETTINGS_KEYS) {
@@ -110,7 +122,7 @@ export async function runSettingsForUser(userId: string, options: { unlimited?: 
     // except the number of search terms, which is search traffic and is capped for everyone.
     out[key] = options.unlimited && key !== 'KEYWORDS' ? value : normalizeSetting(key, value);
   }
-  return out;
+  return { settings: out, saved };
 }
 
 /** The limits an operator may leave empty, meaning none: applications per run and per day, and listings reviewed. */
@@ -140,3 +152,23 @@ export async function saveUserSettings(
   return loadUserSettings(userId);
 }
 
+/**
+ * Saves AI-renewed search terms only if the account still has exactly the
+ * value it had when the run began. UPDATE ... WHERE ... RETURNING makes the
+ * check and write one database operation; a user's intervening edit wins.
+ */
+export async function replaceSearchTermsIfUnchanged(
+  userId: string,
+  expectedValue: string,
+  nextValue: string,
+): Promise<boolean> {
+  const normalized = normalizeSetting('KEYWORDS', nextValue);
+  const updated = await query<{ value: string }>(
+    `UPDATE settings
+        SET value = $3
+      WHERE user_id = $1 AND key = 'KEYWORDS' AND value = $2
+      RETURNING value`,
+    [userId, expectedValue, normalized],
+  );
+  return updated.length === 1;
+}
