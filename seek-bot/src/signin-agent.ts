@@ -24,18 +24,54 @@ import { fillField } from './dom.js';
  */
 
 const MAX_STEPS = 12;
+
+/**
+ * Buttons that another site draws inside a frame — "Continue as <name>" from
+ * Google is the one that matters — are invisible to the page's own list of
+ * controls, which is why pointing at the screenshot was tried first. It missed:
+ * a 44-pixel button placed by eye on a 0-1000 grid is a coin toss, and the
+ * sign-in went nowhere while the right button sat in plain view. So a small
+ * frame with a few words in it is offered as a control of its own, and
+ * clicking it is a real mouse click on the middle of the frame, which the
+ * browser delivers into the frame whatever site it belongs to.
+ */
+interface EmbeddedButton {
+  ref: string;
+  text: string;
+  x: number;
+  y: number;
+}
+
+async function embeddedButtons(page: Page): Promise<EmbeddedButton[]> {
+  const found: EmbeddedButton[] = [];
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try {
+      const element = await frame.frameElement();
+      const box = await element.boundingBox();
+      // Widget-sized and on screen: a button or a one-line prompt, not an embedded page.
+      if (!box || box.width < 40 || box.height < 20 || box.height > 160) continue;
+      const text = (await frame.evaluate(() => (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim())).slice(0, 120);
+      if (!text) continue;
+      found.push({ ref: `w${found.length + 1}`, text, x: box.x + box.width / 2, y: box.y + box.height / 2 });
+    } catch {
+      // A frame that navigated or was removed while being read is simply not offered.
+    }
+  }
+  return found;
+}
 const BUDGET_USD = 0.05;
 
 const TOOLS: ToolSchema[] = [
   {
     name: 'click',
-    description: 'Click an ACTION by its ref.',
+    description: 'Click an ACTION or an EMBEDDED BUTTON by its ref.',
     parameters: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] },
   },
   {
     name: 'click_point',
     description:
-      'Click something visible in the screenshot that has no ref — sign-in buttons from Google and Apple live inside frames and usually have none. ' +
+      'Last resort: click something visible in the screenshot that has no ref at all. ' +
       'Coordinates are on a 0-1000 grid over the screenshot, x left to right, y top to bottom.',
     parameters: {
       type: 'object',
@@ -86,7 +122,9 @@ Use what the browser already has, in this order of preference:
 
 You can click, enter the person's own email address, and have an emailed code entered. You cannot type anything else, so never choose a path that needs a password, a phone code, a new account, or "use another account". If that is all the page offers, give_up and say what it asked for.
 
-Buttons from Google and Apple sit inside frames: they are in the screenshot but often not in the ACTIONS list. Use click_point on them.
+Buttons that Google or Apple draw are listed under EMBEDDED BUTTONS with refs of their own; click them like any other. If one of them continues as the person, that is the whole sign-in: click it before anything else, and do not type an email address while it is there.
+
+If a click changes nothing, do not repeat it: choose something else, or give_up.
 
 Cookie banners and "stay signed in?" prompts may be accepted. Do not sign up, do not change any setting, and do not leave the sign-in flow.
 
@@ -116,12 +154,21 @@ export async function signInAutomatically(
   const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(site, account) }];
   let note = `Sign in to ${site}. Begin with the page below.`;
   let lastObservationIndex = -1;
+  let before = '';
 
   for (let step = 1; step <= MAX_STEPS; step++) {
     const observation = await observe(page, { screenshot: true });
+    const embedded = await embeddedButtons(page);
+    // Every click "worked" as far as the mouse is concerned; whether the page moved is what the model needs to hear.
+    const now = `${observation.url}|${observation.actions.length}|${observation.fields.length}|${embedded.map(button => button.text).join('|')}`;
+    if (step > 1 && now === before && /^Clicked/.test(note)) note += ' The page looks exactly as it did before that click, so it had no effect.';
+    before = now;
     // Only the page in front of it is worth its weight; older ones are kept as one line.
     if (lastObservationIndex >= 0) messages[lastObservationIndex] = { role: 'user', content: '[an earlier page]' };
-    const text = `${note}\n\n${renderObservation(observation)}`;
+    const widgets = embedded.length
+      ? `\n\nEMBEDDED BUTTONS (drawn by another site inside this page; click by ref):\n${embedded.map(button => `  ${button.ref}  <untrusted>${button.text}</untrusted>`).join('\n')}`
+      : '';
+    const text = `${note}\n\n${renderObservation(observation)}${widgets}`;
     messages.push({
       role: 'user',
       content: observation.screenshot ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: observation.screenshot } }] : text,
@@ -143,8 +190,17 @@ export async function signInAutomatically(
     try {
       switch (call.name) {
         case 'click': {
+          const widget = embedded.find(candidate => candidate.ref === String(args.ref));
+          if (widget) {
+            log(`  ↪ sign-in: click "${widget.text.slice(0, 60)}"`);
+            // Arrive, then press: a pointer that teleports onto a sign-in button is not how anyone clicks one.
+            await page.mouse.move(widget.x - 24, widget.y + 3, { steps: 8 });
+            await page.mouse.click(widget.x, widget.y);
+            result = `Clicked "${widget.text}".`;
+            break;
+          }
           const action = observation.actions.find(candidate => candidate.ref === String(args.ref));
-          if (!action) result = 'No ACTION has that ref on this page.';
+          if (!action) result = 'No ACTION or EMBEDDED BUTTON has that ref on this page.';
           else if (action.disabled) result = `"${action.text}" is disabled.`;
           else {
             log(`  ↪ sign-in: click "${action.text.slice(0, 60)}"`);
