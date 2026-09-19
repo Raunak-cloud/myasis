@@ -103,9 +103,8 @@ const ALERTS: AlertKind[] = [
   },
   {
     key: 'board-signed-out',
-    // The next check or run tries to sign back in by itself; only a sign-out that survives that is worth an email.
-    // Six hours spans at least one scheduled run on every plan, so the attempt the email mentions has really been made.
-    holdMinutes: 6 * 60,
+    // Half an hour rides out a board that is signed back in by the next check or run.
+    holdMinutes: 30,
     applies: (facts) => facts.signedOutBoards.length > 0,
     message: (facts) => {
       const boards = facts.signedOutBoards.join(' and ');
@@ -185,7 +184,8 @@ async function gatherFacts(userId: string, email: string): Promise<Facts> {
     granted: Number(grants?.total ?? 0) + billing.free.allowance,
     signedOutBoards: boards.filter((board) => {
       const state = readSiteState(userId, board as 'seek' | 'indeed');
-      return state?.signedIn === false && !state.signedOutByPerson;
+      // Only once signing back in by itself has really been tried and has failed: until then there is nothing for the person to do.
+      return state?.signedIn === false && !state.signedOutByPerson && state.autoSigninFailed;
     }).map((board) => BOARD_NAMES[board]),
     recentRuns: runs.map((run) => ({ failed: (run.exit_code ?? 0) !== 0 && !run.applied, stopped: Boolean(run.stopped) })),
     missingSetup: Object.values(setup).filter((check) => check.required && !check.done).map((check) => check.label),

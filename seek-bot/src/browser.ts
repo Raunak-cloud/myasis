@@ -210,6 +210,8 @@ interface SiteSession {
   signedIn: boolean;
   account?: string | null;
   signedOutByPerson?: boolean;
+  /** Signing back in automatically was tried and did not work: the point at which only the person can fix it. */
+  autoSigninFailed?: boolean;
 }
 
 function readSiteSession(site: SigninSite): SiteSession | null {
@@ -220,13 +222,15 @@ function readSiteSession(site: SigninSite): SiteSession | null {
   }
 }
 
-export function recordSiteSession(site: SigninSite, signedIn: boolean, extra: { account?: string | null; signedOutByPerson?: boolean } = {}): void {
+export function recordSiteSession(site: SigninSite, signedIn: boolean, extra: { account?: string | null; signedOutByPerson?: boolean; autoSigninFailed?: boolean } = {}): void {
   try {
     // A failed check says nothing new about who signed out; a successful one ends a deliberate sign-out.
-    const signedOutByPerson = signedIn ? false : extra.signedOutByPerson ?? readSiteSession(site)?.signedOutByPerson ?? false;
+    const before = signedIn ? null : readSiteSession(site);
+    const signedOutByPerson = signedIn ? false : extra.signedOutByPerson ?? before?.signedOutByPerson ?? false;
+    const autoSigninFailed = signedIn ? false : extra.autoSigninFailed ?? before?.autoSigninFailed ?? false;
     writeFileSync(
       resolve(config.dataDir, `${site}-session.json`),
-      JSON.stringify({ signedIn, checkedAt: new Date().toISOString(), source: 'run', account: signedIn ? extra.account ?? null : null, signedOutByPerson }, null, 2),
+      JSON.stringify({ signedIn, checkedAt: new Date().toISOString(), source: 'run', account: signedIn ? extra.account ?? null : null, signedOutByPerson, autoSigninFailed }, null, 2),
     );
   } catch {
     // Never fail a run over a status file the run itself does not read.
@@ -283,6 +287,7 @@ async function ensure(page: Page, site: string, check: (page: Page) => Promise<v
     console.log(`  ✓ signed back in to ${site}`);
     return;
   }
+  recordSiteSession(site === 'SEEK' ? 'seek' : 'indeed', false, { autoSigninFailed: true });
   throw new Error(`${site} session is not signed in, and signing back in automatically did not work: ${attempt.reason}. Sign in on the Apply page.`);
 }
 

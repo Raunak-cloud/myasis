@@ -23,6 +23,8 @@ export interface SeekState {
   account: string | null;
   /** The person signed this board out from the dashboard. Nothing signs it back in for them. */
   signedOutByPerson: boolean;
+  /** Signing back in automatically was tried and failed, so only the person can fix it now. */
+  autoSigninFailed: boolean;
 }
 
 export type SigninSite = 'seek' | 'indeed';
@@ -40,6 +42,7 @@ export function readSiteState(userId: string, site: SigninSite): SeekState | nul
       source: parsed.source === 'run' ? 'run' : 'declared',
       account: parsed.signedIn && typeof parsed.account === 'string' ? parsed.account : null,
       signedOutByPerson: !parsed.signedIn && parsed.signedOutByPerson === true,
+      autoSigninFailed: !parsed.signedIn && parsed.autoSigninFailed === true,
     };
   } catch {
     return null;

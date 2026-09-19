@@ -22,7 +22,7 @@ check('the low email says how many are left', alertsFor({ ...healthy, billing: b
 check('a free account is told at its last application, not before', keys({ ...healthy, billing: billing(2, false), granted: 5 }).length === 0 && keys({ ...healthy, billing: billing(1, false), granted: 5 }).join() === 'applications-low');
 check('an account at zero is told it is out, and not also that it is low', keys({ ...healthy, billing: billing(0, false), granted: 5 }).join() === 'applications-out');
 
-check('a signed-out board is an alert, and waits before it is sent', alertsFor({ ...healthy, signedOutBoards: ['Indeed'] })[0].key === 'board-signed-out' && alertsFor({ ...healthy, signedOutBoards: ['Indeed'] })[0].holdMinutes >= 60);
+check('a signed-out board is an alert, and waits before it is sent', alertsFor({ ...healthy, signedOutBoards: ['Indeed'] })[0].key === 'board-signed-out' && alertsFor({ ...healthy, signedOutBoards: ['Indeed'] })[0].holdMinutes >= 30);
 check('it names the board', alertsFor({ ...healthy, signedOutBoards: ['SEEK', 'Indeed'] })[0].message.subject.startsWith('SEEK and Indeed signed you out'));
 
 const failed = { failed: true, stopped: false };
