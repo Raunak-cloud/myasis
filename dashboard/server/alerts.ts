@@ -104,14 +104,15 @@ const ALERTS: AlertKind[] = [
   {
     key: 'board-signed-out',
     // The next check or run tries to sign back in by itself; only a sign-out that survives that is worth an email.
-    holdMinutes: 45,
+    // Six hours spans at least one scheduled run on every plan, so the attempt the email mentions has really been made.
+    holdMinutes: 6 * 60,
     applies: (facts) => facts.signedOutBoards.length > 0,
     message: (facts) => {
       const boards = facts.signedOutBoards.join(' and ');
       return {
         subject: `${boards} signed you out, so Owtomate cannot apply there`,
         paragraphs: [
-          `${boards} signed your account out, and signing back in automatically did not work. Until you sign in again, Owtomate cannot apply on ${boards}.`,
+          `${boards} has signed your account out. Owtomate tries to sign back in by itself, and that has not worked, so until you sign in again it cannot apply on ${boards}.`,
           'It takes a minute: open the Apply page and choose "Sign in again".',
         ],
         action: { label: 'Sign in again', tab: 'run' },
