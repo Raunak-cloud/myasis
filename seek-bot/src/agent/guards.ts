@@ -63,6 +63,24 @@ export function isExternal(url: string): boolean {
 }
 
 /**
+ * The job-board listing a URL shows, when it shows one: SEEK's /job/<id>, and
+ * Indeed's jk / vjk parameter. Used to hold an application to the job it was
+ * started for — seen live, an agent whose form had closed clicked its way into
+ * a different job's "Apply" button on the board's home page.
+ */
+export function listingIdIn(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!BOARD_HOSTS.test(parsed.hostname)) return null;
+    const seek = /\/job\/(\d+)/.exec(parsed.pathname)?.[1];
+    if (seek) return seek;
+    return parsed.searchParams.get('jk') ?? parsed.searchParams.get('vjk');
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Destinations the agent is never allowed to drive, whatever it decides.
  *
  * Authentication is handled by a dedicated tool. Payment flows and Australian
@@ -282,7 +300,8 @@ export class RunGuards {
 
   /** Why the application could not be completed, in the candidate's terms. */
   unfillableReason(): string | null {
-    const labels = [...this.unfillable.keys()];
+    // Refused twice first; then anything with an answer the form refused once and never took.
+    const labels = [...this.unfillable.keys(), ...[...this.pendingFields].filter((label) => this.fillAttempts.has(label))];
     if (!labels.length) return null;
     const rest = labels.length - 1;
     return `The “${labels[0]}” control on this form did not accept anything Owtomate tried${

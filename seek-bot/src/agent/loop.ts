@@ -9,7 +9,7 @@ import { jitter, workingIn } from '../browser.js';
 import { extractFields, readPickerOptions } from '../dom.js';
 import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
-import { RunGuards, detectConfirmation, isExternal } from './guards.js';
+import { RunGuards, detectConfirmation, isExternal, listingIdIn } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
 import { executeTool, toolSchemas, type AgentTermination, type ToolContext } from './tools.js';
 import { browserGmailAvailable } from '../browser-gmail.js';
@@ -74,6 +74,15 @@ employers, so read the page rather than assuming an order.
   If a step has unanswered fields, answer them before clicking anything.
 - If a forward control is disabled, something required is still unanswered.
 - If a dialog is covering the page, close or confirm it first.
+- Controls that put the form away end the application, whatever they promise:
+  "Save and close", "Save for later", "Exit application", "Discard", "Don't
+  save", "Withdraw", "Back to job search". Never press one to move forward. The way
+  forward is the step's own continue, next, review or submit control. If a
+  dialog asks whether to save or leave, choose the option that returns to the
+  form ("Cancel", "Keep editing", "Continue application").
+- You are applying for this one job only. If the form closes and you are back
+  on the job board's listings, finish with "cannot_complete" — never open,
+  apply to or click the apply button of another job.
 - If an employer site requires sign-in or account creation, complete it rather
   than stopping. Prefer an emailed code or passwordless option when offered.
   Use complete_authentication for email, username, name, phone and password
@@ -387,9 +396,15 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * opens — so it stays a run outcome, with the form's own reason, instead
      * of arriving as a task they cannot complete.
      */
-    const answerable = (question: string) =>
-      guards.ungrounded.includes(question) || guards.fieldShapes.get(question)?.required === true;
-    const criticalQuestions = [...new Set([...guards.pendingFields, ...guards.ungrounded])].filter(answerable);
+    /**
+     * Only what the answerer itself said the profile cannot answer. A field
+     * that had an answer and merely did not stay filled is the form's problem,
+     * not a question: counting every required unfinished field here once put
+     * four questions on a candidate's dashboard — salary, work rights, a
+     * project, a motivation — all of which the agent had already answered from
+     * their profile before a dialog swallowed the form.
+     */
+    const criticalQuestions = [...guards.ungrounded];
     const finalOutcome: AgentTermination =
       outcome.status === 'needs-human' && criticalQuestions.length === 0
         ? { status: 'skipped', reason: guards.unfillableReason() ?? outcome.reason }
@@ -502,6 +517,12 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * up a duplicate on the next run.
      */
     if (await detectConfirmation(page)) return finish({ status: 'applied' });
+
+    // Another job's listing means this application's form is gone; nothing done on that page is for this job.
+    const listing = listingIdIn(page.url());
+    if (listing && listing !== job.id) {
+      return finish({ status: 'skipped', reason: 'The application form closed before it was finished.' });
+    }
 
     if (isAustralianGovernmentUrl(page.url())) {
       return finish({ status: 'skipped', reason: 'Australian government application sites are excluded.' });

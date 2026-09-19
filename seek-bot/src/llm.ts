@@ -267,7 +267,12 @@ For each field also set "basis", which decides whether it may be filled at all:
   employers, titles and dates come from the résumé; years of experience are
   counted from those dates; and when the truthful answer is "No", "None" or
   "0" because nothing shows the candidate has a skill, tool, system or kind
-  of experience, that answer is supported. Silence is never an answer to a
+  of experience, that answer is supported. The résumé's work history is the
+  candidate's full employment record, so whether they work, or have worked,
+  for a named organisation — "Are you currently employed at <company>?",
+  "Have you worked for us before?", "Are you a current or former employee or
+  contractor?" — is answered from it: "No" when that organisation is not in
+  the history, and "Yes" only when it is. Silence is never an answer to a
   critical question below: that the profile does not mention a conviction, a
   health condition or a visa is not the candidate saying so.
 
