@@ -1,3 +1,4 @@
+import { browserRoute } from './route.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { upgradeOriginAllowed } from './http-guards.js';
 import { createConnection } from 'node:net';
@@ -190,8 +191,11 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek')
       );
     }
 
+    // Signed in from the same address the runs will apply from.
+    const route = await browserRoute(userId);
     const chromeArgs = [
       `--user-data-dir=${profileDir}`,
+      ...route.args,
       '--no-first-run',
       '--no-default-browser-check',
       '--window-position=0,0',

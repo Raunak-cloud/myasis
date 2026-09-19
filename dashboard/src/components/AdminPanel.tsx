@@ -29,6 +29,7 @@ interface AdminUser {
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
   overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
+  homeRoute: { port: number | null; status: { configured: boolean; using: 'home' | 'server'; homeOnline: boolean; homeAddress: string | null } };
   manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
@@ -291,6 +292,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   const [confirmEmail, setConfirmEmail] = useState('');
   const [evaluationsInput, setEvaluationsInput] = useState('');
   const [maxAppsInput, setMaxAppsInput] = useState('');
+  const [homeRouteInput, setHomeRouteInput] = useState('');
 
   const load = useCallback(() => {
     api<UserDetail>(`/users/${userId}`).then(setUser).catch((reason) => setError((reason as Error).message));
@@ -301,6 +303,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   useEffect(() => {
     setEvaluationsInput(user?.overrides.evaluationsPerRun != null ? String(user.overrides.evaluationsPerRun) : '');
     setMaxAppsInput(user?.overrides.maxApplicationsPerRun != null ? String(user.overrides.maxApplicationsPerRun) : '');
+    setHomeRouteInput(user?.homeRoute.port != null ? String(user.homeRoute.port) : '');
   }, [user]);
 
   function saveLimits() {
@@ -312,6 +315,11 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
     };
     const evaluationsPerRun = parse(evaluationsInput);
     const maxApplicationsPerRun = parse(maxAppsInput);
+    const homeRoutePort = parse(homeRouteInput);
+    if (homeRoutePort === 'invalid' || (homeRoutePort !== null && (!Number.isInteger(homeRoutePort) || homeRoutePort < 1024 || homeRoutePort > 65535))) {
+      setError('The home route port must be a whole number from 1024 to 65535, or blank for none.');
+      return;
+    }
     if (evaluationsPerRun === 'invalid' || maxApplicationsPerRun === 'invalid') {
       setError('Limits must be a positive number, or left blank to use the plan default.');
       return;
@@ -319,7 +327,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
     void act(
       'limits',
       `/users/${user!.id}/limits`,
-      { method: 'POST', json: { evaluationsPerRun, maxApplicationsPerRun } },
+      { method: 'POST', json: { evaluationsPerRun, maxApplicationsPerRun, homeRoutePort } },
       'Limits saved.',
     );
   }
@@ -485,6 +493,27 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       placeholder={user.admin ? 'No limit' : 'Plan default'}
                       value={maxAppsInput}
                       onChange={(event) => setMaxAppsInput(event.target.value)}
+                    />
+                  </label>
+                  <label className="admin-switch-row">
+                    <span>
+                      Home route port
+                      <span className="job-meta" style={{ display: 'block' }}>
+                        {user.homeRoute.port === null
+                          ? 'None: this account applies from the server.'
+                          : user.homeRoute.status.homeOnline
+                            ? `Home machine connected${user.homeRoute.status.homeAddress ? ` · ${user.homeRoute.status.homeAddress}` : ''} · using ${user.homeRoute.status.using === 'home' ? 'the home connection' : 'the server until its browser closes'}`
+                            : 'Home machine not connected · applying from the server'}
+                      </span>
+                    </span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1024}
+                      max={65535}
+                      placeholder="None"
+                      value={homeRouteInput}
+                      onChange={(event) => setHomeRouteInput(event.target.value)}
                     />
                   </label>
                   <div className="admin-button-row">

@@ -5,6 +5,7 @@ import { BOT_DIR, readEnv, runner, MAX_CONCURRENT } from './runner.js';
 import { sessionFor, signinSessionCount } from './signin.js';
 import { readSiteState, type SeekState, type SigninSite } from './seek-state.js';
 import { userChromeDir, userDir } from './userdata.js';
+import { browserRoute } from './route.js';
 
 /**
  * Finds out whether an account is really signed in to SEEK.
@@ -113,8 +114,11 @@ export function checkSignin(userId: string, site: SigninSite): Promise<SeekState
     const profileDir = userChromeDir(userId);
     if (!(await waitForProfileFree(profileDir))) return known();
 
+    // The same route a run would take: a session checked from one address and used from another is its own red flag.
+    const route = await browserRoute(userId);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
       SIGNIN_SITE: site,
       CHROME_PROFILE_DIR: profileDir,
       CDP_PORT: String(checkPort()),

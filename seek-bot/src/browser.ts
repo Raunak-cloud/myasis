@@ -109,6 +109,15 @@ export async function launchBrowser(): Promise<BrowserContext> {
      * cache has no flag and is cleared by deploy/maintenance.sh instead.
      */
     args.push('--disk-cache-size=104857600');
+    /**
+     * The dashboard's route switch, for an account with a home connection: a
+     * loopback SOCKS server that sends this browser out through the person's
+     * home address while their machine is on and from this server otherwise.
+     * The second flag keeps WebRTC from announcing this server's address from
+     * behind the home one. Both are launch flags, which pages cannot see.
+     */
+    const proxyServer = process.env.BROWSER_PROXY_SERVER?.trim();
+    if (proxyServer) args.push(`--proxy-server=${proxyServer}`, '--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
     if (!config.headless) {
       // Size the real window rather than emulating a viewport — see below.
       args.push('--window-size=1440,960');

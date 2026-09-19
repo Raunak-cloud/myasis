@@ -150,6 +150,7 @@ async function main() {
 
   const platforms = enabledPlatforms(config.platforms.join(','));
   console.log(`Platforms this run: ${platforms.map((p) => p.label).join(', ')}`);
+  if (process.env.BROWSER_ROUTE_NOTE) console.log(`Applying from: ${process.env.BROWSER_ROUTE_NOTE}`);
   // Boards the dashboard left out because the account is signed out of them.
   for (const board of (process.env.SKIPPED_BOARDS ?? '').split(',').map((b) => b.trim()).filter(Boolean)) {
     console.log(`⚠ ${board === 'indeed' ? 'Indeed' : 'SEEK'}: not signed in, so it was left out of this run.`);

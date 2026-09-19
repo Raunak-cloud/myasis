@@ -22,6 +22,7 @@ import { releaseChromeProfile } from './chrome-profile.js';
 import { userChromeDir } from './userdata.js';
 import { submittedToday } from './today.js';
 import { readSiteState } from './seek-state.js';
+import { browserRoute, describeRoute } from './route.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -246,6 +247,13 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * simply tries again on its next tick. A run that starts and then dies
    * does count, which is why this is not tied to the run finishing.
    */
+  // Decided as late as possible, so the run starts on the route that is up now rather than a minute ago.
+  const route = await browserRoute(userId);
+  if (route.proxyServer) {
+    overrides.BROWSER_PROXY_SERVER = route.proxyServer;
+    overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
+  }
+
   const runStartId = await recordRunStart(userId, mode, trigger, request.startedBy).catch(() => null);
   const result = await runner.start(
     mode,

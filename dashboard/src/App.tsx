@@ -22,6 +22,7 @@ import { useEntitlements } from './entitlements';
 import { planName, shortDate, useBillingStatus } from './billing';
 import { stopSimulation, useSimulation } from './simulation';
 import { useBoardsStatus } from './boards';
+import { useRouteStatus } from './route';
 import { trackPage } from './analytics';
 import { useRunStatus } from './runStatus';
 
@@ -85,6 +86,7 @@ export default function App() {
   const billing = useBillingStatus();
   const simulation = useSimulation();
   const boards = useBoardsStatus();
+  const route = useRouteStatus();
   /**
    * The rewriting tool is the operator's, so its tab is not offered. Landing
    * on it by an old link or a stale tab falls back to Apply rather than
@@ -370,6 +372,31 @@ export default function App() {
                   </span>
                   <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
                 </button>
+              )}
+
+              {route && (
+                <div
+                  className="nav-row nav-row-static"
+                  title={route.using === 'home'
+                    ? 'Applications go out from your own home internet connection while your computer is on.'
+                    : route.configured
+                      ? 'Your home computer is not connected, so applications go out from the Owtomate server.'
+                      : 'Applications go out from the Owtomate server.'}
+                >
+                  <span className="nav-row-main">
+                    <span className="nav-row-title">Connection</span>
+                    <span className="nav-row-sub">
+                      {route.using === 'home'
+                        ? `Your home internet${route.homeAddress ? ` · ${route.homeAddress}` : ''}`
+                        : route.configured
+                          ? 'Owtomate server · home computer off'
+                          : 'Owtomate server'}
+                    </span>
+                  </span>
+                  <span className="nav-dots" aria-hidden="true">
+                    <span className={`nav-dot ${route.using === 'home' || !route.configured ? 'on' : 'off'}`} />
+                  </span>
+                </div>
               )}
 
               <div className="nav-tools">

@@ -2678,3 +2678,4 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .out-of-applications { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .simulate-card { grid-template-rows: auto auto auto auto 1fr; }
 .simulate-card .btn { align-self: end; }
+.nav-row-static { cursor: default; }

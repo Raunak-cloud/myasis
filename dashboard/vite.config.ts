@@ -45,6 +45,7 @@ import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
 import { chatCompletion, humanizerEndpoint, probeHumanizer } from './server/humanizer-endpoint.js';
+import { routeStatus } from './server/route.js';
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
@@ -708,6 +709,11 @@ function dataApi(): Plugin {
           })
           .catch((error) => send({ configured: true, online: false, error: `Could not reach the rewriting service: ${(error as Error).message}` }, 503));
         });
+      }
+
+      // ---- which connection this account's browser goes out on ----
+      case '/api/route': {
+        return withUser(async (userId) => send(await routeStatus(userId)));
       }
 
       // ---- résumé library ----
