@@ -195,20 +195,14 @@
   list-style: none; margin: 0; padding: 0 8px 4px 0;
   display: flex; gap: 14px; flex: none;
 }
+/* The card is the text: employer over city, no avatar disc in front of it. */
 .home-trust-card {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 14px 8px 8px;
+  display: grid; line-height: 1.3;
+  padding: 9px 14px;
   border: var(--edge-thin); background: var(--paper);
   box-shadow: 2px 2px 0 var(--rule);
   white-space: nowrap;
 }
-.home-trust-mono {
-  display: grid; place-items: center; flex: none;
-  width: 30px; height: 30px; border-radius: 50%;
-  background: var(--accent-soft); color: var(--accent-deep);
-  font-family: var(--display); font-size: 13px; font-weight: 600;
-}
-.home-trust-text { display: grid; line-height: 1.3; }
 .home-trust-company { font-size: 13px; font-weight: 600; color: var(--ink); }
 .home-trust-city { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .02em; }
 
@@ -692,6 +686,11 @@
     color: var(--accent); background: none; border: 0;
     border-bottom: 1px solid currentColor; cursor: pointer;
   }
+  /* The top-up and Humanizer note is small print about what happens after you
+     buy, and both are said again in-app. On a phone it is four mono lines
+     between the last price and the questions, so it stays in the markup for
+     wide screens and search engines and is dropped from the phone layout. */
+  .home-price-foot { display: none; }
 
   .home-faq-list details summary { grid-template-columns: 48px 1fr auto; gap: 12px; padding: 18px 0; }
   .home-faq-list details p { padding: 0 0 22px 60px; }

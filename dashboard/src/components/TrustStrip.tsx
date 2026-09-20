@@ -5,8 +5,8 @@
  * Both are marketing claims about real employers, so the numbers and names
  * here must reflect what actually happened; the shape is data-driven so
  * replacing them is an edit to this file, not to the page. The ticker names
- * the employer and the city only — no person, no role — so a card is two
- * short lines and nobody's placement is pinned to a name.
+ * the employer and the city only — no person, no role, no initial — so a card
+ * is two short lines and nobody's placement is pinned to a name.
  */
 export const ACTIVE_USERS = 7_000;
 
@@ -38,11 +38,8 @@ function Row({ hidden = false }: { hidden?: boolean }) {
     <ul className="home-trust-row" aria-hidden={hidden || undefined}>
       {PLACEMENTS.map((p) => (
         <li key={p.company} className="home-trust-card">
-          <span className="home-trust-mono" aria-hidden="true">{p.company[0]}</span>
-          <span className="home-trust-text">
-            <span className="home-trust-company">{p.company}</span>
-            <span className="home-trust-city">{p.city}</span>
-          </span>
+          <span className="home-trust-company">{p.company}</span>
+          <span className="home-trust-city">{p.city}</span>
         </li>
       ))}
     </ul>
