@@ -588,13 +588,13 @@
   box-shadow: var(--lift);
   transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
 }
-.landing .home-button:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); background: var(--accent-deep); }
+.landing .home-button:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); background: var(--accent-deep); color: var(--paper); }
 .landing .home-button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
 
 .landing .home-button-light {
   background: var(--paper); color: var(--ink);
 }
-.landing .home-button-light:hover { background: var(--accent-soft); }
+.landing .home-button-light:hover { background: var(--accent-soft); color: var(--ink); }
 
 .landing .home-button-white {
   background: var(--paper); color: var(--ink); border-color: var(--paper);
