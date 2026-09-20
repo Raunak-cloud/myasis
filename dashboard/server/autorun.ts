@@ -330,7 +330,14 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
       dueAt: dueMinutes(account.userId, today, index, account.entitlements.autoRunsUsedToday, order.length, MAX_CONCURRENT, account.entitlements.autoRunsPerDay),
     }))
     .filter((a) => a.done < a.entitlements.autoRunsPerDay && elapsed >= a.dueAt && free(a.userId))
-    .sort((a, b) => a.done - b.done || a.dueAt - b.dueAt);
+    .sort((a, b) => {
+      const priority = (account: typeof a) => account.entitlements.tier === 'intensive'
+        ? 2
+        : account.entitlements.humanizer
+          ? 1
+          : 0;
+      return a.done - b.done || priority(b) - priority(a) || a.dueAt - b.dueAt;
+    });
 
   const started: string[] = [];
   for (const account of dueTimetabled) {

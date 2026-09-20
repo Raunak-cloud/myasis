@@ -21,6 +21,20 @@ export async function submittedToday(userId: string): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
+/** Employer-site submissions since local midnight, used by Intensive's separate daily ceiling. */
+export async function externalSubmittedToday(userId: string): Promise<number> {
+  const rows = await query<{ n: string }>(
+    `SELECT count(*)::text AS n
+       FROM applications
+      WHERE user_id = $1
+        AND submitted_by_myasis
+        AND external
+        AND applied_at >= ${DAY_START}`,
+    [userId, RUN_TIME_ZONE],
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
 /** Small, durable totals for the Apply dashboard after each completed run. */
 export async function loadTodayStats(userId: string): Promise<TodayStats> {
   const [runs, reviewed, submitted] = await Promise.all([

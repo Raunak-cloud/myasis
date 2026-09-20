@@ -123,7 +123,7 @@ export function SearchTermsGenerator({
         <span className="job-meta search-terms-ai-note">{left === 1 ? 'One free suggestion on your plan.' : `${left} free suggestions on your plan.`}</span>
       )}
       {exhausted && !message && (
-        <span className="job-meta search-terms-ai-note">Your free suggestion has been used. Job Search Pass and Intensive Pass include unlimited suggestions.</span>
+        <span className="job-meta search-terms-ai-note">Your free suggestion has been used. Paid passes include unlimited suggestions.</span>
       )}
       {resumes.length > 1 && (
         <details className="search-terms-resumes">

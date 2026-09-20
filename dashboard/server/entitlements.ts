@@ -29,6 +29,7 @@ export const INTENSIVE_MANUAL_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].manua
 
 /** Scheduled runs per local day for customer plans. */
 export const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
+export const ESSENTIAL_AUTO_RUNS_PER_DAY = PLAN_LIMITS['essential-pass'].autoRunsPerDay;
 export const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoRunsPerDay;
 export const INTENSIVE_AUTO_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].autoRunsPerDay;
 
@@ -109,8 +110,9 @@ export async function setAdminOverrides(
 export const INTENSIVE_EMPLOYER_SITES_PER_DAY = PLAN_LIMITS['intensive-pass'].employerSitesPerDay;
 
 
-/** Listings the AI assesses in each run for the three customer plans. */
+/** Listings the AI assesses in each run for the four customer plans. */
 export const FREE_EVALUATIONS_PER_RUN = PLAN_LIMITS.free.evaluationsPerRun;
+export const ESSENTIAL_EVALUATIONS_PER_RUN = PLAN_LIMITS['essential-pass'].evaluationsPerRun;
 export const JOB_SEARCH_EVALUATIONS_PER_RUN = PLAN_LIMITS['job-search-pass'].evaluationsPerRun;
 export const INTENSIVE_EVALUATIONS_PER_RUN = PLAN_LIMITS['intensive-pass'].evaluationsPerRun;
 
@@ -135,6 +137,15 @@ export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
   (key) => !(BASIC_SETTINGS_KEYS as readonly string[]).includes(key),
 );
 
+/** Active Search may refine matching without receiving Intensive's run controls or standing instructions. */
+export const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
+
+export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'>): boolean {
+  if (!FINE_TUNING_KEYS.includes(key)) return true;
+  return entitlement.fineTune
+    || (entitlement.advancedFilters && (ADVANCED_FILTER_KEYS as readonly string[]).includes(key));
+}
+
 /**
  * Apply plan policy to the settings that will actually reach the bot.
  *
@@ -148,7 +159,7 @@ export function applyRunPolicy(
   settings: Record<string, string>,
   entitlement: Pick<
     Entitlements,
-    'tier' | 'fineTune' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer' | 'maxApplicationsPerRunOverride'
+    'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer' | 'maxApplicationsPerRunOverride'
   >,
   trigger: 'manual' | 'auto',
 ): Record<string, string> {
@@ -157,7 +168,9 @@ export function applyRunPolicy(
   // keep influencing runs after it disappears from the interface.
   resolved.TARGET_ROLE = RUN_SETTING_DEFAULTS.TARGET_ROLE;
   if (!entitlement.fineTune) {
-    for (const key of FINE_TUNING_KEYS) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
+    for (const key of FINE_TUNING_KEYS) {
+      if (!mayEditRunSetting(key, entitlement)) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
+    }
   }
   /**
    * A pass that includes Indeed adds it for every tier. An account that can
@@ -189,7 +202,10 @@ export function applyRunPolicy(
    */
   if (!entitlement.humanizer) resolved.HUMANIZER_MODE = 'off';
   if (trigger === 'auto' && entitlement.tier !== 'admin') {
-    resolved.MIN_SCORE = String(SCHEDULED_MIN_SCORE);
+    const requestedScore = Number(resolved.MIN_SCORE);
+    resolved.MIN_SCORE = String(entitlement.advancedFilters && Number.isFinite(requestedScore)
+      ? Math.max(SCHEDULED_MIN_SCORE, Math.min(100, requestedScore))
+      : SCHEDULED_MIN_SCORE);
   }
   /**
    * An operator of this installation sets their own limits, or none. A number
@@ -233,13 +249,15 @@ export interface Entitlements {
   maxApplicationsPerRunOverride: number | null;
   /** May edit the settings that change how a run behaves. */
   fineTune: boolean;
+  /** May refine match score and listing age without receiving Intensive's direct run controls. */
+  advancedFilters: boolean;
   /** May use the rewriting tool. */
   rewriteText: boolean;
   /** May limit a run to employer-site or board-hosted applications, to test one flow. */
   runScopes: boolean;
   /** May search and apply to jobs hosted on Indeed as well as SEEK. */
   indeedApplications: boolean;
-  /** Cover letters are rewritten by the humanizer. Job Search Pass and Intensive Pass only. */
+  /** Cover letters are rewritten by the humanizer. Active Search and Intensive only. */
   humanizer: boolean;
   /**
    * Search-term suggestions from résumés left. Null means no limit. The free
@@ -274,13 +292,15 @@ function tierFor(admin: boolean, intensive: boolean): Tier {
 /**
  * Scheduled runs a day.
  *
- * Intensive includes the same four-run automatic schedule as Job Search Pass,
+ * Intensive includes the same four-run automatic schedule as Active Search,
  * in addition to its user-started runs.
  */
-export function automaticRunsPerDay(tier: Tier, hasActivePass = false): number {
+export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'active' = 'free'): number {
   if (tier === 'admin') return ADMIN_AUTO_RUNS_PER_DAY;
   if (tier === 'intensive') return INTENSIVE_AUTO_RUNS_PER_DAY;
-  if (tier === 'standard') return hasActivePass ? JOB_SEARCH_AUTO_RUNS_PER_DAY : FREE_AUTO_RUNS_PER_DAY;
+  if (tier === 'standard' && plan === 'active') return JOB_SEARCH_AUTO_RUNS_PER_DAY;
+  if (tier === 'standard' && plan === 'essential') return ESSENTIAL_AUTO_RUNS_PER_DAY;
+  if (tier === 'standard') return FREE_AUTO_RUNS_PER_DAY;
   return 0;
 }
 
@@ -372,14 +392,21 @@ export interface EntitlementFacts {
 export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
   const { billing, overrides } = facts;
   const tier = tierFor(facts.admin, billing.paid.hasActiveIntensivePass);
+  const scheduledPlan = billing.paid.hasActiveJobSearchPass
+    ? 'active'
+    : billing.paid.hasActiveEssentialPass
+      ? 'essential'
+      : 'free';
 
   const manualRuns = tier !== 'standard';
   const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
-  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass);
+  const autoRunsPerDay = automaticRunsPerDay(tier, scheduledPlan);
   const planEvaluationsPerRun = tier === 'intensive'
     ? INTENSIVE_EVALUATIONS_PER_RUN
-    : billing.paid.hasActivePass
+    : billing.paid.hasActiveJobSearchPass
       ? JOB_SEARCH_EVALUATIONS_PER_RUN
+      : billing.paid.hasActiveEssentialPass
+        ? ESSENTIAL_EVALUATIONS_PER_RUN
       : FREE_EVALUATIONS_PER_RUN;
   // Anyone with a schedule can switch it off — they found a job, or want a break — and back on.
   const canPauseAutoApply = autoRunsPerDay > 0;
@@ -414,10 +441,11 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     evaluationsPerRun,
     maxApplicationsPerRunOverride: overrides.maxApplicationsPerRun,
     fineTune: tier !== 'standard',
+    advancedFilters: tier !== 'standard' || billing.paid.hasActiveJobSearchPass,
     rewriteText: tier === 'admin',
     runScopes: tier === 'admin',
-    indeedApplications: billing.paid.hasActivePass,
-    humanizer: billing.paid.hasActivePass,
+    indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
+    humanizer: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,
   };
@@ -427,7 +455,12 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
   const admin = isAdmin(email);
   const billing = await billingStatus(userId, email);
   const tier = tierFor(admin, billing.paid.hasActiveIntensivePass);
-  const autoRunsPerDay = automaticRunsPerDay(tier, billing.paid.hasActivePass);
+  const scheduledPlan = billing.paid.hasActiveJobSearchPass
+    ? 'active'
+    : billing.paid.hasActiveEssentialPass
+      ? 'essential'
+      : 'free';
+  const autoRunsPerDay = automaticRunsPerDay(tier, scheduledPlan);
 
   const [manualRunsUsedToday, autoRunsUsedToday, pausedRow, overrides, suggestionsLeft] = await Promise.all([
     tier !== 'standard' ? runsStartedToday(userId, 'manual') : Promise.resolve(0),

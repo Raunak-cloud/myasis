@@ -9,7 +9,15 @@ const check = (name: string, ok: boolean) => {
 const billing = (totalRemaining: number, pass: boolean): Facts['billing'] => ({
   configured: true,
   free: { allowance: 5, used: pass ? 5 : 5 - totalRemaining, remaining: pass ? 0 : totalRemaining },
-  paid: { remaining: pass ? totalRemaining : 0, expiresAt: null, hasActivePass: pass, hasActiveJobSearchPass: pass, hasActiveIntensivePass: false },
+  paid: {
+    remaining: pass ? totalRemaining : 0,
+    employerSiteRemaining: 0,
+    expiresAt: pass ? new Date(Date.now() + 30 * 86_400_000).toISOString() : null,
+    hasActivePass: pass,
+    hasActiveEssentialPass: false,
+    hasActiveJobSearchPass: pass,
+    hasActiveIntensivePass: false,
+  },
   totalRemaining,
 });
 const healthy: Facts = { billing: billing(120, true), granted: 205, signedOutBoards: [], recentRuns: [], missingSetup: [], hasAutoRuns: true };

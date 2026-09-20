@@ -12,8 +12,10 @@ export interface BillingStatus {
   free: { allowance: number; used: number; remaining: number };
   paid: {
     remaining: number;
+    employerSiteRemaining: number;
     expiresAt: string | null;
     hasActivePass: boolean;
+    hasActiveEssentialPass: boolean;
     hasActiveJobSearchPass: boolean;
     hasActiveIntensivePass: boolean;
   };
@@ -55,7 +57,8 @@ export function useBillingStatus(): BillingStatus | null {
 export function planName(status: BillingStatus, admin: boolean): string {
   if (admin) return 'Admin';
   if (status.paid.hasActiveIntensivePass) return 'Intensive Pass';
-  if (status.paid.hasActiveJobSearchPass) return 'Job Search Pass';
+  if (status.paid.hasActiveJobSearchPass) return 'Active Search';
+  if (status.paid.hasActiveEssentialPass) return 'Essential Pass';
   if (status.paid.hasActivePass) return 'Free plan + top-up';
   return 'Free plan';
 }

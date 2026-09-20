@@ -18,10 +18,10 @@ import { FREE_APPLICATIONS, PAID_PLANS, PLAN_LIMITS } from '../src/pricing.js';
 
 interface Scenario {
   key: string;
-  group: 'Free plan' | 'Job Search Pass' | 'Intensive Pass';
+  group: 'Free plan' | 'Essential Pass' | 'Active Search' | 'Intensive Pass';
   label: string;
   description: string;
-  pass: 'none' | 'job-search-pass' | 'intensive-pass';
+  pass: 'none' | 'essential-pass' | 'job-search-pass' | 'intensive-pass';
   /** Applications left on the pass. A pass with none left is no longer an active pass. */
   paidRemaining: number;
   freeRemaining: number;
@@ -30,16 +30,18 @@ interface Scenario {
   autoApplyPaused?: boolean;
 }
 
+const ESSENTIAL = PAID_PLANS['essential-pass'].applications;
 const JOB_SEARCH = PAID_PLANS['job-search-pass'].applications;
 const INTENSIVE = PAID_PLANS['intensive-pass'].applications;
 
 const SCENARIOS: Scenario[] = [
   { key: 'free-new', group: 'Free plan', label: 'New account', description: `Just signed up: all ${FREE_APPLICATIONS} free applications left.`, pass: 'none', paidRemaining: 0, freeRemaining: FREE_APPLICATIONS },
   { key: 'free-out', group: 'Free plan', label: 'Out of applications', description: 'The free applications are used up and no pass was bought. Scheduled runs are refused.', pass: 'none', paidRemaining: 0, freeRemaining: 0 },
-  { key: 'job-search-active', group: 'Job Search Pass', label: 'Active', description: `Part-way through the pass, ${PLAN_LIMITS['job-search-pass'].autoRunsPerDay} automatic runs a day.`, pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoRunsUsedToday: 1 },
-  { key: 'job-search-last', group: 'Job Search Pass', label: 'Last few applications', description: 'Three applications left: the next run is capped at three.', pass: 'job-search-pass', paidRemaining: 3, freeRemaining: 0, autoRunsUsedToday: 2 },
-  { key: 'job-search-paused', group: 'Job Search Pass', label: 'Auto apply switched off', description: 'The customer paused their automatic runs.', pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoApplyPaused: true },
-  { key: 'pass-used-up', group: 'Job Search Pass', label: 'Pass used up', description: 'Every application on the pass is spent. The account falls back to the free plan with nothing left.', pass: 'job-search-pass', paidRemaining: 0, freeRemaining: 0 },
+  { key: 'essential-active', group: 'Essential Pass', label: 'Active', description: `Affordable SEEK automation, ${PLAN_LIMITS['essential-pass'].autoRunsPerDay} run a day.`, pass: 'essential-pass', paidRemaining: Math.round(ESSENTIAL * 0.6), freeRemaining: 0 },
+  { key: 'job-search-active', group: 'Active Search', label: 'Active', description: `Part-way through the pass, ${PLAN_LIMITS['job-search-pass'].autoRunsPerDay} automatic runs a day.`, pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoRunsUsedToday: 1 },
+  { key: 'job-search-last', group: 'Active Search', label: 'Last few applications', description: 'Three applications left: the next run is capped at three.', pass: 'job-search-pass', paidRemaining: 3, freeRemaining: 0, autoRunsUsedToday: 2 },
+  { key: 'job-search-paused', group: 'Active Search', label: 'Auto apply switched off', description: 'The customer paused their automatic runs.', pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoApplyPaused: true },
+  { key: 'pass-used-up', group: 'Active Search', label: 'Pass used up', description: 'Every application on the pass is spent. The account falls back to the free plan with nothing left.', pass: 'job-search-pass', paidRemaining: 0, freeRemaining: 0 },
   { key: 'intensive-active', group: 'Intensive Pass', label: 'Active', description: `Runs started by hand, ${PLAN_LIMITS['intensive-pass'].manualRunsPerDay} a day, all still available.`, pass: 'intensive-pass', paidRemaining: Math.round(INTENSIVE * 0.6), freeRemaining: 0 },
   { key: 'intensive-no-runs', group: 'Intensive Pass', label: 'No runs left today', description: 'Applications remain, but today\'s runs are all used.', pass: 'intensive-pass', paidRemaining: Math.round(INTENSIVE * 0.6), freeRemaining: 0, manualRunsUsedToday: PLAN_LIMITS['intensive-pass'].manualRunsPerDay },
   { key: 'intensive-last', group: 'Intensive Pass', label: 'Last application', description: 'One application left: starting a run works, and it stops after one.', pass: 'intensive-pass', paidRemaining: 1, freeRemaining: 0, manualRunsUsedToday: 1 },
@@ -68,8 +70,10 @@ function simulate(scenario: Scenario): Simulation {
     free: { allowance: FREE_APPLICATIONS, used: FREE_APPLICATIONS - scenario.freeRemaining, remaining: scenario.freeRemaining },
     paid: {
       remaining: scenario.paidRemaining,
-      expiresAt: null,
+      employerSiteRemaining: active && scenario.pass === 'intensive-pass' ? 18 : 0,
+      expiresAt: active ? new Date(Date.now() + 21 * 86_400_000).toISOString() : null,
       hasActivePass: active,
+      hasActiveEssentialPass: active && scenario.pass === 'essential-pass',
       hasActiveJobSearchPass: active && scenario.pass === 'job-search-pass',
       hasActiveIntensivePass: active && scenario.pass === 'intensive-pass',
     },

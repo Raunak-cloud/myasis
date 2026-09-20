@@ -42,7 +42,7 @@ import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc }
 import { checkSeekSignin, checkSignin, seekCheckInProgress, signOutOfBoard } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { applyRunPolicy, discardRunStart, entitlementsFor, FINE_TUNING_KEYS, latestRunStartedAt, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
+import { applyRunPolicy, discardRunStart, entitlementsFor, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
 import { chatCompletion, humanizerEndpoint, probeHumanizer } from './server/humanizer-endpoint.js';
 import { routeStatus } from './server/route.js';
@@ -524,11 +524,11 @@ function dataApi(): Plugin {
              * actually withholds them.
              */
             const settingsUser = await currentUser(req.headers?.cookie);
-            const { fineTune } = await entitlementsFor(userId, settingsUser?.email);
+            const entitlements = await entitlementsFor(userId, settingsUser?.email);
             const updates: Record<string, string> = {};
             for (const [key, value] of Object.entries(body?.updates ?? {})) {
               if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
-              if (!fineTune && FINE_TUNING_KEYS.includes(key)) continue;
+              if (!mayEditRunSetting(key, entitlements)) continue;
               updates[key] = String(value ?? '');
             }
             const settings = await saveUserSettings(userId, updates);
@@ -545,7 +545,7 @@ function dataApi(): Plugin {
           const user = await currentUser(req.headers?.cookie);
           const allowance = (await entitlementsFor(userId, user?.email)).searchTermSuggestionsLeft;
           if (allowance !== null && allowance <= 0) {
-            return send({ error: 'You have used your free suggestion. Job Search Pass and Intensive Pass include unlimited suggestions.' }, 403);
+            return send({ error: 'You have used your free suggestion. Paid passes include unlimited suggestions.' }, 403);
           }
           const body = await readBody();
           const result = await generateSearchTerms(userId, body ?? {});

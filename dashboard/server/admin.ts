@@ -19,7 +19,7 @@ import { readSiteState } from './seek-state.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
 import { userDir } from './userdata.js';
-import { PAID_PLANS, isPaidPlanKey } from '../src/pricing.js';
+import { PAID_PLANS, isPassPlanKey } from '../src/pricing.js';
 import { clientIp, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
 
 /**
@@ -41,7 +41,8 @@ const DAY_START = `(date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)`;
 function planLabel(paid: Awaited<ReturnType<typeof billingStatus>>['paid'], admin: boolean): string {
   if (admin) return 'Admin';
   if (paid.hasActiveIntensivePass) return 'Intensive Pass';
-  if (paid.hasActiveJobSearchPass) return 'Job Search Pass';
+  if (paid.hasActiveJobSearchPass) return 'Active Search';
+  if (paid.hasActiveEssentialPass) return 'Essential Pass';
   return 'Free';
 }
 
@@ -238,7 +239,7 @@ export async function adminOverview() {
          FROM application_credit_grants g JOIN billing_purchases p ON p.id = g.purchase_id
         WHERE (g.expires_at IS NULL OR g.expires_at > now())
           AND g.credits_used < g.credits_total
-          AND p.plan_key IN ('job-search-pass', 'intensive-pass')
+          AND p.plan_key IN ('essential-pass', 'job-search-pass', 'intensive-pass')
         GROUP BY p.plan_key`,
     ),
     one<{ runs: string; applications: string }>(
@@ -265,7 +266,7 @@ export async function adminOverview() {
   const byPlan = Object.fromEntries(passes.map((row) => [row.plan_key, Number(row.n)]));
   return {
     users: { total: Number(users?.total ?? 0), newThisWeek: Number(users?.new_week ?? 0), activeThisWeek: Number(users?.active_week ?? 0) },
-    passes: { jobSearch: byPlan['job-search-pass'] ?? 0, intensive: byPlan['intensive-pass'] ?? 0 },
+    passes: { essential: byPlan['essential-pass'] ?? 0, jobSearch: byPlan['job-search-pass'] ?? 0, intensive: byPlan['intensive-pass'] ?? 0 },
     today: { runs: Number(today?.runs ?? 0), applications: Number(today?.applications ?? 0), failedRuns: Number(errors?.failed ?? 0) },
     week: { applications: Number(week?.applications ?? 0) },
     revenueCents: { last30Days: Number(revenue?.month ?? 0), total: Number(revenue?.total ?? 0) },
@@ -325,8 +326,9 @@ export async function adminUserDetail(id: string) {
 
 /** A pass given by an operator: the same grant a payment creates, at no charge, marked as a grant. */
 async function grantPass(userId: string, planKey: string): Promise<void> {
-  if (!isPaidPlanKey(planKey)) throw new Error('Unknown plan.');
+  if (!isPassPlanKey(planKey)) throw new Error('Unknown pass.');
   const plan = PAID_PLANS[planKey];
+  const expiresAt = new Date(Date.now() + plan.durationDays * 86_400_000);
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -337,9 +339,16 @@ async function grantPass(userId: string, planKey: string): Promise<void> {
     );
     await client.query(
       `INSERT INTO application_credit_grants (user_id, purchase_id, credits_total, expires_at)
-       VALUES ($1, $2, $3, NULL)`,
-      [userId, purchase.rows[0].id, plan.applications],
+       VALUES ($1, $2, $3, $4)`,
+      [userId, purchase.rows[0].id, plan.applications, expiresAt],
     );
+    if (plan.employerSiteApplications > 0) {
+      await client.query(
+        `INSERT INTO employer_site_credit_grants (user_id, purchase_id, credits_total, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, purchase.rows[0].id, plan.employerSiteApplications, expiresAt],
+      );
+    }
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -625,7 +634,7 @@ export async function handleAdminRequest(
         return result.ok ? send({ ok: true }) : send({ error: result.error }, 409);
       }
       case 'grant': {
-        if (!isPaidPlanKey(body?.plan)) return send({ error: 'Choose a pass to give.' }, 400);
+        if (!isPassPlanKey(body?.plan)) return send({ error: 'Choose a pass to give.' }, 400);
         await grantPass(target.id, body.plan);
         // A pass given is a pass paid for, as far as the account's address goes.
         await reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));

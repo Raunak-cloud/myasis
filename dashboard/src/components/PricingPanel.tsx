@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey } from '../pricing';
+import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { MascotLogo } from './MascotLogo';
 
@@ -9,9 +9,9 @@ function dateLabel(value: string): string {
     .format(new Date(value));
 }
 
-type PlanCardKey = 'free' | PaidPlanKey;
+type PlanCardKey = 'free' | PassPlanKey;
 
-/** The three plans as the page presents them, in the order they are compared. */
+/** The four plans as the page presents them, in the order they are compared. */
 const PLAN_CARDS: Array<{
   key: PlanCardKey;
   name: string;
@@ -22,12 +22,16 @@ const PLAN_CARDS: Array<{
 }> = [
   { key: 'free', name: 'Free', price: aud(0), term: 'no card needed', recommended: false, presentation: PLAN_PRESENTATION.free },
   {
+    key: 'essential-pass', name: PAID_PLANS['essential-pass'].name, price: aud(PAID_PLANS['essential-pass'].priceCents),
+    term: `one payment · ${PAID_PLANS['essential-pass'].durationDays} days`, recommended: false, presentation: PLAN_PRESENTATION['essential-pass'],
+  },
+  {
     key: 'job-search-pass', name: PAID_PLANS['job-search-pass'].name, price: aud(PAID_PLANS['job-search-pass'].priceCents),
-    term: 'one payment · never expires', recommended: true, presentation: PLAN_PRESENTATION['job-search-pass'],
+    term: `one payment · ${PAID_PLANS['job-search-pass'].durationDays} days`, recommended: true, presentation: PLAN_PRESENTATION['job-search-pass'],
   },
   {
     key: 'intensive-pass', name: PAID_PLANS['intensive-pass'].name, price: aud(PAID_PLANS['intensive-pass'].priceCents),
-    term: 'one payment · never expires', recommended: false, presentation: PLAN_PRESENTATION['intensive-pass'],
+    term: `one payment · ${PAID_PLANS['intensive-pass'].durationDays} days`, recommended: false, presentation: PLAN_PRESENTATION['intensive-pass'],
   },
 ];
 
@@ -62,7 +66,12 @@ export function PricingPanel() {
           if (!response.ok) throw new Error(body.error || 'Could not confirm the payment.');
           setStatus(body.status);
           window.dispatchEvent(new Event(BILLING_CHANGED));
-          setNotice({ kind: 'ok', text: `${body.applications} applications were added to your account.` });
+          const product = PAID_PLANS[body.planKey as PaidPlanKey];
+          setNotice({ kind: 'ok', text: product?.kind === 'extension'
+            ? `Your pass was extended by ${product.durationDays} days.`
+            : product?.kind === 'employer-site-top-up'
+              ? `${product.employerSiteApplications} employer-site applications were added.`
+              : `${body.applications} applications were added to your account.` });
         } else {
           await loadStatus();
           if (payment === 'cancelled') {
@@ -107,7 +116,9 @@ export function PricingPanel() {
     ? 'intensive-pass'
     : status?.paid.hasActiveJobSearchPass
       ? 'job-search-pass'
-      : 'free';
+      : status?.paid.hasActiveEssentialPass
+        ? 'essential-pass'
+        : 'free';
 
   return (
     <div className="pricing-page">
@@ -118,8 +129,8 @@ export function PricingPanel() {
 
       <header className="pricing-head">
         <span className="pricing-kicker">Plans &amp; pricing</span>
-        <h2>Applications you keep, not a subscription</h2>
-        <p>Every pass is one payment. The applications do not expire and nothing renews by itself. Only applications that are actually submitted count.</p>
+        <h2>Choose how actively you want to search</h2>
+        <p>Every pass is one payment with no automatic renewal. Higher plans add more applications, more daily runs, more job boards and more control. Only submitted applications count.</p>
       </header>
 
       {status && (
@@ -139,11 +150,11 @@ export function PricingPanel() {
           <div className="pricing-status-stat">
             <strong>{status.paid.remaining}</strong>
             <span>
-              {status.paid.remaining === 0
-                ? 'on a pass · none active'
+              {!status.paid.hasActivePass
+                ? 'no active paid pass'
                 : status.paid.expiresAt
                   ? `on your pass · until ${dateLabel(status.paid.expiresAt)}`
-                  : 'on your pass · no expiry'}
+                  : 'on a grandfathered pass · no expiry'}
             </span>
           </div>
         </section>
@@ -158,7 +169,7 @@ export function PricingPanel() {
             : buying === card.key
               ? 'Opening checkout…'
               : isCurrent
-                ? 'Add another month'
+                ? 'Buy this pass again'
                 : `Choose ${card.name}`;
           return (
             <article className={`pricing-card ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
@@ -212,7 +223,7 @@ export function PricingPanel() {
         <li>Secure checkout by Stripe</li>
         <li>One payment, no renewal</li>
         <li>Prices in Australian dollars</li>
-        <li>Unused applications stay until the pass ends</li>
+        <li>Clear pass end date before payment</li>
       </ul>
 
       {/* A top-up adds to a pass, so on the free plan it is shown but not for sale; the server refuses it too. */}
@@ -222,8 +233,8 @@ export function PricingPanel() {
           <h3>{PAID_PLANS['application-top-up'].applications} more applications</h3>
           <p>
             {current === 'free'
-              ? 'Adds applications to a Job Search Pass or Intensive Pass. Choose a pass first.'
-              : 'Adds to your balance without changing how your plan runs.'}
+              ? 'Adds applications to an active paid pass. Choose a pass first.'
+              : 'Adds to your balance without changing your tier. The top-up ends with your active pass.'}
           </p>
         </div>
         <div className="pricing-topup-action">
@@ -234,10 +245,56 @@ export function PricingPanel() {
           <button
             className="btn pricing-cta"
             disabled={checkoutDisabled || current === 'free'}
-            title={current === 'free' ? 'Available with a Job Search Pass or Intensive Pass.' : undefined}
+            title={current === 'free' ? 'Available with an active paid pass.' : undefined}
             onClick={() => void buy('application-top-up')}
           >
             {buying === 'application-top-up' ? 'Opening checkout…' : current === 'free' ? 'Needs a pass' : `Add ${PAID_PLANS['application-top-up'].applications} applications`}
+          </button>
+        </div>
+      </section>
+
+      <section className={`pricing-topup ${current !== 'intensive-pass' ? 'unavailable' : ''}`}>
+        <div className="pricing-topup-copy">
+          <span className="pricing-plan-label">Employer Site Pack · Intensive only</span>
+          <h3>{PAID_PLANS['employer-site-top-up'].employerSiteApplications} more employer-site applications</h3>
+          <p>
+            {current === 'intensive-pass'
+              ? `You currently have ${status?.paid.employerSiteRemaining ?? 0} employer-site applications available.`
+              : 'Complex employer-site applications require an Intensive Pass.'}
+          </p>
+        </div>
+        <div className="pricing-topup-action">
+          <p className="pricing-price">
+            <strong>{aud(PAID_PLANS['employer-site-top-up'].priceCents)}</strong>
+            <span>one payment</span>
+          </p>
+          <button
+            className="btn pricing-cta"
+            disabled={checkoutDisabled || current !== 'intensive-pass'}
+            onClick={() => void buy('employer-site-top-up')}
+          >
+            {buying === 'employer-site-top-up' ? 'Opening checkout…' : `Add ${PAID_PLANS['employer-site-top-up'].employerSiteApplications} employer-site applications`}
+          </button>
+        </div>
+      </section>
+
+      <section className={`pricing-topup ${current === 'free' || !status?.paid.expiresAt ? 'unavailable' : ''}`}>
+        <div className="pricing-topup-copy">
+          <span className="pricing-plan-label">Time extension · pass holders</span>
+          <h3>{PAID_PLANS['pass-extension'].durationDays} more days</h3>
+          <p>Keep the same plan benefits and unused balances for another 30 days.</p>
+        </div>
+        <div className="pricing-topup-action">
+          <p className="pricing-price">
+            <strong>{aud(PAID_PLANS['pass-extension'].priceCents)}</strong>
+            <span>one payment</span>
+          </p>
+          <button
+            className="btn pricing-cta"
+            disabled={checkoutDisabled || current === 'free' || !status?.paid.expiresAt}
+            onClick={() => void buy('pass-extension')}
+          >
+            {buying === 'pass-extension' ? 'Opening checkout…' : `Extend ${PAID_PLANS['pass-extension'].durationDays} days`}
           </button>
         </div>
       </section>
@@ -248,12 +305,12 @@ export function PricingPanel() {
           <p>Skipped jobs, failed forms and anything that needs your attention do not use your allowance.</p>
         </article>
         <article>
-          <strong>Passes do not expire</strong>
-          <p>Applications stay on your account until you use them. Nothing renews or charges again on its own.</p>
+          <strong>No surprise renewal</strong>
+          <p>Your pass has a clear end date and never renews or charges again on its own.</p>
         </article>
         <article>
-          <strong>Top-ups add capacity</strong>
-          <p>A top-up adds applications without changing how your current plan runs.</p>
+          <strong>Higher plans do more</strong>
+          <p>Upgrade for Indeed, Humanizer, more daily runs, advanced controls and employer-site applications.</p>
         </article>
       </section>
 

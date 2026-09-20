@@ -1,76 +1,64 @@
 export const FREE_APPLICATIONS = 5;
 
-/** Humanizer rewrites cover letters in natural words; it comes with a paid pass. */
-export const HUMANIZER_NOTE = 'Humanizer is only available with Job Search Pass and Intensive Pass.';
+/** Humanizer is a meaningful paid upgrade, not a safety feature. */
+export const HUMANIZER_NOTE = 'Humanizer is included with Active Search and Intensive Pass.';
 
-
-/**
- * Prices cover a pass used in full, at the model prices due in 2027.
- *
- * Measured in production in September 2026: job search and fit checks cost
- * about US$0.027 per run; the browser agent about US$0.006 per attempt, with
- * about 2.5 attempts per successful application; a cover letter about
- * US$0.009 on Gemini Flash, doubling on 1 January 2027, and written only when
- * a form has a cover-letter box. Each price is checked against its worst
- * case — every run of the pass used, every application submitted, and for
- * Intensive every employer-site slot — after card fees and GST, with room
- * left over. Change the allowances or runs here and that check has to be
- * done again.
- *
- * The 200/400 allowances (18 September 2026) hold on typical use — about
- * A$10 of cost on a Job Search Pass, A$26 on an Intensive Pass spent on Quick
- * Apply. They do not hold on the worst case: passes no longer expire, so an
- * Intensive Pass can spend all 400 on employer sites at 10-20x the cost.
- */
+/** One-off, non-renewing products. Prices include GST where it applies. */
 export const PAID_PLANS = {
+  'essential-pass': {
+    key: 'essential-pass', kind: 'pass', name: 'Essential Pass', priceCents: 990,
+    applications: 50, durationDays: 30, employerSiteApplications: 0,
+    description: 'Affordable automatic applications for a focused SEEK search.',
+  },
   'job-search-pass': {
-    key: 'job-search-pass',
-    name: 'Job Search Pass',
-    priceCents: 1999,
-    applications: 200,
-    description: 'A focused block of applications for an active job search.',
+    key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 2490,
+    applications: 200, durationDays: 60, employerSiteApplications: 0,
+    description: 'A broader automatic search across SEEK and Indeed.',
   },
   'intensive-pass': {
-    key: 'intensive-pass',
-    name: 'Intensive Pass',
-    priceCents: 3999,
-    applications: 400,
-    description: 'More application capacity for a broad or urgent search.',
+    key: 'intensive-pass', kind: 'pass', name: 'Intensive Pass', priceCents: 5990,
+    applications: 400, durationDays: 90, employerSiteApplications: 30,
+    description: 'Maximum capacity, direct control and complex employer-site applications.',
   },
   'application-top-up': {
-    key: 'application-top-up',
-    name: 'Application Top-up',
-    priceCents: 499,
-    applications: 50,
-    description: 'Extra successful applications without changing your plan.',
+    key: 'application-top-up', kind: 'application-top-up', name: 'Application Top-up', priceCents: 690,
+    applications: 50, durationDays: 0, employerSiteApplications: 0,
+    description: 'Extra successful applications on an active paid pass.',
+  },
+  'employer-site-top-up': {
+    key: 'employer-site-top-up', kind: 'employer-site-top-up', name: 'Employer Site Pack', priceCents: 990,
+    applications: 0, durationDays: 0, employerSiteApplications: 10,
+    description: 'Extra complex applications on employers’ own websites.',
+  },
+  'pass-extension': {
+    key: 'pass-extension', kind: 'extension', name: '30-day Search Extension', priceCents: 490,
+    applications: 0, durationDays: 30, employerSiteApplications: 0,
+    description: 'Another 30 days to use the balance on an active paid pass.',
   },
 } as const;
 
-/**
- * What each plan allows.
- *
- * Enforced by server/entitlements.ts and server/start-run.ts, and the plan
- * features below are written from these same numbers, so what a plan says
- * and what a run does cannot drift apart. Change a number here and both move.
- */
+export const PASS_PLAN_KEYS = ['essential-pass', 'job-search-pass', 'intensive-pass'] as const;
+export type PassPlanKey = typeof PASS_PLAN_KEYS[number];
+
 export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 5 },
+  'essential-pass': { autoRunsPerDay: 1, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
   'intensive-pass': { autoRunsPerDay: 4, manualRunsPerDay: 3, evaluationsPerRun: 100, employerSitesPerDay: 5 },
 } as const;
 
-/** Scheduled applications must clear this model-assessed match threshold. */
 export const SCHEDULED_MIN_SCORE = 75;
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const FREE = PLAN_LIMITS.free;
-const JOB_SEARCH = PLAN_LIMITS['job-search-pass'];
+const ESSENTIAL = PLAN_LIMITS['essential-pass'];
+const ACTIVE = PLAN_LIMITS['job-search-pass'];
 const INTENSIVE = PLAN_LIMITS['intensive-pass'];
 
 export const PLAN_PRESENTATION = {
   free: {
-    label: 'Automatic essentials',
-    description: 'A simple way to let Owtomate apply for well-matched SEEK roles.',
+    label: 'Try it free',
+    description: 'See Owtomate apply to well-matched SEEK roles before paying.',
     features: [
       `${FREE_APPLICATIONS} successful applications`,
       `${plural(FREE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
@@ -80,30 +68,46 @@ export const PLAN_PRESENTATION = {
       'Personalised cover letters and application tracking',
     ],
   },
+  'essential-pass': {
+    label: 'Affordable essentials',
+    description: PAID_PLANS['essential-pass'].description,
+    features: [
+      `${PAID_PLANS['essential-pass'].applications} successful applications`,
+      `${PAID_PLANS['essential-pass'].durationDays} days of automatic searching`,
+      `${plural(ESSENTIAL.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `AI reviews up to ${ESSENTIAL.evaluationsPerRun} jobs each run`,
+      `${SCHEDULED_MIN_SCORE}% minimum match`,
+      'SEEK applications',
+      'Personalised cover letters and application tracking',
+    ],
+  },
   'job-search-pass': {
-    label: 'Automatic job search',
-    description: 'More application capacity while Owtomate runs your search for you.',
+    label: 'Most popular',
+    description: PAID_PLANS['job-search-pass'].description,
     features: [
       `${PAID_PLANS['job-search-pass'].applications} successful applications`,
-      `Up to ${plural(JOB_SEARCH.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
-      `AI reviews up to ${JOB_SEARCH.evaluationsPerRun} jobs each run`,
-      `${SCHEDULED_MIN_SCORE}% minimum match for scheduled applications`,
+      `${PAID_PLANS['job-search-pass'].durationDays} days of automatic searching`,
+      `Up to ${plural(ACTIVE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
-      'Personalised cover letters and application tracking',
+      'Advanced match and listing-age filters',
+      'Priority processing',
       'Humanizer rewrites cover letters in natural words',
     ],
   },
   'intensive-pass': {
-    label: 'Automatic search with full control',
-    description: 'Automatic applications plus extra user-started runs and support for employer application sites.',
+    label: 'Maximum control',
+    description: PAID_PLANS['intensive-pass'].description,
     features: [
       `${PAID_PLANS['intensive-pass'].applications} successful applications`,
+      `${PAID_PLANS['intensive-pass'].durationDays} days of automatic searching`,
       `Up to ${plural(INTENSIVE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
       `Up to ${plural(INTENSIVE.manualRunsPerDay, 'user-started run', 'user-started runs')} each day`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',
-      `Employer-site applications, up to ${INTENSIVE.employerSitesPerDay} a day`,
+      `${PAID_PLANS['intensive-pass'].employerSiteApplications} employer-site applications included`,
+      'Priority processing and support',
       'Humanizer rewrites cover letters in natural words',
     ],
   },
@@ -113,6 +117,10 @@ export type PaidPlanKey = keyof typeof PAID_PLANS;
 
 export function isPaidPlanKey(value: unknown): value is PaidPlanKey {
   return typeof value === 'string' && value in PAID_PLANS;
+}
+
+export function isPassPlanKey(value: unknown): value is PassPlanKey {
+  return typeof value === 'string' && (PASS_PLAN_KEYS as readonly string[]).includes(value);
 }
 
 export function aud(cents: number): string {

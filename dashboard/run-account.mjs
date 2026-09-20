@@ -15,7 +15,8 @@ import { syncRunResultsToDb } from './server/db/run-sync.js';
 import { resolve } from 'node:path';
 import { billingStatus, isAdmin, consumeSuccessfulApplication } from './server/billing.js';
 import { one } from './server/db/index.js';
-import { applyRunPolicy, entitlementsFor, FINE_TUNING_KEYS, INTENSIVE_EMPLOYER_SITES_PER_DAY } from './server/entitlements.js';
+import { applyRunPolicy, entitlementsFor, mayEditRunSetting, INTENSIVE_EMPLOYER_SITES_PER_DAY } from './server/entitlements.js';
+import { externalSubmittedToday } from './server/today.js';
 
 const [userId, mode, ...rest] = process.argv.slice(2);
 if (!userId || !['search', 'live'].includes(mode ?? '')) {
@@ -43,7 +44,17 @@ const overrides = applyRunPolicy(
  */
 const email = adminEmail;
 const allowance = await billingStatus(userId, email);
-overrides.ALLOW_EXTERNAL_APPLY = admin || allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
+const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
+const externalAvailable = allowance.paid.hasActiveIntensivePass
+  && allowance.paid.remaining > 0
+  && allowance.paid.employerSiteRemaining > 0
+  && externalUsedToday < INTENSIVE_EMPLOYER_SITES_PER_DAY;
+const externalCeiling = externalUsedToday + Math.min(
+  allowance.paid.employerSiteRemaining,
+  allowance.paid.remaining,
+  Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
+);
+overrides.ALLOW_EXTERNAL_APPLY = admin || externalAvailable ? 'true' : 'false';
 /**
  * Employer-site applications are an Intensive Pass feature and cost 10-20x a
  * Quick Apply. An operator of this installation has no ceilings at all: no
@@ -51,7 +62,10 @@ overrides.ALLOW_EXTERNAL_APPLY = admin || allowance.paid.hasActiveIntensivePass 
  * settings are used as configured rather than clamped.
  */
 if (admin) overrides.ADMIN_UNLIMITED = 'true';
-else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? String(INTENSIVE_EMPLOYER_SITES_PER_DAY) : '0';
+else {
+  overrides.MAX_EXTERNAL_PER_DAY = String(externalCeiling);
+  overrides.EXTERNAL_ATTEMPTS_TODAY = String(externalUsedToday);
+}
 
 // Admins are exempt from the allowance; everyone else is capped by what remains.
 if (mode === 'live' && !isAdmin(email)) {
@@ -63,14 +77,14 @@ if (mode === 'live' && !isAdmin(email)) {
 for (const pair of rest) {
   const i = pair.indexOf('=');
   const key = pair.slice(0, i);
-  if (i > 0 && (entitlements.fineTune || !FINE_TUNING_KEYS.includes(key))) {
+  if (i > 0 && mayEditRunSetting(key, entitlements)) {
     overrides[key] = pair.slice(i + 1);
   }
 }
 
 // Re-asserted after the CLI args: a command-line flag must not be able to hand
 // an account an entitlement billing did not give it.
-if (!admin && !allowance.paid.hasActiveIntensivePass) overrides.ALLOW_EXTERNAL_APPLY = 'false';
+if (!admin && !externalAvailable) overrides.ALLOW_EXTERNAL_APPLY = 'false';
 if (mode === 'live' && !isAdmin(email)) {
   if (allowance.totalRemaining < 1) throw new Error('No application allowance remaining');
   overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
@@ -93,7 +107,7 @@ runner.subscribe(userId, (line) => process.stdout.write(`${line.text.replace(/\s
 
 const usageWrites = [];
 const started = await runner.start(mode, overrides, userId,
-  () => { const write = consumeSuccessfulApplication(userId); usageWrites.push(write); return write; },
+  (external) => { const write = consumeSuccessfulApplication(userId, external); usageWrites.push(write); return write; },
 );
 if (!started.ok) {
   console.error(`could not start: ${started.error}`);

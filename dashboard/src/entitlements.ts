@@ -26,6 +26,7 @@ export interface Entitlements {
   /** Applications per run forced by an operator, whatever this account saves; null when none is set. */
   maxApplicationsPerRunOverride: number | null;
   fineTune: boolean;
+  advancedFilters: boolean;
   rewriteText: boolean;
   runScopes: boolean;
   indeedApplications: boolean;

@@ -57,7 +57,9 @@ export function SetupPanel() {
    * drive runs. Hidden rather than disabled: a row of greyed-out inputs is an
    * advertisement, not an interface.
    */
-  const canFineTune = useEntitlements()?.fineTune ?? false;
+  const entitlements = useEntitlements();
+  const canFineTune = entitlements?.fineTune ?? false;
+  const canUseAdvancedFilters = entitlements?.advancedFilters ?? false;
 
   useEffect(() => {
     fetch('/api/settings')
@@ -226,9 +228,9 @@ export function SetupPanel() {
 
       <GmailConnect />
 
-      {canFineTune && <div className="card step">
+      {(canFineTune || canUseAdvancedFilters) && <div className="card step">
         <button className="setup-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
-          <span className="step-title">Fine tuning</span>
+          <span className="step-title">{canFineTune ? 'Fine tuning' : 'Advanced filters'}</span>
           <span>{showAdvanced ? '−' : '+'}</span>
         </button>
         <p className="job-meta step-blurb">
@@ -236,7 +238,7 @@ export function SetupPanel() {
         </p>
         {showAdvanced && (
           <div className="step-body">
-            <label className="field">
+            {canFineTune && <label className="field">
               <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. The model checks these instructions for every job before applying." />
               <textarea
                 className="input"
@@ -249,7 +251,7 @@ export function SetupPanel() {
               <span className="job-meta" id="setup-run-instructions-help">
                 Used for every run until changed. Example: Don’t apply for senior positions or jobs that require weekend work.
               </span>
-            </label>
+            </label>}
             <div className="grid-2">
               <label className="field">
                 <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />
@@ -271,7 +273,7 @@ export function SetupPanel() {
                 />
                 <span className="job-meta">Days since the job was posted.</span>
               </label>
-              <label className="field">
+              {canFineTune && <label className="field">
                 <FieldLabel label="Daily application cap" help="The total number of applications allowed in one day, across all runs." />
                 <input
                   className="input"
@@ -280,8 +282,8 @@ export function SetupPanel() {
                   onChange={(e) => set('MAX_APPS_PER_DAY', e.target.value)}
                 />
                 <span className="job-meta">Keeping this low avoids SEEK verification prompts.</span>
-              </label>
-              <label className="field">
+              </label>}
+              {canFineTune && <label className="field">
                 <FieldLabel label="Search pages per term" help="How many result pages to check for each search term. More pages take longer." />
                 <input
                   className="input"
@@ -290,7 +292,7 @@ export function SetupPanel() {
                   onChange={(e) => set('PAGES_PER_KEYWORD', e.target.value)}
                 />
                 <span className="job-meta">32 listings per page.</span>
-              </label>
+              </label>}
             </div>
           </div>
         )}

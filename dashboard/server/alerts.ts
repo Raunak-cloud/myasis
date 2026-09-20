@@ -95,8 +95,8 @@ const ALERTS: AlertKind[] = [
       paragraphs: [
         `You have ${plural(facts.billing.totalRemaining, 'application')} left. When they are used, Owtomate stops applying until you add more.`,
         facts.billing.paid.hasActivePass
-          ? `A top-up adds ${TOP_UP.applications} more and never expires.`
-          : 'A pass adds more applications, more runs a day and Indeed, and never expires.',
+          ? `A top-up adds ${TOP_UP.applications} more until your active pass ends.`
+          : 'A paid pass adds more applications and stronger automation without automatic renewal.',
       ],
       action: { label: facts.billing.paid.hasActivePass ? 'Add applications' : 'See plans', tab: 'pricing' },
     }),

@@ -335,8 +335,10 @@ export default function App() {
                     <span className="nav-row-sub">
                       {entitlements.tier === 'admin'
                         ? 'No application limits'
-                        : billing.paid.hasActivePass && billing.paid.expiresAt
-                          ? `${billing.paid.remaining} on your pass · until ${shortDate(billing.paid.expiresAt)}`
+                        : billing.paid.hasActivePass
+                          ? billing.paid.expiresAt
+                            ? `${billing.paid.remaining} on your pass · until ${shortDate(billing.paid.expiresAt)}`
+                            : `${billing.paid.remaining} on your grandfathered pass`
                           : `${billing.free.remaining} of ${billing.free.allowance} free applications`}
                     </span>
                   </span>

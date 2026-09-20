@@ -664,7 +664,7 @@ async function main() {
             ...(outcome.actions?.length ? { actions: outcome.actions } : {}),
             submittedByMyasis: true,
           });
-          console.log(`  ✅ submitted (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
+          console.log(`  ✅ submitted${job.applicationMode === 'external' ? ' [external]' : ''} (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
           break;
         case 'rehearsed':
           rehearsed++;

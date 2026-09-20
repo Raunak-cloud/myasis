@@ -11,7 +11,7 @@ import {
   discardRunStart,
   entitlementsFor,
   recordRunStart,
-  FINE_TUNING_KEYS,
+  mayEditRunSetting,
   INTENSIVE_EMPLOYER_SITES_PER_DAY,
   type Entitlements,
 } from './entitlements.js';
@@ -20,7 +20,7 @@ import { checkSignin, waitForSigninChecks } from './seek-check.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { userChromeDir } from './userdata.js';
-import { submittedToday } from './today.js';
+import { externalSubmittedToday, submittedToday } from './today.js';
 import { readSiteState } from './seek-state.js';
 import { browserRoute, describeRoute } from './route.js';
 
@@ -135,7 +135,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   for (const [key, value] of Object.entries(request.clientOverrides ?? {})) {
     if (trigger !== 'manual') break;
     if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
-    if (!entitlements.fineTune && FINE_TUNING_KEYS.includes(key)) continue;
+    if (!mayEditRunSetting(key, entitlements)) continue;
     if (value !== undefined && value !== null && String(value).length) settings[key] = String(value);
   }
 
@@ -157,8 +157,18 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   if (consumes) {
     try {
       const allowance = await billingStatus(userId, email);
+      const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
+      const externalAvailable = allowance.paid.hasActiveIntensivePass
+        && allowance.paid.remaining > 0
+        && allowance.paid.employerSiteRemaining > 0
+        && externalUsedToday < INTENSIVE_EMPLOYER_SITES_PER_DAY;
+      const externalCeiling = externalUsedToday + Math.min(
+        allowance.paid.employerSiteRemaining,
+        allowance.paid.remaining,
+        Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
+      );
       // Decided here, never from a supplied override.
-      overrides.ALLOW_EXTERNAL_APPLY = admin || allowance.paid.hasActiveIntensivePass ? 'true' : 'false';
+      overrides.ALLOW_EXTERNAL_APPLY = admin || externalAvailable ? 'true' : 'false';
       /**
        * Employer-site applications are an Intensive Pass feature and cost
        * 10-20x a Quick Apply. An operator of this installation has no
@@ -166,7 +176,10 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
        * deduction, and their own run settings unclamped.
        */
       if (admin) overrides.ADMIN_UNLIMITED = 'true';
-      else overrides.MAX_EXTERNAL_PER_DAY = allowance.paid.hasActiveIntensivePass ? String(INTENSIVE_EMPLOYER_SITES_PER_DAY) : '0';
+      else {
+        overrides.MAX_EXTERNAL_PER_DAY = String(externalCeiling);
+        overrides.EXTERNAL_ATTEMPTS_TODAY = String(externalUsedToday);
+      }
 
       if (admin) {
         // No allowance check and no clamp: the operator runs at the size they configured.
@@ -272,7 +285,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     mode,
     overrides,
     userId,
-    mode === 'live' && !admin ? () => consumeSuccessfulApplication(userId) : undefined,
+    mode === 'live' && !admin ? (external) => consumeSuccessfulApplication(userId, external) : undefined,
     runStartId,
     {
       termsUsed: overrides.KEYWORDS ?? '',

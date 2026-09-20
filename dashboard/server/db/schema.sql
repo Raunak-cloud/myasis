@@ -150,14 +150,20 @@ CREATE TABLE IF NOT EXISTS billing_purchases (
 );
 CREATE INDEX IF NOT EXISTS billing_purchases_user_idx ON billing_purchases(user_id, paid_at DESC);
 
+-- Capacity add-ons and time extensions are real purchases but grant no
+-- ordinary application credits themselves. Older schemas required > 0.
+ALTER TABLE billing_purchases DROP CONSTRAINT IF EXISTS billing_purchases_applications_granted_check;
+ALTER TABLE billing_purchases ADD CONSTRAINT billing_purchases_applications_granted_check
+  CHECK (applications_granted >= 0);
+
 CREATE TABLE IF NOT EXISTS application_credit_grants (
   id            BIGSERIAL PRIMARY KEY,
   user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   purchase_id   BIGINT NOT NULL UNIQUE REFERENCES billing_purchases(id) ON DELETE CASCADE,
   credits_total INTEGER NOT NULL CHECK (credits_total > 0),
   credits_used  INTEGER NOT NULL DEFAULT 0 CHECK (credits_used >= 0 AND credits_used <= credits_total),
-  -- NULL means the credits never expire, which is the normal state: passes are
-  -- sold without a time limit. A date is only ever set to end a pass early.
+  -- NULL is retained for grandfathered passes sold without a time limit.
+  -- New passes receive the duration advertised at checkout.
   expires_at    TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -191,12 +197,35 @@ UPDATE billing_purchases
  WHERE (plan_key = 'job-search-pass' AND applications_granted < 150)
     OR (plan_key = 'intensive-pass' AND applications_granted < 320);
 
--- Passes are no longer time-limited. The column stays nullable rather than
--- being dropped so a pass can still be ended early from the admin page.
--- Grants sold under the old 30-day terms lose their deadline too: a customer
--- who paid for credits keeps them.
+-- NULL remains valid for grandfathered passes.
 ALTER TABLE application_credit_grants ALTER COLUMN expires_at DROP NOT NULL;
-UPDATE application_credit_grants SET expires_at = NULL WHERE expires_at > now();
+
+-- Employer-site forms cost materially more than board-hosted applications.
+-- They therefore have a separate allowance while still consuming one normal
+-- application credit when submitted. One purchase may grant both kinds.
+CREATE TABLE IF NOT EXISTS employer_site_credit_grants (
+  id            BIGSERIAL PRIMARY KEY,
+  user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purchase_id   BIGINT NOT NULL UNIQUE REFERENCES billing_purchases(id) ON DELETE CASCADE,
+  credits_total INTEGER NOT NULL CHECK (credits_total > 0),
+  credits_used  INTEGER NOT NULL DEFAULT 0 CHECK (credits_used >= 0 AND credits_used <= credits_total),
+  expires_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS employer_site_credit_grants_active_idx
+  ON employer_site_credit_grants(user_id, expires_at) WHERE credits_used < credits_total;
+
+-- Intensive passes sold before employer-site credits became a separate product
+-- allowed any remaining application to use an employer form. Preserve that
+-- promise; new purchases already insert their advertised allowance directly.
+INSERT INTO employer_site_credit_grants (
+  user_id, purchase_id, credits_total, credits_used, expires_at, created_at
+)
+SELECT g.user_id, g.purchase_id, g.credits_total, g.credits_used, g.expires_at, g.created_at
+  FROM application_credit_grants g
+  JOIN billing_purchases p ON p.id = g.purchase_id
+ WHERE p.plan_key = 'intensive-pass'
+ON CONFLICT (purchase_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS monthly_application_usage (
   user_id                BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

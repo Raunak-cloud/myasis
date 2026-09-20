@@ -14,7 +14,7 @@ const QUESTIONS = [
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
-  { question: 'Is there a subscription?', answer: 'No. The free plan is a one-time allowance. Paid passes are one-off purchases, they do not expire, and they do not automatically renew. Prices are in Australian dollars.' },
+  { question: 'Is there a subscription?', answer: 'No. Paid passes are one-off purchases for 30, 60 or 90 days. They do not renew automatically, and only successfully submitted applications count. Prices are in Australian dollars.' },
 ];
 
 const STEPS = [
@@ -54,8 +54,9 @@ type PriceRowSpec = {
 
 const PRICE_ROWS: PriceRowSpec[] = [
   { name: 'Free', priceCents: 0, term: 'no card needed', cta: 'Start free', variant: 'light', plan: PLAN_PRESENTATION.free },
-  { name: 'Job Search Pass', priceCents: PAID_PLANS['job-search-pass'].priceCents, term: 'one payment · no expiry', cta: 'Buy a Job Search Pass', variant: 'primary', flag: 'most picked', featured: true, plan: PLAN_PRESENTATION['job-search-pass'] },
-  { name: 'Intensive Pass', priceCents: PAID_PLANS['intensive-pass'].priceCents, term: 'one payment · no expiry', cta: 'Buy an Intensive Pass', variant: 'light', plan: PLAN_PRESENTATION['intensive-pass'] },
+  { name: 'Essential Pass', priceCents: PAID_PLANS['essential-pass'].priceCents, term: `one payment · ${PAID_PLANS['essential-pass'].durationDays} days`, cta: 'Choose Essential', variant: 'light', plan: PLAN_PRESENTATION['essential-pass'] },
+  { name: 'Active Search', priceCents: PAID_PLANS['job-search-pass'].priceCents, term: `one payment · ${PAID_PLANS['job-search-pass'].durationDays} days`, cta: 'Choose Active Search', variant: 'primary', flag: 'most picked', featured: true, plan: PLAN_PRESENTATION['job-search-pass'] },
+  { name: 'Intensive Pass', priceCents: PAID_PLANS['intensive-pass'].priceCents, term: `one payment · ${PAID_PLANS['intensive-pass'].durationDays} days`, cta: 'Choose Intensive', variant: 'light', plan: PLAN_PRESENTATION['intensive-pass'] },
 ];
 
 /**
@@ -236,8 +237,8 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           <div className="home-width home-pricing-inner">
             <header className="home-pricing-head">
               <p className="home-pricing-kicker">pricing</p>
-              <h2 id="pricing-heading">Three ways to pay for Owtomate.</h2>
-              <p>One payment. Thirty days. No auto-renew. Prices in Australian dollars.</p>
+              <h2 id="pricing-heading">Four ways to search with Owtomate.</h2>
+              <p>Start free or choose a 30, 60 or 90-day pass. One payment, no auto-renew. Prices in Australian dollars.</p>
             </header>
             <ol className="home-price-list">
               {PRICE_ROWS.map((row) => (
@@ -245,7 +246,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               ))}
             </ol>
             <p className="home-price-foot">
-              Already bought a pass and chewed through it? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for 50 more successful applications &mdash; ask in-app after you start. {HUMANIZER_NOTE}
+              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more successful applications. Intensive users can add employer-site packs, and any paid pass can be extended in-app. {HUMANIZER_NOTE}
             </p>
           </div>
         </section>

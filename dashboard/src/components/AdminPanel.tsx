@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { PAID_PLANS, aud } from '../pricing';
+import { PAID_PLANS, PASS_PLAN_KEYS, aud } from '../pricing';
 import { api } from '../adminApi';
 import { ServerView } from './ServerView';
 import { EnvView } from './EnvView';
@@ -69,7 +69,7 @@ interface AdminRun {
 
 interface Overview {
   users: { total: number; newThisWeek: number; activeThisWeek: number };
-  passes: { jobSearch: number; intensive: number };
+  passes: { essential: number; jobSearch: number; intensive: number };
   today: { runs: number; applications: number; failedRuns: number };
   week: { applications: number };
   revenueCents: { last30Days: number; total: number };
@@ -86,7 +86,7 @@ interface UserDetail extends AdminUser {
     test: boolean;
     paidAt: string;
     applications: { total: number; used: number };
-    /** Null unless the pass was ended early: passes are sold without an expiry. */
+    /** Null only for grandfathered passes sold without an expiry. */
     expiresAt: string | null;
     active: boolean;
   }>;
@@ -261,7 +261,7 @@ function OverviewView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
   if (!data) return <p className="job-meta">Loading…</p>;
   const tiles = [
     { label: 'Accounts', value: data.users.total, note: `${data.users.newThisWeek} new · ${data.users.activeThisWeek} signed in this week` },
-    { label: 'Active passes', value: data.passes.jobSearch + data.passes.intensive, note: `${data.passes.jobSearch} Job Search · ${data.passes.intensive} Intensive` },
+    { label: 'Active passes', value: data.passes.essential + data.passes.jobSearch + data.passes.intensive, note: `${data.passes.essential} Essential · ${data.passes.jobSearch} Active · ${data.passes.intensive} Intensive` },
     { label: 'Running now', value: `${data.capacity.running} of ${data.capacity.lanes}`, note: 'browser lanes in use' },
     { label: 'Runs today', value: data.today.runs, note: data.today.failedRuns ? `${data.today.failedRuns} failed` : 'none failed' },
     { label: 'Applications', value: data.today.applications, note: `today · ${data.week.applications} this week` },
@@ -589,7 +589,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                 )}
                 <div className="admin-button-row">
                   <select className="input" value={grantPlan} onChange={(event) => setGrantPlan(event.target.value)} aria-label="Pass to give">
-                    {Object.values(PAID_PLANS).map((plan) => (
+                    {PASS_PLAN_KEYS.map((key) => PAID_PLANS[key]).map((plan) => (
                       <option key={plan.key} value={plan.key}>{plan.name} · {plan.applications} applications</option>
                     ))}
                   </select>
@@ -722,7 +722,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
   const matches: Record<UserFilter, (user: AdminUser) => boolean> = {
     all: () => true,
     running: (user) => user.running,
-    paid: (user) => user.plan === 'Job Search Pass' || user.plan === 'Intensive Pass',
+    paid: (user) => user.plan === 'Essential Pass' || user.plan === 'Active Search' || user.plan === 'Intensive Pass',
     free: (user) => user.plan === 'Free',
     admin: (user) => user.admin,
     setup: (user) => user.setupMissing.length > 0,

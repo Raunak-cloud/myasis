@@ -133,7 +133,7 @@ export async function assertHumanizerHealthy(overrides: Record<string, string> =
 class Run {
   private child: ChildProcess | null = null;
   private cdpPort: number | null = null;
-  private onApplicationSubmitted: (() => void | Promise<void>) | null = null;
+  private onApplicationSubmitted: ((external: boolean) => void | Promise<void>) | null = null;
   /** The run_starts row this run belongs to, when the caller made one. */
   private runStartId: string | null = null;
   /** Somebody pressed Stop. Such a run exits like a crash does, and must not be counted as one. */
@@ -164,10 +164,11 @@ class Run {
       this.lines.push(line);
       if (this.lines.length > MAX_LINES) this.lines.shift();
       // Cheap progress signal for the UI without re-reading applied.json.
-      if (/✅ submitted/.test(raw)) {
+      const submitted = raw.match(/✅ submitted(?: \[(external)\])?/);
+      if (submitted) {
         this.state.applied++;
         if (this.onApplicationSubmitted) {
-          void Promise.resolve(this.onApplicationSubmitted()).catch((error) =>
+          void Promise.resolve(this.onApplicationSubmitted(submitted[1] === 'external')).catch((error) =>
             this.push('err', `Could not record application usage: ${(error as Error).message}`),
           );
         }
@@ -224,7 +225,7 @@ class Run {
     mode: RunMode,
     overrides: Record<string, string>,
     cdpPort: number,
-    onApplicationSubmitted?: () => void | Promise<void>,
+    onApplicationSubmitted?: (external: boolean) => void | Promise<void>,
     runStartId?: string | null,
     keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {
@@ -539,7 +540,7 @@ class RunPool {
     mode: RunMode,
     overrides: Record<string, string>,
     userId: string,
-    onApplicationSubmitted?: () => void | Promise<void>,
+    onApplicationSubmitted?: (external: boolean) => void | Promise<void>,
     runStartId?: string | null,
     keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {

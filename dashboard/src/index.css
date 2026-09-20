@@ -1868,7 +1868,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 }
 
 /* ---------- plans and pricing ----------
-   Three cards in a row whose prices and buttons line up, a strip that says
+   Four cards in a row whose prices and buttons line up, a strip that says
    which plan this account is on, and the terms in one line under the grid.
    The buttons sit at the bottom of every card whatever the feature count. */
 .pricing-page { display: grid; gap: 26px; }
@@ -1900,7 +1900,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .pricing-status-stat strong em { font-style: normal; font-size: 14px; color: var(--text-faint); }
 .pricing-status-stat span { color: var(--text-dim); font-size: 12px; line-height: 1.35; }
 
-.pricing-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.pricing-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
 
 .pricing-card {
   position: relative; display: flex; flex-direction: column; min-width: 0; padding: 24px;
@@ -1966,9 +1966,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .pricing-explainer p { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
 .pricing-footnote { margin: -10px 0 0; text-align: center; }
 
-@media (max-width: 1000px) {
+@media (max-width: 1180px) {
   .pricing-grid { grid-template-columns: 1fr 1fr; }
-  .pricing-card:first-child { grid-column: span 2; }
   .pricing-status { grid-template-columns: 1fr 1fr; }
   .pricing-status > div:nth-child(3) { border-left: 0; }
   .pricing-status > div:nth-child(n + 3) { border-top: 1px solid var(--border); }
@@ -1976,7 +1975,6 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 @media (max-width: 700px) {
   .pricing-grid { grid-template-columns: 1fr; }
-  .pricing-card:first-child { grid-column: auto; }
   .pricing-plan-copy { min-height: 0; }
   .pricing-topup, .pricing-topup-action { align-items: stretch; flex-direction: column; }
   .pricing-topup-action { gap: 12px; }

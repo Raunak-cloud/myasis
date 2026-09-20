@@ -24,11 +24,14 @@ Plans are defined in `src/pricing.ts`. `PLAN_LIMITS` there is what the server en
 | Plan | Price | Allowance and access | Validity |
 |---|---:|---|---:|
 | Free | A$0 | 5 successful applications, 1 automatic run daily (any hour), up to 5 jobs reviewed per run, SEEK, no humanizer | Once per account |
-| Job Search Pass | A$19.99 | 200 successful applications, 4 automatic runs daily, spread across 24 hours, up to 70 jobs reviewed per run, SEEK and Indeed, humanizer | Never expires |
-| Intensive Pass | A$39.99 | 400 successful applications, 3 user-started runs daily, up to 100 jobs reviewed per run, SEEK, Indeed and up to 5 employer-site applications a day, humanizer | Never expires |
-| Application Top-up | A$4.99 | 50 successful applications; run access is unchanged | Never expires |
+| Essential | A$9.90 | 50 successful applications, 1 automatic run daily, up to 25 jobs reviewed, SEEK, personalised cover letters | 30 days |
+| Active Search | A$24.90 | 200 successful applications, 4 automatic runs daily, up to 70 jobs reviewed per run, SEEK and Indeed, humanizer, priority processing | 60 days |
+| Intensive | A$59.90 | 400 successful applications, 4 automatic and 3 user-started runs daily, up to 100 jobs reviewed per run, SEEK, Indeed, humanizer, advanced controls and 30 employer-site applications | 90 days |
+| Application Pack | A$6.90 | 50 successful applications; inherits the active pass end date | Active pass end date |
+| Employer Site Pack | A$9.90 | 10 employer-site applications for Intensive users | Active Intensive end date |
+| Time Extension | A$4.90 | Adds 30 days to an active pass and its unused credits | +30 days |
 
-Passes are one-time payments and do not auto-renew.
+Passes are one-time payments and do not auto-renew. Existing no-expiry purchases remain grandfathered.
 
 The humanizer is a paid-pass feature. `applyRunPolicy` sets `HUMANIZER_MODE=off`
 for every run on the Free plan, so its cover letters are sent as drafted and
