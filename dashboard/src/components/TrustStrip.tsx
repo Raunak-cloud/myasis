@@ -1,34 +1,31 @@
 /**
  * Social proof between the hero and the demo: the size of the user base and
- * a looping ticker of recent placements.
+ * a looping ticker showing the variety of employers people can search.
  *
- * Both are marketing claims about real employers, so the numbers and names
- * here must reflect what actually happened; the shape is data-driven so
- * replacing them is an edit to this file, not to the page. The ticker names
- * the employer and the city only — no person, no role, no initial — so a card
- * is two short lines and nobody's placement is pinned to a name.
+ * The employers are representative examples, not placement claims. The shape
+ * is data-driven so changing the mix is an edit to this file, not to the page.
  */
 export const ACTIVE_USERS = 7_000;
 
 export type Placement = { company: string; city: string };
 
 export const PLACEMENTS: Placement[] = [
-  { company: 'PALO IT', city: 'Sydney' },
-  { company: 'Oracle', city: 'Sydney' },
+  { company: 'Coles', city: 'Melbourne' },
+  { company: 'Chemist Warehouse', city: 'Melbourne' },
   { company: 'Canva', city: 'Sydney' },
   { company: 'Commonwealth Bank', city: 'Sydney' },
-  { company: 'Atlassian', city: 'Sydney' },
+  { company: 'Ramsay Health Care', city: 'Sydney' },
   { company: 'Westpac', city: 'Sydney' },
   { company: 'Qantas', city: 'Sydney' },
-  { company: 'Optus', city: 'Sydney' },
+  { company: 'MECCA', city: 'Melbourne' },
   { company: 'Telstra', city: 'Melbourne' },
-  { company: 'Xero', city: 'Melbourne' },
-  { company: 'REA Group', city: 'Melbourne' },
+  { company: 'Bunnings', city: 'Melbourne' },
+  { company: 'Australia Post', city: 'Melbourne' },
   { company: 'NAB', city: 'Melbourne' },
-  { company: 'Afterpay', city: 'Melbourne' },
+  { company: 'Sephora Australia', city: 'Sydney' },
   { company: 'Woolworths Group', city: 'Brisbane' },
   { company: 'Bupa', city: 'Brisbane' },
-  { company: 'Deloitte', city: 'Perth' },
+  { company: 'Wesfarmers', city: 'Perth' },
 ];
 
 const users = new Intl.NumberFormat('en-AU').format(ACTIVE_USERS);
@@ -56,7 +53,7 @@ export function TrustStrip() {
           <span className="home-trust-kicker">active users</span>
         </p>
         <div className="home-trust-ticker">
-          <p className="home-trust-label">recently landed jobs at</p>
+          <p className="home-trust-label">explore roles across employers including</p>
           {/* The row is rendered twice so the loop has no visible seam; the copy is hidden from assistive tech. */}
           <div className="home-trust-window">
             <div className="home-trust-track">
