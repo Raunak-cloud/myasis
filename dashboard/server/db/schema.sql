@@ -170,32 +170,35 @@ CREATE TABLE IF NOT EXISTS application_credit_grants (
 CREATE INDEX IF NOT EXISTS application_credit_grants_active_idx
   ON application_credit_grants(user_id, expires_at) WHERE credits_used < credits_total;
 
--- The September 2026 allowance increase applies to passes that are still
--- active, not only to purchases made after the pricing change. The purchase
--- value is the idempotency guard: once raised, rerunning the schema cannot add
--- the difference a second time.
+-- Pricing allowance increases apply to passes that are still active, not only
+-- to purchases made after the change. The purchase value is the idempotency
+-- guard: once raised, rerunning the schema cannot add the difference again.
 UPDATE application_credit_grants AS g
    SET credits_total = g.credits_total + (
      CASE p.plan_key
-       WHEN 'job-search-pass' THEN 150
-       WHEN 'intensive-pass' THEN 320
+       WHEN 'essential-pass' THEN 50
+       WHEN 'job-search-pass' THEN 200
+       WHEN 'intensive-pass' THEN 400
      END - p.applications_granted
    )
   FROM billing_purchases AS p
  WHERE g.purchase_id = p.id
    AND (g.expires_at IS NULL OR g.expires_at > now())
    AND (
-     (p.plan_key = 'job-search-pass' AND p.applications_granted < 150)
-     OR (p.plan_key = 'intensive-pass' AND p.applications_granted < 320)
+     (p.plan_key = 'essential-pass' AND p.applications_granted < 50)
+     OR (p.plan_key = 'job-search-pass' AND p.applications_granted < 200)
+     OR (p.plan_key = 'intensive-pass' AND p.applications_granted < 400)
    );
 
 UPDATE billing_purchases
    SET applications_granted = CASE plan_key
-     WHEN 'job-search-pass' THEN 150
-     WHEN 'intensive-pass' THEN 320
+     WHEN 'essential-pass' THEN 50
+     WHEN 'job-search-pass' THEN 200
+     WHEN 'intensive-pass' THEN 400
    END
- WHERE (plan_key = 'job-search-pass' AND applications_granted < 150)
-    OR (plan_key = 'intensive-pass' AND applications_granted < 320);
+ WHERE (plan_key = 'essential-pass' AND applications_granted < 50)
+    OR (plan_key = 'job-search-pass' AND applications_granted < 200)
+    OR (plan_key = 'intensive-pass' AND applications_granted < 400);
 
 -- NULL remains valid for grandfathered passes.
 ALTER TABLE application_credit_grants ALTER COLUMN expires_at DROP NOT NULL;
@@ -226,6 +229,20 @@ SELECT g.user_id, g.purchase_id, g.credits_total, g.credits_used, g.expires_at, 
   JOIN billing_purchases p ON p.id = g.purchase_id
  WHERE p.plan_key = 'intensive-pass'
 ON CONFLICT (purchase_id) DO NOTHING;
+
+-- The first rollout may already have created a grandfather allowance before
+-- the 400-application backfill above. Keep its remaining employer-site
+-- capacity aligned with the grandfathered pass's remaining applications.
+UPDATE employer_site_credit_grants AS e
+   SET credits_total = g.credits_total,
+       credits_used = g.credits_used
+  FROM application_credit_grants AS g
+  JOIN billing_purchases AS p ON p.id = g.purchase_id
+ WHERE e.purchase_id = g.purchase_id
+   AND p.plan_key = 'intensive-pass'
+   AND e.expires_at IS NULL
+   AND g.expires_at IS NULL
+   AND (e.credits_total, e.credits_used) IS DISTINCT FROM (g.credits_total, g.credits_used);
 
 CREATE TABLE IF NOT EXISTS monthly_application_usage (
   user_id                BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

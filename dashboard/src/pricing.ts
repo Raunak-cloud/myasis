@@ -82,7 +82,7 @@ export const PLAN_PRESENTATION = {
     ],
   },
   'job-search-pass': {
-    label: 'Most popular',
+    label: 'Broader search',
     description: PAID_PLANS['job-search-pass'].description,
     features: [
       `${PAID_PLANS['job-search-pass'].applications} successful applications`,

@@ -103,18 +103,6 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   // The answer bank, read by seek-bot's knowledge.ts on every form step.
   const answers = await listAnswers(userId);
   writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer }) => ({ question, answer })), null, 2));
-  /**
-   * Employer-site applications SUBMITTED today, so the daily ceiling holds
-   * across runs. Only successful ones count: a form that defeats the agent
-   * costs model calls, but it must not consume the candidate's allowance.
-   */
-  const externalToday = await query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM applications
-      WHERE user_id = $1 AND submitted_by_myasis AND external
-        AND applied_at >= date_trunc('day', now())`,
-    [userId],
-  );
-
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
@@ -208,7 +196,6 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
        * the run is told the address exists and reads it from the session.
        */
       GMAIL_BROWSER_ACCOUNT: chromeGoogleAccounts(userId)[0] ?? '',
-      EXTERNAL_ATTEMPTS_TODAY: externalToday[0]?.n ?? '0',
       /**
        * This account's own Chrome profile, holding its own SEEK sign-in.
        * Without it every run shares one profile, which Chrome locks against

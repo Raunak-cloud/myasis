@@ -232,6 +232,9 @@ export async function createCheckout(
   planKey: PaidPlanKey,
 ): Promise<{ id: string; url: string }> {
   const plan = PAID_PLANS[planKey];
+  // Stripe allows a minimum 30-minute Checkout window. A short window keeps
+  // capacity add-ons from being paid after the pass they attach to has ended.
+  const checkoutExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
   if (!isPassPlanKey(planKey)) {
     const status = await billingStatus(user.id, user.email);
     if (!status.paid.hasActivePass) {
@@ -243,11 +246,16 @@ export async function createCheckout(
     if (planKey === 'pass-extension' && !status.paid.expiresAt) {
       throw new Error('This grandfathered pass has no end date and does not need an extension.');
     }
+    if (planKey !== 'pass-extension' && status.paid.expiresAt
+      && new Date(status.paid.expiresAt).getTime() <= (checkoutExpiresAt + 4 * 60) * 1000) {
+      throw new Error('This pass ends too soon for an add-on checkout. Choose a new pass first.');
+    }
   }
   const env = billingEnv();
   const stripe = stripeClient();
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
+    expires_at: checkoutExpiresAt,
     customer_creation: 'always',
     customer_email: user.email,
     client_reference_id: user.id,
@@ -320,7 +328,8 @@ export async function fulfillCheckoutSession(
            JOIN billing_purchases p ON p.id = g.purchase_id
           WHERE g.user_id = $1
             AND p.plan_key = ANY($2)
-            AND (g.expires_at IS NULL OR g.expires_at > now())
+            AND g.created_at <= to_timestamp($3)
+            AND (g.expires_at IS NULL OR g.expires_at > to_timestamp($3))
           ORDER BY CASE p.plan_key
                      WHEN 'intensive-pass' THEN 3
                      WHEN 'job-search-pass' THEN 2
@@ -329,7 +338,7 @@ export async function fulfillCheckoutSession(
                    g.expires_at DESC NULLS FIRST,
                    g.id DESC
           LIMIT 1`,
-        [userId, keys],
+        [userId, keys, session.created],
       );
       const row = result.rows[0];
       if (!row) throw new Error('The pass required for this add-on is no longer active.');
@@ -370,14 +379,18 @@ export async function fulfillCheckoutSession(
       await client.query(
         `UPDATE application_credit_grants
             SET expires_at = expires_at + ($2::text || ' days')::interval
-          WHERE user_id = $1 AND expires_at > now()`,
-        [userId, plan.durationDays],
+          WHERE user_id = $1
+            AND created_at <= to_timestamp($3)
+            AND expires_at > to_timestamp($3)`,
+        [userId, plan.durationDays, session.created],
       );
       await client.query(
         `UPDATE employer_site_credit_grants
             SET expires_at = expires_at + ($2::text || ' days')::interval
-          WHERE user_id = $1 AND expires_at > now()`,
-        [userId, plan.durationDays],
+          WHERE user_id = $1
+            AND created_at <= to_timestamp($3)
+            AND expires_at > to_timestamp($3)`,
+        [userId, plan.durationDays, session.created],
       );
     }
     await client.query('COMMIT');
