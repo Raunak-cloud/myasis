@@ -163,7 +163,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             </p>
             <div className="home-hero-actions">
               {start()}
-              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications, no card. Then <strong>{aud(1999)}</strong> for {PAID_PLANS['job-search-pass'].applications} that never expire.</p>
+              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications, no card.</p>
             </div>
             <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
             {error && <div className="home-error" role="alert">{error}</div>}
