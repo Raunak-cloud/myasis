@@ -1,5 +1,5 @@
 import './Landing.css';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { FREE_APPLICATIONS, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, SCHEDULED_MIN_SCORE, aud } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
@@ -35,6 +35,68 @@ const STEPS = [
   },
 ];
 
+/**
+ * The pricing rows, in order. Every number and feature line comes from
+ * pricing.ts, so what the page promises and what a run actually allows cannot
+ * drift apart. The term is the part people scan for and is deliberately not
+ * folded into the description.
+ */
+type PriceRowSpec = {
+  name: string;
+  priceCents: number;
+  term: string;
+  cta: string;
+  variant: 'primary' | 'light';
+  flag?: string;
+  featured?: boolean;
+  plan: { description: string; features: readonly string[] };
+};
+
+const PRICE_ROWS: PriceRowSpec[] = [
+  { name: 'Free', priceCents: 0, term: 'no card needed', cta: 'Start free', variant: 'light', plan: PLAN_PRESENTATION.free },
+  { name: 'Job Search Pass', priceCents: PAID_PLANS['job-search-pass'].priceCents, term: 'one payment · no expiry', cta: 'Buy a Job Search Pass', variant: 'primary', flag: 'most picked', featured: true, plan: PLAN_PRESENTATION['job-search-pass'] },
+  { name: 'Intensive Pass', priceCents: PAID_PLANS['intensive-pass'].priceCents, term: 'one payment · no expiry', cta: 'Buy an Intensive Pass', variant: 'light', plan: PLAN_PRESENTATION['intensive-pass'] },
+];
+
+/**
+ * How many feature lines a phone shows before the rest are folded away. A wide
+ * screen reads them as one flowing strip and ignores this; a phone reads them
+ * as a list, where the full set is more than anyone takes in at once.
+ */
+const PHONE_FEATURES = 3;
+
+/** One pricing row. The feature list is one DOM list styled two ways: inline on a wide screen, stacked and collapsible on a phone. */
+function PriceRow({ row, cta }: { row: PriceRowSpec; cta: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  const folded = row.plan.features.length - PHONE_FEATURES;
+  return (
+    <li className={`home-price-row${row.featured ? ' home-price-row-feature' : ''}`}>
+      <span className="home-price-tier">
+        {row.name}
+        {row.flag && <span className="home-price-flag">{row.flag}</span>}
+      </span>
+      <span className="home-price-amount">
+        <span><span className="home-price-currency">A$</span>{(row.priceCents / 100).toFixed(2)}</span>
+        <span className="home-price-term">{row.term}</span>
+      </span>
+      <span className="home-price-desc">{row.plan.description}</span>
+      <div className="home-price-notes">
+        <ul className={`home-price-features${expanded ? ' is-open' : ''}`}>
+          {row.plan.features.map((feature, index) => (
+            <li key={feature} className={index >= PHONE_FEATURES ? 'is-folded' : undefined}>{feature}</li>
+          ))}
+        </ul>
+        {folded > 0 && (
+          <button type="button" className="home-price-more" aria-expanded={expanded} onClick={() => setExpanded((open) => !open)}>
+            {expanded ? 'Show less' : `+ ${folded} more`}
+          </button>
+        )}
+      </div>
+      <span className="home-price-cta">{cta}</span>
+    </li>
+  );
+}
+
 export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
   const [error] = useState(() => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('auth_error')));
   const [playError, setPlayError] = useState(false);
@@ -69,8 +131,6 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
     const className = `home-button${variant === 'light' ? ' home-button-light' : variant === 'white' ? ' home-button-white' : ''}`;
     return <a className={className} rel="nofollow" href="/api/auth/google">{label}</a>;
   }
-
-  const audPrice = (cents: number) => (cents / 100).toFixed(2);
 
   return (
     <div className="landing" id="top">
@@ -180,27 +240,9 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               <p>One payment. Thirty days. No auto-renew. Prices in Australian dollars.</p>
             </header>
             <ol className="home-price-list">
-              <li className="home-price-row">
-                <span className="home-price-tier">Free</span>
-                <span className="home-price-amount"><span className="home-price-currency">A$</span>{audPrice(0)}</span>
-                <span className="home-price-desc">{PLAN_PRESENTATION.free.description}</span>
-                <span className="home-price-notes">{PLAN_PRESENTATION.free.features.join(' · ')}.</span>
-                <span className="home-price-cta">{start('Start free', 'light')}</span>
-              </li>
-              <li className="home-price-row home-price-row-feature">
-                <span className="home-price-tier">Job Search Pass<span className="home-price-flag">most picked</span></span>
-                <span className="home-price-amount"><span className="home-price-currency">A$</span>{audPrice(PAID_PLANS['job-search-pass'].priceCents)}</span>
-                <span className="home-price-desc">{PLAN_PRESENTATION['job-search-pass'].description} {PAID_PLANS['job-search-pass'].applications} successful applications. No expiry. One payment.</span>
-                <span className="home-price-notes">{PLAN_PRESENTATION['job-search-pass'].features.join(' · ')}.</span>
-                <span className="home-price-cta">{start('Buy a Job Search Pass', 'primary')}</span>
-              </li>
-              <li className="home-price-row">
-                <span className="home-price-tier">Intensive Pass</span>
-                <span className="home-price-amount"><span className="home-price-currency">A$</span>{audPrice(PAID_PLANS['intensive-pass'].priceCents)}</span>
-                <span className="home-price-desc">{PLAN_PRESENTATION['intensive-pass'].description} {PAID_PLANS['intensive-pass'].applications} successful applications. No expiry. One payment.</span>
-                <span className="home-price-notes">{PLAN_PRESENTATION['intensive-pass'].features.join(' · ')}.</span>
-                <span className="home-price-cta">{start('Buy an Intensive Pass', 'light')}</span>
-              </li>
+              {PRICE_ROWS.map((row) => (
+                <PriceRow key={row.name} row={row} cta={start(row.cta, row.variant)} />
+              ))}
             </ol>
             <p className="home-price-foot">
               Already bought a pass and chewed through it? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for 50 more successful applications &mdash; ask in-app after you start. {HUMANIZER_NOTE}

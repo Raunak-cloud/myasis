@@ -209,9 +209,8 @@
   font-family: var(--display); font-size: 13px; font-weight: 600;
 }
 .home-trust-text { display: grid; line-height: 1.3; }
-.home-trust-who { font-size: 13px; color: var(--ink-2); }
-.home-trust-where { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .02em; }
-.home-trust-where strong { color: var(--ink); font-weight: 600; }
+.home-trust-company { font-size: 13px; font-weight: 600; color: var(--ink); }
+.home-trust-city { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .02em; }
 
 /* ============================================================ demo (video frame + tape-on note) */
 
@@ -425,8 +424,14 @@
   font-family: var(--display); font-size: clamp(28px, 2.5vw, 38px);
   line-height: 1; color: var(--ink); letter-spacing: -.03em;
   white-space: nowrap;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
 }
 .home-price-currency { font-family: var(--display); font-size: .55em; color: var(--muted); margin-right: 4px; vertical-align: .15em; }
+/* The terms used to sit at the tail of the description, where nobody scanning a price found them. */
+.home-price-term {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .02em;
+  color: var(--muted); white-space: normal;
+}
 .home-price-desc {
   font-family: var(--display); font-style: italic;
   font-size: 16px; line-height: 1.5; color: var(--ink-2);
@@ -434,6 +439,12 @@
 .home-price-notes {
   font-size: 13px; color: var(--muted); line-height: 1.6;
 }
+/* One list, two readings: a wide row runs it together as a strip with CSS-drawn
+   separators, a phone stacks it and folds the tail away. Same DOM either way. */
+.home-price-features { list-style: none; margin: 0; padding: 0; }
+.home-price-features li { display: inline; }
+.home-price-features li + li::before { content: ' · '; }
+.home-price-more { display: none; }
 .home-price-cta { align-self: center; justify-self: end; }
 .home-price-cta .home-button { min-height: 44px; padding-inline: 22px; }
 .home-price-foot {
@@ -657,14 +668,30 @@
   .home-price-row {
     grid-template-columns: 1fr;
     grid-template-areas: none;
-    gap: 14px;
-    padding: 28px 0;
+    gap: 10px;
+    padding: 26px 0;
   }
   .home-price-row > * { grid-area: auto; }
-  .home-price-cta { justify-self: stretch; }
+  .home-price-cta { justify-self: stretch; margin-top: 4px; }
+  .home-price-cta .home-button { display: block; width: 100%; text-align: center; }
   .home-price-row-feature { padding-inline: 16px; margin-inline: -16px; }
-  .home-price-amount { font-size: 32px; }
+  .home-price-amount { font-size: 32px; flex-direction: row; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .home-price-flag { transform: rotate(-1deg); }
+  .home-price-desc { font-size: 15px; }
+  /* A phone reads a stacked list, not a strip, and only as much of it as fits
+     in one glance: the rest is a tap away rather than a wall to scroll past. */
+  .home-price-features li { display: block; position: relative; padding-left: 14px; }
+  /* The strip's separator becomes a bullet. The second selector only matches what
+     the wide-screen rule already matches, so it takes the cascade back from it. */
+  .home-price-features li::before,
+  .home-price-features li + li::before { content: '·'; position: absolute; left: 3px; }
+  .home-price-features:not(.is-open) .is-folded { display: none; }
+  .home-price-more {
+    display: inline-block; margin-top: 8px; padding: 4px 0;
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em;
+    color: var(--accent); background: none; border: 0;
+    border-bottom: 1px solid currentColor; cursor: pointer;
+  }
 
   .home-faq-list details summary { grid-template-columns: 48px 1fr auto; gap: 12px; padding: 18px 0; }
   .home-faq-list details p { padding: 0 0 22px 60px; }

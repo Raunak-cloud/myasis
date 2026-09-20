@@ -2,31 +2,33 @@
  * Social proof between the hero and the demo: the size of the user base and
  * a looping ticker of recent placements.
  *
- * Both are marketing claims about real people and real employers, so the
- * numbers and names here must reflect what actually happened; the shape is
- * data-driven so replacing them is an edit to this file, not to the page.
+ * Both are marketing claims about real employers, so the numbers and names
+ * here must reflect what actually happened; the shape is data-driven so
+ * replacing them is an edit to this file, not to the page. The ticker names
+ * the employer and the city only — no person, no role — so a card is two
+ * short lines and nobody's placement is pinned to a name.
  */
 export const ACTIVE_USERS = 7_000;
 
-export type Placement = { name: string; role: string; company: string; city: string };
+export type Placement = { company: string; city: string };
 
 export const PLACEMENTS: Placement[] = [
-  { name: 'Priya', role: 'Software Engineer', company: 'PALO IT', city: 'Sydney' },
-  { name: 'Marcus', role: 'Cloud Consultant', company: 'Oracle', city: 'Sydney' },
-  { name: 'Aisha', role: 'Product Designer', company: 'Canva', city: 'Sydney' },
-  { name: 'Tom', role: 'Data Analyst', company: 'Commonwealth Bank', city: 'Sydney' },
-  { name: 'Mei', role: 'Frontend Developer', company: 'Atlassian', city: 'Sydney' },
-  { name: 'Ravi', role: 'DevOps Engineer', company: 'Westpac', city: 'Sydney' },
-  { name: 'Hannah', role: 'Project Coordinator', company: 'Qantas', city: 'Sydney' },
-  { name: 'Daniel', role: 'Support Engineer', company: 'Optus', city: 'Sydney' },
-  { name: 'Liam', role: 'Network Engineer', company: 'Telstra', city: 'Melbourne' },
-  { name: 'Sofia', role: 'Accountant', company: 'Xero', city: 'Melbourne' },
-  { name: 'Jarrah', role: 'Business Analyst', company: 'REA Group', city: 'Melbourne' },
-  { name: 'Minh', role: 'QA Engineer', company: 'NAB', city: 'Melbourne' },
-  { name: 'Grace', role: 'Customer Success Lead', company: 'Afterpay', city: 'Melbourne' },
-  { name: 'Chloe', role: 'Marketing Coordinator', company: 'Woolworths Group', city: 'Brisbane' },
-  { name: 'Ella', role: 'Registered Nurse', company: 'Bupa', city: 'Brisbane' },
-  { name: 'Omar', role: 'Technology Consultant', company: 'Deloitte', city: 'Perth' },
+  { company: 'PALO IT', city: 'Sydney' },
+  { company: 'Oracle', city: 'Sydney' },
+  { company: 'Canva', city: 'Sydney' },
+  { company: 'Commonwealth Bank', city: 'Sydney' },
+  { company: 'Atlassian', city: 'Sydney' },
+  { company: 'Westpac', city: 'Sydney' },
+  { company: 'Qantas', city: 'Sydney' },
+  { company: 'Optus', city: 'Sydney' },
+  { company: 'Telstra', city: 'Melbourne' },
+  { company: 'Xero', city: 'Melbourne' },
+  { company: 'REA Group', city: 'Melbourne' },
+  { company: 'NAB', city: 'Melbourne' },
+  { company: 'Afterpay', city: 'Melbourne' },
+  { company: 'Woolworths Group', city: 'Brisbane' },
+  { company: 'Bupa', city: 'Brisbane' },
+  { company: 'Deloitte', city: 'Perth' },
 ];
 
 const users = new Intl.NumberFormat('en-AU').format(ACTIVE_USERS);
@@ -35,11 +37,11 @@ function Row({ hidden = false }: { hidden?: boolean }) {
   return (
     <ul className="home-trust-row" aria-hidden={hidden || undefined}>
       {PLACEMENTS.map((p) => (
-        <li key={`${p.name}-${p.company}`} className="home-trust-card">
-          <span className="home-trust-mono" aria-hidden="true">{p.name[0]}</span>
+        <li key={p.company} className="home-trust-card">
+          <span className="home-trust-mono" aria-hidden="true">{p.company[0]}</span>
           <span className="home-trust-text">
-            <span className="home-trust-who">{p.name}, {p.role}</span>
-            <span className="home-trust-where"><strong>{p.company}</strong> &middot; {p.city}</span>
+            <span className="home-trust-company">{p.company}</span>
+            <span className="home-trust-city">{p.city}</span>
           </span>
         </li>
       ))}
