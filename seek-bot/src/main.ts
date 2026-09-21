@@ -263,8 +263,7 @@ async function main() {
     shortlist.sort((a, b) => {
       const scoped = scopeRank(a) - scopeRank(b);
       if (scoped) return scoped;
-      const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
-      return sourcePriority || (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+      return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
     });
     console.log(`${shortlist.length} after dedupe + age/company filters (pre-ranked).\n`);
 

@@ -87,6 +87,24 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
   writeFileSync(LOG, line + '\n', { flag: 'a' });
 }
 
+/** Past outcomes are context for model triage, never a permanent rejection. */
+export function recentReviewFeedback(): Map<string, { at: string; status: string; reason: string }> {
+  const result = new Map<string, { at: string; status: string; reason: string }>();
+  try {
+    for (const line of readFileSync(LOG, 'utf8').trim().split('\n').slice(-2000)) {
+      try {
+        const row = JSON.parse(line);
+        const age = Date.now() - Date.parse(row.ts);
+        if (!Number.isFinite(age) || age < 0 || age > 7 * 86400_000 || !row.jobId || !row.title || !row.company) continue;
+        const reason = row.reason || row.error || row.redirectedTo;
+        if (typeof reason !== 'string') continue;
+        result.set(JSON.stringify([row.jobId, row.title, row.company]), { at: row.ts, status: row.status, reason: reason.slice(0, 1200) });
+      } catch { /* A partial log line must not break discovery. */ }
+    }
+  } catch { /* A new account has no history. */ }
+  return result;
+}
+
 /**
  * A small machine-readable handoff to the dashboard after a run.
  *

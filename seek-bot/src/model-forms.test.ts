@@ -22,6 +22,7 @@ const { fillField } = await import('./dom.js');
 const { executeTool } = await import('./agent/tools.js');
 const { RunGuards } = await import('./agent/guards.js');
 const { CostMeter } = await import('./agent/celeris.js');
+const { recentReviewFeedback } = await import('./store.js');
 config.coverLetter.mode = 'reuse';
 config.coverLetter.reusableText = 'Dear Fixture Company, I am interested in this role.';
 const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -132,6 +133,14 @@ try {
   const beforeInvalid = calls;
   await executeTool(ctx, 'answer_questions', { refs: 'f1', reason: 'Malformed' });
   assert.equal(calls, beforeInvalid);
+  writeFileSync(join(directory, 'run-log.jsonl'), [
+    JSON.stringify({ ts: new Date().toISOString(), jobId: 'job1', title: 'Developer', company: 'Fixture', status: 'skipped', reason: 'Model found a skills mismatch' }),
+    JSON.stringify({ ts: new Date(Date.now() - 8 * 86400_000).toISOString(), jobId: 'old', title: 'Developer', company: 'Fixture', status: 'skipped', reason: 'Expired memory' }),
+    '{partial',
+  ].join('\n'));
+  const memory = recentReviewFeedback();
+  assert.equal(memory.size, 1, 'stale and corrupt records do not become ranking context');
+  assert.match(memory.get(JSON.stringify(['job1', 'Developer', 'Fixture']))!.reason, /skills mismatch/);
   console.log('PASS: model-directed forms, genuine required metadata, coordinate grounding, argument validation, stale refs, and safe uploads');
 } finally {
   globalThis.fetch = originalFetch;
