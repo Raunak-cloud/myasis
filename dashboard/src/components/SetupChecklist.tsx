@@ -22,7 +22,11 @@ export function useSetupStatus(): SetupStatus | null {
     const load = () => fetch('/api/setup/status').then((response) => response.json()).then(setStatus).catch(() => {});
     load();
     const id = setInterval(load, 6000);
-    return () => clearInterval(id);
+    window.addEventListener('setup-status-changed', load);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('setup-status-changed', load);
+    };
   }, []);
   return status;
 }

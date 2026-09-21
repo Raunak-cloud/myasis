@@ -70,33 +70,50 @@ export function SetupPanel() {
 
   const val = (k: string, d = '') => edits[k] ?? settings[k] ?? d;
   const set = (k: string, v: string) => {
-    setEdits({ ...edits, [k]: v });
+    setEdits((current) => ({ ...current, [k]: v }));
     setSaved(false);
   };
   const csv = (k: string, d = '') =>
     val(k, d).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const toggle = (k: string, item: string, d: string) => {
+  const toggledValue = (k: string, item: string, d = '') => {
     const cur = new Set(csv(k, d));
     if (cur.has(item)) cur.delete(item);
     else cur.add(item);
-    set(k, [...cur].join(','));
+    return [...cur].join(',');
   };
 
-  async function save() {
+  async function saveUpdates(updates: Record<string, string>) {
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ updates: edits }),
+      body: JSON.stringify({ updates }),
     });
     const j = await res.json();
-    if (j.settings) setSettings(j.settings);
-    setEdits({});
+    if (!res.ok || !j.settings) return;
+    setSettings(j.settings);
+    setEdits((current) => {
+      const next = { ...current };
+      for (const [key, value] of Object.entries(updates)) {
+        if (next[key] === value) delete next[key];
+      }
+      return next;
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+    window.dispatchEvent(new Event('setup-status-changed'));
+  }
+
+  async function save() {
+    await saveUpdates({ ...edits });
+  }
+
+  function setAndSave(key: string, value: string) {
+    set(key, value);
+    void saveUpdates({ [key]: value });
   }
 
   const done = (id: string) => status?.checks.find((c) => c.id === id)?.done ?? false;
-  const arrangements = csv('WORK_ARRANGEMENTS', 'remote,hybrid,onsite');
+  const arrangements = csv('WORK_ARRANGEMENTS');
   const dirty = Object.keys(edits).length > 0;
 
   return (
@@ -174,7 +191,7 @@ export function SetupPanel() {
               <button
                 key={a.id}
                 className={`chip ${arrangements.includes(a.id) ? 'on' : ''}`}
-                onClick={() => toggle('WORK_ARRANGEMENTS', a.id, 'remote,hybrid,onsite')}
+                onClick={() => setAndSave('WORK_ARRANGEMENTS', toggledValue('WORK_ARRANGEMENTS', a.id))}
               >
                 {arrangements.includes(a.id) ? '✓ ' : ''}
                 {a.label}
@@ -190,8 +207,9 @@ export function SetupPanel() {
             <select
               className="input"
               value={val('ONSITE_CITY')}
-              onChange={(e) => set('ONSITE_CITY', e.target.value)}
+              onChange={(e) => setAndSave('ONSITE_CITY', e.target.value)}
             >
+              <option value="">Select your cityâ€¦</option>
               {!AUSTRALIAN_CITIES.includes(val('ONSITE_CITY') as typeof AUSTRALIAN_CITIES[number]) && val('ONSITE_CITY') && (
                 <option value={val('ONSITE_CITY')}>{val('ONSITE_CITY')}</option>
               )}
