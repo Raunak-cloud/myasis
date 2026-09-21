@@ -27,6 +27,7 @@ interface Scenario {
   freeRemaining: number;
   autoRunsUsedToday?: number;
   autoApplyPaused?: boolean;
+  hasSuccessfulRun?: boolean;
 }
 
 const ESSENTIAL = PAID_PLANS['essential-pass'].applications;
@@ -34,7 +35,7 @@ const JOB_SEARCH = PAID_PLANS['job-search-pass'].applications;
 const INTENSIVE = PAID_PLANS['intensive-pass'].applications;
 
 const SCENARIOS: Scenario[] = [
-  { key: 'free-new', group: 'Free plan', label: 'New account', description: `Just signed up: all ${FREE_APPLICATIONS} free applications left.`, pass: 'none', paidRemaining: 0, freeRemaining: FREE_APPLICATIONS },
+  { key: 'free-new', group: 'Free plan', label: 'New account', description: `Just signed up: all ${FREE_APPLICATIONS} free applications left.`, pass: 'none', paidRemaining: 0, freeRemaining: FREE_APPLICATIONS, hasSuccessfulRun: false },
   { key: 'free-out', group: 'Free plan', label: 'Out of applications', description: 'The free applications are used up and no pass was bought. Scheduled runs are refused.', pass: 'none', paidRemaining: 0, freeRemaining: 0 },
   { key: 'essential-active', group: 'Essential Pass', label: 'Active', description: `Affordable SEEK automation, ${PLAN_LIMITS['essential-pass'].autoRunsPerDay} run a day.`, pass: 'essential-pass', paidRemaining: Math.round(ESSENTIAL * 0.6), freeRemaining: 0 },
   { key: 'job-search-active', group: 'Active Search', label: 'Active', description: `Part-way through the pass, ${PLAN_LIMITS['job-search-pass'].autoRunsPerDay} automatic runs a day.`, pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoRunsUsedToday: 1 },
@@ -82,6 +83,7 @@ function simulate(scenario: Scenario): Simulation {
     billing,
     autoRunsUsedToday: scenario.autoRunsUsedToday ?? 0,
     autoApplyPaused: scenario.autoApplyPaused ?? false,
+    hasSuccessfulRun: scenario.hasSuccessfulRun ?? true,
     overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null },
     // A pass includes unlimited suggestions; the free plan's single one is shown as still available.
     searchTermSuggestionsLeft: active ? null : FREE_SEARCH_TERM_SUGGESTIONS,
@@ -96,8 +98,10 @@ function simulate(scenario: Scenario): Simulation {
     billing,
     entitlements,
     manualStart: strip(manualRunRefusal(entitlements)) ?? allowance,
-    scheduledStart: entitlements.autoRunsPerDay < 1
-      ? { status: 0, error: 'This plan has no automatic runs.' }
+    scheduledStart: entitlements.firstRunRequired
+      ? { status: 0, error: 'Waiting for the customer to complete their first run.' }
+      : entitlements.autoRunsPerDay < 1
+        ? { status: 0, error: 'This plan has no automatic runs.' }
       : entitlements.autoApplyPaused
         ? { status: 0, error: 'Automatic runs are switched off, so none is scheduled.' }
         : allowance,

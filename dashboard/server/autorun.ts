@@ -120,7 +120,9 @@ interface Scheduled {
   userId: string;
   email: string;
   entitlements: Entitlements;
-  /** The account holder has uploaded a résumé and set details, search terms and location. */
+  setupComplete: boolean;
+  boardConnected: boolean;
+  /** Setup, a confirmed board session and the user-started first run are complete. */
   ready: boolean;
 }
 
@@ -148,8 +150,10 @@ async function scheduledAccounts(): Promise<Scheduled[]> {
     try {
       const entitlements = await entitlementsFor(user.id, user.email);
       if (entitlements.autoRunsPerDay === 0 || entitlements.autoApplyPaused) continue;
-      const ready = (await accountSetupComplete(user.id).catch(() => false)) && boardAvailable(user.id);
-      scheduled.push({ userId: user.id, email: user.email, entitlements, ready });
+      const setupComplete = await accountSetupComplete(user.id).catch(() => false);
+      const boardConnected = boardAvailable(user.id);
+      const ready = setupComplete && boardConnected && !entitlements.firstRunRequired;
+      scheduled.push({ userId: user.id, email: user.email, entitlements, setupComplete, boardConnected, ready });
     } catch {
       // One unavailable account must not hide the schedule for everyone else.
     }
@@ -224,20 +228,21 @@ export interface AutoScheduleStatus {
   lastError: { message: string; at: string } | null;
   /** The account holder still has setup steps to do before any scheduled run. */
   waitingForSetup: boolean;
+  /** The account has not connected a supported job board. */
+  waitingForBoard: boolean;
+  /** The account holder must complete the first run before scheduling begins. */
+  waitingForFirstRun: boolean;
 }
 
 /** The next slot the same timetable used by `autoRunTick` assigns this account. */
 /**
  * A run can only apply through a board the account is signed in to. An
- * account whose every known board session is dead is left off the
- * timetable rather than given a run that fails at the sign-in check and
- * reports a broken service. A board never checked is not held against it:
- * the first run is how that gets found out.
+ * account without a board explicitly confirmed signed in is left off the
+ * timetable rather than given a run that fails at the sign-in check.
  */
 function boardAvailable(userId: string): boolean {
   const states = [readSiteState(userId, 'seek'), readSiteState(userId, 'indeed')];
-  const known = states.filter((state) => state !== null);
-  return known.length === 0 || known.some((state) => state!.signedIn);
+  return states.some((state) => state?.signedIn === true);
 }
 
 export async function autoScheduleFor(userId: string, now: Date = new Date()): Promise<AutoScheduleStatus | null> {
@@ -255,7 +260,17 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
   const runsPerDay = account.entitlements.autoRunsPerDay;
   const runsUsedToday = account.entitlements.autoRunsUsedToday;
   if (!account.ready) {
-    return { runsUsedToday, runsPerDay, nextRunAt: null, dueNow: false, timeZone: RUN_TIME_ZONE, lastError: null, waitingForSetup: true };
+    return {
+      runsUsedToday,
+      runsPerDay,
+      nextRunAt: null,
+      dueNow: false,
+      timeZone: RUN_TIME_ZONE,
+      lastError: null,
+      waitingForSetup: !account.setupComplete,
+      waitingForBoard: !account.boardConnected,
+      waitingForFirstRun: account.entitlements.firstRunRequired,
+    };
   }
   const lastError = lastRefusal.get(userId) ?? null;
 
@@ -283,6 +298,8 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
     timeZone: RUN_TIME_ZONE,
     lastError,
     waitingForSetup: false,
+    waitingForBoard: false,
+    waitingForFirstRun: false,
   };
 }
 

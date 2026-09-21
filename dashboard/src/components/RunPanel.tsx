@@ -43,6 +43,8 @@ interface AutoScheduleStatus {
   lastError: { message: string; at: string } | null;
   /** Nothing is scheduled until the account's setup is finished. */
   waitingForSetup: boolean;
+  waitingForBoard: boolean;
+  waitingForFirstRun: boolean;
 }
 
 const RUN_DEFAULTS: Record<string, string> = {
@@ -245,7 +247,7 @@ function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): s
 
 /** "next 6:00 pm" today, "next Wed 9:40 am" on another day. */
 function nextRunShort(schedule: AutoScheduleStatus): string {
-  if (schedule.waitingForSetup || !schedule.nextRunAt) return '';
+  if (schedule.waitingForSetup || schedule.waitingForBoard || schedule.waitingForFirstRun || !schedule.nextRunAt) return '';
   if (schedule.dueNow) return 'starting shortly';
   const at = new Date(schedule.nextRunAt);
   if (Number.isNaN(at.valueOf())) return '';
@@ -257,7 +259,10 @@ function nextRunShort(schedule: AutoScheduleStatus): string {
 }
 
 function nextRunLabel(schedule: AutoScheduleStatus): string {
-  if (schedule.waitingForSetup || !schedule.nextRunAt) return 'Automatic runs start once your setup is complete';
+  if (schedule.waitingForSetup) return 'Automatic runs start once your setup is complete';
+  if (schedule.waitingForBoard) return 'Automatic runs begin after you connect a job board';
+  if (schedule.waitingForFirstRun) return 'Automatic runs begin after you complete your first run';
+  if (!schedule.nextRunAt) return 'Next run time unavailable';
   if (schedule.dueNow) return 'Starting shortly';
   const at = new Date(schedule.nextRunAt);
   if (Number.isNaN(at.valueOf())) return 'Next run time unavailable';
@@ -310,7 +315,8 @@ export function RunPanel({
   const boards = useBoardsStatus();
   /** No board signed in means no run can apply, so automatic runs have nothing to do until that is fixed. */
   const signedOutEverywhere = boards !== null && !boards.seek?.signedIn && !boards.indeed?.signedIn;
-  const driving = entitlements?.manualRuns ?? false;
+  const firstRun = Boolean(entitlements?.firstRunRequired && !entitlements.manualRuns);
+  const driving = Boolean(entitlements?.manualRuns || firstRun);
   /** Admin runs have no limits: the limit fields are hidden and nothing is capped in the form. */
   const isAdmin = entitlements?.tier === 'admin';
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
@@ -397,7 +403,10 @@ export function RunPanel({
   useEffect(() => {
     if (!status) return;
     if (!status.running) setStopConfirming(false);
-    if (wasRunning.current && !status.running) onFinished();
+    if (wasRunning.current && !status.running) {
+      onFinished();
+      window.dispatchEvent(new Event('entitlements-refresh'));
+    }
     wasRunning.current = status.running;
   }, [status, onFinished]);
 
@@ -492,7 +501,7 @@ export function RunPanel({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [entitlements?.autoRunsPerDay, entitlements?.autoApplyPaused, status?.finishedAt]);
+  }, [entitlements?.autoRunsPerDay, entitlements?.autoApplyPaused, entitlements?.firstRunRequired, status?.finishedAt]);
   useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => setClock(Date.now()), 1000);
@@ -724,7 +733,7 @@ export function RunPanel({
       fail(`Use at most ${MAX_SEARCH_TERMS} search terms; you have ${termCount}.`, 'KEYWORDS');
       return;
     }
-    if (updates.COVER_LETTER_MODE === 'reuse' && !decodeSettingText(updates.COVER_LETTER_TEXT_B64).trim()) {
+    if (entitlements?.fineTune && updates.COVER_LETTER_MODE === 'reuse' && !decodeSettingText(updates.COVER_LETTER_TEXT_B64).trim()) {
       fail('Paste the cover letter you want to reuse.', 'COVER_LETTER_TEXT_B64');
       return;
     }
@@ -832,11 +841,11 @@ export function RunPanel({
               */}
               <button
                 className="btn primary lg"
-                disabled={accountSetupIncomplete || verifyingSignIn}
-                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn ? 'Checking your job-board sign-ins first.' : undefined}
+                disabled={accountSetupIncomplete || verifyingSignIn || boards === null || signedOutEverywhere || outOfAllowance}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || boards === null ? 'Checking your job-board sign-ins first.' : signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
                 onClick={() => { setScope('all'); setConfirming(true); }}
               >
-                Start auto apply
+                {firstRun ? 'Start first run' : 'Start auto apply'}
               </button>
               {entitlements?.runScopes && (
                 <button
@@ -852,6 +861,12 @@ export function RunPanel({
               {accountSetupIncomplete && (
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
               )}
+              {!accountSetupIncomplete && signedOutEverywhere && (
+                <span className="job-meta">Sign in to SEEK below before starting your first run.</span>
+              )}
+              {firstRun && !accountSetupIncomplete && !signedOutEverywhere && (
+                <span className="job-meta">Automatic runs begin only after this run completes successfully.</span>
+              )}
             </>
           )}
         </div>
@@ -865,10 +880,12 @@ export function RunPanel({
             <span className="job-meta">
               {entitlements.autoApplyPaused
                 ? 'off'
-                : signedOutEverywhere
-                ? 'waiting until you sign in to a job board'
                 : autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
                 ? 'starts once your setup is complete'
+                : autoSchedule?.waitingForBoard || signedOutEverywhere
+                ? 'waiting until you sign in to a job board'
+                : autoSchedule?.waitingForFirstRun || firstRun
+                ? 'waiting for you to complete your first run'
                 : `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} today${autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}`}
             </span>
             {entitlements.canPauseAutoApply && (
@@ -1180,7 +1197,7 @@ export function RunPanel({
           >
             <div className="run-review-head">
               <div>
-                <h2 id="run-review-title">Review run settings</h2>
+                <h2 id="run-review-title">{firstRun ? 'Review your first run' : 'Review run settings'}</h2>
                 <p className="job-meta">Changes made here are saved before the run starts.</p>
               </div>
               <span className="badge bad">
@@ -1260,7 +1277,7 @@ export function RunPanel({
                   />
                   <span className="job-meta">Press Enter or comma to add a company. Matching is typo-tolerant.</span>
                 </div>
-                <label className="field run-review-wide">
+                {entitlements?.fineTune && <label className="field run-review-wide">
                   <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. These saved instructions are checked for every job before applying." />
                   <textarea
                     className="input"
@@ -1273,10 +1290,10 @@ export function RunPanel({
                   <span className="job-meta" id="run-instructions-help">
                     This prompt applies to all future runs until you change it. Example: Don’t apply for senior positions or jobs that require weekend work.
                   </span>
-                </label>
+                </label>}
               </section>
 
-              <section className="run-review-section run-review-cover">
+              {entitlements?.fineTune && <section className="run-review-section run-review-cover">
                 <h3>Cover letter</h3>
                 <div className="modes cover-letter-modes">
                   <label className={`mode ${coverLetterMode === 'tailored' ? 'sel' : ''}`}>
@@ -1319,7 +1336,7 @@ export function RunPanel({
                     <FieldError field="COVER_LETTER_TEXT_B64" />
                   </label>
                 )}
-              </section>
+              </section>}
 
               <section className="run-review-section run-review-location">
                 <h3>Location and pay</h3>
@@ -1392,7 +1409,7 @@ export function RunPanel({
                 </div>
               </section>
 
-              <section className="run-review-section run-review-limits">
+              {(isAdmin || entitlements?.fineTune || entitlements?.advancedFilters) && <section className="run-review-section run-review-limits">
                 <h3>{isAdmin ? 'Run settings' : 'Run limits'}</h3>
                 {isAdmin && (
                   <p className="job-meta run-review-unlimited">
@@ -1402,7 +1419,7 @@ export function RunPanel({
                   </p>
                 )}
                 <div className="run-review-grid">
-                  <label className="field">
+                  {(isAdmin || entitlements?.fineTune) && <label className="field">
                     <FieldLabel
                       label="Max applications"
                       help={forcedApplications !== null
@@ -1423,7 +1440,7 @@ export function RunPanel({
                       onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)}
                     />
                     <FieldError field="MAX_APPS_PER_RUN" />
-                  </label>
+                  </label>}
                   {isAdmin && (
                   <label className="field">
                     <FieldLabel
@@ -1445,16 +1462,16 @@ export function RunPanel({
                     <FieldError field="MAX_EVALUATIONS" />
                   </label>
                   )}
-                  <label className="field">
+                  {entitlements?.advancedFilters && <label className="field">
                     <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />
                     <input className="input" data-field="MIN_SCORE" type="number" min="0" max="100" value={val('MIN_SCORE')} onChange={(e) => setEdit('MIN_SCORE', e.target.value)} />
                     <FieldError field="MIN_SCORE" />
-                  </label>
-                  <label className="field">
+                  </label>}
+                  {entitlements?.advancedFilters && <label className="field">
                     <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />
                     <input className="input" type="number" min="0" value={val('MAX_AGE_DAYS')} onChange={(e) => setEdit('MAX_AGE_DAYS', e.target.value)} />
-                  </label>
-                  <label className="field">
+                  </label>}
+                  {(isAdmin || entitlements?.fineTune) && <label className="field">
                     <FieldLabel
                       label="Daily application cap"
                       help={isAdmin
@@ -1463,8 +1480,8 @@ export function RunPanel({
                     />
                     <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={isAdmin ? undefined : 50} placeholder={isAdmin ? 'No limit' : undefined} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
                     <FieldError field="MAX_APPS_PER_DAY" />
-                  </label>
-                  <label className="field">
+                  </label>}
+                  {(isAdmin || entitlements?.fineTune) && <label className="field">
                     <FieldLabel
                       label="Search pages per term"
                       help={isAdmin
@@ -1473,9 +1490,9 @@ export function RunPanel({
                     />
                     <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max={isAdmin ? undefined : 3} value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
                     <FieldError field="PAGES_PER_KEYWORD" />
-                  </label>
+                  </label>}
                 </div>
-              </section>
+              </section>}
 
               {error && !errorField && <div className="banner banner-bad run-review-error">{error}</div>}
             </div>
@@ -1489,7 +1506,7 @@ export function RunPanel({
                 disabled={starting}
                 onClick={saveAndStart}
               >
-                {starting ? 'Saving and starting…' : 'Save and apply'}
+                {starting ? 'Saving and starting…' : firstRun ? 'Start first run' : 'Save and apply'}
               </button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, SCHEDULED_MIN_SCORE } from './entitlements.js';
+import { manualRunRefusal } from './start-run.js';
 import { PLAN_LIMITS, PLAN_PRESENTATION } from '../src/pricing.js';
 
 let failures = 0;
@@ -91,6 +92,7 @@ const intensiveFacts = {
   } },
   autoRunsUsedToday: 0,
   autoApplyPaused: false,
+  hasSuccessfulRun: true,
   overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null },
   searchTermSuggestionsLeft: null,
 };
@@ -98,6 +100,11 @@ const intensiveEntitlements = deriveEntitlements(intensiveFacts);
 const adminEntitlements = deriveEntitlements({ ...intensiveFacts, admin: true });
 check('customers cannot start runs manually', !intensiveEntitlements.manualRuns);
 check('administrators can start runs manually', adminEntitlements.manualRuns);
+const newCustomerEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRun: false });
+check('a new customer must start the first run', newCustomerEntitlements.firstRunRequired);
+check('the first successful run unlocks scheduling', !intensiveEntitlements.firstRunRequired);
+check('a new customer is allowed to start that first run', manualRunRefusal(newCustomerEntitlements) === null);
+check('a customer cannot start more runs after onboarding', manualRunRefusal(intensiveEntitlements)?.status === 403);
 
 // An operator's per-account override is a control, not a suggestion: it wins
 // over the free plan's own default and survives the fine-tuning reset that

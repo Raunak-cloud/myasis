@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 export interface Entitlements {
   tier: 'admin' | 'intensive' | 'standard';
   manualRuns: boolean;
+  firstRunRequired: boolean;
   autoRunsPerDay: number;
   /** Automatic runs are switched off for this account. */
   autoApplyPaused: boolean;
@@ -48,14 +49,19 @@ export function useEntitlements(): Entitlements | null {
   }, []);
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/entitlements')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((value) => {
-        if (!cancelled && value && typeof value.tier === 'string') setEntitlements(value as Entitlements);
-      })
-      .catch(() => {});
+    const load = () => {
+      fetch('/api/entitlements')
+        .then((response) => (response.ok ? response.json() : null))
+        .then((value) => {
+          if (!cancelled && value && typeof value.tier === 'string') setEntitlements(value as Entitlements);
+        })
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener('entitlements-refresh', load);
     return () => {
       cancelled = true;
+      window.removeEventListener('entitlements-refresh', load);
     };
   }, []);
   return entitlements;

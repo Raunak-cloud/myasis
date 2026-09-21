@@ -224,6 +224,8 @@ export interface Entitlements {
   tier: Tier;
   /** May start a run by hand. This is an administrator-only operation. */
   manualRuns: boolean;
+  /** A customer must start and successfully finish one live run before automatic scheduling begins. */
+  firstRunRequired: boolean;
   /** Automatic runs per local day. */
   autoRunsPerDay: number;
   /** The account has switched its automatic runs off; nothing is scheduled until it switches them back on. */
@@ -308,12 +310,27 @@ export async function automaticRunsStartedToday(userId: string): Promise<number>
     `SELECT count(*)::text AS n
        FROM run_starts
       WHERE user_id = $1
-        AND trigger = 'auto'
+        AND trigger IN ('auto', 'onboarding')
         AND successful
         AND started_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
     [userId, RUN_TIME_ZONE],
   );
   return Number(rows[0]?.n ?? 0);
+}
+
+/** Whether the account has completed the user-confirmed first live run. */
+export async function hasCompletedFirstRun(userId: string): Promise<boolean> {
+  const row = await one<{ complete: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM run_starts
+        WHERE user_id = $1
+          AND mode = 'live'
+          AND successful
+          AND trigger IN ('auto', 'onboarding')
+     ) AS complete`,
+    [userId],
+  );
+  return row?.complete === true;
 }
 
 /** Most recent run of either kind, for the account dashboard. */
@@ -335,7 +352,7 @@ export async function latestRunStartedAt(userId: string): Promise<Date | null> {
 export async function recordRunStart(
   userId: string,
   mode: string,
-  trigger: 'manual' | 'auto' | 'admin',
+  trigger: 'manual' | 'auto' | 'admin' | 'onboarding',
   startedBy?: string | null,
 ): Promise<string | null> {
   const row = await one<{ id: string }>(
@@ -356,6 +373,7 @@ export interface EntitlementFacts {
   billing: Pick<BillingStatus, 'paid'>;
   autoRunsUsedToday: number;
   autoApplyPaused: boolean;
+  hasSuccessfulRun: boolean;
   overrides: AdminOverrides;
   searchTermSuggestionsLeft: number | null;
 }
@@ -378,6 +396,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
 
   const manualRuns = tier === 'admin';
   const autoRunsPerDay = automaticRunsPerDay(tier, scheduledPlan);
+  const firstRunRequired = tier !== 'admin' && autoRunsPerDay > 0 && !facts.hasSuccessfulRun;
   const planEvaluationsPerRun = tier === 'intensive'
     ? INTENSIVE_EVALUATIONS_PER_RUN
     : billing.paid.hasActiveJobSearchPass
@@ -402,6 +421,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
   return {
     tier,
     manualRuns,
+    firstRunRequired,
     autoRunsPerDay,
     autoRunsUsedToday: facts.autoRunsUsedToday,
     // Only an account allowed to switch automatic runs off can have them off.
@@ -436,11 +456,12 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
       : 'free';
   const autoRunsPerDay = automaticRunsPerDay(tier, scheduledPlan);
 
-  const [autoRunsUsedToday, pausedRow, overrides, suggestionsLeft] = await Promise.all([
+  const [autoRunsUsedToday, pausedRow, overrides, suggestionsLeft, hasSuccessfulRun] = await Promise.all([
     autoRunsPerDay > 0 ? automaticRunsStartedToday(userId) : Promise.resolve(0),
     one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
     adminOverridesFor(userId),
     searchTermSuggestionsLeft(userId, tier, billing.paid.hasActivePass),
+    admin ? Promise.resolve(true) : hasCompletedFirstRun(userId),
   ]);
 
   return deriveEntitlements({
@@ -448,6 +469,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     billing,
     autoRunsUsedToday,
     autoApplyPaused: pausedRow?.value === 'true',
+    hasSuccessfulRun,
     overrides,
     searchTermSuggestionsLeft: suggestionsLeft,
   });

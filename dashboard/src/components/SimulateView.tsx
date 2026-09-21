@@ -56,8 +56,8 @@ export function SimulateView() {
                   <span className="job-meta">{simulation.billing.totalRemaining} applications left</span>
                 </div>
                 <p className="dim">{simulation.description}</p>
-                {simulation.entitlements.manualRuns
-                  ? <Verdict label="Presses Start auto apply" verdict={simulation.manualStart} />
+                {simulation.entitlements.manualRuns || simulation.entitlements.firstRunRequired
+                  ? <Verdict label={simulation.entitlements.firstRunRequired ? 'Starts first run' : 'Presses Start auto apply'} verdict={simulation.manualStart} />
                   : <div className="simulate-verdict"><span className="job-meta">Start button</span><span>None: this plan runs automatically.</span></div>}
                 <Verdict label="Next scheduled run" verdict={simulation.scheduledStart} />
                 <button className="btn primary" onClick={() => startSimulation(simulation)}>

@@ -61,7 +61,7 @@ export interface StartRunRequest {
    * account. An admin's run follows the account's plan exactly as a scheduled
    * run does, and does not use up one of the account's scheduled runs.
    */
-  trigger: 'manual' | 'auto' | 'admin';
+  trigger: 'manual' | 'auto' | 'admin' | 'onboarding';
   /** The admin who started it, for the record. */
   startedBy?: string | null;
   /** Settings posted with the request. Ignored for scheduled runs. */
@@ -73,8 +73,8 @@ export interface StartRunRequest {
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
 
 /** Why this account may not start a run by hand, or null for an administrator. */
-export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns'>): Refusal | null {
-  if (!entitlements.manualRuns) {
+export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns' | 'firstRunRequired'>): Refusal | null {
+  if (!entitlements.manualRuns && !entitlements.firstRunRequired) {
     return { ok: false, status: 403, error: 'Only administrators can start runs manually.' };
   }
   return null;
@@ -92,6 +92,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   const admin = isAdmin(email);
   let borrowFreeProxy = false;
   const entitlements = await entitlementsFor(userId, email);
+  const onboarding = trigger === 'manual' && !admin && entitlements.firstRunRequired;
+  const effectiveTrigger = onboarding ? 'onboarding' : trigger;
   /** A search-only run never reaches an employer; a live run submits applications. */
   const consumes = mode === 'live';
 
@@ -106,6 +108,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   if (trigger === 'manual') {
     const refused = manualRunRefusal(entitlements);
     if (refused) return refused;
+  }
+  if (onboarding && mode !== 'live') {
+    return { ok: false, status: 403, error: 'Your first run must be a live run started from the Apply page.' };
   }
 
   /**
@@ -147,7 +152,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */
-  const overrides = applyRunPolicy(settings, entitlements, trigger === 'manual' ? 'manual' : 'auto');
+  const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto');
 
   if (request.scope === 'external' || request.scope === 'hosted') {
     if (entitlements.runScopes) overrides.APPLY_ONLY = request.scope;
@@ -236,9 +241,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   /**
    * Only boards this account is signed in to.
    *
-   * A board last seen signed out cannot be searched or applied on, so it is
-   * left out of the run and the run says so; a board never checked is left
-   * in for the run to find out. With no signed-in board left there is
+   * A board not confirmed signed in cannot be searched or applied on, so it
+   * is left out of the run and the run says so. With no signed-in board left there is
    * nothing to run, and the reason is given instead of an empty run.
    */
   const boards = (overrides.PLATFORMS || 'seek').split(',').map((board) => board.trim()).filter(Boolean);
@@ -254,17 +258,18 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     // Not a board the person signed out of themselves: that one stays out until they sign in again.
     if (state?.signedIn === false && !state.signedOutByPerson) await checkSignin(userId, board);
   }
-  const signedOut = boards.filter((board) => (board === 'seek' || board === 'indeed') && readSiteState(userId, board)?.signedIn === false);
-  const usable = boards.filter((board) => !signedOut.includes(board));
+  const supportedBoards = boards.filter((board) => board === 'seek' || board === 'indeed');
+  const unavailable = supportedBoards.filter((board) => readSiteState(userId, board)?.signedIn !== true);
+  const usable = supportedBoards.filter((board) => readSiteState(userId, board)?.signedIn === true);
   if (consumes && !usable.length) {
     return {
       ok: false,
       status: 428,
-      error: `${listNames(signedOut)} ${signedOut.length === 1 ? 'is' : 'are'} not signed in. Sign in on the Apply page, then start the run again.`,
+      error: `${listNames(unavailable.length ? unavailable : supportedBoards)} ${unavailable.length === 1 ? 'is' : 'are'} not confirmed signed in. Sign in on the Apply page, then start the run again.`,
     };
   }
   overrides.PLATFORMS = usable.join(',');
-  if (signedOut.length) overrides.SKIPPED_BOARDS = signedOut.join(',');
+  if (unavailable.length) overrides.SKIPPED_BOARDS = unavailable.join(',');
 
   /**
    * The run's record is made first, so the runner can write how it ended onto
@@ -285,7 +290,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
     }
 
-    const runStartId = await recordRunStart(userId, mode, trigger, request.startedBy).catch(() => null);
+    const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy).catch(() => null);
     const result = await runner.start(
       mode,
       overrides,
