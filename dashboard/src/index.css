@@ -1321,6 +1321,22 @@ button.metric-tile:hover strong { color: var(--accent); }
 .support-copy-status.copied { color: var(--ok); }
 .support-copy-status.failed { color: var(--bad); }
 .support-note { max-width: 66ch; margin: 0 4px; line-height: 1.55; }
+.support-faq { margin-top: 14px; }
+.support-faq > h2 { margin: 0; padding: 20px 22px; font-size: 18px; letter-spacing: -.02em; }
+.support-faq-list { border-top: 1px solid var(--border); }
+.support-faq-list details + details { border-top: 1px solid var(--border); }
+.support-faq-list summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 22px; color: var(--text); font-weight: 650; cursor: pointer; list-style: none;
+}
+.support-faq-list summary::-webkit-details-marker { display: none; }
+.support-faq-list summary::after {
+  content: '+'; flex: none; color: var(--accent); font-size: 20px; font-weight: 400;
+  transition: transform .15s ease;
+}
+.support-faq-list details[open] summary::after { transform: rotate(45deg); }
+.support-faq-list summary:hover { background: var(--surface-2); }
+.support-faq-list p { margin: 0; padding: 0 48px 18px 22px; color: var(--text-dim); line-height: 1.6; }
 .card { box-shadow: 0 1px 3px rgba(18, 42, 70, .045); }
 .btn { min-height: 36px; font-weight: 550; }
 .btn.primary { box-shadow: 0 7px 20px rgba(37, 99, 166, .18); }

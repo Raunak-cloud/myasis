@@ -49,6 +49,40 @@ export function SupportPanel() {
         </div>
       </article>
       <p className="job-meta support-note">Include the email address used for your Owtomate account and a short description of what happened. Never send your password or verification codes.</p>
+
+      <section className="card support-faq" aria-labelledby="support-faq-heading">
+        <h2 id="support-faq-heading">Frequently asked questions</h2>
+        <div className="support-faq-list">
+          <details>
+            <summary>What counts toward my application allowance?</summary>
+            <p>Only applications that are successfully submitted count. Jobs that are skipped, rejected as a poor match or fail before submission do not reduce your allowance.</p>
+          </details>
+          <details>
+            <summary>Why did a run finish without submitting anything?</summary>
+            <p>The jobs found may have already been seen, fallen outside your preferences or scored below your minimum match. Check the run activity for the reason each job was skipped.</p>
+          </details>
+          <details>
+            <summary>What happens when Owtomate cannot answer a question?</summary>
+            <p>It does not guess. The application is paused and placed in Needs attention so you can provide the missing answer.</p>
+          </details>
+          <details>
+            <summary>How do I update my résumé or job preferences?</summary>
+            <p>Open Settings to replace your documents, update your profile and change what you are looking for. Your saved changes apply to future runs.</p>
+          </details>
+          <details>
+            <summary>What should I do if SEEK or Indeed is signed out?</summary>
+            <p>Open Job boards from the account section of the sidebar and sign in again. Owtomate will reuse that private session for later applications.</p>
+          </details>
+          <details>
+            <summary>Do paid passes renew automatically?</summary>
+            <p>No. Paid passes are one-off purchases and do not auto-renew. You can buy another pass or a top-up from Plans &amp; pricing when needed.</p>
+          </details>
+          <details>
+            <summary>Where can I see what was submitted?</summary>
+            <p>Open Applications to see each role, its status and the information sent with the application.</p>
+          </details>
+        </div>
+      </section>
     </section>
   );
 }
