@@ -44,7 +44,7 @@ const intensive = applyRunPolicy({ ...saved, MIN_SCORE: '70' }, intensivePolicy,
 check('Intensive accounts keep their fine tuning', intensive.MIN_SCORE === '70');
 check('Intensive live runs keep the saved prompt', intensive.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 check('removed target roles cannot influence Intensive runs', intensive.TARGET_ROLE === '');
-check('Intensive runs assess 100 jobs', intensive.MAX_EVALUATIONS === '100');
+check('Intensive runs assess 80 jobs', intensive.MAX_EVALUATIONS === '80');
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, adminPolicy, 'manual');
 check('admins keep a review limit they set, unclamped', admin.MAX_EVALUATIONS === '500');
@@ -127,14 +127,14 @@ check('a review override holds for an admin\'s scheduled runs too', adminOverrid
 
 // What a manual run posts goes through the plan, not around it.
 const posted = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '40', PLATFORMS: 'seek' }, intensivePolicy, 'manual');
-check('a posted evaluation count cannot lower or raise the Intensive plan', posted.MAX_EVALUATIONS === '100');
+check('a posted evaluation count cannot lower or raise the Intensive plan', posted.MAX_EVALUATIONS === '80');
 check('a posted default board list still includes the Indeed an Intensive Pass pays for', posted.PLATFORMS === 'seek,indeed');
 
 // Every number a plan advertises is the number the server enforces.
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
 check('Free says the runs and reviews it gets', said('free').includes(`${automaticRunsPerDay('standard')} automatic live run each day`) && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Active Search says the runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} automatic live runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Intensive says the automatic runs, reviews and employer sites it gets', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 100 jobs') && said('intensive-pass').includes('30 employer-site applications'));
+check('Intensive says the automatic runs, reviews and employer sites it gets', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('30 employer-site applications'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 console.log(`\n${failures} failure(s)`);

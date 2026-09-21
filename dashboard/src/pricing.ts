@@ -34,7 +34,7 @@ export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 5 },
   'essential-pass': { autoRunsPerDay: 1, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
-  'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 100, employerSitesPerDay: 5 },
+  'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 80, employerSitesPerDay: 5 },
 } as const;
 
 export const SCHEDULED_MIN_SCORE = 75;

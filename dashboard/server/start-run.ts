@@ -143,7 +143,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    *
    * Posted settings used to be merged after the plan was applied, and the
    * review screen posts every saved run setting — including the default of 40
-   * jobs to evaluate — so an Intensive Pass sold as 100 jobs a run reviewed 40,
+   * jobs to evaluate — so an Intensive Pass sold as 80 jobs a run reviewed 40,
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */

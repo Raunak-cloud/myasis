@@ -26,7 +26,7 @@ Plans are defined in `src/pricing.ts`. `PLAN_LIMITS` there is what the server en
 | Free | A$0 | 5 successful applications, 1 automatic run daily (any hour), up to 5 jobs reviewed per run, SEEK, no humanizer | Once per account |
 | Essential | A$9.90 | 50 successful applications, 1 automatic run daily, up to 25 jobs reviewed, SEEK, personalised cover letters | 30 days |
 | Active Search | A$24.90 | 200 successful applications, 4 automatic runs daily, up to 70 jobs reviewed per run, SEEK and Indeed, humanizer, priority processing | 60 days |
-| Intensive | A$59.90 | 400 successful applications, 4 automatic runs daily, up to 100 jobs reviewed per run, SEEK, Indeed, humanizer, advanced controls and 30 employer-site applications | 90 days |
+| Intensive | A$59.90 | 400 successful applications, 4 automatic runs daily, up to 80 jobs reviewed per run, SEEK, Indeed, humanizer, advanced controls and 30 employer-site applications | 90 days |
 | Application Pack | A$6.90 | 50 successful applications; inherits the active pass end date | Active pass end date |
 
 Passes are one-time payments and do not auto-renew. Existing no-expiry purchases remain grandfathered.
