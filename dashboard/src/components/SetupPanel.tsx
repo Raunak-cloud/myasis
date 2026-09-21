@@ -209,7 +209,7 @@ export function SetupPanel() {
               value={val('ONSITE_CITY')}
               onChange={(e) => setAndSave('ONSITE_CITY', e.target.value)}
             >
-              <option value="">Select your cityâ€¦</option>
+              <option value="">Select your city</option>
               {!AUSTRALIAN_CITIES.includes(val('ONSITE_CITY') as typeof AUSTRALIAN_CITIES[number]) && val('ONSITE_CITY') && (
                 <option value={val('ONSITE_CITY')}>{val('ONSITE_CITY')}</option>
               )}
