@@ -1,0 +1,38 @@
+# Lives at /etc/caddy/Caddyfile on the VPS. Nothing deploys it: deploy.sh
+# builds the app, not the edge. Copy it across by hand and reload:
+#   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#   systemctl reload caddy
+# Owtomate: the only public entrance. The app itself stays on 127.0.0.1:5180,
+# so a request that does not arrive for one of these names reaches nothing.
+owtomate.com {
+	encode zstd gzip
+
+	# What every response promises the browser. The app sets none of these
+	# itself; the edge is the one place they cannot be forgotten.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		# Styles allow inline because React sets style attributes; fonts from Google;
+		# avatars from Google accounts; the sign-in and screencast sockets are same-origin.
+		# Reddit is here for ad measurement: the pixel script, the beacon it posts to,
+		# and pixel-config, which the pixel fetches and no Reddit document mentions —
+		# it only showed up as a blocked request in the browser console.
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://www.redditstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.googleusercontent.com https://alb.reddit.com; media-src 'self' blob:; connect-src 'self' https://owtomate.com wss://owtomate.com https://alb.reddit.com https://pixel-config.reddit.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		-Server
+	}
+
+	# Bundles carry a content hash in their name, so a year is safe; the page itself must always be fresh.
+	@assets path /assets/*
+	header @assets >Cache-Control "public, max-age=31536000, immutable"
+	@static path /favicon.svg /icons.svg /site.webmanifest /robots.txt /sitemap.xml /og-image.png /icon-192.png /icon-512.png /apple-touch-icon.png /favicon-32.png /demo/*
+	header @static >Cache-Control "public, max-age=86400"
+
+	reverse_proxy 127.0.0.1:5180
+}
+
+www.owtomate.com {
+	redir https://owtomate.com{uri} permanent
+}
