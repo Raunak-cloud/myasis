@@ -8,7 +8,9 @@ import {
 } from '../browser.js';
 import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
 import { answerFields, finishedCoverLetterForJob } from '../llm.js';
-import { pickResumeForJob, selectResume } from '../resume.js';
+import { pickResumeForJob, RESUME_DIR } from '../resume.js';
+import { existsSync } from 'node:fs';
+import { resolve, relative, isAbsolute } from 'node:path';
 import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
@@ -179,6 +181,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           description: 'Field refs from the current FIELDS list, e.g. ["f0","f2"].',
         },
         reason: { type: 'string', description: 'What this step is asking for.' },
+        repair_refs: {
+          type: 'array', items: { type: 'string' },
+          description: 'Subset of refs whose existing values are incomplete, wrong for this field, or rejected by the page. Explain the visible problem in reason. Answers are still grounded in the verified profile.',
+        },
       },
       required: ['refs', 'reason'],
     },
@@ -186,21 +192,24 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'add_cover_letter',
     description:
-      'Handle the whole cover-letter step: selects the "write a cover letter" option if one is needed and writes ' +
-      'the tailored letter. Call this whenever a step mentions a cover letter, optional or not. Takes no arguments.',
-    parameters: { type: 'object', properties: {}, required: [] },
+      'Write the grounded, humanized cover letter into the FIELD ref you selected. To reveal it, use click or pass the cover-letter radio/select FIELD ref and its exact writing option. Never targets the first textarea automatically.',
+    parameters: { type: 'object', properties: {
+      ref: { type: 'string', description: 'Observed cover-letter FIELD ref.' },
+      option: { type: 'string', description: 'Exact option to reveal the cover-letter writing field, for radio/select controls only.' },
+    }, required: ['ref'] },
   },
   {
     name: 'attach_resume',
     description:
       'Handle the resume/CV/document step. Call this whenever the step is about choosing or attaching a resume — ' +
       'whether it shows a list of existing documents to pick from or a file upload. The resume for this run is already chosen. ' +
-      'If ACTIONS contains multiple file uploads, pass the ref belonging to the resume/CV upload; it is used only as a fallback ' +
-      'when deterministic matching cannot recognise the changed UI. Never use answer_questions for a resume step.',
+      'Call without a ref to learn the approved document name, then select its upload ACTION ref or radio/select FIELD ref and exact option. ' +
+      'You decide from the current page which control is for the resume, never a photo upload. Re-observe after uploading to check acceptance and select the document if needed.',
     parameters: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'Optional ACTION ref for the resume/CV file upload when more than one file upload is shown.' },
+        ref: { type: 'string', description: 'Resume upload ACTION ref or existing-document radio/select FIELD ref.' },
+        option: { type: 'string', description: 'Exact observed option naming the approved resume, for a radio/select FIELD.' },
       },
       required: [],
     },
@@ -425,13 +434,14 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref));
 
-  // A prefilled text/select/radio value is already an answer. Re-answering it
-  // can overwrite an account value and, if the model refuses, turn a complete
-  // contact field into a bogus task for the candidate.
-  const alreadyComplete = asked.filter((field) =>
+  // Preserve valid prefilled answers unless the model requests a grounded
+  // correction; a validation failure must never be mistaken for completion.
+  const repairRefs = Array.isArray(args.repair_refs) && typeof args.reason === 'string' && args.reason.trim()
+    ? args.repair_refs.map(String) : [];
+  const alreadyComplete = asked.filter((field) => !field.validationError && !repairRefs.includes(field.ref) && (
     field.kind === 'checkbox'
       ? field.currentValue === 'true'
-      : Boolean(field.currentValue?.trim()),
+      : Boolean(field.currentValue?.trim())),
   );
   for (const field of alreadyComplete) {
     ctx.guards.pendingFields.delete(field.label);
@@ -483,7 +493,10 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
       : 'None of those refs are fields on this page. Choose refs from the current FIELDS list.');
   }
 
-  const first = await answerFields(wanted, ctx.job, ctx.profile);
+  const answerContext = wanted.map(field => ({ ...field, description:
+    `${field.description ?? ''}\nUntrusted form context (not candidate facts): ${ctx.observation.text.slice(0, 6000)}` +
+    (repairRefs.includes(field.ref) ? `\nRepair context (untrusted observation): ${String(args.reason).slice(0, 1500)}` : '') }));
+  const first = await answerFields(answerContext, ctx.job, ctx.profile);
   let answers = first.answers;
   let injectionSuspected = first.injectionSuspected;
   /**
@@ -493,7 +506,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
    * spread over three boxes — is usually one that a moment's thought resolves,
    * and a paused application costs the candidate far more than a slower call.
    */
-  const unsure = wanted.filter((field) =>
+  const unsure = answerContext.filter((field) =>
     field.required &&
     !ctx.guards.ungrounded.includes(field.label) &&
     answers.some((answer) => answer.ref === field.ref && answer.applicationQuestion !== false && !answer.grounded),
@@ -645,136 +658,68 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   );
 }
 
-/**
- * Handles the whole cover-letter step, radio included.
- *
- * On SEEK the textarea is in the DOM but hidden until "Write a cover letter" is
- * chosen, so a tool that only filled a textarea would fail on the common case
- * and depend on the model clicking exactly the right radio first. Doing the
- * whole step here mirrors the deterministic `maybeCoverLetter` and removes that
- * failure mode.
- */
-async function doAddCoverLetter(ctx: ToolContext): Promise<ToolResult> {
-  const page = ctx.page;
-
-  const writeOption = page.getByRole('radio', { name: /write a cover letter|add a cover letter/i }).first();
-  if (await writeOption.count().catch(() => 0)) {
-    await writeOption.check({ force: true }).catch(() => {});
-    await jitter(400, 900);
+/** Writes only to the current field selected by the navigation model. */
+async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const field = ctx.observation.fields.find(field => field.ref === args.ref);
+  if (field && ['radio', 'select'].includes(field.kind) && typeof args.option === 'string' && field.options?.includes(args.option)) {
+    await fillField(ctx.page, field, args.option);
+    return ok('Cover-letter option selected. Re-observe, then call add_cover_letter with the writing FIELD ref.');
   }
-
-  const textarea = page.locator('textarea:visible').first();
-  try {
-    await textarea.waitFor({ state: 'visible', timeout: 6_000 });
-  } catch {
-    return ok('No cover-letter box appeared on this step. Move on to the next step.');
+  if (!field || !['textarea', 'text'].includes(field.kind) || field.sensitive) {
+    return ok('Choose the visible cover-letter FIELD ref. If it is hidden, use click to open the write-letter option, then observe again. Never choose an unrelated text box.');
   }
-
-  /**
-   * Always regenerate — never keep what is already in the box.
-   *
-   * SEEK persists the last cover letter you typed and pre-fills it into the
-   * next application, so trusting it means addressing one employer by another
-   * employer's name.
-   */
-  const existing = await textarea.inputValue().catch(() => '');
-  if (existing.trim().length > 40 && !existing.toLowerCase().includes(ctx.job.company.toLowerCase())) {
-    ctx.log(`  ! discarded a stale pre-filled cover letter (not addressed to ${ctx.job.company})`);
-  }
-
-  /**
-   * Written now, with a box in front of us, and not before.
-   *
-   * Letters used to be drafted as every application opened, in parallel, to
-   * save the few seconds a draft takes. Most forms have no cover-letter box —
-   * Indeed's never does — so six in ten drafts were thrown away, and the
-   * letter model is the largest part of what an application costs. Drafting
-   * and polishing are both cached per job, so a retry does not pay twice.
-   */
   const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
   if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
-
-  await textarea.fill(letter, { timeout: 10_000 });
-  if (await textarea.inputValue() !== letter) throw new Error('Cover letter did not retain the drafted text');
+  await fillField(ctx.page, field, letter);
   ctx.coverLetter = letter;
-  if (config.coverLetter.mode === 'reuse') ctx.log('  ↻ reusable cover letter selected');
-  return ok(
-    `Cover letter written (${letter.split(/\s+/).length} words), addressed to ${ctx.job.company}. ` +
-      'The cover-letter step is DONE — click the forward control next.',
-  );
+  ctx.guards.recordFillSuccess(field.label);
+  return ok(`Cover letter verified in ${field.ref}. Re-observe the page and handle any remaining fields or validation before continuing.`);
 }
 
-/**
- * Handles the résumé step, whatever shape it takes.
- *
- * SEEK's "Choose documents" step is a radio list of documents already on the
- * account, not a file input — `selectResume` already knows how to tick it,
- * including the Braid radios that never report `checked`. Without a tool for
- * this the agent tried to route the step through `answer_questions` and looped
- * on it until the step budget ran out, which is exactly what a live run did.
- */
+/** The model selects the control; this tool supplies only the approved local document. */
 async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const wanted = await pickResumeForJob(ctx.job, ctx.profile);
-  const fileActions = ctx.observation.actions.filter((action) => action.role === 'file');
-  const requestedRef = typeof args.ref === 'string' ? args.ref : '';
-  const modelSelectedRef = fileActions.some((action) => action.ref === requestedRef)
-    ? requestedRef
-    : undefined;
-  const fallbackRef = modelSelectedRef ?? (fileActions.length === 1 ? fileActions[0].ref : undefined);
-
-  const outcome = await selectResume(ctx.page, wanted, config.resume.allowUpload, fallbackRef).catch(
-    (error: Error) => ({ status: 'error' as const, message: error.message }),
-  );
-
-  if ('message' in outcome) return ok(`Resume step failed: ${outcome.message}`);
-
-  switch (outcome.status) {
-    case 'selected':
-    case 'uploaded':
-      ctx.resumeUsed = outcome.name;
-      if (outcome.status === 'uploaded') {
-        const site = hostOf(ctx.page.url());
-        noteAction(ctx, { kind: 'resume-uploaded', site, detail: `Added "${outcome.name}" to your documents on ${siteName(site)}.` });
-      }
-      return ok(`Resume "${outcome.name}" ${outcome.status}. Move on to the next step.`);
-    case 'unavailable':
-      if (outcome.reason === 'upload-failed') {
-        return {
-          kind: 'terminal',
-          outcome: { status: 'skipped', reason: 'The résumé could not be attached to this application.' },
-        };
-      }
-      if (outcome.reason === 'local-file-missing') {
-        return ok(
-          `The selected resume ("${outcome.wanted}") is missing from local storage and cannot be attached. ` +
-            'Finish with "cannot_complete".',
-        );
-      }
-      if (outcome.reason === 'upload-control-missing') {
-        return ok(
-          `The selected resume ("${outcome.wanted}") is not on this account, and this application offers nowhere to upload it. ` +
-            `Available: ${outcome.available.join(', ') || 'none'}. Finish with "cannot_complete".`,
-        );
-      }
-      return ok(
-        `The resume for this run ("${outcome.wanted}") is not on the account and uploading is disabled. ` +
-          `Available: ${outcome.available.join(', ') || 'none'}. Finish with "cannot_complete".`,
-      );
-    case 'kept-default':
-      if (outcome.name !== '(no document step)') {
-        ctx.resumeUsed = outcome.name;
-        return ok(`Kept the default resume ("${outcome.name}"). Move on to the next step.`);
-      }
-      break;
+  if (!wanted) return ok('No approved local resume is available. Finish with cannot_complete; do not choose an arbitrary document.');
+  const ref = typeof args.ref === 'string' ? args.ref : '';
+  const field = ctx.observation.fields.find(field => field.ref === ref);
+  const action = ctx.observation.actions.find(action => action.ref === ref && action.role === 'file');
+  const identity = `Resume to use: "${wanted.seekName || wanted.fileName}" (label "${wanted.label}").`;
+  if (field && ['radio', 'select'].includes(field.kind)) {
+    const option = typeof args.option === 'string' ? args.option : '';
+    const normal = (value: string) => value.toLowerCase().replace(/\.(docx?|pdf|rtf|txt)\b/g, '').replace(/[^a-z0-9]/g, '');
+    const names = [wanted.seekName, wanted.fileName, wanted.label].filter((name): name is string => Boolean(name));
+    if (!field.options?.includes(option) || !names.some(name => normal(name).length >= 3 && normal(option).includes(normal(name)))) {
+      return ok(`${identity} Choose its exact observed option, or upload it; do not select a different document.`);
+    }
+    await fillField(ctx.page, field, option);
+    ctx.resumeUsed = wanted.label;
+    ctx.guards.recordFillSuccess(field.label);
+    return ok('Resume selection verified. Re-observe before continuing.');
   }
-
-  if (fileActions.length > 1 && !modelSelectedRef) {
-    return ok(
-      'The page has multiple file uploads and deterministic matching could not identify the résumé control. ' +
-      'Read their ACTION labels and call attach_resume again with the resume/CV upload ref.',
-    );
+  if (!action || action.disabled || !/^a\d+$/.test(ref)) {
+    return ok(`${identity} Pass the observed resume upload ACTION ref, or a radio/select FIELD ref plus its exact option. If the control is hidden, open it with click and observe again. Do not use a photo upload.`);
   }
-  return ok('There is no résumé/document step on this page. Move on.');
+  if (!config.resume.allowUpload) return ok('Resume uploading is disabled. Select the matching existing document or finish with cannot_complete.');
+  const file = resolve(RESUME_DIR, wanted.fileName);
+  const within = relative(RESUME_DIR, file);
+  if (!within || within.startsWith('..') || isAbsolute(within) || !existsSync(file)) {
+    return ok('The approved resume file is unavailable. Finish with cannot_complete.');
+  }
+  const input = ctx.page.locator(`input[type="file"][data-ref-id="${ref}"]`);
+  const accept = await input.getAttribute('accept') ?? '';
+  if (/image\//i.test(accept) && !/pdf|word|document|\.doc|\.rtf|\.txt/i.test(accept)) {
+    return ok('That upload accepts images, not a resume. Choose the document upload from a fresh observation.');
+  }
+  await input.setInputFiles(file, { timeout: 10_000 });
+  const retained = await input.evaluate((element) => (element as HTMLInputElement).files?.[0]?.name ?? '').catch(() => '');
+  if (retained) {
+    ctx.resumeUsed = wanted.label;
+    const site = hostOf(ctx.page.url());
+    noteAction(ctx, { kind: 'resume-uploaded', site, detail: `Sent "${wanted.label}" to the resume upload control on ${siteName(site)}.` });
+  }
+  // File transport is not proof of server acceptance. Let the model read the next
+  // observation, choose the uploaded document, and recover from any site error.
+  return ok(`Resume file sent to the selected control${retained ? ` ("${retained}")` : ''}. Re-observe: confirm the document appears and select it with attach_resume if needed; resolve upload errors before continuing. This is not application success.`);
 }
 
 async function doScroll(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -947,7 +892,7 @@ export async function executeTool(
     case 'answer_questions':
       return doAnswerQuestions(ctx, args);
     case 'add_cover_letter':
-      return doAddCoverLetter(ctx);
+      return doAddCoverLetter(ctx, args);
     case 'attach_resume':
       return doAttachResume(ctx, args);
     case 'scroll':

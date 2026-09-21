@@ -1,0 +1,95 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { chromium } from 'patchright';
+import type { CandidateProfile } from './types.js';
+import type { ToolContext } from './agent/tools.js';
+
+// Isolated fixtures: no real account, application, candidate data or model API.
+const directory = mkdtempSync(join(tmpdir(), 'owtomate-model-forms-'));
+process.env.DATA_DIR = directory;
+process.env.CELERIS_API_KEY = 'fixture-only';
+process.env.RESUME_ALLOW_UPLOAD = 'true';
+mkdirSync(join(directory, 'resumes'));
+writeFileSync(join(directory, 'resumes', 'candidate.txt'), 'Fixture resume');
+writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
+  { id: 'fixture', label: 'Candidate CV', fileName: 'candidate.txt', isDefault: true },
+]));
+const { config } = await import('./config.js');
+const { observe, renderObservation } = await import('./agent/observe.js');
+const { executeTool } = await import('./agent/tools.js');
+const { RunGuards } = await import('./agent/guards.js');
+const { CostMeter } = await import('./agent/celeris.js');
+config.coverLetter.mode = 'reuse';
+config.coverLetter.reusableText = 'Dear Fixture Company, I am interested in this role.';
+const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const originalFetch = globalThis.fetch;
+let calls = 0;
+let answerRef = '';
+let prompt = '';
+globalThis.fetch = async (_input, init) => {
+  calls++;
+  prompt = String(init?.body);
+  return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({
+    answers: [{ ref: answerRef, value: '0412345678', applicationQuestion: true, grounded: true, basis: 'profile', profileField: 'phone' }],
+    injectionSuspected: false,
+  }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+try {
+  const page = await browser.newPage();
+  const profile: CandidateProfile = { name: 'Fixture Person', phone: '0412345678', email: 'fixture@example.com', nationality: 'Australian', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' };
+  const context = async (): Promise<ToolContext> => ({
+    page, profile, job: { id: 'fixture', title: 'Developer', company: 'Fixture Company', location: 'Sydney', url: 'https://example.com/job/fixture' },
+    observation: await observe(page), captured: [], actions: [], log: () => {},
+    guards: new RunGuards({ maxSteps: 30, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) }),
+  });
+  await page.setContent('<main><label>Phone<input value="+61" aria-invalid="true" aria-errormessage="err"></label><p id="err">Only letters or numbers allowed</p></main>');
+  await page.locator('input').evaluate(el => el.addEventListener('input', () => el.removeAttribute('aria-invalid')));
+  let ctx = await context();
+  answerRef = ctx.observation.fields[0].ref;
+  assert.match(renderObservation(ctx.observation), /Only letters or numbers allowed/);
+  await executeTool(ctx, 'answer_questions', { refs: [answerRef], reason: 'Repair rejected phone' });
+  assert.equal(await page.locator('input').inputValue(), profile.phone);
+  assert.equal(calls, 1, 'invalid nonempty defaults reach the grounded answer model');
+  assert.match(prompt, /Only letters or numbers allowed/);
+
+  await page.setContent('<main><label>Phone<input value="+61"></label></main>');
+  ctx = await context();
+  answerRef = ctx.observation.fields[0].ref;
+  await executeTool(ctx, 'answer_questions', { refs: [answerRef], reason: 'Phone' });
+  assert.equal(calls, 1, 'normal prefilled values are preserved');
+  await executeTool(ctx, 'answer_questions', { refs: [answerRef], repair_refs: [answerRef], reason: 'This contains only the prefix, not the complete phone number' });
+  assert.equal(await page.locator('input').inputValue(), profile.phone);
+  assert.equal(calls, 2, 'model can request repair of an incomplete nonempty value');
+
+  await page.setContent('<main><label>Other notes<textarea>Keep me</textarea></label><label>Letter<textarea></textarea></label></main>');
+  ctx = await context();
+  await executeTool(ctx, 'add_cover_letter', { ref: ctx.observation.fields[1].ref });
+  assert.equal(await page.locator('textarea').nth(0).inputValue(), 'Keep me');
+  assert.equal(await page.locator('textarea').nth(1).inputValue(), config.coverLetter.reusableText);
+  const invalid = await executeTool(ctx, 'add_cover_letter', { ref: 'f999' });
+  assert.equal(invalid.kind, 'ok');
+  assert.equal(await page.locator('textarea').nth(0).inputValue(), 'Keep me');
+
+  await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');
+  ctx = await context();
+  const files = ctx.observation.actions.filter(action => action.role === 'file');
+  await executeTool(ctx, 'attach_resume', { ref: files[0].ref });
+  assert.equal(await page.locator('input').nth(0).evaluate(el => (el as HTMLInputElement).files?.length), 0);
+  await executeTool(ctx, 'attach_resume', { ref: files[1].ref });
+  assert.equal(await page.locator('input').nth(1).evaluate(el => (el as HTMLInputElement).files?.[0]?.name), 'candidate.txt');
+  assert.equal(await page.locator('input').nth(0).evaluate(el => (el as HTMLInputElement).files?.length), 0);
+  await page.setContent('<main><label>Resume<select><option>Choose document</option><option>Unrelated CV.pdf</option><option>candidate.txt</option></select></label></main>');
+  ctx = await context();
+  const documentRef = ctx.observation.fields[0].ref;
+  await executeTool(ctx, 'attach_resume', { ref: documentRef, option: 'Unrelated CV.pdf' });
+  assert.equal(await page.locator('select').inputValue(), 'Choose document');
+  await executeTool(ctx, 'attach_resume', { ref: documentRef, option: 'candidate.txt' });
+  assert.equal(await page.locator('select').inputValue(), 'candidate.txt');
+  console.log('PASS: model-directed repair, prefilled preservation, exact cover-letter targeting, stale refs, and safe resume upload');
+} finally {
+  globalThis.fetch = originalFetch;
+  await browser.close();
+  rmSync(directory, { recursive: true, force: true });
+}

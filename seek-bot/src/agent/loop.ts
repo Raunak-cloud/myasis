@@ -64,17 +64,25 @@ employers, so read the page rather than assuming an order.
 - ACTIONS use "a" refs and FIELDS use "f" refs. Only "a" refs can be clicked.
   A field is never clicked — it is handled by the tool for its kind.
 - A resume / CV / "choose documents" step is always attach_resume, even when it
-  looks like a list of radio options. Never answer_questions for it. Once
-  attach_resume reports success the step is DONE — do not select a document
-  yourself, just click the forward control. If ACTIONS lists more than one file
-  upload, pass attach_resume the ref whose label and page context identify the
-  resume/CV control, never a profile-photo or image upload.
+  looks like a list of radio options. Never answer_questions for it. Ask
+  attach_resume without a ref for the approved document name, then pass the
+  resume upload ACTION ref or document FIELD ref with its exact option.
+  After an upload, read the page again to verify acceptance and select the
+  uploaded document if necessary. Never use a photo/image upload.
 - If a step mentions a cover letter at all, you MUST call add_cover_letter
   before continuing, even when it is optional and even when a box already has
-  text in it. Continuing past a cover-letter step without one is a failure.
+  text in it. First reveal its writing field with click or add_cover_letter
+  using the radio/select FIELD ref and exact writing option if necessary, then
+  pass its FIELD ref to add_cover_letter. Do not select an unrelated textarea.
 - Answer every required FIELD on a step before looking for the forward control.
   If a step has unanswered fields, answer them before clicking anything.
 - If a forward control is disabled, something required is still unanswered.
+- A nonempty field is not necessarily valid. Read validation messages and
+  inspect partial defaults (such as a dialling prefix without a phone number).
+  Use answer_questions with repair_refs for those fields and describe the
+  visible problem in reason; the answer model will repair using verified facts.
+- Handle profile setup, unfamiliar forms, and new pages from their current
+  controls and text, just like application pages. Never assume a fixed order.
 - If a dialog is covering the page, close or confirm it first.
 - Controls that put the form away end the application, whatever they promise:
   "Save and close", "Save for later", "Exit application", "Discard", "Don't

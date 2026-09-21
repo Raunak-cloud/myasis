@@ -197,6 +197,8 @@ export interface FormField {
   required: boolean;
   options?: string[];
   currentValue?: string;
+  /** Current browser/ARIA validation failure, observed rather than inferred. */
+  validationError?: string;
   /** True for custom ATS inputs that require choosing a suggestion. */
   autocomplete?: boolean;
   /**

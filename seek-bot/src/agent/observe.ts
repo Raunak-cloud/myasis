@@ -270,6 +270,24 @@ export interface ObserveOptions {
 
 export async function observe(page: Page, options: ObserveOptions = {}): Promise<Observation> {
   const [actions, fields] = await Promise.all([collectActions(page), extractFields(page)]);
+  const errors = await page.evaluate(() => {
+    const errors: Record<string, string> = {};
+    const roots: Array<Document | ShadowRoot> = [document];
+    for (let i = 0; i < roots.length; i++) {
+      for (const element of roots[i].querySelectorAll('*')) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+        const ref = element.getAttribute('data-field-id')?.split(':')[0];
+        if (!ref) continue;
+        const input = element as HTMLInputElement;
+        if (element.getAttribute('aria-invalid') !== 'true' && !input.validationMessage) continue;
+        const ids = `${element.getAttribute('aria-errormessage') ?? ''} ${element.getAttribute('aria-describedby') ?? ''}`.split(/\s+/).filter(Boolean);
+        const messages = ids.map(id => roots[i].querySelector(`#${CSS.escape(id)}`)?.textContent?.trim()).filter(Boolean);
+        errors[ref] = (messages.join(' ') || input.validationMessage || 'The page marks this field invalid.').slice(0, 1000);
+      }
+    }
+    return errors;
+  });
+  for (const field of fields) field.validationError = errors[field.ref];
 
   const text = await page
     .evaluate((limit) => {
@@ -312,7 +330,8 @@ export function renderObservation(observation: Observation): string {
     .map((f) => {
       const options = f.options?.length ? `  options=${JSON.stringify(f.options)}` : '';
       const value = f.currentValue ? `  current=${JSON.stringify(f.currentValue)}` : '';
-      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.section ? `${f.section} › ` : ''}${f.label}${options}${value}`;
+      const error = f.validationError ? `  validation=${JSON.stringify(f.validationError)}` : '';
+      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.section ? `${f.section} › ` : ''}${f.label}${options}${value}${error}`;
     })
     .join('\n');
 
