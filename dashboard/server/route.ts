@@ -126,10 +126,11 @@ export async function proxySummary(userId: string): Promise<{ address: string; u
 /**
  * The account's exit, most specific first: a proxy an operator set for it by
  * hand, then the one it holds from the Webshare pool, then its home route.
- * `assign` lets the pool give it a proxy on the spot, for a browser about to open.
+ * `assign` lets the pool give it a proxy on the spot, for a browser about to
+ * open; `borrowFree` permits a temporary free-plan loan for a live run.
  */
-async function exitFor(userId: string, assign: boolean): Promise<Exit | null> {
-  const proxy = (await savedProxy(userId)) ?? (await pooledProxyFor(userId, assign));
+async function exitFor(userId: string, assign: boolean, borrowFree = false): Promise<Exit | null> {
+  const proxy = (await savedProxy(userId)) ?? (await pooledProxyFor(userId, assign, borrowFree));
   if (proxy) {
     return { kind: 'proxy', host: proxy.host, port: proxy.port, auth: { username: proxy.username, password: proxy.password } };
   }
@@ -447,10 +448,10 @@ function forget(userId: string): void {
 // A proxy given, taken back or swapped by the pool is a changed setting like any other.
 onPoolChange(forget);
 
-async function switchFor(userId: string, assign = false): Promise<RouteSwitch | null> {
+async function switchFor(userId: string, assign = false, borrowFree = false): Promise<RouteSwitch | null> {
   const existing = switches.get(userId);
   if (existing) return existing;
-  const exit = await exitFor(userId, assign);
+  const exit = await exitFor(userId, assign, borrowFree);
   if (!exit) return null;
   const created = new RouteSwitch(userId, exit);
   switches.set(userId, created);
@@ -472,8 +473,8 @@ export async function routeStatus(userId: string): Promise<RouteStatus> {
  * route it will start on. Empty for an account without an exit, whose Chrome
  * starts exactly as it always has.
  */
-export async function browserRoute(userId: string): Promise<{ proxyServer: string | null; args: string[]; status: RouteStatus }> {
-  const route = await switchFor(userId, true);
+export async function browserRoute(userId: string, borrowFree = false): Promise<{ proxyServer: string | null; args: string[]; status: RouteStatus }> {
+  const route = await switchFor(userId, true, borrowFree);
   if (!route) return { proxyServer: null, args: [], status: SERVER_ONLY };
   await route.check(true);
   const proxyServer = `socks5://127.0.0.1:${await route.port()}`;

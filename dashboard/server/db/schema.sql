@@ -346,10 +346,11 @@ CREATE TABLE IF NOT EXISTS daily_digests (
 -- later is news again, and a problem that is still there is never repeated.
 -- `first_seen_at` is what lets an alert wait: a board that signs itself back
 -- in within the hour never costs anyone an email.
--- Dedicated addresses for paying accounts, synced from the operator's Webshare
--- plans (server/proxy-pool.ts). One proxy per account at most; last_user_id
--- and released_at let an account get its old address back, and keep an
--- address given up from reaching another account until it has cooled down.
+-- Dedicated addresses for paying accounts and temporary loans for free
+-- accounts, synced from the operator's Webshare plans (server/proxy-pool.ts).
+-- One proxy per account at most; last_user_id and released_at let an account
+-- get its old address back, and keep an address given up from reaching another
+-- account until it has cooled down.
 CREATE TABLE IF NOT EXISTS pool_proxies (
   id           TEXT PRIMARY KEY,
   plan_id      TEXT NOT NULL,
@@ -361,11 +362,17 @@ CREATE TABLE IF NOT EXISTS pool_proxies (
   city         TEXT,
   valid        BOOLEAN NOT NULL DEFAULT true,
   user_id      BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
+  borrowed_free BOOLEAN NOT NULL DEFAULT false,
   assigned_at  TIMESTAMPTZ,
   last_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
   released_at  TIMESTAMPTZ,
   seen_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Existing installations created pool_proxies before free accounts could
+-- borrow an address. The marker distinguishes a temporary free-plan lease
+-- from the dedicated address held by an account with paid applications.
+ALTER TABLE pool_proxies ADD COLUMN IF NOT EXISTS borrowed_free BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS account_alerts (
   user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

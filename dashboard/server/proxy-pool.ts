@@ -4,16 +4,16 @@ import { isAdmin } from './billing.js';
 import { endpointOf, isPublic, parseProxy } from './proxy-address.js';
 
 /**
- * A dedicated address for every paying account, from the operator's Webshare
- * plans.
+ * A dedicated address for every paying account, plus short-lived loans to
+ * free accounts while they work toward their next successful application,
+ * from the operator's Webshare plans.
  *
- * The pool is kept declaratively. One rule says what should be true — every
- * account with paid applications left holds exactly one working proxy in the
- * pool's countries, and no other account holds one — and a reconcile makes it
- * so. It runs when a payment lands, every few minutes, and just before any
- * browser opens for an account without one, so a missed trigger costs minutes
- * at worst and never a run: an account with no proxy yet simply goes out from
- * the server, as every account did before.
+ * The pool is kept declaratively. Paying accounts with applications left hold
+ * one working proxy in the pool's countries. A free account may temporarily
+ * borrow an otherwise-free one when a live run opens, and returns it after a
+ * confirmed submission. Reconciliation runs when a payment lands, every few
+ * minutes, and just before a browser opens, so an account with no proxy simply
+ * goes out from the server, as every account did before.
  *
  * What is in the pool comes from Webshare itself (`GET /api/v2/proxy/list/`,
  * for every active static residential plan), synced on a timer. Webshare can
@@ -290,6 +290,7 @@ interface DbRow {
   city: string | null;
   valid: boolean;
   user_id: string | null;
+  borrowed_free: boolean;
   last_user_id: string | null;
   released_at: Date | null;
 }
@@ -310,7 +311,8 @@ const toRow = (row: DbRow): PoolRow => ({
 });
 
 const SELECT_ROWS = `SELECT id, plan_id, address, port, username, password, country_code, city, valid,
-                            user_id::text AS user_id, last_user_id::text AS last_user_id, released_at
+                            user_id::text AS user_id, borrowed_free,
+                            last_user_id::text AS last_user_id, released_at
                        FROM pool_proxies`;
 
 type Client = { query: <T extends object>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> };
@@ -382,25 +384,43 @@ async function exclusively<T>(work: (client: Client) => Promise<T>): Promise<T> 
   }
 }
 
-async function applyAssignments(client: Client): Promise<{ changed: string[]; waiting: string[] }> {
-  const rows = (await client.query<DbRow>(`${SELECT_ROWS} ORDER BY id`)).rows.map(toRow);
-  const entitled = await entitledAccounts(client);
+async function applyAssignments(client: Client, borrowFor: string | null = null): Promise<{ changed: string[]; waiting: string[] }> {
+  const dbRows = (await client.query<DbRow>(`${SELECT_ROWS} ORDER BY id`)).rows;
+  const rows = dbRows.map(toRow);
+  const paid = await entitledAccounts(client);
+  const paidSet = new Set(paid);
+  // A free loan survives ordinary reconciles until a confirmed application
+  // releases it. If the account buys applications in the meantime, the same
+  // address simply becomes its dedicated paid assignment.
+  const borrowed = dbRows
+    .filter((row) => row.borrowed_free && row.user_id && !paidSet.has(row.user_id))
+    .map((row) => row.user_id!);
+  if (paid.length) {
+    await client.query(`UPDATE pool_proxies SET borrowed_free = false WHERE borrowed_free AND user_id::text = ANY($1)`, [paid]);
+  }
+  const entitled = [...paid, ...borrowed];
+  if (borrowFor && !paidSet.has(borrowFor) && !entitled.includes(borrowFor)) entitled.push(borrowFor);
   const reserved = new Set((await manualProxies(client)).keys());
   const plan = planPool(rows, entitled, reserved, { countries: poolCountries(), now: Date.now(), cooldownMs: COOLDOWN_MS });
   const changed: string[] = [];
   if (plan.release.length) {
     const released = await client.query<{ last_user_id: string }>(
-      `UPDATE pool_proxies SET last_user_id = user_id, user_id = NULL, released_at = now()
+      `UPDATE pool_proxies SET last_user_id = user_id, user_id = NULL, borrowed_free = false, released_at = now()
         WHERE id = ANY($1) RETURNING last_user_id::text AS last_user_id`,
       [plan.release],
     );
     changed.push(...released.rows.map((row) => row.last_user_id));
   }
   for (const { proxyId, userId } of plan.assign) {
-    await client.query(`UPDATE pool_proxies SET user_id = $1, assigned_at = now() WHERE id = $2 AND user_id IS NULL`, [userId, proxyId]);
+    await client.query(
+      `UPDATE pool_proxies SET user_id = $1, borrowed_free = $2, assigned_at = now() WHERE id = $3 AND user_id IS NULL`,
+      [userId, userId === borrowFor && !paidSet.has(userId), proxyId],
+    );
     changed.push(userId);
   }
-  return { changed, waiting: plan.waiting };
+  // The operator-facing waiting list is a paid-customer promise. A free run
+  // simply falls back to the server when every safe pool address is occupied.
+  return { changed, waiting: plan.waiting.filter((userId) => paidSet.has(userId)) };
 }
 
 // ---------------------------------------------------------------- what the rest of the server calls
@@ -440,7 +460,11 @@ export async function syncPool(): Promise<void> {
       return new Set(held.map((row) => endpointOf({ host: row.address, port: row.port })));
     });
     const changed = await exclusively(async (client) => {
-      const rows = (await client.query<DbRow>(SELECT_ROWS)).rows.map(toRow);
+      const dbRows = (await client.query<DbRow>(SELECT_ROWS)).rows;
+      const rows = dbRows.map(toRow);
+      const borrowedByUser = new Map(
+        dbRows.filter((row) => row.user_id).map((row) => [row.user_id!, row.borrowed_free]),
+      );
       const plan = planSync(rows, fetched.proxies, fetched.replacements);
       for (const proxy of plan.upsert) {
         await client.query(
@@ -454,7 +478,10 @@ export async function syncPool(): Promise<void> {
       }
       if (plan.remove.length) await client.query(`DELETE FROM pool_proxies WHERE id = ANY($1)`, [plan.remove]);
       for (const move of plan.moves) {
-        await client.query(`UPDATE pool_proxies SET user_id = $1, assigned_at = now() WHERE id = $2 AND user_id IS NULL`, [move.userId, move.to]);
+        await client.query(
+          `UPDATE pool_proxies SET user_id = $1, borrowed_free = $2, assigned_at = now() WHERE id = $3 AND user_id IS NULL`,
+          [move.userId, borrowedByUser.get(move.userId) ?? false, move.to],
+        );
       }
       const assigned = await applyAssignments(client);
       state.waiting = assigned.waiting;
@@ -480,11 +507,10 @@ export interface PooledProxy {
 
 /**
  * The proxy this account holds from the pool, if any. With `assign`, an
- * account that should hold one and does not — it has just paid, and the
- * webhook's reconcile has not run or failed — is given one here, before its
- * browser opens.
+ * entitled paid account is brought up to date before its browser opens. With
+ * `borrowFree`, a free account may also take an otherwise-available address.
  */
-export async function pooledProxyFor(userId: string, assign: boolean): Promise<PooledProxy | null> {
+export async function pooledProxyFor(userId: string, assign: boolean, borrowFree = false): Promise<PooledProxy | null> {
   if (!poolEnabled()) return null;
   const find = () => one<{ address: string; port: number; username: string; password: string }>(
     `SELECT address, port, username, password FROM pool_proxies WHERE user_id = $1`,
@@ -492,10 +518,37 @@ export async function pooledProxyFor(userId: string, assign: boolean): Promise<P
   );
   let row = await find();
   if (!row && assign) {
-    await reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
+    if (borrowFree) {
+      const result = await exclusively((client) => applyAssignments(client, userId));
+      state.waiting = result.waiting;
+      announce(result.changed);
+    } else {
+      await reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
+    }
     row = await find();
   }
   return row ? { host: row.address, port: row.port, username: row.username, password: row.password } : null;
+}
+
+/**
+ * Gives back only a temporary free-plan loan. Paid assignments and proxies an
+ * operator entered by hand are untouched. The normal cooldown still applies,
+ * so two candidates never appear from the same address at the same time.
+ */
+export async function releaseFreeProxy(userId: string): Promise<boolean> {
+  if (!poolEnabled()) return false;
+  const released = await exclusively(async (client) => {
+    const row = await client.query<{ id: string }>(
+      `UPDATE pool_proxies
+          SET last_user_id = user_id, user_id = NULL, borrowed_free = false, released_at = now()
+        WHERE user_id = $1 AND borrowed_free
+        RETURNING id`,
+      [userId],
+    );
+    return row.rows.length > 0;
+  });
+  if (released) announce([userId]);
+  return released;
 }
 
 /** Who holds the proxy at this endpoint, if the pool has given it out. */

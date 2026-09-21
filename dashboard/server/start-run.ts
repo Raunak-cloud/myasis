@@ -23,6 +23,7 @@ import { userChromeDir } from './userdata.js';
 import { externalSubmittedToday, submittedToday } from './today.js';
 import { readSiteState } from './seek-state.js';
 import { browserRoute, describeRoute } from './route.js';
+import { releaseFreeProxy } from './proxy-pool.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -92,6 +93,7 @@ export function allowanceRefusal(allowance: Pick<BillingStatus, 'totalRemaining'
 export async function startRun(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
   const admin = isAdmin(email);
+  let borrowFreeProxy = false;
   const entitlements = await entitlementsFor(userId, email);
   /** A search-only run never reaches an employer; a live run submits applications. */
   const consumes = mode === 'live';
@@ -186,6 +188,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       } else {
         const refused = allowanceRefusal(allowance);
         if (refused) return refused;
+        // Paid credits already receive a dedicated pooled address. Accounts
+        // with only their free allowance borrow one until a submission lands.
+        borrowFreeProxy = allowance.paid.remaining < 1 && allowance.free.remaining > 0;
         overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
       }
     } catch (error) {
@@ -274,7 +279,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * does count, which is why this is not tied to the run finishing.
    */
   // Decided as late as possible, so the run starts on the route that is up now rather than a minute ago.
-  const route = await browserRoute(userId);
+  const route = await browserRoute(userId, borrowFreeProxy);
   if (route.proxyServer) {
     overrides.BROWSER_PROXY_SERVER = route.proxyServer;
     overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
@@ -285,7 +290,24 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     mode,
     overrides,
     userId,
-    mode === 'live' && !admin ? (external) => consumeSuccessfulApplication(userId, external) : undefined,
+    mode === 'live' && !admin
+      ? async (external) => {
+          let usageError: unknown = null;
+          try {
+            await consumeSuccessfulApplication(userId, external);
+          } catch (error) {
+            usageError = error;
+          }
+          try {
+            // The runner calls this only after it has confirmed submission. A
+            // free loan is returned; a paid user's dedicated proxy is a no-op.
+            await releaseFreeProxy(userId);
+          } catch (releaseError) {
+            if (!usageError) throw releaseError;
+          }
+          if (usageError) throw usageError;
+        }
+      : undefined,
     runStartId,
     {
       termsUsed: overrides.KEYWORDS ?? '',
