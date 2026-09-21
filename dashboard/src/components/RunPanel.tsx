@@ -883,12 +883,12 @@ export function RunPanel({
                 : autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
                 ? 'starts once your setup is complete'
                 : autoSchedule?.waitingForBoard || signedOutEverywhere
-                ? 'waiting until you sign in to a job board'
+                ? 'Waiting for sign-in'
                 : autoSchedule?.waitingForFirstRun || firstRun
                 ? 'waiting for you to complete your first run'
                 : `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} today${autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}`}
             </span>
-            {entitlements.canPauseAutoApply && (
+            {entitlements.canPauseAutoApply && !signedOutEverywhere && (
               <button
                 type="button"
                 role="switch"

@@ -251,11 +251,11 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
         {notice && <div className={`banner ${/signed out|could not/i.test(notice) ? 'banner-bad' : 'banner-ok'}`}>{notice}</div>}
         {!status.seek?.signedIn && !status.checking && <div className="seek-connect-row">
           <div>
-            <h3>SEEK account</h3>
+            <h3>SEEK</h3>
             <p className="job-meta">
               {expired
-                ? 'SEEK shows this account signed out. Sign in again to keep applying.'
-                : 'Sign in once. Applications are sent from your own account.'}
+                ? 'Signed out'
+                : 'Not connected'}
             </p>
           </div>
           <button className="btn primary" disabled={busy} onClick={() => open('seek')}>
@@ -264,11 +264,11 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
         </div>}
         {indeedEnabled && !status.indeed?.signedIn && <div className="seek-connect-row">
           <div>
-            <h3>Indeed account</h3>
+            <h3>Indeed</h3>
             <p className="job-meta">
               {indeedExpired
-                ? 'Indeed shows this account signed out. Sign in again to keep applying.'
-                : 'Sign in once, or clear a verification check, in your own Indeed browser.'}
+                ? 'Signed out'
+                : 'Not connected'}
             </p>
           </div>
           <button className="btn" disabled={busy} onClick={() => open('indeed')}>
