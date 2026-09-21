@@ -144,7 +144,15 @@ export async function handleGoogleCallback(
   code: string | null,
   state: string | null,
   cookieHeader?: string,
-): Promise<{ ok: boolean; cookie?: string; error?: string }> {
+): Promise<{
+  ok: boolean;
+  cookie?: string;
+  error?: string;
+  /** True only the first time this address signs in — see the upsert below. */
+  signedUp?: boolean;
+  userId?: string;
+  email?: string;
+}> {
   const c = creds();
   if (!c.clientId || !c.clientSecret) return { ok: false, error: 'Google sign-in is not configured.' };
   if (!code) return { ok: false, error: 'No authorisation code returned.' };
@@ -182,7 +190,10 @@ export async function handleGoogleCallback(
 
   // Matching on email links a Google login to an account already migrated from
   // the local files, rather than creating a second empty one.
-  const user = await one<{ id: string; blocked_at: Date | null }>(
+  // `xmax` is zero only on a row this statement inserted, so the upsert says
+  // which of the two things it did. A sign-up is a conversion worth reporting;
+  // the same person signing in next week is not.
+  const user = await one<{ id: string; blocked_at: Date | null; is_new: boolean }>(
     `INSERT INTO users (email, name, avatar_url, google_id, last_login_at)
      VALUES ($1,$2,$3,$4, now())
      ON CONFLICT (email) DO UPDATE SET
@@ -190,7 +201,7 @@ export async function handleGoogleCallback(
        avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
        google_id = COALESCE(users.google_id, EXCLUDED.google_id),
        last_login_at = now()
-     RETURNING id, blocked_at`,
+     RETURNING id, blocked_at, (xmax = 0) AS is_new`,
     [info.email.toLowerCase(), info.name ?? null, info.picture ?? null, info.sub],
   );
   if (!user) return { ok: false, error: 'Could not create the account.' };
@@ -203,7 +214,13 @@ export async function handleGoogleCallback(
     `INSERT INTO sessions (token, user_id, expires_at) VALUES ($1,$2, now() + ($3 || ' seconds')::interval)`,
     [token, user.id, String(maxAge)],
   );
-  return { ok: true, cookie: sessionCookie(token, maxAge) };
+  return {
+    ok: true,
+    cookie: sessionCookie(token, maxAge),
+    signedUp: user.is_new,
+    userId: user.id,
+    email: info.email.toLowerCase(),
+  };
 }
 
 export async function currentUser(cookieHeader?: string): Promise<SessionUser | null> {

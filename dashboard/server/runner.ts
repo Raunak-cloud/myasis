@@ -596,6 +596,9 @@ const SECRET_KEYS = new Set([
   'GOOGLE_CLIENT_SECRET',
   'SITE_AUTH_SECRET',
   'DATABASE_URL', // embeds the Postgres password
+  // Posts conversions to the ad account. REDDIT_PIXEL_ID is deliberately not
+  // here: it ships to every browser anyway, and the settings panel should show it.
+  'REDDIT_CONVERSION_TOKEN',
 ]);
 
 /** Masks secrets — the dashboard should never render an API key. */

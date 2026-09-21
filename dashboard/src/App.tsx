@@ -25,6 +25,7 @@ import { useBoardsStatus } from './boards';
 import { useRouteStatus } from './route';
 import { JobBoardsDialog } from './components/JobBoardsDialog';
 import { trackPage } from './analytics';
+import { initRedditPixel, trackRedditEvent } from './redditPixel';
 import { useRunStatus } from './runStatus';
 
 type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'admin';
@@ -108,6 +109,23 @@ export default function App() {
     if (authLoading) return;
     trackPage(user ? tab : 'landing');
   }, [authLoading, user, tab]);
+
+  /**
+   * Reddit's pixel, and the sign-up that may have just happened. The server
+   * reported it already and put its conversion id on the redirect, so the same
+   * id goes out from here and Reddit keeps only one of the two. Stripped from
+   * the URL immediately: a reload must not report the sign-up a second time.
+   */
+  useEffect(() => {
+    initRedditPixel();
+    const params = new URLSearchParams(window.location.search);
+    const signup = params.get('rdt_signup');
+    if (!signup) return;
+    trackRedditEvent('SignUp', { conversionId: signup });
+    params.delete('rdt_signup');
+    const query = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }, []);
 
   const load = useCallback(async () => {
     const [a, n, lastRun, todayStats] = await Promise.all([

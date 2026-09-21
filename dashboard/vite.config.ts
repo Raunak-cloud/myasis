@@ -23,6 +23,7 @@ import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, 
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
+import { matchKeysFromRequest, reportRedditConversion } from './server/reddit-capi.js';
 import { startProfileMaintenance } from './server/profile-prune.js';
 import { startHealthMaintenance } from './server/health.js';
 import { startTraceRetention } from './server/trace-retention.js';
@@ -380,7 +381,9 @@ function dataApi(): Plugin {
           const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : '';
           if (!/^cs_/.test(sessionId)) return send({ error: 'Invalid checkout session.' }, 400);
           try {
-            const result = await fulfillCheckoutSession(sessionId, user.id);
+            // This path has a browser behind it, so the ad click id and Reddit's
+            // own cookie come along; the webhook path has neither.
+            const result = await fulfillCheckoutSession(sessionId, user.id, matchKeysFromRequest(req));
             // A paying account gets its dedicated address now, not at the next reconcile.
             void reconcilePool().catch((error) => console.warn('[proxy-pool] reconcile after payment failed:', (error as Error).message));
             return send({ ok: true, ...result, status: await billingStatus(user.id) });
@@ -1012,9 +1015,29 @@ function dataApi(): Plugin {
               return res.end();
             }
             void pruneSessions();
+            /**
+             * A new account is a conversion. It is reported from here, and the
+             * same id is handed to the page so the pixel can report it too —
+             * Reddit keeps whichever arrives in better shape and drops the
+             * other. Derived from the user id rather than generated, because
+             * two random ids would never match and the sign-up would count
+             * twice. Returning sign-ins carry no id and report nothing.
+             */
+            let signupParam = '';
+            if (r.signedUp && r.userId) {
+              const conversionId = `signup:${r.userId}`;
+              signupParam = `?rdt_signup=${encodeURIComponent(conversionId)}`;
+              reportRedditConversion({
+                trackingType: 'SignUp',
+                conversionId,
+                externalId: r.userId,
+                email: r.email,
+                match: matchKeysFromRequest(req),
+              });
+            }
             res.statusCode = 302;
             res.setHeader('Set-Cookie', [r.cookie, clearOauthCookie()]);
-            res.setHeader('Location', '/');
+            res.setHeader('Location', `/${signupParam}`);
             return res.end();
           },
         );
@@ -1351,6 +1374,16 @@ function publicHosts(): string[] {
 
 export default defineConfig({
   plugins: [react(), dataApi()],
+  /**
+   * The Reddit pixel id is baked in at build time. It is not a secret — every
+   * visitor's browser is given it — but it does not belong in the source
+   * either, so it comes from the same `.env` as everything else and the build
+   * on the server picks it up. Empty when unset, which switches the pixel off
+   * rather than loading it with a broken id.
+   */
+  define: {
+    __REDDIT_PIXEL_ID__: JSON.stringify(process.env.REDDIT_PIXEL_ID ?? readEnvSafe().REDDIT_PIXEL_ID ?? ''),
+  },
   /**
    * Not "spa": the app lives at / alone, with tabs in the query string, so
    * any other path is a mistake and should say so. In spa mode every typo

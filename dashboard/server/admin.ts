@@ -21,6 +21,7 @@ import { startRun } from './start-run.js';
 import { userDir } from './userdata.js';
 import { PAID_PLANS, isPassPlanKey } from '../src/pricing.js';
 import { clientIp, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
+import { redditCapiHealth } from './reddit-capi.js';
 
 /**
  * The operator's view of the whole installation: every account, every run,
@@ -271,6 +272,9 @@ export async function adminOverview() {
     week: { applications: Number(week?.applications ?? 0) },
     revenueCents: { last30Days: Number(revenue?.month ?? 0), total: Number(revenue?.total ?? 0) },
     capacity: { running: runner.activeCount(), lanes: MAX_CONCURRENT },
+    // Ad conversions leave no trace in the product when they stop working, so
+    // the panel says whether they are going out and how the last ones landed.
+    redditCapi: redditCapiHealth(),
     recentRuns: runs,
   };
 }

@@ -74,6 +74,15 @@ interface Overview {
   week: { applications: number };
   revenueCents: { last30Days: number; total: number };
   capacity: { running: number; lanes: number };
+  redditCapi: {
+    configured: boolean;
+    pixelId: string | null;
+    accepted: number;
+    rejected: number;
+    failed: number;
+    lastAt: string | null;
+    lastError: string | null;
+  };
   recentRuns: AdminRun[];
 }
 
@@ -259,23 +268,47 @@ function OverviewView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
 
   if (error) return <div className="banner banner-bad">{error}</div>;
   if (!data) return <p className="job-meta">Loading…</p>;
-  const tiles = [
+  const capi = data.redditCapi;
+  const capiUnsent = capi.rejected + capi.failed;
+  const tiles: { label: string; value: string | number; note: string; bad?: boolean }[] = [
     { label: 'Accounts', value: data.users.total, note: `${data.users.newThisWeek} new · ${data.users.activeThisWeek} signed in this week` },
     { label: 'Active passes', value: data.passes.essential + data.passes.jobSearch + data.passes.intensive, note: `${data.passes.essential} Essential · ${data.passes.jobSearch} Active · ${data.passes.intensive} Intensive` },
     { label: 'Running now', value: `${data.capacity.running} of ${data.capacity.lanes}`, note: 'browser lanes in use' },
-    { label: 'Runs today', value: data.today.runs, note: data.today.failedRuns ? `${data.today.failedRuns} failed` : 'none failed' },
+    { label: 'Runs today', value: data.today.runs, note: data.today.failedRuns ? `${data.today.failedRuns} failed` : 'none failed', bad: data.today.failedRuns > 0 },
     { label: 'Applications', value: data.today.applications, note: `today · ${data.week.applications} this week` },
     { label: 'Revenue', value: aud(data.revenueCents.last30Days), note: `last 30 days · ${aud(data.revenueCents.total)} all time` },
+    {
+      label: 'Ad conversions',
+      // Counted since the last restart, so "none yet" is the normal reading on a quiet morning.
+      value: capi.configured ? capi.accepted : 'Off',
+      note: capi.configured
+        ? capiUnsent
+          ? `${capiUnsent} not delivered since restart`
+          : `sent to Reddit · ${capi.pixelId ?? ''}`
+        : 'no conversion token set',
+      bad: capi.configured && capiUnsent > 0,
+    },
   ];
   const running = data.recentRuns.filter((run) => run.running);
   return (
     <div className="admin-stack">
+      {/*
+        Reddit's own words, not ours. A wrong token scope, a currency that does
+        not match the ad account and a malformed event all come back here with
+        different text, and guessing between them from a counter wastes an
+        afternoon.
+      */}
+      {capi.configured && capi.lastError && capiUnsent > 0 ? (
+        <div className="banner banner-bad">
+          Reddit rejected the last conversion: {capi.lastError}
+        </div>
+      ) : null}
       <div className="admin-tiles">
         {tiles.map((tile) => (
           <div className="card admin-tile" key={tile.label}>
             <span className="job-meta">{tile.label}</span>
             <strong>{tile.value}</strong>
-            <span className={`job-meta${tile.label === 'Runs today' && data.today.failedRuns ? ' admin-bad' : ''}`}>{tile.note}</span>
+            <span className={`job-meta${tile.bad ? ' admin-bad' : ''}`}>{tile.note}</span>
           </div>
         ))}
       </div>

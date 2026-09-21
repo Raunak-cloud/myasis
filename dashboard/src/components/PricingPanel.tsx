@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
+import { trackRedditEvent } from '../redditPixel';
 import { MascotLogo } from './MascotLogo';
 
 
@@ -67,6 +68,20 @@ export function PricingPanel() {
           setStatus(body.status);
           window.dispatchEvent(new Event(BILLING_CHANGED));
           const product = PAID_PLANS[body.planKey as PaidPlanKey];
+          /**
+           * The server reported this purchase as it banked it and handed back
+           * the id it used. Echoing the same id lets Reddit drop one of the
+           * pair. Absent when the webhook got here first, and then the server's
+           * report is the only one — which is the point of having both.
+           */
+          if (body.conversionId && product) {
+            trackRedditEvent('Purchase', {
+              conversionId: body.conversionId,
+              value: product.priceCents / 100,
+              currency: 'AUD',
+              itemCount: 1,
+            });
+          }
           setNotice({ kind: 'ok', text: product?.kind === 'extension'
             ? `Your pass was extended by ${product.durationDays} days.`
             : product?.kind === 'employer-site-top-up'

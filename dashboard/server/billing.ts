@@ -10,6 +10,7 @@ import {
   type PaidPlanKey,
 } from '../src/pricing.js';
 import type { SessionUser } from './auth.js';
+import { reportRedditConversion, type RedditMatchKeys } from './reddit-capi.js';
 
 /**
  * Resolved per call rather than at module load — like `billingEnv()` below —
@@ -286,7 +287,15 @@ export async function createCheckout(
 export async function fulfillCheckoutSession(
   sessionId: string,
   expectedUserId?: string,
-): Promise<{ fulfilled: boolean; planKey: PaidPlanKey; applications: number }> {
+  /** What the browser knew, when a browser is present. Absent on the webhook path. */
+  redditMatch?: RedditMatchKeys,
+): Promise<{
+  fulfilled: boolean;
+  planKey: PaidPlanKey;
+  applications: number;
+  /** Set only on the call that actually created the purchase, for the pixel to echo. */
+  conversionId?: string;
+}> {
   const stripe = stripeClient();
   const session = await stripe.checkout.sessions.retrieve(sessionId);
   if (session.payment_status !== 'paid') throw new Error('Payment has not completed.');
@@ -394,7 +403,27 @@ export async function fulfillCheckoutSession(
       );
     }
     await client.query('COMMIT');
-    return { fulfilled: true, planKey: planKeyValue, applications: plan.applications };
+
+    /**
+     * Reported once the money is actually banked, never before. The purchase
+     * row's id is the conversion id: the insert above is `ON CONFLICT DO
+     * NOTHING`, so whichever of the webhook and the confirm call gets here
+     * first is the only one that reaches this line, and the pixel echoes the
+     * same id from the page. Reddit keeps one of the two.
+     */
+    const conversionId = `purchase:${purchase.rows[0].id}`;
+    reportRedditConversion({
+      trackingType: 'Purchase',
+      conversionId,
+      externalId: userId,
+      email: session.customer_details?.email ?? undefined,
+      valueDecimal: (session.amount_total ?? plan.priceCents) / 100,
+      currency: (session.currency ?? 'aud').toUpperCase(),
+      itemCount: 1,
+      match: redditMatch,
+    });
+
+    return { fulfilled: true, planKey: planKeyValue, applications: plan.applications, conversionId };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
