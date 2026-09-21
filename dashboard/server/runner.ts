@@ -653,6 +653,15 @@ export function writeEnv(updates: Record<string, string>): void {
     return `${key}=${updates[key]}`;
   });
 
+  /**
+   * A file that ended in a newline splits into a trailing empty string. New
+   * keys used to be pushed after it, so the join put a blank line before them
+   * and no newline after — and the next `printf >> .env` by hand glued its key
+   * onto the end of the last value. Trim the trailing blanks, append, and
+   * always finish with a newline: the file is the one thing here that other
+   * tools also write.
+   */
+  while (next.length && next[next.length - 1].trim() === '') next.pop();
   for (const [k, v] of Object.entries(updates)) if (!written.has(k)) next.push(`${k}=${v}`);
-  writeFileSync(ENV_PATH, next.join('\n'));
+  writeFileSync(ENV_PATH, `${next.join('\n')}\n`);
 }
