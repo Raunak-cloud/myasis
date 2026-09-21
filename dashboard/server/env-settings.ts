@@ -212,6 +212,26 @@ const GROUPS: GroupSpec[] = [
     ],
   },
   {
+    key: 'advertising',
+    title: 'Advertising',
+    note: 'Measures which Reddit ads bring people here. With the token empty, the browser pixel still reports; the server does not, and conversions behind an ad blocker or a closed tab are lost.',
+    keys: [
+      {
+        key: 'REDDIT_PIXEL_ID',
+        label: 'Reddit pixel ID',
+        // Not a secret: it ships to every visitor's browser in the page bundle.
+        help: 'From Events Manager. Baked into the page at build time, so a change needs a deploy, not just a restart.',
+        kind: 'text',
+      },
+      {
+        key: 'REDDIT_CONVERSION_TOKEN',
+        label: 'Conversions API token',
+        help: 'Events Manager → Conversions API → Generate Access Token. Shown once. Needs the adsconversions scope. Read fresh on every send, so a change takes effect immediately.',
+        kind: 'secret',
+      },
+    ],
+  },
+  {
     key: 'locked',
     title: 'Sign-in and database',
     note: 'Shown for reference. A wrong value here locks you out of this dashboard, so these are changed on the server.',
