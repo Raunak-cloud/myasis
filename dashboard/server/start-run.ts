@@ -278,46 +278,61 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * simply tries again on its next tick. A run that starts and then dies
    * does count, which is why this is not tied to the run finishing.
    */
-  // Decided as late as possible, so the run starts on the route that is up now rather than a minute ago.
-  const route = await browserRoute(userId, borrowFreeProxy);
-  if (route.proxyServer) {
-    overrides.BROWSER_PROXY_SERVER = route.proxyServer;
-    overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
-  }
+  let started = false;
+  try {
+    // Decided as late as possible, so the run starts on the route that is up now rather than a minute ago.
+    const route = await browserRoute(userId, borrowFreeProxy);
+    if (route.proxyServer) {
+      overrides.BROWSER_PROXY_SERVER = route.proxyServer;
+      overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
+    }
 
-  const runStartId = await recordRunStart(userId, mode, trigger, request.startedBy).catch(() => null);
-  const result = await runner.start(
-    mode,
-    overrides,
-    userId,
-    mode === 'live' && !admin
-      ? async (external) => {
-          let usageError: unknown = null;
-          try {
-            await consumeSuccessfulApplication(userId, external);
-          } catch (error) {
-            usageError = error;
+    const runStartId = await recordRunStart(userId, mode, trigger, request.startedBy).catch(() => null);
+    const result = await runner.start(
+      mode,
+      overrides,
+      userId,
+      mode === 'live' && !admin
+        ? async (external) => {
+            let usageError: unknown = null;
+            try {
+              await consumeSuccessfulApplication(userId, external);
+            } catch (error) {
+              usageError = error;
+            }
+            try {
+              // The runner calls this only after it has confirmed submission. A
+              // free loan is returned; a paid user's dedicated proxy is a no-op.
+              await releaseFreeProxy(userId);
+            } catch (releaseError) {
+              if (!usageError) throw releaseError;
+            }
+            if (usageError) throw usageError;
           }
-          try {
-            // The runner calls this only after it has confirmed submission. A
-            // free loan is returned; a paid user's dedicated proxy is a no-op.
+        : undefined,
+      borrowFreeProxy
+        ? async () => {
+            // Also return a loan when the run finishes without submitting,
+            // fails, or is stopped. Paid assignments are ignored by this call.
             await releaseFreeProxy(userId);
-          } catch (releaseError) {
-            if (!usageError) throw releaseError;
           }
-          if (usageError) throw usageError;
-        }
-      : undefined,
-    runStartId,
-    {
-      termsUsed: overrides.KEYWORDS ?? '',
-      expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
-    },
-  );
-  if (!result.ok) {
-    await discardRunStart(runStartId).catch(() => {});
-    return { ok: false, status: 409, error: result.error ?? 'Could not start the run.' };
-  }
+        : undefined,
+      runStartId,
+      {
+        termsUsed: overrides.KEYWORDS ?? '',
+        expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
+      },
+    );
+    if (!result.ok) {
+      await discardRunStart(runStartId).catch(() => {});
+      return { ok: false, status: 409, error: result.error ?? 'Could not start the run.' };
+    }
 
-  return { ok: true, mode };
+    started = true;
+    return { ok: true, mode };
+  } finally {
+    // Route selection happens before the runner reserves a slot. Any failure
+    // between those two points must return the loan as well.
+    if (borrowFreeProxy && !started) await releaseFreeProxy(userId).catch(() => {});
+  }
 }

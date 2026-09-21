@@ -36,6 +36,8 @@ const SYNC_EVERY_MS = 15 * 60_000;
 const RECONCILE_EVERY_MS = 5 * 60_000;
 /** Longer than any run, so an address is never shared by two accounts' browsers. */
 export const COOLDOWN_MS = 3 * 60 * 60_000;
+/** Last-resort cleanup after a crash or restart misses the normal run-finished release. */
+export const FREE_LOAN_MAX_MS = 2 * 60 * 60_000;
 const MANUAL_PROXY_KEY = 'ADMIN_PROXY_URL';
 
 function env(key: string): string {
@@ -551,6 +553,33 @@ export async function releaseFreeProxy(userId: string): Promise<boolean> {
   return released;
 }
 
+/**
+ * Returns abandoned free loans after their maximum lifetime. Active runs are
+ * excluded even if they run unusually long; their normal finish callback will
+ * return the loan. This is the restart/crash backstop, not the usual path.
+ */
+export async function releaseStaleFreeProxies(activeUserIds: Iterable<string> = []): Promise<string[]> {
+  if (!poolEnabled()) return [];
+  const active = [...new Set(activeUserIds)];
+  const released = await exclusively(async (client) => {
+    const rows = await client.query<{ last_user_id: string }>(
+      `UPDATE pool_proxies
+          SET last_user_id = user_id, user_id = NULL, borrowed_free = false, released_at = now()
+        WHERE borrowed_free
+          AND (assigned_at IS NULL OR assigned_at < now() - ($1::bigint * interval '1 millisecond'))
+          AND NOT (user_id::text = ANY($2::text[]))
+        RETURNING last_user_id::text AS last_user_id`,
+      [FREE_LOAN_MAX_MS, active],
+    );
+    return rows.rows.map((row) => row.last_user_id);
+  });
+  if (released.length) {
+    console.warn(`[proxy-pool] returned ${released.length} stale free proxy loan(s)`);
+    announce(released);
+  }
+  return released;
+}
+
 /** Who holds the proxy at this endpoint, if the pool has given it out. */
 export async function poolHolderOf(endpoint: string): Promise<string | null> {
   const row = await one<{ user_id: string }>(
@@ -610,11 +639,14 @@ export async function poolReport(): Promise<PoolReport> {
 
 let started = false;
 
-export function startProxyPool(): void {
+export function startProxyPool(activeUserIds: () => Iterable<string> = () => []): void {
   if (started) return;
   started = true;
   const sync = () => void syncPool().catch(() => {});
-  const reconcile = () => void reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
+  const reconcile = () => void releaseStaleFreeProxies(activeUserIds())
+    .then(() => reconcilePool())
+    .catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
+  setTimeout(reconcile, 5_000).unref();
   setTimeout(sync, 30_000).unref();
   setInterval(sync, SYNC_EVERY_MS).unref();
   setInterval(reconcile, RECONCILE_EVERY_MS).unref();

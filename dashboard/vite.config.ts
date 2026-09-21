@@ -1328,7 +1328,7 @@ function dataApi(): Plugin {
       startProfileMaintenance();
       startHealthMaintenance();
       startTraceRetention();
-      startProxyPool();
+      startProxyPool(() => runner.activeUserIds());
 
       /**
        * Leave nothing behind. pm2 stops this process with a signal; without

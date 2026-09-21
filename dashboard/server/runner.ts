@@ -134,6 +134,8 @@ class Run {
   private child: ChildProcess | null = null;
   private cdpPort: number | null = null;
   private onApplicationSubmitted: ((external: boolean) => void | Promise<void>) | null = null;
+  /** Cleanup owned by the caller, such as returning a temporary free proxy. */
+  private onFinished: (() => void | Promise<void>) | null = null;
   /** The run_starts row this run belongs to, when the caller made one. */
   private runStartId: string | null = null;
   /** Somebody pressed Stop. Such a run exits like a crash does, and must not be counted as one. */
@@ -226,6 +228,7 @@ class Run {
     overrides: Record<string, string>,
     cdpPort: number,
     onApplicationSubmitted?: (external: boolean) => void | Promise<void>,
+    onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
     keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {
@@ -274,6 +277,7 @@ class Run {
     this.lines = [];
     this.seq = 0;
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
+    this.onFinished = onFinished ?? null;
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = keywordRenewal ?? null;
     this.stoppedByPerson = false;
@@ -377,6 +381,8 @@ class Run {
     this.child = null;
     this.cdpPort = null;
     this.onApplicationSubmitted = null;
+    const onFinished = this.onFinished;
+    this.onFinished = null;
     this.postProcessing = true;
     const renewal = this.keywordRenewal;
     this.keywordRenewal = null;
@@ -390,6 +396,13 @@ class Run {
         .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
         .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`)),
     ];
+    if (onFinished) {
+      postRunTasks.push(
+        Promise.resolve()
+          .then(onFinished)
+          .catch((error) => this.push('err', `Could not clean up after this ${kind}: ${(error as Error).message}`)),
+      );
+    }
 
     const qualifyingJobs = kind === 'run' && code === 0 ? readQualifyingJobs(dataDir) : null;
     if (renewal && qualifyingJobs !== null && qualifyingJobs < 2) {
@@ -498,6 +511,11 @@ class RunPool {
     return n;
   }
 
+  /** Accounts whose run still owns machine resources, used by lease cleanup. */
+  activeUserIds(): string[] {
+    return [...this.runs.entries()].filter(([, run]) => run.occupiesSlot).map(([userId]) => userId);
+  }
+
   /** True while any account is running — the machine-wide question. */
   anyRunning(): boolean {
     return this.activeCount() > 0;
@@ -541,6 +559,7 @@ class RunPool {
     overrides: Record<string, string>,
     userId: string,
     onApplicationSubmitted?: (external: boolean) => void | Promise<void>,
+    onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
     keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {
@@ -552,6 +571,7 @@ class RunPool {
       overrides,
       this.availableBrowserPort(),
       onApplicationSubmitted,
+      onFinished,
       runStartId,
       keywordRenewal,
     );
