@@ -20,6 +20,8 @@ import { useEffect, useState } from 'react';
  */
 
 interface GmailStatus {
+  /** Only Intensive accounts and administrators may use verification-email access. */
+  eligible?: boolean;
   /**
    * Whether this account has any reason to be asked for a mailbox at all.
    * Only an intensive pass reaches employer sites, and those are the only
@@ -72,7 +74,7 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
     }
   }
 
-  if (!status) return null;
+  if (!status || status.eligible === false) return null;
   const signedIn = Boolean(status.browserAccount);
 
   if (compact) {

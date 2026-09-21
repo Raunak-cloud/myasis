@@ -880,6 +880,13 @@ function dataApi(): Plugin {
             // Same window, same profile; only the page it opens on differs.
             const body = await readBody();
             const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'indeed' ? 'indeed' : 'seek';
+            if (target === 'gmail') {
+              const user = await currentUser(req.headers?.cookie);
+              const allowance = await billingStatus(userId, user?.email);
+              if (!isAdmin(user?.email) && !allowance.paid.hasActiveIntensivePass) {
+                return send({ error: 'Verification email access requires an Intensive plan.' }, 403);
+              }
+            }
             const result = await startSignin(userId, target, { assist: body?.manual !== true });
             if (!result.ok) return send({ error: result.error }, 409);
             return send({ ok: true, supported: true, session: result.session });
@@ -1111,6 +1118,7 @@ function dataApi(): Plugin {
           const entitled = isAdmin(user?.email) || allowance.paid.hasActiveIntensivePass;
           const browserAccounts = chromeGoogleAccounts(userId);
           return send({
+            eligible: entitled,
             needed: entitled && browserAccounts.length === 0,
             browserAccount: browserAccounts[0] ?? null,
           });
