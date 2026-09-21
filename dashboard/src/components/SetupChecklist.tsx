@@ -62,7 +62,9 @@ export function SetupChecklist({
           )}
         </div>
         <div className="checklist-head-actions">
-          <span className="checklist-count">{status.done} of {status.total} complete</span>
+          <span className="checklist-count">
+            {status.done} completed · {status.total - status.done} remaining
+          </span>
           {!blocking.length && (
             <button className="btn" onClick={() => setExpanded(!expanded)}>
               {expanded ? 'Hide' : 'Show'}
