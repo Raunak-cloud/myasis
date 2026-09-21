@@ -1320,15 +1320,34 @@ function dataApi(): Plugin {
        * notices. A run could not even start that way. Doing it here means a
        * restart is the migration.
        */
-      void dbMigrate().then((r) => {
-        if (!r.ok) console.error(`Database schema could not be applied: ${r.error}`);
-      });
-      startAutoRunner();
-      startVisitMaintenance();
-      startProfileMaintenance();
-      startHealthMaintenance();
-      startTraceRetention();
-      startProxyPool(() => runner.activeUserIds());
+      /**
+       * The background workers wait for it, which is what "before anything
+       * queries it" has to mean in practice.
+       *
+       * `void` here started them while the migration was still running, and
+       * the autorun tick fires immediately on start. Its first query reads
+       * users then resumes; the schema takes those two in the other order and
+       * wants them exclusively, so Postgres saw a cycle and killed the tick —
+       * four times on 18 September, every one of them within a minute of a
+       * restart. Nothing was lost, the next tick a minute later found the
+       * schema settled, and that is exactly why it survived unnoticed.
+       *
+       * `finally`, not `then`: a schema that fails to apply is already logged
+       * and the workers already ran anyway. Sequencing them is the fix here;
+       * refusing to start on a bad migration would be a different decision.
+       */
+      void dbMigrate()
+        .then((r) => {
+          if (!r.ok) console.error(`Database schema could not be applied: ${r.error}`);
+        })
+        .finally(() => {
+          startAutoRunner();
+          startVisitMaintenance();
+          startProfileMaintenance();
+          startHealthMaintenance();
+          startTraceRetention();
+          startProxyPool(() => runner.activeUserIds());
+        });
 
       /**
        * Leave nothing behind. pm2 stops this process with a signal; without
