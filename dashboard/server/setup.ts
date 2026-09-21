@@ -1,4 +1,3 @@
-import { assertHumanizerHealthy, readEnv } from './runner.js';
 import { listResumes } from './files.js';
 import { profileGaps } from './profile.js';
 import { loadUserSettings } from './settings.js';
@@ -21,9 +20,8 @@ export interface SetupCheck {
  * or "you never uploaded a résumé". Each check is phrased as the next action,
  * and ordered by how much it unblocks. Scoped to one account: résumés,
  * knowledge, profile and search settings (KEYWORDS/ONSITE_CITY/
- * WORK_ARRANGEMENTS) are all per-user now — only the matching-service key and
- * the humanizer are genuinely install-wide, so those two still come from
- * `readEnv()`.
+ * WORK_ARRANGEMENTS) are all per-user. Installation health is reported
+ * elsewhere and must never make a brand-new account look partly complete.
  */
 /**
  * The steps only the account holder can do: résumé, details, search terms,
@@ -89,37 +87,10 @@ export async function accountSetupComplete(userId: string): Promise<boolean> {
 export async function setupStatus(
   userId: string,
 ): Promise<{ checks: SetupCheck[]; ready: boolean; done: number; total: number }> {
-  const env = readEnv();
   const account = await accountSetupChecks(userId);
-
-  let humanizerError = '';
-  try {
-    await assertHumanizerHealthy();
-  } catch (error) {
-    humanizerError = (error as Error).message;
-  }
-
   const checks: SetupCheck[] = [
     account.resume,
     account.profile,
-    {
-      id: 'key',
-      label: 'Matching service connected',
-      done: Boolean(env.GEMINI_API_KEY),
-      hint: 'Without it, jobs are matched on keywords alone and the shortlist is unfiltered.',
-      fix: 'looking',
-      required: true,
-    },
-    {
-      id: 'humanizer',
-      label: 'Writing assistant ready',
-      done: !humanizerError,
-      hint: humanizerError
-        ? 'The writing assistant is temporarily unavailable. Please try again shortly.'
-        : 'Ready to prepare application writing.',
-      fix: 'external',
-      required: true,
-    },
     account.keywords,
     account.where,
   ];
