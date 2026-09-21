@@ -64,7 +64,7 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   },
   pricing: {
     title: 'Plans & pricing',
-    description: 'Choose a simple one-time pass when you need more applications.',
+    description: '',
   },
   setup: {
     title: 'Settings',
