@@ -109,6 +109,27 @@ function readQualifyingJobs(dataDir: string): number | null {
   }
 }
 
+/** Machine-readable application failures from this run's fresh outcome log. */
+function applicationErrorCount(dataDir: string): number {
+  const path = resolve(dataDir, 'run-log.jsonl');
+  if (!existsSync(path)) return 0;
+  try {
+    return readFileSync(path, 'utf8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .reduce((count, line) => {
+        try {
+          return count + ((JSON.parse(line) as { status?: unknown }).status === 'error' ? 1 : 0);
+        } catch {
+          return count + 1;
+        }
+      }, 0);
+  } catch {
+    // An unreadable outcome log is not evidence of a clean run.
+    return 1;
+  }
+}
+
 export async function assertHumanizerHealthy(overrides: Record<string, string> = {}): Promise<void> {
   const fileEnv = readEnv();
   // A run whose plan does not include the humanizer never calls it, so its health is irrelevant.
@@ -432,7 +453,11 @@ class Run {
       // normal completion point. A zero exit without it (for example, every
       // board failed sign-in) is not a successful run and must not spend the
       // account's daily slot.
-      const successful = code === 0 && !this.stoppedByPerson && (kind === 'scan' || qualifyingJobs !== null);
+      const applicationErrors = kind === 'run' ? applicationErrorCount(dataDir) : 0;
+      const successful = code === 0 && !this.stoppedByPerson && (
+        kind === 'scan' ||
+        (qualifyingJobs !== null && (this.state.applied > 0 || applicationErrors === 0))
+      );
       await this.recordFinish(userId, code, successful);
     } catch (error) {
       this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
