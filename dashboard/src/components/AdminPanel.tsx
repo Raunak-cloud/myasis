@@ -44,7 +44,6 @@ interface AdminUser {
     pooled: string | null;
     status: RouteStatus & { exitProblem: string | null };
   };
-  manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
   running: boolean;
@@ -135,7 +134,7 @@ function runStatus(run: AdminRun): { label: string; tone: string } {
   return { label: `Failed (exit ${run.exitCode})`, tone: 'bad' };
 }
 
-const TRIGGER_LABEL: Record<string, string> = { manual: 'By the user', auto: 'Scheduled', admin: 'By an admin' };
+const TRIGGER_LABEL: Record<string, string> = { manual: 'Manually started', auto: 'Scheduled', admin: 'By an admin' };
 
 
 // ------------------------------------------------------------------ run console
@@ -449,7 +448,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                   <dt>Résumés</dt>
                   <dd>{user.resumes}</dd>
                   <dt>Runs today</dt>
-                  <dd>{user.autoApply.usedToday} scheduled · {user.manualRunsToday} by the user</dd>
+                  <dd>{user.autoApply.usedToday} scheduled</dd>
                   {user.setupMissing.length > 0 && (
                     <>
                       <dt>Setup still needed</dt>

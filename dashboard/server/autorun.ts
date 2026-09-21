@@ -346,8 +346,8 @@ export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
 
     /**
      * A live run, like every run: nobody is watching a scheduled one. Every
-     * allowance check and deduction still applies — `startRun` is the path
-     * the manual button uses.
+     * allowance check and deduction still applies through the shared
+     * `startRun` path.
      */
     const result = await startRun({ userId, email, mode: 'live', trigger: 'auto' });
     if (result.ok) {

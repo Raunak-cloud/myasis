@@ -8,7 +8,7 @@ import { FREE_APPLICATIONS, PAID_PLANS, PLAN_LIMITS } from '../src/pricing.js';
  *
  * An admin has no limits, so nothing on their own dashboard ever shows what a
  * customer who has run out sees. Each scenario here is a set of invented facts
- * — which pass, how much of it is left, how many runs were used today — and
+ * — which pass, how much of it is left, how many scheduled runs were used today — and
  * everything shown for it comes from the same code a real account goes
  * through: `deriveEntitlements` for what the account may do, and the run-start
  * refusals for what pressing the button would answer. Nothing is stored and no
@@ -25,7 +25,6 @@ interface Scenario {
   /** Applications left on the pass. A pass with none left is no longer an active pass. */
   paidRemaining: number;
   freeRemaining: number;
-  manualRunsUsedToday?: number;
   autoRunsUsedToday?: number;
   autoApplyPaused?: boolean;
 }
@@ -42,9 +41,8 @@ const SCENARIOS: Scenario[] = [
   { key: 'job-search-last', group: 'Active Search', label: 'Last few applications', description: 'Three applications left: the next run is capped at three.', pass: 'job-search-pass', paidRemaining: 3, freeRemaining: 0, autoRunsUsedToday: 2 },
   { key: 'job-search-paused', group: 'Active Search', label: 'Auto apply switched off', description: 'The customer paused their automatic runs.', pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoApplyPaused: true },
   { key: 'pass-used-up', group: 'Active Search', label: 'Pass used up', description: 'Every application on the pass is spent. The account falls back to the free plan with nothing left.', pass: 'job-search-pass', paidRemaining: 0, freeRemaining: 0 },
-  { key: 'intensive-active', group: 'Intensive Pass', label: 'Active', description: `Runs started by hand, ${PLAN_LIMITS['intensive-pass'].manualRunsPerDay} a day, all still available.`, pass: 'intensive-pass', paidRemaining: Math.round(INTENSIVE * 0.6), freeRemaining: 0 },
-  { key: 'intensive-no-runs', group: 'Intensive Pass', label: 'No runs left today', description: 'Applications remain, but today\'s runs are all used.', pass: 'intensive-pass', paidRemaining: Math.round(INTENSIVE * 0.6), freeRemaining: 0, manualRunsUsedToday: PLAN_LIMITS['intensive-pass'].manualRunsPerDay },
-  { key: 'intensive-last', group: 'Intensive Pass', label: 'Last application', description: 'One application left: starting a run works, and it stops after one.', pass: 'intensive-pass', paidRemaining: 1, freeRemaining: 0, manualRunsUsedToday: 1 },
+  { key: 'intensive-active', group: 'Intensive Pass', label: 'Active', description: `${PLAN_LIMITS['intensive-pass'].autoRunsPerDay} automatic runs a day with advanced controls.`, pass: 'intensive-pass', paidRemaining: Math.round(INTENSIVE * 0.6), freeRemaining: 0 },
+  { key: 'intensive-last', group: 'Intensive Pass', label: 'Last application', description: 'One application remains; the next scheduled run stops after it is submitted.', pass: 'intensive-pass', paidRemaining: 1, freeRemaining: 0, autoRunsUsedToday: 1 },
 ];
 
 /** What the server would answer to a run start. `null` means it would start. */
@@ -82,7 +80,6 @@ function simulate(scenario: Scenario): Simulation {
   const entitlements = deriveEntitlements({
     admin: false,
     billing,
-    manualRunsUsedToday: scenario.manualRunsUsedToday ?? 0,
     autoRunsUsedToday: scenario.autoRunsUsedToday ?? 0,
     autoApplyPaused: scenario.autoApplyPaused ?? false,
     overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null },

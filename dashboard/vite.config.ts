@@ -973,9 +973,9 @@ function dataApi(): Plugin {
       case '/api/assist/answer': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
-          // Answers and letters on demand cost model calls no allowance meters; they come with the plan that drives runs by hand.
+          // The browser helper remains an Intensive feature even though customers cannot start runs manually.
           const assistUser = await currentUser(req.headers?.cookie);
-          if (!(await entitlementsFor(userId, assistUser?.email)).manualRuns) {
+          if (!(await entitlementsFor(userId, assistUser?.email)).fineTune) {
             return send({ ok: false, error: 'The browser helper is part of the Intensive Pass.' }, 403);
           }
           const b = await readBody();
@@ -1205,12 +1205,9 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           const queueUser = await currentUser(req.headers?.cookie);
           const entitlements = await entitlementsFor(userId, queueUser?.email);
-          // A scan reviews jobs and drafts letters, so it is a user-started run and obeys the same daily allowance.
+          // Queue scans are manual operations and therefore administrator-only.
           if (!entitlements.manualRuns) {
-            return send({ error: 'Your plan applies automatically. Manual runs are part of the Intensive Pass.' }, 403);
-          }
-          if (entitlements.manualRunsLeftToday !== null && entitlements.manualRunsLeftToday < 1) {
-            return send({ error: `You have used all ${entitlements.manualRunsPerDay} runs for today. They reset at midnight.` }, 429);
+            return send({ error: 'Only administrators can start runs manually.' }, 403);
           }
           // Same reasoning as /api/run: without this the scan inherits the
           // shared .env's search settings instead of this account's.

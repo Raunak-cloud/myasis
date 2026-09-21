@@ -307,9 +307,8 @@ CREATE TABLE IF NOT EXISTS saved_answers (
 -- Every run this installation has started, written before the child is
 -- spawned rather than after it finishes.
 --
--- It answers two questions that both need the same fact: how many manual runs
--- an Intensive Pass has used today, and whether the scheduler has already
--- fired an automatic run for an account. Recording the attempt rather than
+-- It records the operator that started a run and whether the scheduler has
+-- already fired an automatic run for an account. Recording the attempt rather than
 -- the success is deliberate — a run that starts and dies has still been
 -- attempted against real employers, and a scheduler restarted mid-run must
 -- not fire a duplicate.
@@ -317,7 +316,7 @@ CREATE TABLE IF NOT EXISTS run_starts (
   id         BIGSERIAL PRIMARY KEY,
   user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   mode       TEXT NOT NULL,
-  -- 'manual' (a person pressed start) or 'auto' (the scheduler).
+  -- 'manual' (an admin on their own account), 'admin' (an admin acting for an account), or 'auto' (the scheduler).
   trigger    TEXT NOT NULL,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

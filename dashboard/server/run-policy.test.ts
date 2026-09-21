@@ -1,4 +1,4 @@
-import { applyRunPolicy, automaticRunsPerDay, SCHEDULED_MIN_SCORE } from './entitlements.js';
+import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, SCHEDULED_MIN_SCORE } from './entitlements.js';
 import { PLAN_LIMITS, PLAN_PRESENTATION } from '../src/pricing.js';
 
 let failures = 0;
@@ -78,6 +78,27 @@ check('Active Search accounts receive four scheduled runs', automaticRunsPerDay(
 check('admins receive ten scheduled runs', automaticRunsPerDay('admin') === 10);
 check('Intensive includes four automatic runs', automaticRunsPerDay('intensive') === 4);
 
+const intensiveFacts = {
+  admin: false,
+  billing: { paid: {
+    remaining: 100,
+    employerSiteRemaining: 20,
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    hasActivePass: true,
+    hasActiveEssentialPass: false,
+    hasActiveJobSearchPass: false,
+    hasActiveIntensivePass: true,
+  } },
+  autoRunsUsedToday: 0,
+  autoApplyPaused: false,
+  overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null },
+  searchTermSuggestionsLeft: null,
+};
+const intensiveEntitlements = deriveEntitlements(intensiveFacts);
+const adminEntitlements = deriveEntitlements({ ...intensiveFacts, admin: true });
+check('customers cannot start runs manually', !intensiveEntitlements.manualRuns);
+check('administrators can start runs manually', adminEntitlements.manualRuns);
+
 // An operator's per-account override is a control, not a suggestion: it wins
 // over the free plan's own default and survives the fine-tuning reset that
 // wipes anything else a standard account tries to save for this key.
@@ -113,7 +134,7 @@ check('a posted default board list still includes the Indeed an Intensive Pass p
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
 check('Free says the runs and reviews it gets', said('free').includes(`${automaticRunsPerDay('standard')} automatic live run each day`) && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Active Search says the runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} automatic live runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Intensive says the automatic runs, manual runs, reviews and employer sites it gets', said('intensive-pass').includes('Up to 4 automatic live runs') && said('intensive-pass').includes('Up to 3 user-started runs') && said('intensive-pass').includes('up to 100 jobs') && said('intensive-pass').includes('30 employer-site applications'));
+check('Intensive says the automatic runs, reviews and employer sites it gets', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 100 jobs') && said('intensive-pass').includes('30 employer-site applications'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 console.log(`\n${failures} failure(s)`);

@@ -9,13 +9,12 @@ export { SCHEDULED_MIN_SCORE };
 /**
  * What an account is allowed to do — decided in one place, for every caller.
  *
- * Admins and Intensive Pass holders can drive runs and also receive scheduled
- * runs. Intensive users can tune how a run searches. Standard accounts do not drive anything — their
- * applications go out on a schedule from the preferences they saved.
+ * Only admins can drive runs. Customer applications go out on a schedule;
+ * Intensive users can still tune how those scheduled runs search.
  *
  * Every gate in the app reads this module rather than re-deriving the rule
  * from `isAdmin` and a pass flag, because the same rule is enforced in five
- * places (starting a run, the daily cap, saving settings, the rewriting tool,
+ * places (starting a run, saving settings, the rewriting tool,
  * the scheduler) and five copies would drift.
  */
 
@@ -23,9 +22,6 @@ export type Tier = 'admin' | 'intensive' | 'standard';
 
 /** Local time is what a candidate means by "today". Scheduled runs happen at any hour of it. */
 export const RUN_TIME_ZONE = process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney';
-
-/** Manual runs an Intensive Pass may start per local day. Admins have no cap. */
-export const INTENSIVE_MANUAL_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].manualRunsPerDay;
 
 /** Scheduled runs per local day for customer plans. */
 export const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
@@ -226,12 +222,8 @@ export function applyRunPolicy(
 
 export interface Entitlements {
   tier: Tier;
-  /** May start a run by hand. */
+  /** May start a run by hand. This is an administrator-only operation. */
   manualRuns: boolean;
-  /** Manual runs allowed per local day; null means no cap. */
-  manualRunsPerDay: number | null;
-  manualRunsUsedToday: number;
-  manualRunsLeftToday: number | null;
   /** Automatic runs per local day. */
   autoRunsPerDay: number;
   /** The account has switched its automatic runs off; nothing is scheduled until it switches them back on. */
@@ -292,8 +284,7 @@ function tierFor(admin: boolean, intensive: boolean): Tier {
 /**
  * Scheduled runs a day.
  *
- * Intensive includes the same four-run automatic schedule as Active Search,
- * in addition to its user-started runs.
+ * Intensive includes the same four-run automatic schedule as Active Search.
  */
 export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'active' = 'free'): number {
   if (tier === 'admin') return ADMIN_AUTO_RUNS_PER_DAY;
@@ -305,35 +296,23 @@ export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'ac
 }
 
 /**
- * Runs this account has started since local midnight.
+ * Scheduled runs this account has started since local midnight.
  *
  * The comparison is written as a round trip through the local zone —
  * truncate in local time, then read the result back as an instant — so the
  * day boundary is the candidate's midnight rather than the database
  * server's, whatever the database is configured to think local means.
  */
-export async function runsStartedToday(userId: string, trigger: 'manual' | 'auto'): Promise<number> {
+export async function automaticRunsStartedToday(userId: string): Promise<number> {
   const rows = await query<{ n: string }>(
     `SELECT count(*)::text AS n
        FROM run_starts
       WHERE user_id = $1
-        AND trigger = $2
-        AND started_at >= (date_trunc('day', now() AT TIME ZONE $3) AT TIME ZONE $3)`,
-    [userId, trigger, RUN_TIME_ZONE],
+        AND trigger = 'auto'
+        AND started_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
+    [userId, RUN_TIME_ZONE],
   );
   return Number(rows[0]?.n ?? 0);
-}
-
-/** When this account last started a run of the given kind, or null. */
-export async function lastRunStartedAt(userId: string, trigger: 'manual' | 'auto'): Promise<Date | null> {
-  const rows = await query<{ started_at: Date }>(
-    `SELECT started_at FROM run_starts
-      WHERE user_id = $1 AND trigger = $2
-      ORDER BY started_at DESC
-      LIMIT 1`,
-    [userId, trigger],
-  );
-  return rows[0]?.started_at ? new Date(rows[0].started_at) : null;
 }
 
 /** Most recent run of either kind, for the account dashboard. */
@@ -349,9 +328,8 @@ export async function latestRunStartedAt(userId: string): Promise<Date | null> {
 }
 
 /**
- * One started run. Written once the child is actually spawned — see
- * start-run.ts, which explains why a refused start must not spend a slot
- * while a run that starts and then dies must.
+ * One started run. Written once the child is actually spawned so scheduler
+ * restarts do not create duplicate automatic runs.
  */
 export async function recordRunStart(
   userId: string,
@@ -375,7 +353,6 @@ export async function discardRunStart(id: string | null): Promise<void> {
 export interface EntitlementFacts {
   admin: boolean;
   billing: Pick<BillingStatus, 'paid'>;
-  manualRunsUsedToday: number;
   autoRunsUsedToday: number;
   autoApplyPaused: boolean;
   overrides: AdminOverrides;
@@ -398,8 +375,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
       ? 'essential'
       : 'free';
 
-  const manualRuns = tier !== 'standard';
-  const manualRunsPerDay = tier === 'admin' ? null : tier === 'intensive' ? INTENSIVE_MANUAL_RUNS_PER_DAY : 0;
+  const manualRuns = tier === 'admin';
   const autoRunsPerDay = automaticRunsPerDay(tier, scheduledPlan);
   const planEvaluationsPerRun = tier === 'intensive'
     ? INTENSIVE_EVALUATIONS_PER_RUN
@@ -425,9 +401,6 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
   return {
     tier,
     manualRuns,
-    manualRunsPerDay,
-    manualRunsUsedToday: facts.manualRunsUsedToday,
-    manualRunsLeftToday: manualRunsPerDay === null ? null : Math.max(0, manualRunsPerDay - facts.manualRunsUsedToday),
     autoRunsPerDay,
     autoRunsUsedToday: facts.autoRunsUsedToday,
     // Only an account allowed to switch automatic runs off can have them off.
@@ -462,9 +435,8 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
       : 'free';
   const autoRunsPerDay = automaticRunsPerDay(tier, scheduledPlan);
 
-  const [manualRunsUsedToday, autoRunsUsedToday, pausedRow, overrides, suggestionsLeft] = await Promise.all([
-    tier !== 'standard' ? runsStartedToday(userId, 'manual') : Promise.resolve(0),
-    autoRunsPerDay > 0 ? runsStartedToday(userId, 'auto') : Promise.resolve(0),
+  const [autoRunsUsedToday, pausedRow, overrides, suggestionsLeft] = await Promise.all([
+    autoRunsPerDay > 0 ? automaticRunsStartedToday(userId) : Promise.resolve(0),
     one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
     adminOverridesFor(userId),
     searchTermSuggestionsLeft(userId, tier, billing.paid.hasActivePass),
@@ -473,7 +445,6 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
   return deriveEntitlements({
     admin,
     billing,
-    manualRunsUsedToday,
     autoRunsUsedToday,
     autoApplyPaused: pausedRow?.value === 'true',
     overrides,

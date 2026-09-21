@@ -59,7 +59,7 @@ export interface StartRunRequest {
   /**
    * Who asked: the account holder, the scheduler, or an admin acting for the
    * account. An admin's run follows the account's plan exactly as a scheduled
-   * run does, and does not use up the account's own manual or scheduled runs.
+   * run does, and does not use up one of the account's scheduled runs.
    */
   trigger: 'manual' | 'auto' | 'admin';
   /** The admin who started it, for the record. */
@@ -72,13 +72,10 @@ export interface StartRunRequest {
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
 
-/** Why this account may not start a run by hand, or null when it may. */
-export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns' | 'manualRunsLeftToday' | 'manualRunsPerDay'>): Refusal | null {
+/** Why this account may not start a run by hand, or null for an administrator. */
+export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns'>): Refusal | null {
   if (!entitlements.manualRuns) {
-    return { ok: false, status: 403, error: 'Your plan applies automatically. Manual runs are part of the Intensive Pass.' };
-  }
-  if (entitlements.manualRunsLeftToday !== null && entitlements.manualRunsLeftToday < 1) {
-    return { ok: false, status: 429, error: `You have used all ${entitlements.manualRunsPerDay} runs for today. They reset at midnight.` };
+    return { ok: false, status: 403, error: 'Only administrators can start runs manually.' };
   }
   return null;
 }

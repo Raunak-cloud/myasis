@@ -310,12 +310,10 @@ export function RunPanel({
   const boards = useBoardsStatus();
   /** No board signed in means no run can apply, so automatic runs have nothing to do until that is fixed. */
   const signedOutEverywhere = boards !== null && !boards.seek?.signedIn && !boards.indeed?.signedIn;
-  const driving = entitlements?.manualRuns ?? true;
+  const driving = entitlements?.manualRuns ?? false;
   /** Admin runs have no limits: the limit fields are hidden and nothing is capped in the form. */
   const isAdmin = entitlements?.tier === 'admin';
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
-  const runsLeft = entitlements?.manualRunsLeftToday ?? null;
-  const outOfRuns = runsLeft !== null && runsLeft < 1;
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -834,7 +832,7 @@ export function RunPanel({
               */}
               <button
                 className="btn primary lg"
-                disabled={outOfRuns || accountSetupIncomplete || verifyingSignIn}
+                disabled={accountSetupIncomplete || verifyingSignIn}
                 title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn ? 'Checking your job-board sign-ins first.' : undefined}
                 onClick={() => { setScope('all'); setConfirming(true); }}
               >
@@ -844,21 +842,15 @@ export function RunPanel({
                 <button
                   type="button"
                   className="run-scope-link"
-                  disabled={outOfRuns || accountSetupIncomplete || verifyingSignIn}
+                  disabled={accountSetupIncomplete || verifyingSignIn}
                   title="Applies only where the employer's own site takes the application, on every board in the run."
                   onClick={() => { setScope('external'); setConfirming(true); }}
                 >
                   Employer sites only
                 </button>
               )}
-              {accountSetupIncomplete ? (
+              {accountSetupIncomplete && (
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
-              ) : runsLeft !== null && (
-                <span className="job-meta">
-                  {outOfRuns
-                    ? 'No runs left today.'
-                    : `${runsLeft} of ${entitlements?.manualRunsPerDay} runs left today.`}
-                </span>
               )}
             </>
           )}
@@ -1079,7 +1071,7 @@ export function RunPanel({
           {lines.length === 0 ? (
             <div className="console-empty">
               <strong>No activity yet</strong>
-              <span>Start a run to follow its progress here.</span>
+              <span>{driving ? 'Start a run to follow its progress here.' : 'Scheduled run activity will appear here.'}</span>
             </div>
           ) : (
             <>

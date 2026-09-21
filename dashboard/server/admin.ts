@@ -77,7 +77,6 @@ export interface AdminUserRow {
     pooled: string | null;
     status: RouteStatus;
   };
-  manualRunsToday: number;
   applications: { total: number; week: number; today: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
   running: boolean;
@@ -136,7 +135,6 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
       pooled: await pooledProxyFor(user.id, false).then((proxy) => (proxy ? `${proxy.host}:${proxy.port}` : null)),
       status: await routeStatus(user.id),
     },
-    manualRunsToday: entitlements.manualRunsUsedToday,
     applications: { total: Number(counts?.total ?? 0), week: Number(counts?.week ?? 0), today: Number(counts?.today ?? 0) },
     lastRun: lastRun
       ? {

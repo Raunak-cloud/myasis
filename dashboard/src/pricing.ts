@@ -18,7 +18,7 @@ export const PAID_PLANS = {
   'intensive-pass': {
     key: 'intensive-pass', kind: 'pass', name: 'Intensive Pass', priceCents: 5990,
     applications: 400, durationDays: 90, employerSiteApplications: 30,
-    description: 'Maximum capacity, direct control and complex employer-site applications.',
+    description: 'Maximum capacity, advanced controls and complex employer-site applications.',
   },
   'application-top-up': {
     key: 'application-top-up', kind: 'application-top-up', name: 'Application Top-up', priceCents: 690,
@@ -34,7 +34,7 @@ export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 5 },
   'essential-pass': { autoRunsPerDay: 1, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
-  'intensive-pass': { autoRunsPerDay: 4, manualRunsPerDay: 3, evaluationsPerRun: 100, employerSitesPerDay: 5 },
+  'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 100, employerSitesPerDay: 5 },
 } as const;
 
 export const SCHEDULED_MIN_SCORE = 75;
@@ -92,7 +92,6 @@ export const PLAN_PRESENTATION = {
       `${PAID_PLANS['intensive-pass'].applications} successful applications`,
       `${PAID_PLANS['intensive-pass'].durationDays} days of automatic searching`,
       `Up to ${plural(INTENSIVE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
-      `Up to ${plural(INTENSIVE.manualRunsPerDay, 'user-started run', 'user-started runs')} each day`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',

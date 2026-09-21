@@ -10,9 +10,6 @@ import { useEffect, useState } from 'react';
 export interface Entitlements {
   tier: 'admin' | 'intensive' | 'standard';
   manualRuns: boolean;
-  manualRunsPerDay: number | null;
-  manualRunsUsedToday: number;
-  manualRunsLeftToday: number | null;
   autoRunsPerDay: number;
   /** Automatic runs are switched off for this account. */
   autoApplyPaused: boolean;
