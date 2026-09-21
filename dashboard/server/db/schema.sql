@@ -415,6 +415,10 @@ ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS started_by BIGINT REFERENCES use
 -- crashed. This is what tells them apart, so "your runs keep failing" is never
 -- said about runs the person ended themselves.
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS stopped BOOLEAN NOT NULL DEFAULT false;
+-- Only a run that reached its normal completion checkpoint spends a daily
+-- automatic-run slot. A crash, sign-in failure, or stopped run remains here
+-- for diagnosis but is eligible for a retry.
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS successful BOOLEAN NOT NULL DEFAULT false;
 -- Set by an admin. A blocked account cannot sign in, keeps no session, and is left out of every schedule.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS run_starts_recent_idx ON run_starts(started_at DESC);

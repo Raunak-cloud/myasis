@@ -296,7 +296,7 @@ export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'ac
 }
 
 /**
- * Scheduled runs this account has started since local midnight.
+ * Successful scheduled runs this account has completed since local midnight.
  *
  * The comparison is written as a round trip through the local zone —
  * truncate in local time, then read the result back as an instant — so the
@@ -309,6 +309,7 @@ export async function automaticRunsStartedToday(userId: string): Promise<number>
        FROM run_starts
       WHERE user_id = $1
         AND trigger = 'auto'
+        AND successful
         AND started_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
     [userId, RUN_TIME_ZONE],
   );

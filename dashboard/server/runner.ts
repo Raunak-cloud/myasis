@@ -428,7 +428,12 @@ class Run {
       // Keep this account out of another run until its next-run settings and
       // result records are durable.
       await Promise.all(postRunTasks);
-      await this.recordFinish(userId, code);
+      // The summary is written only after discovery and review reached their
+      // normal completion point. A zero exit without it (for example, every
+      // board failed sign-in) is not a successful run and must not spend the
+      // account's daily slot.
+      const successful = code === 0 && !this.stoppedByPerson && (kind === 'scan' || qualifyingJobs !== null);
+      await this.recordFinish(userId, code, successful);
     } catch (error) {
       this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
     } finally {
@@ -440,7 +445,7 @@ class Run {
    * How the run ended, onto its record, with its console saved beside the
    * account's data so it can be read after the dashboard restarts.
    */
-  private async recordFinish(userId: string, code: number | null): Promise<void> {
+  private async recordFinish(userId: string, code: number | null, successful: boolean): Promise<void> {
     const runStartId = this.runStartId;
     this.runStartId = null;
     if (!runStartId) return;
@@ -451,8 +456,8 @@ class Run {
     const saved = readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort((a, b) => Number(b.split('.')[0]) - Number(a.split('.')[0]));
     for (const old of saved.slice(RUN_LOGS_KEPT)) rmSync(resolve(dir, old), { force: true });
     await query(
-      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4, stopped = $5 WHERE id = $1',
-      [runStartId, code, this.state.applied, file, this.stoppedByPerson],
+      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4, stopped = $5, successful = $6 WHERE id = $1',
+      [runStartId, code, this.state.applied, file, this.stoppedByPerson, successful],
     );
   }
 

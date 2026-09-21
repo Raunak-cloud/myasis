@@ -272,8 +272,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    *
    * A refused start — the pool was full, or this account was already running
    * — never reached an employer, so it must not spend a slot; the scheduler
-   * simply tries again on its next tick. A run that starts and then dies
-   * does count, which is why this is not tied to the run finishing.
+   * simply tries again on its next tick. The runner marks this durable record
+   * successful only after the bot reaches its normal completion checkpoint,
+   * so a run that starts and then fails is also eligible for a retry.
    */
   let started = false;
   try {
