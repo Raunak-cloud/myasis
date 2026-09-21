@@ -317,6 +317,15 @@ export default function App() {
           >
             Settings
           </button>
+          {/*
+            An anchor rather than a button: it leaves for a mail client, and a
+            side-link rather than the nav-row it used to be, because nav-row
+            draws a divider meant for stacking inside the footer card.
+          */}
+          <a className="side-link" href="mailto:support@owtomate.com">
+            Email support
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="m4 7 8 6 8-6" /></svg>
+          </a>
 
           {/*
             Who is signed in, and how the app looks, live at the foot of the
@@ -429,14 +438,6 @@ export default function App() {
                   </span>
                 </div>
               )}
-
-              <a className="nav-row" href="mailto:support@owtomate.com">
-                <span className="nav-row-main">
-                  <span className="nav-row-title">Email support</span>
-                  <span className="nav-row-sub">support@owtomate.com</span>
-                </span>
-                <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="m4 7 8 6 8-6" /></svg>
-              </a>
 
               <div className="nav-tools">
                 <div className="nav-theme" role="group" aria-label="Theme">
