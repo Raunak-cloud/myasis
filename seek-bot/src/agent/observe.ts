@@ -74,6 +74,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       }
     }
 
+    for (const element of all) element.removeAttribute('data-ref-id');
     const results: Array<{ ref: string; text: string; role: string; disabled: boolean }> = [];
     let n = 0;
 

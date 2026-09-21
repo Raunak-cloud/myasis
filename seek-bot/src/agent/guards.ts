@@ -292,6 +292,9 @@ export class RunGuards {
 
   /** The value went in and the form kept it. */
   recordFillSuccess(label: string): void {
+    // Real verified form progress earns a fresh page allowance; the overall
+    // time, cost and step ceilings still bound the application.
+    this.stepsByPage.clear();
     this.pendingFields.delete(label);
     this.resolveGrounding(label);
     this.unfillable.delete(label);

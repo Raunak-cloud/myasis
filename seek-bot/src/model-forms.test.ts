@@ -18,6 +18,7 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
 ]));
 const { config } = await import('./config.js');
 const { observe, renderObservation } = await import('./agent/observe.js');
+const { fillField } = await import('./dom.js');
 const { executeTool } = await import('./agent/tools.js');
 const { RunGuards } = await import('./agent/guards.js');
 const { CostMeter } = await import('./agent/celeris.js');
@@ -62,6 +63,34 @@ try {
   await executeTool(ctx, 'answer_questions', { refs: [answerRef], repair_refs: [answerRef], reason: 'This contains only the prefix, not the complete phone number' });
   assert.equal(await page.locator('input').inputValue(), profile.phone);
   assert.equal(calls, 2, 'model can request repair of an incomplete nonempty value');
+
+  await page.setContent('<main><label>Phone<input role="combobox" aria-autocomplete="list"></label><label>Other phone<input></label></main>');
+  ctx = await context();
+  answerRef = ctx.observation.fields[0].ref;
+  ctx.guards.recordFillFailure('Phone', 'No dropdown');
+  ctx.guards.recordFillFailure('Phone', 'No dropdown');
+  await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(field => field.ref), interaction: 'type', reason: 'These are editable fields, not fixed dropdowns.' });
+  assert.equal(await page.locator('input').first().inputValue(), profile.phone, 'free-text combobox needs no menu');
+  assert.equal(await page.locator('input').nth(1).inputValue(), '', 'only one field changes before re-observation');
+  assert.equal(ctx.guards.unfillable.has('Phone'), false, 'successful model retry clears previous failures');
+
+  await page.setContent('<main><label>Phone<input role="combobox" oninput="document.querySelector(\'ul\').hidden=false"></label><ul role="listbox" hidden><li role="option" onclick="document.querySelector(\'input\').value=\'WRONG\'">Unrelated suggestion</li></ul></main>');
+  ctx = await context();
+  answerRef = ctx.observation.fields[0].ref;
+  await executeTool(ctx, 'answer_questions', { refs: [answerRef], interaction: 'search', reason: 'Inspect suggestions first.' });
+  assert.equal(await page.locator('input').inputValue(), profile.phone, 'no automatic suggestion choice');
+  assert.ok((await observe(page)).actions.some(action => action.role === 'option'), 'model can see suggestions on the next turn');
+
+  await page.setContent('<main><label>Still in role<input type="checkbox" onchange="document.querySelector(\'select\').style.visibility=this.checked?\'hidden\':\'visible\'"></label><label>End year<select><option>2026</option></select></label><label>Description<textarea></textarea></label></main>');
+  ctx = await context();
+  await fillField(page, ctx.observation.fields[0], 'true');
+  const fresh = await observe(page);
+  assert.equal(fresh.fields.length, 2);
+  assert.equal(await page.locator('select').getAttribute('data-field-id'), null, 'hidden end-date ref is cleared');
+  const marked = await page.locator('[data-field-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-field-id')));
+  assert.equal(new Set(marked).size, marked.length, 'refs cannot collide after a layout change');
+  await fillField(page, fresh.fields[1], 'Verified description', 'type');
+  assert.equal(await page.locator('textarea').inputValue(), 'Verified description');
 
   await page.setContent('<main><label>Other notes<textarea>Keep me</textarea></label><label>Letter<textarea></textarea></label></main>');
   ctx = await context();

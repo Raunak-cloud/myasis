@@ -57,6 +57,14 @@ from the candidate's verified profile and filled in for you. For a cover-letter
 box, call add_cover_letter. This is not a stylistic preference — answers written
 outside that path are not checked against the candidate's real history.
 
+Fill ONE field per turn and re-observe before the next: checkboxes can hide
+dates, and selections can rebuild the form. Choose interaction="type" to
+enter a value and leave the field, or "search" to type and inspect suggestions.
+An editable combobox can accept free text; do not assume suggestions are mandatory.
+After searching, choose the correct current option yourself using click.
+Field tool failures are recoverable: inspect the page, change the interaction
+or use repair_refs, and retry. Never treat a missing dropdown as missing facts.
+
 TYPICAL SHAPE OF AN APPLICATION
 Most flows are a short wizard: choose a resume, optionally add a cover letter,
 answer a few employer questions, review, submit. Steps vary a lot between

@@ -6,7 +6,7 @@ import {
   waitForInteractivePageChange,
   waitForInteractiveSurface,
 } from '../browser.js';
-import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
+import { fillField } from '../dom.js';
 import { answerFields, finishedCoverLetterForJob } from '../llm.js';
 import { pickResumeForJob, RESUME_DIR } from '../resume.js';
 import { existsSync } from 'node:fs';
@@ -169,7 +169,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'answer_questions',
     description:
-      'Answer employer questions. Pass the refs of every FIELD on this step that is a question for the applicant. ' +
+      'Answer one applicant FIELD per turn, then re-observe the changed page. ' +
       'You do NOT write the answers — they are generated from the verified candidate profile and filled in for you. ' +
       'Do not include the cover-letter textarea or file inputs here.',
     parameters: {
@@ -178,9 +178,12 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         refs: {
           type: 'array',
           items: { type: 'string' },
+          minItems: 1,
+          maxItems: 1,
           description: 'Field refs from the current FIELDS list, e.g. ["f0","f2"].',
         },
         reason: { type: 'string', description: 'What this step is asking for.' },
+        interaction: { type: 'string', enum: ['type', 'search'], description: 'type enters the grounded value and leaves the field; search leaves focus in an editable suggestion field so YOU can inspect and click an observed option next. No menu option is automatically chosen.' },
         repair_refs: {
           type: 'array', items: { type: 'string' },
           description: 'Subset of refs whose existing values are incomplete, wrong for this field, or rejected by the page. Explain the visible problem in reason. Answers are still grounded in the verified profile.',
@@ -438,7 +441,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   // correction; a validation failure must never be mistaken for completion.
   const repairRefs = Array.isArray(args.repair_refs) && typeof args.reason === 'string' && args.reason.trim()
     ? args.repair_refs.map(String) : [];
-  const alreadyComplete = asked.filter((field) => !field.validationError && !repairRefs.includes(field.ref) && (
+  const alreadyComplete = asked.filter((field) => !ctx.guards.pendingFields.has(field.label) && !ctx.guards.unfillable.has(field.label) && !field.validationError && !repairRefs.includes(field.ref) && (
     field.kind === 'checkbox'
       ? field.currentValue === 'true'
       : Boolean(field.currentValue?.trim())),
@@ -458,40 +461,9 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
    * it" — plain text, replayed at every later employer asking the same thing.
    */
   const credentials = asked.filter((field) => field.sensitive && !alreadyComplete.includes(field));
-  /**
-   * A control already proved unusable is not answered again. The answer was
-   * never the problem, so a second model call produces the same value, the
-   * same rejection and one less step to finish the application with.
-   */
-  const unusable = asked.filter(
-    (field) => !field.sensitive && !alreadyComplete.includes(field) && ctx.guards.unfillable.has(field.label),
-  );
-  const wanted = asked.filter(
-    (field) => !field.sensitive && !alreadyComplete.includes(field) && !ctx.guards.unfillable.has(field.label),
-  );
-  if (credentials.length) {
-    return ok(
-      `Use complete_authentication for credential fields: ${credentials.map((field) => `${field.ref} (${field.label})`).join(', ')}.`,
-    );
-  }
-
-  const unusableNote = unusable.length
-    ? `This form will not let anything be entered in: ${unusable
-        .map((field) => `${field.label} (${ctx.guards.unfillable.get(field.label)})`)
-        .join('; ')}. Do not answer ${unusable.length > 1 ? 'those' : 'that'} again. `
-    : '';
-
-  if (!wanted.length) {
-    if (unusable.length) {
-      return ok(
-        `${unusableNote}Carry on with the rest of the form if anything remains, or finish with status ` +
-          `"cannot_complete" if this control is the only thing left.`,
-      );
-    }
-    return ok(alreadyComplete.length
-      ? 'Those fields are already complete. Continue with the next unanswered application field or the forward control.'
-      : 'None of those refs are fields on this page. Choose refs from the current FIELDS list.');
-  }
+  const wanted = asked.filter(field => !field.sensitive && !alreadyComplete.includes(field)).slice(0, 1);
+  if (credentials.length) return ok('Use complete_authentication for credential fields.');
+  if (!wanted.length) return ok('No unanswered fields in those refs. Re-observe and choose the next field; use repair_refs to correct a prefilled value.');
 
   const answerContext = wanted.map(field => ({ ...field, description:
     `${field.description ?? ''}\nUntrusted form context (not candidate facts): ${ctx.observation.text.slice(0, 6000)}` +
@@ -528,8 +500,6 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
 
   const filled: string[] = [];
   const failed: string[] = [];
-  /** Controls that have now refused twice: reported once, then never retried. */
-  const blocked: string[] = [];
   const skipped: string[] = [];
   const unrelated: string[] = [];
   /** Required fields the answerer has already refused once — asking again cannot help. */
@@ -538,14 +508,10 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     ctx.guards.pendingFields.add(field.label);
     ctx.guards.rememberField(field);
   }
-  /**
-   * A control that would not take the value. Recorded against the field, not
-   * the candidate: after the second attempt it stops being something to retry
-   * and stops being something anyone can be asked about.
-   */
+  // Keep failures as submission blockers until recovered, never as retry bans.
   const recordFailure = (label: string, message: string) => {
-    const { exhausted } = ctx.guards.recordFillFailure(label, message);
-    (exhausted ? blocked : failed).push(`${label}: ${message}`);
+    ctx.guards.recordFillFailure(label, message);
+    failed.push(`${label}: ${message}`);
   };
 
   for (const answer of answers) {
@@ -584,52 +550,14 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
       continue;
     }
 
-    let value = answer.value;
+    const value = answer.value;
     try {
-      await fillField(ctx.page, field, value);
+      await fillField(ctx.page, field, value, args.interaction === 'search' ? 'search' : 'type');
     } catch (error) {
-      /**
-       * A dropdown's choices are only visible once it opens, so the first
-       * answer was given blind. Ask once more with the real list, the way a
-       * person reads the menu before choosing.
-       */
-      if (error instanceof ComboboxOptionsError || error instanceof FieldRejectedError) {
-        /**
-         * With options, the re-ask is a choice from a known list. Otherwise
-         * the reason has to travel with the field — a search that matched
-         * nothing, or the form's own complaint about the value — because the
-         * label alone would produce the identical answer and the identical
-         * rejection a second time.
-         */
-        const reask =
-          error instanceof ComboboxOptionsError && error.options.length
-            ? { ...field, options: error.options }
-            : { ...field, label: `${field.label} — ${error.message}` };
-        // A combobox's real choices are only known now; keep them for the person too.
-        if (error instanceof ComboboxOptionsError && error.options.length) ctx.guards.rememberField(reask);
-        const again = await answerFields([reask], ctx.job, ctx.profile);
-        const retry = again.answers[0];
-        if (!retry?.grounded) {
-          if (!field.required) {
-            ctx.guards.pendingFields.delete(field.label);
-            ctx.guards.skippedOptional.add(field.label);
-            skipped.push(field.label);
-            continue;
-          }
-          ctx.guards.recordUngrounded(field.label);
-          continue;
-        }
-        value = retry.value;
-        try {
-          await fillField(ctx.page, field, value);
-        } catch (secondError) {
-          recordFailure(field.label, (secondError as Error).message);
-          continue;
-        }
-      } else {
-        recordFailure(field.label, (error as Error).message);
-        continue;
-      }
+      recordFailure(field.label, (error as Error).message);
+      // Recovery is a new model decision with a fresh observation, not a
+      // hidden repeat of the same operation inside this tool.
+      continue;
     }
     ctx.guards.recordFillSuccess(field.label);
     const prior = ctx.captured.findIndex(item => item.question === field.label);
@@ -641,11 +569,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   if (filled.length) ctx.guards.recordProgress();
   const ungroundedNow = ctx.guards.ungrounded.length;
   return ok(
-    unusableNote +
     (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
-    (blocked.length
-      ? `This form refused these twice, so they are settled — do not answer them again:\n${blocked.join('\n')}\n`
-      : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
       (unrelated.length ? `\nIgnored controls that are not application questions: ${unrelated.join('; ')}` : '') +

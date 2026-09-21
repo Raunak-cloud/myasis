@@ -241,6 +241,10 @@ export async function extractFields(page: Page): Promise<FormField[]> {
     const requiredOnThisPage = (label: string) =>
       seekApplyPage && label !== 'unlabelled field' && label !== 'unlabelled question';
 
+    // Hidden controls may retain refs from the previous observation. Clear them
+    // before assigning new refs so a new visible field cannot share an old ref.
+    for (const element of deepElements()) element.removeAttribute('data-field-id');
+
     // Radio groups collapse into one logical field.
     const radioGroups = new Map<string, HTMLInputElement[]>();
 
@@ -351,7 +355,13 @@ export async function extractFields(page: Page): Promise<FormField[]> {
 }
 
 /** Applies a resolved answer back onto the page. */
-async function fillFieldUnchecked(page: Page, field: FormField, value: string): Promise<void> {
+async function fillFieldUnchecked(page: Page, field: FormField, value: string, modelDirected: false | 'type' | 'search' = false): Promise<void> {
+  if (modelDirected && ['text', 'textarea'].includes(field.kind)) {
+    const input = page.locator(`[data-field-id="${field.ref}"]`);
+    await input.fill(value, { timeout: 5_000 });
+    if (modelDirected === 'type') await input.blur({ timeout: 5_000 });
+    return;
+  }
   const deepFill = async () => {
     const outcome = await page.evaluate(({ ref, kind, wanted, options }) => {
       const deepElements = (root: Document | ShadowRoot = document): Element[] => {
@@ -652,8 +662,8 @@ export async function pageSummary(page: Page): Promise<string> {
 }
 
 /** Fill only reports success after the browser accepts and retains the value. */
-export async function fillField(page: Page, field: FormField, value: string): Promise<void> {
-  await fillFieldUnchecked(page, field, value);
+export async function fillField(page: Page, field: FormField, value: string, modelDirected: false | 'type' | 'search' = false): Promise<void> {
+  await fillFieldUnchecked(page, field, value, modelDirected);
   await page.waitForFunction(({ field, value }) => {
     const roots: Array<Document | ShadowRoot> = [document];
     const elements: Element[] = [];
