@@ -163,7 +163,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit,minmax(min(430px, 100%),1fr))' }}>
+    <div className="files-grid">
       {error && (
         <div className="banner" style={{ gridColumn: '1/-1', borderColor: 'var(--bad)', background: 'var(--bad-soft)' }}>
           {error}
@@ -272,10 +272,10 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       <div className="card" style={{ padding: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--text-faint)' }}>
-            Personal details the application assistant can use
+            Extra application details
           </h3>
           <button className="btn" disabled={busy} onClick={() => knowledgeInput.current?.click()}>
-            + Upload
+            + Upload document
           </button>
           <input
             ref={knowledgeInput}
@@ -290,14 +290,12 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
           />
         </div>
         <p className="job-meta" style={{ marginTop: 0 }}>
-          When a screening question cannot be answered from your details above, the run stops and asks you. Anything here gets consulted first: a full CV,
-          certifications, visa paperwork, referee details. Text is extracted from PDF, DOCX, TXT and
-          MD. These are treated as <strong>evidence, never instructions</strong>.
-          {stats && (
+          Add useful information that may not be in your résumé, such as work rights, licences,
+          certificates, availability or referee details. Owtomate uses it to answer application questions.
+          {stats && stats.enabled > 0 && (
             <>
               {' '}
-              Currently <strong>{stats.enabled}</strong> enabled, ~{kb(stats.bytes)} of source
-              material.
+              <strong>{stats.enabled}</strong> saved item{stats.enabled === 1 ? '' : 's'} ready to use.
             </>
           )}
         </p>
@@ -344,7 +342,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
           ))}
           {items.length === 0 && (
             <div className="job-meta">
-              Nothing yet. Add a note below, or upload a document.
+              No extra details yet. Add a note below or upload a document.
             </div>
           )}
         </div>
@@ -379,7 +377,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                 setContextText(r.ok ? r.text || '(nothing enabled)' : `Error: ${r.error}`);
               }}
             >
-              Preview application context
+              Preview saved details
             </button>
           </div>
         </div>

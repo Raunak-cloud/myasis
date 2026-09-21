@@ -182,6 +182,13 @@ a:hover { text-decoration: underline; }
 .search-terms-resume-actions { display: flex; gap: 6px; margin-top: 2px; }
 .search-terms-resume-actions .btn { padding: 4px 8px; font-size: 12px; }
 
+.files-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 900px) { .files-grid { grid-template-columns: 1fr; } }
+
 /* ---------- stat cards ---------- */
 .stats {
   display: grid; gap: 12px; margin-bottom: 24px;
