@@ -226,8 +226,9 @@ function loadSiteHints(): Record<string, SiteHint> {
  */
 function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceStep[], finalUrl: string): void {
   try {
-    // A skipped application is as worth inspecting as a blocked one: "needed more steps" says nothing without the steps.
-    if (outcome.status === 'needs-human' || outcome.status === 'skipped') {
+    // Successful applications need the same audit trail: recovery mistakes
+    // can happen before confirmation too. Existing trace retention applies.
+    if (outcome.status === 'needs-human' || outcome.status === 'skipped' || outcome.status === 'applied' || outcome.status === 'rehearsed') {
       mkdirSync(TRACE_DIR(), { recursive: true });
       writeFileSync(
         resolve(TRACE_DIR(), `${job.id}.json`),
