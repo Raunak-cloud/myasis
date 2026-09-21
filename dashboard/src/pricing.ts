@@ -25,16 +25,6 @@ export const PAID_PLANS = {
     applications: 50, durationDays: 0, employerSiteApplications: 0,
     description: 'Extra successful applications on an active paid pass.',
   },
-  'employer-site-top-up': {
-    key: 'employer-site-top-up', kind: 'employer-site-top-up', name: 'Employer Site Pack', priceCents: 990,
-    applications: 0, durationDays: 0, employerSiteApplications: 10,
-    description: 'Extra complex applications on employers’ own websites.',
-  },
-  'pass-extension': {
-    key: 'pass-extension', kind: 'extension', name: '30-day Search Extension', priceCents: 490,
-    applications: 0, durationDays: 30, employerSiteApplications: 0,
-    description: 'Another 30 days to use the balance on an active paid pass.',
-  },
 } as const;
 
 export const PASS_PLAN_KEYS = ['essential-pass', 'job-search-pass', 'intensive-pass'] as const;

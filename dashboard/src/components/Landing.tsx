@@ -246,7 +246,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               ))}
             </ol>
             <p className="home-price-foot">
-              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more successful applications. Intensive users can add employer-site packs, and any paid pass can be extended in-app. {HUMANIZER_NOTE}
+              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more successful applications. {HUMANIZER_NOTE}
             </p>
           </div>
         </section>

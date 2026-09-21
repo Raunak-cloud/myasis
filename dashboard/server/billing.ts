@@ -234,22 +234,16 @@ export async function createCheckout(
 ): Promise<{ id: string; url: string }> {
   const plan = PAID_PLANS[planKey];
   // Stripe allows a minimum 30-minute Checkout window. A short window keeps
-  // capacity add-ons from being paid after the pass they attach to has ended.
+  // an application top-up from being paid after its pass has ended.
   const checkoutExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
   if (!isPassPlanKey(planKey)) {
     const status = await billingStatus(user.id, user.email);
     if (!status.paid.hasActivePass) {
-      throw new Error('Add-ons require an active paid pass. Choose a pass first.');
+      throw new Error('Application top-ups require an active paid pass. Choose a pass first.');
     }
-    if (planKey === 'employer-site-top-up' && !status.paid.hasActiveIntensivePass) {
-      throw new Error('Employer Site Packs are available with an Intensive Pass.');
-    }
-    if (planKey === 'pass-extension' && !status.paid.expiresAt) {
-      throw new Error('This grandfathered pass has no end date and does not need an extension.');
-    }
-    if (planKey !== 'pass-extension' && status.paid.expiresAt
+    if (status.paid.expiresAt
       && new Date(status.paid.expiresAt).getTime() <= (checkoutExpiresAt + 4 * 60) * 1000) {
-      throw new Error('This pass ends too soon for an add-on checkout. Choose a new pass first.');
+      throw new Error('This pass ends too soon for a top-up checkout. Choose a new pass first.');
     }
   }
   const env = billingEnv();
@@ -329,8 +323,7 @@ export async function fulfillCheckoutSession(
       return { fulfilled: false, planKey: planKeyValue, applications: plan.applications };
     }
 
-    const activePass = async (intensiveOnly = false) => {
-      const keys = intensiveOnly ? ['intensive-pass'] : [...PASS_PLAN_KEYS];
+    const activePass = async () => {
       const result = await client.query<{ expires_at: Date | null }>(
         `SELECT g.expires_at
            FROM application_credit_grants g
@@ -347,7 +340,7 @@ export async function fulfillCheckoutSession(
                    g.expires_at DESC NULLS FIRST,
                    g.id DESC
           LIMIT 1`,
-        [userId, keys, session.created],
+        [userId, [...PASS_PLAN_KEYS], session.created],
       );
       const row = result.rows[0];
       if (!row) throw new Error('The pass required for this add-on is no longer active.');
@@ -368,38 +361,12 @@ export async function fulfillCheckoutSession(
           [userId, purchase.rows[0].id, plan.employerSiteApplications, expiresAt],
         );
       }
-    } else if (plan.kind === 'application-top-up') {
+    } else {
       const expiresAt = await activePass();
       await client.query(
         `INSERT INTO application_credit_grants (user_id, purchase_id, credits_total, expires_at)
          VALUES ($1,$2,$3,$4)`,
         [userId, purchase.rows[0].id, plan.applications, expiresAt],
-      );
-    } else if (plan.kind === 'employer-site-top-up') {
-      const expiresAt = await activePass(true);
-      await client.query(
-        `INSERT INTO employer_site_credit_grants (user_id, purchase_id, credits_total, expires_at)
-         VALUES ($1,$2,$3,$4)`,
-        [userId, purchase.rows[0].id, plan.employerSiteApplications, expiresAt],
-      );
-    } else {
-      const active = await activePass();
-      if (!active) throw new Error('This pass has no end date and does not need an extension.');
-      await client.query(
-        `UPDATE application_credit_grants
-            SET expires_at = expires_at + ($2::text || ' days')::interval
-          WHERE user_id = $1
-            AND created_at <= to_timestamp($3)
-            AND expires_at > to_timestamp($3)`,
-        [userId, plan.durationDays, session.created],
-      );
-      await client.query(
-        `UPDATE employer_site_credit_grants
-            SET expires_at = expires_at + ($2::text || ' days')::interval
-          WHERE user_id = $1
-            AND created_at <= to_timestamp($3)
-            AND expires_at > to_timestamp($3)`,
-        [userId, plan.durationDays, session.created],
       );
     }
     await client.query('COMMIT');

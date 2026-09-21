@@ -367,7 +367,7 @@ function dataApi(): Plugin {
           } catch (error) {
             const message = (error as Error).message;
             // Our own refusals are written for the customer; anything from Stripe is logged and replaced.
-            const ours = /not configured|top-up adds/i.test(message);
+            const ours = /not configured|top-ups require|top-up checkout/i.test(message);
             if (!ours) console.warn('[billing] checkout failed:', message);
             return send({ error: ours ? message : 'Checkout could not be opened. Try again in a minute.' }, 503);
           }

@@ -82,11 +82,7 @@ export function PricingPanel() {
               itemCount: 1,
             });
           }
-          setNotice({ kind: 'ok', text: product?.kind === 'extension'
-            ? `Your pass was extended by ${product.durationDays} days.`
-            : product?.kind === 'employer-site-top-up'
-              ? `${product.employerSiteApplications} employer-site applications were added.`
-              : `${body.applications} applications were added to your account.` });
+          setNotice({ kind: 'ok', text: `${body.applications} applications were added to your account.` });
         } else {
           await loadStatus();
           if (payment === 'cancelled') {
@@ -264,52 +260,6 @@ export function PricingPanel() {
             onClick={() => void buy('application-top-up')}
           >
             {buying === 'application-top-up' ? 'Opening checkout…' : current === 'free' ? 'Needs a pass' : `Add ${PAID_PLANS['application-top-up'].applications} applications`}
-          </button>
-        </div>
-      </section>
-
-      <section className={`pricing-topup ${current !== 'intensive-pass' ? 'unavailable' : ''}`}>
-        <div className="pricing-topup-copy">
-          <span className="pricing-plan-label">Employer Site Pack · Intensive only</span>
-          <h3>{PAID_PLANS['employer-site-top-up'].employerSiteApplications} more employer-site applications</h3>
-          <p>
-            {current === 'intensive-pass'
-              ? `You currently have ${status?.paid.employerSiteRemaining ?? 0} employer-site applications available.`
-              : 'Complex employer-site applications require an Intensive Pass.'}
-          </p>
-        </div>
-        <div className="pricing-topup-action">
-          <p className="pricing-price">
-            <strong>{aud(PAID_PLANS['employer-site-top-up'].priceCents)}</strong>
-            <span>one payment</span>
-          </p>
-          <button
-            className="btn pricing-cta"
-            disabled={checkoutDisabled || current !== 'intensive-pass'}
-            onClick={() => void buy('employer-site-top-up')}
-          >
-            {buying === 'employer-site-top-up' ? 'Opening checkout…' : `Add ${PAID_PLANS['employer-site-top-up'].employerSiteApplications} employer-site applications`}
-          </button>
-        </div>
-      </section>
-
-      <section className={`pricing-topup ${current === 'free' || !status?.paid.expiresAt ? 'unavailable' : ''}`}>
-        <div className="pricing-topup-copy">
-          <span className="pricing-plan-label">Time extension · pass holders</span>
-          <h3>{PAID_PLANS['pass-extension'].durationDays} more days</h3>
-          <p>Keep the same plan benefits and unused balances for another 30 days.</p>
-        </div>
-        <div className="pricing-topup-action">
-          <p className="pricing-price">
-            <strong>{aud(PAID_PLANS['pass-extension'].priceCents)}</strong>
-            <span>one payment</span>
-          </p>
-          <button
-            className="btn pricing-cta"
-            disabled={checkoutDisabled || current === 'free' || !status?.paid.expiresAt}
-            onClick={() => void buy('pass-extension')}
-          >
-            {buying === 'pass-extension' ? 'Opening checkout…' : `Extend ${PAID_PLANS['pass-extension'].durationDays} days`}
           </button>
         </div>
       </section>
