@@ -1317,6 +1317,9 @@ button.metric-tile:hover strong { color: var(--accent); }
 .support-copy p { max-width: 60ch; margin: 0; color: var(--text-dim); line-height: 1.6; }
 .support-email { display: inline-flex; align-items: center; text-decoration: none; }
 .support-email:hover { text-decoration: none; }
+.support-copy-status { min-height: 1.4em; color: var(--text-dim); font-size: 12px; }
+.support-copy-status.copied { color: var(--ok); }
+.support-copy-status.failed { color: var(--bad); }
 .support-note { max-width: 66ch; margin: 0 4px; line-height: 1.55; }
 .card { box-shadow: 0 1px 3px rgba(18, 42, 70, .045); }
 .btn { min-height: 36px; font-weight: 550; }
