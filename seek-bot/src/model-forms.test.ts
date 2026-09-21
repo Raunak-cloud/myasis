@@ -133,7 +133,7 @@ try {
   const beforeInvalid = calls;
   await executeTool(ctx, 'answer_questions', { refs: 'f1', reason: 'Malformed' });
   assert.equal(calls, beforeInvalid);
-  writeFileSync(join(directory, 'run-log.jsonl'), [
+  writeFileSync(join(directory, 'review-history.jsonl'), [
     JSON.stringify({ ts: new Date().toISOString(), jobId: 'job1', title: 'Developer', company: 'Fixture', status: 'skipped', reason: 'Model found a skills mismatch' }),
     JSON.stringify({ ts: new Date(Date.now() - 8 * 86400_000).toISOString(), jobId: 'old', title: 'Developer', company: 'Fixture', status: 'skipped', reason: 'Expired memory' }),
     '{partial',

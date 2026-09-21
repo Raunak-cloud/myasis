@@ -91,7 +91,9 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
 export function recentReviewFeedback(): Map<string, { at: string; status: string; reason: string }> {
   const result = new Map<string, { at: string; status: string; reason: string }>();
   try {
-    for (const line of readFileSync(LOG, 'utf8').trim().split('\n').slice(-2000)) {
+    const paths = [resolve(config.dataDir, 'review-history.jsonl'), LOG];
+    const lines = paths.filter(existsSync).flatMap(path => readFileSync(path, 'utf8').trim().split('\n'));
+    for (const line of lines.slice(-2000)) {
       try {
         const row = JSON.parse(line);
         const age = Date.now() - Date.parse(row.ts);
