@@ -131,10 +131,6 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
             </select>
           </label>
           {text('noticePeriod', 'Notice period', { placeholder: '2 weeks' })}
-          {text('expectedSalary', 'Expected salary', {
-            placeholder: '$90,000+',
-            hint: 'A range is fine. Used to answer salary questions.',
-          })}
           {text('willingToTravel', 'Willing to travel', {
             optional: true,
             placeholder: 'Up to 1 hour',
