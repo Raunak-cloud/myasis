@@ -957,7 +957,7 @@ interface VisitorReport {
 const RANGE_LABEL: Record<VisitorRange, string> = { today: 'Today', '7d': '7 days', '30d': '30 days', '90d': '90 days' };
 const PAGE_LABEL: Record<string, string> = {
   landing: 'Landing page', run: 'Apply', attention: 'Needs attention', applications: 'Applications',
-  humanizer: 'Rewrite text', pricing: 'Pricing', setup: 'Settings', admin: 'Admin',
+  humanizer: 'Rewrite text', pricing: 'Pricing', setup: 'Settings', support: 'Support', admin: 'Admin',
 };
 const pageLabel = (page: string) => PAGE_LABEL[page] ?? page;
 

@@ -13,6 +13,7 @@ const SetupPanel = lazy(() => import('./components/SetupPanel').then((m) => ({ d
 const HumanizerPanel = lazy(() => import('./components/HumanizerPanel').then((m) => ({ default: m.HumanizerPanel })));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
 const PricingPanel = lazy(() => import('./components/PricingPanel').then((m) => ({ default: m.PricingPanel })));
+const SupportPanel = lazy(() => import('./components/SupportPanel').then((m) => ({ default: m.SupportPanel })));
 import { daysSince } from './format';
 import { useAuth, wasSignedIn } from './components/SignIn';
 import { Landing } from './components/Landing';
@@ -28,7 +29,7 @@ import { trackPage } from './analytics';
 import { initRedditPixel, trackRedditEvent } from './redditPixel';
 import { useRunStatus } from './runStatus';
 
-type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'admin';
+type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -69,12 +70,16 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
     title: 'Settings',
     description: 'Manage your profile, documents and job preferences.',
   },
+  support: {
+    title: 'Support',
+    description: 'Get help with your account, applications, billing or a technical issue.',
+  },
 };
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     const requested = new URLSearchParams(window.location.search).get('tab');
-    return requested === 'pricing' ? 'pricing' : requested === 'admin' ? 'admin' : 'run';
+    return requested === 'pricing' ? 'pricing' : requested === 'support' ? 'support' : requested === 'admin' ? 'admin' : 'run';
   });
   const [apps, setApps] = useState<Application[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
@@ -317,15 +322,15 @@ export default function App() {
           >
             Settings
           </button>
-          {/*
-            An anchor rather than a button: it leaves for a mail client, and a
-            side-link rather than the nav-row it used to be, because nav-row
-            draws a divider meant for stacking inside the footer card.
-          */}
-          <a className="side-link" href="mailto:support@owtomate.com">
-            Email support
+          <button
+            type="button"
+            className={`side-link ${tab === 'support' ? 'active' : ''}`}
+            aria-current={tab === 'support' ? 'page' : undefined}
+            onClick={() => go('support')}
+          >
+            Support
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="m4 7 8 6 8-6" /></svg>
-          </a>
+          </button>
 
           {/*
             Who is signed in, and how the app looks, live at the foot of the
@@ -529,6 +534,7 @@ export default function App() {
           {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'pricing' && <PricingPanel />}
           {tab === 'setup' && <SetupPanel />}
+          {tab === 'support' && <SupportPanel />}
           </Suspense>
         </div>
       </main>

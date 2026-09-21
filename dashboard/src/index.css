@@ -1304,6 +1304,20 @@ button.metric-tile:hover strong { color: var(--accent); }
 .run-dashboard .activity-stats { background: transparent; }
 
 .page-content { max-width: var(--page-max); margin: 0 auto; }
+
+/* ---------- support ---------- */
+.support-page { display: grid; gap: 12px; max-width: 720px; }
+.support-card { display: flex; align-items: flex-start; gap: 18px; padding: 24px; }
+.support-icon {
+  flex: none; display: grid; place-items: center; width: 46px; height: 46px;
+  border-radius: 12px; background: var(--accent-soft); color: var(--accent);
+}
+.support-copy { display: grid; justify-items: start; gap: 12px; }
+.support-copy h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+.support-copy p { max-width: 60ch; margin: 0; color: var(--text-dim); line-height: 1.6; }
+.support-email { display: inline-flex; align-items: center; text-decoration: none; }
+.support-email:hover { text-decoration: none; }
+.support-note { max-width: 66ch; margin: 0 4px; line-height: 1.55; }
 .card { box-shadow: 0 1px 3px rgba(18, 42, 70, .045); }
 .btn { min-height: 36px; font-weight: 550; }
 .btn.primary { box-shadow: 0 7px 20px rgba(37, 99, 166, .18); }
