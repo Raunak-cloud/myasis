@@ -35,4 +35,11 @@ assert.equal(
   'recognises MIME-based document uploaders',
 );
 
+const changedUi = [
+  { accept: '', identity: 'asset-one', context: 'Choose a file' },
+  { accept: '', identity: 'asset-two', context: 'Drop a file here' },
+];
+assert.equal(resumeFileInputIndex(changedUi), -1, 'does not guess when a changed UI has ambiguous uploaders');
+assert.equal(resumeFileInputIndex([changedUi[1]]), 0, 'accepts a non-image uploader selected by the model fallback');
+
 console.log('résumé uploader selection checks passed');

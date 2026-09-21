@@ -131,12 +131,31 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
             : isOpener
               ? ' (opens a list)'
               : '';
+      let fileLabel = '';
+      if (isFile) {
+        const input = element as HTMLInputElement;
+        const root = input.getRootNode() as Document | ShadowRoot;
+        const explicitLabel = input.id ? root.querySelector(`label[for="${CSS.escape(input.id)}"]`)?.textContent?.trim() ?? '' : '';
+        const labelledBy = (input.getAttribute('aria-labelledby') ?? '')
+          .split(/\s+/)
+          .map((id) => root.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '')
+          .filter(Boolean)
+          .join(' ');
+        let context = '';
+        let ancestor: HTMLElement | null = input.parentElement;
+        for (let depth = 0; ancestor && depth < 3; depth++, ancestor = ancestor.parentElement) {
+          const text = ancestor.innerText?.trim() ?? '';
+          if (text.length > context.length && text.length < 300) context = text;
+        }
+        const name = input.getAttribute('aria-label') || explicitLabel || labelledBy || context || 'file upload';
+        fileLabel = input.accept ? `${name} (accepts ${input.accept})` : name;
+      }
       const label =
         (element as HTMLElement).innerText?.trim() ||
         element.getAttribute('aria-label') ||
         element.getAttribute('title') ||
         element.getAttribute('placeholder') ||
-        (isFile ? 'file upload' : '');
+        fileLabel;
       results.push({
         ref,
         text: label + state,

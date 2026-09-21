@@ -66,7 +66,9 @@ employers, so read the page rather than assuming an order.
 - A resume / CV / "choose documents" step is always attach_resume, even when it
   looks like a list of radio options. Never answer_questions for it. Once
   attach_resume reports success the step is DONE — do not select a document
-  yourself, just click the forward control.
+  yourself, just click the forward control. If ACTIONS lists more than one file
+  upload, pass attach_resume the ref whose label and page context identify the
+  resume/CV control, never a profile-photo or image upload.
 - If a step mentions a cover letter at all, you MUST call add_cover_letter
   before continuing, even when it is optional and even when a box already has
   text in it. Continuing past a cover-letter step without one is a failure.

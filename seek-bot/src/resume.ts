@@ -179,35 +179,51 @@ export function resumeFileInputIndex(inputs: FileInputDescription[]): number {
   return -1;
 }
 
+type FileLocator = ReturnType<Page['locator']>;
+
+async function describeFileInput(input: FileLocator): Promise<FileInputDescription> {
+  return input.evaluate((el) => {
+    const file = el as HTMLInputElement;
+    const id = file.id;
+    const explicitLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent ?? '' : '';
+    const labelledBy = (file.getAttribute('aria-labelledby') ?? '')
+      .split(/\s+/)
+      .map((ref) => document.getElementById(ref)?.textContent ?? '')
+      .join(' ');
+    let context = '';
+    let ancestor: HTMLElement | null = file.parentElement;
+    for (let depth = 0; ancestor && depth < 4; depth++, ancestor = ancestor.parentElement) {
+      const text = ancestor.innerText?.trim() ?? '';
+      if (text.length > context.length && text.length < 600) context = text;
+    }
+    return {
+      accept: file.accept ?? '',
+      identity: [file.name, file.id, file.getAttribute('aria-label'), explicitLabel, labelledBy].filter(Boolean).join(' '),
+      context,
+    };
+  }).catch(() => ({ accept: '', identity: '', context: '' }));
+}
+
 async function resumeFileInput(page: Page): Promise<ReturnType<Page['locator']> | null> {
   const inputs = page.locator('input[type=file]');
   const count = await inputs.count().catch(() => 0);
   const descriptions: FileInputDescription[] = [];
   for (let index = 0; index < count; index++) {
-    const description = await inputs.nth(index).evaluate((el) => {
-      const input = el as HTMLInputElement;
-      const id = input.id;
-      const explicitLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent ?? '' : '';
-      const labelledBy = (input.getAttribute('aria-labelledby') ?? '')
-        .split(/\s+/)
-        .map((ref) => document.getElementById(ref)?.textContent ?? '')
-        .join(' ');
-      let context = '';
-      let ancestor: HTMLElement | null = input.parentElement;
-      for (let depth = 0; ancestor && depth < 4; depth++, ancestor = ancestor.parentElement) {
-        const text = ancestor.innerText?.trim() ?? '';
-        if (text.length > context.length && text.length < 600) context = text;
-      }
-      return {
-        accept: input.accept ?? '',
-        identity: [input.name, input.id, input.getAttribute('aria-label'), explicitLabel, labelledBy].filter(Boolean).join(' '),
-        context,
-      };
-    }).catch(() => ({ accept: '', identity: '', context: '' }));
-    descriptions.push(description);
+    descriptions.push(await describeFileInput(inputs.nth(index)));
   }
   const index = resumeFileInputIndex(descriptions);
   return index >= 0 ? inputs.nth(index) : null;
+}
+
+/** Uses the model's observed ref only when deterministic discovery found nothing. */
+async function modelChosenResumeInput(page: Page, ref?: string): Promise<FileLocator | null> {
+  if (!ref) return null;
+  const input = page.locator(`[data-ref-id="${ref}"]`).first();
+  if (await input.count().catch(() => 0) < 1) return null;
+  const type = await input.getAttribute('type').catch(() => null);
+  if (type?.toLowerCase() !== 'file') return null;
+  const description = await describeFileInput(input);
+  return resumeFileInputIndex([description]) === 0 ? input : null;
 }
 
 /** A document choice on a board's résumé step, whatever the board calls it. */
@@ -280,10 +296,11 @@ export async function selectResume(
   page: Page,
   wanted: ResumeRecord | null,
   allowUpload: boolean,
+  modelSelectedRef?: string,
 ): Promise<ResumeOutcome> {
   const { radios, choices } = await documentChoices(page);
   const realDocs = choices.filter((o) => !/don't include|do not include/i.test(o.label));
-  const fileInput = await resumeFileInput(page);
+  const fileInput = await resumeFileInput(page) ?? await modelChosenResumeInput(page, modelSelectedRef);
   const canUpload = fileInput !== null;
 
   if (!realDocs.length && !canUpload) return { status: 'kept-default', name: '(no document step)' };
@@ -339,10 +356,15 @@ export async function selectResume(
   const after = await documentChoices(page);
   const afterDocs = after.choices.filter((o) => !/don't include|do not include/i.test(o.label));
   const beforeNames = new Set(realDocs.map((doc) => normaliseName(doc.label)));
+  const retainedFile = await fileInput!.inputValue().catch(() => '');
   const uploaded = matchChoice(afterDocs, wanted)
     ?? afterDocs.find((doc) => !beforeNames.has(normaliseName(doc.label)))
     ?? (afterDocs.length === 1 ? afterDocs[0] : undefined);
   if (!uploaded) {
+    // External ATS forms retain the chosen file directly instead of adding a
+    // document radio like SEEK does. A non-empty native value is the browser's
+    // deterministic confirmation that setInputFiles stuck.
+    if (retainedFile) return { status: 'uploaded', name: retainedFile.replace(/^.*[\\/]/, '') || wanted.fileName };
     return { status: 'unavailable', wanted: wanted.label, available, reason: 'upload-failed' };
   }
   if (!uploaded.checked) await checkRadio(after.radios.nth(uploaded.idx));

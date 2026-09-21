@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { Page } from 'patchright';
 import { config } from '../config.js';
 import {
@@ -10,7 +8,7 @@ import {
 } from '../browser.js';
 import { ComboboxOptionsError, FieldRejectedError, fillField } from '../dom.js';
 import { answerFields, finishedCoverLetterForJob } from '../llm.js';
-import { RESUME_DIR, pickResumeForJob, selectResume } from '../resume.js';
+import { pickResumeForJob, selectResume } from '../resume.js';
 import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
@@ -196,9 +194,16 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     name: 'attach_resume',
     description:
       'Handle the resume/CV/document step. Call this whenever the step is about choosing or attaching a resume — ' +
-      'whether it shows a list of existing documents to pick from or a file upload. Takes no arguments: the resume ' +
-      'for this run is already chosen. Never use answer_questions for a resume step.',
-    parameters: { type: 'object', properties: {}, required: [] },
+      'whether it shows a list of existing documents to pick from or a file upload. The resume for this run is already chosen. ' +
+      'If ACTIONS contains multiple file uploads, pass the ref belonging to the resume/CV upload; it is used only as a fallback ' +
+      'when deterministic matching cannot recognise the changed UI. Never use answer_questions for a resume step.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'Optional ACTION ref for the resume/CV file upload when more than one file upload is shown.' },
+      },
+      required: [],
+    },
   },
   {
     name: 'scroll',
@@ -708,10 +713,16 @@ async function doAddCoverLetter(ctx: ToolContext): Promise<ToolResult> {
  * this the agent tried to route the step through `answer_questions` and looped
  * on it until the step budget ran out, which is exactly what a live run did.
  */
-async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
+async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const wanted = await pickResumeForJob(ctx.job, ctx.profile);
+  const fileActions = ctx.observation.actions.filter((action) => action.role === 'file');
+  const requestedRef = typeof args.ref === 'string' ? args.ref : '';
+  const modelSelectedRef = fileActions.some((action) => action.ref === requestedRef)
+    ? requestedRef
+    : undefined;
+  const fallbackRef = modelSelectedRef ?? (fileActions.length === 1 ? fileActions[0].ref : undefined);
 
-  const outcome = await selectResume(ctx.page, wanted, config.resume.allowUpload).catch(
+  const outcome = await selectResume(ctx.page, wanted, config.resume.allowUpload, fallbackRef).catch(
     (error: Error) => ({ status: 'error' as const, message: error.message }),
   );
 
@@ -757,28 +768,13 @@ async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
       break;
   }
 
-  // Not a SEEK document step — fall back to a plain file input, which is what
-  // external ATS forms use.
-  const fileAction = ctx.observation.actions.find((candidate) => candidate.role === 'file');
-  if (!fileAction) return ok('There is no resume step on this page. Move on.');
-
-  const locator = ctx.page.locator(`[data-ref-id="${fileAction.ref}"]`).first();
-  const already = await locator.inputValue().catch(() => '');
-  if (already) {
-    ctx.resumeUsed = already.replace(/^.*[\\/]/, '');
-    return ok(`A file is already attached (${ctx.resumeUsed}); nothing to do.`);
+  if (fileActions.length > 1 && !modelSelectedRef) {
+    return ok(
+      'The page has multiple file uploads and deterministic matching could not identify the résumé control. ' +
+      'Read their ACTION labels and call attach_resume again with the resume/CV upload ref.',
+    );
   }
-  if (!wanted) return ok('No resume is selected for this run, so nothing can be attached.');
-  const localPath = resolve(RESUME_DIR, wanted.fileName);
-  if (!existsSync(localPath)) return ok(`The selected resume file is missing: ${wanted.fileName}.`);
-
-  try {
-    await locator.setInputFiles(localPath, { timeout: 15_000 });
-    ctx.resumeUsed = wanted.fileName;
-    return ok(`Attached ${wanted.fileName}.`);
-  } catch (error) {
-    return ok(`Upload failed: ${(error as Error).message}`);
-  }
+  return ok('There is no résumé/document step on this page. Move on.');
 }
 
 async function doScroll(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -953,7 +949,7 @@ export async function executeTool(
     case 'add_cover_letter':
       return doAddCoverLetter(ctx);
     case 'attach_resume':
-      return doAttachResume(ctx);
+      return doAttachResume(ctx, args);
     case 'scroll':
       return doScroll(ctx, args);
     case 'finish':
