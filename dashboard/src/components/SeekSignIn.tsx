@@ -169,7 +169,7 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
     }
   }
 
-  async function close() {
+  async function close(verifySignIn: boolean) {
     if (busy) return;
     setBusy(true);
     try {
@@ -181,12 +181,13 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
     setConnected(false);
     const target = status?.session?.target ?? 'seek';
     try {
-      const body = await fetch('/api/signin/session', { method: 'DELETE' }).then((r) => r.json());
+      const path = verifySignIn ? '/api/signin/session' : '/api/signin/session?cancel=true';
+      const body = await fetch(path, { method: 'DELETE' }).then((r) => r.json());
       const seek: SeekState | null = body?.seek ?? null;
       const indeed: SeekState | null = body?.indeed ?? null;
       setStatus({ supported: true, session: null, seek, indeed });
       // Only the site that was just checked can say anything new.
-      if (target === 'seek' || target === 'indeed') {
+      if (verifySignIn && (target === 'seek' || target === 'indeed')) {
         const site = target === 'seek' ? seek : indeed;
         const name = SITE_NAME[target];
         if (!site?.signedIn) {
@@ -296,7 +297,10 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
             {status.session.target === 'gmail' ? 'Gmail sign-in' : status.session.target === 'indeed' ? 'Indeed sign-in' : 'SEEK sign-in'}
           </span>
           <span className="job-meta seek-window-time">{minutesLeft} min left</span>
-          <button className="btn primary btn-small" disabled={busy} onClick={close}>
+          <button className="btn btn-small" disabled={busy} onClick={() => void close(false)}>
+            {busy ? 'Closing…' : 'Close'}
+          </button>
+          <button className="btn primary btn-small" disabled={busy} onClick={() => void close(true)}>
             {busy
               ? status.session.target === 'seek' || status.session.target === 'indeed'
                 ? `Checking with ${SITE_NAME[status.session.target]}…`

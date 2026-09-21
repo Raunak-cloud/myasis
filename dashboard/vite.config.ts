@@ -893,15 +893,16 @@ function dataApi(): Plugin {
           }
           if (req.method === 'DELETE') {
             const target = sessionFor(userId)?.target;
+            const cancelled = url.searchParams.get('cancel') === 'true';
             stopSignin(userId);
             /**
-             * Closing a window is not proof of sign-in. The site the window
-             * was opened for is asked directly, in this account's own
-             * profile; the other site keeps its last known answer.
+             * Done is not proof of sign-in, so the site is checked directly
+             * in this account's profile. Close is an explicit cancellation:
+             * it ends the browser immediately and keeps the last known state.
              */
-            const seek = target === 'seek' ? await checkSignin(userId, 'seek') : readSeekState(userId);
-            const indeed = target === 'indeed' ? await checkSignin(userId, 'indeed') : readSiteState(userId, 'indeed');
-            return send({ ok: true, session: null, seek, indeed, checking: false });
+            const seek = !cancelled && target === 'seek' ? await checkSignin(userId, 'seek') : readSeekState(userId);
+            const indeed = !cancelled && target === 'indeed' ? await checkSignin(userId, 'indeed') : readSiteState(userId, 'indeed');
+            return send({ ok: true, cancelled, session: null, seek, indeed, checking: false });
           }
           const seek = readSeekState(userId);
           const indeed = readSiteState(userId, 'indeed');
