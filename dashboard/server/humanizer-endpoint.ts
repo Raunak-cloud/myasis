@@ -4,8 +4,7 @@ import { readEnv } from './runner.js';
  * seek-bot's own knowledge of how to reach the rewriting model, loaded from
  * its compiled output. The run's start-up check, the admin health page and the
  * Rewrite tab all ask the same module the bot itself uses, so none of them can
- * call the humanizer up while a run finds it down — or carry a second idea of
- * how a hosted API differs from a local llama.cpp.
+ * call the humanizer up while a run finds it down. Featherless is the provider.
  */
 export interface HumanizerEndpoint {
   base: string;

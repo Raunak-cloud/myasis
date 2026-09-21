@@ -21,7 +21,6 @@
     "test:humanizer-endpoint": "tsc && node scripts/test-humanizer-endpoint.mjs",
     "test:fit-live": "tsc && node scripts/test-fit-live.mjs",
     "queue": "tsc && node dist/queue.js",
-    "humanizer": "llama-server -hf mradermacher/authormist-originality-GGUF:Q4_K_M --host 127.0.0.1 --port 8091 --ctx-size 4096 --n-gpu-layers 99",
     "bench:fit": "tsc && node dist/bench-fit.js",
     "bench:letter": "tsc && node dist/bench-letter.js",
     "bench:humanizer": "tsc && node dist/bench-humanizer.js"
@@ -29,7 +28,7 @@
   "dependencies": {
     "@google/genai": "^0.14.0",
     "dotenv": "^16.4.7",
-    "mammoth": "^1.12.1",
+    "mammoth": "^1.12.3",
     "pdf-parse-fork": "^1.2.0",
     "patchright": "^1.63.0"
   },
@@ -37,5 +36,8 @@
     "@types/node": "^22.10.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.8.15"
   }
 }

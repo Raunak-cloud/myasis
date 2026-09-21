@@ -1,18 +1,7 @@
 /**
- * Talking to whatever serves the rewriting model.
- *
- * Two kinds of server speak the same OpenAI chat API here and differ in
- * everything around it:
- *
- *  - a hosted API (Featherless, https://featherless.ai/docs): a bearer key, no
- *    `/health`, a model that can be warm or cold, and a plan that refuses work
- *    over its concurrency with 429;
- *  - a local llama.cpp `llama-server`: no key, `/health`, one model always loaded.
- *
- * A key is what tells them apart — a keyed endpoint is a hosted one. There is
- * one endpoint and no fallback: a rewrite that cannot be served costs nothing
- * but style, because the grounded draft is sent instead. This
- * module is the only place that knows the difference; the bot and the dashboard
+ * Featherless serves the rewriting model through its authenticated chat API.
+ * There is one endpoint and no alternate provider: when a rewrite cannot be
+ * served, the grounded draft is sent instead. The bot and the dashboard
  * (which loads it from dist) both go through it, so a run's start-up check, the
  * admin health page and the Rewrite tab can never disagree about whether the
  * humanizer is up. It reads no config of its own: callers pass the endpoint.
@@ -41,7 +30,7 @@ export function humanizerEndpoint(env: EnvLike): HumanizerEndpoint | null {
   return {
     base,
     apiKey: env.HUMANIZER_API_KEY?.trim() || undefined,
-    model: env.HUMANIZER_MODEL?.trim() || 'authormist-originality',
+    model: env.HUMANIZER_MODEL?.trim() || 'authormist/authormist-originality',
   };
 }
 
@@ -72,10 +61,7 @@ export interface Readiness {
  */
 export async function probeHumanizer(endpoint: HumanizerEndpoint, timeoutMs = 5_000): Promise<Readiness> {
   try {
-    if (!endpoint.apiKey) {
-      const response = await fetch(`${endpoint.base}/health`, { signal: AbortSignal.timeout(timeoutMs) });
-      return response.ok ? { ready: true, detail: 'answering' } : { ready: false, detail: `health check returned HTTP ${response.status}` };
-    }
+    if (!endpoint.apiKey) return { ready: false, detail: 'the Featherless API key is not configured' };
     const response = await fetch(`${endpoint.base}/v1/models/${encodeURIComponent(endpoint.model)}`, {
       headers: headers(endpoint),
       signal: AbortSignal.timeout(timeoutMs),
@@ -120,6 +106,7 @@ export async function chatCompletion(
   body: Record<string, unknown>,
   deadline: number,
 ): Promise<Response> {
+  if (!endpoint.apiKey) throw new Error('The Featherless API key is not configured.');
   for (let attempt = 0; ; attempt++) {
     const response = await fetch(`${endpoint.base}/v1/chat/completions`, {
       method: 'POST',

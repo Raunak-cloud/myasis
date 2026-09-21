@@ -158,7 +158,7 @@ Qwen2.5-3B model trained for meaning-preserving human-style rewriting. It is
 not used for fit decisions or application answers. Unchanged, truncated,
 expanded, or numerically altered rewrites are rejected.
 
-**Hosted (recommended): [Featherless](https://featherless.ai/docs).** An
+**Provider: [Featherless](https://featherless.ai/docs).** An
 OpenAI-compatible API that serves the model under its Hugging Face id:
 
 ```
@@ -173,10 +173,6 @@ warming takes minutes. Featherless counts requests in flight against the plan
 (this 3B model costs 1 unit; the $25 plan has 4) and answers 429 above it, so
 a refused request waits and retries inside the rewrite's time budget, as do
 500 and 503. Featherless states it does not log prompts or completions.
-
-**Self-hosted: llama.cpp.** `winget install llama.cpp`, then `npm run humanizer`
-(the first start downloads the Q4 GGUF). Use `HUMANIZER_URL=http://127.0.0.1:8091`,
-`HUMANIZER_MODEL=authormist-originality` and no key; readiness is its `/health`.
 
 There is one endpoint and no fallback: when it cannot serve a rewrite, the
 grounded draft is sent as it is, which costs style and nothing else.

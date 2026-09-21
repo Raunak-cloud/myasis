@@ -122,8 +122,8 @@ const GROUPS: GroupSpec[] = [
     note: 'Rewrites cover letters in natural words. For Featherless: URL https://api.featherless.ai, model authormist/authormist-originality, and your API key. Leave the URL empty to switch it off.',
     banner: humanizerBanner,
     keys: [
-      { key: 'HUMANIZER_URL', label: 'Humanizer URL', help: 'A hosted OpenAI-compatible API such as https://api.featherless.ai, or a llama.cpp server.', kind: 'url' },
-      { key: 'HUMANIZER_API_KEY', label: 'API key', help: 'For a hosted API. Leave empty for a llama.cpp server.', kind: 'secret' },
+      { key: 'HUMANIZER_URL', label: 'Featherless URL', help: 'Use https://api.featherless.ai. Leave empty to disable rewriting.', kind: 'url' },
+      { key: 'HUMANIZER_API_KEY', label: 'Featherless API key', help: 'Required for Featherless rewriting and readiness checks.', kind: 'secret' },
       { key: 'HUMANIZER_MODEL', label: 'Model name', help: 'As the endpoint knows it. On Featherless: authormist/authormist-originality.', kind: 'text' },
       { key: 'HUMANIZER_MODE', label: 'Mode', help: 'Empty for the selective pass, "always" to rewrite every letter, "off" to disable.', kind: 'text' },
       { key: 'HUMANIZER_REQUIRED', label: 'Required', help: 'Refuse to start a writing run while the humanizer is down.', kind: 'boolean' },

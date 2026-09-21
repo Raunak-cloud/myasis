@@ -336,8 +336,8 @@ export const config = {
   },
 
   /**
-   * Optional AuthorMist post-processor. Where it is served — a hosted API or a
-   * local llama.cpp — is resolved from the HUMANIZER_URL / _API_KEY / _MODEL
+   * Optional AuthorMist post-processor served by Featherless.
+   * Its HUMANIZER_URL / _API_KEY / _MODEL settings are resolved
    * variables by
    * humanizer-endpoint.ts, which the dashboard shares.
    */
