@@ -727,6 +727,12 @@ async function doAttachResume(ctx: ToolContext): Promise<ToolResult> {
       }
       return ok(`Resume "${outcome.name}" ${outcome.status}. Move on to the next step.`);
     case 'unavailable':
+      if (outcome.reason === 'upload-failed') {
+        return {
+          kind: 'terminal',
+          outcome: { status: 'skipped', reason: 'The résumé could not be attached to this application.' },
+        };
+      }
       if (outcome.reason === 'local-file-missing') {
         return ok(
           `The selected resume ("${outcome.wanted}") is missing from local storage and cannot be attached. ` +

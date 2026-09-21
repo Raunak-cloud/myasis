@@ -146,8 +146,69 @@ export type ResumeOutcome =
       status: 'unavailable';
       wanted: string;
       available: string[];
-      reason: 'upload-disabled' | 'local-file-missing' | 'upload-control-missing';
+      reason: 'upload-disabled' | 'local-file-missing' | 'upload-control-missing' | 'upload-failed';
     };
+
+export interface FileInputDescription {
+  accept: string;
+  identity: string;
+  context: string;
+}
+
+/**
+ * Picks a résumé/document uploader without confusing it with a profile-photo
+ * control elsewhere on the application page. SEEK currently renders both as
+ * hidden file inputs; choosing the first one opens its photo editor and leaves
+ * the résumé step untouched.
+ */
+export function resumeFileInputIndex(inputs: FileInputDescription[]): number {
+  let best = { index: -1, score: Number.NEGATIVE_INFINITY };
+  inputs.forEach((input, index) => {
+    const accept = input.accept.toLowerCase();
+    const text = `${input.identity} ${input.context}`.toLowerCase();
+    let score = 0;
+    if (/\.pdf|\.doc|\.docx|\.rtf|\.txt|application\/pdf|msword|officedocument|text\/plain/.test(accept)) score += 120;
+    if (/image\/|\.jpe?g|\.png|\.gif|\.webp|\.heic/.test(accept)) score -= 200;
+    if (/\b(resume|résumé|cv|curriculum vitae|document)\b/.test(text)) score += 60;
+    if (/profile photo|profile picture|headshot|avatar/.test(text)) score -= 120;
+    if (/accepted file types[^\n]{0,100}(?:\.doc|\.pdf)|attach|upload/.test(text)) score += 10;
+    if (score > best.score) best = { index, score };
+  });
+  // A single unlabelled, non-image input is normal on external ATS forms.
+  if (best.index >= 0 && (best.score > 0 || (inputs.length === 1 && best.score >= 0))) return best.index;
+  return -1;
+}
+
+async function resumeFileInput(page: Page): Promise<ReturnType<Page['locator']> | null> {
+  const inputs = page.locator('input[type=file]');
+  const count = await inputs.count().catch(() => 0);
+  const descriptions: FileInputDescription[] = [];
+  for (let index = 0; index < count; index++) {
+    const description = await inputs.nth(index).evaluate((el) => {
+      const input = el as HTMLInputElement;
+      const id = input.id;
+      const explicitLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent ?? '' : '';
+      const labelledBy = (input.getAttribute('aria-labelledby') ?? '')
+        .split(/\s+/)
+        .map((ref) => document.getElementById(ref)?.textContent ?? '')
+        .join(' ');
+      let context = '';
+      let ancestor: HTMLElement | null = input.parentElement;
+      for (let depth = 0; ancestor && depth < 4; depth++, ancestor = ancestor.parentElement) {
+        const text = ancestor.innerText?.trim() ?? '';
+        if (text.length > context.length && text.length < 600) context = text;
+      }
+      return {
+        accept: input.accept ?? '',
+        identity: [input.name, input.id, input.getAttribute('aria-label'), explicitLabel, labelledBy].filter(Boolean).join(' '),
+        context,
+      };
+    }).catch(() => ({ accept: '', identity: '', context: '' }));
+    descriptions.push(description);
+  }
+  const index = resumeFileInputIndex(descriptions);
+  return index >= 0 ? inputs.nth(index) : null;
+}
 
 /** A document choice on a board's résumé step, whatever the board calls it. */
 interface DocumentChoice {
@@ -222,8 +283,8 @@ export async function selectResume(
 ): Promise<ResumeOutcome> {
   const { radios, choices } = await documentChoices(page);
   const realDocs = choices.filter((o) => !/don't include|do not include/i.test(o.label));
-  const fileInput = page.locator('input[type=file]').first();
-  const canUpload = (await fileInput.count().catch(() => 0)) > 0;
+  const fileInput = await resumeFileInput(page);
+  const canUpload = fileInput !== null;
 
   if (!realDocs.length && !canUpload) return { status: 'kept-default', name: '(no document step)' };
 
@@ -246,7 +307,7 @@ export async function selectResume(
   if (!existsSync(localPath)) return { status: 'unavailable', wanted: wanted.label, available, reason: 'local-file-missing' };
   if (!canUpload) return { status: 'unavailable', wanted: wanted.label, available, reason: 'upload-control-missing' };
 
-  await fileInput.setInputFiles(localPath);
+  await fileInput!.setInputFiles(localPath);
 
   // The board re-renders its list once the upload finishes; the new file appears by name (extension may change).
   const stem = basename(wanted.fileName).replace(/\.(docx?|pdf|rtf|txt)$/i, '');
@@ -276,9 +337,16 @@ export async function selectResume(
 
   // Select the uploaded document when the list now offers it; a list that replaced its only entry has it chosen already.
   const after = await documentChoices(page);
-  const uploaded = matchChoice(after.choices, wanted);
-  if (uploaded && !uploaded.checked) await checkRadio(after.radios.nth(uploaded.idx));
-  return { status: 'uploaded', name: uploaded?.label ?? wanted.fileName };
+  const afterDocs = after.choices.filter((o) => !/don't include|do not include/i.test(o.label));
+  const beforeNames = new Set(realDocs.map((doc) => normaliseName(doc.label)));
+  const uploaded = matchChoice(afterDocs, wanted)
+    ?? afterDocs.find((doc) => !beforeNames.has(normaliseName(doc.label)))
+    ?? (afterDocs.length === 1 ? afterDocs[0] : undefined);
+  if (!uploaded) {
+    return { status: 'unavailable', wanted: wanted.label, available, reason: 'upload-failed' };
+  }
+  if (!uploaded.checked) await checkRadio(after.radios.nth(uploaded.idx));
+  return { status: 'uploaded', name: uploaded.label };
 }
 
 const resumeChoices = new Map<string, Promise<ResumeRecord | null>>();
