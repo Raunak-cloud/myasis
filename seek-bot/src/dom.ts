@@ -217,29 +217,8 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       return parts.join(' › ');
     };
 
-    /**
-     * SEEK's apply wizard marks nothing as required in the markup yet refuses
-     * to advance until every question is answered, so on those pages every
-     * field counts as required. Elsewhere the markup is trusted.
-     */
-    const seekApplyPage = /(^|\.)seek\.com(\.au)?$/.test(location.hostname) && /\/apply\b/.test(location.pathname);
-
-    /**
-     * ...with one exception: a control nobody could name.
-     *
-     * That blanket rule swept in SEEK's own "Show strong interest" checkbox, a
-     * promotional toggle in the corner of the apply page. It is not an
-     * employer question, nothing in the DOM associates a caption with it, and
-     * counting it as required blocked entire applications on "Fields not
-     * verified: unlabelled field" — an unanswerable prompt for an optional
-     * upsell.
-     *
-     * A real employer question always renders its wording somewhere. If
-     * nothing on the page names a control, it is chrome, and the markup's own
-     * silence about whether it is required is the better guide.
-     */
-    const requiredOnThisPage = (label: string) =>
-      seekApplyPage && label !== 'unlabelled field' && label !== 'unlabelled question';
+    // Report actual markup evidence. The model interprets missing requirements
+    // from page instructions and validation; a hostname cannot require fields.
 
     // Hidden controls may retain refs from the previous observation. Clear them
     // before assigning new refs so a new visible field cannot share an old ref.
@@ -276,7 +255,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           ...(description ? { description } : {}),
           ...(section ? { section } : {}),
           kind: 'select',
-          required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label) || requiredOnThisPage(label),
+          required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
           currentValue: sel.value,
           autocomplete: el.getAttribute('role') === 'combobox',
@@ -290,7 +269,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         ...(description ? { description } : {}),
         ...(section ? { section } : {}),
         kind: el.tagName === 'TEXTAREA' ? 'textarea' : el.type === 'checkbox' ? 'checkbox' : 'text',
-        required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label) || requiredOnThisPage(label),
+        required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',
         // Only when it constrains the value; "text" tells the answerer nothing.
@@ -343,8 +322,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         required:
           inputs.some((i) => i.required || i.getAttribute('aria-required') === 'true') ||
           Boolean(inputs[0].closest('[aria-required="true"]')) ||
-          /(^|\s)\*|\*\s*$/.test(groupLabel) ||
-          requiredOnThisPage(groupLabel),
+          /(^|\s)\*|\*\s*$/.test(groupLabel),
         options: inputs.map((i) => labelFor(i)),
         currentValue: inputs.find(i => i.checked) ? labelFor(inputs.find(i => i.checked)!) : '',
       });

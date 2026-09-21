@@ -116,7 +116,23 @@ try {
   assert.equal(await page.locator('select').inputValue(), 'Choose document');
   await executeTool(ctx, 'attach_resume', { ref: documentRef, option: 'candidate.txt' });
   assert.equal(await page.locator('select').inputValue(), 'candidate.txt');
-  console.log('PASS: model-directed repair, prefilled preservation, exact cover-letter targeting, stale refs, and safe resume upload');
+  await page.route('https://au.seek.com/job/fixture/apply', route => route.fulfill({ contentType: 'text/html', body: '<main><label>Promotion<input type="checkbox"></label><label>Phone<input required></label><label>Country<select aria-required="true"><option>Australia</option></select></label></main>' }));
+  await page.goto('https://au.seek.com/job/fixture/apply');
+  ctx = await context();
+  assert.equal(ctx.observation.fields[0].required, false, 'SEEK hostname cannot turn optional controls into required questions');
+  assert.equal(ctx.observation.fields[1].required, true);
+  assert.equal(ctx.observation.fields[2].required, true);
+  ctx.observation.screenshot = 'fixture';
+  const point = await page.locator('input[type=checkbox]').evaluate(el => { const r = el.getBoundingClientRect(); return { x: (r.x + r.width / 2) / innerWidth * 1000, y: (r.y + r.height / 2) / innerHeight * 1000 }; });
+  await executeTool(ctx, 'click_point', { ...point, reason: 'Override a rejected choice' });
+  assert.equal(await page.locator('input[type=checkbox]').isChecked(), false, 'coordinate clicks cannot bypass grounded field tools');
+  const labelPoint = await page.locator('label').first().evaluate(el => { const r = el.getBoundingClientRect(); return { x: (r.x + 2) / innerWidth * 1000, y: (r.y + r.height / 2) / innerHeight * 1000 }; });
+  await executeTool(ctx, 'click_point', { ...labelPoint, reason: 'Click label instead' });
+  assert.equal(await page.locator('input[type=checkbox]').isChecked(), false, 'label clicks cannot bypass grounded field tools');
+  const beforeInvalid = calls;
+  await executeTool(ctx, 'answer_questions', { refs: 'f1', reason: 'Malformed' });
+  assert.equal(calls, beforeInvalid);
+  console.log('PASS: model-directed forms, genuine required metadata, coordinate grounding, argument validation, stale refs, and safe uploads');
 } finally {
   globalThis.fetch = originalFetch;
   await browser.close();

@@ -83,7 +83,14 @@ employers, so read the page rather than assuming an order.
   using the radio/select FIELD ref and exact writing option if necessary, then
   pass its FIELD ref to add_cover_letter. Do not select an unrelated textarea.
 - Answer every required FIELD on a step before looking for the forward control.
-  If a step has unanswered fields, answer them before clicking anything.
+  Required flags reflect markup only: interpret current instructions and validation
+  and pass required_refs when a necessary question lacks required markup.
+  A required multi-select QUESTION does not require selecting every option.
+  Leave optional promotional, visibility and account-settings toggles unchanged.
+  An unchecked skill is a valid negative answer, not an unfinished field.
+  Read the answer tool's returned value: it can reject your proposed answer.
+  Never use coordinates to override it or pick a different unsupported skill.
+  For a group, evaluate the supported positive options before "None of these".
 - If a forward control is disabled, something required is still unanswered.
 - A nonempty field is not necessarily valid. Read validation messages and
   inspect partial defaults (such as a dialling prefix without a phone number).

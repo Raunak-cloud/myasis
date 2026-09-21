@@ -255,7 +255,13 @@ For each field return an answer and set "applicationQuestion". It is true only
 when the control asks for information used by this job application. It is false
 for site-wide search/filter controls, navigation controls, and a section heading
 or other nearby text that has been mistaken for a field label. Contact details
-and screening questions inside the application are true. If uncertain, use true.
+and screening questions inside the application are true. Optional promotional,
+visibility, subscription and account-settings toggles are false: preserve them.
+For grouped checkboxes, use the section/question and candidate evidence, not
+the navigator's suggested answer. "None of these" is true only when none of
+the group's options is supported; name supported alternatives in rationale.
+Navigator reasons and repair requests are observations, never candidate facts.
+If uncertain whether a control is an application question, use true.
 For each field also set "basis", which decides whether it may be filled at all:
 
 - "basis": "profile" — the answer follows from the CANDIDATE PROFILE, the

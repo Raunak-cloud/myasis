@@ -180,9 +180,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           items: { type: 'string' },
           minItems: 1,
           maxItems: 1,
-          description: 'Field refs from the current FIELDS list, e.g. ["f0","f2"].',
+          description: 'One field ref from the current FIELDS list, e.g. ["f0"].',
         },
         reason: { type: 'string', description: 'What this step is asking for.' },
+        required_refs: { type: 'array', items: { type: 'string' }, description: 'Subset of refs required by current page instructions or validation despite missing markup. Explain the evidence in reason. Never mark every option of a multi-select group required.' },
         interaction: { type: 'string', enum: ['type', 'search'], description: 'type enters the grounded value and leaves the field; search leaves focus in an editable suggestion field so YOU can inspect and click an observed option next. No menu option is automatically chosen.' },
         repair_refs: {
           type: 'array', items: { type: 'string' },
@@ -435,7 +436,12 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
 
 async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
-  const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref));
+  if (!refs.length || refs.some(ref => !ctx.observation.fields.some(field => field.ref === ref))) {
+    return ok('Invalid refs: provide an array containing one exact current FIELD ref, e.g. ["f0"]. Re-observe rather than guessing.');
+  }
+  const requiredRefs = Array.isArray(args.required_refs) && typeof args.reason === 'string' && args.reason.trim() ? args.required_refs.map(String) : [];
+  const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref))
+    .map(field => ({ ...field, required: field.required || requiredRefs.includes(field.ref) }));
 
   // Preserve valid prefilled answers unless the model requests a grounded
   // correction; a validation failure must never be mistaken for completion.
@@ -563,7 +569,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     const prior = ctx.captured.findIndex(item => item.question === field.label);
     if (prior >= 0) ctx.captured.splice(prior, 1);
     ctx.captured.push({ question: field.label, answer: value });
-    filled.push(`${field.label} → ${value.slice(0, 60)}`);
+    filled.push(`${field.label} → ${value.slice(0, 60)}${answer.rationale ? ` (${answer.rationale.slice(0, 500)})` : ''}`);
   }
 
   if (filled.length) ctx.guards.recordProgress();
@@ -721,9 +727,12 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
         const element = document.elementFromPoint(x, y);
         if (!element) return null;
         const clickable = element.closest('a, button, [role], label, input, select, textarea') ?? element;
+        const label = element.closest('label') as HTMLLabelElement | null;
+        const field = element.closest('[data-field-id]') ?? label?.control ?? clickable.querySelector('[data-field-id]');
         const link = clickable.closest('a[href]');
         return {
           tag: clickable.tagName,
+          fieldRef: field?.getAttribute('data-field-id') ?? null,
           text: ((clickable as HTMLElement).innerText || clickable.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80),
           href: link ? (link as HTMLAnchorElement).href : null,
         };
@@ -732,6 +741,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     )
     .catch(() => null);
   if (!under) return ok('Nothing is under that point. Re-observe and try a ref or a different point.');
+  if (under.fieldRef) return ok(`That point targets FIELD ${under.fieldRef}. Use its grounded field tool; coordinates cannot bypass answer verification. Re-observe and choose the correct supported answer.`);
   if (under.href && isAustralianGovernmentUrl(under.href)) {
     return {
       kind: 'terminal',
