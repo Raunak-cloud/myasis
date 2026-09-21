@@ -68,6 +68,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       if (labelledBy) {
         const t = labelledBy
           .split(/\s+/)
+          .filter(Boolean)
           .map((i) => root.querySelector(`#${CSS.escape(i)}`)?.textContent?.trim() ?? '')
           .filter(Boolean)
           .join(' ');
@@ -148,6 +149,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       if (describedBy) {
         const text = describedBy
           .split(/\s+/)
+          .filter(Boolean)
           .map((id) => root.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '')
           .filter(Boolean)
           .join(' ')

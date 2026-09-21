@@ -138,6 +138,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         const explicitLabel = input.id ? root.querySelector(`label[for="${CSS.escape(input.id)}"]`)?.textContent?.trim() ?? '' : '';
         const labelledBy = (input.getAttribute('aria-labelledby') ?? '')
           .split(/\s+/)
+          .filter(Boolean)
           .map((id) => root.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '')
           .filter(Boolean)
           .join(' ');
