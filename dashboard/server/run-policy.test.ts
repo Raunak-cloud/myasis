@@ -56,7 +56,7 @@ const adminTyped = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '30', MAX_APPS_P
 check('admins keep application limits they set, above the plan ceilings', adminTyped.MAX_APPS_PER_RUN === '30' && adminTyped.MAX_APPS_PER_DAY === '80');
 
 const standardAuto = applyRunPolicy(saved, freePolicy, 'auto');
-check('Free runs assess 5 jobs', standardAuto.MAX_EVALUATIONS === '5');
+check('Free runs assess 10 jobs', standardAuto.MAX_EVALUATIONS === '10');
 check('Essential runs assess 25 jobs', applyRunPolicy(saved, essentialPolicy, 'auto').MAX_EVALUATIONS === '25');
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, adminPolicy, 'auto');
 check('admin scheduled runs keep their own limits too', adminAuto.MAX_EVALUATIONS === '100' && adminAuto.MAX_APPS_PER_DAY === 'none');
