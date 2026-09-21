@@ -40,7 +40,7 @@ import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
-import { checkSeekSignin, checkSignin, seekCheckInProgress, signOutOfBoard } from './server/seek-check.js';
+import { checkSignin, seekCheckInProgress, signOutOfBoard } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, discardRunStart, entitlementsFor, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
@@ -900,8 +900,8 @@ function dataApi(): Plugin {
              * in this account's profile. Close is an explicit cancellation:
              * it ends the browser immediately and keeps the last known state.
              */
-            const seek = !cancelled && target === 'seek' ? await checkSignin(userId, 'seek') : readSeekState(userId);
-            const indeed = !cancelled && target === 'indeed' ? await checkSignin(userId, 'indeed') : readSiteState(userId, 'indeed');
+            const seek = !cancelled && target === 'seek' ? await checkSignin(userId, 'seek', false) : readSeekState(userId);
+            const indeed = !cancelled && target === 'indeed' ? await checkSignin(userId, 'indeed', false) : readSiteState(userId, 'indeed');
             return send({ ok: true, cancelled, session: null, seek, indeed, checking: false });
           }
           const seek = readSeekState(userId);
@@ -922,7 +922,7 @@ function dataApi(): Plugin {
           const verifySites = (crossSite(req) ? '' : url.searchParams.get('verify') ?? '')
             .split(',')
             .filter((site): site is 'seek' | 'indeed' => site === 'seek' || site === 'indeed')
-            .filter((site) => priorState[site] !== null);
+            .filter((site) => priorState[site]?.signedIn === true);
           /**
            * A green tick must describe the live account, not a cached answer.
            * When the Apply page mounts it requests verification for the boards
@@ -935,13 +935,11 @@ function dataApi(): Plugin {
             const [firstSite, ...remainingSites] = verifySites;
             // Start the first check before composing the response so
             // `checking` is already true and a cached tick cannot flash.
-            let verification = checkSignin(userId, firstSite);
+            let verification = checkSignin(userId, firstSite, false);
             for (const site of remainingSites) {
-              verification = verification.then(() => checkSignin(userId, site));
+              verification = verification.then(() => checkSignin(userId, site, false));
             }
             void verification;
-          } else if (seek?.source === 'declared' && !sessionFor(userId) && !runner.stateFor(userId).running) {
-            void checkSeekSignin(userId);
           }
           return send({
             supported: signinSupported(),

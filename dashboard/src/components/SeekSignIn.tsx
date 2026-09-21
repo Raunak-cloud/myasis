@@ -74,10 +74,10 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
   }, [indeedEnabled]);
 
   useEffect(() => {
-    // A saved green tick is only the last thing a run observed. Verify every
-    // selected board when this indicator appears so it describes the account
-    // now, rather than repeating a result that may be hours or days old.
-    void refresh(true);
+    // Load the last confirmed state immediately. A full browser verification
+    // happens after the person presses Done; runs independently re-check and
+    // repair expired sessions, so opening Apply never blocks on a browser.
+    void refresh();
   }, [refresh]);
 
   // Before the first answer the check has been asked for but not reported, which is still verifying.

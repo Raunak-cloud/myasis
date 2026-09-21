@@ -324,9 +324,9 @@ async function ensure(page: Page, site: string, check: (page: Page) => Promise<v
 export const ensureSignedIn = (page: Page): Promise<void> => ensure(page, 'SEEK', assertSignedIn);
 export const ensureIndeedSignedIn = (page: Page): Promise<void> => ensure(page, 'Indeed', assertIndeedSignedIn);
 
-export async function assertSignedIn(page: Page): Promise<void> {
+export async function assertSignedIn(page: Page, challengeTimeoutMs = 45_000, verdictTimeoutMs = 15_000): Promise<void> {
   await page.goto(`${config.seekBase}/profile/me`, { waitUntil: 'domcontentloaded' });
-  await waitForChallengeToClear(page);
+  await waitForChallengeToClear(page, challengeTimeoutMs);
 
   /**
    * Wait for the answer rather than reading the URL immediately.
@@ -348,7 +348,7 @@ export async function assertSignedIn(page: Page): Promise<void> {
         return false;
       },
       undefined,
-      { timeout: 15_000, polling: 300 },
+      { timeout: verdictTimeoutMs, polling: 300 },
     )
     .then((handle) => handle.jsonValue() as Promise<string>)
     .catch(() => 'unclear');
@@ -384,12 +384,12 @@ export async function assertSignedIn(page: Page): Promise<void> {
  * and get reported as "not signed in", which is safe (the run still stops
  * and asks) but points the user at the wrong fix — this names the real cause.
  */
-export async function assertIndeedSignedIn(page: Page): Promise<void> {
+export async function assertIndeedSignedIn(page: Page, challengeTimeoutMs = 45_000, verdictTimeoutMs = 15_000): Promise<void> {
   // `/myjobs` is account-protected and therefore authoritative. The public
   // homepage can retain a stale `isLoggedIn` bootstrap flag after the session
   // cookie expires, while Apply redirects to secure.indeed.com with loggedIn=0.
   await page.goto(`${config.indeedBase}/myjobs`, { waitUntil: 'domcontentloaded' });
-  await waitForChallengeToClear(page);
+  await waitForChallengeToClear(page, challengeTimeoutMs);
   const verdict = await page
     .waitForFunction(
       () => {
@@ -400,7 +400,7 @@ export async function assertIndeedSignedIn(page: Page): Promise<void> {
         return false;
       },
       undefined,
-      { timeout: 15_000, polling: 300 },
+      { timeout: verdictTimeoutMs, polling: 300 },
     )
     .then((handle) => handle.jsonValue() as Promise<string>)
     .catch(() => 'unclear');

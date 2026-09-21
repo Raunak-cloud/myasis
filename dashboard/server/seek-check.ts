@@ -125,11 +125,7 @@ function checkPort(): number {
  * already known when the profile could not be opened. Never throws: a check
  * that cannot run leaves the prompt where it was, which is the safe outcome.
  */
-export function checkSeekSignin(userId: string): Promise<SeekState | null> {
-  return checkSignin(userId, 'seek');
-}
-
-export function checkSignin(userId: string, site: SigninSite): Promise<SeekState | null> {
+export function checkSignin(userId: string, site: SigninSite, repair = true): Promise<SeekState | null> {
   const key = `${userId}:${site}`;
   const running = inFlight.get(key);
   if (running) return running;
@@ -152,6 +148,7 @@ export function checkSignin(userId: string, site: SigninSite): Promise<SeekState
       ...process.env,
       ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
       SIGNIN_SITE: site,
+      SIGNIN_REPAIR: repair ? 'true' : 'false',
       // Which of the browser's Google accounts is the person's, for signing back in and for reading an emailed code.
       GMAIL_BROWSER_ACCOUNT: chromeGoogleAccounts(userId)[0] ?? '',
       CHROME_PROFILE_DIR: profileDir,
@@ -166,7 +163,7 @@ export function checkSignin(userId: string, site: SigninSite): Promise<SeekState
 
     await new Promise<void>((done) => {
       const child = spawn(process.execPath, ['dist/check-signin.js'], { cwd: BOT_DIR, env, stdio: ['ignore', logFile, logFile] });
-      const timer = setTimeout(() => child.kill('SIGKILL'), CHECK_TIMEOUT_MS);
+      const timer = setTimeout(() => child.kill('SIGKILL'), repair ? CHECK_TIMEOUT_MS : 30_000);
       child.on('error', () => {
         clearTimeout(timer);
         done();
