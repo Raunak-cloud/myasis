@@ -53,15 +53,29 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       return '';
     };
 
+    // A web component's label can contain a slot: textContent sees only the
+    // required '*' marker, while the actual question is assigned to the slot.
+    const composedText = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+      if (node instanceof HTMLSlotElement) {
+        const assigned = node.assignedNodes({ flatten: true });
+        return (assigned.length ? assigned : [...node.childNodes]).map(composedText).join(' ');
+      }
+      return [...node.childNodes].map(composedText).join(' ').replace(/\s+/g, ' ').trim();
+    };
+    const usefulLabel = (node: Element | null): string => {
+      const text = node ? composedText(node) : '';
+      return /[\p{L}\p{N}]/u.test(text) ? text : '';
+    };
     const labelFor = (el: Element): string => {
       const root = el.getRootNode() as Document | ShadowRoot;
       const id = el.getAttribute('id');
       if (id) {
         const l = root.querySelector(`label[for="${CSS.escape(id)}"]`);
-        if (l?.textContent?.trim()) return l.textContent.trim();
+        if (usefulLabel(l)) return usefulLabel(l);
       }
       const wrapping = el.closest('label');
-      if (wrapping?.textContent?.trim()) return wrapping.textContent.trim();
+      if (usefulLabel(wrapping)) return usefulLabel(wrapping);
       const aria = el.getAttribute('aria-label');
       if (aria) return aria;
       const labelledBy = el.getAttribute('aria-labelledby');
@@ -69,7 +83,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         const t = labelledBy
           .split(/\s+/)
           .filter(Boolean)
-          .map((i) => root.querySelector(`#${CSS.escape(i)}`)?.textContent?.trim() ?? '')
+          .map((i) => usefulLabel(root.querySelector(`#${CSS.escape(i)}`)))
           .filter(Boolean)
           .join(' ');
         if (t) return t;
@@ -83,7 +97,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       let box: Element | null = el.parentElement;
       for (let depth = 0; depth < 3 && box; depth++, box = box.parentElement) {
         const inner = box.querySelector('label');
-        const text = inner?.textContent?.trim();
+        const text = usefulLabel(inner ?? null);
         if (text && text.length < 120 && !inner!.querySelector('input, select, textarea')) return text;
         if (depth === 0) {
           const prev = el.previousElementSibling as HTMLElement | null;

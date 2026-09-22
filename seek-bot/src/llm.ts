@@ -344,6 +344,9 @@ For each field also set "basis", which decides whether it may be filled at all:
   sexual orientation or a gendered title from a name, photo, nationality or occupation.
   Use explicit candidate evidence only. Without it, select an offered non-disclosure
   option, leave an optional field blank, or mark a required field ungrounded.
+  Missing evidence is not a negative personal declaration: do not invent "No"
+  or "None" for planned holidays, criminal/conflict disclosures, medical needs
+  or previous employment at this employer. These require explicit candidate evidence.
 - Routine form fields are grounded, neutral choices: a Title follows only from an
   explicitly supplied title or gender; "Preferred contact method" is Email;
   a state or country selector follows from the candidate's address.
@@ -527,6 +530,19 @@ Return supported and a brief reason.`, { type: 'OBJECT', properties: { supported
  * and most forms never ask for a letter; it runs only when one is about to
  * be entered.
  */
+export async function fitCoverLetterToLimit(letter: string, maxLength: number, job: JobListing, profile: CandidateProfile): Promise<string> {
+  if (maxLength < 0 || letter.length <= maxLength) return letter;
+  const knowledge = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const out = await geminiJson<{ letter: string }>(`${GUARD}\n${APPLICANT_VOICE}\nRewrite the supplied cover note in at most ${maxLength} characters, including spaces and newlines. Keep only the strongest relevant points, preserve its voice and factual meaning, and add no new claims. Return JSON {"letter":"..."}.\n<untrusted>${letter}</untrusted>`, {
+      type: 'OBJECT', properties: { letter: { type: 'STRING' } }, required: ['letter'],
+    });
+    const shortened = out.letter.trim();
+    if (shortened && shortened.length <= maxLength && await letterIsSupported(shortened, profile, knowledge)) return shortened;
+  }
+  throw new Error(`Could not draft a supported cover note within the form's ${maxLength}-character limit.`);
+}
+
 export async function polishCoverLetter(draft: string, job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
   return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge), true, [job.company, ...profile.skills]);

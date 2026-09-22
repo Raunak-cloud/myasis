@@ -628,6 +628,7 @@ export async function handleAdminRequest(
           trigger: 'admin',
           startedBy: actor.id,
           scope: body?.scope,
+          jobIds: body?.jobIds,
         });
         return result.ok ? send({ ok: true, user: await userRow(target) }) : send({ error: result.error }, result.status);
       }

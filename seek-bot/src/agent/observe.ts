@@ -285,6 +285,17 @@ export interface ObserveOptions {
 }
 
 export async function observe(page: Page, options: ObserveOptions = {}): Promise<Observation> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await observeOnce(page, options); }
+    catch (error) {
+      if (attempt >= 2 || !/Execution context was destroyed|Cannot find context with specified id/i.test(String(error))) throw error;
+      // Only retry observation, never replay an action or submit click.
+      await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
+    }
+  }
+}
+
+async function observeOnce(page: Page, options: ObserveOptions): Promise<Observation> {
   const [actions, fields] = await Promise.all([collectActions(page), extractFields(page)]);
   const errors = await page.evaluate(() => {
     const errors: Record<string, string> = {};

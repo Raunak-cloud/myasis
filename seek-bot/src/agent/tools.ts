@@ -7,7 +7,7 @@ import {
   waitForInteractiveSurface,
 } from '../browser.js';
 import { fillField } from '../dom.js';
-import { answerFields, finishedCoverLetterForJob } from '../llm.js';
+import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit } from '../llm.js';
 import { pickResumeForJob, RESUME_DIR } from '../resume.js';
 import { existsSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
@@ -66,6 +66,8 @@ export interface ToolContext {
   log: (line: string) => void;
   /** Side effects the candidate must be told about — see `ApplicationAction`. */
   actions: ApplicationAction[];
+  submissionAttempted?: boolean;
+  reloads?: number;
 }
 
 const ok = (message: string): ToolResult => ({ kind: 'ok', message });
@@ -128,6 +130,11 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
+  {
+    name: 'reload_page',
+    description: 'Retry the current employer page after a temporary server/loading error, before entering application data. Never use after submission or to bypass an access restriction.',
+    parameters: { type: 'object', properties: { reason: { type: 'string' } }, required: ['reason'] },
+  },
   {
     name: 'click',
     description:
@@ -333,6 +340,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
     ctx.log(`  → submitting: "${action.text}"`);
   }
 
+  if (isSubmitAction(action.text) && !entry) ctx.submissionAttempted = true;
   if (action.role === 'link') {
     const href = await ctx.page
       .locator(`[data-ref-id="${ref}"]`)
@@ -417,11 +425,11 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
     const email = ctx.profile.email;
     const purpose = String(args.purpose ?? '');
     if (purpose === 'create_account') {
-      noteAction(ctx, { kind: 'account-created', site, email, detail: `Created an account on ${siteName(site)} with ${email}.` });
+      noteAction(ctx, { kind: 'authentication-prepared', site, email, detail: `Filled account-registration fields on ${siteName(site)} with ${email}; account creation is not yet confirmed.` });
     } else if (purpose === 'reset_password') {
-      noteAction(ctx, { kind: 'password-reset', site, email, detail: `Set a new password for your account on ${siteName(site)}.` });
+      noteAction(ctx, { kind: 'authentication-prepared', site, email, detail: `Filled password-reset fields on ${siteName(site)}; reset is not yet confirmed.` });
     } else {
-      noteAction(ctx, { kind: 'signed-in', site, email, detail: `Signed in to your account on ${siteName(site)} with ${email}.` });
+      noteAction(ctx, { kind: 'authentication-prepared', site, email, detail: `Filled sign-in fields on ${siteName(site)} with ${email}; sign-in is not yet confirmed.` });
     }
   }
   return ok(
@@ -598,9 +606,12 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
   if (!field || !['textarea', 'text'].includes(field.kind) || field.sensitive) {
     return ok('Choose the visible cover-letter FIELD ref. If it is hidden, use click to open the write-letter option, then observe again. Never choose an unrelated text box.');
   }
-  const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
+  let letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
   if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
-  await fillField(ctx.page, field, letter);
+  const maxLength = await ctx.page.locator(`[data-field-id="${field.ref}"]`).evaluate(el => (el as HTMLTextAreaElement).maxLength).catch(() => -1);
+  if (Number.isInteger(maxLength) && maxLength >= 0) letter = await fitCoverLetterToLimit(letter, maxLength, ctx.job, ctx.profile);
+  try { await fillField(ctx.page, field, letter, 'type'); }
+  catch (error) { return ok(`Cover letter not accepted: ${(error as Error).message}. Re-observe and choose the current writing field or resolve the form's validation.`); }
   ctx.coverLetter = letter;
   ctx.guards.recordFillSuccess(field.label);
   return ok(`Cover letter verified in ${field.ref}. Re-observe the page and handle any remaining fields or validation before continuing.`);
@@ -766,6 +777,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     ctx.log(`  → submitting: "${under.text}"`);
   }
   const before = await captureInteractivePageState(ctx.page);
+  if (isSubmitAction(under.text) && !isEntryAction(under.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) ctx.submissionAttempted = true;
   await ctx.page.mouse.click(x, y);
   const changed = await waitForInteractivePageChange(ctx.page, before);
   await waitForInteractiveSurface(ctx.page, 4_000);
@@ -819,6 +831,13 @@ export async function executeTool(
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
   switch (name) {
+    case 'reload_page': {
+      if (ctx.submissionAttempted || ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) return ok('Reload withheld: application data was entered or submission attempted. Preserve the form and inspect its current state.');
+      if ((ctx.reloads ?? 0) >= 2) return ok('Reload did not resolve this page after two attempts. Inspect other visible recovery controls; do not bypass access restrictions.');
+      ctx.reloads = (ctx.reloads ?? 0) + 1;
+      await ctx.page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
+      return ok('Reload attempted. Inspect the fresh page; this is not application success.');
+    }
     case 'click':
       return doClick(ctx, args);
     case 'complete_authentication':

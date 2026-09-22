@@ -194,6 +194,16 @@ async function main() {
         console.log(`Seeded ${added} existing applications from SEEK history.`);
       }
 
+      const targeted = (process.env.TARGET_SEEK_JOB_IDS ?? '').split(',').filter(id => /^\d{6,12}$/.test(id));
+      if (targeted.length && adapter.id === 'seek') {
+        for (const id of [...new Set(targeted)].slice(0, 10)) {
+          const job = await adapter.fetchJobDetail(page, { id, title: '', company: '', location: '', platform: 'seek', url: `https://www.seek.com.au/job/${id}` });
+          seen.set(`seek:${id}`, job);
+        }
+        console.log(`  Targeted retry: ${targeted.length} listing(s); normal fit, scope and duplicate checks still apply.`);
+        continue;
+      }
+
       const recommendations = await adapter.recommended(page).catch((error) => {
         console.warn(`  ${adapter.label} Recommended could not be loaded: ${(error as Error).message}`);
         return [] as JobListing[];

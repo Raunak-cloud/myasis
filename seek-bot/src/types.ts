@@ -105,7 +105,7 @@ export interface ScoreBreakdown {
  * dashboard derives the site's password again when its owner asks for it.
  */
 export interface ApplicationAction {
-  kind: 'account-created' | 'signed-in' | 'password-reset' | 'resume-uploaded' | 'email-code';
+  kind: 'account-created' | 'signed-in' | 'password-reset' | 'authentication-prepared' | 'resume-uploaded' | 'email-code';
   /** Host where it happened, e.g. "anglicare.wd105.myworkdayjobs.com". */
   site: string;
   /** The email the site account uses, for account actions. */

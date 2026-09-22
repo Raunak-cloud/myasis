@@ -10,6 +10,7 @@ import type { ToolContext } from './agent/tools.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-model-forms-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
+process.env.GEMINI_API_KEY = 'fixture-only';
 process.env.RESUME_ALLOW_UPLOAD = 'true';
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'candidate.txt'), 'Fixture resume');
@@ -136,6 +137,17 @@ try {
   ctx = await context();
   assert.ok(ctx.observation.actions.some(action => action.text === 'Open Preferred title'), 'icon-only dropdown opener receives its associated field label');
 
+  await page.setContent('<main><fixture-question><span slot="question">Preferred working arrangement</span></fixture-question></main>');
+  await page.locator('fixture-question').evaluate(host => {
+    host.attachShadow({ mode: 'open' }).innerHTML = '<label for="answer"><slot name="question"></slot>*</label><input id="answer">';
+  });
+  ctx = await context();
+  assert.equal(ctx.observation.fields[0].label, 'Preferred working arrangement *', 'slotted question text is not reduced to the required marker');
+
+  ctx.submissionAttempted = true;
+  const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
+  assert.ok(reloadBlocked.kind === 'ok' && reloadBlocked.message.includes('Reload withheld'), 'cannot reload and replay an attempted submission');
+
   const beforeInvalid = calls;
   await executeTool(ctx, 'answer_questions', { refs: 'f1', reason: 'Malformed' });
   assert.equal(calls, beforeInvalid);
@@ -147,7 +159,24 @@ try {
   const memory = recentReviewFeedback();
   assert.equal(memory.size, 1, 'stale and corrupt records do not become ranking context');
   assert.match(memory.get(JSON.stringify(['job1', 'Developer', 'Fixture']))!.reason, /skills mismatch/);
-  const { rankJobsForReview, assessFit, reviewKey } = await import('./llm.js');
+  const { rankJobsForReview, assessFit, reviewKey, fitCoverLetterToLimit } = await import('./llm.js');
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    const text = JSON.stringify({ letter: 'I would welcome the opportunity to contribute.', supported: true, reason: 'No unsupported claims.' });
+    return new Response(JSON.stringify(body.contents
+      ? { candidates: [{ content: { parts: [{ text }] } }] }
+      : { choices: [{ message: { role: 'assistant', content: text } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const shortLetter = await fitCoverLetterToLimit('A long letter. '.repeat(100), 100, ctx.job, profile);
+  assert.ok(shortLetter.length <= 100 && shortLetter.endsWith('.'), 'model rewrites to the character limit without cutting off text');
+  const evaluateOriginal = page.evaluate.bind(page);
+  let raced = false;
+  page.evaluate = (async (...args: Parameters<typeof page.evaluate>) => {
+    if (!raced) { raced = true; throw new Error('Execution context was destroyed, most likely because of a navigation.'); }
+    return evaluateOriginal(...args);
+  }) as typeof page.evaluate;
+  assert.ok((await observe(page)).fields.length > 0, 'read-only observation recovers from a navigation race');
+  page.evaluate = evaluateOriginal;
   const classifierCalls: string[] = [];
   globalThis.fetch = async (_input, init) => {
     const body = JSON.parse(String(init?.body));

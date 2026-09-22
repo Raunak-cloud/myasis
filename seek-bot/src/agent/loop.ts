@@ -88,6 +88,8 @@ employers, so read the page rather than assuming an order.
   A required multi-select QUESTION does not require selecting every option.
   Leave optional promotional, visibility and account-settings toggles unchanged.
   An unchecked skill is a valid negative answer, not an unfinished field.
+  For a temporary server/loading error before entering any data, use reload_page
+  and inspect the result before abandoning the application. Do not bypass access restrictions.
   Read the answer tool's returned value: it can reject your proposed answer.
   Never use coordinates to override it or pick a different unsupported skill.
   Never infer sensitive demographics or a gendered title from a name or appearance.

@@ -31,7 +31,7 @@ export interface Application {
 }
 
 export interface ApplicationAction {
-  kind: 'account-created' | 'signed-in' | 'password-reset' | 'resume-uploaded' | 'email-code';
+  kind: 'account-created' | 'signed-in' | 'password-reset' | 'authentication-prepared' | 'resume-uploaded' | 'email-code';
   site: string;
   email?: string;
   detail: string;

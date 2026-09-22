@@ -68,6 +68,8 @@ export interface StartRunRequest {
   clientOverrides?: Record<string, unknown>;
   /** Limit the run to one kind of application. Honoured only for accounts entitled to it. */
   scope?: unknown;
+  /** Admin diagnostic retries, still subject to normal eligibility and limits. */
+  jobIds?: unknown;
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
@@ -153,6 +155,14 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * had not picked boards itself.
    */
   const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto');
+  if (request.jobIds !== undefined) {
+    if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can target a retry.' };
+    if (!Array.isArray(request.jobIds) || !request.jobIds.length || request.jobIds.length > 10 || request.jobIds.some(id => typeof id !== 'string' || !/^\d{6,12}$/.test(id))) {
+      return { ok: false, status: 400, error: 'Provide between 1 and 10 valid SEEK job IDs.' };
+    }
+    overrides.TARGET_SEEK_JOB_IDS = [...new Set(request.jobIds)].join(',');
+    overrides.PLATFORMS = 'seek';
+  }
 
   if (request.scope === 'external' || request.scope === 'hosted') {
     // The authenticated admin route may narrow a customer's run as well.
