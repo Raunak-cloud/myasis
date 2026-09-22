@@ -457,7 +457,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     const finalOutcome: AgentTermination =
       outcome.status === 'needs-human' && criticalQuestions.length === 0
         ? { status: 'skipped', reason: guards.unfillableReason() ?? outcome.reason }
-        : outcome;
+        : outcome.status === 'needs-human'
+          ? { ...outcome, reason: `Your answer is needed for: ${criticalQuestions.join('; ')}` }
+          : outcome;
     /**
      * The technical detail goes to the log and the trace and stops there.
      * What leaves this function is written to the account's run events and

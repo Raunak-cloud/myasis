@@ -187,6 +187,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
     };
 
     const visible = (el: Element) => {
+      if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
       const r = (el as HTMLElement).getBoundingClientRect();
       const s = getComputedStyle(el as HTMLElement);
       return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
@@ -656,6 +657,10 @@ export async function pageSummary(page: Page): Promise<string> {
 /** Fill only reports success after the browser accepts and retains the value. */
 export async function fillField(page: Page, field: FormField, value: string, modelDirected: false | 'type' | 'search' = false): Promise<void> {
   await fillFieldUnchecked(page, field, value, modelDirected);
+  // A search query is not a committed combobox answer. Its validation can
+  // remain invalid until the model clicks an offered option; the caller
+  // retains the pending field and verifies it on the next observation.
+  if (modelDirected === 'search' && field.autocomplete) return;
   await page.waitForFunction(({ field, value }) => {
     const roots: Array<Document | ShadowRoot> = [document];
     const elements: Element[] = [];

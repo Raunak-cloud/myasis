@@ -148,6 +148,13 @@ try {
   ctx = await context();
   assert.ok(ctx.observation.actions.some(action => action.text === 'Full Time'), 'slotted dropdown option remains available to the model');
   assert.ok(ctx.observation.actions.some(action => action.text === 'Apply Now'), 'native submit input is a labelled action');
+  await page.setContent('<main><fixture-control></fixture-control><div style="opacity:0"><button>Hidden option</button></div></main>');
+  await page.locator('fixture-control').evaluate(host => { host.attachShadow({ mode: 'open' }).innerHTML = '<label>Name<input></label>'; });
+  const { captureInteractivePageState, waitForInteractivePageChange } = await import('./browser.js');
+  const beforeSelection = await captureInteractivePageState(page);
+  await page.locator('input').fill('Chosen value');
+  assert.equal(await waitForInteractivePageChange(page, beforeSelection, 200), true, 'changes inside shadow-root controls count as progress');
+  assert.ok(!(await observe(page)).actions.some(action => action.text === 'Hidden option'), 'invisible ancestor does not expose a stale menu action');
   await page.setContent('<main><label>Name<input></label></main>');
   ctx = await context();
 

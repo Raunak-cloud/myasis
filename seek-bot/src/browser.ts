@@ -533,13 +533,21 @@ export async function captureInteractivePageState(page: Page): Promise<Interacti
       const compact = (value: string) => value.replace(/\s+/g, ' ').trim();
       const region = document.querySelector('main, [role="main"], form') ?? document.body;
       const text = compact((region as HTMLElement | null)?.innerText ?? '').slice(0, 8_000);
-      const controls = [...document.querySelectorAll('input, textarea, select, button, [role="button"]')]
+      const roots: Array<Document | ShadowRoot> = [document];
+      const elements: Element[] = [];
+      for (let i = 0; i < roots.length; i++) for (const element of roots[i].querySelectorAll('*')) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+        if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"]')) elements.push(element);
+      }
+      const controls = elements
         .slice(0, 100)
         .map((element) => {
           const input = element as HTMLInputElement;
           return [
             element.tagName,
             input.type ?? '',
+            input.type === 'password' ? Boolean(input.value) : input.value ?? '',
+            Boolean(input.checked), element.getAttribute('aria-expanded'), element.getAttribute('aria-selected'), element.getAttribute('aria-invalid'),
             input.name ?? '',
             element.getAttribute('data-automation') ?? '',
             element.getAttribute('data-field-id') ?? '',
@@ -566,13 +574,21 @@ export async function waitForInteractivePageChange(
         const compact = (value: string) => value.replace(/\s+/g, ' ').trim();
         const region = document.querySelector('main, [role="main"], form') ?? document.body;
         const text = compact((region as HTMLElement | null)?.innerText ?? '').slice(0, 8_000);
-        const controls = [...document.querySelectorAll('input, textarea, select, button, [role="button"]')]
+        const roots: Array<Document | ShadowRoot> = [document];
+        const elements: Element[] = [];
+        for (let i = 0; i < roots.length; i++) for (const element of roots[i].querySelectorAll('*')) {
+          if (element.shadowRoot) roots.push(element.shadowRoot);
+          if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"]')) elements.push(element);
+        }
+        const controls = elements
           .slice(0, 100)
           .map((element) => {
             const input = element as HTMLInputElement;
             return [
               element.tagName,
               input.type ?? '',
+              input.type === 'password' ? Boolean(input.value) : input.value ?? '',
+              Boolean(input.checked), element.getAttribute('aria-expanded'), element.getAttribute('aria-selected'), element.getAttribute('aria-invalid'),
               input.name ?? '',
               element.getAttribute('data-automation') ?? '',
               element.getAttribute('data-field-id') ?? '',

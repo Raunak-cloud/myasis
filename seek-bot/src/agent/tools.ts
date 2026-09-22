@@ -340,6 +340,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
       if (verdict.kind === 'off-platform') {
         return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
       }
+      if (!ctx.guards.ungrounded.length) return ok(`Submission withheld: ${verdict.reason}. Re-observe and repair the unconfirmed fields; this is a recoverable form issue, not a missing candidate answer.`);
       return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } };
     }
     ctx.log(`  → submitting: "${action.text}"`);
@@ -520,6 +521,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   const filled: string[] = [];
   const failed: string[] = [];
   const skipped: string[] = [];
+  const searched: string[] = [];
   const unrelated: string[] = [];
   /** Required fields the answerer has already refused once — asking again cannot help. */
   const repeated: string[] = [];
@@ -571,7 +573,15 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
 
     const value = answer.value;
     try {
-      await fillField(ctx.page, field, value, args.interaction === 'search' ? 'search' : 'type');
+      const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
+      const selected = field.autocomplete && !field.validationError && field.currentValue?.trim() === value.trim()
+        && await input.getAttribute('aria-expanded').catch(() => null) === 'false';
+      const interaction = args.interaction === 'type' ? 'type' : args.interaction === 'search' || field.autocomplete ? 'search' : 'type';
+      if (!selected) await fillField(ctx.page, field, value, interaction);
+      if (interaction === 'search' && field.autocomplete && !selected) {
+        searched.push(field.label);
+        continue;
+      }
     } catch (error) {
       recordFailure(field.label, (error as Error).message);
       // Recovery is a new model decision with a fresh observation, not a
@@ -590,6 +600,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   return ok(
     (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
+      (searched.length ? `\nSearch text entered, not yet selected: ${searched.join('; ')}. Click an observed matching option, then call answer_questions again to verify the retained selection.` : '') +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
       (unrelated.length ? `\nIgnored controls that are not application questions: ${unrelated.join('; ')}` : '') +
       (repeated.length
@@ -777,6 +788,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
       if (verdict.kind === 'off-platform') {
         return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
       }
+      if (!ctx.guards.ungrounded.length) return ok(`Submission withheld: ${verdict.reason}. Re-observe and repair the unconfirmed fields; this is a recoverable form issue, not a missing candidate answer.`);
       return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } };
     }
     ctx.log(`  → submitting: "${under.text}"`);

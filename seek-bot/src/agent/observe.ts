@@ -126,6 +126,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       // A file input is deliberately allowed through invisible: sites almost
       // always hide the real input behind a styled label.
       if (!isFile) {
+        if (!element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
         const box = (element as HTMLElement).getBoundingClientRect();
         const style = getComputedStyle(element as HTMLElement);
         if (!(box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none')) continue;
