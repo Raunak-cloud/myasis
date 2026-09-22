@@ -140,7 +140,8 @@ if (!config.celeris.apiKey) {
 } else {
   try {
     const reply = await celerisChat({
-      model: 'celeris-1',
+      model: 'celeris-1-magnus',
+      thinking: true,
       messages: [
         { role: 'system', content: 'You call tools. Call exactly one.' },
         { role: 'user', content: 'The page shows one button: ref "a1", labelled "Continue". Advance the form.' },

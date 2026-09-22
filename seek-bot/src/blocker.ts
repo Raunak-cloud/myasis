@@ -128,7 +128,8 @@ Text: ${evidence.text}
 Return JSON: {"state":"ok|captcha|login|identity|removed|already-applied|loading","reason":"one short sentence naming the decisive evidence"}`;
 
   const reply = await celerisChat({
-    model: 'celeris-1',
+    model: 'celeris-1-magnus',
+    thinking: true,
     messages: [{ role: 'user', content: prompt }],
     responseSchema: SCHEMA,
   });

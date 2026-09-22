@@ -250,7 +250,7 @@ async function drive(
 
     let reply;
     try {
-      reply = await celerisChat({ model: 'celeris-1', messages, tools: TOOLS, requireTool: true, temperature: 0, maxTokens: 300, meter });
+      reply = await celerisChat({ model: 'celeris-1-magnus', thinking: true, messages, tools: TOOLS, requireTool: true, temperature: 0, meter });
     } catch (error) {
       return { ok: false, reason: `the sign-in assistant could not be reached (${(error as Error).message})`, steps: step };
     }
