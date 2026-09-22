@@ -68,7 +68,10 @@ export function reviewContextFingerprint(profile: CandidateProfile): string {
     profile,
     evidence: evidenceSignature(),
     targetRole: config.targetRole,
-    keywords: config.keywords,
+    // Search terms decide what is discovered, not whether a discovered job
+    // suits the candidate. The sparse-run term renewer changes them after a
+    // run; including them here invalidated every sound fit decision and made
+    // the next run review the same rejected listings again.
     instructions: config.aiInstructions,
     excludedCompanies: config.excludedCompanies,
     rules: config.rules,
