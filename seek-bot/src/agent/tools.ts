@@ -766,6 +766,9 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
         return {
           tag: clickable.tagName,
           fieldRef: field?.getAttribute('data-field-id') ?? null,
+          formControl: clickable.matches('input, select, textarea, [contenteditable="true"], [role="radio"], [role="checkbox"], [role="switch"]')
+            || Boolean(clickable.matches('label') && (clickable as HTMLLabelElement).control)
+            || Boolean(clickable.querySelector('input, select, textarea, [contenteditable="true"], [role="radio"], [role="checkbox"], [role="switch"]')),
           text: ((clickable as HTMLElement).innerText || (clickable instanceof HTMLInputElement ? clickable.value : '') || clickable.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80),
           href: link ? (link as HTMLAnchorElement).href : null,
         };
@@ -774,7 +777,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     )
     .catch(() => null);
   if (!under) return ok('Nothing is under that point. Re-observe and try a ref or a different point.');
-  if (under.fieldRef) return ok(`That point targets FIELD ${under.fieldRef}. Use its grounded field tool; coordinates cannot bypass answer verification. Re-observe and choose the correct supported answer.`);
+  if (under.fieldRef || under.formControl) return ok(`That point targets ${under.fieldRef ? `FIELD ${under.fieldRef}` : 'a form control'}. Use its grounded field tool; coordinates cannot bypass answer verification. Re-observe and choose the correct supported answer.`);
   if (under.href && isAustralianGovernmentUrl(under.href)) {
     return {
       kind: 'terminal',

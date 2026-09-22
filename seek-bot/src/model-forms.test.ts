@@ -175,6 +175,19 @@ try {
   const waited = await executeTool(ctx, 'wait_for_page', {});
   assert.ok(waited.kind === 'ok' && waited.message.includes('page changed'), 'model can wait for asynchronous progress without reloading');
 
+  await page.setContent('<main><label><input type="radio" name="history" value="false">No</label><label><input type="radio" name="history" value="true">Yes</label></main>');
+  ctx = await context();
+  ctx.observation.screenshot = 'data:image/jpeg;base64,fixture';
+  const radioBox = await page.locator('input').first().boundingBox();
+  const viewport = page.viewportSize()!;
+  const pointBlocked = await executeTool(ctx, 'click_point', {
+    x: ((radioBox!.x + radioBox!.width / 2) / viewport.width) * 1000,
+    y: ((radioBox!.y + radioBox!.height / 2) / viewport.height) * 1000,
+    reason: 'Attempt to bypass grounded answer selection',
+  });
+  assert.ok(pointBlocked.kind === 'ok' && pointBlocked.message.includes('coordinates cannot bypass answer verification'));
+  assert.equal(await page.locator('input').first().isChecked(), false, 'coordinate clicks cannot select employer answers');
+
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
   assert.ok(reloadBlocked.kind === 'ok' && reloadBlocked.message.includes('Reload withheld'), 'cannot reload and replay an attempted submission');
