@@ -192,7 +192,7 @@ try {
   const groundedOption = await executeTool(ctx, 'choose_option', { ref: mrOption.ref });
   assert.ok(groundedOption.kind === 'ok' && groundedOption.message.includes('Selected the grounded option'));
   answerValue = '0412345678';
-  await page.setContent('<main><label>How did you hear about us? *<input role="combobox"></label><div role="option">Job Sites</div></main>');
+  await page.setContent('<main><label>How did you hear about us? *<input role="combobox"></label><div role="option">Select One</div><div role="option">Job Sites</div></main>');
   ctx = await context();
   const sourceField = ctx.observation.fields[0];
   const detachedOption = ctx.observation.actions.find(action => action.role === 'option')!;
@@ -200,6 +200,9 @@ try {
   answerValue = 'Job Sites';
   const bridgedOption = await executeTool(ctx, 'choose_option', { ref: detachedOption.ref, field_ref: sourceField.ref });
   assert.ok(bridgedOption.kind === 'ok' && bridgedOption.message.includes('Selected the grounded option'), 'detached dropdown options can be grounded through their originating field');
+  answerValue = 'Select One';
+  const placeholderChoice = await executeTool(ctx, 'choose_option', { ref: detachedOption.ref, field_ref: sourceField.ref });
+  assert.ok(placeholderChoice.kind === 'ok' && /not among the currently observed options|No verified candidate fact/.test(placeholderChoice.message), placeholderChoice.kind === 'ok' ? placeholderChoice.message : 'placeholder terminal');
   answerValue = '0412345678';
   await page.setContent('<main><fieldset><legend>Have you previously been employed here? *</legend><label><input style="display:none" type="radio" name="history" value="yes">Yes</label><label><input style="display:none" type="radio" name="history" value="no">No</label></fieldset></main>');
   ctx = await context();

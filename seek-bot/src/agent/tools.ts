@@ -413,13 +413,15 @@ async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): 
   const source = ctx.observation.fields.find(field => field.ref === String(args.field_ref ?? ''));
   if (!requested?.value || (!requested.question && !source)) return ok('Choose a current option ACTION; when its question is not included, also pass the originating FIELD ref as field_ref.');
   const question = requested.question ?? source!.label;
-  const group = ctx.observation.actions.filter(action => action.role === 'option' && action.value && (requested.question ? action.question === requested.question : !action.question));
+  const group = ctx.observation.actions.filter(action => action.role === 'option' && action.value
+    && !/^(select|choose)( one)?$/i.test(action.value.trim())
+    && (requested.question ? action.question === requested.question : !action.question));
   if (!group.length) return ok('No current options are available for that dropdown. Re-open it and inspect the fresh page.');
   const field: FormField = {
     ref,
     label: question,
     kind: 'select',
-    required: source?.required ?? /(^|\s)\*|\*\s*$/.test(question),
+    required: Boolean(source?.required) || /(^|\s)\*|\*\s*$/.test(question),
     options: group.map(action => action.value!),
     currentValue: '',
   };
