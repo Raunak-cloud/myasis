@@ -165,6 +165,9 @@ try {
   await page.locator('input').fill('Chosen value');
   assert.equal(await waitForInteractivePageChange(page, beforeSelection, 200), true, 'changes inside shadow-root controls count as progress');
   assert.ok(!(await observe(page)).actions.some(action => action.text === 'Hidden option'), 'invisible ancestor does not expose a stale menu action');
+  await page.setContent('<main>Application</main><footer><button>NEXT</button></footer><nav><button>Review application</button></nav>');
+  assert.ok((await observe(page)).actions.some(action => action.text === 'NEXT'), 'footer placement must not hide a wizard action from the model');
+  assert.ok((await observe(page)).actions.some(action => action.text === 'Review application'), 'navigation placement does not suppress application controls');
   await page.setContent('<main><label>Name<input></label></main>');
   ctx = await context();
 

@@ -110,19 +110,9 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       // A styled toggle's inner input is already represented by its label.
       if (isToggle && tag === 'INPUT') continue;
 
-      /**
-       * Site chrome is never an action worth offering.
-       *
-       * Left in, the agent treats "Employer site" or "Job search" as a way
-       * forward on a page whose form has not rendered yet — observed live,
-       * clicking straight out of a perfectly good Quick Apply flow. It also
-       * removes the trap apply.ts had to special-case by hand: SEEK's
-       * persistent sidebar renders "Review and submit" on *every* step, which
-       * shadows the real "Submit application" on the review page.
-       */
-      if (!isFile && element.closest('header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"]')) {
-        continue;
-      }
+      // Landmark placement does not decide whether a control matters: employer
+      // wizards can put their real Next/Submit controls in a footer or navigation.
+      // Expose visible controls and let the model choose using the current page.
       // A file input is deliberately allowed through invisible: sites almost
       // always hide the real input behind a styled label.
       if (!isFile) {
