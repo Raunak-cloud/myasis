@@ -194,10 +194,12 @@ async function main() {
         console.log(`Seeded ${added} existing applications from SEEK history.`);
       }
 
-      const targeted = (process.env.TARGET_SEEK_JOB_IDS ?? '').split(',').filter(id => /^\d{6,12}$/.test(id));
+      const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
       if (targeted.length && adapter.id === 'seek') {
-        for (const id of [...new Set(targeted)].slice(0, 10)) {
-          const job = await adapter.fetchJobDetail(page, { id, title: '', company: '', location: '', platform: 'seek', url: `https://www.seek.com.au/job/${id}` });
+        for (const target of targeted.slice(0, 10)) {
+          const id = target.job_id;
+          if (!/^\d{6,12}$/.test(id) || !target.title || !target.company) throw new Error('Invalid targeted job metadata.');
+          const job = await adapter.fetchJobDetail(page, { id, title: target.title, company: target.company, location: '', platform: 'seek', url: `https://www.seek.com.au/job/${id}` });
           seen.set(`seek:${id}`, job);
         }
         console.log(`  Targeted retry: ${targeted.length} listing(s); normal fit, scope and duplicate checks still apply.`);

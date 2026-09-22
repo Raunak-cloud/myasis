@@ -24,6 +24,7 @@ import { externalSubmittedToday, submittedToday } from './today.js';
 import { readSiteState } from './seek-state.js';
 import { browserRoute, describeRoute } from './route.js';
 import { releaseFreeProxy } from './proxy-pool.js';
+import { query } from './db/index.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -160,7 +161,12 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     if (!Array.isArray(request.jobIds) || !request.jobIds.length || request.jobIds.length > 10 || request.jobIds.some(id => typeof id !== 'string' || !/^\d{6,12}$/.test(id))) {
       return { ok: false, status: 400, error: 'Provide between 1 and 10 valid SEEK job IDs.' };
     }
-    overrides.TARGET_SEEK_JOB_IDS = [...new Set(request.jobIds)].join(',');
+    const ids = [...new Set(request.jobIds)] as string[];
+    const jobs = await query<{ job_id: string; title: string; company: string }>(
+      `SELECT DISTINCT ON (job_id) job_id, title, company FROM run_events
+       WHERE user_id=$1 AND job_id=ANY($2::text[]) AND title<>'' AND company<>'' ORDER BY job_id, ts DESC`, [userId, ids]);
+    if (jobs.length !== ids.length) return { ok: false, status: 400, error: 'Targeted retries require an existing job record for this account.' };
+    overrides.TARGET_SEEK_JOBS = JSON.stringify(ids.map(id => jobs.find(job => job.job_id === id)!));
     overrides.PLATFORMS = 'seek';
   }
 
