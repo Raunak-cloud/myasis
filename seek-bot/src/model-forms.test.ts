@@ -201,6 +201,16 @@ try {
   const bridgedOption = await executeTool(ctx, 'choose_option', { ref: detachedOption.ref, field_ref: sourceField.ref });
   assert.ok(bridgedOption.kind === 'ok' && bridgedOption.message.includes('Selected the grounded option'), 'detached dropdown options can be grounded through their originating field');
   answerValue = '0412345678';
+  await page.setContent('<main><fieldset><legend>Have you previously been employed here? *</legend><label><input style="display:none" type="radio" name="history" value="yes">Yes</label><label><input style="display:none" type="radio" name="history" value="no">No</label></fieldset></main>');
+  ctx = await context();
+  const hiddenRadio = ctx.observation.fields.find(field => field.kind === 'radio')!;
+  assert.ok(hiddenRadio, 'visible labels expose their hidden native radio group');
+  answerRef = hiddenRadio.ref;
+  answerValue = 'No';
+  const groundedRadio = await executeTool(ctx, 'answer_questions', { refs: [hiddenRadio.ref], reason: 'Verified employment history' });
+  assert.ok(groundedRadio.kind === 'ok' && groundedRadio.message.includes('Verified 1 field'));
+  assert.equal(await page.locator('input[value="no"]').isChecked(), true);
+  answerValue = '0412345678';
   await page.setContent('<main><label>Name<input></label></main>');
   ctx = await context();
 

@@ -246,7 +246,13 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       .filter((element) => /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName))
       .forEach((raw) => {
       const el = raw as HTMLInputElement;
-      if (!visible(el)) return;
+      // Design systems commonly hide the native radio/checkbox and show its
+      // associated label. The label is the user's visible control, so retain
+      // that native input for grounded filling when at least one label is
+      // actually visible; unrelated hidden fields remain excluded.
+      const visibleThroughLabel = /^(radio|checkbox)$/.test(el.type)
+        && [...(el.labels ?? [])].some(label => visible(label));
+      if (!visible(el) && !visibleThroughLabel) return;
       if (el.type === 'hidden' || el.type === 'submit' || el.type === 'button' || el.type === 'file') return;
 
       if (el.type === 'radio') {
