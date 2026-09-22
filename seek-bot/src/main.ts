@@ -31,6 +31,12 @@ import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scop
 import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { runDirectExternalApplication } from './direct-external.js';
+import {
+  DISCOVERY_PRIORITY_FLOOR,
+  discoveryTarget as calculateDiscoveryTarget,
+  nextLowYieldStreak,
+  shouldStopDiscovery,
+} from './discovery-policy.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -176,19 +182,95 @@ async function main() {
       await runDirectExternalApplication(page, directExternalUrl, profile, () => directNavigation?.blocked() ?? null);
       return;
     }
-    // ---- per-platform sign-in + discovery ---------------------------------
+    // ---- per-platform sign-in + progressive discovery ---------------------
     // A sign-in failure or a stale session on one platform must not take the
     // other down with it — seek.md requires exactly this isolation.
     const seen = new Map<string, JobListing>();
+    const shortlist: JobListing[] = [];
+    const skips = new Map<string, number>();
+    const reviewPriorities = new Map<string, { priority: number; reason: string }>();
     const active: PlatformAdapter[] = [];
+    const targetedAdapters = new Set<PlatformId>();
+    const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
 
+    /** Keep enough backups for unavailable/already-applied listings. */
+    const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
+    const discoveryTarget = calculateDiscoveryTarget(config.limits.maxEvaluations, candidateCap);
+    let rankingAvailable = Boolean(config.celeris.apiKey);
+
+    /** Cheap checks run as each result page arrives, before more pages load. */
+    const ingest = (jobs: JobListing[], adapter: PlatformAdapter): JobListing[] => {
+      const accepted: JobListing[] = [];
+      for (const raw of jobs) {
+        const job = { ...raw, platform: raw.platform ?? adapter.id };
+        const key = `${adapter.id}:${job.id}`;
+        if (seen.has(key)) continue;
+        seen.set(key, job);
+
+        if (index.has(job.id, job.company, job.title, job.location)) continue;
+        const prior = reviewCache.suppression(job, reviewContext);
+        if (prior) {
+          bump(`recent ${prior.disposition}`);
+          continue;
+        }
+        if (australianGovernmentDestination(job)) {
+          bump('Australian government application site');
+          logOutcome({
+            status: 'skipped', jobId: job.id, title: job.title, company: job.company,
+            reason: 'Australian government application site excluded.',
+            reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy),
+          });
+          continue;
+        }
+        if (job.applicationMode === 'external' && !config.allowExternalApply) {
+          bump('external application disabled');
+          logOutcome({
+            status: 'off-platform', jobId: job.id, title: job.title, company: job.company,
+            redirectedTo: job.applicationUrl ?? 'employer site',
+            reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
+          });
+          continue;
+        }
+        if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+          bump('outside run scope');
+          continue;
+        }
+        const excluded = deterministicExclusion(job);
+        if (excluded) {
+          bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
+          console.log(`  – ${job.title} @ ${job.company} — ${excluded}`);
+          logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
+          continue;
+        }
+        shortlist.push(job);
+        accepted.push(job);
+      }
+      return accepted;
+    };
+
+    /** Rank only the new batch; earlier batches stay in the combined queue. */
+    const rankNew = async (jobs: JobListing[]): Promise<void> => {
+      if (!jobs.length || !rankingAvailable) return;
+      try {
+        for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
+      } catch (error) {
+        rankingAvailable = false;
+        console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
+      }
+    };
+    const isPromising = (job: JobListing): boolean =>
+      !rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR;
+    const promisingCount = (): number => shortlist.filter(isPromising).length;
+
+    // Sign in to every board and collect every recommendation feed first.
+    const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
+    const recommendedAccepted: JobListing[] = [];
     for (const platform of platforms) {
       const adapter = ADAPTERS.get(platform.id);
       if (!adapter) {
         console.warn(`  No adapter registered for ${platform.label} — skipping.`);
         continue;
       }
-
       try {
         await adapter.assertSignedIn(page);
         console.log(`${adapter.label} session OK.`);
@@ -204,14 +286,18 @@ async function main() {
         console.log(`Seeded ${added} existing applications from SEEK history.`);
       }
 
-      const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
       if (targeted.length && adapter.id === 'seek') {
+        targetedAdapters.add(adapter.id);
+        const targetedJobs: JobListing[] = [];
         for (const target of targeted.slice(0, 10)) {
           const id = target.job_id;
           if (!/^\d{6,12}$/.test(id) || !target.title || !target.company) throw new Error('Invalid targeted job metadata.');
-          const job = await adapter.fetchJobDetail(page, { id, title: target.title, company: target.company, location: '', platform: 'seek', url: `https://www.seek.com.au/job/${id}` });
-          seen.set(`seek:${id}`, job);
+          targetedJobs.push(await adapter.fetchJobDetail(page, {
+            id, title: target.title, company: target.company, location: '', platform: 'seek',
+            url: `https://www.seek.com.au/job/${id}`,
+          }));
         }
+        recommendedAccepted.push(...ingest(targetedJobs, adapter));
         console.log(`  Targeted retry: ${targeted.length} listing(s); normal fit, scope and duplicate checks still apply.`);
         continue;
       }
@@ -220,90 +306,87 @@ async function main() {
         console.warn(`  ${adapter.label} Recommended could not be loaded: ${(error as Error).message}`);
         return [] as JobListing[];
       });
-      for (const job of recommendations) seen.set(`${adapter.id}:${job.id}`, job);
+      recommendedAccepted.push(...ingest(recommendations, adapter));
       console.log(`  ${adapter.label} Recommended -> ${recommendations.length} personalised jobs (priority)`);
-
-      for (const kw of config.keywords.length ? config.keywords : [config.targetRole]) {
-        let kwTotal = 0;
-        for (let p = 1; p <= config.limits.pagesPerKeyword; p++) {
-          const results = await measured('discovery', () => adapter.search(page, kw, p), { platform: adapter.id });
-          // An empty or short page means we have reached the end of the results.
-          if (!results.length) break;
-          kwTotal += results.length;
-          for (const j of results) {
-            const key = `${adapter.id}:${j.id}`;
-            if (!seen.has(key)) seen.set(key, j);
-          }
-          await jitter(config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
-          if (results.length < adapter.pageSize) break;
-        }
-        console.log(
-          `  [${adapter.label}] "${kw}" → ${kwTotal} results` +
-            (config.limits.pagesPerKeyword > 1 ? ` (${config.limits.pagesPerKeyword} pages)` : ''),
-        );
-      }
     }
-
-    console.log(`\n${seen.size} unique listings discovered across ${active.length} platform(s).`);
 
     if (!active.length) {
       console.log('No enabled platform has a working session this run. Nothing to do — sign in and try again.');
       return;
     }
+    await rankNew(recommendedAccepted);
 
-    // ---- cheap filtering before we spend page loads or model calls --------
-    const shortlist: JobListing[] = [];
-    const skips = new Map<string, number>();
-    const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
-    for (const job of seen.values()) {
-      if (index.has(job.id, job.company, job.title, job.location)) continue;
-      const prior = reviewCache.suppression(job, reviewContext);
-      if (prior) {
-        bump(`recent ${prior.disposition}`);
-        continue;
+    type SearchStream = {
+      adapter: PlatformAdapter;
+      keyword: string;
+      total: number;
+      pages: number;
+      lowYieldPages: number;
+      exhausted: boolean;
+    };
+    const terms = config.keywords.length ? config.keywords : [config.targetRole];
+    const streams: SearchStream[] = active
+      .filter((adapter) => !targetedAdapters.has(adapter.id))
+      .flatMap((adapter) => terms.map((keyword) => ({
+        adapter, keyword, total: 0, pages: 0, lowYieldPages: 0, exhausted: false,
+      })));
+
+    let stoppedEarly = false;
+    for (let pageNumber = 1; pageNumber <= config.limits.pagesPerKeyword; pageNumber++) {
+      const round: Array<{ stream: SearchStream; accepted: JobListing[] }> = [];
+      for (const stream of streams) {
+        if (stream.exhausted || stream.lowYieldPages >= 2) continue;
+        const results = await measured(
+          'discovery',
+          () => stream.adapter.search(page, stream.keyword, pageNumber),
+          { platform: stream.adapter.id },
+        );
+        stream.pages++;
+        stream.total += results.length;
+        const accepted = ingest(results, stream.adapter);
+        round.push({ stream, accepted });
+        if (!results.length || results.length < stream.adapter.pageSize) stream.exhausted = true;
+        await jitter(config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
       }
-      const governmentDestination = australianGovernmentDestination(job);
-      if (governmentDestination) {
-        bump('Australian government application site');
-        logOutcome({
-          status: 'skipped', jobId: job.id, title: job.title, company: job.company,
-          reason: 'Australian government application site excluded.',
-          reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy),
-        });
-        continue;
+
+      const newlyAccepted = round.flatMap((item) => item.accepted);
+      await rankNew(newlyAccepted);
+      for (const { stream, accepted } of round) {
+        stream.lowYieldPages = nextLowYieldStreak(
+          stream.lowYieldPages,
+          accepted.filter(isPromising).length,
+        );
       }
-      if (job.applicationMode === 'external' && !config.allowExternalApply) {
-        bump('external application disabled');
-        logOutcome({
-          status: 'off-platform', jobId: job.id, title: job.title, company: job.company,
-          redirectedTo: job.applicationUrl ?? 'employer site',
-          reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
-        });
-        continue;
+
+      if (shouldStopDiscovery({
+        pageNumber,
+        maxPages: config.limits.pagesPerKeyword,
+        promisingJobs: promisingCount(),
+        target: discoveryTarget,
+      })) {
+        stoppedEarly = true;
+        console.log(
+          `  Adaptive discovery stopped after page ${pageNumber}: ` +
+          `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
+        );
+        break;
       }
-      const excluded = deterministicExclusion(job);
-      if (excluded) {
-        bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
-        console.log(`  – ${job.title} @ ${job.company} — ${excluded}`);
-        logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
-        continue;
-      }
-      shortlist.push(job);
+      if (!round.length) break;
     }
-    /**
-     * Pre-rank on the cheap stub data (title + teaser + recency) before
-     * spending a detail fetch on anything. Without this the evaluation cap is
-     * consumed in keyword/platform order, so whichever ran first monopolises
-     * the budget regardless of quality — which gets worse the more keywords
-     * (or platforms) exist. Cross-platform on purpose: seek.md treats every
-     * enabled board as one combined, deduplicated pipeline, not separate runs.
-     */
-    const reviewPriorities = config.celeris.apiKey
-      ? await rankJobsForReview(shortlist, profile).catch((error) => {
-          console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
-          return new Map<string, { priority: number; reason: string }>();
-        })
-      : new Map<string, { priority: number; reason: string }>();
+
+    for (const stream of streams) {
+      console.log(
+        `  [${stream.adapter.label}] "${stream.keyword}" → ${stream.total} results` +
+        (stream.pages > 1 ? ` (${stream.pages} pages)` : '') +
+        (stream.lowYieldPages >= 2 ? ' · stopped after 2 low-yield pages' : ''),
+      );
+    }
+    console.log(
+      `\n${seen.size} unique listings discovered across ${active.length} platform(s)` +
+      `${stoppedEarly ? ' (adaptive stop)' : ''}.`,
+    );
+
+    /** New batches were ranked as they arrived; sort the combined queue once. */
     const scopeRank = (job: JobListing): number => {
       if (runScope() === 'all') return 0;
       if (!job.applicationMode || job.applicationMode === 'unknown') return 1; // the board's panel will say
@@ -329,14 +412,6 @@ async function main() {
     }> = [];
     /** Once a board presents a CAPTCHA, later detail pages would be the same wall. */
     const reviewBlockedPlatforms = new Set<PlatformId>();
-
-    /**
-     * Collect a buffer of candidates beyond what we can apply to, since some
-     * will turn out to be off-platform or already applied. The floor matters:
-     * a run capped at 1 application would otherwise stop scoring after 3
-     * candidates and waste the whole evaluation budget.
-     */
-    const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
 
     /**
      * Fit checks do not touch the browser, so a small batch can run while the
