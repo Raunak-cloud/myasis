@@ -132,6 +132,11 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
+    name: 'wait_for_page',
+    description: 'Wait up to 10 seconds for a loading page or pending request to change, without clicking or reloading. Use before recovery actions when the page is still loading. Existing run budgets still apply.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'confirm_submission',
     description: 'After submitting, use this when the current page explicitly confirms the application was sent. An independent verifier checks the employer evidence; your claim alone never counts as success.',
     parameters: { type: 'object', properties: {}, required: [] },
@@ -872,6 +877,11 @@ export async function executeTool(
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
   switch (name) {
+    case 'wait_for_page': {
+      const before = await captureInteractivePageState(ctx.page);
+      const changed = await waitForInteractivePageChange(ctx.page, before, 10_000);
+      return ok(changed ? 'The page changed while waiting. Inspect the fresh observation.' : 'No page change after waiting 10 seconds. Inspect the page before choosing a recovery action.');
+    }
     case 'confirm_submission': {
       if (!ctx.submissionAttempted) return ok('No submission action has been recorded for this attempt. Do not claim success; inspect the page.');
       const evidence = { url: ctx.page.url(), text: ctx.observation.text, actions: ctx.observation.actions, fields: ctx.observation.fields };

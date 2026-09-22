@@ -93,6 +93,8 @@ employers, so read the page rather than assuming an order.
   A required multi-select QUESTION does not require selecting every option.
   Leave optional promotional, visibility and account-settings toggles unchanged.
   An unchecked skill is a valid negative answer, not an unfinished field.
+  While a page is loading after an action, use wait_for_page before assuming failure.
+  Do not click unrelated widgets to make a loading form appear.
   For a temporary server/loading error before entering any data, use reload_page
   and inspect the result before abandoning the application. Do not bypass access restrictions.
   Read the answer tool's returned value: it can reject your proposed answer.

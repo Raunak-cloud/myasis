@@ -168,6 +168,10 @@ try {
   await page.setContent('<main><label>Name<input></label></main>');
   ctx = await context();
 
+  await page.evaluate(() => { setTimeout(() => { document.querySelector('main')!.append('Loaded'); }, 100); });
+  const waited = await executeTool(ctx, 'wait_for_page', {});
+  assert.ok(waited.kind === 'ok' && waited.message.includes('page changed'), 'model can wait for asynchronous progress without reloading');
+
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
   assert.ok(reloadBlocked.kind === 'ok' && reloadBlocked.message.includes('Reload withheld'), 'cannot reload and replay an attempted submission');
