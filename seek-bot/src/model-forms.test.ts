@@ -199,7 +199,7 @@ try {
     y: ((radioBox!.y + radioBox!.height / 2) / viewport.height) * 1000,
     reason: 'Attempt to bypass grounded answer selection',
   });
-  assert.ok(pointBlocked.kind === 'ok' && pointBlocked.message.includes('coordinates cannot bypass answer verification'));
+  assert.ok(pointBlocked.kind === 'ok' && /coordinates cannot bypass answer verification/i.test(pointBlocked.message));
   assert.equal(await page.locator('input').first().isChecked(), false, 'coordinate clicks cannot select employer answers');
 
   await page.setContent('<main><label>I acknowledge the required terms<input type="checkbox"></label><label>Send marketing<input type="checkbox"></label></main>');
@@ -212,6 +212,16 @@ try {
   const refusedMarketing = await executeTool({ ...ctx, observation: await observe(page) }, 'accept_terms', { ref: marketing.ref });
   assert.ok(refusedMarketing.kind === 'ok' && refusedMarketing.message.includes('Refused'));
   assert.equal(await page.locator('input').nth(1).isChecked(), false, 'consent tool cannot enable marketing choices');
+  await page.locator('input').first().uncheck();
+  ctx = await context();
+  ctx.observation.screenshot = 'data:image/jpeg;base64,fixture';
+  const consentBox = await page.locator('input').first().boundingBox();
+  const consentByPoint = await executeTool(ctx, 'accept_terms', {
+    x: ((consentBox!.x + consentBox!.width / 2) / viewport.width) * 1000,
+    y: ((consentBox!.y + consentBox!.height / 2) / viewport.height) * 1000,
+  });
+  assert.ok(consentByPoint.kind === 'ok' && consentByPoint.message.includes('Accepted'));
+  assert.equal(await page.locator('input').first().isChecked(), true, 'verified screenshot consent can be accepted without exposing other answers');
 
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });

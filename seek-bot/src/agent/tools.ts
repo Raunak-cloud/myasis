@@ -133,8 +133,12 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'accept_terms',
-    description: 'Accept a required employer-site terms, privacy, consent or acknowledgement checkbox. Use only with its current FIELD or ACTION ref; this tool refuses unrelated application answers and marketing choices.',
-    parameters: { type: 'object', properties: { ref: { type: 'string', description: 'Current FIELD or ACTION ref for the required consent control.' } }, required: ['ref'] },
+    description: 'Accept a required employer-site terms, privacy, consent or acknowledgement checkbox. Prefer its current FIELD or ACTION ref; when the screenshot is the only representation, pass x and y on the same 0-1000 grid as click_point. The tool verifies the target and refuses unrelated answers or marketing choices.',
+    parameters: { type: 'object', properties: {
+      ref: { type: 'string', description: 'Current FIELD or ACTION ref for the required consent control.' },
+      x: { type: 'number', description: 'Screenshot x coordinate, 0-1000, only when no ref exists.' },
+      y: { type: 'number', description: 'Screenshot y coordinate, 0-1000, only when no ref exists.' },
+    }, required: [] },
   },
   {
     name: 'wait_for_page',
@@ -398,12 +402,44 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
   const ref = String(args.ref ?? '');
   const field = ctx.observation.fields.find(candidate => candidate.ref === ref);
   const action = ctx.observation.actions.find(candidate => candidate.ref === ref);
-  const label = field?.label ?? action?.text ?? '';
-  if (!field && !action) return ok('Use a current FIELD or ACTION ref for the consent control. Re-observe rather than guessing.');
+  let label = field?.label ?? action?.text ?? '';
+  let coordinateInput = null as ReturnType<Page['locator']> | null;
+  if (!field && !action && ctx.observation.screenshot) {
+    const gx = Number(args.x);
+    const gy = Number(args.y);
+    if (gx >= 0 && gx <= 1000 && gy >= 0 && gy <= 1000) {
+      const size = await ctx.page.evaluate(() => ({ width: innerWidth, height: innerHeight })).catch(() => ({ width: 1280, height: 800 }));
+      const target = await ctx.page.evaluate(({ x, y }) => {
+        document.querySelector('[data-agent-consent-target]')?.removeAttribute('data-agent-consent-target');
+        const element = document.elementFromPoint(x, y);
+        const wrapped = element?.closest('label') as HTMLLabelElement | null;
+        const input = element instanceof HTMLInputElement && element.type === 'checkbox'
+          ? element
+          : wrapped?.control instanceof HTMLInputElement && wrapped.control.type === 'checkbox'
+            ? wrapped.control
+            : element?.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+        if (!input) return null;
+        input.setAttribute('data-agent-consent-target', 'true');
+        return (wrapped?.innerText || input.getAttribute('aria-label') || input.closest('[role="group"]')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      }, { x: (gx / 1000) * size.width, y: (gy / 1000) * size.height }).catch(() => null);
+      if (target) {
+        label = target;
+        coordinateInput = ctx.page.locator('[data-agent-consent-target="true"]').first();
+      }
+    }
+  }
+  if (!field && !action && !coordinateInput) return ok('Use a current FIELD/ACTION ref, or screenshot x/y, for the consent checkbox. Re-observe rather than guessing.');
   if (!/\b(terms?|privacy|consent|acknowledg(?:e|ement)|data processing)\b/i.test(label)) {
+    await coordinateInput?.evaluate(element => element.removeAttribute('data-agent-consent-target')).catch(() => {});
     return ok('Refused: that control is not visibly labelled as required terms, privacy, consent or acknowledgement. Use the grounded answer tool for application questions.');
   }
-  if (field) {
+  if (coordinateInput) {
+    try {
+      await coordinateInput.check({ timeout: 5_000 });
+    } finally {
+      await coordinateInput.evaluate(element => element.removeAttribute('data-agent-consent-target')).catch(() => {});
+    }
+  } else if (field) {
     if (field.kind !== 'checkbox') return ok('The consent FIELD is not a checkbox. Re-observe and use its visible ACTION instead.');
     const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
     await input.check({ timeout: 5_000 });
@@ -806,7 +842,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     )
     .catch(() => null);
   if (!under) return ok('Nothing is under that point. Re-observe and try a ref or a different point.');
-  if (under.fieldRef || under.formControl) return ok(`That point targets ${under.fieldRef ? `FIELD ${under.fieldRef}` : 'a form control'}. Use its grounded field tool; coordinates cannot bypass answer verification. Re-observe and choose the correct supported answer.`);
+  if (under.fieldRef || under.formControl) return ok(`That point targets ${under.fieldRef ? `FIELD ${under.fieldRef}` : 'a form control'}. Use its grounded field tool; for a required terms checkbox use accept_terms (with its ref, or the same screenshot x/y). Coordinates cannot bypass answer verification.`);
   if (under.href && isAustralianGovernmentUrl(under.href)) {
     return {
       kind: 'terminal',
