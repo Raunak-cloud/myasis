@@ -222,6 +222,15 @@ try {
   });
   assert.ok(consentByPoint.kind === 'ok' && consentByPoint.message.includes('Accepted'));
   assert.equal(await page.locator('input').isChecked(), true, 'a sibling-labelled screenshot consent can be accepted without exposing other answers');
+  await page.locator('input').uncheck();
+  const directConsentBox = await page.locator('input').boundingBox();
+  ctx = await context();
+  ctx.observation.screenshot = 'data:image/jpeg;base64,fixture';
+  const directConsent = await executeTool(ctx, 'accept_terms', {
+    x: ((directConsentBox!.x + directConsentBox!.width / 2) / viewport.width) * 1000,
+    y: ((directConsentBox!.y + directConsentBox!.height / 2) / viewport.height) * 1000,
+  });
+  assert.ok(directConsent.kind === 'ok' && directConsent.message.includes('Accepted'), 'a directly targeted checkbox inherits nearby consent prose');
   await page.setContent('<main><div><button role="checkbox" aria-checked="false" onclick="this.setAttribute(\'aria-checked\',\'true\')"></button><span>I consent to the required privacy terms</span></div></main>');
   ctx = await context();
   ctx.observation.screenshot = 'data:image/jpeg;base64,fixture';

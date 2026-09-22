@@ -430,8 +430,13 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
         }
         if (!input) return null;
         input.setAttribute('data-agent-consent-target', 'true');
+        let wording = wrapped?.innerText || input.getAttribute('aria-label') || '';
+        for (let prose = input.parentElement, depth = 0; !wording && prose && depth < 6; prose = prose.parentElement, depth++) {
+          const text = (prose.textContent ?? '').replace(/\s+/g, ' ').trim();
+          if (/\b(terms?|privacy|consent|acknowledg(?:e|ement)|data processing)\b/i.test(text)) wording = text;
+        }
         return {
-          label: (wrapped?.innerText || context?.textContent || input.getAttribute('aria-label') || input.closest('[role="group"]')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+          label: (wording || context?.textContent || input.closest('[role="group"]')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300),
           kind: input instanceof HTMLInputElement ? 'native' : 'aria',
         };
       }, { x: (gx / 1000) * size.width, y: (gy / 1000) * size.height }).catch(() => null);
