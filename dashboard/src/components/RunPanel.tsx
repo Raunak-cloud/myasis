@@ -329,8 +329,8 @@ export function RunPanel({
   const [autoToggling, setAutoToggling] = useState(false);
   /** Each board's last known sign-in, read when the run settings open; null until known. */
   const [boardSignedIn, setBoardSignedIn] = useState<Record<string, boolean | null> | null>(null);
-  /** Operator diagnostic: limit the next run to employer-site applications. */
-  const [scope, setScope] = useState<'all' | 'external'>('all');
+  /** Operator diagnostic: limit the next run to one application flow. */
+  const [scope, setScope] = useState<'all' | 'external' | 'hosted'>('all');
   const [stopConfirming, setStopConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -848,15 +848,26 @@ export function RunPanel({
                 {firstRun ? 'Start first run' : 'Start auto apply'}
               </button>
               {entitlements?.runScopes && (
-                <button
-                  type="button"
-                  className="run-scope-link"
-                  disabled={accountSetupIncomplete || verifyingSignIn}
-                  title="Applies only where the employer's own site takes the application, on every board in the run."
-                  onClick={() => { setScope('external'); setConfirming(true); }}
-                >
-                  Employer sites only <span className="beta-flag">Beta</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="run-scope-link"
+                    disabled={accountSetupIncomplete || verifyingSignIn}
+                    title="Skips employer websites and applies only through SEEK or Indeed."
+                    onClick={() => { setScope('hosted'); setConfirming(true); }}
+                  >
+                    Skip employer websites
+                  </button>
+                  <button
+                    type="button"
+                    className="run-scope-link"
+                    disabled={accountSetupIncomplete || verifyingSignIn}
+                    title="Applies only where the employer's own site takes the application, on every board in the run."
+                    onClick={() => { setScope('external'); setConfirming(true); }}
+                  >
+                    Employer sites only <span className="beta-flag">Beta</span>
+                  </button>
+                </>
               )}
               {accountSetupIncomplete && (
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
@@ -1201,7 +1212,7 @@ export function RunPanel({
                 <p className="job-meta">Changes made here are saved before the run starts.</p>
               </div>
               <span className="badge bad">
-                Live run{scope === 'external' ? ' · employer sites only' : ''}
+                Live run{scope === 'external' ? ' · employer sites only' : scope === 'hosted' ? ' · job boards only' : ''}
               </span>
             </div>
 
