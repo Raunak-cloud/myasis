@@ -38,10 +38,8 @@ function fallbackBeacon(event: string, parameters: Record<string, unknown> = {},
   }
 }
 
-function fallbackIfLibraryMissing(event: string, parameters: Record<string, unknown> = {}, eventId?: string): void {
-  window.setTimeout(() => {
-    if (!window.fbq?.callMethod) fallbackBeacon(event, parameters, eventId);
-  }, 3_000);
+function scheduleBeacon(event: string, parameters: Record<string, unknown> = {}, eventId?: string): void {
+  window.setTimeout(() => fallbackBeacon(event, parameters, eventId), 750);
 }
 
 function enabled(): boolean {
@@ -71,8 +69,13 @@ export function initMetaPixel(): void {
       document.head.appendChild(script);
     }
     window.fbq?.('init', pixelId);
-    window.fbq?.('track', 'PageView');
-    fallbackIfLibraryMissing('PageView');
+    const pageViewId = typeof crypto?.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `page:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    window.fbq?.('track', 'PageView', {}, { eventID: pageViewId });
+    // Send the standard image beacon too. Meta deduplicates it against the
+    // browser event by event ID, so a blocked library loses no measurement.
+    scheduleBeacon('PageView', {}, pageViewId);
   } catch (error) {
     console.warn('[meta-pixel] could not initialise:', error);
   }
@@ -88,7 +91,7 @@ export function trackMetaEvent(
   try {
     if (eventId) window.fbq?.('track', event, parameters, { eventID: eventId });
     else window.fbq?.('track', event, parameters);
-    fallbackIfLibraryMissing(event, parameters, eventId);
+    scheduleBeacon(event, parameters, eventId);
   } catch (error) {
     console.warn(`[meta-pixel] could not report ${event}:`, error);
   }
