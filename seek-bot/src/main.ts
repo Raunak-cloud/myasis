@@ -29,6 +29,8 @@ import type { Page } from 'patchright';
 import { australianGovernmentDestination } from './site-policy.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
+import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
+import { runDirectExternalApplication } from './direct-external.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -83,7 +85,10 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
 async function main() {
   const startedAt = performance.now();
   const profile = loadProfile();
-  if (!config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
+  const directExternalUrl = process.env.DIRECT_EXTERNAL_JOB_URL
+    ? await assertExternalJobUrl(process.env.DIRECT_EXTERNAL_JOB_URL)
+    : null;
+  if (!directExternalUrl && !config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
   console.log(`Profile: ${profile.name} · ${profile.suburb ?? ''} · relocate=${profile.willingToRelocate}`);
 
   if (!config.celeris.apiKey && !searchOnly) {
@@ -152,8 +157,8 @@ async function main() {
     return;
   }
 
-  const platforms = enabledPlatforms(config.platforms.join(','));
-  console.log(`Platforms this run: ${platforms.map((p) => p.label).join(', ')}`);
+  const platforms = directExternalUrl ? [] : enabledPlatforms(config.platforms.join(','));
+  console.log(directExternalUrl ? 'Run target: one direct employer website URL' : `Platforms this run: ${platforms.map((p) => p.label).join(', ')}`);
   if (process.env.BROWSER_ROUTE_NOTE) console.log(`Applying from: ${process.env.BROWSER_ROUTE_NOTE}`);
   // Boards the dashboard left out because the account is signed out of them.
   for (const board of (process.env.SKIPPED_BOARDS ?? '').split(',').map((b) => b.trim()).filter(Boolean)) {
@@ -162,10 +167,15 @@ async function main() {
   if (runScope() !== 'all') console.log(`Scope: ${SCOPE_LABEL[runScope()]}`);
 
   const ctx = await launchBrowser();
+  const directNavigation = directExternalUrl ? await guardExternalNavigations(ctx) : null;
   const page = await getPage(ctx);
   await workingIn(page);
 
   try {
+    if (directExternalUrl) {
+      await runDirectExternalApplication(page, directExternalUrl, profile, () => directNavigation?.blocked() ?? null);
+      return;
+    }
     // ---- per-platform sign-in + discovery ---------------------------------
     // A sign-in failure or a stale session on one platform must not take the
     // other down with it — seek.md requires exactly this isolation.

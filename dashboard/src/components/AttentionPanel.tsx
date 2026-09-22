@@ -215,12 +215,12 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
   const [showTrace, setShowTrace] = useState(false);
   return (
     <>
-      <tr>
-        <td>
+      <tr className="attention-item">
+        <td className="attention-role">
           <div className="job-title">{item.title}</div>
           <div className="job-meta">{item.company}</div>
         </td>
-        <td>
+        <td className="attention-blocker">
           <span className={`badge ${KIND[item.kind].tone}`}>{KIND[item.kind].label}</span>
         </td>
         <td className="job-meta attention-reason">
@@ -232,8 +232,8 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
             </button>
           </div>
         </td>
-        <td className="nowrap job-meta">{relative(item.at)}</td>
-        <td className="nowrap">
+        <td className="attention-when nowrap job-meta">{relative(item.at)}</td>
+        <td className="attention-open nowrap">
           <a href={item.url} target="_blank" rel="noreferrer">
             Open ↗
           </a>
@@ -340,7 +340,7 @@ export function AttentionPanel({
   }
 
   return (
-    <div>
+    <div className="attention-panel">
       {counts.verification ? (
         <div className="banner attention-hero">
           <strong>{counts.verification} listings are waiting on work-rights verification.</strong>
@@ -371,7 +371,7 @@ export function AttentionPanel({
 
       {kind !== 'all' && <p className="job-meta attention-what">{KIND[kind].what}</p>}
 
-      <div className="card table-wrap">
+      <div className="card table-wrap attention-list">
         <table className="attention-table">
           <colgroup>
             <col className="attention-col-role" />

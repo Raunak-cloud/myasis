@@ -7,7 +7,7 @@
  * has a real adapter, and the UI says so rather than offering a switch that
  * silently does nothing.
  */
-export type PlatformId = 'seek' | 'indeed' | 'jora';
+export type PlatformId = 'seek' | 'indeed' | 'jora' | 'external';
 
 export interface Platform {
   id: PlatformId;

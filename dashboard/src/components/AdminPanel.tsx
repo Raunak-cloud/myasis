@@ -339,6 +339,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   const [evaluationsInput, setEvaluationsInput] = useState('');
   const [maxAppsInput, setMaxAppsInput] = useState('');
   const [homeRouteInput, setHomeRouteInput] = useState('');
+  const [externalJobUrl, setExternalJobUrl] = useState('');
   // The saved proxy's password never comes back from the server, so the field shows a stand-in and is only sent when edited.
   const [proxyInput, setProxyInput] = useState('');
   const savedProxy = user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '';
@@ -380,6 +381,21 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
       `/users/${user!.id}/limits`,
       { method: 'POST', json: { evaluationsPerRun, maxApplicationsPerRun, homeRoutePort, ...(proxyChanged ? { proxy: proxyInput.trim() || null } : {}) } },
       'Limits saved.',
+    );
+  }
+
+  function startExternalJob() {
+    const url = externalJobUrl.trim();
+    if (!url) {
+      setError('Paste the external job URL.');
+      return;
+    }
+    if (!window.confirm(`Apply for the job at this website as ${user!.email}? This can submit a real application.\n\n${url}`)) return;
+    void act(
+      'external-run',
+      `/users/${user!.id}/run`,
+      { method: 'POST', json: { externalUrl: url } },
+      'Direct website application started.',
     );
   }
 
@@ -512,6 +528,26 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                     >
                       {user.admin ? 'Remove admin' : 'Make admin'}
                     </button>
+                  </div>
+                  <div className="admin-direct-run">
+                    <label htmlFor={`external-job-${user.id}`}>External job URL</label>
+                    <div className="admin-button-row">
+                      <input
+                        id={`external-job-${user.id}`}
+                        className="input"
+                        type="url"
+                        inputMode="url"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder="https://careers.example.com/job/..."
+                        value={externalJobUrl}
+                        disabled={busy !== null || user.running}
+                        onChange={(event) => setExternalJobUrl(event.target.value)}
+                      />
+                      <button className="btn primary" disabled={busy !== null || user.running || !externalJobUrl.trim()} onClick={startExternalJob}>
+                        {busy === 'external-run' ? 'Starting…' : 'Apply to URL'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -659,7 +695,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       <li key={app.jobId}>
                         <div>
                           <strong>{app.title}</strong>
-                          <div className="job-meta">{app.company} · {app.platform === 'indeed' ? 'Indeed' : 'SEEK'}{app.external ? ' · employer site' : ''}</div>
+                          <div className="job-meta">{app.company} · {app.platform === 'indeed' ? 'Indeed' : app.platform === 'external' ? 'Direct website' : 'SEEK'}{app.external ? ' · employer site' : ''}</div>
                         </div>
                         <span className="job-meta nowrap">{when(app.appliedAt)}</span>
                       </li>

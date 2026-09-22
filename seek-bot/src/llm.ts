@@ -361,7 +361,7 @@ For each field also set "basis", which decides whether it may be filled at all:
   explicitly supplied title or gender; "Preferred contact method" is Email;
   a state or country selector follows from the candidate's address.
 - "How did you hear about this job / about us?" is a fact of this application, not of the
-  profile: the candidate found this listing on ${job.platform === 'indeed' ? 'Indeed' : 'SEEK'}. Choose that option
+  profile: the candidate found this listing on ${job.platform === 'indeed' ? 'Indeed' : job.platform === 'external' ? "the employer's website" : 'SEEK'}. Choose that option
   when offered (e.g. "Seek", "SEEK", "Indeed"), otherwise "Job board", "Online job site" or
   "Other". It is grounded.
 - For checkboxes, "value" is "true" or "false". Tick consent and acknowledgement boxes —

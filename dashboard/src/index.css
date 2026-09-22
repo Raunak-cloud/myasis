@@ -2380,6 +2380,9 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .admin-switch-row .auto-switch { margin-left: 0; }
 .admin-button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .admin-button-row .input { min-width: 0; flex: 1 1 220px; }
+.admin-direct-run { display: grid; gap: 2px; padding-top: 4px; }
+.admin-direct-run > label { font-size: 13px; font-weight: 600; }
+.admin-direct-run .admin-button-row { margin-top: 4px; }
 .admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .admin-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .admin-danger { padding: 14px 16px; border: 1px solid var(--bad); border-radius: var(--radius); background: var(--bad-soft); }
@@ -2526,6 +2529,82 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
       radial-gradient(farthest-side at 0 50%, rgba(18, 42, 70, .16), transparent) 0 0 / 11px 100% no-repeat scroll,
       radial-gradient(farthest-side at 100% 50%, rgba(18, 42, 70, .16), transparent) 100% 0 / 11px 100% no-repeat scroll;
   }
+
+  /* Needs-attention items become cards on phones instead of an 860px table. */
+  .attention-list {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+  .attention-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    table-layout: auto;
+  }
+  .attention-table colgroup,
+  .attention-table thead { display: none; }
+  .attention-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+  .attention-table .attention-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 15px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .attention-table .attention-item > td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .attention-table .attention-role { grid-column: 1; }
+  .attention-table .attention-blocker {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .attention-table .attention-reason {
+    grid-column: 1 / -1;
+    padding-top: 11px;
+    border-top: 1px solid var(--border);
+  }
+  .attention-table .attention-when {
+    grid-column: 1;
+    align-self: center;
+  }
+  .attention-table .attention-open {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .attention-table .attention-open a {
+    display: inline-flex;
+    min-height: 36px;
+    align-items: center;
+    padding: 6px 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .attention-table .trace-row {
+    display: block;
+    margin-top: -4px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-2);
+  }
+  .attention-table .trace-row > td {
+    display: block;
+    padding: 13px;
+    border: 0;
+  }
+  .attention-table .trace { grid-template-columns: minmax(0, 1fr); }
+  .attention-table .answer-form { max-width: none; }
+  .attention-table .answer-actions .btn { width: 100%; }
+  .attention-panel .queue-bar .chips { flex: 1 1 220px; }
   th, td { padding: 10px 11px; }
   th { font-size: 10px; }
 

@@ -25,6 +25,7 @@ import { readSiteState } from './seek-state.js';
 import { browserRoute, describeRoute } from './route.js';
 import { releaseFreeProxy } from './proxy-pool.js';
 import { query } from './db/index.js';
+import { validateExternalJobUrl } from './external-job-url.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -71,6 +72,8 @@ export interface StartRunRequest {
   scope?: unknown;
   /** Admin diagnostic retries, still subject to normal eligibility and limits. */
   jobIds?: unknown;
+  /** One exact employer job page supplied by an administrator. */
+  externalUrl?: unknown;
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
@@ -156,6 +159,19 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * had not picked boards itself.
    */
   const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto');
+  let directExternalUrl: string | null = null;
+  if (request.externalUrl !== undefined) {
+    if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can start a direct website application.' };
+    if (mode !== 'live') return { ok: false, status: 400, error: 'A direct website application must be a live run.' };
+    if (request.jobIds !== undefined) return { ok: false, status: 400, error: 'Choose either a direct website URL or targeted SEEK jobs, not both.' };
+    const checked = await validateExternalJobUrl(request.externalUrl);
+    if (typeof checked !== 'string') return { ok: false, status: 400, error: checked.error };
+    directExternalUrl = checked;
+    overrides.DIRECT_EXTERNAL_JOB_URL = checked;
+    overrides.APPLY_ONLY = 'external';
+    overrides.MAX_APPS_PER_RUN = '1';
+    overrides.MAX_EVALUATIONS = '1';
+  }
   if (request.jobIds !== undefined) {
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can target a retry.' };
     if (!Array.isArray(request.jobIds) || !request.jobIds.length || request.jobIds.length > 10 || request.jobIds.some(id => typeof id !== 'string' || !/^\d{6,12}$/.test(id))) {
@@ -170,7 +186,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     overrides.PLATFORMS = 'seek';
   }
 
-  if (request.scope === 'external' || request.scope === 'hosted') {
+  if (!directExternalUrl && (request.scope === 'external' || request.scope === 'hosted')) {
     // The authenticated admin route may narrow a customer's run as well.
     // Customer entitlements still control employer-site eligibility below.
     if (entitlements.runScopes || trigger === 'admin') overrides.APPLY_ONLY = request.scope;
@@ -191,6 +207,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
       );
       // Decided here, never from a supplied override.
       overrides.ALLOW_EXTERNAL_APPLY = admin || externalAvailable ? 'true' : 'false';
+      if (directExternalUrl && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
+        return { ok: false, status: 403, error: 'Direct employer-website applications require an active Intensive Pass.' };
+      }
       /**
        * Employer-site applications are an Intensive Pass feature and cost
        * 10-20x a Quick Apply. An operator of this installation has no
@@ -263,7 +282,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * is left out of the run and the run says so. With no signed-in board left there is
    * nothing to run, and the reason is given instead of an empty run.
    */
-  const boards = (overrides.PLATFORMS || 'seek').split(',').map((board) => board.trim()).filter(Boolean);
+  const boards = directExternalUrl
+    ? []
+    : (overrides.PLATFORMS || 'seek').split(',').map((board) => board.trim()).filter(Boolean);
   /**
    * A board last seen signed out gets one fresh check before it is written
    * off. The check signs a lapsed session back in with the account the
@@ -279,14 +300,14 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   const supportedBoards = boards.filter((board) => board === 'seek' || board === 'indeed');
   const unavailable = supportedBoards.filter((board) => readSiteState(userId, board)?.signedIn !== true);
   const usable = supportedBoards.filter((board) => readSiteState(userId, board)?.signedIn === true);
-  if (consumes && !usable.length) {
+  if (consumes && !directExternalUrl && !usable.length) {
     return {
       ok: false,
       status: 428,
       error: `${listNames(unavailable.length ? unavailable : supportedBoards)} ${unavailable.length === 1 ? 'is' : 'are'} not confirmed signed in. Sign in on the Apply page, then start the run again.`,
     };
   }
-  overrides.PLATFORMS = usable.join(',');
+  if (!directExternalUrl) overrides.PLATFORMS = usable.join(',');
   if (unavailable.length) overrides.SKIPPED_BOARDS = unavailable.join(',');
 
   /**

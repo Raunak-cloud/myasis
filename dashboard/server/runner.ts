@@ -314,7 +314,7 @@ class Run {
 
     this.push('sys', `▶ starting ${mode} run`);
     const shown = Object.entries(overrides)
-      .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64'].includes(k) ? '<provided>' : v}`)
+      .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
     if (shown) this.push('sys', `  overrides: ${shown}`);
     if (mode === 'live') this.push('sys', '  ⚠ LIVE: applications will be submitted');
