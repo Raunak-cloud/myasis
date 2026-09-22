@@ -69,6 +69,11 @@ TYPICAL SHAPE OF AN APPLICATION
 Most flows are a short wizard: choose a resume, optionally add a cover letter,
 answer a few employer questions, review, submit. Steps vary a lot between
 employers, so read the page rather than assuming an order.
+- After a submission, if the employer confirms success, call confirm_submission.
+  Never describe a successful submission using finish cannot_complete.
+- On an employer authentication page, inspect the existing Sign In option before
+  trying to create an account again. A pending email verification is not a reason
+  to reset the password or repeatedly register the same email address.
 - ACTIONS use "a" refs and FIELDS use "f" refs. Only "a" refs can be clicked.
   A field is never clicked — it is handled by the tool for its kind.
 - A resume / CV / "choose documents" step is always attach_resume, even when it

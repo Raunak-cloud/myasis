@@ -77,6 +77,14 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
     for (const element of all) element.removeAttribute('data-ref-id');
     const results: Array<{ ref: string; text: string; role: string; disabled: boolean }> = [];
     let n = 0;
+    const composedText = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+      if (node instanceof HTMLSlotElement) {
+        const assigned = node.assignedNodes({ flatten: true });
+        return (assigned.length ? assigned : [...node.childNodes]).map(composedText).join(' ');
+      }
+      return [...node.childNodes].map(composedText).join(' ').replace(/\s+/g, ' ').trim();
+    };
 
     for (const element of all) {
       const tag = element.tagName;
@@ -96,7 +104,8 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         (tag === 'LABEL' && Boolean(element.querySelector('input[type="checkbox"], input[type="radio"]')) &&
           !(element.querySelector('input') as HTMLElement | null)?.offsetWidth);
       const isOpener = tag !== 'INPUT' && tag !== 'SELECT' && (role === 'combobox' || element.hasAttribute('aria-haspopup')) && !isOption;
-      const isButton = tag === 'BUTTON' || role === 'button' || tag === 'SUMMARY' || isOpener;
+      const isInputButton = tag === 'INPUT' && /^(submit|button)$/.test((element as HTMLInputElement).type);
+      const isButton = tag === 'BUTTON' || isInputButton || role === 'button' || tag === 'SUMMARY' || isOpener;
       if (!isButton && !isLink && !isFile && !isOption && !isToggle) continue;
       // A styled toggle's inner input is already represented by its label.
       if (isToggle && tag === 'INPUT') continue;
@@ -154,6 +163,8 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       }
       let label =
         (element as HTMLElement).innerText?.trim() ||
+        (isInputButton ? (element as HTMLInputElement).value : '') ||
+        composedText(element) ||
         element.getAttribute('aria-label') ||
         element.getAttribute('title') ||
         element.getAttribute('placeholder') ||

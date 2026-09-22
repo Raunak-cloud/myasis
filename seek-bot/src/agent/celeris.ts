@@ -261,8 +261,14 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       };
     } catch (error) {
       lastError = error;
-      // The same request truncates the same way, and its token count can look like a 5xx.
-      if (error instanceof ReplyUnusableError) throw error;
+      if (error instanceof ReplyUnusableError) {
+        if (attempt !== 0) throw error;
+        // Only retry generation: no browser action from this response ran.
+        // Ask for a fresh concise response rather than repeating a degenerate
+        // punctuation loop until the same token limit is reached.
+        body.messages = [...request.messages, { role: 'user', content: 'Your previous response was unusable. Return one concise, complete response in the required format, with no repeated filler or punctuation.' }];
+        continue;
+      }
       const detail = (error as Error).message ?? String(error);
       const transient = /\b429\b|\b5\d\d\b|econnreset|etimedout|fetch failed|aborted|timeout/i.test(detail);
       if (!transient || attempt === 2) throw error;

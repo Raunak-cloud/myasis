@@ -7,7 +7,7 @@ import {
   waitForInteractiveSurface,
 } from '../browser.js';
 import { fillField } from '../dom.js';
-import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit } from '../llm.js';
+import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, verifySubmissionEvidence } from '../llm.js';
 import { pickResumeForJob, RESUME_DIR } from '../resume.js';
 import { existsSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
@@ -130,6 +130,11 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
+  {
+    name: 'confirm_submission',
+    description: 'After submitting, use this when the current page explicitly confirms the application was sent. An independent verifier checks the employer evidence; your claim alone never counts as success.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
   {
     name: 'reload_page',
     description: 'Retry the current employer page after a temporary server/loading error, before entering application data. Never use after submission or to bypass an access restriction.',
@@ -744,7 +749,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
         return {
           tag: clickable.tagName,
           fieldRef: field?.getAttribute('data-field-id') ?? null,
-          text: ((clickable as HTMLElement).innerText || clickable.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+          text: ((clickable as HTMLElement).innerText || (clickable instanceof HTMLInputElement ? clickable.value : '') || clickable.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80),
           href: link ? (link as HTMLAnchorElement).href : null,
         };
       },
@@ -831,6 +836,13 @@ export async function executeTool(
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
   switch (name) {
+    case 'confirm_submission': {
+      if (!ctx.submissionAttempted) return ok('No submission action has been recorded for this attempt. Do not claim success; inspect the page.');
+      const evidence = { url: ctx.page.url(), text: ctx.observation.text, actions: ctx.observation.actions, fields: ctx.observation.fields };
+      return await verifySubmissionEvidence(evidence, ctx.job)
+        ? { kind: 'terminal', outcome: { status: 'applied' } }
+        : ok('The employer page does not yet verify a completed submission. Inspect its validation or wait for confirmation.');
+    }
     case 'reload_page': {
       if (ctx.submissionAttempted || ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) return ok('Reload withheld: application data was entered or submission attempted. Preserve the form and inspect its current state.');
       if ((ctx.reloads ?? 0) >= 2) return ok('Reload did not resolve this page after two attempts. Inspect other visible recovery controls; do not bypass access restrictions.');

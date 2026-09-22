@@ -143,6 +143,13 @@ try {
   });
   ctx = await context();
   assert.equal(ctx.observation.fields[0].label, 'Preferred working arrangement *', 'slotted question text is not reduced to the required marker');
+  await page.setContent('<main><fixture-option>Full Time</fixture-option><input type="submit" value="Apply Now"></main>');
+  await page.locator('fixture-option').evaluate(host => { host.attachShadow({ mode: 'open' }).innerHTML = '<div role="option"><slot></slot></div>'; });
+  ctx = await context();
+  assert.ok(ctx.observation.actions.some(action => action.text === 'Full Time'), 'slotted dropdown option remains available to the model');
+  assert.ok(ctx.observation.actions.some(action => action.text === 'Apply Now'), 'native submit input is a labelled action');
+  await page.setContent('<main><label>Name<input></label></main>');
+  ctx = await context();
 
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
@@ -159,7 +166,7 @@ try {
   const memory = recentReviewFeedback();
   assert.equal(memory.size, 1, 'stale and corrupt records do not become ranking context');
   assert.match(memory.get(JSON.stringify(['job1', 'Developer', 'Fixture']))!.reason, /skills mismatch/);
-  const { rankJobsForReview, assessFit, reviewKey, fitCoverLetterToLimit } = await import('./llm.js');
+  const { rankJobsForReview, assessFit, reviewKey, fitCoverLetterToLimit, verifySubmissionEvidence } = await import('./llm.js');
   globalThis.fetch = async (_input, init) => {
     const body = JSON.parse(String(init?.body));
     const text = JSON.stringify({ letter: 'I would welcome the opportunity to contribute.', supported: true, reason: 'No unsupported claims.' });
@@ -177,6 +184,15 @@ try {
   }) as typeof page.evaluate;
   assert.ok((await observe(page)).fields.length > 0, 'read-only observation recovers from a navigation race');
   page.evaluate = evaluateOriginal;
+  let retries = 0;
+  const quote = 'Your application for Developer has been submitted.';
+  globalThis.fetch = async () => {
+    retries++;
+    return new Response(JSON.stringify({ choices: [{ finish_reason: retries === 1 ? 'length' : 'stop', message: { role: 'assistant', content: JSON.stringify({ confirmed: true, quote }) } }] }), { status: 200 });
+  };
+  assert.equal(await verifySubmissionEvidence({ url: 'https://example.com/submitted', text: quote, actions: [], fields: [] }, ctx.job), true);
+  assert.equal(retries, 2, 'malformed model generation is retried without replaying a browser action');
+  assert.equal(await verifySubmissionEvidence({ url: 'https://example.com/form', text: 'Please complete this form.', actions: [], fields: [] }, ctx.job), false, 'invented confirmation quote cannot create a submission');
   const classifierCalls: string[] = [];
   globalThis.fetch = async (_input, init) => {
     const body = JSON.parse(String(init?.body));
