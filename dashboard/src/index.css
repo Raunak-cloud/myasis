@@ -261,6 +261,20 @@ tbody tr.clickable { cursor: pointer; }
 .badge.bad { background: var(--bad-soft); color: var(--bad); }
 .badge.info { background: var(--info-soft); color: var(--info); }
 .badge.muted { background: var(--surface-2); color: var(--text-faint); }
+.beta-flag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 
 .score { font-variant-numeric: tabular-nums; font-weight: 650; }
 .score.hi { color: var(--ok); }

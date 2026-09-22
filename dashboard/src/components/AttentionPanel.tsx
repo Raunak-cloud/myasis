@@ -267,7 +267,7 @@ const KIND: Record<AttentionKind, { label: string; tone: string; what: string }>
     what: 'A screening question could not be answered from your profile or documents. Answer it below once and every future run will reuse your answer.',
   },
   'off-platform': {
-    label: 'External site',
+    label: 'External site · Beta',
     tone: 'muted',
     what: 'External applications require an Intensive Pass. Supported employer forms are completed automatically; unfamiliar forms stop here for your review.',
   },

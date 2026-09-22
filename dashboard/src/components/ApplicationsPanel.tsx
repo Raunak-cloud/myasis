@@ -205,7 +205,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                     <td>
                       <div className="job-title">
                         {a.title}
-                        {a.external && <span className="badge info app-site-badge">Employer site</span>}
+                        {a.external && <span className="badge info app-site-badge">Employer site · Beta</span>}
                       </div>
                       <div className="job-meta">
                         {a.company} · {a.location}

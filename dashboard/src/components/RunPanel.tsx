@@ -855,7 +855,7 @@ export function RunPanel({
                   title="Applies only where the employer's own site takes the application, on every board in the run."
                   onClick={() => { setScope('external'); setConfirming(true); }}
                 >
-                  Employer sites only
+                  Employer sites only <span className="beta-flag">Beta</span>
                 </button>
               )}
               {accountSetupIncomplete && (
