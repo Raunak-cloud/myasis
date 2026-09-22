@@ -17,6 +17,33 @@ declare global {
 const pixelId = typeof __META_PIXEL_ID__ === 'string' ? __META_PIXEL_ID__.trim() : '';
 let loaded = false;
 
+function fallbackBeacon(event: string, parameters: Record<string, unknown> = {}, eventId?: string): void {
+  try {
+    const query = new URLSearchParams({
+      id: pixelId,
+      ev: event,
+      dl: location.href,
+      noscript: '1',
+    });
+    if (eventId) query.set('eid', eventId);
+    for (const [key, value] of Object.entries(parameters)) query.set(`cd[${key}]`, String(value));
+    const image = new Image(1, 1);
+    image.alt = '';
+    image.hidden = true;
+    image.onload = image.onerror = () => image.remove();
+    image.src = `https://www.facebook.com/tr/?${query.toString()}`;
+    (document.body ?? document.documentElement).appendChild(image);
+  } catch {
+    // Advertising measurement must never affect the product.
+  }
+}
+
+function fallbackIfLibraryMissing(event: string, parameters: Record<string, unknown> = {}, eventId?: string): void {
+  window.setTimeout(() => {
+    if (!window.fbq?.callMethod) fallbackBeacon(event, parameters, eventId);
+  }, 3_000);
+}
+
 function enabled(): boolean {
   return Boolean(pixelId) && !(typeof navigator !== 'undefined' && navigator.webdriver);
 }
@@ -45,6 +72,7 @@ export function initMetaPixel(): void {
     }
     window.fbq?.('init', pixelId);
     window.fbq?.('track', 'PageView');
+    fallbackIfLibraryMissing('PageView');
   } catch (error) {
     console.warn('[meta-pixel] could not initialise:', error);
   }
@@ -60,6 +88,7 @@ export function trackMetaEvent(
   try {
     if (eventId) window.fbq?.('track', event, parameters, { eventID: eventId });
     else window.fbq?.('track', event, parameters);
+    fallbackIfLibraryMissing(event, parameters, eventId);
   } catch (error) {
     console.warn(`[meta-pixel] could not report ${event}:`, error);
   }
