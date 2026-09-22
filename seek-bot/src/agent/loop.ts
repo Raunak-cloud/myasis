@@ -413,6 +413,19 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let needVision = false;
   /** What the agent saw and did, step by step — kept for the dashboard when a person has to take over. */
   const trace: TraceStep[] = [];
+  // Keep lightweight checkpoints even when Stop or a process exit prevents
+  // the final trace from being written. Full screenshots remain in the final
+  // trace; rewriting them after every action would amplify disk usage.
+  const checkpoint = () => {
+    try {
+      mkdirSync(TRACE_DIR(), { recursive: true });
+      writeFileSync(resolve(TRACE_DIR(), `${job.id}.live.json`), JSON.stringify({
+        jobId: job.id, title: job.title, company: job.company,
+        savedAt: new Date().toISOString(), status: 'in-progress',
+        steps: trace.map(({ screenshot, ...step }) => step),
+      }));
+    } catch { /* Diagnostics must not interrupt an application. */ }
+  };
   const hintedHosts = new Set<string>();
   let lastUrl = '';
   let lastFingerprint = '';
@@ -705,11 +718,14 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       screenshot: ctx.observation.screenshot ?? (await page.screenshot({ type: 'jpeg', quality: 35 }).then((b) => `data:image/jpeg;base64,${b.toString('base64')}`).catch(() => undefined)),
     };
     trace.push(step);
+    checkpoint();
 
     let result;
     try {
       result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });
     } catch (error) {
+      step.result = `Tool failed: ${(error as Error).message}`;
+      checkpoint();
       // A thrown tool is a real failure (a cover letter that would not draft,
       // for instance) — not something to let the model retry blindly.
       return finish({
@@ -720,6 +736,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
 
     step.result = result.kind === 'ok' ? result.message.slice(0, 400) : `ended: ${result.outcome.status}`;
+    checkpoint();
     needVision = result.kind === 'ok' && /Not accepted|No option matches|did not open|Could not click|nothing on the page changed|No action|only available while a screenshot/i.test(result.message);
 
     if (result.kind === 'terminal') {
