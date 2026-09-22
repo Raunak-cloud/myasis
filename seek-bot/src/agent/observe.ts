@@ -200,7 +200,8 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         ref,
         text: label + state,
         role: isFile ? 'file' : isOption ? 'option' : isToggle ? 'toggle' : isButton ? 'button' : 'link',
-        ...(question ? { question, value } : {}),
+        ...(question ? { question } : {}),
+        ...(isOption ? { value } : {}),
         disabled:
           (element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true',
       });

@@ -133,8 +133,11 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'choose_option',
-    description: 'Choose from the currently open custom dropdown. Pass any current option ACTION ref from that dropdown; the grounded answer model selects and clicks the supported option. Never click option ACTIONS directly.',
-    parameters: { type: 'object', properties: { ref: { type: 'string', description: 'A current option ACTION ref from the open dropdown.' } }, required: ['ref'] },
+    description: 'Choose from the currently open custom dropdown. Pass any current option ACTION ref; if its label lacks the dropdown question, also pass the originating FIELD ref. The grounded answer model selects and clicks the supported option. Never click option ACTIONS directly.',
+    parameters: { type: 'object', properties: {
+      ref: { type: 'string', description: 'A current option ACTION ref from the open dropdown.' },
+      field_ref: { type: 'string', description: 'The originating FIELD ref when the option ACTION does not include its question.' },
+    }, required: ['ref'] },
   },
   {
     name: 'accept_terms',
@@ -407,14 +410,16 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
 async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const ref = String(args.ref ?? '');
   const requested = ctx.observation.actions.find(action => action.ref === ref && action.role === 'option');
-  if (!requested?.question) return ok('Choose a current option ACTION from an open labelled dropdown. Re-open the dropdown if its question is not visible.');
-  const group = ctx.observation.actions.filter(action => action.role === 'option' && action.question === requested.question && action.value);
+  const source = ctx.observation.fields.find(field => field.ref === String(args.field_ref ?? ''));
+  if (!requested?.value || (!requested.question && !source)) return ok('Choose a current option ACTION; when its question is not included, also pass the originating FIELD ref as field_ref.');
+  const question = requested.question ?? source!.label;
+  const group = ctx.observation.actions.filter(action => action.role === 'option' && action.value && (requested.question ? action.question === requested.question : !action.question));
   if (!group.length) return ok('No current options are available for that dropdown. Re-open it and inspect the fresh page.');
   const field: FormField = {
     ref,
-    label: requested.question,
+    label: question,
     kind: 'select',
-    required: /(^|\s)\*|\*\s*$/.test(requested.question),
+    required: source?.required ?? /(^|\s)\*|\*\s*$/.test(question),
     options: group.map(action => action.value!),
     currentValue: '',
   };
@@ -907,6 +912,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
         const link = clickable.closest('a[href]');
         return {
           tag: clickable.tagName,
+          actionRef: (element.closest('[data-ref-id]') ?? clickable.closest('[data-ref-id]'))?.getAttribute('data-ref-id') ?? null,
           fieldRef: field?.getAttribute('data-field-id') ?? null,
           formControl: clickable.matches('input, select, textarea, [contenteditable="true"], [role="radio"], [role="checkbox"], [role="switch"]')
             || Boolean(clickable.matches('label') && (clickable as HTMLLabelElement).control)
@@ -919,6 +925,8 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     )
     .catch(() => null);
   if (!under) return ok('Nothing is under that point. Re-observe and try a ref or a different point.');
+  const pointedAction = under.actionRef ? ctx.observation.actions.find(action => action.ref === under.actionRef) : undefined;
+  if (pointedAction?.role === 'option') return ok('That point targets a dropdown option. Use choose_option so the choice is grounded in the candidate profile; coordinate bypasses are refused.');
   if (under.fieldRef || under.formControl) return ok(`That point targets ${under.fieldRef ? `FIELD ${under.fieldRef}` : 'a form control'}. Use its grounded field tool; for a required terms checkbox use accept_terms (with its ref, or the same screenshot x/y). Coordinates cannot bypass answer verification.`);
   if (under.href && isAustralianGovernmentUrl(under.href)) {
     return {
