@@ -413,14 +413,22 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
         document.querySelector('[data-agent-consent-target]')?.removeAttribute('data-agent-consent-target');
         const element = document.elementFromPoint(x, y);
         const wrapped = element?.closest('label') as HTMLLabelElement | null;
-        const input = element instanceof HTMLInputElement && element.type === 'checkbox'
+        let input = element instanceof HTMLInputElement && element.type === 'checkbox'
           ? element
           : wrapped?.control instanceof HTMLInputElement && wrapped.control.type === 'checkbox'
             ? wrapped.control
             : element?.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+        let context: Element | null = wrapped ?? element;
+        // Some design systems render the input and its prose as siblings.
+        // Walk only to the nearest block containing exactly one checkbox, so
+        // coordinates can never ambiguously select from a group of answers.
+        for (let depth = 0; !input && context && depth < 5; depth++, context = context.parentElement) {
+          const boxes = context.querySelectorAll('input[type="checkbox"]');
+          if (boxes.length === 1) input = boxes[0] as HTMLInputElement;
+        }
         if (!input) return null;
         input.setAttribute('data-agent-consent-target', 'true');
-        return (wrapped?.innerText || input.getAttribute('aria-label') || input.closest('[role="group"]')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+        return (wrapped?.innerText || context?.textContent || input.getAttribute('aria-label') || input.closest('[role="group"]')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
       }, { x: (gx / 1000) * size.width, y: (gy / 1000) * size.height }).catch(() => null);
       if (target) {
         label = target;

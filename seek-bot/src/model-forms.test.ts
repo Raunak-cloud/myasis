@@ -212,16 +212,16 @@ try {
   const refusedMarketing = await executeTool({ ...ctx, observation: await observe(page) }, 'accept_terms', { ref: marketing.ref });
   assert.ok(refusedMarketing.kind === 'ok' && refusedMarketing.message.includes('Refused'));
   assert.equal(await page.locator('input').nth(1).isChecked(), false, 'consent tool cannot enable marketing choices');
-  await page.locator('input').first().uncheck();
+  await page.setContent('<main><div><input type="checkbox"><span>I understand and acknowledge the terms of use</span></div></main>');
   ctx = await context();
   ctx.observation.screenshot = 'data:image/jpeg;base64,fixture';
-  const consentBox = await page.locator('input').first().boundingBox();
+  const consentBox = await page.locator('span').boundingBox();
   const consentByPoint = await executeTool(ctx, 'accept_terms', {
     x: ((consentBox!.x + consentBox!.width / 2) / viewport.width) * 1000,
     y: ((consentBox!.y + consentBox!.height / 2) / viewport.height) * 1000,
   });
   assert.ok(consentByPoint.kind === 'ok' && consentByPoint.message.includes('Accepted'));
-  assert.equal(await page.locator('input').first().isChecked(), true, 'verified screenshot consent can be accepted without exposing other answers');
+  assert.equal(await page.locator('input').isChecked(), true, 'a sibling-labelled screenshot consent can be accepted without exposing other answers');
 
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
