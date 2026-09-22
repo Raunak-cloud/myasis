@@ -155,7 +155,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto');
 
   if (request.scope === 'external' || request.scope === 'hosted') {
-    if (entitlements.runScopes) overrides.APPLY_ONLY = request.scope;
+    // The authenticated admin route may narrow a customer's run as well.
+    // Customer entitlements still control employer-site eligibility below.
+    if (entitlements.runScopes || trigger === 'admin') overrides.APPLY_ONLY = request.scope;
   }
 
   if (consumes) {
