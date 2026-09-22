@@ -26,6 +26,7 @@ import { browserRoute, describeRoute } from './route.js';
 import { releaseFreeProxy } from './proxy-pool.js';
 import { query } from './db/index.js';
 import { validateExternalJobUrl } from './external-job-url.js';
+import { mayRunEmployerSiteApplications } from './employer-site-access.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -205,10 +206,17 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
         allowance.paid.remaining,
         Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
       );
-      // Decided here, never from a supplied override.
-      overrides.ALLOW_EXTERNAL_APPLY = admin || externalAvailable ? 'true' : 'false';
+      // Decided here, never from a supplied override. Employer-site support is
+      // still in operator testing: an Intensive customer's own scheduled run
+      // cannot reach it until the customer launch gate is deliberately opened.
+      const employerSitesAllowed = mayRunEmployerSiteApplications({
+        targetIsAdmin: admin,
+        initiatedByAdmin: trigger === 'admin',
+        hasIntensiveAllowance: externalAvailable,
+      });
+      overrides.ALLOW_EXTERNAL_APPLY = employerSitesAllowed ? 'true' : 'false';
       if (directExternalUrl && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
-        return { ok: false, status: 403, error: 'Direct employer-website applications require an active Intensive Pass.' };
+        return { ok: false, status: 403, error: 'Direct employer-website testing requires an administrator and an active Intensive Pass.' };
       }
       /**
        * Employer-site applications are an Intensive Pass feature and cost

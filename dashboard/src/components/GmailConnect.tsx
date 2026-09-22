@@ -20,11 +20,11 @@ import { useEffect, useState } from 'react';
  */
 
 interface GmailStatus {
-  /** Only Intensive accounts and administrators may use verification-email access. */
+  /** Only administrators may use verification-email access during employer-site testing. */
   eligible?: boolean;
   /**
    * Whether this account has any reason to be asked for a mailbox at all.
-   * Only an intensive pass reaches employer sites, and those are the only
+   * Only administrators currently reach employer sites, and those are the only
    * things that email a code. The server decides; this component obeys.
    */
   needed?: boolean;
@@ -116,8 +116,7 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
           </>
         ) : status.needed === false ? (
           <span className="job-meta">
-            Not needed on your plan. Employer sites are the only ones that email a code, and only an intensive pass
-            applies to those.
+            Not needed on your plan. Employer-site applications are launching soon for Intensive Pass customers.
           </span>
         ) : (
           <button className="btn primary" disabled={busy} onClick={openGmailWindow}>

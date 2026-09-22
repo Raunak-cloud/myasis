@@ -1106,15 +1106,14 @@ function dataApi(): Plugin {
           /**
            * Whether this account has any reason to be asked for Gmail access.
            *
-           * Only an intensive pass applies on employer sites, and only those
-           * sites email one-time codes — so nobody else needs this. And if the
+           * Employer-site applications are currently limited to administrators;
+           * customers do not need mailbox access yet. And if the
            * profile's Chrome is already signed in to a Google account, the
            * agent can read the code in the browser it is already driving, so
            * asking for OAuth on top of that buys nothing.
            */
           const user = await currentUser(req.headers?.cookie);
-          const allowance = await billingStatus(userId, user?.email);
-          const entitled = isAdmin(user?.email) || allowance.paid.hasActiveIntensivePass;
+          const entitled = isAdmin(user?.email);
           const browserAccounts = chromeGoogleAccounts(userId);
           return send({
             eligible: entitled,
