@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
+import { trackMetaEvent } from '../metaPixel';
 import { MascotLogo } from './MascotLogo';
 
 
@@ -81,6 +82,10 @@ export function PricingPanel() {
               currency: 'AUD',
               itemCount: 1,
             });
+            trackMetaEvent('Purchase', {
+              value: product.priceCents / 100,
+              currency: 'AUD',
+            }, body.conversionId);
           }
           setNotice({ kind: 'ok', text: `${body.applications} applications were added to your account.` });
         } else {

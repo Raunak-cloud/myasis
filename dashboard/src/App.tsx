@@ -27,6 +27,7 @@ import { useRouteStatus } from './route';
 import { JobBoardsDialog } from './components/JobBoardsDialog';
 import { trackPage } from './analytics';
 import { initRedditPixel, trackRedditEvent } from './redditPixel';
+import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
 type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin';
@@ -123,10 +124,12 @@ export default function App() {
    */
   useEffect(() => {
     initRedditPixel();
+    initMetaPixel();
     const params = new URLSearchParams(window.location.search);
     const signup = params.get('rdt_signup');
     if (!signup) return;
     trackRedditEvent('SignUp', { conversionId: signup });
+    trackMetaEvent('CompleteRegistration', {}, signup);
     params.delete('rdt_signup');
     const query = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);

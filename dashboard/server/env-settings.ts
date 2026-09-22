@@ -214,13 +214,19 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'advertising',
     title: 'Advertising',
-    note: 'Measures which Reddit ads bring people here. With the token empty, the browser pixel still reports; the server does not, and conversions behind an ad blocker or a closed tab are lost.',
+    note: 'Measures which Reddit and Meta ads bring people here. Browser pixel IDs are public and baked into the page during a deploy.',
     keys: [
       {
         key: 'REDDIT_PIXEL_ID',
         label: 'Reddit pixel ID',
         // Not a secret: it ships to every visitor's browser in the page bundle.
         help: 'From Events Manager. Baked into the page at build time, so a change needs a deploy, not just a restart.',
+        kind: 'text',
+      },
+      {
+        key: 'META_PIXEL_ID',
+        label: 'Meta Pixel ID',
+        help: 'From Meta Events Manager. Baked into the page at build time, so a change needs a deploy.',
         kind: 'text',
       },
       {

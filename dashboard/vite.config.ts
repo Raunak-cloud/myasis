@@ -1405,6 +1405,7 @@ export default defineConfig({
    */
   define: {
     __REDDIT_PIXEL_ID__: JSON.stringify(process.env.REDDIT_PIXEL_ID ?? readEnvSafe().REDDIT_PIXEL_ID ?? ''),
+    __META_PIXEL_ID__: JSON.stringify(process.env.META_PIXEL_ID ?? readEnvSafe().META_PIXEL_ID ?? ''),
   },
   /**
    * Not "spa": the app lives at / alone, with tabs in the query string, so
