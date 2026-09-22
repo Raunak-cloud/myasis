@@ -503,14 +503,24 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                         Stop run
                       </button>
                     ) : (
-                      <button
-                        className="btn primary"
-                        disabled={busy !== null}
-                        onClick={() => window.confirm(`Start a live run for ${user.email}? It submits real applications under their plan.`)
-                          && act('run', `/users/${user.id}/run`, { method: 'POST', json: {} }, 'Run started.')}
-                      >
-                        {busy === 'run' ? 'Starting…' : 'Start run'}
-                      </button>
+                      <>
+                        <button
+                          className="btn primary"
+                          disabled={busy !== null}
+                          onClick={() => window.confirm(`Start a live run for ${user.email}? It submits real applications under their plan.`)
+                            && act('run', `/users/${user.id}/run`, { method: 'POST', json: {} }, 'Run started.')}
+                        >
+                          {busy === 'run' ? 'Starting…' : 'Start run'}
+                        </button>
+                        <button
+                          className="btn"
+                          disabled={busy !== null}
+                          onClick={() => window.confirm(`Start a job-board-only run for ${user.email}? It can submit real SEEK or Indeed applications, but skips employer websites.`)
+                            && act('hosted-run', `/users/${user.id}/run`, { method: 'POST', json: { scope: 'hosted' } }, 'Job-board-only run started.')}
+                        >
+                          {busy === 'hosted-run' ? 'Starting…' : 'Job boards only'}
+                        </button>
+                      </>
                     )}
                     <button
                       className="btn"
