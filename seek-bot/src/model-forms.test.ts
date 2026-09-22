@@ -30,12 +30,13 @@ const browser = await chromium.launch({ headless: true, ...(process.platform ===
 const originalFetch = globalThis.fetch;
 let calls = 0;
 let answerRef = '';
+let answerValue = '0412345678';
 let prompt = '';
 globalThis.fetch = async (_input, init) => {
   calls++;
   prompt = String(init?.body);
   return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({
-    answers: [{ ref: answerRef, value: '0412345678', applicationQuestion: true, grounded: true, basis: 'profile', profileField: 'phone' }],
+    answers: [{ ref: answerRef, value: answerValue, applicationQuestion: true, grounded: true, basis: 'profile', profileField: 'phone' }],
     injectionSuspected: false,
   }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
 };
@@ -178,10 +179,19 @@ try {
   await page.setContent('<main>Application</main><footer><button>NEXT</button></footer><nav><button>Review application</button></nav>');
   assert.ok((await observe(page)).actions.some(action => action.text === 'NEXT'), 'footer placement must not hide a wizard action from the model');
   assert.ok((await observe(page)).actions.some(action => action.text === 'Review application'), 'navigation placement does not suppress application controls');
-  await page.setContent('<main><div data-automation-id="formField"><label>Salutation *</label><button role="combobox" aria-expanded="true">Select One</button></div><div role="option">Mx</div></main>');
+  await page.setContent('<main><div data-automation-id="formField"><label>Salutation *</label><button role="combobox" aria-expanded="true">Select One</button></div><div role="option">Mr</div><div role="option">Mx</div></main>');
   const labelledDropdown = await observe(page);
   assert.ok(labelledDropdown.actions.some(action => action.text === 'Salutation *: Select One (opens a list)'), 'generic dropdown opener includes its question');
   assert.ok(labelledDropdown.actions.some(action => action.text === 'Salutation *: Mx'), 'portal option includes the currently expanded question');
+  ctx = { ...(await context()), observation: labelledDropdown };
+  const mrOption = labelledDropdown.actions.find(action => action.value === 'Mr')!;
+  answerRef = mrOption.ref;
+  answerValue = 'Mr';
+  const directOption = await executeTool(ctx, 'click', { ref: mrOption.ref, reason: 'Select title' });
+  assert.ok(directOption.kind === 'ok' && directOption.message.includes('Direct option clicks are refused'));
+  const groundedOption = await executeTool(ctx, 'choose_option', { ref: mrOption.ref });
+  assert.ok(groundedOption.kind === 'ok' && groundedOption.message.includes('Selected the grounded option'));
+  answerValue = '0412345678';
   await page.setContent('<main><label>Name<input></label></main>');
   ctx = await context();
 

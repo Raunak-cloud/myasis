@@ -62,6 +62,9 @@ dates, and selections can rebuild the form. Choose interaction="type" to
 enter a value and leave the field, or "search" to type and inspect suggestions.
 An editable combobox can accept free text; do not assume suggestions are mandatory.
 After searching, choose the correct current option yourself using click.
+For a custom dropdown whose choices appear as option ACTIONS, call
+choose_option with one option ref; direct option clicks are refused so personal
+answers always pass through grounding.
 Field tool failures are recoverable: inspect the page, change the interaction
 or use repair_refs, and retry. Never treat a missing dropdown as missing facts.
 

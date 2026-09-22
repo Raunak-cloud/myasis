@@ -25,6 +25,9 @@ export interface AgentAction {
    */
   role: 'button' | 'link' | 'file' | 'option' | 'toggle';
   disabled: boolean;
+  /** Grounded context for a currently open custom dropdown option. */
+  question?: string;
+  value?: string;
 }
 
 export interface Observation {
@@ -75,7 +78,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
     }
 
     for (const element of all) element.removeAttribute('data-ref-id');
-    const results: Array<{ ref: string; text: string; role: string; disabled: boolean }> = [];
+    const results: Array<{ ref: string; text: string; role: string; disabled: boolean; question?: string; value?: string }> = [];
     let n = 0;
     const composedText = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
@@ -175,6 +178,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         element.getAttribute('title') ||
         element.getAttribute('placeholder') ||
         fileLabel;
+      const value = label;
       const question = isOption ? openQuestion : isOpener ? questionFor(element) : '';
       if (question && !label.toLowerCase().includes(question.toLowerCase())) label = `${question}: ${label}`;
       // Icon-only controls often sit beside their labelled input (for
@@ -196,6 +200,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         ref,
         text: label + state,
         role: isFile ? 'file' : isOption ? 'option' : isToggle ? 'toggle' : isButton ? 'button' : 'link',
+        ...(question ? { question, value } : {}),
         disabled:
           (element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true',
       });
@@ -204,7 +209,12 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
   });
 
   return raw
-    .map((action) => ({ ...action, text: clean(action.text), role: action.role as AgentAction['role'] }))
+    .map((action) => ({
+      ...action,
+      text: clean(action.text),
+      ...(action.question ? { question: clean(action.question), value: clean(action.value ?? '') } : {}),
+      role: action.role as AgentAction['role'],
+    }))
     // Unlabelled controls are noise the model cannot act on meaningfully.
     .filter((action) => action.text || action.role === 'file')
     .slice(0, 120);

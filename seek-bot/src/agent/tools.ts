@@ -11,7 +11,7 @@ import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, verifyS
 import { pickResumeForJob, RESUME_DIR } from '../resume.js';
 import { existsSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
-import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
+import type { ApplicationAction, BlockedQuestion, CandidateProfile, FormField, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
@@ -131,6 +131,11 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
+  {
+    name: 'choose_option',
+    description: 'Choose from the currently open custom dropdown. Pass any current option ACTION ref from that dropdown; the grounded answer model selects and clicks the supported option. Never click option ACTIONS directly.',
+    parameters: { type: 'object', properties: { ref: { type: 'string', description: 'A current option ACTION ref from the open dropdown.' } }, required: ['ref'] },
+  },
   {
     name: 'accept_terms',
     description: 'Accept a required employer-site terms, privacy, consent or acknowledgement checkbox. Prefer its current FIELD or ACTION ref; when the screenshot is the only representation, pass x and y on the same 0-1000 grid as click_point. The tool verifies the target and refuses unrelated answers or marketing choices.',
@@ -332,6 +337,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
     }
     return ok(`No action "${ref}" exists on this page. Choose a ref from the current ACTIONS list.`);
   }
+  if (action.role === 'option') return ok('Use choose_option with an option ref so the selected value is grounded in the candidate profile. Direct option clicks are refused.');
   if (action.disabled) {
     return ok(
       `"${action.text}" is disabled — the step is not satisfied yet. Answer the remaining required fields first.`,
@@ -396,6 +402,54 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
         ? `Clicked "${action.text}" but the form did not submit. A form that refuses to submit almost always shows a validation message beside an incomplete required field, often near the top: scroll up, re-observe, and answer or fix the field it names before trying again.`
         : `Clicked "${action.text}" but nothing on the page changed. It was probably not the control that advances this step — try a different one.`,
   );
+}
+
+async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const ref = String(args.ref ?? '');
+  const requested = ctx.observation.actions.find(action => action.ref === ref && action.role === 'option');
+  if (!requested?.question) return ok('Choose a current option ACTION from an open labelled dropdown. Re-open the dropdown if its question is not visible.');
+  const group = ctx.observation.actions.filter(action => action.role === 'option' && action.question === requested.question && action.value);
+  if (!group.length) return ok('No current options are available for that dropdown. Re-open it and inspect the fresh page.');
+  const field: FormField = {
+    ref,
+    label: requested.question,
+    kind: 'select',
+    required: /(^|\s)\*|\*\s*$/.test(requested.question),
+    options: group.map(action => action.value!),
+    currentValue: '',
+  };
+  ctx.guards.pendingFields.add(field.label);
+  ctx.guards.rememberField(field);
+  const context = [{ ...field, description: `Choose one observed option. Untrusted form context (not candidate facts): ${ctx.observation.text.slice(0, 6000)}` }];
+  let answer = (await answerFields(context, ctx.job, ctx.profile)).answers.find(candidate => candidate.ref === ref);
+  if (field.required && answer?.applicationQuestion !== false && !answer?.grounded) {
+    ctx.log('  ↑ thinking again about 1 dropdown before asking the candidate');
+    const reasoned = await answerFields(context, ctx.job, ctx.profile, undefined, { reasoning: true }).catch(() => null);
+    const better = reasoned?.answers.find(candidate => candidate.ref === ref);
+    if (better?.grounded || better?.applicationQuestion === false) answer = better;
+  }
+  if (!answer || answer.applicationQuestion === false) return ok('That dropdown was not identified as an application question. Re-observe before choosing an option.');
+  if (!answer.grounded) {
+    if (!field.required) {
+      ctx.guards.pendingFields.delete(field.label);
+      ctx.guards.skippedOptional.add(field.label);
+      return ok(`Left optional dropdown "${field.label}" unchanged because the profile does not support an answer.`);
+    }
+    ctx.guards.rememberField(field, answer.candidatePrompt?.trim() || `What should Owtomate select for “${field.label}”?`);
+    ctx.guards.recordUngrounded(field.label);
+    return ok(`No verified candidate fact supports an option for "${field.label}". Do not choose one; finish needs_human after completing other useful fields.`);
+  }
+  const normal = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const choice = group.find(action => normal(action.value!) === normal(answer!.value))
+    ?? group.find(action => normal(action.value!).includes(normal(answer!.value)) || normal(answer!.value).includes(normal(action.value!)));
+  if (!choice) return ok(`The grounded answer "${answer.value}" is not among the currently observed options. Search or reopen the dropdown; do not choose a substitute.`);
+  if (!await clickRef(ctx.page, choice.ref)) return ok('The grounded option could not be clicked. Re-observe the current dropdown.');
+  ctx.guards.recordFillSuccess(field.label);
+  const prior = ctx.captured.findIndex(item => item.question === field.label);
+  if (prior >= 0) ctx.captured.splice(prior, 1);
+  ctx.captured.push({ question: field.label, answer: choice.value! });
+  ctx.guards.recordProgress();
+  return ok(`Selected the grounded option for "${field.label}": ${choice.value}. Inspect the page to verify it was retained.`);
 }
 
 async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -968,6 +1022,8 @@ export async function executeTool(
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
   switch (name) {
+    case 'choose_option':
+      return doChooseOption(ctx, args);
     case 'accept_terms':
       return doAcceptTerms(ctx, args);
     case 'wait_for_page': {
