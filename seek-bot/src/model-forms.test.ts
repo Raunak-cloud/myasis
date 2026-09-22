@@ -202,6 +202,17 @@ try {
   assert.ok(pointBlocked.kind === 'ok' && pointBlocked.message.includes('coordinates cannot bypass answer verification'));
   assert.equal(await page.locator('input').first().isChecked(), false, 'coordinate clicks cannot select employer answers');
 
+  await page.setContent('<main><label>I acknowledge the required terms<input type="checkbox"></label><label>Send marketing<input type="checkbox"></label></main>');
+  ctx = await context();
+  const consent = ctx.observation.fields.find(field => /acknowledge/i.test(field.label))!;
+  const marketing = ctx.observation.fields.find(field => /marketing/i.test(field.label))!;
+  const accepted = await executeTool(ctx, 'accept_terms', { ref: consent.ref });
+  assert.ok(accepted.kind === 'ok' && accepted.message.includes('Accepted'));
+  assert.equal(await page.locator('input').first().isChecked(), true);
+  const refusedMarketing = await executeTool({ ...ctx, observation: await observe(page) }, 'accept_terms', { ref: marketing.ref });
+  assert.ok(refusedMarketing.kind === 'ok' && refusedMarketing.message.includes('Refused'));
+  assert.equal(await page.locator('input').nth(1).isChecked(), false, 'consent tool cannot enable marketing choices');
+
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
   assert.ok(reloadBlocked.kind === 'ok' && reloadBlocked.message.includes('Reload withheld'), 'cannot reload and replay an attempted submission');

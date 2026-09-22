@@ -132,6 +132,11 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
+    name: 'accept_terms',
+    description: 'Accept a required employer-site terms, privacy, consent or acknowledgement checkbox. Use only with its current FIELD or ACTION ref; this tool refuses unrelated application answers and marketing choices.',
+    parameters: { type: 'object', properties: { ref: { type: 'string', description: 'Current FIELD or ACTION ref for the required consent control.' } }, required: ['ref'] },
+  },
+  {
     name: 'wait_for_page',
     description: 'Wait up to 10 seconds for a loading page or pending request to change, without clicking or reloading. Use before recovery actions when the page is still loading. Existing run budgets still apply.',
     parameters: { type: 'object', properties: {}, required: [] },
@@ -387,6 +392,30 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
         ? `Clicked "${action.text}" but the form did not submit. A form that refuses to submit almost always shows a validation message beside an incomplete required field, often near the top: scroll up, re-observe, and answer or fix the field it names before trying again.`
         : `Clicked "${action.text}" but nothing on the page changed. It was probably not the control that advances this step — try a different one.`,
   );
+}
+
+async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const ref = String(args.ref ?? '');
+  const field = ctx.observation.fields.find(candidate => candidate.ref === ref);
+  const action = ctx.observation.actions.find(candidate => candidate.ref === ref);
+  const label = field?.label ?? action?.text ?? '';
+  if (!field && !action) return ok('Use a current FIELD or ACTION ref for the consent control. Re-observe rather than guessing.');
+  if (!/\b(terms?|privacy|consent|acknowledg(?:e|ement)|data processing)\b/i.test(label)) {
+    return ok('Refused: that control is not visibly labelled as required terms, privacy, consent or acknowledgement. Use the grounded answer tool for application questions.');
+  }
+  if (field) {
+    if (field.kind !== 'checkbox') return ok('The consent FIELD is not a checkbox. Re-observe and use its visible ACTION instead.');
+    const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
+    await input.check({ timeout: 5_000 });
+    if (!await input.isChecked()) return ok('The consent checkbox did not stay checked. Re-observe the current control.');
+    ctx.guards.pendingFields.delete(field.label);
+    ctx.guards.resolveGrounding(field.label);
+  } else {
+    if (action!.role !== 'toggle') return ok('The consent ACTION is not a checkbox or switch. Re-observe the current control.');
+    if (!await clickRef(ctx.page, action!.ref)) return ok('The consent control could not be clicked. Re-observe the current page.');
+  }
+  ctx.guards.recordProgress();
+  return ok(`Accepted the required site consent: "${label}". Inspect the page before continuing.`);
 }
 
 async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -880,6 +909,8 @@ export async function executeTool(
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
   switch (name) {
+    case 'accept_terms':
+      return doAcceptTerms(ctx, args);
     case 'wait_for_page': {
       const before = await captureInteractivePageState(ctx.page);
       const changed = await waitForInteractivePageChange(ctx.page, before, 10_000);

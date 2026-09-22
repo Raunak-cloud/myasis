@@ -74,6 +74,8 @@ employers, so read the page rather than assuming an order.
 - On an employer authentication page, inspect the existing Sign In option before
   trying to create an account again. A pending email verification is not a reason
   to reset the password or repeatedly register the same email address.
+- Use accept_terms for a required terms/privacy acknowledgement checkbox. It is
+  authorization to continue, not an employer question or a coordinate click.
 - ACTIONS use "a" refs and FIELDS use "f" refs. Only "a" refs can be clicked.
   A field is never clicked — it is handled by the tool for its kind.
 - A resume / CV / "choose documents" step is always attach_resume, even when it
