@@ -222,6 +222,16 @@ try {
   });
   assert.ok(consentByPoint.kind === 'ok' && consentByPoint.message.includes('Accepted'));
   assert.equal(await page.locator('input').isChecked(), true, 'a sibling-labelled screenshot consent can be accepted without exposing other answers');
+  await page.setContent('<main><div><button role="checkbox" aria-checked="false" onclick="this.setAttribute(\'aria-checked\',\'true\')"></button><span>I consent to the required privacy terms</span></div></main>');
+  ctx = await context();
+  ctx.observation.screenshot = 'data:image/jpeg;base64,fixture';
+  const ariaConsentBox = await page.locator('span').boundingBox();
+  const ariaConsent = await executeTool(ctx, 'accept_terms', {
+    x: ((ariaConsentBox!.x + ariaConsentBox!.width / 2) / viewport.width) * 1000,
+    y: ((ariaConsentBox!.y + ariaConsentBox!.height / 2) / viewport.height) * 1000,
+  });
+  assert.ok(ariaConsent.kind === 'ok' && ariaConsent.message.includes('Accepted'));
+  assert.equal(await page.getByRole('checkbox').getAttribute('aria-checked'), 'true', 'ARIA consent controls are verified after clicking');
 
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
@@ -248,6 +258,7 @@ try {
   };
   const shortLetter = await fitCoverLetterToLimit('A long letter. '.repeat(100), 100, ctx.job, profile);
   assert.ok(shortLetter.length <= 100 && shortLetter.endsWith('.'), 'model rewrites to the character limit without cutting off text');
+  await page.setContent('<main><label>Name<input></label></main>');
   const evaluateOriginal = page.evaluate.bind(page);
   let raced = false;
   page.evaluate = (async (...args: Parameters<typeof page.evaluate>) => {

@@ -404,6 +404,7 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
   const action = ctx.observation.actions.find(candidate => candidate.ref === ref);
   let label = field?.label ?? action?.text ?? '';
   let coordinateInput = null as ReturnType<Page['locator']> | null;
+  let coordinateKind: 'native' | 'aria' | null = null;
   if (!field && !action && ctx.observation.screenshot) {
     const gx = Number(args.x);
     const gy = Number(args.y);
@@ -413,25 +414,30 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
         document.querySelector('[data-agent-consent-target]')?.removeAttribute('data-agent-consent-target');
         const element = document.elementFromPoint(x, y);
         const wrapped = element?.closest('label') as HTMLLabelElement | null;
-        let input = element instanceof HTMLInputElement && element.type === 'checkbox'
+        let input: Element | null = element instanceof HTMLInputElement && element.type === 'checkbox'
           ? element
           : wrapped?.control instanceof HTMLInputElement && wrapped.control.type === 'checkbox'
             ? wrapped.control
-            : element?.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+            : element?.closest('[role="checkbox"]')
+              ?? element?.querySelector('input[type="checkbox"], [role="checkbox"]') as Element | null;
         let context: Element | null = wrapped ?? element;
         // Some design systems render the input and its prose as siblings.
         // Walk only to the nearest block containing exactly one checkbox, so
         // coordinates can never ambiguously select from a group of answers.
         for (let depth = 0; !input && context && depth < 5; depth++, context = context.parentElement) {
-          const boxes = context.querySelectorAll('input[type="checkbox"]');
+          const boxes = context.querySelectorAll('input[type="checkbox"], [role="checkbox"]');
           if (boxes.length === 1) input = boxes[0] as HTMLInputElement;
         }
         if (!input) return null;
         input.setAttribute('data-agent-consent-target', 'true');
-        return (wrapped?.innerText || context?.textContent || input.getAttribute('aria-label') || input.closest('[role="group"]')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+        return {
+          label: (wrapped?.innerText || context?.textContent || input.getAttribute('aria-label') || input.closest('[role="group"]')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+          kind: input instanceof HTMLInputElement ? 'native' : 'aria',
+        };
       }, { x: (gx / 1000) * size.width, y: (gy / 1000) * size.height }).catch(() => null);
       if (target) {
-        label = target;
+        label = target.label;
+        coordinateKind = target.kind as 'native' | 'aria';
         coordinateInput = ctx.page.locator('[data-agent-consent-target="true"]').first();
       }
     }
@@ -443,7 +449,11 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
   }
   if (coordinateInput) {
     try {
-      await coordinateInput.check({ timeout: 5_000 });
+      if (coordinateKind === 'native') await coordinateInput.check({ timeout: 5_000 });
+      else {
+        await coordinateInput.click({ timeout: 5_000 });
+        if (await coordinateInput.getAttribute('aria-checked') !== 'true') return ok('The consent checkbox did not stay checked. Re-observe the current control.');
+      }
     } finally {
       await coordinateInput.evaluate(element => element.removeAttribute('data-agent-consent-target')).catch(() => {});
     }
