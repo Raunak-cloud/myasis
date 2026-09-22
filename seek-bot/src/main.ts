@@ -331,8 +331,20 @@ async function main() {
         adapter, keyword, total: 0, pages: 0, lowYieldPages: 0, exhausted: false,
       })));
 
-    let stoppedEarly = false;
-    for (let pageNumber = 1; pageNumber <= config.limits.pagesPerKeyword; pageNumber++) {
+    let stoppedEarly = shouldStopDiscovery({
+      pageNumber: 0,
+      maxPages: config.limits.pagesPerKeyword,
+      promisingJobs: promisingCount(),
+      target: discoveryTarget,
+    });
+    if (stoppedEarly) {
+      console.log(
+        `  Adaptive discovery stopped after recommendations: ` +
+        `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
+      );
+    }
+
+    for (let pageNumber = 1; !stoppedEarly && pageNumber <= config.limits.pagesPerKeyword; pageNumber++) {
       const round: Array<{ stream: SearchStream; accepted: JobListing[] }> = [];
       for (const stream of streams) {
         if (stream.exhausted || stream.lowYieldPages >= 2) continue;
