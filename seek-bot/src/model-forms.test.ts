@@ -143,6 +143,24 @@ try {
   const memory = recentReviewFeedback();
   assert.equal(memory.size, 1, 'stale and corrupt records do not become ranking context');
   assert.match(memory.get(JSON.stringify(['job1', 'Developer', 'Fixture']))!.reason, /skills mismatch/);
+  const { rankJobsForReview, assessFit, reviewKey } = await import('./llm.js');
+  const classifierCalls: string[] = [];
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.model, 'celeris-1', 'job classification stays on the fast model');
+    assert.equal(body.chat_template_kwargs, undefined);
+    const properties = body.response_format.json_schema.schema.properties;
+    const kind = properties.jobs ? 'ranking' : properties.conflict ? 'instructions' : 'fit';
+    classifierCalls.push(kind);
+    const result = kind === 'ranking' ? { jobs: [{ reviewId: reviewKey(ctx.job), priority: 80, reason: 'Fixture match' }] }
+      : kind === 'instructions' ? { conflict: '', because: 'No conflict', injectionSuspected: false }
+      : { instructionConflict: '', decision: 'apply', matchScore: 80, reason: 'Fixture match', evidence: ['Fixture'], injectionSuspected: false };
+    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(result) } }] }), { status: 200 });
+  };
+  config.aiInstructions = 'No management roles';
+  await rankJobsForReview([ctx.job], profile);
+  assert.equal((await assessFit(ctx.job, profile)).shouldApply, true);
+  assert.deepEqual(classifierCalls, ['ranking', 'instructions', 'fit']);
   console.log('PASS: model-directed forms, genuine required metadata, coordinate grounding, argument validation, stale refs, and safe uploads');
 } finally {
   globalThis.fetch = originalFetch;
