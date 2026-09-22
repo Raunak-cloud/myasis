@@ -90,14 +90,15 @@ const EMAILED_CODE_TOOL: ToolSchema = {
   description:
     'When the page asks for a code that was emailed to the candidate (verification code, one-time passcode, sign-in code), ' +
     "call this with the ref of the code FIELD after the email has been requested. The code is read from the candidate's " +
-    'inbox and typed into that field for you. Never type a code yourself.',
+    'inbox and typed into that field for you. For separate digit boxes, supply refs in visual reading order instead of ref. Never type a code yourself.',
   parameters: {
     type: 'object',
     properties: {
       ref: { type: 'string', description: 'The FIELD ref of the code input.' },
+      refs: { type: 'array', items: { type: 'string' }, description: 'All code FIELD refs in digit order when the code has separate boxes.' },
       sender_hint: { type: 'string', description: 'The site or company that sent the code, e.g. "Oracle" or "Workday".' },
     },
-    required: ['ref'],
+    required: [],
   },
 };
 
@@ -804,12 +805,31 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
   );
 }
 
+export async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string): Promise<boolean> {
+  if (!fields.length || new Set(fields.map(f => f.ref)).size !== fields.length) return false;
+  if (fields.length > 1 && fields.length !== code.length) return false;
+  const inputs = fields.map(field => page.locator(`[data-field-id="${field.ref}"]`));
+  const values = fields.length === 1 ? [code] : [...code];
+  // Validate the model's complete selection before typing any private code.
+  for (let i = 0; i < inputs.length; i++) {
+    const capacity = await inputs[i].evaluate(el => (el as HTMLInputElement).maxLength);
+    if (capacity >= 0 && capacity < values[i].length) return false;
+  }
+  for (let i = 0; i < inputs.length; i++) {
+    await inputs[i].fill(values[i], { timeout: 5_000 });
+    // The final digit can auto-advance the page; fresh observation verifies that.
+    if (i < inputs.length - 1 && await inputs[i].inputValue() !== values[i]) return false;
+  }
+  return true;
+}
+
 async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!browserGmailAvailable()) {
     return ok('No mailbox is signed in for this candidate. Try another authentication option; otherwise finish with "cannot_complete".');
   }
-  const field = ctx.observation.fields.find((candidate) => candidate.ref === String(args.ref ?? ''));
-  if (!field) return ok("That ref is not a FIELD on this page. Choose the code input's ref from the current FIELDS list.");
+  const refs = Array.isArray(args.refs) ? args.refs.map(String) : [String(args.ref ?? '')];
+  const fields = refs.map(ref => ctx.observation.fields.find(candidate => candidate.ref === ref));
+  if (!fields.length || fields.some(field => !field) || new Set(refs).size !== refs.length) return ok('Choose current code FIELD refs: ref for one input, or refs for all separate digit boxes in order.');
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
   ctx.log('  ✉ waiting for the emailed verification code');
 
@@ -825,7 +845,11 @@ async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown
     return ok('No verification email arrived within 90 seconds. If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".');
   }
 
-  await fillField(ctx.page, field, found.code);
+  try {
+    if (!await fillEmailedCode(ctx.page, fields as Observation['fields'], found.code)) return ok('Code entry needs a different field selection. For separate digit boxes, select ALL current code FIELD refs in order using refs. Re-observe before retrying.');
+  } catch {
+    return ok('The code inputs changed or could not be filled. Inspect the fresh page: it may have advanced automatically; otherwise select the current code fields and retry.');
+  }
   ctx.guards.recordProgress();
   ctx.log(`  ✉ entered the code from "${found.subject.slice(0, 60)}"`);
   {
@@ -836,7 +860,7 @@ async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown
       detail: `Used the verification code ${siteName(site)} emailed you ("${found.subject.slice(0, 60)}").`,
     });
   }
-  return ok(`Entered the emailed code into "${field.label}". Continue with the next control.`);
+  return ok('Entered the emailed code into the selected fields. Inspect the page to verify acceptance before continuing.');
 }
 
 export async function executeTool(

@@ -20,7 +20,7 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
 const { config } = await import('./config.js');
 const { observe, renderObservation } = await import('./agent/observe.js');
 const { fillField } = await import('./dom.js');
-const { executeTool } = await import('./agent/tools.js');
+const { executeTool, fillEmailedCode } = await import('./agent/tools.js');
 const { RunGuards } = await import('./agent/guards.js');
 const { CostMeter } = await import('./agent/celeris.js');
 const { recentReviewFeedback } = await import('./store.js');
@@ -41,6 +41,16 @@ globalThis.fetch = async (_input, init) => {
 };
 try {
   const page = await browser.newPage();
+  await page.setContent('<main>' + Array.from({ length: 6 }, (_, i) => `<label>Digit ${i + 1}<input maxlength="1"></label>`).join('') + '</main>');
+  const codeFields = (await observe(page)).fields;
+  assert.equal(await fillEmailedCode(page, [codeFields[0]], '123456'), false);
+  assert.equal(await page.locator('input').first().inputValue(), '', 'reject incomplete split selection before typing');
+  assert.equal(await fillEmailedCode(page, codeFields, '123456'), true);
+  assert.deepEqual(await page.locator('input').evaluateAll(els => els.map(el => (el as HTMLInputElement).value)), ['1', '2', '3', '4', '5', '6']);
+  assert.equal(await fillEmailedCode(page, [codeFields[0], codeFields[0]], '12'), false);
+  await page.setContent('<main><label>Code<input maxlength="6"></label></main>');
+  assert.equal(await fillEmailedCode(page, (await observe(page)).fields, '123456'), true);
+  assert.equal(await page.locator('input').inputValue(), '123456');
   const profile: CandidateProfile = { name: 'Fixture Person', phone: '0412345678', email: 'fixture@example.com', nationality: 'Australian', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' };
   const context = async (): Promise<ToolContext> => ({
     page, profile, job: { id: 'fixture', title: 'Developer', company: 'Fixture Company', location: 'Sydney', url: 'https://example.com/job/fixture' },
