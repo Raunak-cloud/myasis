@@ -721,6 +721,24 @@ export async function fillField(page: Page, field: FormField, value: string, mod
     return normal(el.value) === normal(value);
   }, { field, value }, { timeout: 2000, polling: 100 }).catch(async () => {
     const complaint = await readValidationMessage(page, field);
+    /**
+     * React forms such as Workday replace an input node after every keystroke.
+     * That removes our ephemeral ref even though the replacement visibly holds
+     * a valid value. Re-observe by semantic field identity before declaring a
+     * rejection; never accept it when the page is still showing a complaint.
+     */
+    if (!complaint.trim()) {
+      const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
+      const refreshed = await extractFields(page).catch(() => [] as FormField[]);
+      const matches = refreshed.filter(candidate => normal(candidate.label) === normal(field.label) && candidate.kind === field.kind);
+      if (matches.length === 1) {
+        const held = matches[0].currentValue ?? '';
+        const accepted = field.inputType === 'tel' || field.inputType === 'number'
+          ? held.replace(/\D+/g, '').replace(/^0+/, '') === value.replace(/\D+/g, '').replace(/^0+/, '')
+          : normal(held) === normal(value);
+        if (accepted) return;
+      }
+    }
     throw new FieldRejectedError(field.label, value, complaint);
   });
 }

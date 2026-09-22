@@ -69,6 +69,16 @@ try {
   assert.deepEqual(JSON.parse(prompt).chat_template_kwargs, { enable_thinking: true, reasoning_effort: 'low' });
   assert.match(prompt, /Only letters or numbers allowed/);
 
+  await page.setContent('<main><label>First name<input></label></main>');
+  await page.locator('input').evaluate(input => input.addEventListener('input', () => {
+    const replacement = input.cloneNode() as HTMLInputElement;
+    replacement.value = (input as HTMLInputElement).value;
+    input.replaceWith(replacement);
+  }, { once: true }));
+  ctx = await context();
+  await fillField(page, ctx.observation.fields[0], 'Raunak');
+  assert.equal(await page.locator('input').inputValue(), 'Raunak', 'a framework rerender that replaces the input still verifies by field identity');
+
   await page.setContent('<main><label>Phone<input value="+61"></label></main>');
   ctx = await context();
   answerRef = ctx.observation.fields[0].ref;
