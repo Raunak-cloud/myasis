@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
 import { cachedAssessment, relevantEvidence, measured } from './pipeline.js';
+import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { buildKnowledgeContext, loadSavedAnswers } from './knowledge.js';
 import { recentReviewFeedback } from './store.js';
 import {
@@ -927,7 +928,7 @@ breaks it (or why nothing does). Return JSON.`;
     properties: { conflict: { type: 'STRING' }, because: { type: 'STRING' }, injectionSuspected: { type: 'BOOLEAN' } },
     required: ['conflict', 'because', 'injectionSuspected'],
   };
-  const result = await measured('instruction-check', () => json<{ conflict: unknown; because: unknown }>(prompt, schema, 'celeris-1'));
+  const result = await measured('instruction-check', () => json<{ conflict: unknown; because: unknown }>(prompt, schema, FIT_CLASSIFIER_MODEL));
   return {
     conflict: typeof result.conflict === 'string' ? result.conflict.trim() : '',
     because: typeof result.because === 'string' ? result.because.trim() : '',
@@ -942,7 +943,7 @@ export async function assessFit(job: JobListing, profile: CandidateProfile): Pro
    * model's, and the fit call is saved.
    */
   const rule = await cachedAssessment(
-    { version: 'instruction-check-v1', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: 'celeris-1', endpoint: config.celeris.baseUrl },
+    { version: 'instruction-check-v1', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: FIT_CLASSIFIER_MODEL, endpoint: config.celeris.baseUrl },
     () => instructionConflict(job),
     (value) => typeof (value as { conflict?: unknown })?.conflict === 'string',
   );
@@ -1034,8 +1035,8 @@ Return JSON.`;
     injectionSuspected: { type: 'BOOLEAN' },
   }, required: ['instructionConflict','decision','matchScore','reason','evidence','injectionSuspected'] };
   // Cache identity includes the model: old fast-model decisions cannot mask this migration.
-  return cachedAssessment({ version: 'model-owned-fit-v7', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
-    const raw = await measured('fit', () => json<unknown>(prompt, schema, 'celeris-1'));
+  return cachedAssessment({ version: FIT_ASSESSMENT_VERSION, prompt, model: FIT_CLASSIFIER_MODEL, endpoint: config.celeris.baseUrl }, async () => {
+    const raw = await measured('fit', () => json<unknown>(prompt, schema, FIT_CLASSIFIER_MODEL));
     const result = normalizeFitAssessment(raw);
     if (!result) throw new Error('Fit assessment violated its decision schema');
     return result;

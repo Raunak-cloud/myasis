@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
 import type { AppliedRecord, ApplyOutcome } from './types.js';
+import type { ReviewCacheMetadata } from './review-cache.js';
 
 const APPLIED = resolve(config.dataDir, 'applied.json');
 const LOG = resolve(config.dataDir, 'run-log.jsonl');
@@ -81,7 +82,7 @@ export class AppliedIndex {
   }
 }
 
-export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string }) {
+export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; reviewCache?: ReviewCacheMetadata }) {
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });
   writeFileSync(LOG, line + '\n', { flag: 'a' });

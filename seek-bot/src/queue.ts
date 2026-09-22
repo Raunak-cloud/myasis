@@ -22,6 +22,7 @@ import { AppliedIndex } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { judgePage } from './blocker.js';
 import type { JobListing } from './types.js';
+import { ReviewCache, reviewContextFingerprint } from './review-cache.js';
 
 export type QueueStatus = 'pending' | 'applied' | 'skipped';
 
@@ -73,6 +74,8 @@ async function build() {
 
   const existing = loadQueue();
   const index = new AppliedIndex();
+  const reviewCache = new ReviewCache();
+  const reviewContext = reviewContextFingerprint(profile);
   const rememberExistingApplication = (job: JobListing, reason: string, score = 0) => {
     if (index.has(job.id, job.company, job.title, job.location)) return;
     index.add({
@@ -155,6 +158,12 @@ async function build() {
     const shortlist = [...seen.values()]
       .filter((j) => !known.has(j.id))
       .filter((j) => !index.has(j.id, j.company, j.title, j.location))
+      .filter((job) => {
+        const prior = reviewCache.suppression(job, reviewContext);
+        if (!prior) return true;
+        bump(`recent ${prior.disposition}`);
+        return false;
+      })
       .filter((job) => {
         const excluded = deterministicExclusion(job);
         if (!excluded) return true;

@@ -80,6 +80,18 @@ interface ApplicationExportRow {
   actions: unknown;
 }
 
+interface ReviewCacheExportRow {
+  job_id: string;
+  title: string | null;
+  company: string | null;
+  reason: string | null;
+  ts: Date | string;
+  review_disposition: string;
+  review_listing_fingerprint: string | null;
+  review_context_fingerprint: string | null;
+  review_expires_at: Date | string;
+}
+
 /**
  * Regenerates this account's slice of `seek-bot/data/users/<userId>/` from
  * Postgres immediately before a run starts. Safe to call any number of
@@ -141,6 +153,39 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   writeFileSync(resolve(dir, 'review-history.jsonl'), reviewHistory.reverse().map(row => JSON.stringify({
     jobId: row.job_id, title: row.title, company: row.company, status: row.status,
     reason: row.reason, ts: new Date(row.ts).toISOString(),
+  })).join('\n'));
+
+  const reviewCache = await query<ReviewCacheExportRow>(
+    `SELECT job_id, title, company, reason, ts, review_disposition,
+            review_listing_fingerprint, review_context_fingerprint, review_expires_at
+       FROM run_events
+      WHERE user_id = $1 AND job_id IS NOT NULL
+        AND review_disposition IS NOT NULL AND review_expires_at > now()
+      ORDER BY ts DESC LIMIT 2000`,
+    [userId],
+  );
+  // Safely reuse old off-platform decisions immediately. They need no
+  // candidate-context fingerprint and expire seven days after the event.
+  const legacyExternal = await query<ReviewCacheExportRow>(
+    `SELECT job_id, title, company, reason, ts, 'external' AS review_disposition,
+            NULL::text AS review_listing_fingerprint, NULL::text AS review_context_fingerprint,
+            ts + interval '7 days' AS review_expires_at
+       FROM run_events
+      WHERE user_id = $1 AND job_id IS NOT NULL AND status = 'off-platform'
+        AND review_disposition IS NULL AND ts > now() - interval '7 days'
+      ORDER BY ts DESC LIMIT 2000`,
+    [userId],
+  );
+  writeFileSync(resolve(dir, 'review-cache.jsonl'), [...reviewCache, ...legacyExternal].map(row => JSON.stringify({
+    jobId: row.job_id,
+    title: row.title,
+    company: row.company,
+    reason: row.reason ?? row.review_disposition,
+    reviewedAt: new Date(row.ts).toISOString(),
+    disposition: row.review_disposition,
+    ...(row.review_listing_fingerprint ? { listingFingerprint: row.review_listing_fingerprint } : {}),
+    ...(row.review_context_fingerprint ? { contextFingerprint: row.review_context_fingerprint } : {}),
+    expiresAt: new Date(row.review_expires_at).toISOString(),
   })).join('\n'));
 
   // Fresh log for this run only, so `syncRunResultsToDb` reads exactly what
@@ -277,6 +322,7 @@ export async function syncRunResultsToDb(
           url: e.url ?? null,
           ts: e.ts ?? new Date(),
           questions: normaliseQuestions(e.questions).slice(0, 30),
+          reviewCache: e.reviewCache ?? null,
         });
         // Any attempt, finished or not, may have left the candidate with an account.
         for (const action of Array.isArray(e.actions) ? e.actions : []) {

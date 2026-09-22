@@ -28,6 +28,7 @@ import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import type { Page } from 'patchright';
 import { australianGovernmentDestination } from './site-policy.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
+import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -126,6 +127,8 @@ async function main() {
   }
 
   const index = new AppliedIndex();
+  const reviewCache = new ReviewCache();
+  const reviewContext = reviewContextFingerprint(profile);
   const rememberExistingApplication = (job: JobListing, reason: string) => {
     if (index.has(job.id, job.company, job.title, job.location)) return;
     index.add({
@@ -232,6 +235,30 @@ async function main() {
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
     for (const job of seen.values()) {
       if (index.has(job.id, job.company, job.title, job.location)) continue;
+      const prior = reviewCache.suppression(job, reviewContext);
+      if (prior) {
+        bump(`recent ${prior.disposition}`);
+        continue;
+      }
+      const governmentDestination = australianGovernmentDestination(job);
+      if (governmentDestination) {
+        bump('Australian government application site');
+        logOutcome({
+          status: 'skipped', jobId: job.id, title: job.title, company: job.company,
+          reason: 'Australian government application site excluded.',
+          reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy),
+        });
+        continue;
+      }
+      if (job.applicationMode === 'external' && !config.allowExternalApply) {
+        bump('external application disabled');
+        logOutcome({
+          status: 'off-platform', jobId: job.id, title: job.title, company: job.company,
+          redirectedTo: job.applicationUrl ?? 'employer site',
+          reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
+        });
+        continue;
+      }
       const excluded = deterministicExclusion(job);
       if (excluded) {
         bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
@@ -330,6 +357,7 @@ async function main() {
               reason: `Fit check (${fit.decision}): ${fit.reason}`,
               title: job.title,
               company: job.company,
+              ...(fit.decision === 'skip' ? { reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) } : {}),
             });
             continue;
           }
@@ -337,7 +365,8 @@ async function main() {
             const reason = `Model match score ${fit.matchScore} below minimum ${config.rules.minScore}`;
             console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${reason}`);
             bump('below minimum match score');
-            logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company });
+            logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company,
+              reviewCache: reviewCacheMetadata(job, 'below-score', reviewContext, REVIEW_TTL.fit) });
             continue;
           }
           why = fit.reason;
@@ -391,6 +420,7 @@ async function main() {
           reason: 'Australian government application site excluded.',
           title: job.title,
           company: job.company,
+          reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy),
         });
         continue;
       }
@@ -450,6 +480,7 @@ async function main() {
           redirectedTo: destination,
           title: job.title,
           company: job.company,
+          reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
         });
         continue;
       }

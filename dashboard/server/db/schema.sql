@@ -135,6 +135,16 @@ CREATE INDEX IF NOT EXISTS run_events_status_idx ON run_events(user_id, status);
 -- still a record of what a run actually did.
 ALTER TABLE run_events ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ;
 
+-- Durable negative-review cache. These fields make a prior decision reusable
+-- only while the listing and relevant candidate context are still unchanged.
+ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_disposition TEXT;
+ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_listing_fingerprint TEXT;
+ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_context_fingerprint TEXT;
+ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_expires_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS run_events_review_cache_idx
+  ON run_events(user_id, review_expires_at DESC)
+  WHERE review_disposition IS NOT NULL;
+
 -- One-time, non-renewing job-search passes purchased through hosted Checkout.
 -- Session id is unique so webhook retries can never grant the same purchase twice.
 CREATE TABLE IF NOT EXISTS billing_purchases (

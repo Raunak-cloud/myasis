@@ -214,6 +214,7 @@ export async function migrateFilesToUser(email: string, name?: string) {
       jobId: e.jobId ?? null, status: e.status ?? 'unknown', title: e.title ?? null,
       company: e.company ?? null, reason: e.reason ?? e.redirectedTo ?? e.error ?? null,
       url: e.url ?? null, ts: e.ts ?? new Date(),
+      reviewCache: e.reviewCache ?? null,
     });
   }
   summary.runEvents = events.length;

@@ -183,17 +183,34 @@ export interface RunEventRow {
   ts?: string | Date;
   /** Employer questions the run could not answer, for the answer bank — see attention.ts for the shape. */
   questions?: unknown[] | null;
+  reviewCache?: {
+    disposition: string;
+    listingFingerprint?: string | null;
+    contextFingerprint?: string | null;
+    expiresAt: string | Date;
+  } | null;
 }
 
 /** Matched by `run_events_dedupe_idx (user_id, job_id, status, ts)`. */
 export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<void> {
   await query(
-    `INSERT INTO run_events (user_id, job_id, status, title, company, reason, url, ts, questions)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     ON CONFLICT (user_id, job_id, status, ts) DO NOTHING`,
+    `INSERT INTO run_events (
+       user_id, job_id, status, title, company, reason, url, ts, questions,
+       review_disposition, review_listing_fingerprint, review_context_fingerprint, review_expires_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     ON CONFLICT (user_id, job_id, status, ts) DO UPDATE SET
+       questions = COALESCE(EXCLUDED.questions, run_events.questions),
+       review_disposition = COALESCE(EXCLUDED.review_disposition, run_events.review_disposition),
+       review_listing_fingerprint = COALESCE(EXCLUDED.review_listing_fingerprint, run_events.review_listing_fingerprint),
+       review_context_fingerprint = COALESCE(EXCLUDED.review_context_fingerprint, run_events.review_context_fingerprint),
+       review_expires_at = COALESCE(EXCLUDED.review_expires_at, run_events.review_expires_at)`,
     [
       uid, e.jobId ?? null, e.status ?? 'unknown', e.title ?? null, e.company ?? null, e.reason ?? null, e.url ?? null, e.ts ?? new Date(),
       e.questions?.length ? JSON.stringify(e.questions) : null,
+      e.reviewCache?.disposition ?? null,
+      e.reviewCache?.listingFingerprint ?? null,
+      e.reviewCache?.contextFingerprint ?? null,
+      e.reviewCache?.expiresAt ?? null,
     ],
   );
 }
