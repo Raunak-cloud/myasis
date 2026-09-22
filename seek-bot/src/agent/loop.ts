@@ -615,14 +615,10 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     lastUrl = page.url();
     lastFingerprint = fingerprint;
 
-    /**
-     * Escalate a stuck step to the reasoning model rather than burning the
-     * step budget on the fast one. celeris-1 handles the overwhelming majority
-     * of steps; magnus is for the page that does not look like the others.
-     */
-    const model: CelerisModel = stalls >= config.celeris.escalateAfterStalls ? 'celeris-1-magnus' : 'celeris-1';
+    // Magnus reasons from the first step, rather than only after a fast-model stall.
+    const model: CelerisModel = 'celeris-1-magnus';
     if (stalls === config.celeris.escalateAfterStalls) {
-      log(`  ↑ step ${guards.stepCount} stalled — escalating to ${model}`);
+      log(`  ↑ step ${guards.stepCount} stalled — ${model} reassessing the page`);
     }
 
     /**

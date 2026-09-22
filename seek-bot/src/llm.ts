@@ -149,10 +149,11 @@ async function geminiJson<T>(prompt: string, schema: object): Promise<T> {
   throw lastError;
 }
 
-async function json<T>(prompt: string, schema: object, model: CelerisModel = 'celeris-1', maxTokens?: number): Promise<T> {
+async function json<T>(prompt: string, schema: object, model: CelerisModel = 'celeris-1-magnus', maxTokens?: number): Promise<T> {
   const reply = await celerisChat({
     model,
-    maxTokens,
+    // Magnus can spend 75% of its output budget reasoning before the JSON.
+    maxTokens: model === 'celeris-1-magnus' && maxTokens ? Math.max(config.celeris.maxOutputTokens, maxTokens * 4) : maxTokens,
     messages: [{ role: 'user', content: prompt }],
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
     // The reasoning model is only worth its latency when it is allowed to reason.
@@ -398,7 +399,7 @@ For each field also set "basis", which decides whether it may be filled at all:
       injectionSuspected: { type: 'BOOLEAN' },
     },
     required: ['answers', 'injectionSuspected'],
-  }, options.reasoning ? 'celeris-1-magnus' : 'celeris-1');
+  }, 'celeris-1-magnus');
   if (!Array.isArray(result.answers)) throw new Error('Answer response was not an array');
   const answers = fields.map(field => {
     const matches = result.answers.filter(a => a.ref === field.ref);
@@ -829,7 +830,7 @@ priority does not reject the job. Return JSON.`;
     }, required: ['reviewId', 'priority', 'reason'],
   } } }, required: ['jobs'] };
   const result = await measured('review-ranking', () =>
-    json<{ jobs: ReviewPriority[] }>(prompt, schema, 'celeris-1', 200 + batch.length * RANKING_TOKENS_PER_JOB));
+    json<{ jobs: ReviewPriority[] }>(prompt, schema, 'celeris-1-magnus', 200 + batch.length * RANKING_TOKENS_PER_JOB));
   return result.jobs ?? [];
 }
 
@@ -941,7 +942,7 @@ export async function assessFit(job: JobListing, profile: CandidateProfile): Pro
    * model's, and the fit call is saved.
    */
   const rule = await cachedAssessment(
-    { version: 'instruction-check-v1', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: 'celeris-1', endpoint: config.celeris.baseUrl },
+    { version: 'instruction-check-v1', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: 'celeris-1-magnus', endpoint: config.celeris.baseUrl },
     () => instructionConflict(job),
     (value) => typeof (value as { conflict?: unknown })?.conflict === 'string',
   );
@@ -1032,13 +1033,8 @@ Return JSON.`;
     reason: { type: 'STRING' }, evidence: { type: 'ARRAY', items: { type: 'STRING' } },
     injectionSuspected: { type: 'BOOLEAN' },
   }, required: ['instructionConflict','decision','matchScore','reason','evidence','injectionSuspected'] };
-  /**
-   * One pass on celeris-1. A second opinion from celeris-1-magnus used to run
-   * on every apply/uncertain verdict; at 5–13 s and ~2,000+ reasoning tokens
-   * a call it was dropped in favour of speed. An uncertain verdict is not
-   * cached, so the next run asks again.
-   */
-  return cachedAssessment({ version: 'model-owned-fit-v7', prompt, model: 'celeris-1', endpoint: config.celeris.baseUrl }, async () => {
+  // Cache identity includes the model: old fast-model decisions cannot mask this migration.
+  return cachedAssessment({ version: 'model-owned-fit-v7', prompt, model: 'celeris-1-magnus', endpoint: config.celeris.baseUrl }, async () => {
     const raw = await measured('fit', () => json<unknown>(prompt, schema));
     const result = normalizeFitAssessment(raw);
     if (!result) throw new Error('Fit assessment violated its decision schema');

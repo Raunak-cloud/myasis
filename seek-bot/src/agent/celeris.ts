@@ -193,7 +193,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
    * it does not turn thinking off. Thinking output is billed as completion
    * tokens, roughly 2,600 of them on a real fit review.
    */
-  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking) };
+  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: 'low' } : {}) };
 
   const startedAt = performance.now();
   const deadline = Date.now() + 60_000;

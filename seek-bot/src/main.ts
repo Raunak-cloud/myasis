@@ -106,7 +106,7 @@ async function main() {
       );
     }
     console.log(
-      `Browser agent: Celeris ` +
+      `Browser agent: celeris-1-magnus (reasoning: low) ` +
         `(max ${config.celeris.maxSteps} steps, ${config.celeris.maxStepsPerPage} per page, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
     );
   }

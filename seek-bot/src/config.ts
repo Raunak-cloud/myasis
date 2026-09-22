@@ -281,11 +281,8 @@ export const config = {
   /**
    * Celeris drives the browser agent's per-step decisions.
    *
-   * `celeris-1` is a low-latency diffusion model built for exactly this shape
-   * of call — short, structured, tool-shaped — and `celeris-1-magnus` adds
-   * reasoning for the steps it gets stuck on. Cover letters and screening
-   * answers deliberately stay on Gemini: those are long-form and grounded
-   * against the candidate profile, which is a different job.
+   * Magnus handles navigation and structured reasoning from the first call.
+   * Cover-letter drafting retains its separately configured provider.
    */
   celeris: {
     apiKey: process.env.CELERIS_API_KEY ?? '',

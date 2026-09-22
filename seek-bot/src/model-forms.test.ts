@@ -54,6 +54,8 @@ try {
   await executeTool(ctx, 'answer_questions', { refs: [answerRef], reason: 'Repair rejected phone' });
   assert.equal(await page.locator('input').inputValue(), profile.phone);
   assert.equal(calls, 1, 'invalid nonempty defaults reach the grounded answer model');
+  assert.equal(JSON.parse(prompt).model, 'celeris-1-magnus');
+  assert.deepEqual(JSON.parse(prompt).chat_template_kwargs, { enable_thinking: true, reasoning_effort: 'low' });
   assert.match(prompt, /Only letters or numbers allowed/);
 
   await page.setContent('<main><label>Phone<input value="+61"></label></main>');
