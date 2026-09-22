@@ -69,6 +69,11 @@ test('a changed search-card summary invalidates the cached review', () => withCa
   assert.equal(cache.suppression({ ...job, teaser: 'New requirements added' }, 'candidate-v1'), null);
 }));
 
+test('relative listing-age text does not invalidate an unchanged job', () => withCache([entry()], path => {
+  const cache = new ReviewCache({ now: NOW, cachePath: path });
+  assert.equal(cache.suppression({ ...job, listedAt: '2 hours ago' }, 'candidate-v1')?.disposition, 'fit-mismatch');
+}));
+
 test('expired decisions are never reused', () => withCache([
   entry({ expiresAt: '2026-09-21T00:00:00.000Z' }),
 ], path => {

@@ -38,7 +38,6 @@ export function listingFingerprint(job: JobListing): string {
     // Search-card fields are available before a detail-page/model call and
     // remain present after detail enrichment, so edits invalidate cheaply.
     teaser: normalise(job.teaser),
-    listedAt: normalise(job.listedAt),
   });
 }
 
