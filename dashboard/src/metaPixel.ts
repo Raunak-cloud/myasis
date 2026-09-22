@@ -3,7 +3,13 @@ declare const __META_PIXEL_ID__: string;
 
 declare global {
   interface Window {
-    fbq?: ((...args: unknown[]) => void) & { callMethod?: (...args: unknown[]) => void; queue?: unknown[]; loaded?: boolean; version?: string };
+    fbq?: ((...args: unknown[]) => void) & {
+      callMethod?: (...args: unknown[]) => void;
+      push?: (...args: unknown[]) => void;
+      queue?: unknown[];
+      loaded?: boolean;
+      version?: string;
+    };
     _fbq?: Window['fbq'];
   }
 }
@@ -24,6 +30,9 @@ export function initMetaPixel(): void {
         if (fbq.callMethod) fbq.callMethod(...args);
         else fbq.queue?.push(args);
       } as NonNullable<Window['fbq']>;
+      // Meta's loader expects the stub to expose itself as `push`, exactly as
+      // in the official base-code snippet, before fbevents.js replaces it.
+      fbq.push = fbq;
       fbq.queue = [];
       fbq.loaded = true;
       fbq.version = '2.0';
