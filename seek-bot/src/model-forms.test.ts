@@ -178,6 +178,10 @@ try {
   await page.setContent('<main>Application</main><footer><button>NEXT</button></footer><nav><button>Review application</button></nav>');
   assert.ok((await observe(page)).actions.some(action => action.text === 'NEXT'), 'footer placement must not hide a wizard action from the model');
   assert.ok((await observe(page)).actions.some(action => action.text === 'Review application'), 'navigation placement does not suppress application controls');
+  await page.setContent('<main><div data-automation-id="formField"><label>Salutation *</label><button role="combobox" aria-expanded="true">Select One</button></div><div role="option">Mx</div></main>');
+  const labelledDropdown = await observe(page);
+  assert.ok(labelledDropdown.actions.some(action => action.text === 'Salutation *: Select One (opens a list)'), 'generic dropdown opener includes its question');
+  assert.ok(labelledDropdown.actions.some(action => action.text === 'Salutation *: Mx'), 'portal option includes the currently expanded question');
   await page.setContent('<main><label>Name<input></label></main>');
   ctx = await context();
 

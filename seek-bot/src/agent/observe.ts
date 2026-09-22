@@ -85,6 +85,21 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       }
       return [...node.childNodes].map(composedText).join(' ').replace(/\s+/g, ' ').trim();
     };
+    const questionFor = (control: Element): string => {
+      const root = control.getRootNode() as Document | ShadowRoot;
+      const labelled = (control.getAttribute('aria-labelledby') ?? '')
+        .split(/\s+/).filter(Boolean)
+        .map(id => root.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '')
+        .filter(Boolean).join(' ');
+      if (labelled) return labelled;
+      const group = control.closest('[data-automation-id="formField"], fieldset, [role="group"], [class*="formField"], [class*="form-field"]');
+      if (!group) return '';
+      return (group.querySelector('legend, [data-automation-id="formLabel"], label')?.textContent ?? '')
+        .replace(/\s+/g, ' ').trim();
+    };
+    const expanded = all.filter(element =>
+      element.getAttribute('aria-expanded') === 'true' && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
+    const openQuestion = expanded.length === 1 ? questionFor(expanded[0]) : '';
 
     for (const element of all) {
       const tag = element.tagName;
@@ -160,6 +175,8 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         element.getAttribute('title') ||
         element.getAttribute('placeholder') ||
         fileLabel;
+      const question = isOption ? openQuestion : isOpener ? questionFor(element) : '';
+      if (question && !label.toLowerCase().includes(question.toLowerCase())) label = `${question}: ${label}`;
       // Icon-only controls often sit beside their labelled input (for
       // example a custom dropdown arrow). Expose that observed association
       // instead of dropping the only control that can open the widget.
