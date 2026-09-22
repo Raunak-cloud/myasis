@@ -90,6 +90,9 @@ employers, so read the page rather than assuming an order.
   An unchecked skill is a valid negative answer, not an unfinished field.
   Read the answer tool's returned value: it can reject your proposed answer.
   Never use coordinates to override it or pick a different unsupported skill.
+  Never infer sensitive demographics or a gendered title from a name or appearance.
+  Use explicit candidate evidence, an offered non-disclosure option, or leave optional
+  fields blank; a required personal fact with no supported answer needs the candidate.
   For a group, evaluate the supported positive options before "None of these".
 - If a forward control is disabled, something required is still unanswered.
 - A nonempty field is not necessarily valid. Read validation messages and
@@ -717,7 +720,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
 
     step.result = result.kind === 'ok' ? result.message.slice(0, 400) : `ended: ${result.outcome.status}`;
-    needVision = result.kind === 'ok' && /Not accepted|No option matches|did not open|Could not click|nothing on the page changed/i.test(result.message);
+    needVision = result.kind === 'ok' && /Not accepted|No option matches|did not open|Could not click|nothing on the page changed|No action|only available while a screenshot/i.test(result.message);
 
     if (result.kind === 'terminal') {
       // The confirmation page is authoritative even here: a submit click that

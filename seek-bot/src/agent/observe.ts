@@ -152,12 +152,27 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         const name = input.getAttribute('aria-label') || explicitLabel || labelledBy || context || 'file upload';
         fileLabel = input.accept ? `${name} (accepts ${input.accept})` : name;
       }
-      const label =
+      let label =
         (element as HTMLElement).innerText?.trim() ||
         element.getAttribute('aria-label') ||
         element.getAttribute('title') ||
         element.getAttribute('placeholder') ||
         fileLabel;
+      // Icon-only controls often sit beside their labelled input (for
+      // example a custom dropdown arrow). Expose that observed association
+      // instead of dropping the only control that can open the widget.
+      if (!label && isButton) {
+        let parent = element.parentElement;
+        for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
+          const inputs = [...parent.querySelectorAll('input:not([type="hidden"]), select, textarea')];
+          if (inputs.length > 1) break;
+          if (inputs.length !== 1) continue;
+          const input = inputs[0] as HTMLInputElement;
+          const associated = [...(input.labels ?? [])].map(item => item.textContent?.trim()).filter(Boolean).join(' ')
+            || input.getAttribute('aria-label');
+          if (associated) { label = `Open ${associated}`; break; }
+        }
+      }
       results.push({
         ref,
         text: label + state,

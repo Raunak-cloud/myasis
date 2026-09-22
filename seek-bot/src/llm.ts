@@ -340,9 +340,12 @@ For each field also set "basis", which decides whether it may be filled at all:
   form has asked for it — a field left empty fails validation as surely as a wrong one.
   If a value is rejected you will be told what the form said and asked again, so use its
   complaint rather than repeating the same answer.
-- Routine form fields are grounded, neutral choices: a Title (Mr/Ms/Mrs/Mx) follows from
-  the pronouns or gender in the profile (if neither is present, choose the option that
-  fits the name and note "assumed" in the rationale); "Preferred contact method" is Email;
+- Never infer gender, pronouns, ethnicity, Indigenous status, disability, religion,
+  sexual orientation or a gendered title from a name, photo, nationality or occupation.
+  Use explicit candidate evidence only. Without it, select an offered non-disclosure
+  option, leave an optional field blank, or mark a required field ungrounded.
+- Routine form fields are grounded, neutral choices: a Title follows only from an
+  explicitly supplied title or gender; "Preferred contact method" is Email;
   a state or country selector follows from the candidate's address.
 - "How did you hear about this job / about us?" is a fact of this application, not of the
   profile: the candidate found this listing on ${job.platform === 'indeed' ? 'Indeed' : 'SEEK'}. Choose that option

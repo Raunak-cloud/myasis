@@ -396,6 +396,10 @@ async function main() {
       if (candidates.length >= candidateCap) break;
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id)) continue;
+      if (stub.applicationMode && stub.applicationMode !== 'unknown' && outsideScope(stub.applicationMode)) {
+        bump('outside run scope');
+        continue;
+      }
       if (evaluated >= config.limits.maxEvaluations) {
         console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
         break;
@@ -482,6 +486,14 @@ async function main() {
           company: job.company,
           reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
         });
+        continue;
+      }
+
+      // The detail page can resolve a previously unknown application type.
+      // Do not spend fit calls or candidate slots on a different run scope.
+      if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+        bump('outside run scope');
+        logOutcome({ status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company });
         continue;
       }
 

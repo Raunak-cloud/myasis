@@ -132,6 +132,10 @@ try {
   const labelPoint = await page.locator('label').first().evaluate(el => { const r = el.getBoundingClientRect(); return { x: (r.x + 2) / innerWidth * 1000, y: (r.y + r.height / 2) / innerHeight * 1000 }; });
   await executeTool(ctx, 'click_point', { ...labelPoint, reason: 'Click label instead' });
   assert.equal(await page.locator('input[type=checkbox]').isChecked(), false, 'label clicks cannot bypass grounded field tools');
+  await page.setContent('<main><label for="title">Preferred title</label><div><input id="title" value="Select"><button type="button" style="width:30px;height:30px"></button></div></main>');
+  ctx = await context();
+  assert.ok(ctx.observation.actions.some(action => action.text === 'Open Preferred title'), 'icon-only dropdown opener receives its associated field label');
+
   const beforeInvalid = calls;
   await executeTool(ctx, 'answer_questions', { refs: 'f1', reason: 'Malformed' });
   assert.equal(calls, beforeInvalid);
