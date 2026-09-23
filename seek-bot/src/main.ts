@@ -138,7 +138,11 @@ async function main() {
   }
 
   const index = new AppliedIndex();
-  const reviewCache = new ReviewCache();
+  const reviewCache = new ReviewCache({
+    // External listings are valid in a normal run, but known misses in a
+    // hosted-only run. Normal runs still ignore this scoped suppression.
+    allowExternalApply: config.allowExternalApply && runScope() !== 'hosted',
+  });
   const reviewContext = reviewContextFingerprint(profile);
   const rememberExistingApplication = (job: JobListing, reason: string) => {
     if (index.has(job.id, job.company, job.title, job.location)) return;
@@ -509,12 +513,6 @@ async function main() {
         bump('outside run scope');
         continue;
       }
-      if (evaluated >= config.limits.maxEvaluations) {
-        console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
-        break;
-      }
-      evaluated++;
-
       let job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
       /**
        * Reading pace, not network pace. At 1–3 s a hundred job ads went by in
@@ -602,9 +600,20 @@ async function main() {
       // Do not spend fit calls or candidate slots on a different run scope.
       if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
         bump('outside run scope');
-        logOutcome({ status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company });
+        logOutcome({
+          status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company,
+          ...(job.applicationMode === 'external'
+            ? { reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external) }
+            : {}),
+        });
         continue;
       }
+
+      if (evaluated >= config.limits.maxEvaluations) {
+        console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
+        break;
+      }
+      evaluated++;
 
       const injection = detectInjection(job);
       if (injection) {

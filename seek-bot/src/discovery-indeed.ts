@@ -2,6 +2,7 @@ import type { Page } from 'patchright';
 import { config } from './config.js';
 import { jitter, waitForChallengeToClear } from './browser.js';
 import type { JobListing } from './types.js';
+import { runScope } from './run-scope.js';
 
 /**
  * How Indeed actually works (verified live against au.indeed.com, signed in,
@@ -290,6 +291,17 @@ async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobL
     })
     .catch(() => ({ description: '', location: '', alreadyApplied: false, appliedNote: undefined }));
 
+  // Search cards no longer consistently expose "Easily apply". Resolve the
+  // host from the real listing CTA so a scoped run can reject employer-site
+  // redirects before paying for an AI fit review.
+  const externalControl = page.getByRole('button', { name: /^apply on company site/i });
+  const hostedControl = page.getByRole('button', { name: /^(apply now|apply with indeed|continue application)/i });
+  const applicationMode = (await externalControl.count().catch(() => 0)) > 0
+    ? 'external' as const
+    : (await hostedControl.count().catch(() => 0)) > 0
+      ? 'hosted' as const
+      : job.applicationMode;
+
   if (!detail.description) {
     console.warn(`  [discovery-indeed] search panel did not load detail for ${job.id}`);
   }
@@ -300,10 +312,14 @@ async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobL
     location: detail.location || job.location,
     alreadyApplied: detail.alreadyApplied,
     appliedNote: detail.appliedNote,
+    applicationMode,
   };
 }
 
 export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobListing> {
+  if (runScope() !== 'all' && (!job.applicationMode || job.applicationMode === 'unknown')) {
+    return fetchJobDetailViaPanel(page, job);
+  }
   if (!/indeed\.com\/jobs(?:\?|$)/i.test(page.url()) || !(await page.locator('[data-jk]').count().catch(() => 0))) {
     await page.goto(searchUrl(config.keywords[0] ?? '', 1), { waitUntil: 'domcontentloaded' });
     await waitForChallengeToClear(page, 60_000);
