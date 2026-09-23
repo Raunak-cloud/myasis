@@ -514,6 +514,36 @@ async function main() {
         continue;
       }
       let job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
+
+      // Resolve run scope as soon as the listing CTA is known. In particular,
+      // do not make a page-judgement model call or simulate reading time for an
+      // employer-site redirect in an Indeed-hosted-only run.
+      if (job.applicationMode === 'external' && !config.allowExternalApply) {
+        const destination = job.applicationUrl ?? 'employer site';
+        console.log(`  ↪ off-platform (${destination}) — skipped before AI fit review`);
+        bump('external application disabled');
+        logOutcome({
+          status: 'off-platform',
+          jobId: job.id,
+          redirectedTo: destination,
+          title: job.title,
+          company: job.company,
+          reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
+        });
+        continue;
+      }
+
+      if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+        bump('outside run scope');
+        logOutcome({
+          status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company,
+          ...(job.applicationMode === 'external'
+            ? { reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external) }
+            : {}),
+        });
+        continue;
+      }
+
       /**
        * Reading pace, not network pace. At 1–3 s a hundred job ads went by in
        * fifteen minutes, and Cloudflare challenges are partly rate-based — the
@@ -579,34 +609,6 @@ async function main() {
           logOutcome({ status: 'skipped', jobId: job.id, reason: `Listing unavailable: ${verdict.reason}`, title: job.title, company: job.company });
           continue;
         }
-      }
-
-      if (job.applicationMode === 'external' && !config.allowExternalApply) {
-        const destination = job.applicationUrl ?? 'employer site';
-        console.log(`  ↪ off-platform (${destination}) — skipped before AI fit review`);
-        bump('external application disabled');
-        logOutcome({
-          status: 'off-platform',
-          jobId: job.id,
-          redirectedTo: destination,
-          title: job.title,
-          company: job.company,
-          reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
-        });
-        continue;
-      }
-
-      // The detail page can resolve a previously unknown application type.
-      // Do not spend fit calls or candidate slots on a different run scope.
-      if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
-        bump('outside run scope');
-        logOutcome({
-          status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company,
-          ...(job.applicationMode === 'external'
-            ? { reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external) }
-            : {}),
-        });
-        continue;
       }
 
       if (evaluated >= config.limits.maxEvaluations) {

@@ -272,7 +272,9 @@ async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobL
   await Promise.any([
     page.locator('#jobDescriptionText').first().waitFor({ state: 'visible', timeout: 20_000 }),
     page.locator('[data-testid="jobsearch-ViewjobPane"]').first().waitFor({ state: 'visible', timeout: 20_000 }),
+    page.locator('[data-testid="primary-apply-action"], [data-testid="viewjob-indeed-apply"]').first().waitFor({ state: 'visible', timeout: 20_000 }),
     page.getByRole('button', { name: /^(apply now|apply with indeed|continue application|apply on company site)/i }).first().waitFor({ state: 'visible', timeout: 20_000 }),
+    page.getByRole('link', { name: /^(apply now|apply with indeed|continue application|apply on company site)/i }).first().waitFor({ state: 'visible', timeout: 20_000 }),
   ]).catch(() => {});
   await jitter(500, 1200);
 
@@ -300,11 +302,20 @@ async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobL
   // Search cards no longer consistently expose "Easily apply". Resolve the
   // host from the real listing CTA so a scoped run can reject employer-site
   // redirects before paying for an AI fit review.
-  const externalControl = page.getByRole('button', { name: /^apply on company site/i });
-  const hostedControl = page.getByRole('button', { name: /^(apply now|apply with indeed|continue application)/i });
-  const applicationMode = (await externalControl.count().catch(() => 0)) > 0
+  const primaryApplyText = await page
+    .locator('[data-testid="primary-apply-action"], [data-testid="viewjob-indeed-apply"]')
+    .allTextContents()
+    .then((values) => values.join(' '))
+    .catch(() => '');
+  const externalControl = page.getByRole('button', { name: /^apply on company site/i })
+    .or(page.getByRole('link', { name: /^apply on company site/i }));
+  const hostedControl = page.getByRole('button', { name: /^(apply now|apply with indeed|continue application)/i })
+    .or(page.getByRole('link', { name: /^(apply now|apply with indeed|continue application)/i }));
+  const applicationMode = /apply on company site/i.test(primaryApplyText)
+    || (await externalControl.count().catch(() => 0)) > 0
     ? 'external' as const
-    : (await hostedControl.count().catch(() => 0)) > 0
+    : /apply now|apply with indeed|continue application/i.test(primaryApplyText)
+      || (await hostedControl.count().catch(() => 0)) > 0
       ? 'hosted' as const
       : job.applicationMode;
 
