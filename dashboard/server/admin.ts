@@ -617,7 +617,7 @@ export async function handleAdminRequest(
           ...(hasEvaluations ? { evaluationsPerRun: body.evaluationsPerRun } : {}),
           ...(hasMaxApps ? { maxApplicationsPerRun: body.maxApplicationsPerRun } : {}),
           ...(hasHumanizer ? { humanizer: body.humanizer } : {}),
-        });
+        }, { targetIsAdmin: isAdmin(target.email) });
         return send({ ok: true, user: await userRow(target) });
       }
       case 'auto-apply': {

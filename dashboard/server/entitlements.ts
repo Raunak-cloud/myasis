@@ -90,16 +90,19 @@ export async function adminOverridesFor(userId: string): Promise<AdminOverrides>
 
 /**
  * Sets or clears one account's admin overrides. A `null` value clears that
- * override back to the plan default; a number is clamped to the same
- * ceiling seek-bot enforces for every account (`RUN_LIMITS`), so an operator
- * cannot hand out more than a run will actually use.
+ * override back to the plan default. Customer accounts stay within the hard
+ * bot ceilings; an administrator's own account may use any positive safe
+ * integer because its runs carry `ADMIN_UNLIMITED` and the bot deliberately
+ * lifts those ceilings for that account.
  */
 export async function setAdminOverrides(
   userId: string,
   overrides: { evaluationsPerRun?: number | null; maxApplicationsPerRun?: number | null; humanizer?: boolean | null },
+  options: { targetIsAdmin?: boolean } = {},
 ): Promise<void> {
-  const clamp = (value: number | null | undefined, ceiling: number) =>
-    value === null || value === undefined ? value : Math.max(1, Math.min(ceiling, Math.floor(value)));
+  const clamp = (value: number | null | undefined, ceiling: number) => value === null || value === undefined
+    ? value
+    : Math.max(1, Math.min(options.targetIsAdmin ? Number.MAX_SAFE_INTEGER : ceiling, Math.floor(value)));
   if (overrides.evaluationsPerRun !== undefined) {
     const clamped = clamp(overrides.evaluationsPerRun, RUN_LIMITS.MAX_EVALUATIONS);
     await upsertSettingRow(userId, ADMIN_EVALUATIONS_OVERRIDE_KEY, clamped ? String(clamped) : '');
