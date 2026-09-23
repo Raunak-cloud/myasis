@@ -117,6 +117,18 @@ function cleanReferrer(raw: unknown, ownHost: string): string | null {
   }
 }
 
+function cleanAttribution(raw: unknown): { source: string | null; medium: string | null; campaign: string | null } {
+  const input = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const clean = (value: unknown, max: number) => typeof value === 'string'
+    ? [...value.trim()].filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127).join('').slice(0, max) || null
+    : null;
+  return {
+    source: clean(input.source, 80)?.toLowerCase() ?? null,
+    medium: clean(input.medium, 80),
+    campaign: clean(input.campaign, 160),
+  };
+}
+
 // ---------------------------------------------------------------- recording
 
 /** A page-shown beacon. Anything malformed is dropped silently; analytics never answer with an error. */
@@ -137,21 +149,25 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
   const screen = typeof b.screen === 'string' && /^\d{2,5}x\d{2,5}$/.test(b.screen) ? b.screen : null;
   const language = typeof b.language === 'string' && /^[A-Za-z-]{2,16}$/.test(b.language) ? b.language : null;
   const timeZone = typeof b.timeZone === 'string' && /^[A-Za-z_/+-]{2,64}$/.test(b.timeZone) ? b.timeZone : null;
+  const attribution = cleanAttribution(b.attribution);
 
   // An ignored address is the operator's own: the view is acknowledged, never kept.
   const row = await one<{ id: string }>(
     `INSERT INTO page_views (
-       visitor_id, session_id, user_id, page, referrer, ip,
+       visitor_id, session_id, user_id, page, referrer,
+       attribution_source, attribution_medium, attribution_campaign, ip,
        country_code, country, region, city, latitude, longitude,
        user_agent, device, browser, os, screen, language, time_zone
      )
-     SELECT $1::text, $2::text, $3::bigint, $4::text, $5::text, $6::inet,
-            $7::text, $8::text, $9::text, $10::text, $11::double precision, $12::double precision,
-            $13::text, $14::text, $15::text, $16::text, $17::text, $18::text, $19::text
-      WHERE NOT EXISTS (SELECT 1 FROM ignored_addresses WHERE ip = $6::inet)
+     SELECT $1::text, $2::text, $3::bigint, $4::text, $5::text,
+            $6::text, $7::text, $8::text, $9::inet,
+            $10::text, $11::text, $12::text, $13::text, $14::double precision, $15::double precision,
+            $16::text, $17::text, $18::text, $19::text, $20::text, $21::text, $22::text
+      WHERE NOT EXISTS (SELECT 1 FROM ignored_addresses WHERE ip = $9::inet)
      RETURNING id::text AS id`,
     [
-      visitorId, sessionId, userId, page, cleanReferrer(b.referrer, host), ip,
+      visitorId, sessionId, userId, page, cleanReferrer(b.referrer, host),
+      attribution.source, attribution.medium, attribution.campaign, ip,
       place.countryCode, place.country, place.region, place.city, place.latitude, place.longitude,
       ua, agent.device, agent.browser, agent.os, screen, language, timeZone,
     ],
@@ -321,7 +337,8 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     breakdown('city', home ? 'region' : `concat_ws(', ', region, country)`, 'country_code', 'AND city IS NOT NULL'),
     breakdown('page', 'NULL', 'NULL'),
     // A source brings a visit, not a page view: the page reports it once, and it is counted once.
-    breakdown('referrer', 'NULL', 'NULL', 'AND referrer IS NOT NULL', 'count(DISTINCT session_id)'),
+    breakdown(`COALESCE(attribution_source, referrer)`, 'NULL', 'NULL',
+      'AND COALESCE(attribution_source, referrer) IS NOT NULL', 'count(DISTINCT session_id)'),
     breakdown('device', 'os', 'NULL'),
     breakdown('browser', 'os', 'NULL'),
     query<{ day: string; visitors: number; views: number }>(
@@ -396,6 +413,9 @@ export interface RecentVisit {
   language: string | null;
   timeZone: string | null;
   referrer: string | null;
+  attributionSource: string | null;
+  attributionMedium: string | null;
+  attributionCampaign: string | null;
   email: string | null;
 }
 
@@ -408,7 +428,9 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
     views: number; duration_ms: number; pages: string[]; ip: string | null;
     country_code: string | null; country: string | null; region: string | null; city: string | null;
     device: string | null; browser: string | null; os: string | null; screen: string | null;
-    language: string | null; time_zone: string | null; referrer: string | null; email: string | null;
+    language: string | null; time_zone: string | null; referrer: string | null;
+    attribution_source: string | null; attribution_medium: string | null; attribution_campaign: string | null;
+    email: string | null;
   }>(
     `WITH visits AS (
        SELECT session_id, visitor_id,
@@ -429,6 +451,9 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
               (array_agg(language ORDER BY started_at))[1] AS language,
               (array_agg(time_zone ORDER BY started_at))[1] AS time_zone,
               (array_agg(referrer ORDER BY started_at) FILTER (WHERE referrer IS NOT NULL))[1] AS referrer,
+              (array_agg(attribution_source ORDER BY started_at) FILTER (WHERE attribution_source IS NOT NULL))[1] AS attribution_source,
+              (array_agg(attribution_medium ORDER BY started_at) FILTER (WHERE attribution_medium IS NOT NULL))[1] AS attribution_medium,
+              (array_agg(attribution_campaign ORDER BY started_at) FILTER (WHERE attribution_campaign IS NOT NULL))[1] AS attribution_campaign,
               max(user_id) AS user_id
          FROM page_views WHERE ${where}
         GROUP BY session_id, visitor_id
@@ -461,6 +486,9 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
     language: row.language,
     timeZone: row.time_zone,
     referrer: row.referrer,
+    attributionSource: row.attribution_source,
+    attributionMedium: row.attribution_medium,
+    attributionCampaign: row.attribution_campaign,
     email: row.email,
   }));
 }

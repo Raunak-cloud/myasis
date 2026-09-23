@@ -991,6 +991,9 @@ interface RecentVisit {
   language: string | null;
   timeZone: string | null;
   referrer: string | null;
+  attributionSource: string | null;
+  attributionMedium: string | null;
+  attributionCampaign: string | null;
   email: string | null;
 }
 
@@ -1349,7 +1352,16 @@ function VisitorsView() {
                       <div className="job-meta">{visit.device}{visit.screen ? ` · ${visit.screen}` : ''}</div>
                     </td>
                     <td>
-                      {visit.referrer ? (
+                      {visit.attributionSource ? (
+                        <>
+                          <strong>{visit.attributionSource}</strong>
+                          {(visit.attributionMedium || visit.attributionCampaign) && (
+                            <div className="job-meta">
+                              {[visit.attributionMedium, visit.attributionCampaign].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
+                        </>
+                      ) : visit.referrer ? (
                         <a href={visit.referrer} target="_blank" rel="noreferrer noopener">
                           {visit.referrer.replace('https://', '').replace('http://', '').slice(0, 60)}
                         </a>

@@ -13,7 +13,42 @@
 
 const VISITOR_KEY = 'owtomate_visitor';
 const SESSION_KEY = 'owtomate_session';
+const ATTRIBUTION_KEY = 'owtomate_attribution';
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+
+interface Attribution {
+  source: string;
+  medium: string;
+  campaign: string;
+}
+
+function cleanAttributionValue(value: string | null, max: number): string {
+  return [...(value ?? '').trim()]
+    .filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
+    .join('')
+    .slice(0, max);
+}
+
+/** Capture campaign data before auth or an in-app navigation can replace the landing URL. */
+function landingAttribution(): Attribution | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const source = cleanAttributionValue(params.get('utm_source'), 80)
+      || (params.has('rdt_cid') ? 'reddit' : '');
+    const current = source ? {
+      source: source.toLowerCase(),
+      medium: cleanAttributionValue(params.get('utm_medium'), 80),
+      campaign: cleanAttributionValue(params.get('utm_campaign'), 160),
+    } : null;
+    if (current) sessionStorage.setItem(ATTRIBUTION_KEY, JSON.stringify(current));
+    const stored = current ?? JSON.parse(sessionStorage.getItem(ATTRIBUTION_KEY) ?? 'null');
+    return stored && typeof stored.source === 'string' ? stored as Attribution : null;
+  } catch {
+    return null;
+  }
+}
+
+const attribution = landingAttribution();
 
 function freshId(): string {
   try {
@@ -63,6 +98,7 @@ let listening = false;
  * someone here counted once for every tab they opened.
  */
 let referrerReported = false;
+let attributionReported = false;
 
 function elapsed(view: View): number {
   return Math.round(view.visibleMs + (view.visibleSince === null ? 0 : performance.now() - view.visibleSince));
@@ -132,6 +168,7 @@ export function trackPage(page: string): void {
       sessionId,
       page,
       referrer: referrerReported ? '' : document.referrer,
+      attribution: attributionReported ? null : attribution,
       screen: `${window.screen.width}x${window.screen.height}`,
       language: navigator.language,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -143,5 +180,6 @@ export function trackPage(page: string): void {
     })
     .catch(() => {});
   referrerReported = true;
+  attributionReported = true;
   current = view;
 }

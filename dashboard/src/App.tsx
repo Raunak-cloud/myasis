@@ -112,7 +112,9 @@ export default function App() {
   }, [entitlements, isAdmin, tab]);
   /** What is in front of the visitor: the landing page while signed out, otherwise the tab. */
   useEffect(() => {
-    if (authLoading) return;
+    // A first-time visitor already has the landing page in front of them while
+    // auth loads. Record it immediately so a quick bounce is still a visit.
+    if (authLoading && wasSignedIn()) return;
     trackPage(user ? tab : 'landing');
   }, [authLoading, user, tab]);
 

@@ -448,6 +448,9 @@ CREATE TABLE IF NOT EXISTS page_views (
   user_id      BIGINT REFERENCES users(id) ON DELETE SET NULL,
   page         TEXT NOT NULL,
   referrer     TEXT,
+  attribution_source   TEXT,
+  attribution_medium   TEXT,
+  attribution_campaign TEXT,
   ip           INET,
   country_code TEXT,
   country      TEXT,
@@ -468,6 +471,9 @@ CREATE TABLE IF NOT EXISTS page_views (
 CREATE INDEX IF NOT EXISTS page_views_started_idx ON page_views(started_at DESC);
 CREATE INDEX IF NOT EXISTS page_views_session_idx ON page_views(session_id, started_at);
 CREATE INDEX IF NOT EXISTS page_views_country_idx ON page_views(country_code, started_at DESC);
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS attribution_source TEXT;
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS attribution_medium TEXT;
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS attribution_campaign TEXT;
 
 -- Addresses whose visits are not customers': the operators' own homes and
 -- offices. Nothing from them is recorded, and what was recorded before they
