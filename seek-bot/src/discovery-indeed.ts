@@ -269,13 +269,19 @@ async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobL
   const detailUrl = searchUrl('', 1, job.id);
   await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
   await waitForChallengeToClear(page, 60_000);
-  await page.waitForSelector('#jobDescriptionText', { timeout: 20_000 }).catch(() => {});
+  await Promise.any([
+    page.locator('#jobDescriptionText').first().waitFor({ state: 'visible', timeout: 20_000 }),
+    page.locator('[data-testid="jobsearch-ViewjobPane"]').first().waitFor({ state: 'visible', timeout: 20_000 }),
+    page.getByRole('button', { name: /^(apply now|apply with indeed|continue application|apply on company site)/i }).first().waitFor({ state: 'visible', timeout: 20_000 }),
+  ]).catch(() => {});
   await jitter(500, 1200);
 
   const detail = await page
     .evaluate(() => {
       const descriptionNode = document.querySelector('#jobDescriptionText');
-      const detailPane = descriptionNode?.closest('[data-testid="jobsearch-ViewjobPane"], main, [role="main"]') ?? document.body;
+      const detailPane = descriptionNode?.closest('[data-testid="jobsearch-ViewjobPane"], main, [role="main"]')
+        ?? document.querySelector('[data-testid="jobsearch-ViewjobPane"], main, [role="main"]')
+        ?? document.body;
       const text = (detailPane as HTMLElement).innerText ?? '';
       const location =
         document.querySelector('[data-testid="inlineHeader-companyLocation"]')?.textContent?.trim() ||
@@ -283,7 +289,7 @@ async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobL
         '';
       const appliedMatch = text.match(/(?:you applied|application (?:was )?(?:submitted|sent))[^\n.]*/i);
       return {
-        description: (descriptionNode as HTMLElement | null)?.innerText?.trim() ?? '',
+        description: (descriptionNode as HTMLElement | null)?.innerText?.trim() || text.trim(),
         location,
         alreadyApplied: Boolean(appliedMatch),
         appliedNote: appliedMatch?.[0]?.trim(),
