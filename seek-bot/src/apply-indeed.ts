@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import { config } from './config.js';
-import { waitForInteractiveSurface, workingIn } from './browser.js';
+import { waitForChallengeToClear, waitForInteractiveSurface, workingIn } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
 import { runApplicationAgent } from './agent/loop.js';
@@ -86,6 +86,19 @@ export async function applyToIndeedJob(
     waitUntil: 'domcontentloaded',
   });
 
+  // Never interpret a Cloudflare interstitial as a listing. The visual judge
+  // can still see stale listing content behind the overlay, so this explicit
+  // gate must run before deciding which apply control the page contains.
+  if (!(await waitForChallengeToClear(page, 60_000))) {
+    deps.onFriction('captcha');
+    return {
+      status: 'needs-human',
+      jobId: job.id,
+      reason: 'Indeed security verification did not clear automatically — the application was not submitted.',
+      url: page.url(),
+    };
+  }
+
   const readySignals = [
     page.getByRole('heading', { name: /job post$/i }).first(),
     page.locator('#jobDescriptionText').first(),
@@ -134,15 +147,22 @@ export async function applyToIndeedJob(
   const indeedApplyCta = byName(page, /^(apply now|apply with indeed|continue application)/i);
   const externalCta = byName(page, /^apply on company site/i);
   const hosted = (await indeedApplyCta.count()) > 0;
+  const external = (await externalCta.count()) > 0;
   // The panel's own button is the truth about where the form lives; discovery only guesses, and cannot when Indeed's data is absent.
-  job.applicationMode = hosted ? 'hosted' : 'external';
+  if (hosted) job.applicationMode = 'hosted';
+  else if (external) job.applicationMode = 'external';
+  else {
+    return {
+      status: 'needs-human',
+      jobId: job.id,
+      reason: 'Indeed showed the listing but no application control was available — the application was not submitted.',
+      url: page.url(),
+    };
+  }
   if (outsideScope(job.applicationMode)) {
     return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
   }
   if (!hosted) {
-    if (!(await externalCta.count())) {
-      return { status: 'skipped', jobId: job.id, reason: 'no apply control found (expired?)' };
-    }
     if (!config.allowExternalApply) {
       const label = clean((await externalCta.first().innerText().catch(() => '')) || 'Apply on company site');
       return { status: 'off-platform', jobId: job.id, redirectedTo: `${label} → ${job.applicationUrl ?? job.url}` };
