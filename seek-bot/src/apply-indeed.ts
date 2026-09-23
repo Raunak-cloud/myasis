@@ -24,9 +24,14 @@ const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
  * fix it needed was one the agent already had.
  */
 
-/** Visible buttons whose accessible name matches, trimmed/case-folded. */
+/**
+ * Visible apply controls whose accessible name matches. Indeed currently
+ * renders the AU listing CTA as an anchor, while older layouts and some
+ * resumed applications render it as a button.
+ */
 function byName(page: Page, pattern: RegExp) {
-  return page.getByRole('button', { name: pattern });
+  return page.getByRole('button', { name: pattern })
+    .or(page.getByRole('link', { name: pattern }));
 }
 
 async function detectAlreadyApplied(page: Page): Promise<boolean> {
@@ -85,6 +90,7 @@ export async function applyToIndeedJob(
     page.getByRole('heading', { name: /job post$/i }).first(),
     page.locator('#jobDescriptionText').first(),
     page.locator('[data-testid="jobsearch-ViewjobPane"]').first(),
+    page.locator('[data-testid="primary-apply-action"], [data-testid="viewjob-indeed-apply"]').first(),
     byName(page, /^(apply now|apply with indeed|continue application|apply on company site)/i).first(),
   ];
   const panelReady = await Promise.any(
