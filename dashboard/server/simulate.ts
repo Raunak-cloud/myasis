@@ -84,7 +84,7 @@ function simulate(scenario: Scenario): Simulation {
     autoRunsUsedToday: scenario.autoRunsUsedToday ?? 0,
     autoApplyPaused: scenario.autoApplyPaused ?? false,
     hasSuccessfulRun: scenario.hasSuccessfulRun ?? true,
-    overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null },
+    overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null, humanizer: null },
     // A pass includes unlimited suggestions; the free plan's single one is shown as still available.
     searchTermSuggestionsLeft: active ? null : FREE_SEARCH_TERM_SUGGESTIONS,
   });

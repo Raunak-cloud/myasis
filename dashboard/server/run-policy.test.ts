@@ -93,13 +93,23 @@ const intensiveFacts = {
   autoRunsUsedToday: 0,
   autoApplyPaused: false,
   hasSuccessfulRun: true,
-  overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null },
+  overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null, humanizer: null },
   searchTermSuggestionsLeft: null,
 };
 const intensiveEntitlements = deriveEntitlements(intensiveFacts);
 const adminEntitlements = deriveEntitlements({ ...intensiveFacts, admin: true });
 check('customers cannot start runs manually', !intensiveEntitlements.manualRuns);
 check('administrators can start runs manually', adminEntitlements.manualRuns);
+check('administrators use the humanizer by default', adminEntitlements.humanizer);
+const essentialFacts = {
+  ...intensiveFacts,
+  billing: { paid: { ...intensiveFacts.billing.paid, hasActiveEssentialPass: true, hasActiveIntensivePass: false } },
+};
+check('Essential does not include the humanizer by default', !deriveEntitlements(essentialFacts).humanizer);
+check('an admin can enable the humanizer for one Essential account', deriveEntitlements({
+  ...essentialFacts,
+  overrides: { ...essentialFacts.overrides, humanizer: true },
+}).humanizer);
 const newCustomerEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRun: false });
 check('a new customer must start the first run', newCustomerEntitlements.firstRunRequired);
 check('the first successful run unlocks scheduling', !intensiveEntitlements.firstRunRequired);
@@ -141,7 +151,7 @@ check('a posted default board list still includes the Indeed an Intensive Pass p
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
 check('Free says the runs and reviews it gets', said('free').includes(`${automaticRunsPerDay('standard')} automatic live run each day`) && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Active Search says the runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} automatic live runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Intensive says the automatic runs, reviews and employer sites it gets', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('30 employer-site applications'));
+check('Intensive says the automatic runs, reviews and employer-site status', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('Employer-site applications — launching soon'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 console.log(`\n${failures} failure(s)`);

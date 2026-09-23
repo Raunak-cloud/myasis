@@ -37,7 +37,7 @@ interface AdminUser {
   resumes: number;
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
-  overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
+  overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null; humanizer: boolean | null };
   route: {
     homePort: number | null;
     proxy: { address: string; username: string } | null;
@@ -338,6 +338,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   const [confirmEmail, setConfirmEmail] = useState('');
   const [evaluationsInput, setEvaluationsInput] = useState('');
   const [maxAppsInput, setMaxAppsInput] = useState('');
+  const [humanizerInput, setHumanizerInput] = useState<'default' | 'enabled' | 'disabled'>('default');
   const [homeRouteInput, setHomeRouteInput] = useState('');
   const [externalJobUrl, setExternalJobUrl] = useState('');
   // The saved proxy's password never comes back from the server, so the field shows a stand-in and is only sent when edited.
@@ -353,6 +354,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
   useEffect(() => {
     setEvaluationsInput(user?.overrides.evaluationsPerRun != null ? String(user.overrides.evaluationsPerRun) : '');
     setMaxAppsInput(user?.overrides.maxApplicationsPerRun != null ? String(user.overrides.maxApplicationsPerRun) : '');
+    setHumanizerInput(user?.overrides.humanizer === true ? 'enabled' : user?.overrides.humanizer === false ? 'disabled' : 'default');
     setHomeRouteInput(user?.route.homePort != null ? String(user.route.homePort) : '');
     setProxyInput(user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '');
   }, [user]);
@@ -379,7 +381,16 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
     void act(
       'limits',
       `/users/${user!.id}/limits`,
-      { method: 'POST', json: { evaluationsPerRun, maxApplicationsPerRun, homeRoutePort, ...(proxyChanged ? { proxy: proxyInput.trim() || null } : {}) } },
+      {
+        method: 'POST',
+        json: {
+          evaluationsPerRun,
+          maxApplicationsPerRun,
+          humanizer: humanizerInput === 'default' ? null : humanizerInput === 'enabled',
+          homeRoutePort,
+          ...(proxyChanged ? { proxy: proxyInput.trim() || null } : {}),
+        },
+      },
       'Limits saved.',
     );
   }
@@ -591,6 +602,21 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                       value={maxAppsInput}
                       onChange={(event) => setMaxAppsInput(event.target.value)}
                     />
+                  </label>
+                  <label className="admin-switch-row">
+                    <span>
+                      Humanizer access
+                      <span className="job-meta" style={{ display: 'block' }}>Enable it for this account without changing its plan.</span>
+                    </span>
+                    <select
+                      className="input"
+                      value={humanizerInput}
+                      onChange={(event) => setHumanizerInput(event.target.value as 'default' | 'enabled' | 'disabled')}
+                    >
+                      <option value="default">Plan default</option>
+                      <option value="enabled">Enabled</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
                   </label>
                   <label className="admin-switch-row">
                     <span>

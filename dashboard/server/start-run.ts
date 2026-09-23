@@ -302,8 +302,11 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   for (const board of boards) {
     if (board !== 'seek' && board !== 'indeed') continue;
     const state = readSiteState(userId, board);
-    // Not a board the person signed out of themselves: that one stays out until they sign in again.
-    if (state?.signedIn === false && !state.signedOutByPerson) await checkSignin(userId, board);
+    // An unknown state may still have valid cookies (for example after a
+    // migration or restored browser profile), so verify it instead of
+    // silently dropping the board. A board the person explicitly signed out
+    // of stays out until they sign in again.
+    if (!state || (state.signedIn === false && !state.signedOutByPerson)) await checkSignin(userId, board);
   }
   const supportedBoards = boards.filter((board) => board === 'seek' || board === 'indeed');
   const unavailable = supportedBoards.filter((board) => readSiteState(userId, board)?.signedIn !== true);

@@ -81,12 +81,15 @@ export async function applyToIndeedJob(
     waitUntil: 'domcontentloaded',
   });
 
-  const panelReady = await page
-    .getByRole('heading', { name: /job post$/i })
-    .first()
-    .waitFor({ state: 'visible', timeout: 20_000 })
-    .then(() => true)
-    .catch(() => false);
+  const readySignals = [
+    page.getByRole('heading', { name: /job post$/i }).first(),
+    page.locator('#jobDescriptionText').first(),
+    page.locator('[data-testid="jobsearch-ViewjobPane"]').first(),
+    byName(page, /^(apply now|apply with indeed|continue application|apply on company site)/i).first(),
+  ];
+  const panelReady = await Promise.any(
+    readySignals.map((signal) => signal.waitFor({ state: 'visible', timeout: 20_000 })),
+  ).then(() => true).catch(() => false);
   if (!panelReady) {
     /**
      * Say what the page is rather than guessing. A whole run once skipped
@@ -100,11 +103,18 @@ export async function applyToIndeedJob(
       deps.onFriction(verdict.state as 'captcha' | 'identity' | 'login');
       return { status: 'needs-human', jobId: job.id, reason: `${verdict.state === 'captcha' ? 'CAPTCHA' : 'Verification'} challenge — ${verdict.reason}`, url: page.url() };
     }
-    return {
-      status: 'skipped',
-      jobId: job.id,
-      reason: verdict?.state === 'removed' ? `Listing unavailable: ${verdict.reason}` : 'listing panel did not load in time (expired, removed, or a slow page load)',
-    };
+    // Indeed removed the old "Job post" heading from its current results
+    // layout. When the visual page judge can see the requested listing and
+    // its controls, trust that model assessment and continue instead of
+    // turning a harmless selector change into a skipped application.
+    if (verdict?.state !== 'ok') {
+      return {
+        status: 'skipped',
+        jobId: job.id,
+        reason: verdict?.state === 'removed' ? `Listing unavailable: ${verdict.reason}` : 'listing panel did not load in time (expired, removed, or a slow page load)',
+      };
+    }
+    console.log('  ↪ listing is visible; continuing from the model-verified page');
   }
 
   if (await detectAlreadyApplied(page)) {
@@ -112,7 +122,10 @@ export async function applyToIndeedJob(
   }
 
   // "Continue application" is what Indeed shows once a flow was started and left; same wizard, resumed.
-  const indeedApplyCta = byName(page, /^(apply with indeed|continue application)/i);
+  // Indeed's current AU listing panel labels its hosted flow "Apply now";
+  // older sessions still say "Apply with Indeed", and an interrupted form
+  // says "Continue application". All three lead to the same hosted wizard.
+  const indeedApplyCta = byName(page, /^(apply now|apply with indeed|continue application)/i);
   const externalCta = byName(page, /^apply on company site/i);
   const hosted = (await indeedApplyCta.count()) > 0;
   // The panel's own button is the truth about where the form lives; discovery only guesses, and cannot when Indeed's data is absent.

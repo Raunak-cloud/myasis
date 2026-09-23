@@ -53,12 +53,15 @@ const AUTO_APPLY_PAUSED_KEY = 'AUTO_APPLY_PAUSED';
  */
 const ADMIN_EVALUATIONS_OVERRIDE_KEY = 'ADMIN_EVALUATIONS_OVERRIDE';
 const ADMIN_MAX_APPS_OVERRIDE_KEY = 'ADMIN_MAX_APPS_OVERRIDE';
+const ADMIN_HUMANIZER_OVERRIDE_KEY = 'ADMIN_HUMANIZER_OVERRIDE';
 
 export interface AdminOverrides {
   /** Listings a run reviews. Null means the account's plan decides. */
   evaluationsPerRun: number | null;
   /** Applications one run may submit. Null means the account's own setting or plan default decides. */
   maxApplicationsPerRun: number | null;
+  /** Force humanizer access on or off. Null means the account's plan decides. */
+  humanizer: boolean | null;
 }
 
 function parsePositiveInt(value: string | undefined): number | null {
@@ -71,12 +74,17 @@ function parsePositiveInt(value: string | undefined): number | null {
 export async function adminOverridesFor(userId: string): Promise<AdminOverrides> {
   const rows = await query<{ key: string; value: string }>(
     `SELECT key, value FROM settings WHERE user_id = $1 AND key = ANY($2)`,
-    [userId, [ADMIN_EVALUATIONS_OVERRIDE_KEY, ADMIN_MAX_APPS_OVERRIDE_KEY]],
+    [userId, [ADMIN_EVALUATIONS_OVERRIDE_KEY, ADMIN_MAX_APPS_OVERRIDE_KEY, ADMIN_HUMANIZER_OVERRIDE_KEY]],
   );
   const byKey = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     evaluationsPerRun: parsePositiveInt(byKey[ADMIN_EVALUATIONS_OVERRIDE_KEY]),
     maxApplicationsPerRun: parsePositiveInt(byKey[ADMIN_MAX_APPS_OVERRIDE_KEY]),
+    humanizer: byKey[ADMIN_HUMANIZER_OVERRIDE_KEY] === 'true'
+      ? true
+      : byKey[ADMIN_HUMANIZER_OVERRIDE_KEY] === 'false'
+        ? false
+        : null,
   };
 }
 
@@ -88,7 +96,7 @@ export async function adminOverridesFor(userId: string): Promise<AdminOverrides>
  */
 export async function setAdminOverrides(
   userId: string,
-  overrides: { evaluationsPerRun?: number | null; maxApplicationsPerRun?: number | null },
+  overrides: { evaluationsPerRun?: number | null; maxApplicationsPerRun?: number | null; humanizer?: boolean | null },
 ): Promise<void> {
   const clamp = (value: number | null | undefined, ceiling: number) =>
     value === null || value === undefined ? value : Math.max(1, Math.min(ceiling, Math.floor(value)));
@@ -99,6 +107,13 @@ export async function setAdminOverrides(
   if (overrides.maxApplicationsPerRun !== undefined) {
     const clamped = clamp(overrides.maxApplicationsPerRun, RUN_LIMITS.MAX_APPS_PER_RUN);
     await upsertSettingRow(userId, ADMIN_MAX_APPS_OVERRIDE_KEY, clamped ? String(clamped) : '');
+  }
+  if (overrides.humanizer !== undefined) {
+    await upsertSettingRow(
+      userId,
+      ADMIN_HUMANIZER_OVERRIDE_KEY,
+      overrides.humanizer === null ? '' : String(overrides.humanizer),
+    );
   }
 }
 
@@ -251,7 +266,7 @@ export interface Entitlements {
   runScopes: boolean;
   /** May search and apply to jobs hosted on Indeed as well as SEEK. */
   indeedApplications: boolean;
-  /** Cover letters are rewritten by the humanizer. Active Search and Intensive only. */
+  /** Cover letters are rewritten by the humanizer. Active Search, Intensive, admins, or an explicit admin override. */
   humanizer: boolean;
   /**
    * Search-term suggestions from résumés left. Null means no limit. The free
@@ -439,7 +454,8 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     rewriteText: tier === 'admin',
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
-    humanizer: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
+    humanizer: overrides.humanizer
+      ?? (tier === 'admin' || billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass),
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,
   };
