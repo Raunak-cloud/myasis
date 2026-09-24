@@ -62,6 +62,8 @@ export interface ToolContext {
   /** Everything this run would transmit, so a dry run can show it. */
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
+  /** Set only after a real cover-letter input or reveal control was observed. */
+  coverLetterOffered?: boolean;
   resumeUsed?: string;
   log: (line: string) => void;
   /** Side effects the candidate must be told about — see `ApplicationAction`. */
@@ -71,6 +73,24 @@ export interface ToolContext {
 }
 
 const ok = (message: string): ToolResult => ({ kind: 'ok', message });
+
+const COVER_LETTER = /\bcover[\s-]?letter\b/i;
+
+/**
+ * Remember only actionable cover-letter UI, never wording in a job advert.
+ * This lets the submit gate enforce the plan promise without blocking an
+ * employer that simply did not include a place to receive a letter.
+ */
+function rememberCoverLetterOpportunity(ctx: ToolContext): void {
+  if (ctx.coverLetterOffered) return;
+  ctx.coverLetterOffered =
+    ctx.observation.fields.some(field => COVER_LETTER.test(`${field.label} ${field.description ?? ''}`)) ||
+    ctx.observation.actions.some(action => COVER_LETTER.test(action.text));
+}
+
+const advancesApplication = (text: string): boolean =>
+  /^(continue|next|review(?: your)? application|preview application|save and continue)$/i.test(text.trim()) ||
+  isSubmitAction(text);
 
 /** Records a side effect once per kind and site, and says so in the run log. */
 function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {
@@ -344,6 +364,17 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
   if (action.disabled) {
     return ok(
       `"${action.text}" is disabled — the step is not satisfied yet. Answer the remaining required fields first.`,
+    );
+  }
+
+  // The navigation model may choose controls, but it cannot skip a letter
+  // field the employer actually provided. Free accounts send the grounded
+  // draft; eligible paid/admin accounts send the humanized version produced
+  // by finishedCoverLetterForJob().
+  if (advancesApplication(action.text) && ctx.coverLetterOffered && !ctx.coverLetter) {
+    return ok(
+      'Do not advance yet: this application offers a cover letter and none has been verified. ' +
+      'Reveal its writing field if needed, then call add_cover_letter with that FIELD ref.',
     );
   }
 
@@ -785,6 +816,7 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
   catch (error) { return ok(`Cover letter not accepted: ${(error as Error).message}. Re-observe and choose the current writing field or resolve the form's validation.`); }
   ctx.coverLetter = letter;
   ctx.guards.recordFillSuccess(field.label);
+  ctx.log(`  ✓ ${config.humanizer.enabled ? 'humanized' : 'personalized'} cover letter added`);
   return ok(`Cover letter verified in ${field.ref}. Re-observe the page and handle any remaining fields or validation before continuing.`);
 }
 
@@ -1026,6 +1058,7 @@ export async function executeTool(
   if ('__parseError' in args) {
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
+  rememberCoverLetterOpportunity(ctx);
   // Challenge controls never reach an AI-selected action. This also closes
   // the race where a CAPTCHA appears after observation but before the click.
   const captcha = await handleCaptchaWithCapMonster(ctx.page);

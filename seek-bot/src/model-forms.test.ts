@@ -126,6 +126,15 @@ try {
   assert.equal(invalid.kind, 'ok');
   assert.equal(await page.locator('textarea').nth(0).inputValue(), 'Keep me');
 
+  await page.setContent('<main><label>Cover letter<textarea></textarea></label><button onclick="document.body.dataset.advanced=\'yes\'">Continue</button></main>');
+  ctx = await context();
+  const blockedAdvance = await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Continue' });
+  assert.ok(blockedAdvance.kind === 'ok' && blockedAdvance.message.includes('Do not advance yet'));
+  assert.equal(await page.locator('body').getAttribute('data-advanced'), null, 'an offered cover letter cannot be skipped');
+  await executeTool(ctx, 'add_cover_letter', { ref: ctx.observation.fields[0].ref });
+  await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Continue after letter' });
+  assert.equal(await page.locator('body').getAttribute('data-advanced'), 'yes', 'advance is allowed after the letter is retained');
+
   await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');
   ctx = await context();
   const files = ctx.observation.actions.filter(action => action.role === 'file');
