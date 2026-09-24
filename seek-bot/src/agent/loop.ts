@@ -111,6 +111,11 @@ employers, so read the page rather than assuming an order.
   fields blank; a required personal fact with no supported answer needs the candidate.
   For a group, evaluate the supported positive options before "None of these".
 - If a forward control is disabled, something required is still unanswered.
+- An optional marketing, calls, texts, job-alert or notification opt-in never
+  becomes required merely because Submit is disabled. Leave it unchanged. If
+  no required field or validation error remains, the form is still preparing:
+  call wait_for_page once, then reload_page once if it remains unchanged, and
+  re-inspect the recovered form instead of opting the candidate in.
 - A nonempty field is not necessarily valid. Read validation messages and
   inspect partial defaults (such as a dialling prefix without a phone number).
   Use answer_questions with repair_refs for those fields and describe the
@@ -647,6 +652,21 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     if (page.url() === lastUrl && fingerprint === lastFingerprint) {
       stalls += 1;
       note = `${note}\n\nNOTE: the page is unchanged from the previous turn — your last action had no effect. Try a different control.`;
+      const disabledForward = ctx.observation.actions.find(action =>
+        action.disabled && /\b(?:continue|next|review|submit|send application|apply)\b/i.test(action.text),
+      );
+      const visibleRequired = ctx.observation.fields.filter(field => field.required);
+      const promotional = ctx.observation.fields.filter(field =>
+        /\b(?:marketing|promotional|job alerts?|notifications?|calls?|texts?|sms|updates?)\b/i.test(field.label),
+      );
+      if (stalls >= 2 && disabledForward && visibleRequired.length === 0) {
+        note +=
+          `\nThe forward control "${disabledForward.text}" is disabled but no required FIELD is visible.` +
+          (promotional.length
+            ? ` The remaining ${promotional.map(field => `"${field.label}"`).join(', ')} field(s) are optional opt-ins; do not change them.`
+            : '') +
+          ' Treat this as an unfinished/loading form: use wait_for_page once, then reload_page once if it is still unchanged, and re-inspect.';
+      }
       // Six actions without any effect is a wall, whatever they were called; stop spending the budget on it.
       if (stalls >= 6) {
         return finish({
