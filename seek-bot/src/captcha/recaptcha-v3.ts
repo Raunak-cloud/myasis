@@ -25,6 +25,8 @@ const ANCHOR = /^https:\/\/(?:www\.google\.com|www\.recaptcha\.net)\/recaptcha\/
  * waited for.
  */
 const V3_DEADLINE_MS = 9_000;
+const PREWARM_DEADLINE_MS = 100_000;
+const PREWARM_MAX_AGE_MS = 90_000;
 
 const minScore = () => Math.min(0.9, Math.max(0.1, Number(process.env.CAPMONSTER_V3_MIN_SCORE) || 0.7));
 /** Hostnames to swap tokens on; empty means everywhere v3 appears. */
@@ -64,6 +66,72 @@ interface Paused {
   responseHeaders?: Array<{ name: string; value: string }>;
 }
 
+interface SolvedToken {
+  taskId: number;
+  solution: Record<string, unknown>;
+}
+
+interface WarmToken {
+  startedAt: number;
+  promise: Promise<SolvedToken | null>;
+}
+
+/**
+ * Indeed asks for the same v3 action several times while an application moves
+ * through SmartApply. CapMonster normally needs about eight seconds, while
+ * Chrome only lets us hold Google's response for about nine. Start the next
+ * solve as soon as the iframe appears (and immediately after consuming one),
+ * so the token is ready before Indeed asks for it.
+ */
+const warmed = new WeakMap<Frame, Map<string, WarmToken>>();
+
+function expectedAction(host: Frame): string | undefined {
+  try {
+    return new URL(host.url()).hostname === 'smartapply.indeed.com' ? 'PREVIEW_GENERATION' : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function warmKey(siteKey: string, action: string, enterprise: boolean): string {
+  return `${enterprise ? 'enterprise' : 'standard'}:${siteKey}:${action}`;
+}
+
+function prewarm(host: Frame, siteKey: string, action: string, enterprise: boolean): WarmToken {
+  let cache = warmed.get(host);
+  if (!cache) {
+    cache = new Map();
+    warmed.set(host, cache);
+  }
+  const key = warmKey(siteKey, action, enterprise);
+  const existing = cache.get(key);
+  if (existing && Date.now() - existing.startedAt < PREWARM_MAX_AGE_MS) return existing;
+
+  const entry: WarmToken = {
+    startedAt: Date.now(),
+    promise: solveTask({
+      type: 'RecaptchaV3TaskProxyless',
+      websiteURL: host.url(),
+      websiteKey: siteKey,
+      pageAction: action,
+      minScore: minScore(),
+      isEnterprise: enterprise,
+    }, PREWARM_DEADLINE_MS, 2).catch(error => {
+      console.warn(`[captcha] capmonster: reCAPTCHA v3 prewarm failed (${(error as Error).message}).`);
+      return null;
+    }),
+  };
+  cache.set(key, entry);
+  return entry;
+}
+
+async function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('prewarmed token was not ready in time')), ms)),
+  ]);
+}
+
 async function swapToken(session: CDPSession, host: Frame, enterprise: boolean, event: Paused): Promise<void> {
   let fulfilled = false;
   try {
@@ -84,15 +152,24 @@ async function swapToken(session: CDPSession, host: Frame, enterprise: boolean, 
     const posted = Buffer.concat((event.request.postDataEntries ?? []).map(entry => Buffer.from(entry.bytes ?? '', 'base64')));
     const action = protobufString(posted, 8) || 'verify';
     const started = Date.now();
-    const { solution } = await solveTask({
-      type: 'RecaptchaV3TaskProxyless',
-      websiteURL: host.url(),
-      websiteKey: siteKey,
-      pageAction: action,
-      minScore: minScore(),
-      isEnterprise: enterprise,
-    }, V3_DEADLINE_MS, 1);
-    if (typeof solution.gRecaptchaResponse !== 'string' || !solution.gRecaptchaResponse) return;
+    const cache = warmed.get(host);
+    const key = warmKey(siteKey, action, enterprise);
+    const warm = cache?.get(key);
+    const solved = warm && Date.now() - warm.startedAt < PREWARM_MAX_AGE_MS
+      ? await within(warm.promise, V3_DEADLINE_MS)
+      : await solveTask({
+          type: 'RecaptchaV3TaskProxyless',
+          websiteURL: host.url(),
+          websiteKey: siteKey,
+          pageAction: action,
+          minScore: minScore(),
+          isEnterprise: enterprise,
+        }, V3_DEADLINE_MS, 1);
+    const solution = solved?.solution;
+    if (!solution || typeof solution.gRecaptchaResponse !== 'string' || !solution.gRecaptchaResponse) return;
+
+    cache?.delete(key);
+    if (expectedAction(host) === action) prewarm(host, siteKey, action, enterprise);
 
     payload[1] = solution.gRecaptchaResponse;
     await session.send('Fetch.fulfillRequest', {
@@ -130,6 +207,15 @@ async function intercept(page: Page, frame: Frame): Promise<void> {
     session.on('close', () => watched.delete(frame));
     session.on('Fetch.requestPaused', event => void swapToken(session, host, match[1] === 'enterprise', event as Paused));
     await session.send('Fetch.enable', { patterns: [{ urlPattern: '*/recaptcha/*/reload?*', requestStage: 'Response' }] });
+    const siteKey = new URL(frame.url()).searchParams.get('k');
+    const action = expectedAction(host);
+    if (siteKey && action && capMonsterReady()) {
+      const allowed = sites();
+      if (!allowed.length || allowed.some(site => new URL(host.url()).hostname.endsWith(site))) {
+        const isV3 = await host.evaluate(key => [...document.scripts].some(script => script.src.includes(`render=${key}`)), siteKey);
+        if (isV3) prewarm(host, siteKey, action, match[1] === 'enterprise');
+      }
+    }
   } catch {
     watched.delete(frame);
   }
