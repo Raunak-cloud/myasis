@@ -4,8 +4,8 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'patchrig
 import { config } from './config.js';
 import { judgePage } from './blocker.js';
 import { signInAutomatically } from './signin-agent.js';
-import { captchaEnabled, trySolveCaptcha, watchCaptchas } from './captcha.js';
-import { detectChallenge } from './captcha/detect.js';
+import { captchaEnabled, handleCaptchaWithCapMonster, watchCaptchas } from './captcha.js';
+import { hasCaptchaSurface } from './captcha/detect.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -495,7 +495,7 @@ export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * existing captcha check then reports.
  */
 export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): Promise<boolean> {
-  const showing = () => detectChallenge(page).then(Boolean).catch(() => false);
+  const showing = () => hasCaptchaSurface(page).catch(() => false);
   const deadline = Date.now() + timeoutMs;
   if (!(await showing())) return true;
   console.log('  ⏳ Security verification — waiting for it to clear');
@@ -510,7 +510,7 @@ export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): P
       return true;
     }
   }
-  if (captchaEnabled() && (await trySolveCaptcha(page))) {
+  if (captchaEnabled() && (await handleCaptchaWithCapMonster(page)) === 'solved') {
     for (let tries = 0; tries < 30; tries += 1) {
       if (!(await showing())) {
         await page.waitForLoadState('domcontentloaded').catch(() => {});

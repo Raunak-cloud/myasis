@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
-import { reportRejectedToken, trySolveCaptcha, watchCaptchas } from '../dist/captcha.js';
+import { handleCaptchaWithCapMonster, reportRejectedToken, trySolveCaptcha, watchCaptchas } from '../dist/captcha.js';
 
 // A stand-in for api.capmonster.cloud: no real task is created and nothing is spent.
 const calls = [];
@@ -67,6 +67,7 @@ const PAGES = {
     <div class="cf-turnstile" data-sitekey="${TS_KEY}" data-callback="onSolved"></div>
     <input name="cf-turnstile-response"><iframe src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/x/${TS_KEY}/auto/"></iframe>
     </div></form><script>window.onSolved = token => { document.title = 'callback:' + token }</script>`,
+  'unknown-captcha.test': '<title>CAPTCHA verification</title><div class="h-captcha" style="width:300px;height:80px"></div>',
   // The widget sits inside an embedded form, as ATS forms usually do.
   'employer.test': `<h1>Careers</h1><iframe src="http://recaptcha.test/"></iframe>`,
   'recaptcha.test': `<textarea name="g-recaptcha-response"></textarea><iframe src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RC_KEY}&size=normal"></iframe>
@@ -112,6 +113,9 @@ try {
   const tasksBeforeRetry = calls.filter(call => call.method === 'createTask').length;
   assert.equal(await trySolveCaptcha(retryable), true, 'a temporary unsolvable result is retried with a fresh task');
   assert.equal(calls.filter(call => call.method === 'createTask').length, tasksBeforeRetry + 2);
+
+  const unknown = await open('unknown-captcha.test');
+  assert.equal(await handleCaptchaWithCapMonster(unknown), 'blocked', 'an unknown CAPTCHA is withheld from browser agents');
 
   process.env.CAPTCHA_SOLVER = 'capmonster';
   const employer = await open('employer.test');
@@ -160,7 +164,7 @@ try {
   assert.equal(await trySolveCaptcha(await open('turnstile.test')), false);
   assert.equal(calls.length, before, 'an account error stops further API calls for the run');
 
-  console.log('PASS: Turnstile, Indeed branded challenge, temporary-error retry, embedded reCAPTCHA v2, Cloudflare challenge, reCAPTCHA v3 swap, cooldown, token report, account-error shutoff');
+  console.log('PASS: CapMonster-only guard, Turnstile, Indeed branded challenge, temporary-error retry, embedded reCAPTCHA v2, Cloudflare challenge, reCAPTCHA v3 swap, cooldown, token report, account-error shutoff');
 } finally {
   await context.close();
   api.close();

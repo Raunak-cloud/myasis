@@ -116,3 +116,28 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
     .catch(() => undefined);
   return { kind: 'recaptcha-v2', ...anchor, dataS };
 }
+
+/**
+ * True for any visible CAPTCHA/security surface, including providers this
+ * integration cannot yet parameterise. Unknown challenges are still kept away
+ * from the browser agent: only CapMonster may interact with them, and a type it
+ * cannot solve ends safely instead of becoming an AI click target.
+ */
+export async function hasCaptchaSurface(page: Page): Promise<boolean> {
+  if (await detectChallenge(page)) return true;
+  if (page.frames().some(frame =>
+    /(?:hcaptcha\.com|arkoselabs\.com|funcaptcha\.com|geetest\.com|captcha-delivery\.com|awswaf\.com|imperva\.com)/i.test(frame.url()))) {
+    return true;
+  }
+  return page
+    .evaluate(() => {
+      if (/captcha|additional verification required|verify (?:that )?you are human/i.test(document.title)) return true;
+      const selector = '.h-captcha, [data-hcaptcha-widget-id], [class*="geetest" i], [id*="funcaptcha" i], [data-captcha-provider]';
+      return [...document.querySelectorAll(selector)].some(element => {
+        const box = (element as HTMLElement).getBoundingClientRect();
+        const style = getComputedStyle(element as HTMLElement);
+        return box.width > 80 && box.height > 30 && style.display !== 'none' && style.visibility !== 'hidden';
+      });
+    })
+    .catch(() => false);
+}

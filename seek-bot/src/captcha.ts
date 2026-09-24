@@ -1,6 +1,6 @@
 import type { BrowserContext, Page } from 'patchright';
 import { capMonsterSolver } from './captcha/capmonster.js';
-import { detectChallenge, type Solver } from './captcha/detect.js';
+import { detectChallenge, hasCaptchaSurface, type Solver } from './captcha/detect.js';
 import { watchRecaptchaV3 } from './captcha/recaptcha-v3.js';
 
 export { reportRejectedToken } from './captcha/capmonster.js';
@@ -17,6 +17,19 @@ const chain = (): Solver[] =>
   (process.env.CAPTCHA_SOLVER ?? '').split(',').flatMap(name => SOLVERS[name.trim().toLowerCase()] ?? []);
 
 export const captchaEnabled = () => chain().length > 0;
+
+export type CaptchaHandling = 'none' | 'solved' | 'blocked';
+
+/**
+ * The single CAPTCHA ownership boundary. Browser agents call this rather than
+ * touching challenge controls: CapMonster solves recognised types, while an
+ * unknown or failed challenge is blocked from all AI interaction.
+ */
+export async function handleCaptchaWithCapMonster(page: Page): Promise<CaptchaHandling> {
+  if (!(await hasCaptchaSurface(page))) return 'none';
+  if (!captchaEnabled()) return 'blocked';
+  return (await trySolveCaptcha(page)) ? 'solved' : 'blocked';
+}
 
 /**
  * Challenges that never show a wall cannot wait for the page judge to notice

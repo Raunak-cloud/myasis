@@ -15,8 +15,7 @@ import type { ApplicationAction, BlockedQuestion, CandidateProfile, FormField, J
 import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
-import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
-import { detectChallenge } from '../captcha/detect.js';
+import { handleCaptchaWithCapMonster } from '../captcha.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -844,11 +843,6 @@ async function doScroll(ctx: ToolContext, args: Record<string, unknown>): Promis
 
 async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const reason = String(args.reason ?? 'no reason given');
-  // A model may correctly describe a CAPTCHA but choose either terminal
-  // status. Always give the solver first refusal before ending the attempt.
-  if (/captcha|robot|verify you are human|bot check|security verification/i.test(reason) && captchaEnabled()) {
-    if (await trySolveCaptcha(ctx.page)) return ok('The challenge was cleared. Re-observe the page and continue.');
-  }
   switch (String(args.status)) {
     case 'submitted':
       /**
@@ -1032,6 +1026,16 @@ export async function executeTool(
   if ('__parseError' in args) {
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
+  // Challenge controls never reach an AI-selected action. This also closes
+  // the race where a CAPTCHA appears after observation but before the click.
+  const captcha = await handleCaptchaWithCapMonster(ctx.page);
+  if (captcha === 'solved') return ok('CapMonster cleared the security verification. Re-observe the page and continue.');
+  if (captcha === 'blocked') {
+    return {
+      kind: 'terminal',
+      outcome: { status: 'needs-human', reason: 'CapMonster could not clear the site security verification.' },
+    };
+  }
   switch (name) {
     case 'choose_option':
       return doChooseOption(ctx, args);
@@ -1050,13 +1054,6 @@ export async function executeTool(
         : ok('The employer page does not yet verify a completed submission. Inspect its validation or wait for confirmation.');
     }
     case 'reload_page': {
-      if (await detectChallenge(ctx.page)) {
-        if (captchaEnabled() && (await trySolveCaptcha(ctx.page))) return ok('The security verification was cleared without reloading. Inspect the fresh page.');
-        return {
-          kind: 'terminal',
-          outcome: { status: 'needs-human', reason: 'The site security verification could not be cleared automatically.' },
-        };
-      }
       if (ctx.submissionAttempted || ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) return ok('Reload withheld: application data was entered or submission attempted. Preserve the form and inspect its current state.');
       if ((ctx.reloads ?? 0) >= 2) return ok('Reload did not resolve this page after two attempts. Inspect other visible recovery controls; do not bypass access restrictions.');
       ctx.reloads = (ctx.reloads ?? 0) + 1;

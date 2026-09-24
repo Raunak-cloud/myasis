@@ -2,7 +2,7 @@ import type { Page } from 'patchright';
 import { celerisChat, CostMeter, type ChatMessage, type ToolSchema } from './agent/celeris.js';
 import { observe, renderObservation } from './agent/observe.js';
 import { browserGmailAccount, browserGmailAvailable, findCodeInBrowser } from './browser-gmail.js';
-import { trySolveCaptcha } from './captcha.js';
+import { handleCaptchaWithCapMonster } from './captcha.js';
 import { fillField } from './dom.js';
 
 /**
@@ -89,11 +89,6 @@ const TOOLS: ToolSchema[] = [
     description:
       'When the page says it emailed a sign-in or verification code, call this with the ref of the code FIELD. The code is read from the mailbox and typed for you.',
     parameters: { type: 'object', properties: { ref: { type: 'string', description: 'The FIELD ref of the code input.' } }, required: ['ref'] },
-  },
-  {
-    name: 'clear_bot_check',
-    description: 'The page is showing a CAPTCHA or "verify you are human" check that blocks the way. Tries to clear it.',
-    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'wait',
@@ -187,6 +182,9 @@ export async function signInAutomatically(
 ): Promise<SigninAttempt> {
   const stopAnswering = await answerBrowserSigninPrompts(page, browserGmailAccount(), log);
   try {
+    const captcha = await handleCaptchaWithCapMonster(page);
+    if (captcha === 'blocked') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: 0 };
+    if (captcha === 'solved') await page.waitForTimeout(1_500).catch(() => {});
     // The prompt hook has to be in place before the sign-in page asks, so the page is loaded again under it.
     await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
     return await drive(page, site, isSignedIn, log);
@@ -230,6 +228,15 @@ async function drive(
       watching = target;
       await target.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
     }
+    const captcha = await handleCaptchaWithCapMonster(target);
+    if (captcha === 'solved') {
+      log('  ↪ sign-in: CapMonster cleared the security verification');
+      await target.waitForTimeout(1_500).catch(() => {});
+      continue;
+    }
+    if (captcha === 'blocked') {
+      return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
+    }
     const observation = await observe(target, { screenshot: true });
     const embedded = await embeddedButtons(target);
     // Every click "worked" as far as the mouse is concerned; whether the page moved is what the model needs to hear.
@@ -263,6 +270,12 @@ async function drive(
     try {
       switch (call.name) {
         case 'click': {
+          const captchaBeforeClick = await handleCaptchaWithCapMonster(target);
+          if (captchaBeforeClick === 'solved') {
+            result = 'CapMonster cleared the security verification; the requested click was not executed.';
+            break;
+          }
+          if (captchaBeforeClick === 'blocked') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
           const widget = embedded.find(candidate => candidate.ref === String(args.ref));
           if (widget) {
             log(`  ↪ sign-in: click "${widget.text.slice(0, 60)}"`);
@@ -283,6 +296,12 @@ async function drive(
           break;
         }
         case 'click_point': {
+          const captchaBeforeClick = await handleCaptchaWithCapMonster(target);
+          if (captchaBeforeClick === 'solved') {
+            result = 'CapMonster cleared the security verification; the requested click was not executed.';
+            break;
+          }
+          if (captchaBeforeClick === 'blocked') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
           const x = Number(args.x);
           const y = Number(args.y);
           if (!(x >= 0 && x <= 1000 && y >= 0 && y <= 1000)) result = 'x and y must be on the 0-1000 grid.';
@@ -320,9 +339,6 @@ async function drive(
           }
           break;
         }
-        case 'clear_bot_check':
-          result = (await trySolveCaptcha(target)) ? 'The check was cleared.' : 'The check could not be cleared. If nothing else is possible, give_up.';
-          break;
         case 'wait':
           result = 'Waited.';
           break;
