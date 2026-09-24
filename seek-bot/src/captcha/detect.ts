@@ -24,10 +24,23 @@ export interface Solver {
 const RECAPTCHA_ANCHOR = /^https:\/\/(www\.google\.com|www\.recaptcha\.net)\/recaptcha\/(api2|enterprise)\/anchor\?/;
 const TURNSTILE_KEY = /\/(0x[\w-]{18,})(?:\/|$)/;
 const TURNSTILE_WIDGET = '.cf-turnstile[data-sitekey], [data-sitekey^="0x"]';
-/** Cloudflare's full-page challenge, as opposed to a Turnstile inside a real page. */
-export const INTERSTITIAL = '#challenge-running, #challenge-stage, #challenge-form, script[src*="/cdn-cgi/challenge-platform/"][src*="/orchestrate/chl_page"]';
+/**
+ * Cloudflare's full-page challenge, as opposed to a Turnstile embedded in a
+ * real site page.
+ *
+ * `#challenge-stage` and `#challenge-form` are deliberately not sufficient on
+ * their own. Indeed's branded "Additional Verification Required" page uses
+ * those generic ids around an ordinary Turnstile widget. Treating that page as
+ * a full interstitial makes the full-page solver reload it to intercept
+ * `turnstile.render()`, but there is no full-page render call to intercept.
+ */
+export const INTERSTITIAL = '#challenge-running, form#challenge-form[action*="__cf_chl_"], script[src*="/cdn-cgi/challenge-platform/"][src*="/orchestrate/chl_page"]';
 
 async function readTurnstile(host: Frame, frameUrl?: string): Promise<Challenge | null> {
+  const alreadySolved = await host
+    .evaluate(() => Boolean(document.querySelector<HTMLInputElement>('input[name="cf-turnstile-response"]')?.value))
+    .catch(() => false);
+  if (alreadySolved) return null;
   const widget = await host
     .evaluate((selector) => {
       const element = document.querySelector(selector);
@@ -51,7 +64,10 @@ async function readTurnstile(host: Frame, frameUrl?: string): Promise<Challenge 
 }
 
 export async function detectChallenge(page: Page): Promise<Challenge | null> {
-  const interstitial = await page.locator(INTERSTITIAL).count().catch(() => 0);
+  const interstitial = await page
+    .evaluate((selector) =>
+      /just a moment|performing security verification/i.test(document.title) || Boolean(document.querySelector(selector)), INTERSTITIAL)
+    .catch(() => false);
   if (interstitial) return { kind: 'cloudflare-challenge' };
 
   const frames = page.frames();
@@ -91,6 +107,10 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
     }
   }
   if (!anchor) return null;
+  const alreadySolved = await anchor.host
+    .evaluate(() => [...document.querySelectorAll<HTMLTextAreaElement>('textarea[name="g-recaptcha-response"]')].some(area => Boolean(area.value)))
+    .catch(() => false);
+  if (alreadySolved) return null;
   const dataS = await anchor.host
     .evaluate(() => document.querySelector('.g-recaptcha[data-s]')?.getAttribute('data-s') ?? undefined)
     .catch(() => undefined);

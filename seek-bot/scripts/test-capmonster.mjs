@@ -9,6 +9,8 @@ import { reportRejectedToken, trySolveCaptcha, watchCaptchas } from '../dist/cap
 // A stand-in for api.capmonster.cloud: no real task is created and nothing is spent.
 const calls = [];
 let balance = 1;
+let failNextTask = false;
+let unsolvableTask = 0;
 const api = createServer((request, response) => {
   let raw = '';
   request.on('data', chunk => (raw += chunk));
@@ -16,10 +18,22 @@ const api = createServer((request, response) => {
     const method = request.url.slice(1);
     const body = JSON.parse(raw);
     calls.push({ method, body });
-    const reply = body.clientKey !== 'fixture-key' ? { errorId: 1, errorCode: 'ERROR_KEY_DOES_NOT_EXIST' }
-      : method === 'createTask' ? (balance > 0 ? { errorId: 0, taskId: calls.length } : { errorId: 1, errorCode: 'ERROR_ZERO_BALANCE' })
-      : method === 'getTaskResult' ? { errorId: 0, status: 'ready', solution: { token: `ts-${body.taskId}`, gRecaptchaResponse: `rc-${body.taskId}` } }
-      : { errorId: 0, status: 'success' };
+    let reply;
+    if (body.clientKey !== 'fixture-key') reply = { errorId: 1, errorCode: 'ERROR_KEY_DOES_NOT_EXIST' };
+    else if (method === 'createTask' && balance <= 0) reply = { errorId: 1, errorCode: 'ERROR_ZERO_BALANCE' };
+    else if (method === 'createTask') {
+      const taskId = calls.length;
+      if (failNextTask) {
+        failNextTask = false;
+        unsolvableTask = taskId;
+      }
+      reply = { errorId: 0, taskId };
+    } else if (method === 'getTaskResult' && body.taskId === unsolvableTask) {
+      unsolvableTask = 0;
+      reply = { errorId: 1, errorCode: 'ERROR_CAPTCHA_UNSOLVABLE' };
+    } else if (method === 'getTaskResult') {
+      reply = { errorId: 0, status: 'ready', solution: { token: `ts-${body.taskId}`, gRecaptchaResponse: `rc-${body.taskId}` } };
+    } else reply = { errorId: 0, status: 'success' };
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify(reply));
   });
@@ -47,6 +61,12 @@ const PAGES = {
   'turnstile.test': `<form><div class="cf-turnstile" data-sitekey="${TS_KEY}" data-action="apply" data-callback="onSolved"></div>
     <input name="cf-turnstile-response"><iframe src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/x/${TS_KEY}/auto/"></iframe></form>
     <script>window.onSolved = token => { document.title = 'callback:' + token }</script>`,
+  // Indeed wraps a regular Turnstile in generic challenge ids. This must not
+  // be mistaken for a full Cloudflare interstitial, which requires a reload.
+  'indeed-challenge.test': `<title>Additional Verification Required</title><form id="challenge-form"><div id="challenge-stage">
+    <div class="cf-turnstile" data-sitekey="${TS_KEY}" data-callback="onSolved"></div>
+    <input name="cf-turnstile-response"><iframe src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/x/${TS_KEY}/auto/"></iframe>
+    </div></form><script>window.onSolved = token => { document.title = 'callback:' + token }</script>`,
   // The widget sits inside an embedded form, as ATS forms usually do.
   'employer.test': `<h1>Careers</h1><iframe src="http://recaptcha.test/"></iframe>`,
   'recaptcha.test': `<textarea name="g-recaptcha-response"></textarea><iframe src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RC_KEY}&size=normal"></iframe>
@@ -81,6 +101,17 @@ try {
   assert.match(await turnstile.locator('input').inputValue(), /^ts-\d+$/);
   assert.match(await turnstile.title(), /^callback:ts-/);
   assert.equal(await trySolveCaptcha(turnstile), false, 'cooldown prevents a second paid attempt');
+
+  const indeedChallenge = await open('indeed-challenge.test');
+  assert.equal(await trySolveCaptcha(indeedChallenge), true, 'a branded verification page is solved as embedded Turnstile');
+  assert.deepEqual(task(), { type: 'TurnstileTask', websiteURL: 'http://indeed-challenge.test/', websiteKey: TS_KEY });
+  assert.match(await indeedChallenge.title(), /^callback:ts-/);
+
+  failNextTask = true;
+  const retryable = await open('turnstile.test');
+  const tasksBeforeRetry = calls.filter(call => call.method === 'createTask').length;
+  assert.equal(await trySolveCaptcha(retryable), true, 'a temporary unsolvable result is retried with a fresh task');
+  assert.equal(calls.filter(call => call.method === 'createTask').length, tasksBeforeRetry + 2);
 
   process.env.CAPTCHA_SOLVER = 'capmonster';
   const employer = await open('employer.test');
@@ -129,7 +160,7 @@ try {
   assert.equal(await trySolveCaptcha(await open('turnstile.test')), false);
   assert.equal(calls.length, before, 'an account error stops further API calls for the run');
 
-  console.log('PASS: turnstile, embedded reCAPTCHA v2, Cloudflare challenge, reCAPTCHA v3 swap, legacy solver name, cooldown, token report, account-error shutoff');
+  console.log('PASS: Turnstile, Indeed branded challenge, temporary-error retry, embedded reCAPTCHA v2, Cloudflare challenge, reCAPTCHA v3 swap, cooldown, token report, account-error shutoff');
 } finally {
   await context.close();
   api.close();

@@ -16,6 +16,7 @@ import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { captchaEnabled, trySolveCaptcha } from '../captcha.js';
+import { detectChallenge } from '../captcha/detect.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -843,6 +844,11 @@ async function doScroll(ctx: ToolContext, args: Record<string, unknown>): Promis
 
 async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const reason = String(args.reason ?? 'no reason given');
+  // A model may correctly describe a CAPTCHA but choose either terminal
+  // status. Always give the solver first refusal before ending the attempt.
+  if (/captcha|robot|verify you are human|bot check|security verification/i.test(reason) && captchaEnabled()) {
+    if (await trySolveCaptcha(ctx.page)) return ok('The challenge was cleared. Re-observe the page and continue.');
+  }
   switch (String(args.status)) {
     case 'submitted':
       /**
@@ -878,11 +884,6 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
     case 'cannot_complete':
       return { kind: 'terminal', outcome: { status: 'skipped', reason } };
     default:
-      // The agent met a challenge. With a solver on, one attempt is made;
-      // if it clears, the agent carries on.
-      if (/captcha|robot|verify you are human|bot check|security verification/i.test(reason) && captchaEnabled()) {
-        if (await trySolveCaptcha(ctx.page)) return ok('The challenge was cleared. Re-observe the page and continue.');
-      }
       return ctx.guards.pendingFields.size || ctx.guards.ungrounded.length
         ? { kind: 'terminal', outcome: { status: 'needs-human', reason } }
         : { kind: 'terminal', outcome: { status: 'skipped', reason } };
@@ -1049,6 +1050,13 @@ export async function executeTool(
         : ok('The employer page does not yet verify a completed submission. Inspect its validation or wait for confirmation.');
     }
     case 'reload_page': {
+      if (await detectChallenge(ctx.page)) {
+        if (captchaEnabled() && (await trySolveCaptcha(ctx.page))) return ok('The security verification was cleared without reloading. Inspect the fresh page.');
+        return {
+          kind: 'terminal',
+          outcome: { status: 'needs-human', reason: 'The site security verification could not be cleared automatically.' },
+        };
+      }
       if (ctx.submissionAttempted || ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) return ok('Reload withheld: application data was entered or submission attempted. Preserve the form and inspect its current state.');
       if ((ctx.reloads ?? 0) >= 2) return ok('Reload did not resolve this page after two attempts. Inspect other visible recovery controls; do not bypass access restrictions.');
       ctx.reloads = (ctx.reloads ?? 0) + 1;

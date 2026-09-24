@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { config } from '../config.js';
-import { jitter, workingIn } from '../browser.js';
+import { jitter, waitForChallengeToClear, workingIn } from '../browser.js';
 import { extractFields, readPickerOptions } from '../dom.js';
 import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
@@ -589,6 +589,19 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
     if (isExternal(page.url()) && !config.allowExternalApply) {
       return finish({ status: 'off-platform', redirectedTo: page.url() });
+    }
+
+    /**
+     * Security checks are infrastructure, not application-form decisions.
+     * Resolve them before the model sees the page so it cannot click the
+     * checkbox, mistake it for consent, or reload the verification page.
+     */
+    if (!(await waitForChallengeToClear(page, 60_000))) {
+      return finish({
+        status: 'needs-human',
+        reason: 'The site security verification could not be cleared automatically.',
+        detail: 'CAPTCHA remained after the automatic solver attempt',
+      });
     }
 
     /**

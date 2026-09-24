@@ -4,7 +4,8 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'patchrig
 import { config } from './config.js';
 import { judgePage } from './blocker.js';
 import { signInAutomatically } from './signin-agent.js';
-import { watchCaptchas } from './captcha.js';
+import { captchaEnabled, trySolveCaptcha, watchCaptchas } from './captcha.js';
+import { detectChallenge } from './captcha/detect.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -494,17 +495,30 @@ export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * existing captcha check then reports.
  */
 export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): Promise<boolean> {
-  const showing = () =>
-    page
-      .evaluate(
-        () =>
-          /just a moment|performing security verification/i.test(document.title) ||
-          Boolean(document.querySelector('#challenge-running, #challenge-stage, iframe[src*="challenges.cloudflare.com"]')),
-      )
-      .catch(() => false);
+  const showing = () => detectChallenge(page).then(Boolean).catch(() => false);
   const deadline = Date.now() + timeoutMs;
   if (!(await showing())) return true;
-  console.log('  ⏳ Cloudflare verification — waiting for it to clear');
+  console.log('  ⏳ Security verification — waiting for it to clear');
+  // Most managed checks clear themselves quickly. Give that free path a short
+  // head start, then use the configured solver instead of burning the whole
+  // timeout while a checkbox waits for interaction.
+  const automaticUntil = Math.min(deadline, Date.now() + 5_000);
+  while (Date.now() < automaticUntil) {
+    await sleep(500);
+    if (!(await showing())) {
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      return true;
+    }
+  }
+  if (captchaEnabled() && (await trySolveCaptcha(page))) {
+    for (let tries = 0; tries < 30; tries += 1) {
+      if (!(await showing())) {
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        return true;
+      }
+      await sleep(500);
+    }
+  }
   while (Date.now() < deadline) {
     await sleep(500);
     if (!(await showing())) {

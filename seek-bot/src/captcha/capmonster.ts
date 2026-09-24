@@ -23,6 +23,8 @@ const SOLVE_DEADLINE_MS = 100_000;
 
 /** Errors about the account, not the task. Retrying them only earns an IP ban. */
 const ACCOUNT_ERRORS = new Set(['ERROR_KEY_DOES_NOT_EXIST', 'ERROR_ZERO_BALANCE', 'ERROR_IP_NOT_ALLOWED', 'ERROR_IP_BANNED']);
+/** CapMonster documents these as temporary and recommends creating a new task. */
+const RETRYABLE_TASK_ERRORS = new Set(['ERROR_CAPTCHA_UNSOLVABLE', 'ERROR_RECAPTCHA_TIMEOUT', 'ERROR_SERVICE_NOT_AVAILABLE']);
 let accountError: string | null = null;
 
 class CapMonsterError extends Error {
@@ -55,15 +57,31 @@ async function call<T extends ApiReply>(method: string, body: Record<string, unk
 
 const sleep = (ms: number) => new Promise(done => setTimeout(done, ms));
 
-export async function solveTask(task: Record<string, unknown>, deadlineMs = SOLVE_DEADLINE_MS): Promise<{ taskId: number; solution: Record<string, unknown> }> {
-  const { taskId } = await call<ApiReply & { taskId: number }>('createTask', { task });
+export async function solveTask(
+  task: Record<string, unknown>,
+  deadlineMs = SOLVE_DEADLINE_MS,
+  maxAttempts = 2,
+): Promise<{ taskId: number; solution: Record<string, unknown> }> {
   const deadline = Date.now() + deadlineMs;
-  for (let wait = FIRST_POLL_MS; Date.now() + wait < deadline; wait = POLL_MS) {
-    await sleep(wait);
-    const reply = await call<ApiReply & { status: string; solution?: Record<string, unknown> }>('getTaskResult', { taskId });
-    if (reply.status === 'ready' && reply.solution) return { taskId, solution: reply.solution };
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts && Date.now() + FIRST_POLL_MS < deadline; attempt += 1) {
+    try {
+      const { taskId } = await call<ApiReply & { taskId: number }>('createTask', { task });
+      for (let wait = FIRST_POLL_MS; Date.now() + wait < deadline; wait = POLL_MS) {
+        await sleep(wait);
+        const reply = await call<ApiReply & { status: string; solution?: Record<string, unknown> }>('getTaskResult', { taskId });
+        if (reply.status === 'ready' && reply.solution) return { taskId, solution: reply.solution };
+      }
+      throw new CapMonsterError('TIMEOUT', `task ${taskId} was not solved before the shared deadline`);
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof CapMonsterError) || !RETRYABLE_TASK_ERRORS.has(error.code) || attempt >= maxAttempts) throw error;
+      console.warn(`[captcha] capmonster: ${error.code}; retrying once with a fresh task.`);
+      await sleep(1_000);
+    }
   }
-  throw new CapMonsterError('TIMEOUT', `task ${taskId} was not solved in ${deadlineMs / 1000}s`);
+  if (lastError) throw lastError;
+  throw new CapMonsterError('TIMEOUT', `captcha was not solved in ${deadlineMs / 1000}s`);
 }
 
 export async function capMonsterBalance(): Promise<number> {

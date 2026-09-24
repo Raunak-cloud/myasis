@@ -91,7 +91,7 @@ async function swapToken(session: CDPSession, host: Frame, enterprise: boolean, 
       pageAction: action,
       minScore: minScore(),
       isEnterprise: enterprise,
-    }, V3_DEADLINE_MS);
+    }, V3_DEADLINE_MS, 1);
     if (typeof solution.gRecaptchaResponse !== 'string' || !solution.gRecaptchaResponse) return;
 
     payload[1] = solution.gRecaptchaResponse;
