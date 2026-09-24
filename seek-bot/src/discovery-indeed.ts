@@ -117,6 +117,24 @@ function searchUrl(keywords: string, pageNum: number, selectedJobId?: string): s
   return `${config.indeedBase}/jobs?${params.toString()}`;
 }
 
+class IndeedVerificationBlockedError extends Error {
+  constructor(stage: string) {
+    super(`Indeed security verification could not be completed by CapMonster while ${stage}.`);
+    this.name = 'IndeedVerificationBlockedError';
+  }
+}
+
+/**
+ * Every top-level Indeed navigation can independently trigger Cloudflare.
+ * Gate all discovery reads through the sole CAPTCHA owner so a challenge can
+ * never be mistaken for an empty recommendation feed or search result page.
+ */
+async function requireIndeedPage(page: Page, stage: string): Promise<void> {
+  if (!(await waitForChallengeToClear(page, 60_000))) {
+    throw new IndeedVerificationBlockedError(stage);
+  }
+}
+
 function normalise(raw: any): JobListing | null {
   const id = String(raw?.jobkey ?? '').trim();
   const title = raw?.title ?? raw?.displayTitle;
@@ -154,6 +172,7 @@ export async function recommended(page: Page): Promise<JobListing[]> {
   }
 
   await page.goto(`${config.indeedBase}/`, { waitUntil: 'domcontentloaded' });
+  await requireIndeedPage(page, 'loading recommendations');
   await page.waitForSelector('[data-jk]', { timeout: 15_000 }).catch(() => {});
   await jitter(600, 1400);
 
@@ -185,6 +204,7 @@ export async function recommended(page: Page): Promise<JobListing[]> {
 export async function searchViaMosaic(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const url = searchUrl(keywords, pageNum);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
+  await requireIndeedPage(page, `searching for "${keywords}"`);
   await page.waitForSelector('[data-jk]', { timeout: 15_000 }).catch(() => {});
   await jitter(600, 1400);
 
@@ -209,7 +229,12 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
   const url = searchUrl(keywords, pageNum);
   if (!page.url().startsWith(url)) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await requireIndeedPage(page, `loading the rendered results for "${keywords}"`);
     await page.waitForSelector('[data-jk]', { timeout: 15_000 }).catch(() => {});
+  } else {
+    // The Mosaic reader may have left this tab on a challenge page. Check it
+    // again before the DOM fallback reads that page as an empty result set.
+    await requireIndeedPage(page, `reading the rendered results for "${keywords}"`);
   }
 
   const rows = await page.evaluate(() => {
@@ -250,7 +275,12 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
 }
 
 export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const viaMosaic = await searchViaMosaic(page, keywords, pageNum).catch(() => []);
+  const viaMosaic = await searchViaMosaic(page, keywords, pageNum).catch((error) => {
+    // A CAPTCHA failure is not an empty result page. Preserve it so the run
+    // exits safely and remains retryable instead of reporting zero jobs.
+    if (error instanceof IndeedVerificationBlockedError) throw error;
+    return [];
+  });
   if (viaMosaic.length) return viaMosaic.map((job) => ({ ...job, source: 'search' as const }));
   console.warn(`  [discovery-indeed] mosaic data empty for "${keywords}" p${pageNum} — using DOM`);
   return (await searchViaDom(page, keywords, pageNum)).map((job) => ({ ...job, source: 'search' as const }));
