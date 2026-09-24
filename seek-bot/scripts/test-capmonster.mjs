@@ -44,6 +44,7 @@ process.env.CAPMONSTER_API_KEY = 'fixture-key';
 
 const TS_KEY = '0x4AAAAAAAfixtureKey000000';
 const RC_KEY = '6LfixtureRecaptchaKey';
+const RC_V3_KEY = '6LfixtureV3RecaptchaKey';
 // Google's hidden iframe: asked for a token, it POSTs the action (protobuf field 8) to /reload and hands back what it gets.
 const ANCHOR = `<script>addEventListener('message', async (event) => {
   if (!event.data?.action) return;
@@ -71,6 +72,11 @@ const PAGES = {
   // The widget sits inside an embedded form, as ATS forms usually do.
   'employer.test': `<h1>Careers</h1><iframe src="http://recaptcha.test/"></iframe>`,
   'recaptcha.test': `<textarea name="g-recaptcha-response"></textarea><iframe src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RC_KEY}&size=normal"></iframe>
+    <script>window.___grecaptcha_cfg = { clients: { 0: { a: { b: { sitekey: '${RC_KEY}', callback: token => { document.title = 'callback:' + token } } } } } }</script>`,
+  'mixed-recaptcha.test': `<div class="grecaptcha-badge"><iframe src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RC_V3_KEY}&size=invisible"></iframe>
+      <textarea id="v3-response" name="g-recaptcha-response">existing-v3-token</textarea></div>
+    <div class="g-recaptcha" data-sitekey="${RC_KEY}"><iframe src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RC_KEY}&size=normal"></iframe>
+      <textarea id="v2-response" name="g-recaptcha-response"></textarea></div>
     <script>window.___grecaptcha_cfg = { clients: { 0: { a: { b: { sitekey: '${RC_KEY}', callback: token => { document.title = 'callback:' + token } } } } } }</script>`,
   'challenge.test': `<title>Just a moment...</title><div id="challenge-stage"></div>
     <script>turnstile.render('#challenge-stage', { sitekey: '${TS_KEY}', action: 'managed', cData: 'cd-1', chlPageData: 'pd-1',
@@ -124,6 +130,11 @@ try {
   const embedded = employer.frames().find(frame => frame.url() === 'http://recaptcha.test/');
   assert.match(await embedded.locator('textarea').inputValue(), /^rc-\d+$/);
   assert.match(await embedded.title(), /^callback:rc-/, 'the callback inside grecaptcha config runs in the widget frame');
+
+  const mixed = await open('mixed-recaptcha.test');
+  assert.equal(await trySolveCaptcha(mixed), true, 'an existing v3 token does not hide a separate v2 challenge');
+  assert.equal(await mixed.locator('#v3-response').inputValue(), 'existing-v3-token', 'the v3 response is left untouched');
+  assert.match(await mixed.locator('#v2-response').inputValue(), /^rc-\d+$/, 'the token is placed in the matching v2 response only');
 
   await reportRejectedToken(employer);
   assert.equal(calls.at(-1).method, 'reportIncorrectTokenCaptcha');

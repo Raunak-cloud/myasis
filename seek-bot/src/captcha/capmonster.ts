@@ -156,9 +156,26 @@ async function solveRecaptcha(page: Page, challenge: Extract<Challenge, { kind: 
       });
   const placed = await inPage(challenge.host, ([token, siteKey]: [string, string]) => {
     let done = false;
-    for (const area of document.querySelectorAll<HTMLTextAreaElement>('textarea[name="g-recaptcha-response"]')) {
-      area.value = token;
-      done = true;
+    // A page can carry a v3 badge and a separate v2 submit challenge. Match
+    // the response field to this widget's site key; filling every response
+    // field makes a v3 token hide the still-unsolved v2 challenge.
+    for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[src*="/recaptcha/"][src*="/anchor?"]')) {
+      try {
+        if (new URL(frame.src).searchParams.get('k') !== siteKey) continue;
+      } catch {
+        continue;
+      }
+      let root: HTMLElement | null = frame.parentElement;
+      for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
+        const area = root.querySelector<HTMLTextAreaElement>('textarea[name="g-recaptcha-response"]');
+        if (!area) continue;
+        area.value = token;
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+        area.dispatchEvent(new Event('change', { bubbles: true }));
+        done = true;
+        break;
+      }
+      if (done) break;
     }
     // The widget's config tree is where grecaptcha keeps the site's callback,
     // whether it came from data-callback or from a render() call.

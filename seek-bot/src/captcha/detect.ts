@@ -108,7 +108,21 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
   }
   if (!anchor) return null;
   const alreadySolved = await anchor.host
-    .evaluate(() => [...document.querySelectorAll<HTMLTextAreaElement>('textarea[name="g-recaptcha-response"]')].some(area => Boolean(area.value)))
+    .evaluate((siteKey) => {
+      for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[src*="/recaptcha/"][src*="/anchor?"]')) {
+        try {
+          if (new URL(frame.src).searchParams.get('k') !== siteKey) continue;
+        } catch {
+          continue;
+        }
+        let root: HTMLElement | null = frame.parentElement;
+        for (let depth = 0; root && depth < 6; depth += 1, root = root.parentElement) {
+          const area = root.querySelector<HTMLTextAreaElement>('textarea[name="g-recaptcha-response"]');
+          if (area) return Boolean(area.value);
+        }
+      }
+      return false;
+    }, anchor.siteKey)
     .catch(() => false);
   if (alreadySolved) return null;
   const dataS = await anchor.host
