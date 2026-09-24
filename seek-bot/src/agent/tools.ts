@@ -802,7 +802,10 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
 async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const field = ctx.observation.fields.find(field => field.ref === args.ref);
   if (field && ['radio', 'select'].includes(field.kind) && typeof args.option === 'string' && field.options?.includes(args.option)) {
-    await fillField(ctx.page, field, args.option);
+    try { await fillField(ctx.page, field, args.option); }
+    catch {
+      return ok('The cover-letter control changed after the last observation. Re-observe and use the current FIELD ref; do not abandon the application.');
+    }
     return ok('Cover-letter option selected. Re-observe, then call add_cover_letter with the writing FIELD ref.');
   }
   if (!field || !['textarea', 'text'].includes(field.kind) || field.sensitive) {
@@ -835,7 +838,10 @@ async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): 
     if (!field.options?.includes(option) || !names.some(name => normal(name).length >= 3 && normal(option).includes(normal(name)))) {
       return ok(`${identity} Choose its exact observed option, or upload it; do not select a different document.`);
     }
-    await fillField(ctx.page, field, option);
+    try { await fillField(ctx.page, field, option); }
+    catch {
+      return ok(`${identity} The resume control changed after the last observation. Re-observe and use the current FIELD or upload ACTION ref; do not abandon the application.`);
+    }
     ctx.resumeUsed = wanted.label;
     ctx.guards.recordFillSuccess(field.label);
     return ok('Resume selection verified. Re-observe before continuing.');
@@ -854,7 +860,10 @@ async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): 
   if (/image\//i.test(accept) && !/pdf|word|document|\.doc|\.rtf|\.txt/i.test(accept)) {
     return ok('That upload accepts images, not a resume. Choose the document upload from a fresh observation.');
   }
-  await input.setInputFiles(file, { timeout: 10_000 });
+  try { await input.setInputFiles(file, { timeout: 10_000 }); }
+  catch {
+    return ok(`${identity} The resume upload control changed after the last observation. Re-observe and use the current upload ACTION ref; do not abandon the application.`);
+  }
   const retained = await input.evaluate((element) => (element as HTMLInputElement).files?.[0]?.name ?? '').catch(() => '');
   if (retained) {
     ctx.resumeUsed = wanted.label;

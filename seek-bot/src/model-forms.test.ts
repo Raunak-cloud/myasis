@@ -150,6 +150,13 @@ try {
   assert.equal(await page.locator('select').inputValue(), 'Choose document');
   await executeTool(ctx, 'attach_resume', { ref: documentRef, option: 'candidate.txt' });
   assert.equal(await page.locator('select').inputValue(), 'candidate.txt');
+  await page.setContent('<main><label>Resume<select><option>Choose document</option><option>candidate.txt</option></select></label></main>');
+  ctx = await context();
+  const staleDocumentRef = ctx.observation.fields[0].ref;
+  await page.setContent('<main><label>Resume<select><option>Choose document</option><option>candidate.txt</option></select></label></main>');
+  const staleResume = await executeTool(ctx, 'attach_resume', { ref: staleDocumentRef, option: 'candidate.txt' });
+  assert.ok(staleResume.kind === 'ok' && staleResume.message.includes('changed after the last observation'));
+  assert.equal(await page.locator('select').inputValue(), 'Choose document', 'a stale resume ref requests a fresh observation instead of failing the application');
   await page.route('https://au.seek.com/job/fixture/apply', route => route.fulfill({ contentType: 'text/html', body: '<main><label>Promotion<input type="checkbox"></label><label>Phone<input required></label><label>Country<select aria-required="true"><option>Australia</option></select></label></main>' }));
   await page.goto('https://au.seek.com/job/fixture/apply');
   ctx = await context();
