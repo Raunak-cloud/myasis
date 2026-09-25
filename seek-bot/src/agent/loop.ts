@@ -98,9 +98,7 @@ employers, so read the page rather than assuming an order.
   letter behind a generic "Add" action. If the page says no cover letter or
   supporting documents were added, open Add, choose "Write a cover letter",
   and call add_cover_letter before submitting.
-- Never submit an Indeed application unless add_cover_letter has succeeded.
-  Scroll the full review page to find Supporting documents. If Indeed genuinely
-  provides no cover-letter option for that job, finish as skipped instead.
+- If an application offers no cover-letter option anywhere, submit without one.
 - Answer every required FIELD on a step before looking for the forward control.
   Required flags reflect markup only: interpret current instructions and validation
   and pass required_refs when a necessary question lacks required markup.

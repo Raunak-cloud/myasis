@@ -89,20 +89,6 @@ const advancesApplication = (text: string): boolean =>
   /^(continue|next|review(?: your)? application|preview application|save and continue)$/i.test(text.trim()) ||
   isSubmitAction(text);
 
-const isIndeedHostedApplication = (url: string): boolean => {
-  try { return new URL(url).hostname.toLowerCase() === 'smartapply.indeed.com'; }
-  catch { return false; }
-};
-
-/**
- * Indeed's "Review your application" control only opens its review page; it
- * does not transmit anything. That distinction matters because Supporting
- * documents is revealed on that next page. Other submit-like labels remain
- * protected, including "Review and submit", which can be terminal elsewhere.
- */
-const isIndeedFinalSubmitAction = (text: string): boolean =>
-  !/^review your application$/i.test(text.trim()) && isSubmitAction(text);
-
 /** Records a side effect once per kind and site, and says so in the run log. */
 function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {
   if (ctx.actions.some((known) => known.kind === action.kind && known.site === action.site)) return;
@@ -386,19 +372,6 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
     return ok(
       'Do not advance yet: this application offers a cover letter and none has been verified. ' +
       'Reveal its writing field if needed, then call add_cover_letter with that FIELD ref.',
-    );
-  }
-
-  // Product invariant: an Indeed application is never transmitted without a
-  // cover letter. Opportunity detection helps the model find the control, but
-  // it cannot be the final safety boundary: review pages can truncate or move
-  // the Supporting documents section. If an employer truly provides no such
-  // option, skipping is more honest than breaking the promise to the user.
-  if (isIndeedFinalSubmitAction(action.text) && isIndeedHostedApplication(ctx.observation.url) && !ctx.coverLetter) {
-    return ok(
-      'Do not submit: this Indeed application has no verified cover letter. Scroll through the review page, open ' +
-      'Supporting documents → Add → Write a cover letter, then call add_cover_letter. If Indeed genuinely offers no ' +
-      'cover-letter option for this job, finish as skipped rather than submitting without one.',
     );
   }
 
