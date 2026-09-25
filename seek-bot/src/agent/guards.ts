@@ -175,11 +175,11 @@ export class RunGuards {
   /** Called once per agent turn. */
   nextStep(): BudgetVerdict {
     this.steps += 1;
-    if (this.steps > this.options.maxSteps) {
+    if (this.steps > this.stepCeiling) {
       return {
         ok: false,
         reason: 'The application needed more steps than one attempt allows.',
-        detail: `step budget exhausted (${this.options.maxSteps} steps)`,
+        detail: `step budget exhausted (${this.stepCeiling} steps)`,
       };
     }
     const stuckFor = Date.now() - this.lastProgressAt;
@@ -247,6 +247,20 @@ export class RunGuards {
    */
   recordProgress(): void {
     this.lastProgressAt = Date.now();
+    this.progressEvents += 1;
+  }
+
+  /** Verified progress so far; each one earns the attempt a step. */
+  private progressEvents = 0;
+
+  /**
+   * The overall step ceiling, grown by verified progress up to three times the
+   * base. Loops are stopped by the per-page count, the stuck timer and the
+   * cost meter; a flat total only cut off long single-employer forms (a NSW
+   * PageUp application used all 60 while still filling fields).
+   */
+  private get stepCeiling(): number {
+    return Math.min(this.options.maxSteps * 3, this.options.maxSteps + this.progressEvents);
   }
 
   resolveGrounding(question: string): void {
