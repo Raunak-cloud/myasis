@@ -60,9 +60,17 @@ function bounded<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
 async function state(page: Page): Promise<'mail' | 'signed-out' | 'loading'> {
   const url = page.url();
   if (/accounts\.google\.com|ServiceLogin|signin\/v\d/i.test(url)) return 'signed-out';
-  const text = await bounded(page.evaluate(() => document.body?.innerText ?? ''), 5_000, '');
-  if (/sign in|use another account|forgot email/i.test(text.slice(0, 400))) return 'signed-out';
-  if (/\b(Inbox|Primary|Compose|Search mail)\b/i.test(text)) return 'mail';
+  // Gmail's own UI decides first: the message list itself is full of "Sign in to …" subjects.
+  const view = await bounded(
+    page.evaluate(() => ({
+      mailbox: location.hostname === 'mail.google.com' && Boolean(document.querySelector('[role="main"]')),
+      text: document.body?.innerText?.slice(0, 400) ?? '',
+    })),
+    5_000,
+    { mailbox: false, text: '' },
+  );
+  if (view.mailbox) return 'mail';
+  if (/sign in|use another account|forgot email|choose an account/i.test(view.text)) return 'signed-out';
   return 'loading';
 }
 
