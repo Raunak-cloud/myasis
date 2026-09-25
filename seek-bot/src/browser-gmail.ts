@@ -92,7 +92,8 @@ async function readOpenMessage(page: Page): Promise<Omit<VerificationEmail, 'pos
           url: unwrap((anchor as HTMLAnchorElement).href),
         }))
         .filter((link) => /^https?:/i.test(link.url) && !/(^|\.)(google|gmail)\.com\//i.test(link.url.replace(/^https?:\/\//, '')));
-      const subject = (document.querySelector('h2') as HTMLElement | null)?.innerText?.trim() ?? '';
+      // The open message's subject is the heading inside the main region; the page-level h2 is Gmail's own ("Search").
+      const subject = [...main.querySelectorAll('h2')].map((heading) => (heading as HTMLElement).innerText.trim()).find(Boolean) ?? '';
       return { subject, text: main.innerText.replace(/\n{3,}/g, '\n\n').slice(0, 6_000), links: links.slice(0, 40) };
     }),
     6_000,

@@ -8,7 +8,7 @@ import {
 } from '../browser.js';
 import { fillField, setChecked } from '../dom.js';
 import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, verifySubmissionEvidence } from '../llm.js';
-import { pickResumeForJob, RESUME_DIR } from '../resume.js';
+import { pickResumeForJob, RESUME_DIR, resumeFileFor } from '../resume.js';
 import { existsSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
 import type { ApplicationAction, BlockedQuestion, CandidateProfile, FormField, JobListing } from '../types.js';
@@ -280,6 +280,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       properties: {
         ref: { type: 'string', description: 'Resume upload ACTION ref or existing-document radio/select FIELD ref.' },
         option: { type: 'string', description: 'Exact observed option naming the approved resume, for a radio/select FIELD.' },
+        format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'], description: 'File type to send, only when the page says which types it accepts or rejected the last upload\'s type. The resume is converted for you.' },
       },
       required: [],
     },
@@ -891,7 +892,10 @@ async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): 
   if (/image\//i.test(accept) && !/pdf|word|document|\.doc|\.rtf|\.txt/i.test(accept)) {
     return ok('That upload accepts images, not a resume. Choose the document upload from a fresh observation.');
   }
-  try { await input.setInputFiles(file, { timeout: 10_000 }); }
+  const format = typeof args.format === 'string' && /^(pdf|docx|doc|rtf|txt)$/.test(args.format) ? `.${args.format}` : '';
+  const upload = await resumeFileFor(file, format || accept);
+  if (!upload) return ok(`${identity} This upload only accepts "${accept}", and the resume could not be produced in that format. Look for another upload option on the page; otherwise finish with cannot_complete.`);
+  try { await input.setInputFiles(upload, { timeout: 10_000 }); }
   catch {
     return ok(`${identity} The resume upload control changed after the last observation. Re-observe and use the current upload ACTION ref; do not abandon the application.`);
   }
