@@ -178,6 +178,18 @@ try {
     'a below-fold supporting-documents section cannot be skipped when the page summary is truncated',
   );
 
+  await page.setContent('<main><button onclick="document.body.dataset.submitted=\'yes\'">Submit your application</button></main>');
+  ctx = await context();
+  ctx.observation.url = 'https://smartapply.indeed.com/beta/indeedapply/form/review-module';
+  const indeedSubmitWithoutDocuments = ctx.observation.actions[0];
+  const blockedMissingIndeedLetter = await executeTool(ctx, 'click', { ref: indeedSubmitWithoutDocuments.ref, reason: 'Submit' });
+  assert.ok(blockedMissingIndeedLetter.kind === 'ok' && blockedMissingIndeedLetter.message.includes('no verified cover letter'));
+  assert.equal(
+    await page.locator('body').getAttribute('data-submitted'),
+    null,
+    'Indeed cannot submit without a verified cover letter even when its review observation exposes no document control',
+  );
+
   await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');
   ctx = await context();
   const files = ctx.observation.actions.filter(action => action.role === 'file');
