@@ -53,14 +53,14 @@ export function acceptsFormat(accept: string, ext: string): boolean {
 }
 
 /**
- * The résumé in a format this upload accepts.
+ * A document (résumé, cover letter) in a format this upload accepts.
  *
  * Employer forms restrict uploads ("PDF only" is common) while candidates
  * keep whatever they wrote in. The same document is converted once, with
  * LibreOffice so the layout survives, and kept beside the original for every
  * later form. Null when no accepted format can be produced.
  */
-export async function resumeFileFor(file: string, accept: string): Promise<string | null> {
+export async function documentFor(file: string, accept: string): Promise<string | null> {
   const ext = extname(file).toLowerCase();
   if (acceptsFormat(accept, ext)) return file;
   const target = ['.pdf', '.docx', '.doc', '.rtf', '.txt'].find((candidate) => candidate !== ext && acceptsFormat(accept, candidate));
@@ -70,7 +70,7 @@ export async function resumeFileFor(file: string, accept: string): Promise<strin
   const profile = resolve(tmpdir(), `owtomate-lo-${process.getuid?.() ?? 'user'}`);
   const run = promisify(execFile);
   await run('soffice', [`-env:UserInstallation=file://${profile}`, '--headless', '--convert-to', target.slice(1), '--outdir', dirname(file), file], { timeout: 90_000 })
-    .catch((error) => console.warn(`  ! could not convert the résumé to ${target}: ${(error as Error).message.split('\n')[0]}`));
+    .catch((error) => console.warn(`  ! could not convert the document to ${target}: ${(error as Error).message.split('\n')[0]}`));
   return existsSync(converted) ? converted : null;
 }
 

@@ -61,7 +61,7 @@ Fill ONE field per turn and re-observe before the next: checkboxes can hide
 dates, and selections can rebuild the form. Choose interaction="type" to
 enter a value and leave the field, or "search" to type and inspect suggestions.
 An editable combobox can accept free text; do not assume suggestions are mandatory.
-After searching, choose the correct current option yourself using click.
+After searching, pick the matching suggestion with choose_option.
 For a custom dropdown whose choices appear as option ACTIONS, call
 choose_option with one option ref; if that option lacks its question, also pass
 the originating FIELD as field_ref. Direct and coordinate option clicks are
@@ -144,8 +144,8 @@ employers, so read the page rather than assuming an order.
   create-account path, then use the emailed-code tool when a code is sent.
 - Custom controls are driven step by step, the way a person uses them. A
   dropdown that is not a native select shows as an action "(opens a list)":
-  click it, then its entries appear as [option] actions — click the one you
-  want, then re-check the field's current value. Styled checkboxes, radios and
+  click it, then its entries appear as [option] actions — pick one with
+  choose_option, then re-check the field's current value. Styled checkboxes, radios and
   switches show as [toggle] actions with their state; click to change them.
   Never try to type into a control that opens a list. If a list will not open
   on click, focus it with press_key ArrowDown; use press_key Escape to close a

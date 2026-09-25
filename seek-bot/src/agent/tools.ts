@@ -8,9 +8,9 @@ import {
 } from '../browser.js';
 import { fillField, setChecked } from '../dom.js';
 import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, verifySubmissionEvidence } from '../llm.js';
-import { pickResumeForJob, RESUME_DIR, resumeFileFor } from '../resume.js';
-import { existsSync } from 'node:fs';
-import { resolve, relative, isAbsolute } from 'node:path';
+import { acceptsFormat, pickResumeForJob, RESUME_DIR, documentFor } from '../resume.js';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve, relative, isAbsolute, extname } from 'node:path';
 import type { ApplicationAction, BlockedQuestion, CandidateProfile, FormField, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
@@ -262,9 +262,9 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'add_cover_letter',
     description:
-      'Write the grounded, humanized cover letter into the FIELD ref you selected. To reveal it, use click or pass the cover-letter radio/select FIELD ref and its exact writing option. Never targets the first textarea automatically.',
+      'Write the grounded, humanized cover letter into the FIELD ref you selected. To reveal it, use click or pass the cover-letter radio/select FIELD ref and its exact writing option. When the form only takes the letter as a file, pass the cover-letter upload ACTION ref ([file]) instead: the letter is sent as a document. Never targets the first textarea automatically.',
     parameters: { type: 'object', properties: {
-      ref: { type: 'string', description: 'Observed cover-letter FIELD ref.' },
+      ref: { type: 'string', description: 'Observed cover-letter FIELD ref, or its upload ACTION ref when the letter must be a file.' },
       option: { type: 'string', description: 'Exact option to reveal the cover-letter writing field, for radio/select controls only.' },
     }, required: ['ref'] },
   },
@@ -818,7 +818,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
         'this field as field_ref. A widget that rejects automatic filling is not a missing answer.\n'
       : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
-      (searched.length ? `\nSearch text entered, not yet selected: ${searched.join('; ')}. Click an observed matching option, then call answer_questions again to verify the retained selection.` : '') +
+      (searched.length ? `\nSearch text entered, not yet selected: ${searched.join('; ')}. Its suggestions now show as [option] actions: call choose_option with the matching option ref and this field as field_ref. If no options appear, open the list with click or press_key ArrowDown first.` : '') +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
       (unrelated.length ? `\nIgnored controls that are not application questions: ${unrelated.join('; ')}` : '') +
       (repeated.length
@@ -832,6 +832,8 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
 
 /** Writes only to the current field selected by the navigation model. */
 async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const upload = ctx.observation.actions.find(action => action.ref === args.ref && action.role === 'file');
+  if (upload) return addCoverLetterFile(ctx, upload);
   const field = ctx.observation.fields.find(field => field.ref === args.ref);
   if (field && ['radio', 'select'].includes(field.kind) && typeof args.option === 'string' && field.options?.includes(args.option)) {
     try { await fillField(ctx.page, field, args.option); }
@@ -853,6 +855,36 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
   ctx.guards.recordFillSuccess(field.label);
   ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter added`);
   return ok(`Cover letter verified in ${field.ref}. Re-observe the page and handle any remaining fields or validation before continuing.`);
+}
+
+/**
+ * The same grounded, humanized letter, sent as a document to a form that
+ * only takes the cover letter as an upload (Oracle Recruiting Cloud, many
+ * PageUp forms). Written as text, then converted to what the input accepts,
+ * PDF when it does not say.
+ */
+async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions'][number]): Promise<ToolResult> {
+  if (/image/i.test(action.text) && !/letter|document|cv|resume/i.test(action.text)) {
+    return ok('That upload is for an image, not a cover letter. Choose the cover-letter upload from a fresh observation.');
+  }
+  const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
+  if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
+  const dir = resolve(config.dataDir, 'cover-letters');
+  mkdirSync(dir, { recursive: true });
+  const name = `Cover Letter - ${ctx.profile.name} - ${ctx.job.company}`.replace(/[^\w .-]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 90);
+  const text = resolve(dir, `${name}.txt`);
+  writeFileSync(text, letter);
+  const input = ctx.page.locator(`input[type="file"][data-ref-id="${action.ref}"]`);
+  const accept = (await input.getAttribute('accept').catch(() => null)) ?? '';
+  // A document reads better than plain text; plain text is the fallback a form that lists .txt still takes.
+  const file = (acceptsFormat(accept, '.pdf') ? await documentFor(text, '.pdf') : null) ?? (await documentFor(text, accept));
+  if (!file) return ok(`This upload only accepts "${accept}", and the cover letter could not be produced in that format. Look for a text box or another option.`);
+  try { await input.setInputFiles(file, { timeout: 10_000 }); }
+  catch { return ok('The cover-letter upload control changed after the last observation. Re-observe and use the current upload ACTION ref.'); }
+  ctx.coverLetter = letter;
+  ctx.guards.recordProgress();
+  ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter uploaded as ${extname(file).slice(1).toUpperCase()}`);
+  return ok('Cover letter uploaded as a document. Re-observe: confirm the file appears and resolve any upload error before continuing.');
 }
 
 /** The model selects the control; this tool supplies only the approved local document. */
@@ -893,7 +925,7 @@ async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): 
     return ok('That upload accepts images, not a resume. Choose the document upload from a fresh observation.');
   }
   const format = typeof args.format === 'string' && /^(pdf|docx|doc|rtf|txt)$/.test(args.format) ? `.${args.format}` : '';
-  const upload = await resumeFileFor(file, format || accept);
+  const upload = await documentFor(file, format || accept);
   if (!upload) return ok(`${identity} This upload only accepts "${accept}", and the resume could not be produced in that format. Look for another upload option on the page; otherwise finish with cannot_complete.`);
   try { await input.setInputFiles(upload, { timeout: 10_000 }); }
   catch {
