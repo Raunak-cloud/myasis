@@ -2,7 +2,7 @@ import { EmailAlertsToggle } from './EmailAlertsToggle';
 import { useEffect, useState } from 'react';
 import { GmailConnect } from './GmailConnect';
 import { FilesPanel } from './FilesPanel';
-import { useSetupStatus } from './SetupChecklist';
+import { useSetupStatus } from '../setupStatus';
 import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';

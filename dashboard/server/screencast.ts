@@ -246,7 +246,7 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
         return;
       }
       await attach(target);
-    } catch (e) {
+    } catch {
       client.send(
         JSON.stringify({
           type: 'error',

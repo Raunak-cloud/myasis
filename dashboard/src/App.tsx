@@ -159,18 +159,6 @@ export default function App() {
     saveThemePref(theme);
   }, [theme]);
 
-  // Auto follows the Sydney clock, so it has to be looked at again as the evening arrives.
-  useEffect(() => {
-    if (theme !== 'system') return;
-    const tick = () => applyTheme('system');
-    const timer = window.setInterval(tick, 60_000);
-    document.addEventListener('visibilitychange', tick);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', tick);
-    };
-  }, [theme]);
-
   /**
    * The same poll the Apply panel reads, not a second one against the same
    * endpoint. This only watches for the run ending, to refresh the lists and
@@ -457,7 +445,7 @@ export default function App() {
                       type="button"
                       className={theme === option ? 'on' : ''}
                       aria-pressed={theme === option}
-                      title={option === 'system' ? `Dark from 7 pm to 7 am, Sydney time (${resolvedTheme('system')} now)` : `Always ${option}`}
+                      title={option === 'system' ? `Follows your device's light or dark setting (${resolvedTheme('system')} now)` : `Always ${option}`}
                       onClick={() => setTheme(option)}
                     >
                       {THEME_LABEL[option]}

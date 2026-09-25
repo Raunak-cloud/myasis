@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
-import { SetupChecklist, useSetupStatus } from './SetupChecklist';
+import { SetupChecklist } from './SetupChecklist';
+import { useSetupStatus } from '../setupStatus';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
@@ -482,7 +483,7 @@ export function RunPanel({
     if (!running) setLiveViewOpen(false);
   }, [running]);
   useEffect(() => {
-    if (!entitlements || entitlements.autoRunsPerDay === 0) {
+    if (!entitlements?.autoRunsPerDay) {
       setAutoSchedule(null);
       return;
     }
@@ -642,8 +643,12 @@ export function RunPanel({
   ];
   const termCount = val('KEYWORDS').split(',').map((t) => t.trim()).filter(Boolean).length;
 
-  /** The message for one field, rendered directly beneath it. */
-  const FieldError = ({ field }: { field: string }) =>
+  /**
+   * The message for one field, rendered directly beneath it. A plain render
+   * helper rather than a component declared in render, which React would
+   * treat as a new component type on every render and remount.
+   */
+  const fieldError = (field: string) =>
     errorField === field && error ? (
       <span className="field-error" role="alert">{error}</span>
     ) : null;
@@ -1250,7 +1255,7 @@ export function RunPanel({
                       {unusableBoards.map((board) => board.label).join(' and ')} {unusableBoards.length === 1 ? 'is' : 'are'} not signed in, so {unusableBoards.length === 1 ? 'it' : 'they'} cannot be used. Sign in on the Apply page first.
                     </p>
                   )}
-                  <FieldError field="PLATFORMS" />
+                  {fieldError('PLATFORMS')}
                 </div>
                 <p className="job-meta recommended-first-note">
                   Recommended jobs from each selected board are analysed first. Search terms expand the pool after those jobs.
@@ -1264,7 +1269,7 @@ export function RunPanel({
                     max={MAX_SEARCH_TERMS}
                     onChange={(terms) => setEdit('KEYWORDS', terms)}
                   />
-                  <FieldError field="KEYWORDS" />
+                  {fieldError('KEYWORDS')}
                   <SearchTermsGenerator
                     currentTerms={val('KEYWORDS')}
                     disabled={running}
@@ -1344,7 +1349,7 @@ export function RunPanel({
                       value={reusableCoverLetter}
                       onChange={(event) => setEdit('COVER_LETTER_TEXT_B64', encodeSettingText(event.target.value))}
                     />
-                    <FieldError field="COVER_LETTER_TEXT_B64" />
+                    {fieldError('COVER_LETTER_TEXT_B64')}
                   </label>
                 )}
               </section>}
@@ -1365,7 +1370,7 @@ export function RunPanel({
                       </button>
                     ))}
                   </div>
-                  <FieldError field="WORK_ARRANGEMENTS" />
+                  {fieldError('WORK_ARRANGEMENTS')}
                 </div>
                 <div className="grid-2">
                   <label className="field">
@@ -1450,7 +1455,7 @@ export function RunPanel({
                       value={forcedApplications !== null ? String(forcedApplications) : val('MAX_APPS_PER_RUN')}
                       onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)}
                     />
-                    <FieldError field="MAX_APPS_PER_RUN" />
+                    {fieldError('MAX_APPS_PER_RUN')}
                   </label>}
                   {isAdmin && (
                   <label className="field">
@@ -1470,13 +1475,13 @@ export function RunPanel({
                       value={forcedEvaluations !== null ? String(forcedEvaluations) : val('MAX_EVALUATIONS')}
                       onChange={(e) => setEdit('MAX_EVALUATIONS', e.target.value)}
                     />
-                    <FieldError field="MAX_EVALUATIONS" />
+                    {fieldError('MAX_EVALUATIONS')}
                   </label>
                   )}
                   {entitlements?.advancedFilters && <label className="field">
                     <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />
                     <input className="input" data-field="MIN_SCORE" type="number" min="0" max="100" value={val('MIN_SCORE')} onChange={(e) => setEdit('MIN_SCORE', e.target.value)} />
-                    <FieldError field="MIN_SCORE" />
+                    {fieldError('MIN_SCORE')}
                   </label>}
                   {entitlements?.advancedFilters && <label className="field">
                     <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />
@@ -1490,7 +1495,7 @@ export function RunPanel({
                         : 'The total number of applications allowed in one day, across all runs. Capped at 50.'}
                     />
                     <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={isAdmin ? undefined : 50} placeholder={isAdmin ? 'No limit' : undefined} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
-                    <FieldError field="MAX_APPS_PER_DAY" />
+                    {fieldError('MAX_APPS_PER_DAY')}
                   </label>}
                   {(isAdmin || entitlements?.fineTune) && <label className="field">
                     <FieldLabel
@@ -1500,7 +1505,7 @@ export function RunPanel({
                         : 'How many result pages to check for each search term. This multiplies by your number of search terms, so it is capped at 3.'}
                     />
                     <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max={isAdmin ? undefined : 3} value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
-                    <FieldError field="PAGES_PER_KEYWORD" />
+                    {fieldError('PAGES_PER_KEYWORD')}
                   </label>}
                 </div>
               </section>}

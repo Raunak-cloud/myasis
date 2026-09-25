@@ -4,6 +4,7 @@ import { waitForChallengeToClear, waitForInteractiveSurface, workingIn } from '.
 import { judgePage, WALL_STATES } from './blocker.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
 import { runApplicationAgent } from './agent/loop.js';
+import { outcomeFromRun } from './agent/outcome.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { outsideScope, scopeSkipReason } from './run-scope.js';
 
@@ -200,42 +201,7 @@ export async function applyToIndeedJob(
       log: (line) => console.log(line),
     });
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
-    const actions = run.actions.length ? { actions: run.actions } : {};
-
-    switch (run.outcome.status) {
-      case 'applied':
-        return {
-          status: 'applied',
-          jobId: job.id,
-          at: new Date().toISOString(),
-          ...(run.site ? { site: run.site } : {}),
-          coverLetter: run.coverLetter,
-          answers: run.captured,
-          ...actions,
-        };
-      case 'rehearsed':
-        return { status: 'rehearsed', jobId: job.id, coverLetter: run.coverLetter, answers: run.captured, stoppedAt: run.outcome.stoppedAt, ...actions };
-      case 'off-platform':
-        return { status: 'off-platform', jobId: job.id, redirectedTo: run.outcome.redirectedTo, ...actions };
-      case 'already-applied':
-        return { status: 'already-applied', jobId: job.id, reason: run.outcome.reason, ...actions };
-      case 'skipped':
-        return { status: 'skipped', jobId: job.id, reason: run.outcome.reason, ...actions };
-      case 'needs-human':
-      default: {
-        // Friction feeds the run-level abort counter, so repeated walls stop Indeed for the run.
-        if (/captcha/i.test(run.outcome.reason)) deps.onFriction('captcha');
-        else if (/identity|work-rights/i.test(run.outcome.reason)) deps.onFriction('identity');
-        return {
-          status: 'needs-human',
-          jobId: job.id,
-          reason: run.outcome.reason,
-          url: applyPage.url(),
-          ...(run.outcome.questions?.length ? { questions: run.outcome.questions } : {}),
-          ...actions,
-        };
-      }
-    }
+    return outcomeFromRun(run, job.id, applyPage.url(), deps.onFriction);
   } finally {
     /**
      * Leaving the popup open backgrounds the original tab, and Chrome

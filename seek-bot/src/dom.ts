@@ -252,7 +252,14 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       // actually visible; unrelated hidden fields remain excluded.
       const visibleThroughLabel = /^(radio|checkbox)$/.test(el.type)
         && [...(el.labels ?? [])].some(label => visible(label));
-      if (!visible(el) && !visibleThroughLabel) return;
+      // Select-style widgets (Ant Design, Dayforce) keep their combobox input
+      // zero-width and transparent inside the box a person clicks; the box is
+      // the visible control.
+      let widget: Element | null = el.parentElement;
+      for (let depth = 0; widget && depth < 3 && !visible(widget); depth++) widget = widget.parentElement;
+      const visibleThroughWidget = (el.getAttribute('role') === 'combobox' || el.hasAttribute('aria-haspopup'))
+        && Boolean(widget && visible(widget));
+      if (!visible(el) && !visibleThroughLabel && !visibleThroughWidget) return;
       if (el.type === 'hidden' || el.type === 'submit' || el.type === 'button' || el.type === 'file') return;
 
       if (el.type === 'radio') {

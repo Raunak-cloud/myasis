@@ -207,7 +207,9 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
 
   // Asked for from the Job boards dialog: the person is signing in themselves, so nothing picks an account for them.
   const openRef = useRef(open);
-  openRef.current = open;
+  useEffect(() => {
+    openRef.current = open;
+  });
   useEffect(() => {
     const onAsk = (event: Event) => void openRef.current((event as CustomEvent<'seek' | 'indeed'>).detail, true);
     window.addEventListener(OPEN_BOARD_SIGNIN, onAsk);

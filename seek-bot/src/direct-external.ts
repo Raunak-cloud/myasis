@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Page } from 'patchright';
 import { waitForApplicationSurface } from './agent/observe.js';
 import { runApplicationAgent } from './agent/loop.js';
+import { outcomeFromRun } from './agent/outcome.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
 
@@ -39,25 +40,6 @@ async function identify(page: Page): Promise<PageIdentity> {
       location: clean(address?.addressLocality || address?.addressRegion || ''),
     };
   });
-}
-
-function outcomeFromAgent(run: Awaited<ReturnType<typeof runApplicationAgent>>, jobId: string, finalUrl: string): ApplyOutcome {
-  const actions = run.actions.length ? { actions: run.actions } : {};
-  switch (run.outcome.status) {
-    case 'applied':
-      return { status: 'applied', jobId, at: new Date().toISOString(), ...(run.site ? { site: run.site } : {}), coverLetter: run.coverLetter, answers: run.captured, ...actions };
-    case 'rehearsed':
-      return { status: 'rehearsed', jobId, coverLetter: run.coverLetter, answers: run.captured, stoppedAt: run.outcome.stoppedAt, ...actions };
-    case 'off-platform':
-      return { status: 'off-platform', jobId, redirectedTo: run.outcome.redirectedTo, ...actions };
-    case 'already-applied':
-      return { status: 'already-applied', jobId, reason: run.outcome.reason, ...actions };
-    case 'skipped':
-      return { status: 'skipped', jobId, reason: run.outcome.reason, ...actions };
-    case 'needs-human':
-    default:
-      return { status: 'needs-human', jobId, reason: run.outcome.reason, url: finalUrl, ...(run.outcome.questions?.length ? { questions: run.outcome.questions } : {}), ...actions };
-  }
 }
 
 /** Applies to exactly the operator-supplied page, with no board discovery or fit gate. */
@@ -105,7 +87,7 @@ export async function runDirectExternalApplication(
   try {
     const run = await runApplicationAgent({ page, job, profile, log: (line) => console.log(line) });
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
-    outcome = outcomeFromAgent(run, job.id, page.url());
+    outcome = outcomeFromRun(run, job.id, page.url());
   } catch (error) {
     outcome = { status: 'error', jobId: job.id, error: (error as Error).message };
   }
@@ -131,6 +113,15 @@ export async function runDirectExternalApplication(
       submittedByMyasis: true,
     });
     console.log('  ✅ submitted [external] (1/1)');
+  } else if (outcome.submitPressed && outcome.status !== 'rehearsed' && !index.has(job.id, job.company, job.title, job.location)) {
+    // The employer may have received it; the same URL is never sent again automatically.
+    index.add({
+      jobId: job.id, title: job.title, company: job.company, location: job.location, url: job.url,
+      appliedAt: new Date().toISOString(), score: 0, platform: 'external',
+      scoreReasons: ['Submit was pressed on the employer form, so it may have been received; not retried automatically.'],
+      external: true, submittedByMyasis: false,
+    });
+    console.log(`  – ${outcome.status}; submit was pressed on this form, so it will not be retried automatically`);
   } else if (outcome.status === 'needs-human') {
     console.log(`  ⏸ needs you: ${outcome.reason}`);
   } else if (outcome.status === 'already-applied') {
