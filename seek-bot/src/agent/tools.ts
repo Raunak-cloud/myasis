@@ -16,6 +16,7 @@ import type { Observation } from './observe.js';
 import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitAction } from './guards.js';
 import type { ToolSchema } from './celeris.js';
 import { handleCaptchaWithCapMonster } from '../captcha.js';
+import { wasHumanized } from '../humanizer.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -816,7 +817,7 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
   catch (error) { return ok(`Cover letter not accepted: ${(error as Error).message}. Re-observe and choose the current writing field or resolve the form's validation.`); }
   ctx.coverLetter = letter;
   ctx.guards.recordFillSuccess(field.label);
-  ctx.log(`  ✓ ${config.humanizer.enabled ? 'humanized' : 'personalized'} cover letter added`);
+  ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter added`);
   return ok(`Cover letter verified in ${field.ref}. Re-observe the page and handle any remaining fields or validation before continuing.`);
 }
 

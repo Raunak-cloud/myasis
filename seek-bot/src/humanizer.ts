@@ -194,6 +194,14 @@ export async function rewriteLongText(text: string): Promise<string> {
   return text;
 }
 
+/**
+ * Texts that came back from the rewriting model and passed every check. Callers
+ * report provenance from the text itself, so any later edit (a length fit, a
+ * fallback to the draft) is truthfully reported as not humanized.
+ */
+const humanizedTexts = new Set<string>();
+export const wasHumanized = (text: string): boolean => humanizedTexts.has(text.trim());
+
 /** Humanize a grounded Gemini draft through AuthorMist, wherever it is served. */
 export async function humanizeCoverLetter(
   letter: string,
@@ -236,7 +244,10 @@ export async function humanizeCoverLetter(
       const candidate = rewritten;
       const invalid = validateHumanized(letter, candidate);
       if (invalid) throw new Error(invalid);
-      if (!verifyMeaning || !(await verifyMeaning(candidate))) return letter;
+      // A rewrite that drifts from the verified facts is one bad sample, like
+      // a length miss: retry it rather than silently sending the raw draft.
+      if (verifyMeaning && !(await verifyMeaning(candidate))) throw new Error('the rewrite changed a verified fact');
+      humanizedTexts.add(candidate.trim());
       return candidate;
     } catch (error) {
       lastError = (error as Error).message;
