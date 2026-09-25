@@ -598,6 +598,15 @@ function dataApi(): Plugin {
             ): Promise<{ text: string; similarity: number; rejected?: string } | { failure: string; status: number }> {
               const { validateRewrite } = await rewriteGuard();
               const sourceWords = textTokens(piece).length;
+              /**
+               * The rewriter's repetition penalty respells names ("Ow Tomate")
+               * unless it is shown them, as the bot's humanizer does. Names
+               * here are capitalised words that do not merely open a sentence.
+               */
+              const names = [...new Set(
+                [...piece.matchAll(/[^.!?\s]\s+([A-Z][\w-]+)/g)].map((match) => match[1]),
+              )].slice(0, 20);
+              const spelling = names.length ? ` Spell these names exactly as shown: ${names.join(', ')}.` : '';
               let best: { text: string; similarity: number } | null = null;
               let rejected = '';
 
@@ -616,7 +625,7 @@ function dataApi(): Plugin {
                         role: 'user',
                         content:
                           `${attempt ? 'The previous result was too close to the source. Rebuild every sentence more clearly and use a noticeably different opening and flow.\n\n' : ''}` +
-                          `Rewrite the following passage completely while keeping its meaning and approximately the same length.\n\n<draft>\n${piece}\n</draft>`,
+                          `Rewrite the following passage completely while keeping its meaning and approximately the same length.${spelling}\n\n<draft>\n${piece}\n</draft>`,
                       },
                     ],
                     temperature: 0.78 + attempt * 0.08,
