@@ -429,6 +429,17 @@ ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS stopped BOOLEAN NOT NULL DEFAULT
 -- automatic-run slot. A crash, sign-in failure, or stopped run remains here
 -- for diagnosis but is eligible for a retry.
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS successful BOOLEAN NOT NULL DEFAULT false;
+-- The bot's own account of the run (seek-bot/src/run-health.ts), read by the operator alerts.
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS health JSONB;
+
+-- Operator alerts: one row per problem currently true across the whole service.
+-- Same bookkeeping as account_alerts: first sight starts the hold, a row is
+-- claimed before its email goes out, and the row goes when the problem does.
+CREATE TABLE IF NOT EXISTS operator_alerts (
+  kind          TEXT PRIMARY KEY,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at       TIMESTAMPTZ
+);
 -- Set by an admin. A blocked account cannot sign in, keeps no session, and is left out of every schedule.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS run_starts_recent_idx ON run_starts(started_at DESC);

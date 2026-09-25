@@ -1,5 +1,6 @@
 import { simulations } from './simulate.js';
 import { previewAccountAlerts } from './alerts.js';
+import { previewOperatorAlerts } from './operator-alerts.js';
 import { homeRoutePort, proxySummary, routeStatus, setHomeRoutePort, setProxy, type RouteStatus } from './route.js';
 import { pooledProxyFor, poolEnabled, poolReport, reconcilePool, syncPool } from './proxy-pool.js';
 import { randomUUID } from 'node:crypto';
@@ -472,6 +473,7 @@ export async function handleAdminRequest(
     if (path === '/env' && method === 'GET') return send(envReport());
     if (path === '/simulations' && method === 'GET') return send({ simulations: simulations() });
     if (path === '/alerts-preview' && method === 'GET') return send(await previewAccountAlerts());
+    if (path === '/ops-alerts-preview' && method === 'GET') return send(await previewOperatorAlerts());
 
     if (path === '/proxies' && method === 'GET') return send(await poolReport());
     if (path === '/proxies/sync' && method === 'POST') {

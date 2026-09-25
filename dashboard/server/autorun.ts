@@ -6,6 +6,7 @@ import { entitlementsFor, RUN_TIME_ZONE, type Entitlements } from './entitlement
 import { sessionFor } from './signin.js';
 import { sendDailyDigests, digestDue } from './digest.js';
 import { sendAccountAlerts } from './alerts.js';
+import { sendOperatorAlerts } from './operator-alerts.js';
 import { accountSetupComplete } from './setup.js';
 import { readSiteState } from './seek-state.js';
 
@@ -309,6 +310,7 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
 async function autoRunTick(now: Date = new Date()): Promise<string[]> {
   // The evening summary is independent of when runs happen; it goes out once, after 9pm.
   await sendAccountAlerts(now).catch((error) => console.warn('[alerts] failed:', (error as Error).message));
+  await sendOperatorAlerts(now).catch((error) => console.warn('[ops-alerts] failed:', (error as Error).message));
   if (digestDue(now)) {
     await sendDailyDigests(now).catch((error) => console.warn('[digest] failed:', (error as Error).message));
   }

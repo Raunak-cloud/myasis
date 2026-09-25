@@ -1,4 +1,5 @@
 import { metric } from '../pipeline.js';
+import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 
 /**
@@ -217,6 +218,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
           const used = /"completion_tokens":\s*(\d+)/.exec(detail)?.[1] ?? '?';
           throw new ReplyUnusableError(`Celeris could not produce a reply in the requested format (${used} completion tokens across its attempts)`);
         }
+        if (response.status === 402 || /insufficient_quota|credit balance is exhausted/i.test(detail)) providerOutOfCredit('Celeris');
         throw new Error(`Celeris ${response.status}: ${detail.slice(0, 300)}`);
       }
 

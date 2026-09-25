@@ -27,6 +27,11 @@ function adminEmails(): Set<string> {
   );
 }
 
+/** The operator addresses, for the operator alerts. */
+export function adminAddresses(): string[] {
+  return [...adminEmails()];
+}
+
 /** Admin accounts are exempt from the free/paid application allowance entirely. */
 export function isAdmin(email?: string | null): boolean {
   return Boolean(email && adminEmails().has(email.toLowerCase()));

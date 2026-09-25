@@ -1,4 +1,5 @@
 import type { Frame, Page } from 'patchright';
+import { providerOutOfCredit } from '../run-health.js';
 import { INTERSTITIAL, type Challenge, type Solver } from './detect.js';
 
 /**
@@ -56,6 +57,7 @@ async function call<T extends ApiReply>(method: string, body: Record<string, unk
   if (reply.errorId) {
     const code = reply.errorCode || `HTTP_${response.status}`;
     if (ACCOUNT_ERRORS.has(code)) accountError = code;
+    if (code === 'ERROR_ZERO_BALANCE') providerOutOfCredit('CapMonster');
     throw new CapMonsterError(code, reply.errorDescription ?? undefined);
   }
   return reply;

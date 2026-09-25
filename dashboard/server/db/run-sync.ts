@@ -197,6 +197,9 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   // run's count and needlessly changing the account's search terms.
   const summaryPath = resolve(dir, 'run-summary.json');
   if (existsSync(summaryPath)) unlinkSync(summaryPath);
+  // Likewise the health record: a run that dies before its first write must not report the last run's.
+  const healthPath = resolve(dir, 'run-health.json');
+  if (existsSync(healthPath)) unlinkSync(healthPath);
 
   return {
     dir,

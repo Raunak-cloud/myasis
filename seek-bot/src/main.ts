@@ -23,6 +23,7 @@ import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, recentReviewFeedback, saveRunSummary, syncFromSeek } from './store.js';
 import { savedAnswersUpdatedAt } from './knowledge.js';
+import { countHealth } from './run-health.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -800,7 +801,11 @@ async function main() {
       logOutcome({ ...outcome, title: job.title, company: job.company });
       // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
       for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
+      if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');
+      if (outcome.status === 'applied') countHealth('applied');
+      if (outcome.status === 'needs-human') countHealth('needsHuman');
       if (outcome.submitPressed && outcome.status !== 'applied' && outcome.status !== 'rehearsed') {
+        countHealth('unconfirmedSubmits');
         rememberExistingApplication(job, 'Submit was pressed on the employer form, so it may have been received; not retried automatically.');
         console.log('  ℹ submit was pressed on this form, so it will not be retried automatically');
       }

@@ -17,6 +17,7 @@ import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitA
 import type { ToolSchema } from './celeris.js';
 import { handleCaptchaWithCapMonster } from '../captcha.js';
 import { wasHumanized } from '../humanizer.js';
+import { countHealth } from '../run-health.js';
 import { browserGmailAvailable, findVerificationInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -919,6 +920,7 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
   catch (error) { return ok(`Cover letter not accepted: ${(error as Error).message}. Re-observe and choose the current writing field or resolve the form's validation.`); }
   ctx.coverLetter = letter;
   ctx.guards.recordFillSuccess(field.label);
+  if (config.humanizer.enabled) countHealth(wasHumanized(letter) ? 'humanizedLetters' : 'draftLetters');
   ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter added`);
   return ok(`Cover letter verified in ${field.ref}. Re-observe the page and handle any remaining fields or validation before continuing.`);
 }
@@ -949,6 +951,7 @@ async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions
   catch { return ok('The cover-letter upload control changed after the last observation. Re-observe and use the current upload ACTION ref.'); }
   ctx.coverLetter = letter;
   ctx.guards.recordProgress();
+  if (config.humanizer.enabled) countHealth(wasHumanized(letter) ? 'humanizedLetters' : 'draftLetters');
   ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter uploaded as ${extname(file).slice(1).toUpperCase()}`);
   return ok('Cover letter uploaded as a document. Re-observe: confirm the file appears and resolve any upload error before continuing.');
 }

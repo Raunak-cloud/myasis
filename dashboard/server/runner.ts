@@ -109,6 +109,22 @@ function readQualifyingJobs(dataDir: string): number | null {
   }
 }
 
+/**
+ * The bot's own account of how the run went (seek-bot/src/run-health.ts):
+ * attempts, applications, letters humanized or not, unconfirmed submits and
+ * providers out of credit. Kept on the run's record for the operator alerts.
+ */
+function readRunHealth(dataDir: string): Record<string, unknown> | null {
+  const path = resolve(dataDir, 'run-health.json');
+  if (!existsSync(path)) return null;
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Machine-readable application failures from this run's fresh outcome log. */
 function applicationErrorCount(dataDir: string): number {
   const path = resolve(dataDir, 'run-log.jsonl');
@@ -458,7 +474,7 @@ class Run {
         kind === 'scan' ||
         (qualifyingJobs !== null && (this.state.applied > 0 || applicationErrors === 0))
       );
-      await this.recordFinish(userId, code, successful);
+      await this.recordFinish(userId, code, successful, kind === 'run' ? readRunHealth(dataDir) : null);
     } catch (error) {
       this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
     } finally {
@@ -470,7 +486,7 @@ class Run {
    * How the run ended, onto its record, with its console saved beside the
    * account's data so it can be read after the dashboard restarts.
    */
-  private async recordFinish(userId: string, code: number | null, successful: boolean): Promise<void> {
+  private async recordFinish(userId: string, code: number | null, successful: boolean, health: Record<string, unknown> | null = null): Promise<void> {
     const runStartId = this.runStartId;
     this.runStartId = null;
     if (!runStartId) return;
@@ -481,8 +497,8 @@ class Run {
     const saved = readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort((a, b) => Number(b.split('.')[0]) - Number(a.split('.')[0]));
     for (const old of saved.slice(RUN_LOGS_KEPT)) rmSync(resolve(dir, old), { force: true });
     await query(
-      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4, stopped = $5, successful = $6 WHERE id = $1',
-      [runStartId, code, this.state.applied, file, this.stoppedByPerson, successful],
+      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4, stopped = $5, successful = $6, health = $7 WHERE id = $1',
+      [runStartId, code, this.state.applied, file, this.stoppedByPerson, successful, health ? JSON.stringify(health) : null],
     );
   }
 
