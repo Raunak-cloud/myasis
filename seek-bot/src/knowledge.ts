@@ -33,6 +33,15 @@ export interface SavedAnswer {
  * out of the relevance filter on purpose: an answer bank is small and every
  * entry may apply to any job.
  */
+/** When the candidate last changed their saved answers; 0 when they have none. */
+export function savedAnswersUpdatedAt(): number {
+  try {
+    return existsSync(ANSWERS) ? statSync(ANSWERS).mtimeMs : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function loadSavedAnswers(): SavedAnswer[] {
   if (!existsSync(ANSWERS)) return [];
   try {

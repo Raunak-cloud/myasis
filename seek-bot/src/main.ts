@@ -21,7 +21,8 @@ import {
 import { scoreJob, deterministicExclusion, detectInjection, meetsMinimumScore } from './scoring.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
-import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
+import { AppliedIndex, logOutcome, recentReviewFeedback, saveRunSummary, syncFromSeek } from './store.js';
+import { savedAnswersUpdatedAt } from './knowledge.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -196,6 +197,7 @@ async function main() {
     const active: PlatformAdapter[] = [];
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
+    const feedback = recentReviewFeedback();
 
     /** Keep enough backups for unavailable/already-applied listings. */
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
@@ -212,6 +214,12 @@ async function main() {
         seen.set(key, job);
 
         if (index.has(job.id, job.company, job.title, job.location)) continue;
+        // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
+        const last = feedback.get(JSON.stringify([job.id, job.title, job.company]));
+        if (last?.status === 'needs-human' && savedAnswersUpdatedAt() < Date.parse(last.at)) {
+          bump('waiting for your answer');
+          continue;
+        }
         const prior = reviewCache.suppression(job, reviewContext);
         if (prior) {
           bump(`recent ${prior.disposition}`);
