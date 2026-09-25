@@ -31,6 +31,14 @@ check(
     generated('Reporting Analyst'),
   ]).join('|') === 'Data Analyst|Reporting Analyst',
 );
+check(
+  'work needing an Australian credential the résumé does not show is never suggested',
+  normalizeGeneratedSearches([
+    { ...generated('Medical Officer'), australianCredentialRequired: 'AHPRA general registration', australianCredentialEvidence: '' },
+    { ...generated('General Practitioner'), australianCredentialRequired: 'AHPRA general registration', australianCredentialEvidence: 'Current AHPRA general registration MED000123' },
+    { ...generated('Medical Receptionist'), australianCredentialRequired: '', australianCredentialEvidence: '' },
+  ]).join('|') === 'General Practitioner|Medical Receptionist',
+);
 
 console.log(`\n${failures} failure(s)`);
 process.exit(failures ? 1 : 0);

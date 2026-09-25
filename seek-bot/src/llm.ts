@@ -830,10 +830,28 @@ export function normalizeFitAssessment(value: unknown): FitAssessment | null {
    * busy admiring the fit.
    */
   const instructionConflict = typeof result.instructionConflict === 'string' ? result.instructionConflict.trim() : '';
-  const decision = instructionConflict ? 'skip' : (result.decision as FitAssessment['decision']);
+  /**
+   * Legal credentials, the same way: each mandatory Australian registration or
+   * licence is judged on its own, and the decision follows from those verdicts
+   * rather than from a paragraph weighing them against an otherwise good fit.
+   * One the candidate does not hold rules the job out; one that is unclear
+   * holds it for clarification instead of applying.
+   */
+  // Only credentials the ad requires decide; desirable ones are the model's to weigh.
+  const checks = Array.isArray(result.credentialChecks)
+    ? (result.credentialChecks as Array<Record<string, unknown>>).filter((check) => check && typeof check.requirement === 'string' && check.mandatory === true)
+    : [];
+  const missing = checks.find((check) => check.status === 'not-held');
+  const unclear = checks.find((check) => check.status === 'unclear');
+  const modelDecision = result.decision as FitAssessment['decision'];
+  const decision = instructionConflict || missing ? 'skip'
+    : unclear && modelDecision === 'apply' ? 'uncertain'
+    : modelDecision;
   const reason = instructionConflict && !/instruction/i.test(result.reason.slice(0, 80))
     ? `Your instructions rule this out ("${instructionConflict}"). ${result.reason}`
-    : result.reason;
+    : missing && modelDecision !== 'skip'
+      ? `Requires ${String(missing.requirement)}, which the résumé does not show you hold in Australia. ${result.reason}`
+      : result.reason;
   return {
     instructionConflict,
     decision,
@@ -1094,13 +1112,28 @@ Return decision=skip for a clear mismatch, an explicit candidate-instruction con
 or an explicitly mandatory requirement the candidate demonstrably does not meet.
 Distinguish desirable experience from mandatory qualifications. Judge seniority in context
 unless the candidate's instructions speak to it; then their words decide. Missing evidence is
-not proof a credential is absent — with one exception: judge eligibility by Australian
-standards. When the ad requires Australian registration, a licence or admission to practise
-(AHPRA for doctors, nurses and other health practitioners; a practising certificate for
-lawyers; a state licence for electricians, plumbers and other licensed trades; teacher
-registration; and similar), overseas qualifications or experience do not satisfy it. If the
-evidence shows only overseas credentials for such a role, return skip and say so; an
-Australian registration or licence the candidate holds would be stated.
+not proof a credential is absent — except for the legal credentials below.
+
+LEGAL CREDENTIALS (Australian standards). List in "credentialChecks" each registration,
+licence, admission or accreditation that the ad itself names as a requirement for doing this
+job in Australia (AHPRA registration for doctors, nurses and other health practitioners; a
+practising certificate or admission for lawyers; a state licence for electricians, plumbers
+and other licensed trades; teacher registration; a security or driver licence; and similar).
+Quote the ad's words in "requirement". Never infer a credential from the job title alone: an
+assistant, aide or support role the ad attaches no registration to needs none. Set
+"mandatory" true only when the ad says it is essential, required or must be held; desirable,
+preferred, "an advantage" or "working towards" is mandatory false. For each, set status:
+- "held": the evidence states the candidate holds it now; or they hold a current licence or
+  registration for the same work in another Australian state or territory, because under
+  Automatic Mutual Recognition a licence from NSW, Victoria, SA, WA, Tasmania, the NT or the
+  ACT lets its holder do that work in any of the others without applying again (Queensland
+  does not take part); or the ad accepts being "eligible for" it and the evidence shows that.
+- "not-held": the evidence shows only overseas or New Zealand credentials (a New Zealand
+  registration only makes someone eligible to apply for the Australian one), a lower or
+  restricted form than the ad requires (for example provisional or limited registration where
+  general registration is required), or no Australian credential at all. A credential this
+  consequential is always stated on a résumé when held.
+- "unclear": the evidence genuinely conflicts or leaves its Australian status open.
 Return decision=uncertain when a decisive fact or requirement needs clarification.
 Explain the decisive evidence, quoting short relevant passages. Do not infer work rights,
 availability, licences or salary from nationality, name, job title or a generic convention.
@@ -1115,11 +1148,16 @@ Return JSON.`;
   const schema = { type: 'OBJECT', properties: {
     // First, so the instruction check is made before the decision it governs.
     instructionConflict: { type: 'STRING' },
+    // Before the decision, so each mandatory legal credential is judged on its own first.
+    credentialChecks: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+      requirement: { type: 'STRING' }, mandatory: { type: 'BOOLEAN' }, candidateEvidence: { type: 'STRING' },
+      status: { type: 'STRING', enum: ['held', 'not-held', 'unclear'] },
+    }, required: ['requirement', 'mandatory', 'candidateEvidence', 'status'] } },
     decision: { type: 'STRING', enum: ['apply','skip','uncertain'] },
     matchScore: { type: 'INTEGER' },
     reason: { type: 'STRING' }, evidence: { type: 'ARRAY', items: { type: 'STRING' } },
     injectionSuspected: { type: 'BOOLEAN' },
-  }, required: ['instructionConflict','decision','matchScore','reason','evidence','injectionSuspected'] };
+  }, required: ['instructionConflict','credentialChecks','decision','matchScore','reason','evidence','injectionSuspected'] };
   // Cache identity includes the model: old fast-model decisions cannot mask this migration.
   return cachedAssessment({ version: FIT_ASSESSMENT_VERSION, prompt, model: FIT_CLASSIFIER_MODEL, endpoint: config.celeris.baseUrl }, async () => {
     const raw = await measured('fit', () => json<unknown>(prompt, schema, FIT_CLASSIFIER_MODEL));
