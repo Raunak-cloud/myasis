@@ -559,7 +559,11 @@ export async function fitCoverLetterToLimit(letter: string, maxLength: number, j
       type: 'OBJECT', properties: { letter: { type: 'STRING' } }, required: ['letter'],
     });
     const shortened = out.letter.trim();
-    if (shortened && shortened.length <= maxLength && await letterIsSupported(shortened, profile, knowledge)) return shortened;
+    if (shortened && shortened.length <= maxLength && await letterIsSupported(shortened, profile, knowledge)) {
+      // Shortening is a model rewrite and undoes the humanizing; humanize the short version too when it still fits.
+      const humanized = await polishCoverLetter(shortened, job, profile, knowledge).catch(() => shortened);
+      return humanized.length <= maxLength ? humanized : shortened;
+    }
   }
   throw new Error(`Could not draft a supported cover note within the form's ${maxLength}-character limit.`);
 }
