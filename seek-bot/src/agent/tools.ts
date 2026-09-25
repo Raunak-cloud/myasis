@@ -960,6 +960,20 @@ async function doScroll(ctx: ToolContext, args: Record<string, unknown>): Promis
 
 async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const reason = String(args.reason ?? 'no reason given');
+  /**
+   * CAPTCHAs belong to CapMonster, never to the model's judgment. A widget
+   * that loads only when scrolled into view is invisible to the check that
+   * runs before every tool, so the agent once gave up on a plain "I'm not a
+   * robot" box nobody had tried. Bring every lazy widget into view and let
+   * the solver have its turn before any give-up over one is accepted.
+   */
+  if (/captcha|robot|security verification|verify (?:that )?you(?:'| a)re human|bot check/i.test(reason) && ['cannot_complete', 'needs_human'].includes(String(args.status))) {
+    await ctx.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+    await ctx.page.waitForTimeout(2_500).catch(() => {});
+    const captcha = await handleCaptchaWithCapMonster(ctx.page);
+    if (captcha === 'solved') return ok('CapMonster cleared the verification. Re-observe the page and continue the application.');
+    if (captcha === 'none') ctx.log('  · the agent reported a CAPTCHA, but none is on the page');
+  }
   switch (String(args.status)) {
     case 'submitted':
       /**
