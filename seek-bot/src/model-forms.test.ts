@@ -190,6 +190,16 @@ try {
     'Indeed cannot submit without a verified cover letter even when its review observation exposes no document control',
   );
 
+  await page.route('https://smartapply.indeed.com/beta/indeedapply/form/questions-module/questions/review-fixture', route => route.fulfill({
+    contentType: 'text/html',
+    body: '<main><button onclick="document.body.dataset.reviewed=\'yes\'">Review your application</button></main>',
+  }));
+  await page.goto('https://smartapply.indeed.com/beta/indeedapply/form/questions-module/questions/review-fixture');
+  ctx = await context();
+  const indeedReview = await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Open review' });
+  assert.equal(await page.locator('body').getAttribute('data-reviewed'), 'yes', 'Indeed review navigation remains available before a cover letter is added');
+  assert.ok(indeedReview.kind === 'ok' && !indeedReview.message.includes('no verified cover letter'), 'the final-submit guard does not create a review-page dependency cycle');
+
   await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');
   ctx = await context();
   const files = ctx.observation.actions.filter(action => action.role === 'file');
