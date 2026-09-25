@@ -17,7 +17,7 @@ import { RunGuards, isEntryAction, isExternal, isForbiddenDestination, isSubmitA
 import type { ToolSchema } from './celeris.js';
 import { handleCaptchaWithCapMonster } from '../captcha.js';
 import { wasHumanized } from '../humanizer.js';
-import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
+import { browserGmailAvailable, findVerificationInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { offersCoverLetter } from './cover-letter-opportunity.js';
@@ -120,6 +120,19 @@ const EMAILED_CODE_TOOL: ToolSchema = {
   },
 };
 
+const EMAILED_LINK_TOOL: ToolSchema = {
+  name: 'open_emailed_link',
+  description:
+    'When the page says a verification, activation, confirmation or password-reset LINK was emailed to the candidate ' +
+    '(for example "check your email to verify your account"), call this after the email has been requested. The link is read ' +
+    "from the candidate's inbox and opened in a new tab, where the application continues. Never guess or type a link.",
+  parameters: {
+    type: 'object',
+    properties: { sender_hint: { type: 'string', description: 'The site or company that sent the email, e.g. "Workday" or the employer.' } },
+    required: [],
+  },
+};
+
 const CLICK_POINT_TOOL: ToolSchema = {
   name: 'click_point',
   description:
@@ -143,7 +156,7 @@ const CLICK_POINT_TOOL: ToolSchema = {
 export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
   return [
     ...TOOL_SCHEMAS,
-    ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL] : []),
+    ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
   ];
 }
@@ -269,6 +282,21 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         option: { type: 'string', description: 'Exact observed option naming the approved resume, for a radio/select FIELD.' },
       },
       required: [],
+    },
+  },
+  {
+    name: 'press_key',
+    description:
+      'Press a navigation key, optionally after focusing a current FIELD or ACTION ref: ArrowDown/ArrowUp to open or move ' +
+      'through a custom list or date picker, Escape to close an overlay or menu, Tab to leave a field so it validates, ' +
+      'PageDown/PageUp to scroll an inner panel. Choosing an option still goes through choose_option or answer_questions.',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', enum: ['ArrowDown', 'ArrowUp', 'Escape', 'Tab', 'PageDown', 'PageUp'] },
+        ref: { type: 'string', description: 'Optional FIELD or ACTION ref to focus first.' },
+      },
+      required: ['key'],
     },
   },
   {
@@ -1027,7 +1055,8 @@ async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
   ctx.log('  ✉ waiting for the emailed verification code');
 
-  const found = await findCodeInBrowser(ctx.page.context(), { hint, timeoutMs: 90_000, log: ctx.log });
+  const found = await findVerificationInBrowser(ctx.page.context(), { hint, site: hostOf(ctx.page.url()), want: 'code', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  if (!('error' in found) && found.kind !== 'code') return ok('The email carries a link, not a code. Call open_emailed_link instead.');
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
     /**
@@ -1036,11 +1065,11 @@ async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown
      * another ninety seconds finding out the same thing.
      */
     if (/signed out/i.test(found.error)) return ok(`${found.error} Try another authentication option; otherwise finish with "cannot_complete".`);
-    return ok('No verification email arrived within 90 seconds. If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".');
+    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".`);
   }
 
   try {
-    if (!await fillEmailedCode(ctx.page, fields as Observation['fields'], found.code)) return ok('Code entry needs a different field selection. For separate digit boxes, select ALL current code FIELD refs in order using refs. Re-observe before retrying.');
+    if (!await fillEmailedCode(ctx.page, fields as Observation['fields'], found.value)) return ok('Code entry needs a different field selection. For separate digit boxes, select ALL current code FIELD refs in order using refs. Re-observe before retrying.');
   } catch {
     return ok('The code inputs changed or could not be filled. Inspect the fresh page: it may have advanced automatically; otherwise select the current code fields and retry.');
   }
@@ -1057,7 +1086,87 @@ async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown
   return ok('Entered the emailed code into the selected fields. Inspect the page to verify acceptance before continuing.');
 }
 
+/** How long the inbox is watched for a site's email before the agent is told to resend. */
+const EMAIL_WAIT_MS = 120_000;
+
+async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (!browserGmailAvailable()) {
+    return ok('No mailbox is signed in for this candidate. Try another authentication option; otherwise finish with "cannot_complete".');
+  }
+  const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
+  ctx.log('  ✉ waiting for the emailed verification link');
+  const found = await findVerificationInBrowser(ctx.page.context(), { hint, site: hostOf(ctx.page.url()), want: 'link', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  if ('error' in found) {
+    ctx.log(`  ✉ ${found.error}`);
+    if (/signed out/i.test(found.error)) return ok(`${found.error} Try another authentication option; otherwise finish with "cannot_complete".`);
+    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".`);
+  }
+  if (isAustralianGovernmentUrl(found.value)) {
+    return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' } };
+  }
+  if (isForbiddenDestination(found.value)) return ok('The emailed link points somewhere this agent never navigates. Try another authentication option.');
+  // A new tab keeps the form behind it intact; the loop follows the new tab.
+  const tab = await ctx.page.context().newPage();
+  await tab.goto(found.value, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
+  ctx.guards.recordProgress();
+  const site = hostOf(found.value);
+  noteAction(ctx, { kind: 'email-code', site, detail: `Opened the verification link ${siteName(site)} emailed you ("${found.subject.slice(0, 60)}").` });
+  ctx.log(`  ✉ opened the emailed link from "${found.subject.slice(0, 60)}"`);
+  return ok('Opened the emailed link in a new tab; the application continues there. Inspect it: sign in or continue the application if the account is now verified.');
+}
+
+async function doPressKey(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const key = String(args.key ?? '');
+  if (!['ArrowDown', 'ArrowUp', 'Escape', 'Tab', 'PageDown', 'PageUp'].includes(key)) {
+    return ok('Unsupported key. Use ArrowDown, ArrowUp, Escape, Tab, PageDown or PageUp.');
+  }
+  if (typeof args.ref === 'string' && args.ref) {
+    const attr = args.ref.startsWith('f') ? 'data-field-id' : 'data-ref-id';
+    const focused = await ctx.page.locator(`[${attr}="${args.ref}"]`).first().focus({ timeout: 3_000 }).then(() => true).catch(() => false);
+    if (!focused) return ok(`${args.ref} could not be focused. Re-observe and use a current ref.`);
+  }
+  const before = await captureInteractivePageState(ctx.page);
+  await ctx.page.keyboard.press(key);
+  const changed = await waitForInteractivePageChange(ctx.page, before, 2_500);
+  return ok(`Pressed ${key}. ${changed ? 'The page changed; a fresh observation follows.' : 'Nothing visible changed.'}`);
+}
+
+/**
+ * The most any one tool may take. A tool that never returns (a page that
+ * stops answering an evaluate, a navigation that never commits) must not
+ * freeze the run: the agent is told and re-observes instead. Generous enough
+ * for the slow legitimate cases — a humanized letter, an email arriving.
+ */
+const TOOL_TIME_LIMIT_MS: Record<string, number> = {
+  add_cover_letter: 300_000,
+  enter_emailed_code: EMAIL_WAIT_MS + 60_000,
+  open_emailed_link: EMAIL_WAIT_MS + 60_000,
+  answer_questions: 180_000,
+  attach_resume: 180_000,
+};
+const DEFAULT_TOOL_TIME_LIMIT_MS = 120_000;
+
 export async function executeTool(
+  ctx: ToolContext,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const limit = TOOL_TIME_LIMIT_MS[name] ?? DEFAULT_TOOL_TIME_LIMIT_MS;
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<ToolResult>((done) => {
+    timer = setTimeout(() => {
+      ctx.log(`  ⏱ ${name} did not finish within ${Math.round(limit / 1000)}s; continuing without it`);
+      done(ok(`The ${name} call did not finish within ${Math.round(limit / 1000)} seconds and was abandoned. The page may have changed: re-observe before acting.`));
+    }, limit);
+  });
+  try {
+    return await Promise.race([runTool(ctx, name, args), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runTool(
   ctx: ToolContext,
   name: string,
   args: Record<string, unknown>,
@@ -1116,6 +1225,10 @@ export async function executeTool(
       return doFinish(ctx, args);
     case 'enter_emailed_code':
       return doEnterEmailedCode(ctx, args);
+    case 'open_emailed_link':
+      return doOpenEmailedLink(ctx, args);
+    case 'press_key':
+      return doPressKey(ctx, args);
     case 'click_point':
       return doClickPoint(ctx, args);
     default:

@@ -147,7 +147,10 @@ employers, so read the page rather than assuming an order.
   click it, then its entries appear as [option] actions — click the one you
   want, then re-check the field's current value. Styled checkboxes, radios and
   switches show as [toggle] actions with their state; click to change them.
-  Never try to type into a control that opens a list.
+  Never try to type into a control that opens a list. If a list will not open
+  on click, focus it with press_key ArrowDown; use press_key Escape to close a
+  menu or overlay that is in the way, and PageDown to scroll a panel that has
+  its own scrollbar.
 - When you receive a screenshot, every ref is drawn on it as a small tag: red
   for actions, blue for fields. Use those refs. click_point exists only for
   something you can see that has no tag.
@@ -188,12 +191,15 @@ function systemPrompt(): string {
   if (!browserGmailAvailable()) return SYSTEM_PROMPT;
   return `${SYSTEM_PROMPT}
 
-EMAILED CODES
-When a site says it has emailed a code (verification code, one-time passcode,
-sign-in code): make sure the email has been requested — click the send/next
-control if it has not — then call enter_emailed_code with the ref of the code
-FIELD. Never type a code yourself and never give up on a page only because it
-asks for an emailed code.`;
+EMAILED CODES AND LINKS
+The candidate's inbox is readable. When a site says it has emailed a code
+(verification code, one-time passcode, sign-in code): make sure the email has
+been requested — click the send/next control if it has not — then call
+enter_emailed_code with the ref of the code FIELD. When it says it emailed a
+link (verify/activate/confirm your account, reset your password), call
+open_emailed_link; the link opens in a new tab and the application continues
+there — sign in again if the site asks. Never type a code or link yourself and
+never give up on a page only because it needs something from email.`;
 }
 
 interface TraceStep {

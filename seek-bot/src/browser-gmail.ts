@@ -1,40 +1,40 @@
-import type { BrowserContext, Page } from 'patchright';
+import type { BrowserContext, Locator, Page } from 'patchright';
+import { readVerificationEmails, type VerificationEmail } from './llm.js';
 
 /**
- * Reading one-time codes out of Gmail in the browser the run already drives.
+ * Reading verification emails out of Gmail in the browser the run already drives.
  *
  * The alternative is the Gmail API, which needs the `gmail.readonly` scope —
  * a restricted scope Google will not grant a production app without a paid
  * third-party security assessment. That is a real cost and a months-long
- * process for the sake of copying six digits out of an email.
+ * process for the sake of one code or one link.
  *
  * So instead the candidate signs a dedicated Gmail account into the same
  * Chrome profile the run uses (see the dashboard's sign-in window), and this
- * reads the code from that session. No token, no scope, no verification, and
- * nothing here ever sees a password.
+ * reads from that session. No token, no scope, and nothing here ever sees a
+ * password. It must be a dedicated account, not a real inbox: anything
+ * visible in that browser is visible to the agent.
  *
- * It must be a dedicated account, not a real inbox: anything visible in that
- * browser is visible to the agent.
+ * What is in an email is read by the model, not by patterns. Codes live in
+ * bodies as often as in subjects, arrive as "123 456" or "A7K-9QX", and many
+ * sites (Workday among them) send a link instead of a code. The browser's job
+ * is only to open the likeliest messages and hand over their text and links;
+ * the model decides which message belongs to this site and what in it is the
+ * credential, and every answer is checked against the message verbatim.
  */
 
-/** Gmail's own search syntax, narrowed to things that plausibly carry a code. */
-const SEARCH = 'newer_than:1h (code OR verification OR verify OR passcode OR OTP OR "one-time")';
-
+/** Recent mail only, narrowed to things that plausibly verify an account. */
+const SEARCH =
+  'newer_than:2h (code OR verify OR verification OR confirm OR confirmation OR activate OR activation OR ' +
+  'password OR passcode OR OTP OR "one-time" OR "sign in" OR login OR "log in" OR account)';
 const INBOX = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(SEARCH)}`;
 
-/**
- * How often to reload while waiting. Long enough that Gmail can finish
- * rendering a message list between reloads, short enough that mail arriving
- * mid-wait is still noticed.
- */
+/** Gmail's shell renders long before the rows; reload rarely so a render can finish. */
 const RELOAD_EVERY_MS = 20_000;
-
-/**
- * Roughly how many lines Gmail's shell alone produces — sidebar, labels,
- * counts and filter chips, with no message rows. More than this means rows
- * actually rendered.
- */
-const CHROME_ONLY_LINES = 30;
+/** Messages opened per look. Newest and most site-relevant first. */
+const OPEN_AT_MOST = 3;
+/** Gmail's message-list rows: the accessible role first, the long-stable class as a fallback. */
+const ROWS = '[role="main"] tr[role="row"], [role="main"] tr.zA';
 
 /** Set by the dashboard when the profile's Chrome has a Google account signed in. */
 export function browserGmailAvailable(): boolean {
@@ -46,151 +46,152 @@ export function browserGmailAccount(): string {
 }
 
 /**
- * Whether this page is Gmail proper rather than a sign-in wall.
- *
- * A session that has lapsed does not error — it quietly redirects to
- * accounts.google.com, and scraping that would silently return no code
- * forever. Telling the two apart is what turns that into a fixable message.
+ * Every browser call here is bounded. A Gmail tab can stop answering (a stuck
+ * reload, a navigation that never commits), and an unbounded evaluate then
+ * waits forever — which once froze a whole run for twenty minutes.
  */
+function bounded<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    work.catch(() => fallback),
+    new Promise<T>((done) => setTimeout(() => done(fallback), Math.max(0, ms))),
+  ]);
+}
+
 async function state(page: Page): Promise<'mail' | 'signed-out' | 'loading'> {
   const url = page.url();
   if (/accounts\.google\.com|ServiceLogin|signin\/v\d/i.test(url)) return 'signed-out';
-  const text = (await page.evaluate(() => document.body?.innerText ?? '').catch(() => '')) as string;
+  const text = await bounded(page.evaluate(() => document.body?.innerText ?? ''), 5_000, '');
   if (/sign in|use another account|forgot email/i.test(text.slice(0, 400))) return 'signed-out';
-  // Gmail's chrome is present on every mailbox view, empty results included.
   if (/\b(Inbox|Primary|Compose|Search mail)\b/i.test(text)) return 'mail';
   return 'loading';
 }
 
-const KEYWORD = /(?:code|pin|passcode|otp|one[- ]time)/gi;
-
-/** 1900–2099 as a bare four-digit run: a year, not a code. */
-const looksLikeYear = (digits: string) => digits.length === 4 && /^(?:19|20)\d\d$/.test(digits);
-
-/**
- * Pulls a one-time code out of one message-list row.
- *
- * A code always has to sit near the word "code" (or PIN/passcode/OTP). There
- * is deliberately no last-resort "any number here" branch: this reads whole
- * list rows, not the subject line of an email already known to be a code
- * email, and rows are full of salaries, reference numbers and years. A bare
- * number rule typed 95000 from "Salary range 95000 to 120000" into a
- * verification field, which is far worse than not finding a code at all —
- * a miss is recoverable, a wrong code is a failed application.
- */
-export function extractCode(row: string): string | null {
-  const text = row.replace(/\s+/g, ' ');
-
-  for (const match of text.matchAll(KEYWORD)) {
-    const after = text.slice(match.index + match[0].length, match.index + match[0].length + 60);
-
-    // Digits following the keyword, skipping anything that reads as a year.
-    for (const digits of after.matchAll(/\b(\d{4,8})\b/g)) {
-      if (!looksLikeYear(digits[1])) return digits[1];
-    }
-
-    // Letter-and-digit codes are case-sensitive: an uppercase run carrying
-    // at least one digit and one letter.
-    const alnum = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}\b/.exec(after);
-    if (alnum) return alnum[0];
-  }
-
-  // The other order: "728104 is your one-time passcode".
-  for (const before of text.matchAll(/\b(\d{4,8})\b(?=[^0-9]{0,40}(?:is your|verification|code|passcode))/gi)) {
-    if (!looksLikeYear(before[1])) return before[1];
-  }
-
-  return null;
+/** Rows mentioning the sender hint first, otherwise newest first (Gmail's own order). */
+function rank(rows: string[], hint: string): number[] {
+  const words = hint.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter((word) => word.length > 2);
+  const score = (row: string) => words.filter((word) => row.toLowerCase().includes(word)).length;
+  return rows.map((_, index) => index).sort((a, b) => score(rows[b]) - score(rows[a]) || a - b);
 }
 
-export interface BrowserCodeResult {
-  code: string;
+/** The opened message: its visible text and its links, with Gmail's redirect wrapper removed. */
+async function readOpenMessage(page: Page): Promise<Omit<VerificationEmail, 'position'> | null> {
+  return bounded(
+    page.evaluate(() => {
+      const main = document.querySelector('[role="main"]') as HTMLElement | null;
+      if (!main) return null;
+      const unwrap = (href: string) => {
+        try {
+          const url = new URL(href);
+          if (/(^|\.)google\.com$/.test(url.hostname) && url.pathname === '/url') return url.searchParams.get('q') ?? href;
+        } catch {}
+        return href;
+      };
+      const links = [...main.querySelectorAll('a[href]')]
+        .map((anchor) => ({
+          text: ((anchor as HTMLElement).innerText || anchor.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+          url: unwrap((anchor as HTMLAnchorElement).href),
+        }))
+        .filter((link) => /^https?:/i.test(link.url) && !/(^|\.)(google|gmail)\.com\//i.test(link.url.replace(/^https?:\/\//, '')));
+      const subject = (document.querySelector('h2') as HTMLElement | null)?.innerText?.trim() ?? '';
+      return { subject, text: main.innerText.replace(/\n{3,}/g, '\n\n').slice(0, 6_000), links: links.slice(0, 40) };
+    }),
+    6_000,
+    null,
+  );
+}
+
+async function openRow(page: Page, row: Locator): Promise<boolean> {
+  const before = page.url();
+  if (!(await bounded(row.click({ timeout: 4_000 }).then(() => true), 5_000, false))) return false;
+  await bounded(page.waitForURL((url) => url.toString() !== before, { timeout: 6_000 }), 7_000, undefined);
+  await bounded(page.locator('[role="main"] [role="listitem"], [role="main"] h2').first().waitFor({ timeout: 6_000 }), 7_000, undefined);
+  return page.url() !== before;
+}
+
+export interface VerificationResult {
+  kind: 'code' | 'link';
+  value: string;
   subject: string;
 }
 
 /**
- * Polls the mailbox until a code shows up or the deadline passes.
- *
- * Reads rendered text rather than Gmail's DOM structure on purpose. The class
- * names in that UI are obfuscated and change without notice, so a selector
- * written today is a breakage waiting to happen; the text of a message list is
- * far more stable, and a verification code is nearly always in the subject or
- * the snippet — visible without opening anything.
+ * Waits for a verification email from `hint`'s site and returns the code or
+ * link it carries. `want` says what the page asked for; `either` lets the
+ * model choose when the page did not say.
  */
-export async function findCodeInBrowser(
+export async function findVerificationInBrowser(
   context: BrowserContext,
-  options: { hint?: string; timeoutMs?: number; log?: (message: string) => void } = {},
-): Promise<BrowserCodeResult | { error: string }> {
-  const deadline = Date.now() + (options.timeoutMs ?? 90_000);
+  options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; timeoutMs?: number; log?: (message: string) => void } = {},
+): Promise<VerificationResult | { error: string }> {
+  const deadline = Date.now() + (options.timeoutMs ?? 120_000);
+  const left = () => Math.max(0, deadline - Date.now());
   const log = options.log ?? (() => {});
-  const hint = options.hint?.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const hint = options.hint ?? '';
+  const want = options.want ?? 'either';
 
-  const page = await context.newPage();
+  const page = await bounded(context.newPage(), 10_000, null);
+  if (!page) return { error: 'Could not open a Gmail tab in this browser profile.' };
   try {
-    await page.goto(INBOX, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
-
+    await bounded(page.goto(INBOX, { waitUntil: 'domcontentloaded', timeout: 30_000 }), Math.min(left(), 32_000), null);
     let seenMail = false;
     let seenRows = false;
-    /**
-     * Gmail is a heavy single-page app: the shell, sidebar and even the
-     * "1-1 of 1" result count paint well before the message rows do. An
-     * earlier version reloaded every three seconds, which restarted that
-     * render each time — it never once got as far as a row, and reported "no
-     * email arrived" against an inbox that plainly had one. So the page is
-     * loaded once and left alone to finish, and only reloaded occasionally,
-     * to pick up mail that landed after this started watching.
-     */
+    const examined = new Set<string>();
     let nextReload = Date.now() + RELOAD_EVERY_MS;
 
-    while (Date.now() < deadline) {
+    while (left() > 0) {
       const where = await state(page);
       if (where === 'signed-out') {
-        return {
-          error:
-            'The Gmail account is signed out in this browser profile. Sign it in again from the dashboard, then re-run.',
-        };
+        return { error: 'The Gmail account is signed out in this browser profile. Sign it in again from the dashboard, then re-run.' };
       }
       if (where === 'mail') {
         seenMail = true;
-        const text = (await page.evaluate(() => document.body?.innerText ?? '').catch(() => '')) as string;
-
-        /**
-         * A row's sender, subject and snippet each land on their own line, so
-         * a code and the keyword introducing it stay together while separate
-         * messages stay apart — which matters when several employers are
-         * mid-flight and only one of the codes is the one being asked for.
-         */
-        const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
-        if (lines.length > CHROME_ONLY_LINES) seenRows = true;
-        const ranked = hint ? [...lines].sort((a, b) => scoreFor(b, hint) - scoreFor(a, hint)) : lines;
-
-        for (const line of ranked) {
-          const code = extractCode(line);
-          if (code) return { code, subject: line.slice(0, 120) };
+        const rows = page.locator(ROWS);
+        const texts = await bounded(rows.allInnerTexts(), 5_000, [] as string[]);
+        if (texts.length) seenRows = true;
+        const fresh = rank(texts, hint).filter((index) => !examined.has(texts[index])).slice(0, OPEN_AT_MOST);
+        if (fresh.length) {
+          const emails: VerificationEmail[] = [];
+          for (const index of fresh) {
+            if (left() < 8_000) break;
+            examined.add(texts[index]);
+            if (!(await openRow(page, rows.nth(index)))) continue;
+            const message = await readOpenMessage(page);
+            if (message) emails.push({ ...message, position: index });
+            await bounded(page.goBack({ waitUntil: 'domcontentloaded', timeout: 8_000 }), 9_000, null);
+            await bounded(page.locator(ROWS).first().waitFor({ timeout: 6_000 }), 7_000, undefined);
+          }
+          if (emails.length) {
+            const found = await bounded(readVerificationEmails(emails, { site: options.site ?? '', hint, want }), Math.min(left(), 60_000), null);
+            if (found) {
+              log(`  ✉ read the ${found.kind} in "${found.subject.slice(0, 60)}"`);
+              return found;
+            }
+          }
         }
       }
-
-      await page.waitForTimeout(2_000);
-      if (Date.now() >= nextReload) {
+      await page.waitForTimeout(Math.min(2_000, left())).catch(() => {});
+      if (Date.now() >= nextReload && left() > 5_000) {
         nextReload = Date.now() + RELOAD_EVERY_MS;
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 }).catch(() => {});
+        // Mail that arrives while waiting only shows after a reload; revisit rows whose text changed.
+        await bounded(page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 }), Math.min(left(), 21_000), null);
       }
     }
 
     if (!seenMail) return { error: 'Gmail did not finish loading in this browser profile.' };
-    // Told apart deliberately: a mailbox whose rows never rendered is a
-    // different problem from one that rendered and held no code, and only the
-    // second means "the email has not arrived".
-    if (!seenRows) return { error: 'Gmail loaded but never rendered its message list.' };
-    return { error: 'No verification email arrived in Gmail within the wait.' };
+    if (!seenRows) return { error: 'No verification email arrived in Gmail within the wait.' };
+    return { error: `No email in Gmail carried a ${want === 'either' ? 'code or link' : want} for this site within the wait.` };
   } finally {
-    await page.close().catch(() => {});
+    await bounded(page.close(), 5_000, undefined);
     log('  ✉ closed the Gmail tab');
   }
 }
 
-/** Rows mentioning the employer come first; the rest still get looked at. */
-function scoreFor(line: string, hint: string): number {
-  const haystack = line.toLowerCase();
-  return hint.split(' ').filter((word) => word.length > 2 && haystack.includes(word)).length;
+/** The code-only form, for callers that type a code (sign-in helpers). */
+export async function findCodeInBrowser(
+  context: BrowserContext,
+  options: { hint?: string; timeoutMs?: number; log?: (message: string) => void } = {},
+): Promise<{ code: string; subject: string } | { error: string }> {
+  const found = await findVerificationInBrowser(context, { ...options, site: options.hint, want: 'code' });
+  if ('error' in found) return found;
+  return found.kind === 'code' ? { code: found.value, subject: found.subject } : { error: 'The email carried a link, not a code.' };
 }
