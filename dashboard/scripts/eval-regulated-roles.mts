@@ -19,7 +19,8 @@ import { join } from 'node:path';
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'owtomate-eval-'));
 const { searchTermsRequest, askGeminiForJson, SEARCH_TERMS_SYSTEM } = await import('../server/search-terms.ts');
 const { readEnv } = await import('../server/runner.ts');
-const { assessFit } = await import('../../seek-bot/dist/llm.js');
+type AssessFit = (job: unknown, profile: unknown) => Promise<{ decision: string; matchScore: number; reason: string }>;
+const { assessFit } = (await import(new URL('../../seek-bot/dist/llm.js', import.meta.url).href)) as { assessFit: AssessFit };
 
 interface Case {
   name: string;
@@ -102,7 +103,7 @@ for (const c of CASES) {
     skills: [], excludedDomains: [], securityClearance: '',
   };
   const job = { id: `eval-${c.name}`, company: 'Employer', location: c.city ?? 'Sydney NSW', url: 'https://example.com', ...c.job };
-  const fit = await assessFit(job as never, profile as never);
+  const fit = await assessFit(job, profile);
   const applied = fit.decision === 'apply';
   const ok = (c.expect === 'apply') === applied;
   if (!ok) failures++;
