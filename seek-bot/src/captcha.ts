@@ -11,7 +11,7 @@ export { reportRejectedToken } from './captcha/capmonster.js';
  * so a value naming a solver that has since been removed degrades to the rest.
  */
 const SOLVERS: Record<string, Solver> = { capmonster: capMonsterSolver };
-const attempts = new WeakMap<Page, { url: string; time: number }>();
+const attempts = new WeakMap<Page, { instance: string; time: number }>();
 
 const chain = (): Solver[] =>
   (process.env.CAPTCHA_SOLVER ?? '').split(',').flatMap(name => SOLVERS[name.trim().toLowerCase()] ?? []);
@@ -43,12 +43,20 @@ export function watchCaptchas(context: BrowserContext): void {
 export async function trySolveCaptcha(page: Page): Promise<boolean> {
   const solvers = chain();
   if (!solvers.length) return false;
-  const previous = attempts.get(page);
-  if (previous?.url === page.url() && Date.now() - previous.time < 60_000) return false;
   try {
     let challenge = await detectChallenge(page);
     if (!challenge) return false;
-    attempts.set(page, { url: page.url(), time: Date.now() });
+    // A form may present a second, distinct challenge on the same URL after
+    // the final submit click. The widget iframe URL carries a fresh instance
+    // id; throttle only that exact instance, not the whole application page.
+    const instance = challenge.kind === 'cloudflare-challenge'
+      ? `${challenge.kind}|${page.url()}`
+      : challenge.kind === 'turnstile'
+        ? `${challenge.kind}|${challenge.instance ?? challenge.host.url()}|${challenge.siteKey ?? ''}|${challenge.action ?? ''}|${challenge.cData ?? ''}`
+        : `${challenge.kind}|${challenge.instance}|${challenge.siteKey}`;
+    const previous = attempts.get(page);
+    if (previous?.instance === instance && Date.now() - previous.time < 60_000) return false;
+    attempts.set(page, { instance, time: Date.now() });
     for (const solver of solvers) {
       if (!solver.supports(challenge)) continue;
       if (await solver.solve(page, challenge)) return true;

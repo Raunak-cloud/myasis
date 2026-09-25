@@ -11,8 +11,8 @@ import type { Frame, Page } from 'patchright';
  */
 export type Challenge =
   | { kind: 'cloudflare-challenge' }
-  | { kind: 'turnstile'; host: Frame; siteKey: string | null; action?: string; cData?: string }
-  | { kind: 'recaptcha-v2'; host: Frame; siteKey: string; invisible: boolean; enterprise: boolean; apiDomain: string; dataS?: string };
+  | { kind: 'turnstile'; host: Frame; siteKey: string | null; action?: string; cData?: string; instance?: string }
+  | { kind: 'recaptcha-v2'; host: Frame; siteKey: string; invisible: boolean; enterprise: boolean; apiDomain: string; dataS?: string; instance: string };
 
 export interface Solver {
   name: string;
@@ -60,6 +60,7 @@ async function readTurnstile(host: Frame, frameUrl?: string): Promise<Challenge 
     siteKey: widget?.siteKey ?? frameUrl?.match(TURNSTILE_KEY)?.[1] ?? null,
     action: widget?.action,
     cData: widget?.cData,
+    instance: frameUrl,
   };
 }
 
@@ -82,7 +83,7 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
     const params = new URL(frame.url()).searchParams;
     const siteKey = params.get('k');
     return siteKey
-      ? [{ host, siteKey, invisible: params.get('size') === 'invisible', enterprise: match[2] === 'enterprise', apiDomain: match[1] }]
+      ? [{ host, siteKey, invisible: params.get('size') === 'invisible', enterprise: match[2] === 'enterprise', apiDomain: match[1], instance: frame.url() }]
       : [];
   });
   /**

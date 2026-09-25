@@ -130,6 +130,12 @@ try {
   const embedded = employer.frames().find(frame => frame.url() === 'http://recaptcha.test/');
   assert.match(await embedded.locator('textarea').inputValue(), /^rc-\d+$/);
   assert.match(await embedded.title(), /^callback:rc-/, 'the callback inside grecaptcha config runs in the widget frame');
+  const tasksBeforeFreshChallenge = calls.filter(call => call.method === 'createTask').length;
+  await embedded.locator('textarea').fill('');
+  await embedded.locator('iframe').evaluate((frame) => frame.setAttribute('src', `${frame.getAttribute('src')}&cb=fresh-submit-challenge`));
+  await embedded.waitForTimeout(100);
+  assert.equal(await trySolveCaptcha(employer), true, 'a new CAPTCHA instance on the same application URL is solved');
+  assert.equal(calls.filter(call => call.method === 'createTask').length, tasksBeforeFreshChallenge + 1, 'the URL cooldown does not suppress a new final-submit challenge');
 
   const mixed = await open('mixed-recaptcha.test');
   assert.equal(await trySolveCaptcha(mixed), true, 'an existing v3 token does not hide a separate v2 challenge');
