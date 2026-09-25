@@ -187,15 +187,27 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       // example a custom dropdown arrow). Expose that observed association
       // instead of dropping the only control that can open the widget.
       if (!label && isButton) {
+        // Custom dropdowns keep a hidden native <select> beside the visible
+        // box, so only visible inputs count when deciding which field this
+        // button belongs to; the hidden one still lends its label.
+        const nameOf = (input: Element) =>
+          [...((input as HTMLInputElement).labels ?? [])].map(item => item.textContent?.trim()).filter(Boolean).join(' ')
+          || input.getAttribute('aria-label') || input.getAttribute('title') || input.getAttribute('placeholder') || '';
         let parent = element.parentElement;
-        for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
+        for (let depth = 0; parent && depth < 4 && !label; depth++, parent = parent.parentElement) {
           const inputs = [...parent.querySelectorAll('input:not([type="hidden"]), select, textarea')];
-          if (inputs.length > 1) break;
-          if (inputs.length !== 1) continue;
-          const input = inputs[0] as HTMLInputElement;
-          const associated = [...(input.labels ?? [])].map(item => item.textContent?.trim()).filter(Boolean).join(' ')
-            || input.getAttribute('aria-label');
-          if (associated) { label = `Open ${associated}`; break; }
+          const visible = inputs.filter(input => input.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
+          if (visible.length > 1) break;
+          if (!inputs.length) continue;
+          const associated = [...visible, ...inputs].map(nameOf).find(Boolean);
+          if (associated) label = `Open ${associated}`;
+        }
+        // Still nameless: the field's own caption, i.e. the short text of the
+        // smallest container around it (a form row reads "State / Territory *").
+        for (let depth = 0, row = element.parentElement; row && depth < 5 && !label; depth++, row = row.parentElement) {
+          const caption = row.innerText?.replace(/\s+/g, ' ').trim() ?? '';
+          if (caption.length > 150) break;
+          if (caption) label = `Open ${caption}`;
         }
       }
       // Generic reveal controls are meaningful only in their section. Indeed's

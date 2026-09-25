@@ -49,6 +49,11 @@ try {
   assert.equal(await fillEmailedCode(page, codeFields, '123456'), true);
   assert.deepEqual(await page.locator('input').evaluateAll(els => els.map(el => (el as HTMLInputElement).value)), ['1', '2', '3', '4', '5', '6']);
   assert.equal(await fillEmailedCode(page, [codeFields[0], codeFields[0]], '12'), false);
+  await page.setContent('<main><div><label for="st">State / Territory *</label><select id="st" style="display:none"><option>NSW</option></select><input readonly><button type="button"><i></i></button></div></main>');
+  assert.ok(
+    (await observe(page)).actions.some(action => /^Open State \/ Territory/.test(action.text)),
+    'an icon-only dropdown button is named from the field it opens, even beside a hidden native select',
+  );
   await page.setContent('<main><label>Code<input maxlength="6"></label></main>');
   assert.equal(await fillEmailedCode(page, (await observe(page)).fields, '123456'), true);
   assert.equal(await page.locator('input').inputValue(), '123456');
