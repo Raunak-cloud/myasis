@@ -1094,7 +1094,13 @@ Return decision=skip for a clear mismatch, an explicit candidate-instruction con
 or an explicitly mandatory requirement the candidate demonstrably does not meet.
 Distinguish desirable experience from mandatory qualifications. Judge seniority in context
 unless the candidate's instructions speak to it; then their words decide. Missing evidence is
-not proof a credential is absent.
+not proof a credential is absent — with one exception: judge eligibility by Australian
+standards. When the ad requires Australian registration, a licence or admission to practise
+(AHPRA for doctors, nurses and other health practitioners; a practising certificate for
+lawyers; a state licence for electricians, plumbers and other licensed trades; teacher
+registration; and similar), overseas qualifications or experience do not satisfy it. If the
+evidence shows only overseas credentials for such a role, return skip and say so; an
+Australian registration or licence the candidate holds would be stated.
 Return decision=uncertain when a decisive fact or requirement needs clarification.
 Explain the decisive evidence, quoting short relevant passages. Do not infer work rights,
 availability, licences or salary from nationality, name, job title or a generic convention.
