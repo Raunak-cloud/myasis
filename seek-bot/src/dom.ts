@@ -762,7 +762,11 @@ export async function fillField(page: Page, field: FormField, value: string, mod
     if (!complaint.trim()) {
       const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
       const refreshed = await extractFields(page).catch(() => [] as FormField[]);
-      const matches = refreshed.filter(candidate => normal(candidate.label) === normal(field.label) && candidate.kind === field.kind);
+      // Repeated blocks (two work-history entries) share labels; the section ("Work Experience 1 › …") tells them apart.
+      const sameLabel = refreshed.filter(candidate => normal(candidate.label) === normal(field.label) && candidate.kind === field.kind);
+      const matches = sameLabel.length > 1 && field.section
+        ? sameLabel.filter(candidate => normal(candidate.section ?? '') === normal(field.section ?? ''))
+        : sameLabel;
       if (matches.length === 1) {
         const held = matches[0].currentValue ?? '';
         const accepted = field.inputType === 'tel' || field.inputType === 'number'
