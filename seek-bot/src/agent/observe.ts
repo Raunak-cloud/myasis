@@ -210,6 +210,37 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
           const nearby = ancestor.innerText?.replace(/\s+/g, ' ').trim() ?? '';
           if (nearby.length > context.length && nearby.length <= 1_200) context = nearby;
         }
+
+        // Component libraries often give the heading, reveal button and body
+        // separate wrappers whose first common ancestor is the entire form.
+        // In that layout ancestor text is either just "Add" or far too large.
+        // Read the semantic section instead: the nearest preceding heading and
+        // all text up to the next heading. This is layout-independent and also
+        // works when the section is below the viewport.
+        const root = element.getRootNode() as Document | ShadowRoot;
+        const headingNodes = [...root.querySelectorAll('h1, h2, h3, h4, [role="heading"]')];
+        const heading = headingNodes
+          .filter(candidate => Boolean(candidate.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
+          .at(-1);
+        if (heading) {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+          walker.currentNode = heading;
+          const parts: string[] = [];
+          let size = 0;
+          while (size < 1_200) {
+            const node = walker.nextNode();
+            if (!node) break;
+            if (node instanceof Element && node !== heading && /^(H[1-4])$/.test(node.tagName)) break;
+            if (node instanceof Element && node !== heading && node.getAttribute('role') === 'heading') break;
+            if (node.nodeType !== Node.TEXT_NODE) continue;
+            const piece = (node.textContent ?? '').replace(/\s+/g, ' ').trim();
+            if (!piece) continue;
+            parts.push(piece);
+            size += piece.length + 1;
+          }
+          const section = parts.join(' ').slice(0, 1_200);
+          if (section.length > context.length || /cover[\s-]?letter|supporting documents?/i.test(section)) context = section;
+        }
       }
       results.push({
         ref,

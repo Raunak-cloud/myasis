@@ -157,11 +157,10 @@ try {
   await page.setContent(`
     <main>
       <div>${'Long resume preview '.repeat(500)}</div>
-      <section>
-        <h2>Supporting documents</h2>
-        <button>Add</button>
-        <p>No cover letter or additional documents added. This is optional to add.</p>
-      </section>
+      <h2>Supporting documents</h2>
+      <div><button>Add</button></div>
+      <div>No cover letter or additional documents added. This is optional to add.</div>
+      <h2>Submit</h2>
       <button onclick="document.body.dataset.submitted='yes'">Submit your application</button>
     </main>
   `);
