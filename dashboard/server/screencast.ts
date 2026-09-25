@@ -58,6 +58,7 @@ class Session {
   private closed = false;
   private heartbeat: NodeJS.Timeout | null = null;
   private lastFrameAt = 0;
+  private frameQuality = 60;
 
   // Explicit fields rather than constructor parameter properties: the project
   // builds with `erasableSyntaxOnly`, which disallows the shorthand.
@@ -79,6 +80,7 @@ class Session {
   }
 
   async start(quality: number, maxWidth: number) {
+    this.frameQuality = quality;
     this.cdp = new WebSocket(this.targetWsUrl, { perMessageDeflate: false });
 
     this.cdp.on('open', async () => {
@@ -142,7 +144,10 @@ class Session {
 
   /** One-off screenshot pushed as a frame, for static pages. */
   private async prime() {
-    const shot = await this.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 });
+    // Keep static-page refreshes at the same quality as live screencast frames.
+    // A lower hard-coded value made an initially sharp view turn visibly soft
+    // after the three-second heartbeat replaced it.
+    const shot = await this.send('Page.captureScreenshot', { format: 'jpeg', quality: this.frameQuality });
     if (!shot?.data) return;
     const m = await this.send('Page.getLayoutMetrics', {});
     const vp = m?.cssLayoutViewport ?? m?.layoutViewport;
@@ -202,7 +207,7 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
 
   wss.on('connection', async (client, req: any) => {
     const url = new URL(req.url ?? '', 'http://localhost');
-    const quality = Math.max(30, Math.min(80, Number(url.searchParams.get('quality') ?? 60)));
+    const quality = Math.max(30, Math.min(90, Number(url.searchParams.get('quality') ?? 82)));
     const maxWidth = Math.max(800, Math.min(1600, Number(url.searchParams.get('width') ?? 1440)));
     const port = Number(req.runBrowserPort);
 

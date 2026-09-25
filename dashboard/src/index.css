@@ -1858,11 +1858,13 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
  * the activity log is itself a full-screen modal, and at the shared overlay
  * z-index the live view appeared behind it, so the button looked dead.
  */
-.live-action-overlay { padding: 24px; z-index: 80; }
+.live-action-overlay { padding: 16px; z-index: 80; }
 
 .live-action-window {
-  width: min(1180px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  /* The run browser is 1440px wide. Show it at native size when the viewer has
+     room, but never enlarge it past that and soften its text. */
+  width: min(1440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
   overflow: hidden;
   padding: 0;
 }

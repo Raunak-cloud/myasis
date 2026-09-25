@@ -14,7 +14,7 @@ export function LiveActionViewer({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    const socket = new WebSocket(`${scheme}://${location.host}/ws/screencast?quality=65&width=1440`);
+    const socket = new WebSocket(`${scheme}://${location.host}/ws/screencast?quality=82&width=1440`);
     socket.addEventListener('message', (event) => {
       let update: LiveMessage;
       try {
