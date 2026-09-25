@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fmtDate } from '../format';
 import { FilePreview } from './FilePreview';
 
-export interface ResumeRecord {
+interface ResumeRecord {
   id: string;
   label: string;
   fileName: string;
@@ -13,7 +13,7 @@ export interface ResumeRecord {
   isDefault?: boolean;
 }
 
-export interface KnowledgeItem {
+interface KnowledgeItem {
   id: string;
   label: string;
   kind: 'file' | 'note';

@@ -6,7 +6,7 @@ import { query } from './db/index.js';
  * same thing. Exported into each run as `answers.json`.
  */
 
-export interface SavedAnswer {
+interface SavedAnswer {
   question: string;
   answer: string;
   createdAt: string;

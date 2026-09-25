@@ -51,7 +51,7 @@ export async function upsertSettingRow(uid: string, key: string, value: string):
   );
 }
 
-export interface ResumeRow {
+interface ResumeRow {
   label: string;
   fileName: string;
   seekName?: string | null;
@@ -70,7 +70,7 @@ export async function insertResumeRow(uid: string, r: ResumeRow): Promise<void> 
   );
 }
 
-export interface KnowledgeRow {
+interface KnowledgeRow {
   label: string;
   kind: 'file' | 'note';
   fileName?: string | null;
@@ -96,7 +96,7 @@ export async function insertKnowledgeItemRow(uid: string, k: KnowledgeRow): Prom
   );
 }
 
-export interface ApplicationRow {
+interface ApplicationRow {
   jobId: string;
   title: string;
   company: string;
@@ -145,7 +145,7 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
   return rows.length > 0;
 }
 
-export interface SiteAccountUse {
+interface SiteAccountUse {
   site: string;
   email: string;
   createdByMyasis: boolean;
@@ -173,7 +173,7 @@ export async function upsertSiteAccount(uid: string, use: SiteAccountUse): Promi
   );
 }
 
-export interface RunEventRow {
+interface RunEventRow {
   jobId?: string | null;
   status: string;
   title?: string | null;

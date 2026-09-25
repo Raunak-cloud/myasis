@@ -12,9 +12,9 @@ import { captchaEnabled, reportRejectedToken, trySolveCaptcha } from './captcha.
  * apart.
  */
 
-export type PageState = 'ok' | 'captcha' | 'login' | 'identity' | 'removed' | 'already-applied' | 'loading';
+type PageState = 'ok' | 'captcha' | 'login' | 'identity' | 'removed' | 'already-applied' | 'loading';
 
-export interface PageVerdict {
+interface PageVerdict {
   state: PageState;
   reason: string;
 }

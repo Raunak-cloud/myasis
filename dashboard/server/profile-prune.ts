@@ -90,7 +90,7 @@ function directorySize(path: string): number {
  * corrupts the profile, which would cost the candidate their job-board
  * sessions — the exact thing this is written to protect.
  */
-export function pruneProfile(userId: string): { skipped: true; reason: string } | { skipped: false; freedBytes: number } {
+function pruneProfile(userId: string): { skipped: true; reason: string } | { skipped: false; freedBytes: number } {
   if (runner.stateFor(userId).running) return { skipped: true, reason: 'a run is going' };
   if (sessionFor(userId)) return { skipped: true, reason: 'a sign-in window is open' };
 

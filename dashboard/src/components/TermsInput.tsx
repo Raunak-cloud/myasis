@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 
 /** The saved form is a comma-separated string; the terms are what a person edits. */
-export function splitTerms(value: string): string[] {
+function splitTerms(value: string): string[] {
   return value.split(/[,\r\n]+/).map((term) => term.trim()).filter(Boolean);
 }
 

@@ -15,7 +15,7 @@ import { readEnv } from './runner.js';
  * says so; the rest of the analytics keep working.
  */
 
-export interface GeoPlace {
+interface GeoPlace {
   countryCode: string | null;
   country: string | null;
   region: string | null;
@@ -24,7 +24,7 @@ export interface GeoPlace {
   longitude: number | null;
 }
 
-export const NO_PLACE: GeoPlace = { countryCode: null, country: null, region: null, city: null, latitude: null, longitude: null };
+const NO_PLACE: GeoPlace = { countryCode: null, country: null, region: null, city: null, latitude: null, longitude: null };
 
 type CityReader = Awaited<ReturnType<typeof openMmdb<CityResponse>>>;
 

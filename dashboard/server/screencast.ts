@@ -24,7 +24,7 @@ import { userDir } from './userdata.js';
  * repointed by editing seek-bot/.env — no dashboard restart — and a VPS can
  * host the browser somewhere other than localhost.
  */
-export function cdpBase(portOverride?: number): string {
+function cdpBase(portOverride?: number): string {
   const env = readEnv();
   const host = process.env.CDP_HOST ?? env.CDP_HOST ?? '127.0.0.1';
   const port = portOverride ?? Number(process.env.CDP_PORT ?? env.CDP_PORT ?? 9333);
@@ -39,7 +39,7 @@ interface CdpTarget {
   webSocketDebuggerUrl?: string;
 }
 
-export async function listTargets(port?: number): Promise<CdpTarget[]> {
+async function listTargets(port?: number): Promise<CdpTarget[]> {
   const res = await fetch(`${cdpBase(port)}/json/list`, { signal: AbortSignal.timeout(4000) });
   if (!res.ok) throw new Error(`CDP ${res.status}`);
   return (await res.json()) as CdpTarget[];

@@ -27,7 +27,7 @@ import { stopAllSignins } from './signin.js';
  *   would be silently ignored in favour of the process value.
  */
 
-export type Kind = 'text' | 'secret' | 'number' | 'boolean' | 'url' | 'choice';
+type Kind = 'text' | 'secret' | 'number' | 'boolean' | 'url' | 'choice';
 
 interface Spec {
   key: string;
@@ -267,7 +267,7 @@ function looksSecret(key: string): boolean {
   return SECRET_NAME.test(key);
 }
 
-export interface EnvEntry {
+interface EnvEntry {
   key: string;
   label: string;
   help: string;
@@ -290,12 +290,12 @@ export interface EnvEntry {
   options?: Array<{ value: string; label: string }>;
 }
 
-export interface GroupBanner {
+interface GroupBanner {
   tone: 'ok' | 'warn' | 'bad';
   text: string;
 }
 
-export interface EnvReport {
+interface EnvReport {
   groups: Array<{ key: string; title: string; note?: string; banner?: GroupBanner; entries: EnvEntry[] }>;
   hidden: number;
   restartPending: boolean;
@@ -410,7 +410,7 @@ function normalise(key: string, spec: Spec | undefined, raw: unknown): string {
   }
 }
 
-export interface EnvChangeResult {
+interface EnvChangeResult {
   changed: string[];
   restartNeeded: boolean;
 }

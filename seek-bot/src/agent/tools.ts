@@ -520,7 +520,7 @@ async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): 
   let answer = (await answerFields(context, ctx.job, ctx.profile)).answers.find(candidate => candidate.ref === ref);
   if (field.required && answer?.applicationQuestion !== false && !answer?.grounded) {
     ctx.log('  ↑ thinking again about 1 dropdown before asking the candidate');
-    const reasoned = await answerFields(context, ctx.job, ctx.profile, undefined, { reasoning: true }).catch(() => null);
+    const reasoned = await answerFields(context, ctx.job, ctx.profile).catch(() => null);
     const better = reasoned?.answers.find(candidate => candidate.ref === ref);
     if (better?.grounded || better?.applicationQuestion === false) answer = better;
   }
@@ -749,7 +749,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   );
   if (unsure.length) {
     ctx.log(`  ↑ thinking again about ${unsure.length} question(s) before asking the candidate`);
-    const second = await answerFields(unsure, ctx.job, ctx.profile, undefined, { reasoning: true }).catch(() => null);
+    const second = await answerFields(unsure, ctx.job, ctx.profile).catch(() => null);
     if (second) {
       answers = answers.map((answer) => {
         const better = second.answers.find((candidate) => candidate.ref === answer.ref);

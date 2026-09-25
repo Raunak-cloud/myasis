@@ -5,11 +5,11 @@
  * The employers are representative examples, not placement claims. The shape
  * is data-driven so changing the mix is an edit to this file, not to the page.
  */
-export const ACTIVE_USERS = 7_000;
+const ACTIVE_USERS = 7_000;
 
-export type Placement = { company: string; city: string };
+type Placement = { company: string; city: string };
 
-export const PLACEMENTS: Placement[] = [
+const PLACEMENTS: Placement[] = [
   { company: 'Coles', city: 'Melbourne' },
   { company: 'Chemist Warehouse', city: 'Melbourne' },
   { company: 'Canva', city: 'Sydney' },

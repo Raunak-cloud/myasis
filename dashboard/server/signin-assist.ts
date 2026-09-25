@@ -26,7 +26,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * present in this Chrome profile. It never fills credentials or chooses a
  * different account.
  */
-export function googleAccountButtonExpression(email: string, click = false): string {
+function googleAccountButtonExpression(email: string, click = false): string {
   const wanted = JSON.stringify(email.trim().toLowerCase());
   const clickControl = click ? 'control.click();' : '';
   return `(() => {

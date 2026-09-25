@@ -24,7 +24,7 @@ import type { CandidateProfile } from './candidate-profile.js';
  * life of that process).
  */
 
-export interface QueueItem {
+interface QueueItem {
   jobId: string;
   title: string;
   company: string;
@@ -58,7 +58,7 @@ export function loadQueue(userId: string): QueueItem[] {
   }
 }
 
-export function saveQueue(userId: string, items: QueueItem[]) {
+function saveQueue(userId: string, items: QueueItem[]) {
   writeFileSync(queuePath(userId), JSON.stringify(items, null, 2));
 }
 
@@ -116,7 +116,7 @@ function toBotProfile(p: CandidateProfile) {
   };
 }
 
-export interface AssistField {
+interface AssistField {
   ref: string;
   label: string;
   kind: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';

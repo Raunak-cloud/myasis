@@ -318,7 +318,7 @@ async function captureBlockedField(page: Page, ref: string): Promise<string | un
   }
 }
 
-export interface AgentRunResult {
+interface AgentRunResult {
   outcome: AgentTermination;
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
@@ -333,7 +333,7 @@ export interface AgentRunResult {
   usage: string;
 }
 
-export interface AgentRunOptions {
+interface AgentRunOptions {
   page: Page;
   job: JobListing;
   profile: CandidateProfile;
@@ -385,7 +385,7 @@ function observationMessage(observation: Observation, note?: string): ChatMessag
  * sibling host (tafensw-identity.login.pageuppeople.com, then
  * secure.dc2.pageuppeople.com), so account evidence is compared per domain.
  */
-export function siteDomain(url: string): string {
+function siteDomain(url: string): string {
   const host = siteHost(url);
   const labels = host.split('.');
   const secondLevel = /^(com|net|org|gov|edu|co|ac)$/.test(labels.at(-2) ?? '') && (labels.at(-1) ?? '').length === 2;
@@ -399,7 +399,7 @@ export function siteDomain(url: string): string {
  * application carrying on past it on the same site, or being submitted there,
  * does. Only confirmed accounts reach the candidate's list of site accounts.
  */
-export function confirmAuthentication(
+function confirmAuthentication(
   actions: ApplicationAction[],
   progress: Array<{ site: string; at: string }>,
   submittedOn: string | null,

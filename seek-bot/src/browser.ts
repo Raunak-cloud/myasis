@@ -2,7 +2,6 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
-import { judgePage } from './blocker.js';
 import { signInAutomatically } from './signin-agent.js';
 import { captchaEnabled, handleCaptchaWithCapMonster, watchCaptchas } from './captcha.js';
 import { hasCaptchaSurface } from './captcha/detect.js';
@@ -419,69 +418,7 @@ export async function assertIndeedSignedIn(page: Page, challengeTimeoutMs = 45_0
   recordSiteSession('indeed', true, { account: await accountOnPage(page) });
 }
 
-async function assertIndeedSignedInLegacy(page: Page): Promise<void> {
-  await page.goto(`${config.indeedBase}/`, { waitUntil: 'domcontentloaded' });
-  const url = page.url();
-  if (/secure\.indeed\.com|\/account\/login/i.test(url)) {
-    recordSiteSession('indeed', false);
-    throw new Error(
-      'Indeed session is not signed in. Open the Chrome profile manually, sign in to au.indeed.com, then re-run. ' +
-        'This tool never automates login.',
-    );
-  }
-  await waitForChallengeToClear(page);
-  if ((await judgePage(page, 'the Indeed homepage')).state === 'captcha') {
-    throw new Error(
-      'Indeed is showing a Cloudflare verification challenge instead of the site. Open the Chrome profile ' +
-        'manually, solve the challenge (or wait for it to clear — it usually follows a burst of traffic), then re-run.',
-    );
-  }
-  /**
-   * Signed in, or not, from what the page shows a person.
-   *
-   * This used to read one global, `mosaic.initialData.isLoggedIn`. Indeed
-   * stopped setting it on the homepage, and a signed-in account then read
-   * as signed out on every run and every check. One private flag is a
-   * fragile witness; the page has public ones. A signed-in visitor gets the
-   * account menu and the Messages link in the header and no "Sign in" link.
-   * A signed-out visitor gets the opposite. The flag is still consulted when
-   * it exists, and when the signals disagree nothing is recorded, so a page
-   * that is half-loaded never overwrites a known state.
-   */
-  const verdict = await page
-    .waitForFunction(
-      () => {
-        const flag = (window as any).mosaic?.initialData?.isLoggedIn;
-        const header = document.querySelector('header, nav, #gnav') ?? document.body;
-        const text = header?.textContent ?? '';
-        const accountMenu = Boolean(
-          document.querySelector('[data-gnav-element-name="AccountMenu"], [data-gnav-element-name="Messages"], [aria-label*="account menu" i]'),
-        ) || /\bMessages\b/.test(text);
-        const signInLink = Boolean(document.querySelector('a[href*="/account/login"], a[data-gnav-element-name="SignIn"]'));
-        if (flag === true || (accountMenu && !signInLink)) return 'signed-in';
-        if (flag === false || (signInLink && !accountMenu)) return 'signed-out';
-        return false;
-      },
-      undefined,
-      { timeout: 12_000, polling: 300 },
-    )
-    .then((handle) => handle.jsonValue() as Promise<string>)
-    .catch(() => 'unclear');
-  if (verdict === 'signed-out') {
-    recordSiteSession('indeed', false);
-    throw new Error(
-      'Indeed session is not signed in. Open the Chrome profile manually, sign in to au.indeed.com, then re-run. ' +
-        'This tool never automates login.',
-    );
-  }
-  if (verdict === 'unclear') {
-    throw new Error('Indeed did not finish loading, so the sign-in could not be confirmed. Try again in a moment.');
-  }
-  // Same rule as SEEK: only a clear answer is written. A challenge page is not one.
-  recordSiteSession('indeed', true);
-}
-
-export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * Lets Cloudflare's automatic challenge finish before the page is read.
@@ -535,7 +472,7 @@ export function jitter(minMs: number, maxMs: number): Promise<void> {
   return sleep(Math.floor(minMs + Math.random() * (maxMs - minMs)));
 }
 
-export interface InteractivePageState {
+interface InteractivePageState {
   url: string;
   fingerprint: string;
 }

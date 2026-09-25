@@ -10,7 +10,7 @@ import { readEnv } from './runner.js';
  * owner of a recorded account asks to see it.
  */
 
-export interface SiteAccount {
+interface SiteAccount {
   site: string;
   email: string;
   createdByMyasis: boolean;

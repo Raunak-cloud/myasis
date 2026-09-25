@@ -51,11 +51,11 @@ function dailyLimit(overrides: Record<string, string>): number {
  * real applications under a candidate's name, so both callers come here.
  */
 
-export type StartRunOutcome =
+type StartRunOutcome =
   | { ok: true; mode: RunMode }
   | { ok: false; status: number; error: string };
 
-export interface StartRunRequest {
+interface StartRunRequest {
   userId: string;
   email?: string | null;
   mode: RunMode;

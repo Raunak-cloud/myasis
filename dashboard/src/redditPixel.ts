@@ -34,7 +34,7 @@ const CLICK_ID_COOKIE = 'owtomate_rdt_cid';
 /** Reddit's attribution window is 28 days; keeping the click id longer only ages it. */
 const CLICK_ID_DAYS = 28;
 
-export type RedditEvent =
+type RedditEvent =
   | 'PageVisit'
   | 'ViewContent'
   | 'Search'
@@ -44,7 +44,7 @@ export type RedditEvent =
   | 'SignUp'
   | 'Purchase';
 
-export interface RedditEventOptions {
+interface RedditEventOptions {
   /** Must equal the id the server sends for the same event, or it will not deduplicate. */
   conversionId?: string;
   currency?: string;
@@ -54,18 +54,8 @@ export interface RedditEventOptions {
 
 const pixelId = typeof __REDDIT_PIXEL_ID__ === 'string' ? __REDDIT_PIXEL_ID__.trim() : '';
 
-/**
- * A seam for a consent banner. Nothing calls it yet — the privacy policy
- * discloses the pixel instead — but when a banner arrives it sets this to
- * false before anything loads, and no request leaves the page.
- */
-let allowed = true;
-export function setRedditConsent(next: boolean): void {
-  allowed = next;
-}
-
 function enabled(): boolean {
-  if (!pixelId || !allowed) return false;
+  if (!pixelId) return false;
   // A browser under automation says so; the bot's Chrome must not be counted.
   if (typeof navigator !== 'undefined' && navigator.webdriver) return false;
   return true;

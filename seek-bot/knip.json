@@ -1,0 +1,35 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/queue.ts",
+    "src/check-signin.ts",
+    "src/signout.ts",
+    "src/e2e.ts",
+    "src/external-e2e.ts",
+    "src/external-real-rehearsal.ts",
+    "src/agent-e2e.ts",
+    "src/bench-*.ts",
+    "src/**/*.test.ts",
+    "src/humanizer-endpoint.ts",
+    "src/knowledge.ts",
+    "src/rewrite-guard.ts",
+    "src/site-auth.ts",
+    "src/agent/celeris.ts",
+    "src/agent/guards.ts",
+    "src/agent/observe.ts",
+    "src/agent/tools.ts",
+    "src/captcha.ts",
+    "src/config.ts",
+    "src/dom.ts",
+    "src/llm.ts",
+    "src/pipeline.ts",
+    "src/scoring.ts",
+    "scripts/*.mjs",
+    "src/probe.ts",
+    "src/probe-gmail.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "scripts/*.mjs"
+  ]
+}

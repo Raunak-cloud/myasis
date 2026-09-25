@@ -47,7 +47,7 @@ function planLabel(paid: Awaited<ReturnType<typeof billingStatus>>['paid'], admi
   return 'Free';
 }
 
-export interface AdminUserRow {
+interface AdminUserRow {
   id: string;
   email: string;
   name: string | null;
@@ -159,7 +159,7 @@ async function findUser(id: string): Promise<UserRecord | null> {
   );
 }
 
-export async function adminUsers(): Promise<AdminUserRow[]> {
+async function adminUsers(): Promise<AdminUserRow[]> {
   const users = await query<UserRecord>(
     'SELECT id::text AS id, email, name, avatar_url, created_at, last_login_at, blocked_at FROM users ORDER BY created_at DESC',
   );
@@ -169,7 +169,7 @@ export async function adminUsers(): Promise<AdminUserRow[]> {
   return rows;
 }
 
-export interface AdminRunRow {
+interface AdminRunRow {
   id: string;
   userId: string;
   email: string;
@@ -185,7 +185,7 @@ export interface AdminRunRow {
   running: boolean;
 }
 
-export async function adminRuns(filter: { userId?: string; limit?: number }): Promise<AdminRunRow[]> {
+async function adminRuns(filter: { userId?: string; limit?: number }): Promise<AdminRunRow[]> {
   const limit = Math.min(500, Math.max(1, filter.limit ?? 150));
   const rows = await query<{
     id: string; user_id: string; email: string; name: string | null; mode: string; trigger: string;
@@ -225,7 +225,7 @@ export async function adminRuns(filter: { userId?: string; limit?: number }): Pr
   });
 }
 
-export async function adminOverview() {
+async function adminOverview() {
   const [users, passes, today, week, revenue, errors, runs] = await Promise.all([
     one<{ total: string; new_week: string; active_week: string }>(
       `SELECT count(*)::text AS total,
@@ -277,7 +277,7 @@ export async function adminOverview() {
   };
 }
 
-export async function adminUserDetail(id: string) {
+async function adminUserDetail(id: string) {
   const user = await findUser(id);
   if (!user) return null;
   const [row, passes, runs, applications] = await Promise.all([

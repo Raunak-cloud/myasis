@@ -41,34 +41,6 @@ export function scoreClass(score: number): string {
   return 'lo';
 }
 
-export function isToday(iso: string): boolean {
-  const d = new Date(iso);
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
-}
-
-/** Groups skip reasons into readable buckets for the breakdown panel. */
-export function bucketReason(reason: string): string {
-  const r = reason.toLowerCase();
-  if (r.includes('already applied')) return 'Already applied';
-  // 'gemini:' is the legacy prefix — kept so older log entries still bucket.
-  if (r.includes('ai fit check') || r.includes('gemini') || r.includes('stack mismatch'))
-    return 'Stack mismatch';
-  if (r.includes('on-site role outside')) return 'Wrong location';
-  if (r.includes('salary')) return 'Below salary floor';
-  if (r.includes('excluded domain')) return 'Excluded domain';
-  if (r.includes('score')) return 'Score too low';
-  if (r.includes('templated')) return 'Templated / spam';
-  if (r.includes('injection')) return 'Prompt injection';
-  if (r.includes('no apply control')) return 'No apply control';
-  if (r.includes('dry_run')) return 'Dry run';
-  return 'Other';
-}
-
 /** Whole days since an ISO timestamp. */
 export function daysSince(iso: string): number {
   const t = Date.parse(iso);

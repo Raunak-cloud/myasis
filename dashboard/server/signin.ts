@@ -42,9 +42,9 @@ const FIRST_DEBUG_PORT = 19222;
 const SCREEN = '1280x900x24';
 
 /** What a sign-in window was opened for; only the label and start page differ. */
-export type SigninTarget = 'seek' | 'indeed' | 'gmail';
+type SigninTarget = 'seek' | 'indeed' | 'gmail';
 
-export const START_URLS: Record<SigninTarget, string> = {
+const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
   indeed: 'https://secure.indeed.com/account/login?hl=en_AU&co=AU',
   /**
@@ -55,7 +55,7 @@ export const START_URLS: Record<SigninTarget, string> = {
   gmail: 'https://accounts.google.com/AddSession?service=mail',
 };
 
-export interface SigninSession {
+interface SigninSession {
   userId: string;
   display: number;
   vncPort: number;

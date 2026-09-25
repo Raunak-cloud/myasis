@@ -199,7 +199,7 @@ try {
   }));
   await page.goto('https://smartapply.indeed.com/beta/indeedapply/form/questions-module/questions/review-fixture');
   ctx = await context();
-  const indeedReview = await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Open review' });
+  await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Open review' });
   assert.equal(await page.locator('body').getAttribute('data-reviewed'), 'yes', 'Indeed review navigation remains available before a cover letter is added');
 
   await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');

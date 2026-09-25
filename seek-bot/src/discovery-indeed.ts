@@ -201,7 +201,7 @@ export async function recommended(page: Page): Promise<JobListing[]> {
 }
 
 /** Primary path: pull the hydrated result set out of `window.mosaic`. */
-export async function searchViaMosaic(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
+async function searchViaMosaic(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const url = searchUrl(keywords, pageNum);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await requireIndeedPage(page, `searching for "${keywords}"`);
@@ -225,7 +225,7 @@ export async function searchViaMosaic(page: Page, keywords: string, pageNum = 1)
 }
 
 /** Fallback: read the rendered cards via Indeed's own `data-jk`/`data-testid` hooks. */
-export async function searchViaDom(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
+async function searchViaDom(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const url = searchUrl(keywords, pageNum);
   if (!page.url().startsWith(url)) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });

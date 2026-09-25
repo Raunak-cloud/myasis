@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ensureUserDataDir, userDir } from './userdata.js';
+import { userDir } from './userdata.js';
 
 /**
  * Whether an account is signed in to SEEK.
@@ -51,13 +51,4 @@ export function readSiteState(userId: string, site: SigninSite): SeekState | nul
 
 export function readSeekState(userId: string): SeekState | null {
   return readSiteState(userId, 'seek');
-}
-
-export function writeSeekState(userId: string, state: SeekState): void {
-  try {
-    ensureUserDataDir(userId);
-    writeFileSync(resolve(userDir(userId), 'seek-session.json'), JSON.stringify(state, null, 2));
-  } catch {
-    // A prompt shown once too often is not worth failing a request over.
-  }
 }

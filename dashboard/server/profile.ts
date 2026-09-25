@@ -80,4 +80,4 @@ export async function profileGaps(userId: string): Promise<string[]> {
   return computeProfileGaps(await loadProfile(userId));
 }
 
-export type { CandidateProfile };
+

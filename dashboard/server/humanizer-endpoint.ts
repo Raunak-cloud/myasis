@@ -6,7 +6,7 @@ import { readEnv } from './runner.js';
  * Rewrite tab all ask the same module the bot itself uses, so none of them can
  * call the humanizer up while a run finds it down. Featherless is the provider.
  */
-export interface HumanizerEndpoint {
+interface HumanizerEndpoint {
   base: string;
   apiKey?: string;
   model: string;

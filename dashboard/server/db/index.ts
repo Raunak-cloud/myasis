@@ -13,7 +13,7 @@ import { readEnv } from '../runner.js';
 let pool: pg.Pool | null = null;
 let initError: string | null = null;
 
-export function connectionString(): string {
+function connectionString(): string {
   const env = readEnv();
   return (
     process.env.DATABASE_URL ??
@@ -55,7 +55,7 @@ export async function one<T extends pg.QueryResultRow = pg.QueryResultRow>(
   return rows[0] ?? null;
 }
 
-export interface DbHealth {
+interface DbHealth {
   ok: boolean;
   version?: string;
   tables?: number;

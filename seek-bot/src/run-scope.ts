@@ -7,8 +7,8 @@
  * only" the reverse. Every place that knows which kind a listing is asks
  * here, so the rule lives once.
  */
-export type RunScope = 'all' | 'external' | 'hosted';
-export type ApplicationKind = 'hosted' | 'external';
+type RunScope = 'all' | 'external' | 'hosted';
+type ApplicationKind = 'hosted' | 'external';
 
 export function runScope(): RunScope {
   const value = process.env.APPLY_ONLY;

@@ -47,30 +47,3 @@ export interface SiteAccount {
   firstUsedAt: string;
   lastUsedAt: string;
 }
-
-export type LogStatus =
-  | 'applied'
-  | 'skipped'
-  | 'off-platform'
-  | 'needs-human'
-  | 'error';
-
-export interface LogEntry {
-  ts: string;
-  status: LogStatus;
-  jobId: string;
-  title?: string;
-  company?: string;
-  reason?: string;
-  redirectedTo?: string;
-  url?: string;
-  error?: string;
-}
-
-export const STATUS_META: Record<LogStatus, { label: string; tone: string }> = {
-  applied: { label: 'Applied', tone: 'ok' },
-  skipped: { label: 'Skipped', tone: 'muted' },
-  'off-platform': { label: 'Off-platform', tone: 'info' },
-  'needs-human': { label: 'Needs you', tone: 'warn' },
-  error: { label: 'Error', tone: 'bad' },
-};

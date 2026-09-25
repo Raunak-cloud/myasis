@@ -7,9 +7,9 @@ import { query } from './db/index.js';
  * `db/run-sync.ts`) and `applications`, both filtered by `user_id`.
  */
 
-export type AttentionKind = 'question';
+type AttentionKind = 'question';
 
-export interface AttentionItem {
+interface AttentionItem {
   jobId: string;
   title: string;
   company: string;
@@ -26,7 +26,7 @@ export interface AttentionItem {
  * the form offered when it had any, so the person picks from the same list
  * the form did rather than typing something that will not match on retry.
  */
-export interface BlockedQuestion {
+interface BlockedQuestion {
   question: string;
   /** Complete request shown to the candidate; `question` remains the form's exact label. */
   prompt?: string;

@@ -10,7 +10,6 @@ type ChatCompletionResponse = {
 };
 
 export const MAX_COVER_LETTER_WORDS = 250;
-export const LONG_TEXT_REWRITE_THRESHOLD = 50;
 
 /** Read per call, so a run started by the dashboard sees the settings it was given. */
 const endpoint = () => humanizerEndpoint(process.env);
@@ -37,7 +36,7 @@ const REWRITE_ATTEMPTS = TEMPERATURE_LADDER.length;
  * A rewriting model is allowed to change style, never the substance of an
  * application.
  */
-export function validateHumanized(original: string, candidate: string): string | null {
+function validateHumanized(original: string, candidate: string): string | null {
   return validateRewrite(original, candidate, MAX_COVER_LETTER_WORDS);
 }
 
@@ -106,42 +105,6 @@ async function rewriteText(
     throw new Error('response did not contain rewritten text');
   }
   return content.trim();
-}
-
-/** Rewrite long, free-text form responses; short and exact-value fields bypass this. */
-export async function rewriteLongText(text: string): Promise<string> {
-  if (!config.humanizer.enabled) return text;
-  // Answers are already drafted in the requested voice; avoid a second style model.
-  if (process.env.HUMANIZER_MODE !== 'always') return text;
-  const deadline = Date.now() + config.humanizer.rewriteBudgetMs;
-  const sourceWords = wordCount(text);
-  if (sourceWords <= LONG_TEXT_REWRITE_THRESHOLD) return text;
-  if (!endpoint()) {
-    const message = 'Rewriting service is not configured';
-    if (config.humanizer.required) throw new Error(message);
-    console.warn(`  ! ${message}; using the original response`);
-    return text;
-  }
-
-  const maxWords = Math.ceil(sourceWords * 1.25);
-  // Retried for the same reason as the cover letter — see humanizeCoverLetter.
-  let lastError = 'unknown error';
-  for (let attempt = 0; attempt < REWRITE_ATTEMPTS && Date.now() < deadline; attempt++) {
-    try {
-      const candidate = await rewriteText(text, maxWords, 'application response', TEMPERATURE_LADDER[attempt], deadline);
-      const invalid = validateRewrite(text, candidate, maxWords);
-      if (invalid) throw new Error(invalid);
-      return candidate;
-    } catch (error) {
-      lastError = (error as Error).message;
-    }
-  }
-
-  // Never fatal, for the same reason as the cover letter above.
-  console.warn(
-    `  ! rewriting failed after ${REWRITE_ATTEMPTS} attempts (${lastError}); sending the original grounded answer`,
-  );
-  return text;
 }
 
 /**

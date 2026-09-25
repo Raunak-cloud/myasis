@@ -28,7 +28,7 @@ import { clientIp, type AddressableRequest } from './visits.js';
 const ENDPOINT = 'https://ads-api.reddit.com/api/v2.0/conversions/events';
 
 /** Reddit's standard events. `Custom` needs `customEventName` alongside it. */
-export type RedditTrackingType =
+type RedditTrackingType =
   | 'PageVisit'
   | 'ViewContent'
   | 'Search'
@@ -55,7 +55,7 @@ export interface RedditMatchKeys {
   screenHeight?: number | null;
 }
 
-export interface RedditConversion {
+interface RedditConversion {
   trackingType: RedditTrackingType;
   /** Required when `trackingType` is `Custom`; ignored otherwise. */
   customEventName?: string;
@@ -86,11 +86,6 @@ function config(): { pixelId: string; token: string } | null {
   return { pixelId, token };
 }
 
-/** Whether conversions are being sent at all. Used by the admin panel to explain silence. */
-export function redditCapiConfigured(): boolean {
-  return config() !== null;
-}
-
 /**
  * How the last sends went.
  *
@@ -109,7 +104,7 @@ const health = {
   lastError: null as string | null,
 };
 
-export interface RedditCapiHealth {
+interface RedditCapiHealth {
   configured: boolean;
   /** Present and non-empty only when a token is set. */
   pixelId: string | null;
@@ -137,7 +132,7 @@ function sha256(value: string): string {
  * `alice@example.com` have to reach them as the same hash or the same person
  * counts twice.
  */
-export function hashEmail(email: string): string | null {
+function hashEmail(email: string): string | null {
   const trimmed = email.trim().toLowerCase();
   const at = trimmed.lastIndexOf('@');
   if (at <= 0 || at === trimmed.length - 1) return null;
@@ -211,7 +206,7 @@ function buildEvent(conversion: RedditConversion): Record<string, unknown> {
  * Reports one conversion. Resolves either way: the caller is a sign-up or a
  * payment and must not learn that an ad network had a bad day.
  */
-export async function sendRedditConversion(conversion: RedditConversion): Promise<void> {
+async function sendRedditConversion(conversion: RedditConversion): Promise<void> {
   const settings = config();
   if (!settings) return;
   if (!conversion.conversionId) {

@@ -8,7 +8,7 @@ const MAX_COMBINED_RESUME_CHARS = 60_000;
 /** Never hand back more search terms than an account may save. */
 const MAX_TERMS = MAX_SEARCH_TERMS;
 
-export interface SearchTermsResult {
+interface SearchTermsResult {
   ok: boolean;
   terms?: string[];
   resumeLabel?: string;
@@ -17,13 +17,13 @@ export interface SearchTermsResult {
   status?: number;
 }
 
-export interface SearchTermsInput {
+interface SearchTermsInput {
   currentTerms?: unknown;
   resumeIds?: unknown;
   excludeTerms?: unknown;
 }
 
-export type SearchTermsRenewalResult =
+type SearchTermsRenewalResult =
   | { status: 'renewed'; terms: string[] }
   | { status: 'user-changed'; terms: string[] }
   | { status: 'failed'; error: string };
@@ -41,13 +41,13 @@ interface GeminiJsonResult {
 }
 
 /** Case and punctuation do not make a job-board search meaningfully new. */
-export function searchTermKey(value: string): string {
+function searchTermKey(value: string): string {
   // Keep + and # because they are meaningful in C++ and C# role names.
   return value.toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim();
 }
 
 /** Keep model output useful as comma-separated job-board searches. */
-export function normalizeSearchTerms(input: unknown, limit = MAX_TERMS): string[] {
+function normalizeSearchTerms(input: unknown, limit = MAX_TERMS): string[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>();
   const terms: string[] = [];

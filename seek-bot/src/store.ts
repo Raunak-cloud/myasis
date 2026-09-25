@@ -12,7 +12,7 @@ function ensureDir() {
   if (!existsSync(config.dataDir)) mkdirSync(config.dataDir, { recursive: true });
 }
 
-export function loadApplied(): AppliedRecord[] {
+function loadApplied(): AppliedRecord[] {
   ensureDir();
   if (!existsSync(APPLIED)) return [];
   try {
@@ -22,13 +22,13 @@ export function loadApplied(): AppliedRecord[] {
   }
 }
 
-export function saveApplied(records: AppliedRecord[]) {
+function saveApplied(records: AppliedRecord[]) {
   ensureDir();
   writeFileSync(APPLIED, JSON.stringify(records, null, 2));
 }
 
 /** company+title+location, normalised — matches the dedupe rule in seek.md. */
-export function dedupeKey(company: string, title: string, location: string): string {
+function dedupeKey(company: string, title: string, location: string): string {
   const norm = (s: string) =>
     s
       .toLowerCase()

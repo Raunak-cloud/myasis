@@ -24,13 +24,13 @@ export type Tier = 'admin' | 'intensive' | 'standard';
 export const RUN_TIME_ZONE = process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney';
 
 /** Scheduled runs per local day for customer plans. */
-export const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
-export const ESSENTIAL_AUTO_RUNS_PER_DAY = PLAN_LIMITS['essential-pass'].autoRunsPerDay;
-export const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoRunsPerDay;
-export const INTENSIVE_AUTO_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].autoRunsPerDay;
+const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
+const ESSENTIAL_AUTO_RUNS_PER_DAY = PLAN_LIMITS['essential-pass'].autoRunsPerDay;
+const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoRunsPerDay;
+const INTENSIVE_AUTO_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].autoRunsPerDay;
 
 /** Scheduled runs per local day for an operator of this installation. */
-export const ADMIN_AUTO_RUNS_PER_DAY = 10;
+const ADMIN_AUTO_RUNS_PER_DAY = 10;
 
 /**
  * Where an account's own "automatic runs off" choice is kept. A settings row,
@@ -55,7 +55,7 @@ const ADMIN_EVALUATIONS_OVERRIDE_KEY = 'ADMIN_EVALUATIONS_OVERRIDE';
 const ADMIN_MAX_APPS_OVERRIDE_KEY = 'ADMIN_MAX_APPS_OVERRIDE';
 const ADMIN_HUMANIZER_OVERRIDE_KEY = 'ADMIN_HUMANIZER_OVERRIDE';
 
-export interface AdminOverrides {
+interface AdminOverrides {
   /** Listings a run reviews. Null means the account's plan decides. */
   evaluationsPerRun: number | null;
   /** Applications one run may submit. Null means the account's own setting or plan default decides. */
@@ -125,10 +125,10 @@ export const INTENSIVE_EMPLOYER_SITES_PER_DAY = PLAN_LIMITS['intensive-pass'].em
 
 
 /** Listings the AI assesses in each run for the four customer plans. */
-export const FREE_EVALUATIONS_PER_RUN = PLAN_LIMITS.free.evaluationsPerRun;
-export const ESSENTIAL_EVALUATIONS_PER_RUN = PLAN_LIMITS['essential-pass'].evaluationsPerRun;
-export const JOB_SEARCH_EVALUATIONS_PER_RUN = PLAN_LIMITS['job-search-pass'].evaluationsPerRun;
-export const INTENSIVE_EVALUATIONS_PER_RUN = PLAN_LIMITS['intensive-pass'].evaluationsPerRun;
+const FREE_EVALUATIONS_PER_RUN = PLAN_LIMITS.free.evaluationsPerRun;
+const ESSENTIAL_EVALUATIONS_PER_RUN = PLAN_LIMITS['essential-pass'].evaluationsPerRun;
+const JOB_SEARCH_EVALUATIONS_PER_RUN = PLAN_LIMITS['job-search-pass'].evaluationsPerRun;
+const INTENSIVE_EVALUATIONS_PER_RUN = PLAN_LIMITS['intensive-pass'].evaluationsPerRun;
 
 /**
  * The preferences a standard account may edit: who they are, what work they
@@ -137,7 +137,7 @@ export const INTENSIVE_EVALUATIONS_PER_RUN = PLAN_LIMITS['intensive-pass'].evalu
  * cover-letter mode, standing instructions — decides how a run *behaves*, and
  * belongs to the tiers that drive runs themselves.
  */
-export const BASIC_SETTINGS_KEYS = [
+const BASIC_SETTINGS_KEYS = [
   'KEYWORDS',
   'EXCLUDED_COMPANIES',
   'WORK_ARRANGEMENTS',
@@ -147,12 +147,12 @@ export const BASIC_SETTINGS_KEYS = [
 ] as const;
 
 /** Plain strings: callers test keys arriving from a request against this. */
-export const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
+const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
   (key) => !(BASIC_SETTINGS_KEYS as readonly string[]).includes(key),
 );
 
 /** Active Search may refine matching without receiving Intensive's run controls or standing instructions. */
-export const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
+const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
 export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'>): boolean {
   if (!FINE_TUNING_KEYS.includes(key)) return true;
@@ -323,7 +323,7 @@ export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'ac
  * day boundary is the candidate's midnight rather than the database
  * server's, whatever the database is configured to think local means.
  */
-export async function automaticRunsStartedToday(userId: string): Promise<number> {
+async function automaticRunsStartedToday(userId: string): Promise<number> {
   const rows = await query<{ n: string }>(
     `SELECT count(*)::text AS n
        FROM run_starts
@@ -337,7 +337,7 @@ export async function automaticRunsStartedToday(userId: string): Promise<number>
 }
 
 /** Whether the account has completed the user-confirmed first live run. */
-export async function hasCompletedFirstRun(userId: string): Promise<boolean> {
+async function hasCompletedFirstRun(userId: string): Promise<boolean> {
   const row = await one<{ complete: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM run_starts
@@ -386,7 +386,7 @@ export async function discardRunStart(id: string | null): Promise<void> {
 }
 
 /** Everything about an account that decides what it may do. Facts only; no database. */
-export interface EntitlementFacts {
+interface EntitlementFacts {
   admin: boolean;
   billing: Pick<BillingStatus, 'paid'>;
   autoRunsUsedToday: number;

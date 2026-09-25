@@ -188,8 +188,6 @@ export async function answerFields(
    * not rely on it. Defaults to the old behaviour for the CLI/spawned path.
    */
   knowledgeOverride?: string,
-  /** A second look with the reasoning model, for questions the fast one could not place. */
-  options: { reasoning?: boolean } = {},
 ): Promise<{ answers: FieldAnswer[]; injectionSuspected: boolean }> {
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
   const saved = loadSavedAnswers();

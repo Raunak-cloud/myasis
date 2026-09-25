@@ -9,7 +9,7 @@
  */
 export type PlatformId = 'seek' | 'indeed' | 'jora' | 'external';
 
-export interface Platform {
+interface Platform {
   id: PlatformId;
   label: string;
   baseUrl: string;
@@ -18,7 +18,7 @@ export interface Platform {
   note?: string;
 }
 
-export const PLATFORMS: Platform[] = [
+const PLATFORMS: Platform[] = [
   {
     id: 'seek',
     label: 'SEEK',
@@ -40,10 +40,6 @@ export const PLATFORMS: Platform[] = [
     note: 'Aggregator — its listings mirror SEEK and Indeed and almost always hand off to the original site, so there is little here to automate.',
   },
 ];
-
-export function getPlatform(id: string): Platform | undefined {
-  return PLATFORMS.find((p) => p.id === id);
-}
 
 /**
  * Resolves the configured list, dropping anything without an adapter so a

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export interface SetupCheck {
+interface SetupCheck {
   id: string;
   label: string;
   done: boolean;
@@ -9,7 +9,7 @@ export interface SetupCheck {
   required: boolean;
 }
 
-export interface SetupStatus {
+interface SetupStatus {
   checks: SetupCheck[];
   ready: boolean;
   done: number;

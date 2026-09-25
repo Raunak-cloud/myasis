@@ -35,7 +35,7 @@ export function isAdmin(email?: string | null): boolean {
 /** Large but finite so JSON/arithmetic (e.g. Math.min with a run cap) stays well-behaved — Infinity serialises to null. */
 const ADMIN_UNLIMITED = 1_000_000;
 
-export type StripeMode = 'live' | 'test';
+type StripeMode = 'live' | 'test';
 
 /**
  * Which of the two sets of Stripe keys is in use.
@@ -45,13 +45,13 @@ export type StripeMode = 'live' | 'test';
  * and switching between them means a test run never involves re-pasting
  * keys, which is how a live key once ended up in a chat.
  */
-export function stripeMode(): StripeMode {
+function stripeMode(): StripeMode {
   const env = readEnv();
   const mode = (process.env.STRIPE_MODE ?? env.STRIPE_MODE ?? '').trim().toLowerCase();
   return mode === 'test' ? 'test' : 'live';
 }
 
-export interface PaymentsState {
+interface PaymentsState {
   mode: StripeMode;
   configured: boolean;
   /** Why checkout is off, in words the operator can act on. */

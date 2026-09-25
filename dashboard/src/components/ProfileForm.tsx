@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export interface CandidateProfile {
+interface CandidateProfile {
   fullName: string;
   email: string;
   phone: string;

@@ -23,7 +23,7 @@ import { USERS_DIR } from './userdata.js';
  * from the last result.
  */
 
-export interface StorageBreakdown {
+interface StorageBreakdown {
   databaseMb: number;
   userDataMb: number;
   chromeMb: number;
@@ -35,7 +35,7 @@ export interface StorageBreakdown {
   measuring: boolean;
 }
 
-export interface ServerHealth {
+interface ServerHealth {
   at: string;
   hostUptimeSeconds: number;
   processUptimeSeconds: number;
@@ -173,7 +173,7 @@ let storage: StorageBreakdown = {
  * dashboard reads whatever the last pass found. Sizes on this scale do not
  * change meaningfully between one minute and the next.
  */
-export async function measureStorage(): Promise<void> {
+async function measureStorage(): Promise<void> {
   if (storage.measuring) return;
   storage = { ...storage, measuring: true };
   try {
@@ -278,7 +278,7 @@ async function serviceChecks(): Promise<ServerHealth['services']> {
  * in one list. Only the tail is read: these files reach hundreds of megabytes
  * and nobody scrolls that far.
  */
-export interface LogLine {
+interface LogLine {
   stream: 'out' | 'error';
   text: string;
 }

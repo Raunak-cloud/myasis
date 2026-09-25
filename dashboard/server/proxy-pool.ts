@@ -37,7 +37,7 @@ const RECONCILE_EVERY_MS = 5 * 60_000;
 /** Longer than any run, so an address is never shared by two accounts' browsers. */
 export const COOLDOWN_MS = 3 * 60 * 60_000;
 /** Last-resort cleanup after a crash or restart misses the normal run-finished release. */
-export const FREE_LOAN_MAX_MS = 2 * 60 * 60_000;
+const FREE_LOAN_MAX_MS = 2 * 60 * 60_000;
 const MANUAL_PROXY_KEY = 'ADMIN_PROXY_URL';
 
 function env(key: string): string {
@@ -49,7 +49,7 @@ export function poolEnabled(): boolean {
 }
 
 /** Countries whose proxies may be given out. Two-letter codes; Australia unless the operator says otherwise. */
-export function poolCountries(): string[] {
+function poolCountries(): string[] {
   const listed = env('PROXY_POOL_COUNTRIES').split(',').map((code) => code.trim().toUpperCase()).filter((code) => /^[A-Z]{2}$/.test(code));
   return listed.length ? listed : ['AU'];
 }
@@ -74,12 +74,12 @@ export interface PoolRow {
 export type FetchedProxy = Omit<PoolRow, 'userId' | 'lastUserId' | 'releasedAt'>;
 
 /** One swap Webshare made: the proxy at `from` (host:port) now lives at `to`. */
-export interface Replacement {
+interface Replacement {
   from: string;
   to: string;
 }
 
-export interface SyncPlan {
+interface SyncPlan {
   upsert: FetchedProxy[];
   remove: string[];
   /** An account whose proxy was swapped, onto the proxy that replaced it. */
@@ -118,7 +118,7 @@ export function planSync(rows: PoolRow[], fetched: FetchedProxy[], replacements:
   return plan;
 }
 
-export interface AssignPlan {
+interface AssignPlan {
   release: string[];
   assign: Array<{ proxyId: string; userId: string }>;
   /** Paying accounts the pool had nothing for. */
@@ -272,7 +272,7 @@ async function fetchPool(key: string, vanishedEndpoints: () => Promise<Set<strin
 }
 
 /** An active Webshare plan, and whether its proxies are pooled. Shown so a plan left out is never a mystery. */
-export interface PlanSeen {
+interface PlanSeen {
   id: string;
   type: string;
   subtype: string;
@@ -427,7 +427,7 @@ async function applyAssignments(client: Client, borrowFor: string | null = null)
 
 // ---------------------------------------------------------------- what the rest of the server calls
 
-export interface PoolState {
+interface PoolState {
   lastSyncAt: string | null;
   lastSyncError: string | null;
   plans: PlanSeen[];
@@ -500,7 +500,7 @@ export async function syncPool(): Promise<void> {
   }
 }
 
-export interface PooledProxy {
+interface PooledProxy {
   host: string;
   port: number;
   username: string;
@@ -558,7 +558,7 @@ export async function releaseFreeProxy(userId: string): Promise<boolean> {
  * excluded even if they run unusually long; their normal finish callback will
  * return the loan. This is the restart/crash backstop, not the usual path.
  */
-export async function releaseStaleFreeProxies(activeUserIds: Iterable<string> = []): Promise<string[]> {
+async function releaseStaleFreeProxies(activeUserIds: Iterable<string> = []): Promise<string[]> {
   if (!poolEnabled()) return [];
   const active = [...new Set(activeUserIds)];
   const released = await exclusively(async (client) => {
@@ -589,7 +589,7 @@ export async function poolHolderOf(endpoint: string): Promise<string | null> {
   return row?.user_id ?? null;
 }
 
-export interface PoolReport extends PoolState {
+interface PoolReport extends PoolState {
   enabled: boolean;
   countries: string[];
   proxies: Array<{

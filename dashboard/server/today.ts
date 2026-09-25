@@ -1,7 +1,7 @@
 import { query } from './db/index.js';
 import { RUN_TIME_ZONE } from './entitlements.js';
 
-export interface TodayStats {
+interface TodayStats {
   runs: number;
   reviewed: number;
   submitted: number;

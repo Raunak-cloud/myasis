@@ -106,12 +106,12 @@ export function dueMinutes(
 }
 
 /** The local calendar date, as YYYY-MM-DD. */
-export function localDay(at: Date = new Date(), timeZone = RUN_TIME_ZONE): string {
+function localDay(at: Date = new Date(), timeZone = RUN_TIME_ZONE): string {
   return at.toLocaleDateString('en-CA', { timeZone });
 }
 
 /** Minutes since local midnight. */
-export function minutesIntoDay(at: Date = new Date(), timeZone = RUN_TIME_ZONE): number {
+function minutesIntoDay(at: Date = new Date(), timeZone = RUN_TIME_ZONE): number {
   const { hour, minute } = localDateTime(at, timeZone);
   return hour * 60 + minute;
 }
@@ -218,7 +218,7 @@ function zonedInstant(local: LocalDateTime, timeZone = RUN_TIME_ZONE): Date {
  */
 const lastRefusal = new Map<string, { message: string; at: string }>();
 
-export interface AutoScheduleStatus {
+interface AutoScheduleStatus {
   runsUsedToday: number;
   runsPerDay: number;
   /** Null while the account's setup is unfinished: nothing is scheduled until it is. */
@@ -306,7 +306,7 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
 /**
  * One pass. Returns the accounts it started, for the log and for tests.
  */
-export async function autoRunTick(now: Date = new Date()): Promise<string[]> {
+async function autoRunTick(now: Date = new Date()): Promise<string[]> {
   // The evening summary is independent of when runs happen; it goes out once, after 9pm.
   await sendAccountAlerts(now).catch((error) => console.warn('[alerts] failed:', (error as Error).message));
   if (digestDue(now)) {
@@ -398,9 +398,4 @@ export function startAutoRunner(): void {
     `[autorun] around the clock (${RUN_TIME_ZONE}), times vary daily, ${MAX_CONCURRENT} at a time`,
   );
   tick();
-}
-
-export function stopAutoRunner(): void {
-  if (timer) clearInterval(timer);
-  timer = null;
 }

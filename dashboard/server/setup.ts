@@ -2,7 +2,7 @@ import { listResumes } from './files.js';
 import { profileGaps } from './profile.js';
 import { loadUserSettings } from './settings.js';
 
-export interface SetupCheck {
+interface SetupCheck {
   id: string;
   label: string;
   done: boolean;

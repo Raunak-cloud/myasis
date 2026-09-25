@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react';
  * outlive individual mounts: the Apply panel unmounts whenever the user looks
  * at another tab, and the shell still needs to know when the run ends.
  */
-export interface RunStatus {
+interface RunStatus {
   running: boolean;
   mode: string | null;
   startedAt: string | null;

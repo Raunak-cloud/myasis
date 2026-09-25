@@ -72,7 +72,7 @@ ${text.slice(0, 24_000)}
 }
 
 /** Exported for the check in scripts: the transcription step on its own. */
-export async function extract(text: string): Promise<{ ok: true; value: Extracted } | { ok: false; error: string }> {
+async function extract(text: string): Promise<{ ok: true; value: Extracted } | { ok: false; error: string }> {
   const env = readEnv();
   const apiKey = env.GEMINI_API_KEY ?? '';
   const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
@@ -83,7 +83,7 @@ export async function extract(text: string): Promise<{ ok: true; value: Extracte
   return { ok: true, value: result.value as Extracted };
 }
 
-export interface AutofillResult {
+interface AutofillResult {
   ok: boolean;
   /** Field labels that were filled, for telling the candidate what happened. */
   filled: string[];

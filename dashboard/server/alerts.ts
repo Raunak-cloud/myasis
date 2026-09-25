@@ -212,7 +212,7 @@ function secret(): string {
 }
 
 /** Proves a switch-off link was issued by this installation for this account, so it works without signing in and for nobody else. */
-export function alertsOffToken(userId: string): string {
+function alertsOffToken(userId: string): string {
   return createHmac('sha256', secret()).update(`email-alerts-off:${userId}`).digest('hex').slice(0, 32);
 }
 

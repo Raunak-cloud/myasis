@@ -42,7 +42,7 @@ function safeName(name: string): string {
   return base.slice(0, 120) || 'file';
 }
 
-export interface ResumeRecord {
+interface ResumeRecord {
   id: string;
   label: string;
   fileName: string;
@@ -53,7 +53,7 @@ export interface ResumeRecord {
   isDefault?: boolean;
 }
 
-export interface KnowledgeItem {
+interface KnowledgeItem {
   id: string;
   label: string;
   kind: 'file' | 'note';

@@ -43,7 +43,7 @@ export function parseProxy(raw: string): ProxyDetails | string {
   });
 }
 
-export function checked(proxy: ProxyDetails): ProxyDetails | string {
+function checked(proxy: ProxyDetails): ProxyDetails | string {
   if (!proxy.host) return 'The proxy has no host.';
   if (!Number.isInteger(proxy.port) || proxy.port < 1 || proxy.port > 65535) return 'The proxy port must be a whole number from 1 to 65535.';
   if (!proxy.username || !proxy.password) return 'The proxy needs its username and password.';

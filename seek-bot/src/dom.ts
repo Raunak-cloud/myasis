@@ -527,7 +527,7 @@ export async function setChecked(el: Locator, checked: boolean): Promise<boolean
  * click resolved, because a click that lands on the wrong layer succeeds and
  * opens nothing.
  */
-async function openPicker(page: Page, el: Locator, options: Locator): Promise<void> {
+async function openPicker(el: Locator, options: Locator): Promise<void> {
   const container = el.locator(
     'xpath=ancestor::*[@role="combobox" or @role="button" or contains(@class,"select") or ' +
       'contains(@class,"combobox") or contains(@class,"dropdown")][1]',
@@ -564,11 +564,11 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
     .catch(() => false);
   const options = page.locator('[role="option"]:visible');
   if (typeable) await el.fill(value);
-  else await openPicker(page, el, options);
+  else await openPicker(el, options);
   await options.first().waitFor({ state: 'visible', timeout: 1_500 }).catch(() => {});
   if (!(await options.count()) && typeable) {
     // Some searchable selects only open on a click, not on typing.
-    await openPicker(page, el, options);
+    await openPicker(el, options);
   }
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const exact = options.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') }).first();
@@ -654,7 +654,7 @@ export async function readPickerOptions(page: Page, ref: string): Promise<string
   if (!(await el.count().catch(() => 0))) return [];
   const options = page.locator('[role="option"]:visible');
   try {
-    await openPicker(page, el, options);
+    await openPicker(el, options);
     if (!(await options.count())) return [];
     const labels = await options.allTextContents();
     return [...new Set(labels.map((text) => text.replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 40);

@@ -90,10 +90,6 @@ export async function solveTask(
   throw new CapMonsterError('TIMEOUT', `captcha was not solved in ${deadlineMs / 1000}s`);
 }
 
-export async function capMonsterBalance(): Promise<number> {
-  return (await call<ApiReply & { balance: number }>('getBalance', {})).balance;
-}
-
 /** The last token applied per page, so a rejected one can be reported. */
 const applied = new WeakMap<Page, number>();
 
@@ -116,7 +112,7 @@ export async function reportRejectedToken(page: Page): Promise<void> {
 const inPage = <Arg, R>(frame: Frame, fn: (arg: Arg) => R, arg: Arg): Promise<R> =>
   frame.evaluate(fn as never, arg as never, undefined, false) as Promise<R>;
 
-async function solveTurnstile(page: Page, challenge: Extract<Challenge, { kind: 'turnstile' }>): Promise<number | null> {
+async function solveTurnstile(challenge: Extract<Challenge, { kind: 'turnstile' }>): Promise<number | null> {
   if (!challenge.siteKey) throw new CapMonsterError('NO_SITEKEY', 'the Turnstile widget exposes no site key');
   const { taskId, solution } = await solveTask({
     type: 'TurnstileTask',
@@ -144,7 +140,7 @@ async function solveTurnstile(page: Page, challenge: Extract<Challenge, { kind: 
   return placed ? taskId : null;
 }
 
-async function solveRecaptcha(page: Page, challenge: Extract<Challenge, { kind: 'recaptcha-v2' }>): Promise<number | null> {
+async function solveRecaptcha(challenge: Extract<Challenge, { kind: 'recaptcha-v2' }>): Promise<number | null> {
   const { taskId, solution } = await solveTask(challenge.enterprise
     ? {
         type: 'RecaptchaV2EnterpriseTask',
@@ -302,8 +298,8 @@ export const capMonsterSolver: Solver = {
   supports: capMonsterReady,
   async solve(page, challenge) {
     try {
-      const taskId = challenge.kind === 'turnstile' ? await solveTurnstile(page, challenge)
-        : challenge.kind === 'recaptcha-v2' ? await solveRecaptcha(page, challenge)
+      const taskId = challenge.kind === 'turnstile' ? await solveTurnstile(challenge)
+        : challenge.kind === 'recaptcha-v2' ? await solveRecaptcha(challenge)
         : await solveCloudflareChallenge(page);
       if (!taskId) {
         console.warn(`[captcha] capmonster: solved ${challenge.kind}, but the page offers nowhere to put the token.`);

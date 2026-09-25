@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-export interface ManualLoginResult {
+interface ManualLoginResult {
   ok: boolean;
   error?: string;
 }

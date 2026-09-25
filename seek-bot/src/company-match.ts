@@ -5,7 +5,7 @@ const COMPANY_SUFFIXES = new Set([
 const CONNECTORS = new Set(['and', 'of', 'the']);
 
 /** Normalised words used for literal and typo-tolerant company comparison. */
-export function companyTokens(value: string): string[] {
+function companyTokens(value: string): string[] {
   const words = value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -22,7 +22,7 @@ function acronym(tokens: readonly string[]): string {
 }
 
 /** Jaro-Winkler is well suited to short names and transposed letters. */
-export function jaroWinkler(left: string, right: string): number {
+function jaroWinkler(left: string, right: string): number {
   if (left === right) return 1;
   if (!left.length || !right.length) return 0;
 

@@ -117,7 +117,7 @@ async function openRow(page: Page, row: Locator): Promise<boolean> {
   return page.url() !== before;
 }
 
-export interface VerificationResult {
+interface VerificationResult {
   kind: 'code' | 'link';
   value: string;
   subject: string;

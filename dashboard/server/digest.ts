@@ -37,7 +37,7 @@ export interface Digest {
   failed: number;
 }
 
-export async function gatherDigest(userId: string, email: string, name: string | null): Promise<Digest> {
+async function gatherDigest(userId: string, email: string, name: string | null): Promise<Digest> {
   const [runs, applications, events, attention] = await Promise.all([
     query<{ n: string }>(
       `SELECT count(*)::text AS n FROM run_starts WHERE user_id = $1 AND started_at >= ${DAY_START}`,
@@ -135,7 +135,7 @@ export function renderDigest(digest: Digest, dashboardUrl: string): { subject: s
   return { subject, text, html };
 }
 
-export interface DigestConfig {
+interface DigestConfig {
   apiKey: string;
   from: string;
   dashboardUrl: string;

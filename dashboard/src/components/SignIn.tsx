@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export interface SessionUser {
+interface SessionUser {
   id: string;
   email: string;
   name: string | null;
@@ -58,35 +58,4 @@ export function useAuth() {
   };
 
   return { user, googleConfigured, loading, refresh, signOut };
-}
-/** Header chip: who is signed in, and a way out. */
-export function UserChip({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }) {
-  const [open, setOpen] = useState(false);
-  const initial = (user.name ?? user.email).trim().charAt(0).toUpperCase();
-
-  return (
-    <div className="userchip-wrap">
-      <button className="userchip" onClick={() => setOpen(!open)} title={user.email}>
-        {user.avatarUrl ? (
-          <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" />
-        ) : (
-          <span className="userchip-initial">{initial}</span>
-        )}
-      </button>
-      {open && (
-        <>
-          <div className="userchip-backdrop" onClick={() => setOpen(false)} />
-          <div className="card userchip-menu">
-            <div className="userchip-id">
-              <strong>{user.name ?? 'Signed in'}</strong>
-              <div className="job-meta">{user.email}</div>
-            </div>
-            <button className="btn" onClick={onSignOut}>
-              Sign out
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
 }

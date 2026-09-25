@@ -64,7 +64,7 @@ export interface RouteStatus {
   since: string;
 }
 
-export interface Exit {
+interface Exit {
   kind: ExitKind;
   host: string;
   port: number;

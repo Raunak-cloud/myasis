@@ -20,7 +20,7 @@ const DEPLOY_LOCK = resolve(BOT_DIR, '..', '.deploying');
 export function deploying(): boolean {
   return existsSync(DEPLOY_LOCK);
 }
-export const DEPLOYING_MESSAGE = 'Owtomate is installing an update. Try again in a minute.';
+const DEPLOYING_MESSAGE = 'Owtomate is installing an update. Try again in a minute.';
 
 export type RunMode = 'search' | 'live';
 
@@ -29,14 +29,14 @@ export function isRunMode(value: unknown): value is RunMode {
   return value === 'search' || value === 'live';
 }
 
-export interface LogLine {
+interface LogLine {
   seq: number;
   ts: string;
   stream: 'out' | 'err' | 'sys';
   text: string;
 }
 
-export interface RunState {
+interface RunState {
   running: boolean;
   mode: RunMode | null;
   startedAt: string | null;
@@ -51,7 +51,7 @@ export interface RunState {
   ownerUserId: string | null;
 }
 
-export interface KeywordRenewalContext {
+interface KeywordRenewalContext {
   /** The normalized terms the child actually searched. */
   termsUsed: string;
   /** Exact database value at start, used for a conditional post-run save. */
@@ -79,7 +79,7 @@ const CORES_PER_RUN = 0.6;
 const GB_PER_RUN = 1.2;
 const GB_RESERVED = 1.5; // the dashboard, Postgres, the display server and the OS
 
-export function machineRunCapacity(cores = cpus().length, memoryGb = totalmem() / 1024 ** 3): number {
+function machineRunCapacity(cores = cpus().length, memoryGb = totalmem() / 1024 ** 3): number {
   return Math.max(1, Math.min(Math.floor(cores / CORES_PER_RUN), Math.floor((memoryGb - GB_RESERVED) / GB_PER_RUN)));
 }
 
@@ -130,7 +130,7 @@ function applicationErrorCount(dataDir: string): number {
   }
 }
 
-export async function assertHumanizerHealthy(overrides: Record<string, string> = {}): Promise<void> {
+async function assertHumanizerHealthy(overrides: Record<string, string> = {}): Promise<void> {
   const fileEnv = readEnv();
   // A run whose plan does not include the humanizer never calls it, so its health is irrelevant.
   if (overrides.HUMANIZER_MODE === 'off') return;

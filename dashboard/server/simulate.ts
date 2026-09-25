@@ -49,7 +49,7 @@ const SCENARIOS: Scenario[] = [
 /** What the server would answer to a run start. `null` means it would start. */
 type Verdict = { status: number; error: string } | null;
 
-export interface Simulation {
+interface Simulation {
   key: string;
   group: Scenario['group'];
   label: string;

@@ -28,7 +28,7 @@ const PAGE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
  * operator opens to; everything else is a second report, so a wave of
  * scanners from a data centre abroad never buries the customers at home.
  */
-export const HOME_COUNTRY = (process.env.VISIT_HOME_COUNTRY ?? 'AU').trim().toUpperCase().slice(0, 2) || 'AU';
+const HOME_COUNTRY = (process.env.VISIT_HOME_COUNTRY ?? 'AU').trim().toUpperCase().slice(0, 2) || 'AU';
 
 function countryName(code: string): string {
   try {
@@ -196,7 +196,7 @@ export async function endPageView(body: unknown): Promise<void> {
 
 // ---------------------------------------------------------------- reporting
 
-export type VisitorRange = 'today' | '7d' | '30d' | '90d';
+type VisitorRange = 'today' | '7d' | '30d' | '90d';
 const RANGE_DAYS: Record<Exclude<VisitorRange, 'today'>, number> = { '7d': 7, '30d': 30, '90d': 90 };
 
 export function parseRange(value: string | null): VisitorRange {
@@ -204,13 +204,13 @@ export function parseRange(value: string | null): VisitorRange {
 }
 
 /** Visits from the home country, or from everywhere else (which includes visits with no known place). */
-export type VisitorMarket = 'home' | 'abroad';
+type VisitorMarket = 'home' | 'abroad';
 
 export function parseMarket(value: string | null): VisitorMarket {
   return value === 'abroad' ? 'abroad' : 'home';
 }
 
-export interface VisitorScope {
+interface VisitorScope {
   range: VisitorRange;
   market: VisitorMarket;
   /** Operators' own visits are left out unless asked for: they are not customers. */
@@ -253,7 +253,7 @@ async function scope(opts: VisitorScope): Promise<{ where: string; params: unkno
 
 // ---------------------------------------------------------------- ignored addresses
 
-export interface IgnoredAddress { ip: string; note: string | null; createdAt: string }
+interface IgnoredAddress { ip: string; note: string | null; createdAt: string }
 
 /** Every address whose visits are left out, oldest first. */
 export async function ignoredAddresses(): Promise<IgnoredAddress[]> {
@@ -283,7 +283,7 @@ export async function unignoreAddress(ip: string): Promise<void> {
 
 interface Breakdown { label: string; sub: string | null; code: string | null; visitors: number; views: number; seconds: number | null }
 
-export interface VisitorReport {
+interface VisitorReport {
   range: VisitorRange;
   market: VisitorMarket;
   /** The country the 'home' market is. */
@@ -391,7 +391,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
   };
 }
 
-export interface RecentVisit {
+interface RecentVisit {
   sessionId: string;
   visitorId: string;
   /** How many visits this visitor has made in the range, counting this one. */

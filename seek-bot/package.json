@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Patchright + Gemini job search and auto-apply agent for SEEK",
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "start": "tsc && node dist/main.js",
     "dev": "tsx src/main.ts",
     "search": "tsx src/main.ts --search-only",

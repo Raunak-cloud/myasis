@@ -18,7 +18,7 @@ import { USERS_DIR } from './userdata.js';
  */
 const MAX_AGE_DAYS = Math.max(1, Number(process.env.TRACE_RETENTION_DAYS ?? 14));
 
-export interface TracePruneResult {
+interface TracePruneResult {
   freedBytes: number;
   removed: number;
   kept: number;
