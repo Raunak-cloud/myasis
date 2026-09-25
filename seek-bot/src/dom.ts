@@ -469,8 +469,7 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string, m
     return;
   }
   if (field.kind === 'checkbox') {
-    if (value.toLowerCase() === 'true') await el.check({ force: true });
-    else await el.uncheck({ force: true });
+    if (!(await setChecked(el, value.toLowerCase() === 'true'))) throw new Error('The checkbox did not keep the chosen state.');
     return;
   }
   if (field.autocomplete || (await el.getAttribute('role').catch(() => null)) === 'combobox') {
@@ -478,6 +477,33 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string, m
     return;
   }
   await el.fill(value);
+}
+
+/**
+ * Sets a native checkbox the ways a person can, until the page agrees.
+ *
+ * Styled checkboxes hide the real input under the drawing of a box, or under
+ * the form around it (Workday's sign-in form intercepts every pointer event
+ * aimed at its "I agree" input). A plain `check` then times out and, before,
+ * ended the whole application. The label is what a person clicks; forcing and
+ * a direct DOM click cover inputs with no usable label. Success is judged by
+ * the input's state, never by whether a click resolved.
+ */
+export async function setChecked(el: Locator, checked: boolean): Promise<boolean> {
+  const done = async () => (await el.isChecked({ timeout: 2_000 }).catch(() => !checked)) === checked;
+  if (await done()) return true;
+  const label = el.locator('xpath=ancestor::label[1]').or(el.page().locator(`label[for="${(await el.getAttribute('id').catch(() => null)) ?? '__none__'}"]`));
+  const attempts: Array<() => Promise<unknown>> = [
+    () => el.setChecked(checked, { timeout: 2_500 }),
+    () => label.first().click({ timeout: 2_500 }),
+    () => el.setChecked(checked, { timeout: 2_500, force: true }),
+    () => el.evaluate((node) => (node as HTMLInputElement).click()),
+  ];
+  for (const attempt of attempts) {
+    await attempt().catch(() => {});
+    if (await done()) return true;
+  }
+  return false;
 }
 
 /**

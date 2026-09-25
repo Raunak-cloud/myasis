@@ -443,6 +443,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastSignature = '';
   /** A screenshot on the next turn, because the last action failed in a way text does not explain. */
   let needVision = false;
+  /** Consecutive tool calls that threw; see the recovery note where tools run. */
+  let toolErrors = 0;
   /** What the agent saw and did, step by step — kept for the dashboard when a person has to take over. */
   const trace: TraceStep[] = [];
   // Keep lightweight checkpoints even when Stop or a process exit prevents
@@ -785,16 +787,24 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     let result;
     try {
       result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });
+      toolErrors = 0;
     } catch (error) {
-      step.result = `Tool failed: ${(error as Error).message}`;
+      const message = (error as Error).message.split('\n')[0].slice(0, 300);
+      step.result = `Tool failed: ${message}`;
       checkpoint();
-      // A thrown tool is a real failure (a cover letter that would not draft,
-      // for instance) — not something to let the model retry blindly.
-      return finish({
-        status: 'needs-human',
-        reason: 'A step failed while filling in the application.',
-        detail: `${call.name} failed: ${(error as Error).message}`,
-      });
+      /**
+       * A thrown tool is usually the page, not the application: an overlay
+       * intercepting a click, a control re-rendered mid-action. The agent gets
+       * the error and a fresh look, as a person would retry. Only a closed
+       * browser, or the same breakage three times running, ends the attempt —
+       * as a skip, because the candidate cannot fix a site's technical fault
+       * and "Needs attention" is kept for questions only they can answer.
+       */
+      if (/Target (page|closed)|browser has been closed|context or browser has been closed/i.test(message) || ++toolErrors >= 3) {
+        log(`  · ${call.name} failed: ${message}`);
+        return finish({ status: 'skipped', reason: 'A step on the employer site kept failing.' });
+      }
+      result = { kind: 'ok' as const, message: `${call.name} failed: ${message}. Re-observe the page and try a different way to reach the same goal.` };
     }
 
     step.result = result.kind === 'ok' ? result.message.slice(0, 400) : `ended: ${result.outcome.status}`;

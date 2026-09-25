@@ -6,7 +6,7 @@ import {
   waitForInteractivePageChange,
   waitForInteractiveSurface,
 } from '../browser.js';
-import { fillField } from '../dom.js';
+import { fillField, setChecked } from '../dom.js';
 import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, verifySubmissionEvidence } from '../llm.js';
 import { pickResumeForJob, RESUME_DIR } from '../resume.js';
 import { existsSync } from 'node:fs';
@@ -572,8 +572,9 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
   }
   if (coordinateInput) {
     try {
-      if (coordinateKind === 'native') await coordinateInput.check({ timeout: 5_000 });
-      else {
+      if (coordinateKind === 'native') {
+        if (!await setChecked(coordinateInput, true)) return ok('The consent checkbox did not stay checked. Re-observe the current control.');
+      } else {
         await coordinateInput.click({ timeout: 5_000 });
         if (await coordinateInput.getAttribute('aria-checked') !== 'true') return ok('The consent checkbox did not stay checked. Re-observe the current control.');
       }
@@ -583,8 +584,7 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
   } else if (field) {
     if (field.kind !== 'checkbox') return ok('The consent FIELD is not a checkbox. Re-observe and use its visible ACTION instead.');
     const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
-    await input.check({ timeout: 5_000 });
-    if (!await input.isChecked()) return ok('The consent checkbox did not stay checked. Re-observe the current control.');
+    if (!await setChecked(input, true)) return ok('The consent checkbox did not stay checked. Re-observe the current control.');
     ctx.guards.pendingFields.delete(field.label);
     ctx.guards.resolveGrounding(field.label);
   } else {
@@ -810,7 +810,12 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   if (filled.length) ctx.guards.recordProgress();
   const ungroundedNow = ctx.guards.ungrounded.length;
   return ok(
-    (failed.length ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` : '') +
+    (failed.length
+      ? `Not accepted; re-observe and recover:\n${failed.join("\n")}\n` +
+        'If a failed field is a custom dropdown, operate it the way a person does: click its control (or press_key ArrowDown ' +
+        'with its ref) so its entries appear as [option] actions, then call choose_option with the matching option ref and ' +
+        'this field as field_ref. A widget that rejects automatic filling is not a missing answer.\n'
+      : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
       (searched.length ? `\nSearch text entered, not yet selected: ${searched.join('; ')}. Click an observed matching option, then call answer_questions again to verify the retained selection.` : '') +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
@@ -938,8 +943,22 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
         };
       }
       return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
-    case 'already_applied':
+    case 'already_applied': {
+      /**
+       * "You have already applied" right after this attempt pressed submit is
+       * usually this attempt's own success, shown on a status page instead of
+       * a thank-you page. Recording it as a prior application loses a real
+       * submission from the candidate's list, so the same independent check
+       * that backs confirm_submission decides.
+       */
+      if (ctx.submissionAttempted) {
+        const evidence = { url: ctx.page.url(), text: ctx.observation.text, actions: ctx.observation.actions, fields: ctx.observation.fields };
+        if (await verifySubmissionEvidence(evidence, ctx.job).catch(() => false)) {
+          return { kind: 'terminal', outcome: { status: 'applied' } };
+        }
+      }
       return { kind: 'terminal', outcome: { status: 'already-applied', reason } };
+    }
     case 'nothing_to_apply_to':
       return { kind: 'terminal', outcome: { status: 'skipped', reason } };
     case 'cannot_complete':
