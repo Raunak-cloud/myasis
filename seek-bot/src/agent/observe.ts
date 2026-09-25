@@ -17,6 +17,8 @@ export interface AgentAction {
   ref: string;
   /** Button/link text, or the aria-label when the control is icon-only. */
   text: string;
+  /** Nearby section copy for otherwise ambiguous controls such as "Add". */
+  context?: string;
   /**
    * `option` is an entry in an open dropdown or menu; `toggle` is a styled
    * checkbox, radio or switch that is not a native input. Both are clicked
@@ -78,7 +80,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
     }
 
     for (const element of all) element.removeAttribute('data-ref-id');
-    const results: Array<{ ref: string; text: string; role: string; disabled: boolean; question?: string; value?: string }> = [];
+    const results: Array<{ ref: string; text: string; role: string; disabled: boolean; question?: string; value?: string; context?: string }> = [];
     let n = 0;
     const composedText = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
@@ -196,12 +198,26 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
           if (associated) { label = `Open ${associated}`; break; }
         }
       }
+      // Generic reveal controls are meaningful only in their section. Indeed's
+      // review page, for example, calls its cover-letter control merely "Add"
+      // and can place the explanatory text beyond the truncated page summary.
+      // Capture the smallest useful local region, stopping before a whole long
+      // form is duplicated into every action.
+      let context = '';
+      if (/^\+?\s*(?:add|attach|include|upload)\s*$/i.test(label)) {
+        let ancestor = element.parentElement;
+        for (let depth = 0; ancestor && depth < 7; depth++, ancestor = ancestor.parentElement) {
+          const nearby = ancestor.innerText?.replace(/\s+/g, ' ').trim() ?? '';
+          if (nearby.length > context.length && nearby.length <= 1_200) context = nearby;
+        }
+      }
       results.push({
         ref,
         text: label + state,
         role: isFile ? 'file' : isOption ? 'option' : isToggle ? 'toggle' : isButton ? 'button' : 'link',
         ...(question ? { question } : {}),
         ...(isOption ? { value } : {}),
+        ...(context && context !== label ? { context } : {}),
         disabled:
           (element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true',
       });
@@ -214,6 +230,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       ...action,
       text: clean(action.text),
       ...(action.question ? { question: clean(action.question), value: clean(action.value ?? '') } : {}),
+      ...(action.context ? { context: clean(action.context).slice(0, 1_200) } : {}),
       role: action.role as AgentAction['role'],
     }))
     // Unlabelled controls are noise the model cannot act on meaningfully.
@@ -381,7 +398,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
  */
 export function renderObservation(observation: Observation): string {
   const actions = observation.actions
-    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}  ${a.text}`)
+    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}  ${a.text}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
     .join('\n');
   const fields = observation.fields
     .map((f) => {

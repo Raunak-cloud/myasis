@@ -16,7 +16,7 @@ const REVEAL_DOCUMENTS = /\b(?:add|attach|include|upload|write)(?:\s+(?:a|any|su
 export function offersCoverLetter(observation: Observation): boolean {
   if (
     observation.fields.some(field => COVER_LETTER.test(`${field.label} ${field.description ?? ''}`)) ||
-    observation.actions.some(action => COVER_LETTER.test(action.text))
+    observation.actions.some(action => COVER_LETTER.test(`${action.text} ${action.context ?? ''}`))
   ) {
     return true;
   }

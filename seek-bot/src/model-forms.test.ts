@@ -154,6 +154,31 @@ try {
     'Indeed supporting documents cannot be skipped when its cover-letter control is only labelled Add',
   );
 
+  await page.setContent(`
+    <main>
+      <div>${'Long resume preview '.repeat(500)}</div>
+      <section>
+        <h2>Supporting documents</h2>
+        <button>Add</button>
+        <p>No cover letter or additional documents added. This is optional to add.</p>
+      </section>
+      <button onclick="document.body.dataset.submitted='yes'">Submit your application</button>
+    </main>
+  `);
+  ctx = await context();
+  assert.ok(!ctx.observation.text.includes('Supporting documents'), 'the page summary reproduces Indeed truncating the section');
+  const contextualAdd = ctx.observation.actions.find(action => action.text === 'Add');
+  assert.match(contextualAdd?.context ?? '', /Supporting documents.*No cover letter/i);
+  const contextualSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
+  assert.ok(contextualSubmit, 'long Indeed fixture exposes its submit action');
+  const blockedTruncatedSubmit = await executeTool(ctx, 'click', { ref: contextualSubmit.ref, reason: 'Submit' });
+  assert.ok(blockedTruncatedSubmit.kind === 'ok' && blockedTruncatedSubmit.message.includes('Do not advance yet'));
+  assert.equal(
+    await page.locator('body').getAttribute('data-submitted'),
+    null,
+    'a below-fold supporting-documents section cannot be skipped when the page summary is truncated',
+  );
+
   await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');
   ctx = await context();
   const files = ctx.observation.actions.filter(action => action.role === 'file');

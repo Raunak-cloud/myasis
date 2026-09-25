@@ -22,6 +22,21 @@ assert.equal(
 
 assert.equal(
   offersCoverLetter(observation({
+    actions: [{
+      ref: 'a1',
+      role: 'button',
+      text: 'Add',
+      context: 'Supporting documents Add No cover letter or additional documents added. This is optional to add.',
+      disabled: false,
+    }],
+    text: 'Review your application Resume preview truncated before the final sections',
+  })),
+  true,
+  'recognises Indeed when supporting documents fall beyond the page-text limit',
+);
+
+assert.equal(
+  offersCoverLetter(observation({
     fields: [{ ref: 'f1', kind: 'textarea', label: 'Write a cover letter', required: false }],
     text: 'Add supporting documents Cover letter',
   })),
