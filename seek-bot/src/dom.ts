@@ -357,7 +357,13 @@ export async function extractFields(page: Page): Promise<FormField[]> {
 async function fillFieldUnchecked(page: Page, field: FormField, value: string, modelDirected: false | 'type' | 'search' = false): Promise<void> {
   if (modelDirected && ['text', 'textarea'].includes(field.kind)) {
     const input = page.locator(`[data-field-id="${field.ref}"]`);
-    await input.fill(value, { timeout: 5_000 });
+    // A box drawn over by a widget (an address autocomplete, a styled field)
+    // refuses `fill`'s actionability checks; typing into it is what a person does.
+    await input.fill(value, { timeout: 5_000 }).catch(async () => {
+      await input.click({ force: true, timeout: 3_000 }).catch(() => input.focus({ timeout: 3_000 }));
+      await page.keyboard.press('ControlOrMeta+a');
+      await page.keyboard.insertText(value);
+    });
     if (modelDirected === 'type') await input.blur({ timeout: 5_000 });
     return;
   }

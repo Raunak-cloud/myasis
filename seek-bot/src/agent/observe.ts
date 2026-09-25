@@ -97,6 +97,16 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         .map(id => root.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '')
         .filter(Boolean).join(' ');
       if (labelled) return labelled;
+      // The control's own label beats its section's: a fieldset titled
+      // "Employer" holds Country, Industry and Reason for leaving lists.
+      const own = [...((control as HTMLInputElement).labels ?? [])].map(label => label.textContent?.trim()).filter(Boolean).join(' ')
+        || control.getAttribute('aria-label') || '';
+      if (own) return own.replace(/\s+/g, ' ').trim();
+      for (let depth = 0, row = control.parentElement; row && depth < 4; depth++, row = row.parentElement) {
+        if (row.querySelectorAll('input:not([type="hidden"]), select, textarea, [role="combobox"], [aria-haspopup]').length > 1) break;
+        const caption = row.querySelector('label, legend, [class*="label" i]')?.textContent?.replace(/\s+/g, ' ').trim();
+        if (caption) return caption;
+      }
       const group = control.closest('[data-automation-id="formField"], fieldset, [role="group"], [class*="formField"], [class*="form-field"]');
       if (!group) return '';
       return (group.querySelector('legend, [data-automation-id="formLabel"], label')?.textContent ?? '')
