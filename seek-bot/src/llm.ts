@@ -259,7 +259,10 @@ A field's "section" is where it sits on the page: the heading above it and the
 groups around it. Read the label inside its section, as a person looking at the
 form would. A job title, employer or date inside a work-history entry asks
 about a job the candidate held (take it from the résumé), not the job being
-applied for. A "Month" or "Year" box inside "From" or "To" is part of that date.
+applied for. The company this application is for (${job.company}) is never the
+candidate's employer, past employer, or referee's organisation unless the
+résumé lists it: a bare "Employer" or "Company" box asks about the candidate's
+own history. A "Month" or "Year" box inside "From" or "To" is part of that date.
 Start "rationale" with what the field is asking and where the answer comes from,
 in one short sentence, before deciding the value.
 

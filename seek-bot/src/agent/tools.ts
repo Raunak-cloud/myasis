@@ -72,6 +72,8 @@ export interface ToolContext {
   actions: ApplicationAction[];
   submissionAttempted?: boolean;
   reloads?: number;
+  /** Caption of the list-opening control clicked last, for options that do not name their question. */
+  lastListQuestion?: string;
 }
 
 const ok = (message: string): ToolResult => ({ kind: 'ok', message });
@@ -429,6 +431,10 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
   }
 
   if (isSubmitAction(action.text) && !entry) ctx.submissionAttempted = true;
+  // A list opened from a button has no FIELD; its caption is the question its options answer.
+  if (/\(opens a list\)$/.test(action.text) || /^Open /.test(action.text)) {
+    ctx.lastListQuestion = action.text.replace(/\s*\(opens a list\)$/, '').replace(/^(Open|Select)\s+/i, '').trim();
+  }
   if (action.role === 'link') {
     const href = await ctx.page
       .locator(`[data-ref-id="${ref}"]`)
@@ -469,8 +475,11 @@ async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): 
   const ref = String(args.ref ?? '');
   const requested = ctx.observation.actions.find(action => action.ref === ref && action.role === 'option');
   const source = ctx.observation.fields.find(field => field.ref === String(args.field_ref ?? ''));
-  if (!requested?.value || (!requested.question && !source)) return ok('Choose a current option ACTION; when its question is not included, also pass the originating FIELD ref as field_ref.');
-  const question = requested.question ?? source!.label;
+  // The question may also come from the ACTION that opened the list, named in field_ref or clicked last.
+  const opener = ctx.observation.actions.find(action => action.ref === String(args.field_ref ?? '') && action.role !== 'option');
+  const openerQuestion = opener ? opener.text.replace(/\s*\(opens a list\)$/, '').replace(/^(Open|Select)\s+/i, '').trim() : ctx.lastListQuestion;
+  if (!requested?.value || (!requested.question && !source && !openerQuestion)) return ok('Choose a current option ACTION; when its question is not included, also pass the originating FIELD ref (or the ACTION that opened the list) as field_ref.');
+  const question = requested.question ?? source?.label ?? openerQuestion!;
   const group = ctx.observation.actions.filter(action => action.role === 'option' && action.value
     && !/^(select|choose)( one)?$/i.test(action.value.trim())
     && (requested.question ? action.question === requested.question : !action.question));
