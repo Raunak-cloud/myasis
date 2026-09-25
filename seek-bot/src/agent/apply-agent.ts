@@ -130,7 +130,10 @@ export async function applyToJobWithAgent(
     });
 
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
-    const actions = run.actions.length ? { actions: run.actions } : {};
+    const actions = {
+      ...(run.actions.length ? { actions: run.actions } : {}),
+      ...(run.submitPressed ? { submitPressed: true } : {}),
+    };
 
     switch (run.outcome.status) {
       case 'applied':

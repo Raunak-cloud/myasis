@@ -150,6 +150,12 @@ export type ApplyOutcome = (
 ) & {
   /** What this attempt changed or used on the candidate's behalf, whatever its result. */
   actions?: ApplicationAction[];
+  /**
+   * The application's own submit control was pressed. Whatever the recorded
+   * status, the employer may have received it, so the job is never retried
+   * automatically — a second copy to a real employer is worse than a miss.
+   */
+  submitPressed?: boolean;
 };
 
 export interface AppliedRecord {

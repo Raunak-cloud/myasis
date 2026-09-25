@@ -327,6 +327,8 @@ export interface AgentRunResult {
   actions: ApplicationAction[];
   /** The employer site the attempt ended on, when it left the job board. */
   site?: string;
+  /** The application's own submit control was pressed during this attempt. */
+  submitPressed: boolean;
   steps: number;
   usage: string;
 }
@@ -561,6 +563,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       actions: ctx.actions,
       // An application finished on an employer's own site is reported as such.
       ...(isExternal(page.url()) ? { site: siteHost(page.url()) } : {}),
+      submitPressed: Boolean(ctx.submissionAttempted),
       steps: guards.stepCount,
       usage: meter.summary(),
     };

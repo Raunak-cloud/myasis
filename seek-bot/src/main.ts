@@ -799,6 +799,10 @@ async function main() {
       logOutcome({ ...outcome, title: job.title, company: job.company });
       // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
       for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
+      if (outcome.submitPressed && outcome.status !== 'applied' && outcome.status !== 'rehearsed') {
+        rememberExistingApplication(job, 'Submit was pressed on the employer form, so it may have been received; not retried automatically.');
+        console.log('  ℹ submit was pressed on this form, so it will not be retried automatically');
+      }
 
       switch (outcome.status) {
         case 'applied':
