@@ -289,7 +289,10 @@ For each field also set "basis", which decides whether it may be filled at all:
   start date follows from the notice period and today's date; work history,
   employers, titles and dates come from the résumé; the employer or company
   of a freelance, contract-for-self or self-employed role is "Self-employed"
-  (the résumé saying "Freelance" is that fact); years of experience are
+  (the résumé saying "Freelance" is that fact); the kind of work sought
+  (employment type, work arrangement, hours) is what this listing offers,
+  since the candidate chose to apply for it, unless the profile says otherwise;
+  years of experience are
   counted from those dates; and when the truthful answer is "No", "None" or
   "0" because nothing shows the candidate has a skill, tool, system or kind
   of experience, that answer is supported. The résumé's work history is the
