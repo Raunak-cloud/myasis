@@ -18,8 +18,14 @@ const apiKey = () => process.env.CAPMONSTER_API_KEY?.trim() ?? '';
 /** getTaskResult: at most one call per 2s and 120 per task, per their limits. */
 const FIRST_POLL_MS = 3_000;
 const POLL_MS = 2_500;
-/** reCAPTCHA tokens live ~2 minutes; a solve slower than this is not worth applying. */
-const SOLVE_DEADLINE_MS = 100_000;
+/**
+ * How long a visible challenge may take. A token's ~2-minute life starts when
+ * CapMonster issues it, not when the task is created, so a slow solve still
+ * arrives fresh. Indeed's submit-time reCAPTCHA v2 Enterprise routinely needs
+ * more than 100s (every such task timed out at that limit on 25 Sep 2026);
+ * CapMonster allows 120 polls per task, about five minutes at POLL_MS.
+ */
+const SOLVE_DEADLINE_MS = 200_000;
 
 /** Errors about the account, not the task. Retrying them only earns an IP ban. */
 const ACCOUNT_ERRORS = new Set(['ERROR_KEY_DOES_NOT_EXIST', 'ERROR_ZERO_BALANCE', 'ERROR_IP_NOT_ALLOWED', 'ERROR_IP_BANNED']);
