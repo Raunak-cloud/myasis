@@ -253,6 +253,10 @@ export class RunGuards {
   /** Verified progress so far; each one earns the attempt a step. */
   private progressEvents = 0;
 
+  get progressCount(): number {
+    return this.progressEvents;
+  }
+
   /**
    * The overall step ceiling, grown by verified progress up to three times the
    * base. Loops are stopped by the per-page count, the stuck timer and the

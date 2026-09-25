@@ -110,6 +110,8 @@ export interface ApplicationAction {
   site: string;
   /** The email the site account uses, for account actions. */
   email?: string;
+  /** For authentication-prepared: what the page was doing with the credential. */
+  purpose?: 'create_account' | 'sign_in' | 'reset_password';
   /** One plain sentence for the candidate. */
   detail: string;
   at: string;

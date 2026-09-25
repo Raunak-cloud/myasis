@@ -380,6 +380,49 @@ function observationMessage(observation: Observation, note?: string): ChatMessag
   };
 }
 
+/**
+ * The organisation a host belongs to. Employer ATSs sign candidates in on a
+ * sibling host (tafensw-identity.login.pageuppeople.com, then
+ * secure.dc2.pageuppeople.com), so account evidence is compared per domain.
+ */
+export function siteDomain(url: string): string {
+  const host = siteHost(url);
+  const labels = host.split('.');
+  const secondLevel = /^(com|net|org|gov|edu|co|ac)$/.test(labels.at(-2) ?? '') && (labels.at(-1) ?? '').length === 2;
+  return labels.slice(secondLevel ? -3 : -2).join('.');
+}
+
+/**
+ * Turns a prepared sign-in or sign-up into a recorded account once the site
+ * accepted it. Filling the credential proves nothing — a rejected password
+ * or an address already registered looks the same at that moment — but the
+ * application carrying on past it on the same site, or being submitted there,
+ * does. Only confirmed accounts reach the candidate's list of site accounts.
+ */
+export function confirmAuthentication(
+  actions: ApplicationAction[],
+  progress: Array<{ site: string; at: string }>,
+  submittedOn: string | null,
+): void {
+  for (const action of [...actions]) {
+    if (action.kind !== 'authentication-prepared' || !action.email || action.purpose === 'reset_password') continue;
+    const domain = siteDomain(`https://${action.site}`);
+    const accepted = submittedOn === domain || progress.some((event) => event.site === domain && event.at > action.at);
+    if (!accepted) continue;
+    const kind = action.purpose === 'create_account' ? 'account-created' : 'signed-in';
+    if (actions.some((known) => known.kind === kind && known.site === action.site)) continue;
+    actions.push({
+      kind,
+      site: action.site,
+      email: action.email,
+      at: action.at,
+      detail: kind === 'account-created'
+        ? `Created an account on ${action.site} with ${action.email}.`
+        : `Signed in to ${action.site} with ${action.email}.`,
+    });
+  }
+}
+
 export async function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
   const { job, profile } = options;
   const log = options.log ?? ((line: string) => console.log(line));
@@ -445,6 +488,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastSignature = '';
   /** A screenshot on the next turn, because the last action failed in a way text does not explain. */
   let needVision = false;
+  /** Where and when verified progress happened, to confirm the sign-ins and sign-ups before it. */
+  const progressLog: Array<{ site: string; at: string }> = [];
   /** Consecutive tool calls that threw; see the recovery note where tools run. */
   let toolErrors = 0;
   /** What the agent saw and did, step by step — kept for the dashboard when a person has to take over. */
@@ -546,6 +591,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       }
     }
     persistTrace(job, finalOutcome, trace, page.url());
+    confirmAuthentication(ctx.actions, progressLog, finalOutcome.status === 'applied' ? siteDomain(page.url()) : null);
     const plain: AgentTermination = finalOutcome.status === 'needs-human' ? { ...finalOutcome, detail: undefined } : finalOutcome;
     return {
       // Every needs-human carries the questions the profile could not answer, so
@@ -788,9 +834,13 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     checkpoint();
 
     let result;
+    const progressBefore = guards.progressCount;
     try {
       result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });
       toolErrors = 0;
+      if (guards.progressCount > progressBefore && call.name !== 'complete_authentication') {
+        progressLog.push({ site: siteDomain(ctx.page.url()), at: new Date().toISOString() });
+      }
     } catch (error) {
       const message = (error as Error).message.split('\n')[0].slice(0, 300);
       step.result = `Tool failed: ${message}`;

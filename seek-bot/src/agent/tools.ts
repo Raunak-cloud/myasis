@@ -94,7 +94,7 @@ const advancesApplication = (text: string): boolean =>
 
 /** Records a side effect once per kind and site, and says so in the run log. */
 function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {
-  if (ctx.actions.some((known) => known.kind === action.kind && known.site === action.site)) return;
+  if (ctx.actions.some((known) => known.kind === action.kind && known.site === action.site && known.purpose === action.purpose)) return;
   ctx.actions.push({ ...action, at: new Date().toISOString() });
 }
 
@@ -653,11 +653,11 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
     const email = ctx.profile.email;
     const purpose = String(args.purpose ?? '');
     if (purpose === 'create_account') {
-      noteAction(ctx, { kind: 'authentication-prepared', site, email, detail: `Filled account-registration fields on ${siteName(site)} with ${email}; account creation is not yet confirmed.` });
+      noteAction(ctx, { kind: 'authentication-prepared', purpose: 'create_account', site, email, detail: `Filled account-registration fields on ${siteName(site)} with ${email}; account creation is not yet confirmed.` });
     } else if (purpose === 'reset_password') {
-      noteAction(ctx, { kind: 'authentication-prepared', site, email, detail: `Filled password-reset fields on ${siteName(site)}; reset is not yet confirmed.` });
+      noteAction(ctx, { kind: 'authentication-prepared', purpose: 'reset_password', site, email, detail: `Filled password-reset fields on ${siteName(site)}; reset is not yet confirmed.` });
     } else {
-      noteAction(ctx, { kind: 'authentication-prepared', site, email, detail: `Filled sign-in fields on ${siteName(site)} with ${email}; sign-in is not yet confirmed.` });
+      noteAction(ctx, { kind: 'authentication-prepared', purpose: 'sign_in', site, email, detail: `Filled sign-in fields on ${siteName(site)} with ${email}; sign-in is not yet confirmed.` });
     }
   }
   return ok(
