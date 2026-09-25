@@ -1,5 +1,8 @@
 import { config } from './config.js';
 import { chatCompletion, humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
+import { validateRewrite, wordCount } from './rewrite-guard.js';
+
+export { wordCount };
 
 type ChatCompletionResponse = {
   choices?: Array<{ message?: { content?: unknown } }>;
@@ -29,59 +32,6 @@ export async function assertHumanizerHealthy(): Promise<void> {
  */
 const TEMPERATURE_LADDER = [0.8, 1.0, 0.5] as const;
 const REWRITE_ATTEMPTS = TEMPERATURE_LADDER.length;
-
-export function wordCount(text: string): number {
-  return text.trim() ? text.trim().split(/\s+/).length : 0;
-}
-
-/** Bare numerals, so "40%" and "40 percent" are the same figure. */
-function numbers(text: string): string[] {
-  return (text.match(/\b\d+(?:[.,]\d+)*\b/g) ?? []).map((value) => value.replace(/,/g, ''));
-}
-
-/** Trailing sentence punctuation is not part of the address. */
-function protectedTokens(text: string): string[] {
-  return (text.match(/(?:https?:\/\/|www\.)\S+|[\w.+-]+@[\w.-]+\.\w+/gi) ?? [])
-    .map((token) => token.replace(/[.,;:!?)\]]+$/, ''));
-}
-
-/**
- * Substance only.
- *
- * Style is the humanizer's whole job, so nothing here judges it: a rewrite may
- * restructure, lengthen, shorten or re-voice the draft freely. What it may not
- * do is change a fact, because the letter goes to an employer over the
- * candidate's name. Length is bounded only by what the form will take.
- *
- * Earlier versions also enforced a 0.65-1.45 word band against the source and
- * required the greeting and sign-off back byte-identical. Both rejected
- * genuinely good divergent rewrites — the kind that reads as human — so both
- * are gone.
- */
-function validateRewrite(
-  original: string,
-  candidate: string,
-  maxWords: number,
-): string | null {
-  if (!candidate.trim()) return 'the service returned empty text';
-  const normalise = (text: string) => text.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase();
-  if (normalise(original) === normalise(candidate)) return 'the service returned the original text unchanged';
-  if (wordCount(candidate) > maxWords) return `the rewrite exceeded its ${maxWords}-word limit`;
-  /**
-   * Asymmetric on purpose. Spelling "3 years" as "three years", dropping a
-   * figure, or writing "40 percent" for "40%" are style, and style is what the
-   * rewrite is for. Stating a figure the draft never made is a claim the
-   * candidate did not make, so only figures absent from the draft are refused.
-   */
-  const draftNumbers = new Set(numbers(original));
-  const invented = numbers(candidate).find((value) => !draftNumbers.has(value));
-  if (invented) return `the rewrite introduced a figure the draft does not make (${invented})`;
-
-  const draftTokens = new Set(protectedTokens(original).map((token) => token.toLowerCase()));
-  const fabricated = protectedTokens(candidate).find((token) => !draftTokens.has(token.toLowerCase()));
-  if (fabricated) return `the rewrite introduced a URL or email not in the draft (${fabricated})`;
-  return null;
-}
 
 /**
  * A rewriting model is allowed to change style, never the substance of an
