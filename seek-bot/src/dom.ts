@@ -379,7 +379,7 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string, m
       const all = deepElements();
       if (kind === 'radio') {
         const index = (options ?? []).findIndex((option) => option.toLowerCase().trim() === wanted.toLowerCase().trim());
-        const fallback = index >= 0 ? index : (options ?? []).findIndex((option) => option.toLowerCase().includes(wanted.toLowerCase()));
+        const fallback = index;
         const radio = all.find((element) => element.getAttribute('data-field-id') === `${ref}:${fallback}`) as HTMLInputElement | undefined;
         if (!radio || fallback < 0) return false;
         radio.click();
@@ -446,9 +446,8 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string, m
     const idx = (field.options ?? []).findIndex(
       (o) => o.toLowerCase().trim() === value.toLowerCase().trim(),
     );
-    const pick = idx >= 0 ? idx : (field.options ?? []).findIndex((o) =>
-      o.toLowerCase().includes(value.toLowerCase()),
-    );
+    // Answers are chosen from these exact options; a substring fallback could land on the opposite one.
+    const pick = idx;
     if (pick < 0) throw new Error(`no radio option matching "${value}" in [${field.options?.join(' | ')}]`);
     /**
      * Most styled radio groups hide the input and draw the label; setting the
@@ -581,12 +580,15 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
     const texts = (await options.allInnerTexts().catch(() => [])).map(loose);
     const byText = texts.findIndex((text) => text === wantLoose);
     if (byText >= 0) return byText;
-    const byContain = texts.findIndex((text) => wantLoose.length > 0 && (text.includes(wantLoose) || wantLoose.includes(text)));
-    if (byContain >= 0) return byContain;
-    return texts.findIndex((text) => wantWords.length > 0 && wantWords.every((word) => text.split(' ').includes(word)));
+    // Anything looser than an exact match must be unambiguous; several candidates go back to the answer model.
+    const only = (hits: number[]) => (hits.length === 1 ? hits[0] : -1);
+    const containing = texts.flatMap((text, i) => (wantLoose.length > 0 && (text.includes(wantLoose) || wantLoose.includes(text)) ? [i] : []));
+    if (containing.length) return only(containing);
+    return only(texts.flatMap((text, i) => (wantWords.length > 0 && wantWords.every((word) => text.split(' ').includes(word)) ? [i] : [])));
   };
   if (await exact.count()) await exact.click({ timeout: 5_000 });
-  else if (await partial.count()) await partial.first().click({ timeout: 5_000 });
+  // A containing match is taken only when it is the only one: "NSW" must not pick "NSW Health" out of several.
+  else if ((await partial.count()) === 1) await partial.first().click({ timeout: 5_000 });
   else if (await options.count()) {
     const index = await looseMatch();
     if (index >= 0) {

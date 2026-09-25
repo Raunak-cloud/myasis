@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 import { config, loadProfile } from './config.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
-import { deterministicExclusion, detectInjection, meetsMinimumScore } from './scoring.js';
+import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex } from './store.js';
 import { assertHumanizerHealthy } from './humanizer.js';
@@ -202,12 +202,6 @@ async function build() {
         continue;
       }
 
-      const injection = detectInjection(job);
-      if (injection) {
-        console.log(`  ⚠ ${job.company} — ${injection}`);
-        bump('prompt injection');
-        continue;
-      }
       const excluded = deterministicExclusion(job);
       if (excluded) {
         bump(excluded.replace(/:.*/, '').trim());

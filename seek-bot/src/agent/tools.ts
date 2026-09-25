@@ -7,7 +7,7 @@ import {
   waitForInteractiveSurface,
 } from '../browser.js';
 import { fillField, setChecked } from '../dom.js';
-import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, verifySubmissionEvidence } from '../llm.js';
+import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, isSubmitControl, verifySubmissionEvidence } from '../llm.js';
 import { acceptsFormat, pickResumeForJob, RESUME_DIR, documentFor } from '../resume.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
@@ -105,6 +105,37 @@ async function submissionEvidence(ctx: ToolContext): Promise<{ url: string; text
   const body = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => ctx.observation.text);
   const text = body.length > 12_000 ? `${body.slice(0, 3_000)}\n…\n${body.slice(-9_000)}` : body;
   return { url: ctx.page.url(), text, actions: ctx.observation.actions, fields: ctx.observation.fields };
+}
+
+const submitVerdicts = new Map<string, boolean>();
+
+/**
+ * Whether pressing a control sends the application — the question every
+ * submit gate hangs on. The label list catches the common wordings for free;
+ * anything else on a form with something to send is read by the model, per
+ * page and label. A failed check counts as a submit: it can only hold a click
+ * back for the gates, never let one through unguarded.
+ */
+async function transmits(ctx: ToolContext, label: string, context?: string): Promise<boolean> {
+  if (isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) return false;
+  if (isSubmitAction(label)) return true;
+  if (!label.trim() || /\(opens a list\)$/.test(label)) return false;
+  // Nothing typed, attached or on the page: there is nothing a click could send.
+  if (!ctx.captured.length && !ctx.resumeUsed && !ctx.coverLetter && !ctx.observation.fields.length) return false;
+  let key = label;
+  try {
+    const url = new URL(ctx.page.url());
+    key = `${url.host}${url.pathname}|${label}`;
+  } catch {}
+  const known = submitVerdicts.get(key);
+  if (known !== undefined) return known;
+  const verdict = await isSubmitControl(
+    { label, context },
+    { url: ctx.page.url(), title: ctx.observation.title, text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length },
+  ).catch(() => true);
+  submitVerdicts.set(key, verdict);
+  if (verdict) ctx.log(`  · "${label.slice(0, 60)}" read as the final submit`);
+  return verdict;
 }
 
 /** Records a side effect once per kind and site, and says so in the run log. */
@@ -429,14 +460,16 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
    */
   const entry = isEntryAction(action.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${action.text}"`);
+  const submit = !entry && action.role !== 'toggle' && action.role !== 'file'
+    && await transmits(ctx, action.text, action.context);
   // A second submit is only pressed once the first is known not to have gone
   // through: some forms confirm in place and keep the form, and pressing again
   // sends the employer another copy.
-  if (isSubmitAction(action.text) && !entry && ctx.submissionAttempted
+  if (submit && ctx.submissionAttempted
     && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
     return { kind: 'terminal', outcome: { status: 'applied' } };
   }
-  if (isSubmitAction(action.text) && !entry) {
+  if (submit) {
     const verdict = ctx.guards.canSubmit(ctx.page.url());
     if (!verdict.allowed) {
       if (verdict.kind === 'dry-run') {
@@ -452,7 +485,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
     ctx.log(`  → submitting: "${action.text}"`);
   }
 
-  if (isSubmitAction(action.text) && !entry) ctx.submissionAttempted = true;
+  if (submit) ctx.submissionAttempted = true;
   // A list opened from a button has no FIELD; its caption is the question its options answer.
   if (/\(opens a list\)$/.test(action.text) || /^Open /.test(action.text)) {
     ctx.lastListQuestion = action.text.replace(/\s*\(opens a list\)$/, '').replace(/^(Open|Select)\s+/i, '').trim();
@@ -487,7 +520,7 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
   return ok(
     changed
       ? `Clicked "${action.text}". The page changed; a fresh observation follows.`
-      : isSubmitAction(action.text)
+      : submit
         ? `Clicked "${action.text}" but the form did not submit. A form that refuses to submit almost always shows a validation message beside an incomplete required field, often near the top: scroll up, re-observe, and answer or fix the field it names before trying again.`
         : `Clicked "${action.text}" but nothing on the page changed. It was probably not the control that advances this step — try a different one.`,
   );
@@ -536,8 +569,8 @@ async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): 
     return ok(`No verified candidate fact supports an option for "${field.label}". Do not choose one; finish needs_human after completing other useful fields.`);
   }
   const normal = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const choice = group.find(action => normal(action.value!) === normal(answer!.value))
-    ?? group.find(action => normal(action.value!).includes(normal(answer!.value)) || normal(answer!.value).includes(normal(action.value!)));
+  // The answer model chose from these exact options; a substring fallback once let "Male" select "Female".
+  const choice = group.find(action => normal(action.value!) === normal(answer!.value));
   if (!choice) return ok(`The grounded answer "${answer.value}" is not among the currently observed options. Search or reopen the dropdown; do not choose a substitute.`);
   if (!await clickRef(ctx.page, choice.ref)) return ok('The grounded option could not be clicked. Re-observe the current dropdown.');
   ctx.guards.recordFillSuccess(field.label);
@@ -598,7 +631,9 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
     }
   }
   if (!field && !action && !coordinateInput) return ok('Use a current FIELD/ACTION ref, or screenshot x/y, for the consent checkbox. Re-observe rather than guessing.');
-  if (!/\b(terms?|privacy|consent|acknowledg(?:e|ement)|data processing)\b/i.test(label) && !(await isRequiredConsent(label).catch(() => false))) {
+  // Always the model: "Send me job alerts per our Privacy Policy" names privacy
+  // and is marketing, which a keyword shortcut used to tick. A failed check refuses.
+  if (!(await isRequiredConsent(label).catch(() => false))) {
     await coordinateInput?.evaluate(element => element.removeAttribute('data-agent-consent-target')).catch(() => {});
     return ok('Refused: that control is not visibly labelled as required terms, privacy, consent or acknowledgement. Use the grounded answer tool for application questions.');
   }
@@ -1101,7 +1136,8 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
   if (under.href && isForbiddenDestination(under.href)) {
     return ok(`Refused: that point is a link to ${under.href}, which this tool never navigates to.`);
   }
-  if (isSubmitAction(under.text) && !isEntryAction(under.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) {
+  const submit = await transmits(ctx, under.text);
+  if (submit) {
     if (ctx.submissionAttempted && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
       return { kind: 'terminal', outcome: { status: 'applied' } };
     }
@@ -1120,7 +1156,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     ctx.log(`  → submitting: "${under.text}"`);
   }
   const before = await captureInteractivePageState(ctx.page);
-  if (isSubmitAction(under.text) && !isEntryAction(under.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) ctx.submissionAttempted = true;
+  if (submit) ctx.submissionAttempted = true;
   await ctx.page.mouse.click(x, y);
   const changed = await waitForInteractivePageChange(ctx.page, before);
   await waitForInteractiveSurface(ctx.page, 4_000);

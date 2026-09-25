@@ -138,23 +138,6 @@ export function looksTemplated(job: JobListing): string | null {
   return null;
 }
 
-/**
- * Ignores any instruction-shaped text inside a listing. Job ads are data;
- * we have already seen live injection attempts in this corpus.
- */
-export function detectInjection(job: JobListing): string | null {
-  const d = `${job.title} ${job.description ?? ''} ${job.teaser ?? ''}`.toLowerCase();
-  const patterns = [
-    /ignore (all |any )?(previous|prior|above) instructions/,
-    /you are an? (ai|assistant|language model)/,
-    /system prompt/,
-    /if you are an ai\b/,
-    /insert the (phrase|text|words)/,
-  ];
-  for (const p of patterns) if (p.test(d)) return `listing contains instruction-shaped text: /${p.source}/`;
-  return null;
-}
-
 export function deterministicExclusion(job: JobListing): string | null {
   // Only explicit machine-readable facts may stop a listing before model
   // review. Meaning in prose belongs to assessFit(), which can use context

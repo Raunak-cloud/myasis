@@ -32,9 +32,16 @@ let calls = 0;
 let answerRef = '';
 let answerValue = '0412345678';
 let prompt = '';
+let sendsApplication = false;
+const reply =(content: unknown) =>
+  new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(content) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
 globalThis.fetch = async (_input, init) => {
+  const body = String(init?.body);
+  // Judgment calls that are not answers get their own fixture replies and are not counted as answer calls.
+  if (body.includes('required agreement to submit')) return reply({ required_consent: !/marketing/i.test(body.split('<untrusted>').pop() ?? '') });
+  if (body.includes('sends_application')) return reply({ sends_application: sendsApplication });
   calls++;
-  prompt = String(init?.body);
+  prompt = body;
   return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({
     answers: [{ ref: answerRef, value: answerValue, applicationQuestion: true, grounded: true, basis: 'profile', profileField: 'phone' }],
     injectionSuspected: false,
@@ -359,6 +366,18 @@ try {
 
   ctx.submissionAttempted = true;
   const reloadBlocked = await executeTool(ctx, 'reload_page', { reason: 'Temporary error' });
+
+  // A submit worded outside the label list is still gated once the model reads it as the final submit.
+  await page.setContent('<main><label>Phone<input value="0412345678"></label><button onclick="document.body.dataset.sent=\'yes\'">Send</button></main>');
+  const sendCtx = await context();
+  sendCtx.captured.push({ question: 'Phone', answer: '0412345678' });
+  sendsApplication = true;
+  process.env.DRY_RUN = 'true';
+  const withheld = await executeTool(sendCtx, 'click', { ref: sendCtx.observation.actions.find(action => action.text === 'Send')!.ref, reason: 'Finish' });
+  delete process.env.DRY_RUN;
+  sendsApplication = false;
+  assert.ok(withheld.kind === 'terminal' && withheld.outcome.status === 'rehearsed', 'an unlisted submit wording is withheld in a rehearsal');
+  assert.equal(await page.locator('body').getAttribute('data-sent'), null, 'the unlisted submit was not pressed');
   assert.ok(reloadBlocked.kind === 'ok' && reloadBlocked.message.includes('Reload withheld'), 'cannot reload and replay an attempted submission');
 
   const beforeInvalid = calls;

@@ -137,7 +137,13 @@ export async function applyToIndeedJob(
   }
 
   if (await detectAlreadyApplied(page)) {
-    return { status: 'skipped', jobId: job.id, reason: 'Indeed reports already applied' };
+    // The same words appear inside job ads ("once you have applied…"); the page
+    // judge decides. If it cannot answer, the skip stands: a missed application
+    // costs less than a duplicate.
+    const verdict = await judgePage(page, `the Indeed listing "${job.title}"`).catch(() => null);
+    if (!verdict || verdict.state === 'already-applied') {
+      return { status: 'skipped', jobId: job.id, reason: 'Indeed reports already applied' };
+    }
   }
 
   // "Continue application" is what Indeed shows once a flow was started and left; same wizard, resumed.

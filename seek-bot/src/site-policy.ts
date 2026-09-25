@@ -12,19 +12,38 @@ export function isAustralianGovernmentUrl(value?: string): boolean {
 }
 
 /**
- * Finds a government destination using only listing data already collected by
- * the board adapter. This runs before any model sees the listing.
+ * A government application address the board itself gave for this listing.
+ * Policy, decided by the address alone, before any model sees the listing.
  */
 export function australianGovernmentDestination(job: JobListing): string | null {
   for (const value of [job.applicationUrl, job.url]) {
     if (isAustralianGovernmentUrl(value)) return value!;
   }
-
-  const text = [job.description, job.teaser].filter(Boolean).join(' ');
-  const matches = text.match(/(?:https?:\/\/|www\.)[^\s<>"')]+/gi) ?? [];
-  for (const raw of matches) {
-    const candidate = /^www\./i.test(raw) ? `https://${raw}` : raw;
-    if (isAustralianGovernmentUrl(candidate)) return candidate;
-  }
   return null;
+}
+
+/** Government addresses written into the ad's text, which may or may not be where it is applied for. */
+function governmentAddressesInText(job: JobListing): string[] {
+  const text = [job.description, job.teaser].filter(Boolean).join(' ');
+  return (text.match(/(?:https?:\/\/|www\.)[^\s<>"')]+/gi) ?? [])
+    .map((raw) => (/^www\./i.test(raw) ? `https://${raw}` : raw))
+    .filter((candidate) => isAustralianGovernmentUrl(candidate));
+}
+
+/**
+ * Where a listing's application actually goes, when that is a government site.
+ * The board's own addresses decide outright; an address only mentioned in the
+ * ad (an award rate, a visa page) is judged by the model, since citing a
+ * government page does not make the application a government one.
+ */
+export async function governmentApplicationRoute(
+  job: JobListing,
+  appliesThere: (job: JobListing, addresses: string[]) => Promise<boolean>,
+): Promise<string | null> {
+  const direct = australianGovernmentDestination(job);
+  if (direct) return direct;
+  const mentioned = governmentAddressesInText(job);
+  if (!mentioned.length) return null;
+  // Unsure means excluded: the policy errs towards not applying.
+  return (await appliesThere(job, mentioned).catch(() => true)) ? mentioned[0] : null;
 }

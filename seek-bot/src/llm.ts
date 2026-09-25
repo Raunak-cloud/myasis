@@ -1252,3 +1252,38 @@ Return JSON {"required_consent": true|false}.
   });
   return verdict.required_consent === true;
 }
+
+/**
+ * Whether pressing this control would send the completed application to the
+ * employer. A fixed label list cannot know every form's wording ("Send",
+ * "Submit my application", "Finish"), and a submit it misses bypasses the
+ * rehearsal and grounding gates. The fast model reads the control in its page;
+ * callers treat a failed check as a submit, so doubt only ever adds caution.
+ */
+export async function isSubmitControl(control: { label: string; context?: string }, page: { url: string; title: string; text: string; fields: number; entered: number }): Promise<boolean> {
+  const verdict = await json<{ sends_application: boolean }>(`${GUARD}
+A browser agent is filling in a job application. Would pressing the control below send the finished application to the employer (a final submit), as opposed to opening the form, moving to the next or review step, saving a draft, uploading a file, opening a list, or leaving the page?
+The page has ${page.fields} form field(s); ${page.entered} answer(s) have been entered so far.
+Return JSON {"sends_application": true|false}.
+<untrusted>${JSON.stringify({ control: control.label.slice(0, 200), context: control.context?.slice(0, 400), url: page.url, title: page.title, page_text: page.text.slice(0, 2_000) })}</untrusted>`, {
+    type: 'OBJECT', properties: { sends_application: { type: 'BOOLEAN' } }, required: ['sends_application'],
+  }, 'celeris-1');
+  return verdict.sends_application === true;
+}
+
+/**
+ * Whether a listing that mentions an Australian government web address sends
+ * its applications through that site. Policy excludes government application
+ * sites; an ad that merely cites a gov.au page (an award rate, a visa rule) is
+ * not one, and skipping it on the address alone lost real private-sector jobs.
+ */
+export async function appliesThroughGovernmentSite(job: JobListing, addresses: string[]): Promise<boolean> {
+  const verdict = await json<{ applies_there: boolean }>(`${GUARD}
+This job listing mentions these Australian government web addresses: ${addresses.join(', ')}.
+Does the listing direct candidates to apply through one of them (the application is lodged on that government site), rather than merely citing it for information?
+Return JSON {"applies_there": true|false}.
+<untrusted>${JSON.stringify({ title: job.title, company: job.company, description: (job.description ?? job.teaser ?? '').slice(0, 6_000) })}</untrusted>`, {
+    type: 'OBJECT', properties: { applies_there: { type: 'BOOLEAN' } }, required: ['applies_there'],
+  }, 'celeris-1');
+  return verdict.applies_there === true;
+}

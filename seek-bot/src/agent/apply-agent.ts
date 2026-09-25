@@ -4,7 +4,8 @@ import { config } from '../config.js';
 import { waitForApplicationSurface } from './observe.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from '../types.js';
 import { runApplicationAgent } from './loop.js';
-import { australianGovernmentDestination } from '../site-policy.js';
+import { governmentApplicationRoute } from '../site-policy.js';
+import { appliesThroughGovernmentSite } from '../llm.js';
 import { outsideScope, scopeSkipReason } from '../run-scope.js';
 
 /**
@@ -103,7 +104,7 @@ export async function applyToJobWithAgent(
   if (outsideScope(job.applicationMode)) {
     return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
   }
-  if (australianGovernmentDestination(job)) {
+  if (await governmentApplicationRoute(job, appliesThroughGovernmentSite)) {
     return { status: 'skipped', jobId: job.id, reason: 'Australian government application site excluded.' };
   }
   if (externalCta && !config.allowExternalApply) {

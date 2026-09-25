@@ -1,6 +1,6 @@
 import { measured, metric } from './pipeline.js';
 import { pickResumeForJob } from './resume.js';
-import { assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
+import { appliesThroughGovernmentSite, assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { config, loadProfile } from './config.js';
 import {
   launchBrowser,
@@ -18,7 +18,7 @@ import {
   search as searchIndeed,
   fetchJobDetail as fetchJobDetailIndeed,
 } from './discovery-indeed.js';
-import { scoreJob, deterministicExclusion, detectInjection, meetsMinimumScore } from './scoring.js';
+import { scoreJob, deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, recentReviewFeedback, saveRunSummary, syncFromSeek } from './store.js';
@@ -27,7 +27,7 @@ import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import type { Page } from 'patchright';
-import { australianGovernmentDestination } from './site-policy.js';
+import { australianGovernmentDestination, governmentApplicationRoute } from './site-policy.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
@@ -559,7 +559,7 @@ async function main() {
        */
       await jitter(5000, 8000);
 
-      const governmentDestination = australianGovernmentDestination(job);
+      const governmentDestination = await governmentApplicationRoute(job, appliesThroughGovernmentSite);
       if (governmentDestination) {
         console.log(`  â€“ ${job.title} @ ${job.company} â€” Australian government application site excluded before AI review`);
         bump('Australian government application site');
@@ -624,13 +624,6 @@ async function main() {
         break;
       }
       evaluated++;
-
-      const injection = detectInjection(job);
-      if (injection) {
-        console.log(`  ⚠ ${job.company} — ${injection} (treated as data, listing skipped)`);
-        logOutcome({ status: 'skipped', jobId: job.id, reason: injection, title: job.title, company: job.company });
-        continue;
-      }
 
       const excluded = deterministicExclusion(job);
       if (excluded) {
