@@ -19,6 +19,7 @@ import { handleCaptchaWithCapMonster } from '../captcha.js';
 import { browserGmailAvailable, findCodeInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
+import { offersCoverLetter } from './cover-letter-opportunity.js';
 
 /**
  * The agent's entire action surface.
@@ -74,8 +75,6 @@ export interface ToolContext {
 
 const ok = (message: string): ToolResult => ({ kind: 'ok', message });
 
-const COVER_LETTER = /\bcover[\s-]?letter\b/i;
-
 /**
  * Remember only actionable cover-letter UI, never wording in a job advert.
  * This lets the submit gate enforce the plan promise without blocking an
@@ -83,9 +82,7 @@ const COVER_LETTER = /\bcover[\s-]?letter\b/i;
  */
 function rememberCoverLetterOpportunity(ctx: ToolContext): void {
   if (ctx.coverLetterOffered) return;
-  ctx.coverLetterOffered =
-    ctx.observation.fields.some(field => COVER_LETTER.test(`${field.label} ${field.description ?? ''}`)) ||
-    ctx.observation.actions.some(action => COVER_LETTER.test(action.text));
+  ctx.coverLetterOffered = offersCoverLetter(ctx.observation);
 }
 
 const advancesApplication = (text: string): boolean =>

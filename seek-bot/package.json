@@ -15,6 +15,7 @@
     "test:external-real": "tsc && node dist/external-real-rehearsal.js",
     "test:agent": "tsc && node dist/agent-e2e.js",
     "test:model-forms": "tsc && node dist/model-forms.test.js",
+    "test:cover-letter": "tsc && node dist/agent/cover-letter-opportunity.test.js",
     "test:combobox": "tsc && node scripts/test-combobox.mjs",
     "test:pipeline": "tsc && node scripts/test-pipeline.mjs",
     "test:capmonster": "tsc && node scripts/test-capmonster.mjs",

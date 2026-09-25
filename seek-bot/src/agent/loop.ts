@@ -94,6 +94,10 @@ employers, so read the page rather than assuming an order.
   text in it. First reveal its writing field with click or add_cover_letter
   using the radio/select FIELD ref and exact writing option if necessary, then
   pass its FIELD ref to add_cover_letter. Do not select an unrelated textarea.
+- On Indeed's review step, "Supporting documents" may hide the optional cover
+  letter behind a generic "Add" action. If the page says no cover letter or
+  supporting documents were added, open Add, choose "Write a cover letter",
+  and call add_cover_letter before submitting.
 - Answer every required FIELD on a step before looking for the forward control.
   Required flags reflect markup only: interpret current instructions and validation
   and pass required_refs when a necessary question lacks required markup.

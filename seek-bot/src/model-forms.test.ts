@@ -135,6 +135,25 @@ try {
   await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Continue after letter' });
   assert.equal(await page.locator('body').getAttribute('data-advanced'), 'yes', 'advance is allowed after the letter is retained');
 
+  await page.setContent(`
+    <main>
+      <h2>Supporting documents</h2>
+      <button>Add</button>
+      <p>No cover letter or additional documents added. This is optional to add.</p>
+      <button onclick="document.body.dataset.submitted='yes'">Submit your application</button>
+    </main>
+  `);
+  ctx = await context();
+  const indeedSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
+  assert.ok(indeedSubmit, 'Indeed fixture exposes its submit action');
+  const blockedIndeedSubmit = await executeTool(ctx, 'click', { ref: indeedSubmit.ref, reason: 'Submit' });
+  assert.ok(blockedIndeedSubmit.kind === 'ok' && blockedIndeedSubmit.message.includes('Do not advance yet'));
+  assert.equal(
+    await page.locator('body').getAttribute('data-submitted'),
+    null,
+    'Indeed supporting documents cannot be skipped when its cover-letter control is only labelled Add',
+  );
+
   await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');
   ctx = await context();
   const files = ctx.observation.actions.filter(action => action.role === 'file');
