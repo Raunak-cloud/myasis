@@ -92,6 +92,21 @@ const advancesApplication = (text: string): boolean =>
   /^(continue|next|review(?: your)? application|preview application|save and continue)$/i.test(text.trim()) ||
   isSubmitAction(text);
 
+/**
+ * What the page shows after a submit, for the independent verifier.
+ *
+ * The observation's text is the start of the main region, capped for the
+ * agent's prompt; an employer that prints "Your application has been
+ * submitted" under a long job ad and the form was outside it, so a real
+ * submission read as unconfirmed and the agent pressed Submit again. The
+ * verifier gets the whole page's beginning and end instead.
+ */
+async function submissionEvidence(ctx: ToolContext): Promise<{ url: string; text: string; actions: unknown[]; fields: unknown[] }> {
+  const body = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => ctx.observation.text);
+  const text = body.length > 12_000 ? `${body.slice(0, 3_000)}\n…\n${body.slice(-9_000)}` : body;
+  return { url: ctx.page.url(), text, actions: ctx.observation.actions, fields: ctx.observation.fields };
+}
+
 /** Records a side effect once per kind and site, and says so in the run log. */
 function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {
   if (ctx.actions.some((known) => known.kind === action.kind && known.site === action.site && known.purpose === action.purpose)) return;
@@ -414,6 +429,13 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
    */
   const entry = isEntryAction(action.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${action.text}"`);
+  // A second submit is only pressed once the first is known not to have gone
+  // through: some forms confirm in place and keep the form, and pressing again
+  // sends the employer another copy.
+  if (isSubmitAction(action.text) && !entry && ctx.submissionAttempted
+    && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
+    return { kind: 'terminal', outcome: { status: 'applied' } };
+  }
   if (isSubmitAction(action.text) && !entry) {
     const verdict = ctx.guards.canSubmit(ctx.page.url());
     if (!verdict.allowed) {
@@ -1011,7 +1033,7 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
        * that backs confirm_submission decides.
        */
       if (ctx.submissionAttempted) {
-        const evidence = { url: ctx.page.url(), text: ctx.observation.text, actions: ctx.observation.actions, fields: ctx.observation.fields };
+        const evidence = await submissionEvidence(ctx);
         if (await verifySubmissionEvidence(evidence, ctx.job).catch(() => false)) {
           return { kind: 'terminal', outcome: { status: 'applied' } };
         }
@@ -1080,6 +1102,9 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
     return ok(`Refused: that point is a link to ${under.href}, which this tool never navigates to.`);
   }
   if (isSubmitAction(under.text) && !isEntryAction(under.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) {
+    if (ctx.submissionAttempted && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
+      return { kind: 'terminal', outcome: { status: 'applied' } };
+    }
     const verdict = ctx.guards.canSubmit(ctx.page.url());
     if (!verdict.allowed) {
       if (verdict.kind === 'dry-run') {
@@ -1275,7 +1300,7 @@ async function runTool(
     }
     case 'confirm_submission': {
       if (!ctx.submissionAttempted) return ok('No submission action has been recorded for this attempt. Do not claim success; inspect the page.');
-      const evidence = { url: ctx.page.url(), text: ctx.observation.text, actions: ctx.observation.actions, fields: ctx.observation.fields };
+      const evidence = await submissionEvidence(ctx);
       return await verifySubmissionEvidence(evidence, ctx.job)
         ? { kind: 'terminal', outcome: { status: 'applied' } }
         : ok('The employer page does not yet verify a completed submission. Inspect its validation or wait for confirmation.');
