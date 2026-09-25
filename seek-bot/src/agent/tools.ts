@@ -7,7 +7,7 @@ import {
   waitForInteractiveSurface,
 } from '../browser.js';
 import { fillField, setChecked } from '../dom.js';
-import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, verifySubmissionEvidence } from '../llm.js';
+import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, verifySubmissionEvidence } from '../llm.js';
 import { acceptsFormat, pickResumeForJob, RESUME_DIR, documentFor } from '../resume.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
@@ -576,7 +576,7 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
     }
   }
   if (!field && !action && !coordinateInput) return ok('Use a current FIELD/ACTION ref, or screenshot x/y, for the consent checkbox. Re-observe rather than guessing.');
-  if (!/\b(terms?|privacy|consent|acknowledg(?:e|ement)|data processing)\b/i.test(label)) {
+  if (!/\b(terms?|privacy|consent|acknowledg(?:e|ement)|data processing)\b/i.test(label) && !(await isRequiredConsent(label).catch(() => false))) {
     await coordinateInput?.evaluate(element => element.removeAttribute('data-agent-consent-target')).catch(() => {});
     return ok('Refused: that control is not visibly labelled as required terms, privacy, consent or acknowledgement. Use the grounded answer tool for application questions.');
   }

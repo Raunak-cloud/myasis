@@ -1230,3 +1230,20 @@ Return JSON {"email": index or -1, "kind": "code" | "link", "code": "..." or "",
   }
   return null;
 }
+
+/**
+ * Whether a checkbox is the site's condition for accepting the application —
+ * terms, privacy, data storage or handling, declarations of truth — rather
+ * than a marketing, alert or optional preference. Sites word this every way
+ * ("By using this form you agree with the storage and handling of your
+ * data"), so the model judges the wording; marketing is always refused.
+ */
+export async function isRequiredConsent(label: string): Promise<boolean> {
+  const verdict = await json<{ required_consent: boolean }>(`${GUARD}
+A job application form shows this checkbox label. Is it the site's required agreement to submit (terms, privacy, data storage or handling, a declaration that the information is true), as opposed to a marketing, newsletter, job-alert, contact-preference, talent-pool or other optional choice?
+Return JSON {"required_consent": true|false}.
+<untrusted>${JSON.stringify(label.slice(0, 600))}</untrusted>`, {
+    type: 'OBJECT', properties: { required_consent: { type: 'BOOLEAN' } }, required: ['required_consent'],
+  });
+  return verdict.required_consent === true;
+}
