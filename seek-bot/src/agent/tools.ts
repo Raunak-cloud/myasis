@@ -270,8 +270,11 @@ async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
 async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
   const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
   const entered = new Set(ctx.captured.map((item) => normal(item.question)));
+  // The letter add_cover_letter wrote is the agent's own, grounded as it was written — not something the page held.
+  const letter = ctx.coverLetter ? normal(ctx.coverLetter) : '';
   const prefilled = ctx.observation.fields.filter((field) =>
-    field.kind !== 'checkbox' && !field.sensitive && field.currentValue?.trim() && !entered.has(normal(field.label)));
+    field.kind !== 'checkbox' && !field.sensitive && field.currentValue?.trim() && !entered.has(normal(field.label))
+    && !(letter && normal(field.currentValue!) === letter));
   if (!prefilled.length) return null;
   const signature = prefilled.map((field) => `${field.label}=${field.currentValue}`).join('\n');
   const audited = (ctx.prefilledAudited ??= new Set<string>());
