@@ -2621,6 +2621,90 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
   .attention-table .answer-form { max-width: none; }
   .attention-table .answer-actions .btn { width: 100%; }
   .attention-panel .queue-bar .chips { flex: 1 1 220px; }
+
+  /*
+   * Applications become cards on phones, the same way Needs attention does:
+   * the five-column table needed a sideways scroll to reach the status and
+   * the listing link. Each card reads top to bottom — role and status, then
+   * when it was sent, the match score and the board it went through.
+   */
+  .applications-list {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+  .applications-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .applications-table thead { display: none; }
+  .applications-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+  .applications-table .application-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "role role status"
+      "when score link";
+    align-items: center;
+    gap: 10px 12px;
+    padding: 14px 15px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .applications-table .application-item > td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .applications-table .application-role { grid-area: role; align-self: start; }
+  .applications-table .application-role .job-title,
+  .applications-table .application-role .job-meta { overflow-wrap: anywhere; }
+  .applications-table .application-role .app-site-badge { display: inline-block; margin: 4px 0 0; }
+  .applications-table .application-status { grid-area: status; align-self: start; justify-self: end; }
+  .applications-table .application-when {
+    grid-area: when;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    white-space: normal;
+  }
+  .applications-table .application-when > div:first-child::after { content: ' ·'; }
+  .applications-table .application-score,
+  .applications-table .application-link {
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .applications-table .application-score { grid-area: score; }
+  /* The column heading is gone, so the number says what it is. */
+  .applications-table .application-score .score::before { content: 'Match '; font-weight: 500; color: var(--text-faint); font-size: 12px; }
+  .applications-table .application-link { grid-area: link; justify-self: end; }
+  .applications-table .application-link a {
+    display: inline-flex;
+    min-height: 34px;
+    align-items: center;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .applications-panel .queue-bar .chips { flex: 1 1 100%; }
+  .applications-panel .queue-bar .input { flex: 1 1 100%; min-width: 0; }
+  .applications-panel .site-accounts .job-title,
+  .applications-panel .site-accounts .job-meta { overflow-wrap: anywhere; }
+  /* Long unbroken text (a URL in a letter or an answer) wraps instead of widening the drawer. */
+  .drawer .letter,
+  .drawer .qa .a,
+  .drawer .job-meta,
+  .drawer-head h2 { overflow-wrap: anywhere; }
+  .drawer-head { padding: 16px 16px 12px; }
+  .drawer-body { padding: 16px 16px 40px; }
   th, td { padding: 10px 11px; }
   th { font-size: 10px; }
 

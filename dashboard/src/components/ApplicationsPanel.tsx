@@ -136,7 +136,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
   );
 
   return (
-    <div>
+    <div className="applications-panel">
       <div className="queue-bar">
         <div className="chips">
           {(['all', 'awaiting', 'interview', 'rejected'] as const).map((f) => (
@@ -185,8 +185,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
           <p>{apps.length ? 'Try another filter.' : 'Applications appear here once you submit them.'}</p>
         </div>
       ) : (
-        <div className="card table-wrap">
-          <table>
+        <div className="card table-wrap applications-list">
+          <table className="applications-table">
             <thead>
               <tr>
                 <th>Role</th>
@@ -201,8 +201,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                 const age = daysSince(a.appliedAt);
                 const stale = !a.outcome && age >= followUpDays;
                 return (
-                  <tr key={a.jobId} className="clickable" onClick={() => setOpen(a)}>
-                    <td>
+                  <tr key={a.jobId} className="clickable application-item" onClick={() => setOpen(a)}>
+                    <td className="application-role">
                       <div className="job-title">
                         {a.title}
                         {a.external && <span className="badge info app-site-badge">Employer site · Beta</span>}
@@ -211,13 +211,13 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                         {a.company} · {a.location}
                       </div>
                     </td>
-                    <td className="nowrap">
+                    <td className="nowrap application-when">
                       <div>{fmtDate(a.appliedAt)}</div>
                       <div className="job-meta">
                         {fmtTime(a.appliedAt)} · {age === 0 ? 'today' : `${age}d ago`}
                       </div>
                     </td>
-                    <td>
+                    <td className="application-status">
                       {a.outcome ? (
                         <span className={`badge ${OUTCOMES.find((o) => o.id === a.outcome)?.tone ?? 'muted'}`}>
                           {OUTCOMES.find((o) => o.id === a.outcome)?.label}
@@ -228,10 +228,10 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                         <span className="badge muted">sent</span>
                       )}
                     </td>
-                    <td>
-                      <span className={`score ${scoreClass(a.score)}`}>{a.score || '-'}</span>
+                    <td className="application-score">
+                      <span className={`score ${scoreClass(a.score)}`} title="Match score">{a.score || '-'}</span>
                     </td>
-                    <td className="nowrap">
+                    <td className="nowrap application-link">
                       <a
                         href={a.url}
                         target="_blank"
