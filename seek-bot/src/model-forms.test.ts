@@ -20,7 +20,7 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
 const { config } = await import('./config.js');
 const { observe, renderObservation } = await import('./agent/observe.js');
 const { fillField } = await import('./dom.js');
-const { executeTool, fillEmailedCode } = await import('./agent/tools.js');
+const { executeTool, fillEmailedCode, pageOffersDocuments } = await import('./agent/tools.js');
 const { RunGuards } = await import('./agent/guards.js');
 const { CostMeter } = await import('./agent/celeris.js');
 const { recentReviewFeedback } = await import('./store.js');
@@ -61,6 +61,11 @@ try {
     (await observe(page)).actions.some(action => /^Open State \/ Territory/.test(action.text)),
     'an icon-only dropdown button is named from the field it opens, even beside a hidden native select',
   );
+  // Indeed's review page: Supporting documents far below, rendered lazily (content-visibility), so innerText skips it.
+  await page.setContent('<main><h1>Review your application</h1><div style="height:4000px">Resume preview</div><section style="content-visibility:auto"><h2>Supporting documents</h2><button>Add</button><p>No cover letter or additional documents added. This is optional to add.</p></section><button>Submit your application</button></main>');
+  assert.equal(await pageOffersDocuments(page), true, 'a lazily rendered Supporting documents section below the fold is a place for a letter');
+  await page.setContent('<main><h1>Review your application</h1><p>Contact information</p><button>Submit your application</button></main>');
+  assert.equal(await pageOffersDocuments(page), false, 'a review page with no documents section offers no place');
   // PageUp's declaration dropdowns: the placeholder carries a non-empty value.
   await page.setContent('<main><label>Medical condition *<select required><option value="0">Please select</option><option value="1043">No</option><option value="1044">Yes</option></select></label><label>Notice<select><option value="" disabled selected>Choose</option><option value="7">1 week</option></select></label><label>Years<select><option value="3">3 years</option></select></label></main>');
   const selects = (await observe(page)).fields;

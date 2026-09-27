@@ -189,16 +189,16 @@ export async function gateAdvance(
    * on without a letter, the whole page is read for a place to add one.
    */
   if (advancesApplication(label) && !ctx.coverLetter && !ctx.coverLetterOffered) {
-    const whole = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
-    if (whole && offersCoverLetter({ ...ctx.observation, text: whole })) ctx.coverLetterOffered = true;
+    if (await pageOffersDocuments(ctx.page)) ctx.coverLetterOffered = true;
   }
   // Free accounts send the grounded draft; eligible paid/admin accounts the
   // humanized version from finishedCoverLetterForJob().
   if (advancesApplication(label) && ctx.coverLetterOffered && !ctx.coverLetter) {
     return { proceed: false, result: ok(
       'Do not advance yet: this application offers a cover letter and none has been verified. ' +
-      'Reveal it first if it is folded away — on Indeed, click "Supporting documents" (or its Add control) to open the ' +
-      'cover-letter option — then call add_cover_letter with the writing FIELD ref, or the upload ACTION ref when it only takes a file.',
+      'Reveal it first if it is folded away or below — on Indeed, scroll to the bottom of the review page and click ' +
+      'the Add control beside "Supporting documents" to open the cover-letter option — then call add_cover_letter with ' +
+      'the writing FIELD ref, or the upload ACTION ref when it only takes a file.',
     ) };
   }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
@@ -236,7 +236,7 @@ export async function gateAdvance(
     ctx.log(`  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
   } else {
     // The evidence, not only the verdict: whether the whole page mentions a place for documents at all.
-    const whole = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+    const whole = await ctx.page.evaluate(() => document.body?.textContent ?? '').catch(() => '');
     const mentions = [/cover[\s-]?letter/i, /supporting documents?/i, /additional documents?/i]
       .filter((pattern) => pattern.test(whole)).map((pattern) => pattern.source.replace(/\\s|\[|\]|-|\?/g, ' ').replace(/\s+/g, ' ').trim());
     ctx.log(`  · no cover letter: this form has no place for one (page mentions: ${mentions.join(', ') || 'none of cover letter / supporting documents'})`);
@@ -247,6 +247,29 @@ export async function gateAdvance(
   ctx.submissionAttempted = true;
   ctx.submitCleared = true;
   return { proceed: true, submit: true };
+}
+
+/**
+ * Whether the page, read as it is and not as it is painted, has a control for
+ * adding a cover letter or supporting documents. Indeed renders the lower part
+ * of its review page lazily (content-visibility), so while it is off screen
+ * both the observation and innerText skip "Supporting documents · Add", and
+ * FTI Group was sent without the letter the form allowed. textContent and the
+ * DOM do not depend on rendering.
+ */
+export async function pageOffersDocuments(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const place = /supporting documents?|additional documents?|cover[\s-]?letter/i;
+    if (!place.test(document.body?.textContent ?? '')) return false;
+    return [...document.querySelectorAll('button, a, [role="button"], label')].some((control) => {
+      const name = `${control.textContent ?? ''} ${control.getAttribute('aria-label') ?? ''}`.replace(/\s+/g, ' ').trim();
+      if (!/^(add|attach|upload|include|write)\b/i.test(name) && !place.test(name)) return false;
+      for (let node: Element | null = control, depth = 0; node && depth < 5; node = node.parentElement, depth++) {
+        if (place.test(node.textContent ?? '')) return true;
+      }
+      return false;
+    });
+  }).catch(() => false);
 }
 
 /** A form element's accessibility tree without the per-element bookkeeping, for a reader rather than a clicker. */
