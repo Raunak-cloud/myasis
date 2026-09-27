@@ -197,7 +197,16 @@ export async function recommended(page: Page): Promise<JobListing[]> {
     jobs = arr.map(normalise).filter((j): j is JobListing => j !== null);
   }
   if (!jobs.length) {
-    // The feed renders the same cards as search. Without this it reported 0 recommendations on every run.
+    /**
+     * The feed renders the same cards as search. Without this it reported 0
+     * recommendations on every run. The signed-in home page (Sep 2026) opens
+     * on "Add pay / Add commute" prompts with no job links in view, so the
+     * feed is scrolled into loading before its cards are read.
+     */
+    for (let i = 0; i < 4 && !(await page.locator('a.jcs-JobTitle[data-jk]').count().catch(() => 0)); i++) {
+      await page.mouse.wheel(0, 1_600).catch(() => {});
+      await jitter(700, 1_300);
+    }
     await logPageDataShape(page, '"Jobs for you"');
     jobs = await readJobCards(page);
   }
@@ -261,7 +270,7 @@ async function logPageDataShape(page: Page, where: string): Promise<void> {
     const scripts = [...document.querySelectorAll('script')].filter((s) => (s.textContent ?? '').includes('jobkey')).length;
     const cards = document.querySelectorAll('[data-jk]').length;
     // Where the page actually is and what it says, in case it is not a results page at all.
-    const text = (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    const text = (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 900);
     const links = [...document.querySelectorAll('a[href*="jk="], a[href*="/viewjob"], a[href*="/rc/clk"]')].length;
     return { url: location.href, title: document.title, mosaic: Boolean(w.mosaic), providers, globals, scriptsWithJobkey: scripts, cards, jobLinks: links, text };
   }).catch((error) => ({ error: (error as Error).message }));
