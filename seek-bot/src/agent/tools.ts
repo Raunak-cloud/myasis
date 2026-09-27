@@ -1190,6 +1190,20 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
         continue;
       }
     } catch (error) {
+      /**
+       * A field that is no longer on the page did not reject the answer: the
+       * page moved on (Indeed's Continue had already advanced past the phone
+       * number). Holding it as an unconfirmed required answer blocked the
+       * submit for a field that was never wrong, and the agent went back to
+       * chase it until the attempt died.
+       */
+      const gone = (await ctx.page.locator(`[data-field-id="${field.ref}"]`).count().catch(() => 0)) === 0;
+      if (gone) {
+        ctx.guards.pendingFields.delete(field.label);
+        ctx.guards.resolveGrounding(field.label);
+        failed.push(`${field.label}: no longer on the page — the form has moved on; re-observe and continue from the current page.`);
+        continue;
+      }
       recordFailure(field.label, (error as Error).message);
       // Recovery is a new model decision with a fresh observation, not a
       // hidden repeat of the same operation inside this tool.
