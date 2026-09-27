@@ -23,6 +23,7 @@ import { userDir } from './userdata.js';
 import { PAID_PLANS, isPassPlanKey } from '../src/pricing.js';
 import { clientIp, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
 import { redditCapiHealth } from './reddit-capi.js';
+import { blogReport, publishWeek, setPostHidden, weekOf } from './blog/index.js';
 
 /**
  * The operator's view of the whole installation: every account, every run,
@@ -474,6 +475,22 @@ export async function handleAdminRequest(
     if (path === '/simulations' && method === 'GET') return send({ simulations: simulations() });
     if (path === '/alerts-preview' && method === 'GET') return send(await previewAccountAlerts());
     if (path === '/ops-alerts-preview' && method === 'GET') return send(await previewOperatorAlerts());
+
+    if (path === '/blog' && method === 'GET') return send(await blogReport());
+    if (path === '/blog/write' && method === 'POST') {
+      const body = await readBody();
+      const report = await blogReport();
+      if (report.writing) return send({ error: 'A post is already being written.' }, 409);
+      if (!report.configured) return send({ error: 'Add a Gemini API key in Config first.' }, 400);
+      // Minutes of work: started here and followed from the report, which shows it writing.
+      void publishWeek(weekOf().week, { replace: body?.replace === true });
+      return send({ ok: true, started: true }, 202);
+    }
+    if ((match = path.match(/^\/blog\/(\d+)$/)) && method === 'PATCH') {
+      const body = await readBody();
+      if (typeof body?.hidden !== 'boolean') return send({ error: 'Send { hidden: true | false }.' }, 400);
+      return (await setPostHidden(match[1], body.hidden)) ? send(await blogReport()) : send({ error: 'No such post.' }, 404);
+    }
 
     if (path === '/proxies' && method === 'GET') return send(await poolReport());
     if (path === '/proxies/sync' && method === 'POST') {

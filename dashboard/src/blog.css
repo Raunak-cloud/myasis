@@ -1,0 +1,27 @@
+/* The weekly brief, on top of legal.css (scoped under .legal so it wins whatever order the two load in): the list of posts, citations, the searches box and sources. */
+.legal .blog-list { list-style: none; margin: 0; padding: 0; }
+.legal .blog-item { margin: 0 0 28px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.legal .blog-item .legal-meta { margin-bottom: 4px; }
+.legal .blog-item h2 { margin: 0 0 8px; font-size: 19px; }
+.legal .blog-item h2 a { color: var(--ink); text-decoration: none; }
+.legal .blog-item h2 a:hover { color: var(--blue); }
+.legal .blog-item p { margin: 0; }
+
+.legal .blog-crumbs { margin-bottom: 14px; font-size: 13px; }
+.legal .blog-crumbs a { color: var(--muted); text-decoration: none; }
+.legal .blog-crumbs a:hover { color: var(--ink); }
+
+.legal .blog-cite { font-size: .72em; line-height: 0; margin-left: 1px; color: var(--muted); }
+.legal .blog-cite a { text-decoration: none; }
+
+.legal .blog-searches { margin: 0 0 12px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.legal .blog-searches h2 { margin: 0 0 8px; font-size: 15px; }
+.legal .blog-searches ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.legal .blog-searches li { margin: 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--blue-tint); font-size: 13px; }
+.legal .blog-new { color: var(--blue-deep); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+
+.legal .blog-sources { padding-left: 22px; font-size: 14px; }
+.legal .blog-sources li { word-break: break-word; }
+.legal .blog-sources li:target { background: var(--blue-tint); }
+.legal .blog-method { margin-top: 28px; color: var(--muted); font-size: 13.5px; }
+.legal .blog-cta { margin-top: 36px; }

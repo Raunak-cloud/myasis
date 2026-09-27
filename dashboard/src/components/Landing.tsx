@@ -312,6 +312,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             <a href="#pricing">pricing</a>
             <a href="#questions">questions</a>
             <a href="/automate-job-applications-australia">automation guide</a>
+            <a href="/blog">job market brief</a>
           </nav>
           <nav className="home-footer-col" aria-label="Legal">
             <p className="home-footer-label">paperwork</p>

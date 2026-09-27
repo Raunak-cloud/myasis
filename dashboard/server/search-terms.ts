@@ -130,6 +130,8 @@ export async function askGeminiForJson(
   prompt: string,
   responseSchema?: Record<string, unknown>,
   temperature?: number,
+  /** Long-form writing needs more room and time than a list of searches. */
+  limits: { maxOutputTokens?: number; timeoutMs?: number } = {},
 ): Promise<GeminiJsonResult> {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -140,13 +142,13 @@ export async function askGeminiForJson(
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
-          maxOutputTokens: 4_096,
+          maxOutputTokens: limits.maxOutputTokens ?? 4_096,
           responseMimeType: 'application/json',
           ...(temperature === undefined ? {} : { temperature }),
           ...(responseSchema ? { responseSchema } : {}),
         },
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(limits.timeoutMs ?? 30_000),
     },
   );
   const result = await response.json() as {
@@ -175,7 +177,7 @@ export async function askGeminiForJson(
     : {
         ok: false,
         error: result.candidates?.[0]?.finishReason === 'MAX_TOKENS'
-          ? 'Gemini ran out of space while evaluating the roles. Please try again.'
+          ? 'Gemini ran out of space before finishing its answer. Please try again.'
           : 'Gemini returned invalid JSON.',
       };
 }

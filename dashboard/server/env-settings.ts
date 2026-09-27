@@ -200,6 +200,15 @@ const GROUPS: GroupSpec[] = [
     ],
   },
   {
+    key: 'blog',
+    title: 'Weekly blog',
+    note: 'Every Monday from 6am a job-market brief is written from Google searches and labour-market sources, fact-checked, and published at /blog. Manage posts in the Blog tab.',
+    keys: [
+      { key: 'BLOG_WEEKLY', label: 'Publish weekly', help: 'On unless set to Off. Off stops new posts; published ones stay up.', kind: 'boolean' },
+      { key: 'BLOG_MODEL', label: 'Gemini model', help: 'Writes and fact-checks the brief. Empty uses gemini-pro-latest.', kind: 'text' },
+    ],
+  },
+  {
     key: 'server',
     title: 'Server',
     keys: [

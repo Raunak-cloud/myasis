@@ -17,3 +17,4 @@ Think like a senior software developer. Prioritize holistic, architectural solut
 - Employer-site login and account creation are automated with per-site credentials; Australian government sites are excluded before AI review.
 - x11vnc binds `127.0.0.1` only, behind the authenticated dashboard WebSocket. Never publish a VNC port.
 - Never route the bot's outbound traffic through Cloudflare WARP.
+- Weekly blog (`dashboard/server/blog`): posts live in Postgres and are rendered per request into `blog.html`, so publishing or hiding needs no deploy. Sources are declared in `sources.ts`; never use Google News RSS or Gemini Search grounding (their terms forbid republishing). Checks: `npx tsx server/blog/blog.test.ts`.

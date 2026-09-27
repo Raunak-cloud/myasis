@@ -509,3 +509,42 @@ CREATE TABLE IF NOT EXISTS feature_uses (
   used_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS feature_uses_user_feature_idx ON feature_uses (user_id, feature);
+
+-- The weekly job-market brief at /blog (server/blog). Pages are rendered from
+-- these rows on every request, so storing a post publishes it and setting
+-- hidden_at takes it down; neither needs a deploy. One post per week.
+CREATE TABLE IF NOT EXISTS blog_posts (
+  id           BIGSERIAL PRIMARY KEY,
+  week         DATE NOT NULL UNIQUE,
+  slug         TEXT NOT NULL UNIQUE,
+  title        TEXT NOT NULL,
+  description  TEXT NOT NULL,
+  article      JSONB NOT NULL,
+  -- Everything the article was written from, so any claim can be traced.
+  brief        JSONB NOT NULL,
+  model        TEXT NOT NULL,
+  revisions    JSONB NOT NULL DEFAULT '[]'::jsonb,
+  hidden_at    TIMESTAMPTZ,
+  published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS blog_posts_published_idx ON blog_posts(published_at DESC) WHERE hidden_at IS NULL;
+
+-- Tries at writing a week's post, so a failing week backs off across restarts
+-- instead of calling the model on every tick.
+CREATE TABLE IF NOT EXISTS blog_attempts (
+  week            DATE PRIMARY KEY,
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at TIMESTAMPTZ,
+  last_error      TEXT
+);
+
+-- Google's autocomplete per seed phrase, one snapshot a week: comparing with
+-- the week before is how a search is known to be new.
+CREATE TABLE IF NOT EXISTS search_suggestions (
+  week       DATE NOT NULL,
+  seed       TEXT NOT NULL,
+  suggestion TEXT NOT NULL,
+  rank       INTEGER NOT NULL,
+  PRIMARY KEY (week, seed, suggestion)
+);

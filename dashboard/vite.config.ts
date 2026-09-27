@@ -52,6 +52,8 @@ import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/a
 import { autofillProfileFromResume } from './server/profile-autofill.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
+import { startBlogScheduler } from './server/blog/index.js';
+import { blogPages } from './server/blog/pages.js';
 import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 import { releaseChromeProfile } from './server/chrome-profile.js';
@@ -1304,6 +1306,7 @@ function dataApi(): Plugin {
     // Braces matter: an arrow body would return `Server`, but the hook is void.
     configureServer(server) {
       server.middlewares.use(handler);
+      server.middlewares.use(blogPages(resolve(import.meta.dirname, 'blog.html')));
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
     },
     /**
@@ -1312,6 +1315,7 @@ function dataApi(): Plugin {
      */
     configurePreviewServer(server) {
       server.middlewares.use(handler);
+      server.middlewares.use(blogPages(resolve(import.meta.dirname, 'dist', 'blog.html')));
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
       /**
        * Bring the database up to the code before anything queries it.
@@ -1348,6 +1352,7 @@ function dataApi(): Plugin {
           startHealthMaintenance();
           startTraceRetention();
           startProxyPool(() => runner.activeUserIds());
+          startBlogScheduler();
         });
 
       /**
@@ -1418,6 +1423,8 @@ export default defineConfig({
     guide: 'automate-job-applications-australia.html',
     privacy: 'privacy.html',
     terms: 'terms.html',
+    // The shell server/blog/pages.ts renders posts into.
+    blog: 'blog.html',
   } } },
   server: { port: 5180, open: true },
   /**
