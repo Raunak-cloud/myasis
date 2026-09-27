@@ -163,6 +163,15 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * had not picked boards itself.
    */
   const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto');
+  /**
+   * An admin narrowing a run to boards is a decision, even when it reads like
+   * the default: the policy turns a plain "seek" into "seek,indeed" for a pass
+   * that includes Indeed, so "SEEK only" searched and applied on Indeed too.
+   */
+  const narrowedBoards = trigger === 'admin' ? String(request.clientOverrides?.PLATFORMS ?? '').trim() : '';
+  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed'].includes(board.trim()))) {
+    overrides.PLATFORMS = narrowedBoards;
+  }
   let directExternalUrl: string | null = null;
   if (request.externalUrl !== undefined) {
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can start a direct website application.' };
