@@ -236,7 +236,14 @@ export async function gateAdvance(
     ctx.log(`  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
   } else {
     // The evidence, not only the verdict: whether the whole page mentions a place for documents at all.
-    const whole = await ctx.page.evaluate(() => document.body?.textContent ?? '').catch(() => '');
+    // Every root's text, shadow roots included (Indeed's review section is in one).
+    const whole = await ctx.page.evaluate(() => {
+      const roots: Array<Document | ShadowRoot> = [document];
+      for (let i = 0; i < roots.length; i++) {
+        for (const element of roots[i].querySelectorAll('*')) if (element.shadowRoot) roots.push(element.shadowRoot);
+      }
+      return roots.map((root) => (root instanceof Document ? root.body?.textContent : root.textContent) ?? '').join('\n');
+    }).catch(() => '');
     const mentions = [/cover[\s-]?letter/i, /supporting documents?/i, /additional documents?/i]
       .filter((pattern) => pattern.test(whole)).map((pattern) => pattern.source.replace(/\\s|\[|\]|-|\?/g, ' ').replace(/\s+/g, ' ').trim());
     ctx.log(`  · no cover letter: this form has no place for one (page mentions: ${mentions.join(', ') || 'none of cover letter / supporting documents'})`);
@@ -260,12 +267,29 @@ export async function gateAdvance(
 export async function pageOffersDocuments(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const place = /supporting documents?|additional documents?|cover[\s-]?letter/i;
-    if (!place.test(document.body?.textContent ?? '')) return false;
-    return [...document.querySelectorAll('button, a, [role="button"], label')].some((control) => {
+    /*
+     * Shadow roots included: Indeed's review section lives in one, so
+     * document.body.textContent never contained "Supporting documents" and
+     * Stake was sent without the letter too. Nameless and iterative — see the
+     * note in observe.ts on named inner functions under tsx.
+     */
+    const roots: Array<Document | ShadowRoot> = [document];
+    const controls: Element[] = [];
+    for (let i = 0; i < roots.length; i++) {
+      for (const element of roots[i].querySelectorAll('*')) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+        if (element.matches('button, a, [role="button"], label')) controls.push(element);
+      }
+    }
+    return controls.some((control) => {
       const name = `${control.textContent ?? ''} ${control.getAttribute('aria-label') ?? ''}`.replace(/\s+/g, ' ').trim();
       if (!/^(add|attach|upload|include|write)\b/i.test(name) && !place.test(name)) return false;
-      for (let node: Element | null = control, depth = 0; node && depth < 5; node = node.parentElement, depth++) {
+      // Up through the section around the control, crossing out of a shadow root to its host.
+      let node: Element | null = control;
+      for (let depth = 0; node && depth < 6; depth++) {
         if (place.test(node.textContent ?? '')) return true;
+        const root = node.getRootNode();
+        node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
       }
       return false;
     });

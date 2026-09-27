@@ -64,6 +64,13 @@ try {
   // Indeed's review page: Supporting documents far below, rendered lazily (content-visibility), so innerText skips it.
   await page.setContent('<main><h1>Review your application</h1><div style="height:4000px">Resume preview</div><section style="content-visibility:auto"><h2>Supporting documents</h2><button>Add</button><p>No cover letter or additional documents added. This is optional to add.</p></section><button>Submit your application</button></main>');
   assert.equal(await pageOffersDocuments(page), true, 'a lazily rendered Supporting documents section below the fold is a place for a letter');
+  // The live Indeed page: the review section inside a shadow root, lazily rendered, below a job description that says "cover letter".
+  await page.setContent('<main><p>Job description: please include a cover letter.</p><div id="host"></div><button>Submit your application</button></main>');
+  await page.evaluate(() => {
+    const shadow = document.getElementById('host')!.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<div style="height:4000px">Resume preview</div><section style="content-visibility:auto"><div><h2>Supporting documents</h2><button>Add</button></div><p>No cover letter or additional documents added. This is optional to add.</p></section>';
+  });
+  assert.equal(await pageOffersDocuments(page), true, 'a Supporting documents section inside a shadow root is a place for a letter');
   await page.setContent('<main><h1>Review your application</h1><p>Contact information</p><button>Submit your application</button></main>');
   assert.equal(await pageOffersDocuments(page), false, 'a review page with no documents section offers no place');
   // PageUp's declaration dropdowns: the placeholder carries a non-empty value.
