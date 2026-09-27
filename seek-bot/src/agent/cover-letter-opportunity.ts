@@ -31,5 +31,7 @@ export function offersCoverLetter(observation: Observation): boolean {
   const addsDocuments = observation.actions.some(action =>
     REVEAL_DOCUMENTS.test(action.text) &&
     (SUPPORTING_DOCUMENTS.test(action.context ?? '') || SUPPORTING_DOCUMENTS.test(observation.text)));
-  return addsDocuments;
+  // Indeed's "Supporting documents" is itself the control: clicking it reveals the cover-letter option.
+  const opensDocuments = observation.actions.some(action => SUPPORTING_DOCUMENTS.test(action.text));
+  return addsDocuments || opensDocuments;
 }

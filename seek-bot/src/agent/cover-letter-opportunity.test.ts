@@ -71,4 +71,13 @@ assert.equal(
   'a supporting-documents section with an add control is a place for a letter, even without the words "cover letter"',
 );
 
+assert.equal(
+  offersCoverLetter(observation({
+    actions: [{ ref: 'a1', role: 'button', text: 'Supporting documents', disabled: false }],
+    text: 'Review your application Contact information Resume',
+  })),
+  true,
+  'the Indeed "Supporting documents" control reveals the cover-letter option when clicked',
+);
+
 console.log('cover-letter opportunity checks passed');

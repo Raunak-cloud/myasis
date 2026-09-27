@@ -197,7 +197,8 @@ export async function gateAdvance(
   if (advancesApplication(label) && ctx.coverLetterOffered && !ctx.coverLetter) {
     return { proceed: false, result: ok(
       'Do not advance yet: this application offers a cover letter and none has been verified. ' +
-      'Reveal its writing field if needed, then call add_cover_letter with that FIELD ref.',
+      'Reveal it first if it is folded away — on Indeed, click "Supporting documents" (or its Add control) to open the ' +
+      'cover-letter option — then call add_cover_letter with the writing FIELD ref, or the upload ACTION ref when it only takes a file.',
     ) };
   }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
@@ -239,6 +240,8 @@ export async function gateAdvance(
     const mentions = [/cover[\s-]?letter/i, /supporting documents?/i, /additional documents?/i]
       .filter((pattern) => pattern.test(whole)).map((pattern) => pattern.source.replace(/\\s|\[|\]|-|\?/g, ' ').replace(/\s+/g, ' ').trim());
     ctx.log(`  · no cover letter: this form has no place for one (page mentions: ${mentions.join(', ') || 'none of cover letter / supporting documents'})`);
+    // The whole page as sent, so "no place for a letter" can be seen rather than trusted.
+    await ctx.page.screenshot({ path: resolve(config.dataDir, 'traces', `${ctx.job.id}-submit-no-letter.png`), fullPage: true, timeout: 10_000 }).catch(() => {});
   }
   ctx.log(`  → submitting: "${label}"`);
   ctx.submissionAttempted = true;
