@@ -249,6 +249,7 @@ ${saved.map((item) => `Q: ${item.question}\nA: ${item.answer}`).join('\n\n')}
 </candidate-answers>
 
 When a field asks the same thing as a saved answer (in substance, not only in wording), use that answer, adapted to the field's format, and set "grounded": true citing "saved answer" in "rationale".
+A saved answer written for one particular job — one that names another employer or role, or pitches the candidate to it — is about that job only. Never reuse it for this application; answer from the profile instead, or leave the field ungrounded.
 `
     : ''
 }
@@ -1412,7 +1413,7 @@ export async function auditFormBeforeSubmit(
 
 A job application form is about to be sent to ${job.company} for "${job.title}" on behalf of the candidate below.
 Read the form's current state and list every answer that states something about the candidate that the CANDIDATE PROFILE, SUPPORTING DOCUMENTS and SAVED ANSWERS do not support, or that contradicts them — a wrong name, email or phone, an invented qualification, licence, employer, number, date or yes/no, a wrong option chosen. Ignore empty optional fields, consent and terms checkboxes, the résumé and cover-letter attachments, the site's own text, and neutral choices (how the candidate heard of the job, preferred contact method).
-The CANDIDATE PROFILE is the candidate's own statement of who they are and wins over the documents: an answer that matches the profile (name, contact details, work rights, salary, notice period) is supported even if a document words it differently. Where the profile is silent, the documents and saved answers decide. A document that disagrees with the profile is not a problem with the form.
+The CANDIDATE PROFILE is the candidate's own statement of who they are and wins over the documents: an answer that matches the profile (name, contact details, work rights, salary, notice period) is supported even if a document words it differently. Where the profile is silent, the documents and saved answers decide: an answer that matches a SAVED ANSWER to the same or an equivalent question is supported, since those are the candidate's own words. A document that disagrees with the profile is not a problem with the form. The exception is a saved answer written for another job — naming another employer or role — which does not support that text on this application.
 Return JSON {"problems": [{"field": "<its label>", "value": "<the current answer>", "problem": "<what is wrong, in one sentence>"}]}, with an empty list when every answer is supported.
 
 CANDIDATE PROFILE
