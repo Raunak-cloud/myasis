@@ -86,6 +86,8 @@ export interface ToolContext {
   auditFailures?: number;
   /** Times the pre-submit audit flagged each field. */
   auditStrikes?: Map<string, number>;
+  /** Sets of values the page already held that were checked and found to be the candidate's. */
+  prefilledAudited?: Set<string>;
   /** What the last tool call did, for judging a dialog it raised. */
   lastActionLabel?: string;
   /** Browser dialogs answered since the last turn, reported to the agent. */
@@ -190,6 +192,10 @@ export async function gateAdvance(
   }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${label}"`);
+  if (!entry && (options.knownSubmit || advancesApplication(label))) {
+    const held = await auditPrefilled(ctx);
+    if (held) return { proceed: false, result: held };
+  }
   const submit = options.knownSubmit === true
     || (!entry && options.role !== 'toggle' && options.role !== 'file' && await transmits(ctx, label, context));
   ctx.pressJudged = true;
@@ -248,6 +254,48 @@ async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
     }
     return ok('The pre-submit answer check could not run. Wait a moment, re-observe, and press the submit control again.');
   }
+  return withheldFor(ctx, problems);
+}
+
+/**
+ * Answers the page already held when the agent arrived — an employer's saved
+ * draft, an account's autofill — are checked before the page is left.
+ *
+ * The agent's own answers are grounded as it gives them; these were never
+ * grounded by anyone. Tabcorp's PageUp draft kept "Base salary: $350k+" from
+ * an earlier attempt, and the agent moved on because the field was "already
+ * filled". Checked once per distinct set of values, on the page that shows
+ * them, since a later page (or a review step) may never show them again.
+ */
+async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
+  const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+  const entered = new Set(ctx.captured.map((item) => normal(item.question)));
+  const prefilled = ctx.observation.fields.filter((field) =>
+    field.kind !== 'checkbox' && !field.sensitive && field.currentValue?.trim() && !entered.has(normal(field.label)));
+  if (!prefilled.length) return null;
+  const signature = prefilled.map((field) => `${field.label}=${field.currentValue}`).join('\n');
+  const audited = (ctx.prefilledAudited ??= new Set<string>());
+  if (audited.has(signature)) return null;
+  let problems: Awaited<ReturnType<typeof auditFormBeforeSubmit>>;
+  try {
+    problems = await auditFormBeforeSubmit(
+      `Fields on this page that already held these answers before the agent touched them:\n${prefilled.map((field) => `- ${field.label}: ${field.currentValue}`).join('\n')}`,
+      ctx.job, ctx.profile, ctx.captured,
+    );
+  } catch (error) {
+    // Not a reason to stop: the agent's own answers were grounded, and the submit audit still runs.
+    ctx.log(`  · pre-filled answer check unavailable: ${(error as Error).message.slice(0, 120)}`);
+    return null;
+  }
+  if (!problems.length) {
+    audited.add(signature);
+    return null;
+  }
+  return withheldFor(ctx, problems);
+}
+
+/** What the agent is told when answers on the form are not the candidate's; a field flagged twice goes to the candidate. */
+function withheldFor(ctx: ToolContext, problems: Array<{ field: string; value: string; problem: string }>): ToolResult | null {
   if (!problems.length) return null;
   const strikes = (ctx.auditStrikes ??= new Map<string, number>());
   for (const problem of problems) {
@@ -267,10 +315,11 @@ async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
     } };
   }
   return ok(
-    `Submission withheld: these answers are not supported by the candidate's record:\n` +
+    `Not sent on: these answers are not supported by the candidate's record:\n` +
     problems.map((p) => `- ${p.field}: "${p.value.slice(0, 80)}" — ${p.problem}`).join('\n') +
-    '\nCorrect each one with answer_questions, or fill_element without a value for a field only the snapshot shows ' +
-    '(both answer from the verified record), then press the submit control again.',
+    '\nCorrect each one with answer_questions (a value the page already held goes in repair_refs, with your reason), ' +
+    'or fill_element without a value for a field only the snapshot shows (both answer from the verified record), ' +
+    'then press the same control again.',
   );
 }
 
