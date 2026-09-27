@@ -62,4 +62,13 @@ assert.equal(
   'does not block submission when there is no control that can reveal supporting documents',
 );
 
+assert.equal(
+  offersCoverLetter(observation({
+    actions: [{ ref: 'a1', role: 'button', text: 'Add supporting documents', disabled: false }],
+    text: 'Review your application Supporting documents (optional)',
+  })),
+  true,
+  'a supporting-documents section with an add control is a place for a letter, even without the words "cover letter"',
+);
+
 console.log('cover-letter opportunity checks passed');

@@ -21,9 +21,15 @@ export function offersCoverLetter(observation: Observation): boolean {
     return true;
   }
 
-  return (
-    COVER_LETTER.test(observation.text) &&
-    SUPPORTING_DOCUMENTS.test(observation.text) &&
-    observation.actions.some(action => REVEAL_DOCUMENTS.test(action.text))
-  );
+  /**
+   * "Supporting documents" with a control to add them is where a letter goes,
+   * whether or not the page also says "cover letter": that is the employer's
+   * place for one, and the candidate sends a letter wherever there is a place.
+   * The heading must sit on the page or beside the control itself — never
+   * only in job-ad prose with an unrelated button.
+   */
+  const addsDocuments = observation.actions.some(action =>
+    REVEAL_DOCUMENTS.test(action.text) &&
+    (SUPPORTING_DOCUMENTS.test(action.context ?? '') || SUPPORTING_DOCUMENTS.test(observation.text)));
+  return addsDocuments;
 }

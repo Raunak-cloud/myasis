@@ -220,6 +220,10 @@ export async function gateAdvance(
     ctx.log(`  ✋ dry run — withheld "${label}"`);
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } } };
   }
+  // Every submission says whether a letter went with it: a letter is sent wherever the form has a place for one.
+  ctx.log(ctx.coverLetter
+    ? `  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`
+    : '  · no cover letter: this form has no place for one');
   ctx.log(`  → submitting: "${label}"`);
   ctx.submissionAttempted = true;
   ctx.submitCleared = true;
