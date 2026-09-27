@@ -195,6 +195,13 @@ function systemPrompt(): string {
   return sections.join('\n\n');
 }
 
+/**
+ * Tools that read or move the view without acting on the form. They never
+ * count towards "six actions with no effect"; the step and per-page budgets
+ * still bound how long an agent may spend looking.
+ */
+const LOOK_ONLY_TOOLS = new Set(['take_snapshot', 'take_screenshot', 'scroll', 'list_pages', 'get_diagnostics']);
+
 const BROWSER_TOOLS_PROMPT = `BROWSER TOOLS
 The tools above are built for application forms and carry the candidate's
 verified answers, documents and credentials: use them whenever they reach the
@@ -557,6 +564,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   const hintedHosts = new Set<string>();
   let lastUrl = '';
   let lastFingerprint = '';
+  /** The last tool only looked (a snapshot, a scroll): an unchanged page after it is not an action that failed. */
+  let lastLookedOnly = false;
 
   const finish = async (outcome: AgentTermination): Promise<AgentRunResult> => {
     /**
@@ -765,7 +774,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       // The observation is the main frame's; work inside an embedded form is progress too.
       embedded: config.celeris.rawTools ? await embeddedSurface(page) : '',
     });
-    if (page.url() === lastUrl && fingerprint === lastFingerprint) {
+    if (page.url() === lastUrl && fingerprint === lastFingerprint && lastLookedOnly) {
+      // Looking is not failing. PERSOL's form was abandoned after scrolls and snapshots counted as six dead actions.
+    } else if (page.url() === lastUrl && fingerprint === lastFingerprint) {
       stalls += 1;
       note = `${note}\n\nNOTE: the page is unchanged from the previous turn — your last action had no effect. Try a different control.`;
       const disabledForward = ctx.observation.actions.find(action =>
@@ -896,6 +907,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     checkpoint();
 
     let result;
+    lastLookedOnly = LOOK_ONLY_TOOLS.has(call.name);
     const progressBefore = guards.progressCount;
     try {
       result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });

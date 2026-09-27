@@ -777,7 +777,25 @@ async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): P
       }
     }
   }
-  if (!field && !action && !coordinateInput) return ok('Use a current FIELD/ACTION ref, or screenshot x/y, for the consent checkbox. Re-observe rather than guessing.');
+  if (!field && !action && !coordinateInput && ref) {
+    // A consent box inside an embedded form is only in take_snapshot (go.programmed.com.au). Same model judgment as any other.
+    const snapshotTarget = locate(ctx.page, ref);
+    const found = snapshotTarget ? await snapshotTarget.evaluate((el) => {
+      const native = el instanceof HTMLInputElement && el.type === 'checkbox';
+      if (!native && el.getAttribute('role') !== 'checkbox') return null;
+      let wording = (native ? (el as HTMLInputElement).labels?.[0]?.innerText : '') || el.getAttribute('aria-label') || '';
+      for (let prose = el.parentElement, depth = 0; !wording && prose && depth < 6; prose = prose.parentElement, depth++) {
+        wording = (prose.textContent ?? '').replace(/\s+/g, ' ').trim();
+      }
+      return { label: wording.replace(/\s+/g, ' ').trim().slice(0, 300), kind: native ? 'native' as const : 'aria' as const };
+    }).catch(() => null) : null;
+    if (found && snapshotTarget) {
+      label = found.label;
+      coordinateKind = found.kind;
+      coordinateInput = snapshotTarget;
+    }
+  }
+  if (!field && !action && !coordinateInput) return ok('Use a current FIELD/ACTION ref, a take_snapshot ref for a checkbox inside an embedded form, or screenshot x/y, for the consent checkbox. Re-observe rather than guessing.');
   // Always the model: "Send me job alerts per our Privacy Policy" names privacy
   // and is marketing, which a keyword shortcut used to tick. A failed check refuses.
   if (!(await isRequiredConsent(label).catch(() => false))) {
