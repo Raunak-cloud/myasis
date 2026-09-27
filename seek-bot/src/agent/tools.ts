@@ -7,7 +7,7 @@ import {
   waitForInteractiveSurface,
 } from '../browser.js';
 import { fillField, setChecked } from '../dom.js';
-import { answerFields, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, isSubmitControl, verifySubmissionEvidence } from '../llm.js';
+import { answerFields, auditFormBeforeSubmit, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, isSubmitControl, verifySubmissionEvidence } from '../llm.js';
 import { acceptsFormat, pickResumeForJob, RESUME_DIR, documentFor } from '../resume.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
@@ -22,6 +22,7 @@ import { browserGmailAvailable, findVerificationInBrowser } from '../browser-gma
 import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { offersCoverLetter } from './cover-letter-opportunity.js';
+import { RAW_TOOL_SCHEMAS, locate, pressWatched, runRawTool } from './raw-tools.js';
 
 /**
  * The agent's entire action surface.
@@ -29,13 +30,14 @@ import { offersCoverLetter } from './cover-letter-opportunity.js';
  * Two rules shape every tool here:
  *
  * 1. Actions are addressed by `ref` — a token this run stamped onto a real,
- *    visible element during the last observation. The model cannot pass a CSS
- *    selector, an XPath, a URL or JavaScript, so it cannot reach anything we
- *    did not just offer it.
- * 2. The model chooses *which* control to act on. It never authors the text
- *    that goes into an employer's form: answers come from the existing
- *    grounded path in gemini.ts, which refuses to invent facts and flags
- *    anything it cannot support.
+ *    visible element during the last observation, or one from an
+ *    accessibility snapshot. The general browser tools in raw-tools.ts (a
+ *    snapshot across iframes, scripts, navigation, tabs) cover whatever the
+ *    purpose-built ones cannot reach, and pass the same gates.
+ * 2. The model chooses *which* control to act on. It does not author the
+ *    candidate's answers: they come from the grounded answer path, which
+ *    refuses to invent facts, and a form touched by the general tools is
+ *    audited against the candidate's record before it is sent.
  */
 
 export type AgentTermination =
@@ -75,6 +77,23 @@ export interface ToolContext {
   reloads?: number;
   /** Caption of the list-opening control clicked last, for options that do not name their question. */
   lastListQuestion?: string;
+  /** The browser tools changed the form outside the grounded answer tools, so it is audited before sending. */
+  rawUsed?: boolean;
+  /** This tool call already passed the submit gate; the network backstop lets its form post through. */
+  submitCleared?: boolean;
+  /** This tool call's press was judged by the gate (submit or not), so its form post needs no second judgment. */
+  pressJudged?: boolean;
+  auditFailures?: number;
+  /** Times the pre-submit audit flagged each field. */
+  auditStrikes?: Map<string, number>;
+  /** What the last tool call did, for judging a dialog it raised. */
+  lastActionLabel?: string;
+  /** Browser dialogs answered since the last turn, reported to the agent. */
+  dialogs?: string[];
+  /** The agent asked to see the page; the next observation carries a screenshot. */
+  wantScreenshot?: boolean;
+  /** Recent failed requests and console errors, per tab, for get_diagnostics. */
+  diagnostics?: WeakMap<Page, string[]>;
 }
 
 const ok = (message: string): ToolResult => ({ kind: 'ok', message });
@@ -139,6 +158,122 @@ async function transmits(ctx: ToolContext, label: string, context?: string): Pro
   return verdict;
 }
 
+type Gate = { proceed: true; submit: boolean } | { proceed: false; result: ToolResult };
+
+/**
+ * The checks every press of a control passes, whichever tool presses it — a
+ * listed action, a point on the screenshot, a snapshot element, the Enter key,
+ * a script, or a form post caught on the network. One gate, so a new way to
+ * act cannot become a new way around the rules:
+ *
+ * - a cover letter the employer offers is written before the form advances;
+ * - a control that sends the application passes `canSubmit`, which reads
+ *   configuration and recorded facts only (dry run, unanswered questions);
+ * - a second submit is pressed only once the first is known not to have gone
+ *   through, since some forms confirm in place and pressing again sends the
+ *   employer another copy;
+ * - a form the agent filled with its own browser tools is audited first.
+ */
+export async function gateAdvance(
+  ctx: ToolContext,
+  label: string,
+  context?: string,
+  options: { role?: string; knownSubmit?: boolean } = {},
+): Promise<Gate> {
+  // Free accounts send the grounded draft; eligible paid/admin accounts the
+  // humanized version from finishedCoverLetterForJob().
+  if (advancesApplication(label) && ctx.coverLetterOffered && !ctx.coverLetter) {
+    return { proceed: false, result: ok(
+      'Do not advance yet: this application offers a cover letter and none has been verified. ' +
+      'Reveal its writing field if needed, then call add_cover_letter with that FIELD ref.',
+    ) };
+  }
+  const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
+  if (entry) ctx.log(`  → opening the application: "${label}"`);
+  const submit = options.knownSubmit === true
+    || (!entry && options.role !== 'toggle' && options.role !== 'file' && await transmits(ctx, label, context));
+  ctx.pressJudged = true;
+  if (!submit) return { proceed: true, submit: false };
+
+  if (ctx.submissionAttempted && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
+    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'applied' } } };
+  }
+  const verdict = ctx.guards.canSubmit(ctx.page.url());
+  if (!verdict.allowed && verdict.kind !== 'dry-run') {
+    if (verdict.kind === 'off-platform') {
+      return { proceed: false, result: { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } } };
+    }
+    if (!ctx.guards.ungrounded.length) {
+      return { proceed: false, result: ok(`Submission withheld: ${verdict.reason}. Re-observe and repair the unconfirmed fields; this is a recoverable form issue, not a missing candidate answer.`) };
+    }
+    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } } };
+  }
+  const audit = await auditBeforeSubmit(ctx);
+  if (audit) return { proceed: false, result: audit };
+  if (!verdict.allowed) {
+    ctx.log(`  ✋ dry run — withheld "${label}"`);
+    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } } };
+  }
+  ctx.log(`  → submitting: "${label}"`);
+  ctx.submissionAttempted = true;
+  ctx.submitCleared = true;
+  return { proceed: true, submit: true };
+}
+
+/** A form element's accessibility tree without the per-element bookkeeping, for a reader rather than a clicker. */
+const readableSnapshot = (snapshot: string) => snapshot.replace(/ \[(?:ref|cursor)=[^\]]*\]/g, '');
+
+/**
+ * Before a form the agent filled with its own browser tools is sent, every
+ * answer on it is checked against the candidate's record — the result, not
+ * the route, since a script or a raw keystroke leaves no grounded trail.
+ * Returns what to tell the agent instead of sending, or null to go ahead.
+ *
+ * An answer flagged a second time becomes a question for the candidate: the
+ * agent has had its chance to correct it and the form must not go out wrong.
+ * An audit that cannot run holds the submit rather than waving it through.
+ */
+async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
+  if (!ctx.rawUsed) return null;
+  const snapshot = await ctx.page.ariaSnapshot({ mode: 'ai', timeout: 15_000 }).catch(() => '');
+  let problems: Awaited<ReturnType<typeof auditFormBeforeSubmit>>;
+  try {
+    if (!snapshot) throw new Error('the page could not be read');
+    problems = await auditFormBeforeSubmit(readableSnapshot(snapshot), ctx.job, ctx.profile, ctx.captured);
+  } catch (error) {
+    ctx.auditFailures = (ctx.auditFailures ?? 0) + 1;
+    ctx.log(`  · pre-submit check unavailable: ${(error as Error).message.slice(0, 120)}`);
+    if (ctx.auditFailures >= 2) {
+      return { kind: 'terminal', outcome: { status: 'skipped', reason: 'The answers could not be checked before sending.' } };
+    }
+    return ok('The pre-submit answer check could not run. Wait a moment, re-observe, and press the submit control again.');
+  }
+  if (!problems.length) return null;
+  const strikes = (ctx.auditStrikes ??= new Map<string, number>());
+  for (const problem of problems) {
+    const count = (strikes.get(problem.field) ?? 0) + 1;
+    strikes.set(problem.field, count);
+    if (count >= 2) {
+      ctx.guards.rememberField({ label: problem.field }, `What should Owtomate enter for “${problem.field}”?`);
+      ctx.guards.recordUngrounded(problem.field);
+    }
+  }
+  ctx.log(`  ✋ pre-submit check: ${problems.length} unsupported answer(s): ${problems.map((p) => p.field).join('; ').slice(0, 200)}`);
+  if (ctx.guards.ungrounded.length) {
+    return { kind: 'terminal', outcome: {
+      status: 'needs-human',
+      reason: `These answers are not supported by your profile: ${ctx.guards.ungrounded.slice(0, 3).join('; ')}`,
+      detail: problems.map((p) => `${p.field}: ${p.problem}`).join('; '),
+    } };
+  }
+  return ok(
+    `Submission withheld: these answers are not supported by the candidate's record:\n` +
+    problems.map((p) => `- ${p.field}: "${p.value.slice(0, 80)}" — ${p.problem}`).join('\n') +
+    '\nCorrect each one with answer_questions, or fill_element without a value for a field only the snapshot shows ' +
+    '(both answer from the verified record), then press the submit control again.',
+  );
+}
+
 /** Records a side effect once per kind and site, and says so in the run log. */
 function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {
   if (ctx.actions.some((known) => known.kind === action.kind && known.site === action.site && known.purpose === action.purpose)) return;
@@ -200,12 +335,14 @@ const CLICK_POINT_TOOL: ToolSchema = {
 
 /**
  * The tools the model may call this turn: the base set, whatever the account
- * has connected, and pointing only while a screenshot is in front of it.
+ * has connected, the general browser tools unless switched off, and pointing
+ * only while a screenshot is in front of it.
  */
 export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
   return [
     ...TOOL_SCHEMAS,
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
+    ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
   ];
 }
@@ -337,14 +474,15 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'press_key',
     description:
-      'Press a navigation key, optionally after focusing a current FIELD or ACTION ref: ArrowDown/ArrowUp to open or move ' +
+      'Press a key or combination, optionally after focusing a ref (observation or snapshot): ArrowDown/ArrowUp to open or move ' +
       'through a custom list or date picker, Escape to close an overlay or menu, Tab to leave a field so it validates, ' +
-      'PageDown/PageUp to scroll an inner panel. Choosing an option still goes through choose_option or answer_questions.',
+      "PageDown/PageUp to scroll an inner panel, Enter to confirm a highlighted suggestion, Control+A to select all of a field's text. " +
+      'Enter in a form that would send the application passes the same checks as its submit control.',
     parameters: {
       type: 'object',
       properties: {
-        key: { type: 'string', enum: ['ArrowDown', 'ArrowUp', 'Escape', 'Tab', 'PageDown', 'PageUp'] },
-        ref: { type: 'string', description: 'Optional FIELD or ACTION ref to focus first.' },
+        key: { type: 'string', description: 'A key name (ArrowDown, Enter, Escape, Tab, Backspace, a, …) or a combination such as Control+A or Shift+Tab.' },
+        ref: { type: 'string', description: 'Optional ref to focus first.' },
       },
       required: ['key'],
     },
@@ -443,50 +581,9 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
     );
   }
 
-  // The navigation model may choose controls, but it cannot skip a letter
-  // field the employer actually provided. Free accounts send the grounded
-  // draft; eligible paid/admin accounts send the humanized version produced
-  // by finishedCoverLetterForJob().
-  if (advancesApplication(action.text) && ctx.coverLetterOffered && !ctx.coverLetter) {
-    return ok(
-      'Do not advance yet: this application offers a cover letter and none has been verified. ' +
-      'Reveal its writing field if needed, then call add_cover_letter with that FIELD ref.',
-    );
-  }
-
-  /**
-   * The submit gate. Every route to transmitting an application passes through
-   * `canSubmit`, and it reads configuration and recorded facts only — the
-   * model's stated reason has no bearing on it.
-   */
-  const entry = isEntryAction(action.text, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
-  if (entry) ctx.log(`  → opening the application: "${action.text}"`);
-  const submit = !entry && action.role !== 'toggle' && action.role !== 'file'
-    && await transmits(ctx, action.text, action.context);
-  // A second submit is only pressed once the first is known not to have gone
-  // through: some forms confirm in place and keep the form, and pressing again
-  // sends the employer another copy.
-  if (submit && ctx.submissionAttempted
-    && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
-    return { kind: 'terminal', outcome: { status: 'applied' } };
-  }
-  if (submit) {
-    const verdict = ctx.guards.canSubmit(ctx.page.url());
-    if (!verdict.allowed) {
-      if (verdict.kind === 'dry-run') {
-        ctx.log(`  ✋ dry run — withheld "${action.text}"`);
-        return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } };
-      }
-      if (verdict.kind === 'off-platform') {
-        return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
-      }
-      if (!ctx.guards.ungrounded.length) return ok(`Submission withheld: ${verdict.reason}. Re-observe and repair the unconfirmed fields; this is a recoverable form issue, not a missing candidate answer.`);
-      return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } };
-    }
-    ctx.log(`  → submitting: "${action.text}"`);
-  }
-
-  if (submit) ctx.submissionAttempted = true;
+  const gate = await gateAdvance(ctx, action.text, action.context, { role: action.role });
+  if (!gate.proceed) return gate.result;
+  const { submit } = gate;
   // A list opened from a button has no FIELD; its caption is the question its options answer.
   if (/\(opens a list\)$/.test(action.text) || /^Open /.test(action.text)) {
     ctx.lastListQuestion = action.text.replace(/\s*\(opens a list\)$/, '').replace(/^(Open|Select)\s+/i, '').trim();
@@ -935,6 +1032,18 @@ async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions
   if (/image/i.test(action.text) && !/letter|document|cv|resume/i.test(action.text)) {
     return ok('That upload is for an image, not a cover letter. Choose the cover-letter upload from a fresh observation.');
   }
+  const input = ctx.page.locator(`input[type="file"][data-ref-id="${action.ref}"]`);
+  const accept = (await input.getAttribute('accept').catch(() => null)) ?? '';
+  const document = await coverLetterDocument(ctx, accept);
+  if (!document) return ok(`This upload only accepts "${accept}", and the cover letter could not be produced in that format. Look for a text box or another option.`);
+  try { await input.setInputFiles(document.file, { timeout: 10_000 }); }
+  catch { return ok('The cover-letter upload control changed after the last observation. Re-observe and use the current upload ACTION ref.'); }
+  coverLetterSent(ctx, document);
+  return ok('Cover letter uploaded as a document. Re-observe: confirm the file appears and resolve any upload error before continuing.');
+}
+
+/** The grounded letter as a file this upload accepts: PDF when it may, otherwise what it lists. */
+export async function coverLetterDocument(ctx: ToolContext, accept: string): Promise<{ file: string; letter: string } | null> {
   const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
   if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
   const dir = resolve(config.dataDir, 'cover-letters');
@@ -942,18 +1051,35 @@ async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions
   const name = `Cover Letter - ${ctx.profile.name} - ${ctx.job.company}`.replace(/[^\w .-]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 90);
   const text = resolve(dir, `${name}.txt`);
   writeFileSync(text, letter);
-  const input = ctx.page.locator(`input[type="file"][data-ref-id="${action.ref}"]`);
-  const accept = (await input.getAttribute('accept').catch(() => null)) ?? '';
   // A document reads better than plain text; plain text is the fallback a form that lists .txt still takes.
   const file = (acceptsFormat(accept, '.pdf') ? await documentFor(text, '.pdf') : null) ?? (await documentFor(text, accept));
-  if (!file) return ok(`This upload only accepts "${accept}", and the cover letter could not be produced in that format. Look for a text box or another option.`);
-  try { await input.setInputFiles(file, { timeout: 10_000 }); }
-  catch { return ok('The cover-letter upload control changed after the last observation. Re-observe and use the current upload ACTION ref.'); }
-  ctx.coverLetter = letter;
+  return file ? { file, letter } : null;
+}
+
+export function coverLetterSent(ctx: ToolContext, document: { file: string; letter: string }): void {
+  ctx.coverLetter = document.letter;
   ctx.guards.recordProgress();
-  if (config.humanizer.enabled) countHealth(wasHumanized(letter) ? 'humanizedLetters' : 'draftLetters');
-  ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter uploaded as ${extname(file).slice(1).toUpperCase()}`);
-  return ok('Cover letter uploaded as a document. Re-observe: confirm the file appears and resolve any upload error before continuing.');
+  if (config.humanizer.enabled) countHealth(wasHumanized(document.letter) ? 'humanizedLetters' : 'draftLetters');
+  ctx.log(`  ✓ ${wasHumanized(document.letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter uploaded as ${extname(document.file).slice(1).toUpperCase()}`);
+}
+
+/** The approved résumé as a file this upload accepts, or why not. */
+export async function resumeDocument(ctx: ToolContext, accept: string, format = ''): Promise<{ file: string; label: string } | { error: string }> {
+  const wanted = await pickResumeForJob(ctx.job, ctx.profile);
+  if (!wanted) return { error: 'No approved local resume is available.' };
+  if (!config.resume.allowUpload) return { error: 'Resume uploading is disabled.' };
+  const file = resolve(RESUME_DIR, wanted.fileName);
+  const within = relative(RESUME_DIR, file);
+  if (!within || within.startsWith('..') || isAbsolute(within) || !existsSync(file)) return { error: 'The approved resume file is unavailable.' };
+  const upload = await documentFor(file, format || accept);
+  if (!upload) return { error: `This upload only accepts "${accept}", and the resume could not be produced in that format.` };
+  return { file: upload, label: wanted.label };
+}
+
+export function resumeSent(ctx: ToolContext, label: string): void {
+  ctx.resumeUsed = label;
+  const site = hostOf(ctx.page.url());
+  noteAction(ctx, { kind: 'resume-uploaded', site, detail: `Sent "${label}" to the resume upload control on ${siteName(site)}.` });
 }
 
 /** The model selects the control; this tool supplies only the approved local document. */
@@ -982,30 +1108,20 @@ async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): 
   if (!action || action.disabled || !/^a\d+$/.test(ref)) {
     return ok(`${identity} Pass the observed resume upload ACTION ref, or a radio/select FIELD ref plus its exact option. If the control is hidden, open it with click and observe again. Do not use a photo upload.`);
   }
-  if (!config.resume.allowUpload) return ok('Resume uploading is disabled. Select the matching existing document or finish with cannot_complete.');
-  const file = resolve(RESUME_DIR, wanted.fileName);
-  const within = relative(RESUME_DIR, file);
-  if (!within || within.startsWith('..') || isAbsolute(within) || !existsSync(file)) {
-    return ok('The approved resume file is unavailable. Finish with cannot_complete.');
-  }
   const input = ctx.page.locator(`input[type="file"][data-ref-id="${ref}"]`);
   const accept = await input.getAttribute('accept') ?? '';
   if (/image\//i.test(accept) && !/pdf|word|document|\.doc|\.rtf|\.txt/i.test(accept)) {
     return ok('That upload accepts images, not a resume. Choose the document upload from a fresh observation.');
   }
   const format = typeof args.format === 'string' && /^(pdf|docx|doc|rtf|txt)$/.test(args.format) ? `.${args.format}` : '';
-  const upload = await documentFor(file, format || accept);
-  if (!upload) return ok(`${identity} This upload only accepts "${accept}", and the resume could not be produced in that format. Look for another upload option on the page; otherwise finish with cannot_complete.`);
-  try { await input.setInputFiles(upload, { timeout: 10_000 }); }
+  const document = await resumeDocument(ctx, accept, format);
+  if ('error' in document) return ok(`${identity} ${document.error} Select a matching existing document or another upload option on the page; otherwise finish with cannot_complete.`);
+  try { await input.setInputFiles(document.file, { timeout: 10_000 }); }
   catch {
     return ok(`${identity} The resume upload control changed after the last observation. Re-observe and use the current upload ACTION ref; do not abandon the application.`);
   }
   const retained = await input.evaluate((element) => (element as HTMLInputElement).files?.[0]?.name ?? '').catch(() => '');
-  if (retained) {
-    ctx.resumeUsed = wanted.label;
-    const site = hostOf(ctx.page.url());
-    noteAction(ctx, { kind: 'resume-uploaded', site, detail: `Sent "${wanted.label}" to the resume upload control on ${siteName(site)}.` });
-  }
+  if (retained) resumeSent(ctx, wanted.label);
   // File transport is not proof of server acceptance. Let the model read the next
   // observation, choose the uploaded document, and recover from any site error.
   return ok(`Resume file sent to the selected control${retained ? ` ("${retained}")` : ''}. Re-observe: confirm the document appears and select it with attach_resume if needed; resolve upload errors before continuing. This is not application success.`);
@@ -1139,27 +1255,9 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
   if (under.href && isForbiddenDestination(under.href)) {
     return ok(`Refused: that point is a link to ${under.href}, which this tool never navigates to.`);
   }
-  const submit = await transmits(ctx, under.text);
-  if (submit) {
-    if (ctx.submissionAttempted && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
-      return { kind: 'terminal', outcome: { status: 'applied' } };
-    }
-    const verdict = ctx.guards.canSubmit(ctx.page.url());
-    if (!verdict.allowed) {
-      if (verdict.kind === 'dry-run') {
-        ctx.log(`  ✋ dry run — withheld "${under.text}"`);
-        return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } };
-      }
-      if (verdict.kind === 'off-platform') {
-        return { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } };
-      }
-      if (!ctx.guards.ungrounded.length) return ok(`Submission withheld: ${verdict.reason}. Re-observe and repair the unconfirmed fields; this is a recoverable form issue, not a missing candidate answer.`);
-      return { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } };
-    }
-    ctx.log(`  → submitting: "${under.text}"`);
-  }
+  const gate = await gateAdvance(ctx, under.text);
+  if (!gate.proceed) return gate.result;
   const before = await captureInteractivePageState(ctx.page);
-  if (submit) ctx.submissionAttempted = true;
   await ctx.page.mouse.click(x, y);
   const changed = await waitForInteractivePageChange(ctx.page, before);
   await waitForInteractiveSurface(ctx.page, 4_000);
@@ -1258,19 +1356,21 @@ async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>
 }
 
 async function doPressKey(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  const key = String(args.key ?? '');
-  if (!['ArrowDown', 'ArrowUp', 'Escape', 'Tab', 'PageDown', 'PageUp'].includes(key)) {
-    return ok('Unsupported key. Use ArrowDown, ArrowUp, Escape, Tab, PageDown or PageUp.');
+  const key = String(args.key ?? '').trim();
+  if (!/^(?:(?:Control|Shift|Alt|Meta|ControlOrMeta)+)*(?:[A-Z][A-Za-z0-9]+|[a-z0-9]|Space| )$/.test(key)) {
+    return ok('Unsupported key. Use a key name such as ArrowDown, Enter, Escape, Tab or Backspace, a single character, or a combination such as Control+A.');
   }
   if (typeof args.ref === 'string' && args.ref) {
-    const attr = args.ref.startsWith('f') ? 'data-field-id' : 'data-ref-id';
-    const focused = await ctx.page.locator(`[${attr}="${args.ref}"]`).first().focus({ timeout: 3_000 }).then(() => true).catch(() => false);
+    const target = locate(ctx.page, args.ref);
+    const focused = target && await target.focus({ timeout: 3_000 }).then(() => true).catch(() => false);
     if (!focused) return ok(`${args.ref} could not be focused. Re-observe and use a current ref.`);
   }
-  const before = await captureInteractivePageState(ctx.page);
-  await ctx.page.keyboard.press(key);
-  const changed = await waitForInteractivePageChange(ctx.page, before, 2_500);
-  return ok(`Pressed ${key}. ${changed ? 'The page changed; a fresh observation follows.' : 'Nothing visible changed.'}`);
+  return pressWatched(ctx, key, async () => {
+    const before = await captureInteractivePageState(ctx.page);
+    await ctx.page.keyboard.press(key);
+    const changed = await waitForInteractivePageChange(ctx.page, before, 2_500);
+    return ok(`Pressed ${key}. ${changed ? 'The page changed; a fresh observation follows.' : 'Nothing visible changed.'}`);
+  });
 }
 
 /**
@@ -1285,6 +1385,9 @@ const TOOL_TIME_LIMIT_MS: Record<string, number> = {
   open_emailed_link: EMAIL_WAIT_MS + 60_000,
   answer_questions: 180_000,
   attach_resume: 180_000,
+  upload_file: 300_000,
+  fill_element: 180_000,
+  evaluate_script: 90_000,
 };
 const DEFAULT_TOOL_TIME_LIMIT_MS = 120_000;
 
@@ -1374,6 +1477,6 @@ async function runTool(
     case 'click_point':
       return doClickPoint(ctx, args);
     default:
-      return ok(`No such tool "${name}".`);
+      return (config.celeris.rawTools ? await runRawTool(ctx, name, args) : null) ?? ok(`No such tool "${name}".`);
   }
 }

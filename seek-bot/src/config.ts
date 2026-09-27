@@ -330,6 +330,13 @@ export const config = {
      * normal application never trims.
      */
     maxTranscriptTokens: Number(process.env.AGENT_MAX_TRANSCRIPT_TOKENS ?? 60_000),
+
+    /**
+     * The general browser tools (agent/raw-tools.ts): a snapshot across
+     * iframes, scripts, navigation, tabs, uploads by file picker. On unless
+     * AGENT_RAW_TOOLS=false, which leaves only the purpose-built tools.
+     */
+    rawTools: process.env.AGENT_RAW_TOOLS !== 'false',
   },
 
   /**

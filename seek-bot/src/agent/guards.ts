@@ -1,6 +1,7 @@
 import type { Page } from 'patchright';
 import { config } from '../config.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
+import { hostOf } from '../site-auth.js';
 import { CostMeter } from './celeris.js';
 
 /**
@@ -87,6 +88,18 @@ export function listingIdIn(url: string): string | null {
  * government domains remain outside the application agent.
  */
 const FORBIDDEN_URL = /\/(checkout|payment|billing)\b/i;
+
+/**
+ * The organisation a host belongs to. Employer ATSs sign candidates in on a
+ * sibling host (tafensw-identity.login.pageuppeople.com, then
+ * secure.dc2.pageuppeople.com), so account evidence is compared per domain.
+ */
+export function siteDomain(url: string): string {
+  const host = hostOf(url);
+  const labels = host.split('.');
+  const secondLevel = /^(com|net|org|gov|edu|co|ac)$/.test(labels.at(-2) ?? '') && (labels.at(-1) ?? '').length === 2;
+  return labels.slice(secondLevel ? -3 : -2).join('.');
+}
 
 export function isForbiddenDestination(url: string): boolean {
   return isAustralianGovernmentUrl(url) || FORBIDDEN_URL.test(url);
@@ -290,6 +303,11 @@ export class RunGuards {
    */
   readonly unfillable = new Map<string, string>();
   private readonly fillAttempts = new Map<string, number>();
+
+  /** Times filling this field has failed and not yet succeeded. */
+  fillAttemptsFor(label: string): number {
+    return this.fillAttempts.get(label) ?? 0;
+  }
 
   /**
    * A fill attempt failed. After two goes at the same control the field moves
