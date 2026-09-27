@@ -67,7 +67,10 @@ interface StartRunRequest {
   trigger: 'manual' | 'auto' | 'admin' | 'onboarding';
   /** The admin who started it, for the record. */
   startedBy?: string | null;
-  /** Settings posted with the request. Ignored for scheduled runs. */
+  /**
+   * Settings posted with the request: by the account holder, or by an admin
+   * narrowing a run for the account (run-account.mjs). Ignored for scheduled runs.
+   */
   clientOverrides?: Record<string, unknown>;
   /** Limit the run to one kind of application. Honoured only for accounts entitled to it. */
   scope?: unknown;
@@ -144,7 +147,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * the behaviour settings either, whatever its UI is showing.
    */
   for (const [key, value] of Object.entries(request.clientOverrides ?? {})) {
-    if (trigger !== 'manual') break;
+    if (trigger !== 'manual' && trigger !== 'admin') break;
     if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
     if (!mayEditRunSetting(key, entitlements)) continue;
     if (value !== undefined && value !== null && String(value).length) settings[key] = String(value);
