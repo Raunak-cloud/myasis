@@ -589,6 +589,19 @@ async function clickRef(page: Page, ref: string): Promise<boolean> {
     .catch(() => false);
   if (clicked) return true;
 
+  /**
+   * Covered by another element: click where the control is drawn, as a
+   * person's mouse would. Workday lays a transparent "click_filter" over its
+   * Sign In and Reset Password buttons and listens there, so a DOM click on
+   * the button underneath did nothing and the sign-in never happened (CBA).
+   */
+  const box = await locator.boundingBox({ timeout: 2_000 }).catch(() => null);
+  if (box && box.width > 0 && box.height > 0) {
+    const before = await captureInteractivePageState(page).catch(() => null);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2).catch(() => {});
+    if (!before || await waitForInteractivePageChange(page, before, 2_500).catch(() => false)) return true;
+  }
+
   return page
     .evaluate((wanted) => {
       // Nameless and iterative — see the note in observe.ts: a named inner
