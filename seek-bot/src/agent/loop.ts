@@ -82,6 +82,10 @@ employers, so read the page rather than assuming an order.
 - Use accept_terms for a required terms/privacy acknowledgement checkbox. It is
   authorization to continue, not an employer question. When it has no ref but
   is visible in the screenshot, give accept_terms its 0-1000 x/y coordinates.
+  Some sites (SAP SuccessFactors) make the acknowledgement a link that opens the
+  policy in a dialog: the acknowledgement is given by the dialog's own Accept /
+  I agree / I acknowledge button, not by closing it. Never set a hidden consent
+  value with a script.
 - ACTIONS use "a" refs and FIELDS use "f" refs. Only "a" refs can be clicked.
   A field is never clicked — it is handled by the tool for its kind.
 - A resume / CV / "choose documents" step is always attach_resume, even when it
