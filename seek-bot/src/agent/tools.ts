@@ -1143,7 +1143,9 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
   const embedded = !field ? locate(ctx.page, String(args.ref ?? '')) : null;
   const embeddedKind = embedded
     ? await embedded.evaluate((el) => el instanceof HTMLTextAreaElement ? 'textarea'
-      : el instanceof HTMLInputElement && ['text', ''].includes(el.type) ? 'text' : 'other').catch(() => 'other')
+      : el instanceof HTMLInputElement && ['text', ''].includes(el.type) ? 'text'
+        // A rich-text editor (ELMO Talent's "Editor, coverLetterWrite", CKEditor, Quill) is an editable region, not a textarea.
+        : (el as HTMLElement).isContentEditable ? 'editor' : 'other').catch(() => 'other')
     : 'other';
   const writable = embedded && embeddedKind !== 'other' ? embedded : null;
   if (!writable && (!field || !['textarea', 'text'].includes(field.kind) || field.sensitive)) {
@@ -1160,7 +1162,9 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
     else {
       // fill() replaces whatever the box held; read back so a box that rejected it is not reported as written.
       await writable!.fill(letter, { timeout: 10_000 });
-      const held = await writable!.inputValue({ timeout: 5_000 });
+      const held = embeddedKind === 'editor'
+        ? await writable!.innerText({ timeout: 5_000 })
+        : await writable!.inputValue({ timeout: 5_000 });
       if (held.replace(/\s+/g, ' ').trim() !== letter.replace(/\s+/g, ' ').trim()) throw new Error('the box did not keep the letter');
     }
   }
