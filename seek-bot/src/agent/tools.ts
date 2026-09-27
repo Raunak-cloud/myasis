@@ -287,11 +287,28 @@ async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
     ctx.log(`  · pre-filled answer check unavailable: ${(error as Error).message.slice(0, 120)}`);
     return null;
   }
-  if (!problems.length) {
+  /**
+   * A wrong answer the page kept in an optional box is removed here rather
+   * than handed back: blank is always safer than another employer's letter.
+   * Tabcorp's PageUp "Tell us more" held a note written for "Front Engineer at
+   * Fetch Pet"; the agent never cleared it and the job went to the candidate.
+   * Required fields still go back to the agent, and from there the candidate.
+   */
+  const normalLabel = (text: string) => normal(text).replace(/[\s*:]+$/, '');
+  const remaining: typeof problems = [];
+  for (const problem of problems) {
+    const field = prefilled.find((candidate) => normalLabel(candidate.label) === normalLabel(problem.field));
+    const clearable = field && !field.required && (field.kind === 'text' || field.kind === 'textarea');
+    const cleared = clearable && await ctx.page.locator(`[data-field-id="${field!.ref}"]`).first()
+      .fill('', { timeout: 5_000 }).then(() => true).catch(() => false);
+    if (cleared) ctx.log(`  · cleared "${field!.label}": it held an answer that was not the candidate's (${problem.problem.slice(0, 120)})`);
+    else remaining.push(problem);
+  }
+  if (!remaining.length) {
     audited.add(signature);
     return null;
   }
-  return withheldFor(ctx, problems);
+  return withheldFor(ctx, remaining);
 }
 
 /** What the agent is told when answers on the form are not the candidate's; a field flagged twice goes to the candidate. */
