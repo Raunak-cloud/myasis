@@ -731,7 +731,7 @@ async function main() {
       }
 
       // Checked again here, not only at discovery: another board's listing of this job may have gone through minutes ago.
-      if (index.has(job.id, job.company, job.title, job.location)) {
+      if (index.has(job.id, job.company, job.title, job.location) || index.hasRole(job.company, job.title)) {
         console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
         logOutcome({ status: 'skipped', jobId: job.id, reason: 'already applied to this role', title: job.title, company: job.company });
         continue;

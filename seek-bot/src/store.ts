@@ -61,6 +61,17 @@ export class AppliedIndex {
     return this.ids.has(jobId) || this.keys.has(dedupeKey(company, title, location));
   }
 
+  /**
+   * This employer's role, wherever it is listed. Two listings of one role
+   * carry different locations ("Remote" and a city), so the location-keyed
+   * check let CSC receive a second application after a first submit that
+   * could not be confirmed. Checked right before applying.
+   */
+  hasRole(company: string, title: string): boolean {
+    const wanted = roleKey(company, title);
+    return this.records.some((record) => roleKey(record.company, record.title) === wanted);
+  }
+
   add(rec: AppliedRecord) {
     this.records.push(rec);
     this.ids.add(rec.jobId);
