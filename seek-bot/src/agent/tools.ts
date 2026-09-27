@@ -497,9 +497,9 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'add_cover_letter',
     description:
-      'Write the grounded, humanized cover letter into the FIELD ref you selected. To reveal it, use click or pass the cover-letter radio/select FIELD ref and its exact writing option. When the form only takes the letter as a file, pass the cover-letter upload ACTION ref ([file]) instead: the letter is sent as a document. Never targets the first textarea automatically.',
+      'Write the grounded, humanized cover letter into the FIELD ref you selected. To reveal it, use click or pass the cover-letter radio/select FIELD ref and its exact writing option. When the form only takes the letter as a file, pass the cover-letter upload ACTION ref ([file]) instead: the letter is sent as a document. A writing box inside an embedded form takes its take_snapshot ref (e.g. f3e62); it replaces any text already there. Never targets the first textarea automatically.',
     parameters: { type: 'object', properties: {
-      ref: { type: 'string', description: 'Observed cover-letter FIELD ref, or its upload ACTION ref when the letter must be a file.' },
+      ref: { type: 'string', description: 'Observed cover-letter FIELD ref, a take_snapshot ref for a writing box inside an embedded form, or its upload ACTION ref when the letter must be a file.' },
       option: { type: 'string', description: 'Exact option to reveal the cover-letter writing field, for radio/select controls only.' },
     }, required: ['ref'] },
   },
@@ -1055,20 +1055,43 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
     }
     return ok('Cover-letter option selected. Re-observe, then call add_cover_letter with the writing FIELD ref.');
   }
-  if (!field || !['textarea', 'text'].includes(field.kind) || field.sensitive) {
+  /**
+   * A writing box inside an embedded form is only in the snapshot (JobAdder's
+   * "Tell us more" on dws.hcltech.com), never in the observation. Without
+   * this the agent could not write the letter there — nor replace the text
+   * another employer's letter had left in it, which the submit audit then
+   * rightly refused to send.
+   */
+  const embedded = !field ? locate(ctx.page, String(args.ref ?? '')) : null;
+  const embeddedKind = embedded
+    ? await embedded.evaluate((el) => el instanceof HTMLTextAreaElement ? 'textarea'
+      : el instanceof HTMLInputElement && ['text', ''].includes(el.type) ? 'text' : 'other').catch(() => 'other')
+    : 'other';
+  const writable = embedded && embeddedKind !== 'other' ? embedded : null;
+  if (!writable && (!field || !['textarea', 'text'].includes(field.kind) || field.sensitive)) {
     return ok('Choose the visible cover-letter FIELD ref. If it is hidden, use click to open the write-letter option, then observe again. Never choose an unrelated text box.');
   }
+  const target = writable ?? ctx.page.locator(`[data-field-id="${field!.ref}"]`);
+  const label = field?.label ?? 'cover letter';
   let letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
   if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
-  const maxLength = await ctx.page.locator(`[data-field-id="${field.ref}"]`).evaluate(el => (el as HTMLTextAreaElement).maxLength).catch(() => -1);
+  const maxLength = await target.evaluate(el => (el as HTMLTextAreaElement).maxLength).catch(() => -1);
   if (Number.isInteger(maxLength) && maxLength >= 0) letter = await fitCoverLetterToLimit(letter, maxLength, ctx.job, ctx.profile);
-  try { await fillField(ctx.page, field, letter, 'type'); }
+  try {
+    if (field) await fillField(ctx.page, field, letter, 'type');
+    else {
+      // fill() replaces whatever the box held; read back so a box that rejected it is not reported as written.
+      await writable!.fill(letter, { timeout: 10_000 });
+      const held = await writable!.inputValue({ timeout: 5_000 });
+      if (held.replace(/\s+/g, ' ').trim() !== letter.replace(/\s+/g, ' ').trim()) throw new Error('the box did not keep the letter');
+    }
+  }
   catch (error) { return ok(`Cover letter not accepted: ${(error as Error).message}. Re-observe and choose the current writing field or resolve the form's validation.`); }
   ctx.coverLetter = letter;
-  ctx.guards.recordFillSuccess(field.label);
+  ctx.guards.recordFillSuccess(label);
   if (config.humanizer.enabled) countHealth(wasHumanized(letter) ? 'humanizedLetters' : 'draftLetters');
   ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter added`);
-  return ok(`Cover letter verified in ${field.ref}. Re-observe the page and handle any remaining fields or validation before continuing.`);
+  return ok(`Cover letter verified in ${field?.ref ?? String(args.ref)}. Re-observe the page and handle any remaining fields or validation before continuing.`);
 }
 
 /**
