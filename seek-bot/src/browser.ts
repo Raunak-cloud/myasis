@@ -488,10 +488,11 @@ export async function captureInteractivePageState(page: Page): Promise<Interacti
       const elements: Element[] = [];
       for (let i = 0; i < roots.length; i++) for (const element of roots[i].querySelectorAll('*')) {
         if (element.shadowRoot) roots.push(element.shadowRoot);
-        if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"]')) elements.push(element);
+        if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"], [role="radio"], [role="checkbox"]')) elements.push(element);
       }
+      // Long forms (Oracle's ~20 Yes/No pairs on one page) put later questions past a 100-control cap.
       const controls = elements
-        .slice(0, 100)
+        .slice(0, 400)
         .map((element) => {
           const input = element as HTMLInputElement;
           return [
@@ -499,6 +500,8 @@ export async function captureInteractivePageState(page: Page): Promise<Interacti
             input.type ?? '',
             input.type === 'password' ? Boolean(input.value) : input.value ?? '',
             Boolean(input.checked), element.getAttribute('aria-expanded'), element.getAttribute('aria-selected'), element.getAttribute('aria-invalid'),
+            // A pressed toggle button or a checked custom radio is an answer given, not "nothing changed".
+            element.getAttribute('aria-pressed'), element.getAttribute('aria-checked'),
             input.name ?? '',
             element.getAttribute('data-automation') ?? '',
             element.getAttribute('data-field-id') ?? '',
@@ -529,10 +532,10 @@ export async function waitForInteractivePageChange(
         const elements: Element[] = [];
         for (let i = 0; i < roots.length; i++) for (const element of roots[i].querySelectorAll('*')) {
           if (element.shadowRoot) roots.push(element.shadowRoot);
-          if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"]')) elements.push(element);
+          if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"], [role="radio"], [role="checkbox"]')) elements.push(element);
         }
         const controls = elements
-          .slice(0, 100)
+          .slice(0, 400)
           .map((element) => {
             const input = element as HTMLInputElement;
             return [
@@ -540,6 +543,8 @@ export async function waitForInteractivePageChange(
               input.type ?? '',
               input.type === 'password' ? Boolean(input.value) : input.value ?? '',
               Boolean(input.checked), element.getAttribute('aria-expanded'), element.getAttribute('aria-selected'), element.getAttribute('aria-invalid'),
+            // A pressed toggle button or a checked custom radio is an answer given, not "nothing changed".
+            element.getAttribute('aria-pressed'), element.getAttribute('aria-checked'),
               input.name ?? '',
               element.getAttribute('data-automation') ?? '',
               element.getAttribute('data-field-id') ?? '',
