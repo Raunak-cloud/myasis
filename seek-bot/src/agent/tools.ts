@@ -254,7 +254,7 @@ async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
     }
     return ok('The pre-submit answer check could not run. Wait a moment, re-observe, and press the submit control again.');
   }
-  return withheldFor(ctx, problems);
+  return await withheldFor(ctx, problems);
 }
 
 /**
@@ -323,7 +323,7 @@ async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
     audited.add(signature);
     return null;
   }
-  return withheldFor(ctx, remaining);
+  return await withheldFor(ctx, remaining);
 }
 
 /** Writes a grounded answer over a value the page held that was not the candidate's; null when there is none to write. */
@@ -341,15 +341,48 @@ async function repairPrefilled(ctx: ToolContext, field: FormField, problem: stri
   return answer.value;
 }
 
+const sameLabel = (a: string, b: string) => {
+  const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase().replace(/[\s*:]+$/, '');
+  return normal(a) === normal(b);
+};
+
+/**
+ * The question the candidate sees in Needs attention for a field the check
+ * would not send. "What should Owtomate enter for 'Tell us more:'?" told them
+ * nothing: not what the employer wants there, nor why the bot stopped. The
+ * answer model writes the specific question, as it does for any field it
+ * cannot answer; the fallback still names the job, the employer and the reason.
+ */
+async function candidateQuestion(
+  ctx: ToolContext,
+  field: FormField | undefined,
+  problem: { field: string; value: string; problem: string },
+): Promise<string> {
+  const fallback = `${ctx.job.company}'s application for ${ctx.job.title} asks "${problem.field.replace(/[\s*:]+$/, '')}". ` +
+    `Owtomate did not send "${problem.value.slice(0, 80)}${problem.value.length > 80 ? '…' : ''}": ${problem.problem} ` +
+    'What should it enter there for this job?';
+  if (!field) return fallback;
+  const asked: FormField = {
+    ...field,
+    currentValue: '',
+    description: `${field.description ? `${field.description}\n` : ''}Not sent: "${problem.value.slice(0, 200)}" — ${problem.problem}`,
+  };
+  const answer = await answerFields([asked], ctx.job, ctx.profile)
+    .then((result) => result.answers.find((candidate) => candidate.ref === field.ref))
+    .catch(() => undefined);
+  return answer?.candidatePrompt?.trim() || fallback;
+}
+
 /** What the agent is told when answers on the form are not the candidate's; a field flagged twice goes to the candidate. */
-function withheldFor(ctx: ToolContext, problems: Array<{ field: string; value: string; problem: string }>): ToolResult | null {
+async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; value: string; problem: string }>): Promise<ToolResult | null> {
   if (!problems.length) return null;
   const strikes = (ctx.auditStrikes ??= new Map<string, number>());
   for (const problem of problems) {
     const count = (strikes.get(problem.field) ?? 0) + 1;
     strikes.set(problem.field, count);
     if (count >= 2) {
-      ctx.guards.rememberField({ label: problem.field }, `What should Owtomate enter for “${problem.field}”?`);
+      const field = ctx.observation.fields.find((candidate) => sameLabel(candidate.label, problem.field));
+      ctx.guards.rememberField(field ?? { label: problem.field }, await candidateQuestion(ctx, field, problem));
       ctx.guards.recordUngrounded(problem.field);
     }
   }
