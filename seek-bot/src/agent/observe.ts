@@ -161,7 +161,13 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
             ? ' [selected]'
             : isOpener
               ? ' (opens a list)'
-              : '';
+              // A Yes/No answer drawn as a pair of toggle buttons (Oracle Recruiting): which one is pressed is the answer.
+              // Without it a click that worked read as "nothing changed" and the agent was stopped as stuck.
+              : element.getAttribute('aria-pressed') === 'true'
+                ? ' [pressed]'
+                : element.getAttribute('aria-pressed') === 'false'
+                  ? ' [not pressed]'
+                  : '';
       let fileLabel = '';
       if (isFile) {
         const input = element as HTMLInputElement;
