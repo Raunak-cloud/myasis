@@ -231,9 +231,15 @@ export async function gateAdvance(
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } } };
   }
   // Every submission says whether a letter went with it: a letter is sent wherever the form has a place for one.
-  ctx.log(ctx.coverLetter
-    ? `  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`
-    : '  · no cover letter: this form has no place for one');
+  if (ctx.coverLetter) {
+    ctx.log(`  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
+  } else {
+    // The evidence, not only the verdict: whether the whole page mentions a place for documents at all.
+    const whole = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+    const mentions = [/cover[\s-]?letter/i, /supporting documents?/i, /additional documents?/i]
+      .filter((pattern) => pattern.test(whole)).map((pattern) => pattern.source.replace(/\\s|\[|\]|-|\?/g, ' ').replace(/\s+/g, ' ').trim());
+    ctx.log(`  · no cover letter: this form has no place for one (page mentions: ${mentions.join(', ') || 'none of cover letter / supporting documents'})`);
+  }
   ctx.log(`  → submitting: "${label}"`);
   ctx.submissionAttempted = true;
   ctx.submitCleared = true;
