@@ -73,6 +73,16 @@ try {
   assert.equal(await pageOffersDocuments(page), true, 'a Supporting documents section inside a shadow root is a place for a letter');
   await page.setContent('<main><h1>Review your application</h1><p>Contact information</p><button>Submit your application</button></main>');
   assert.equal(await pageOffersDocuments(page), false, 'a review page with no documents section offers no place');
+  // The section is not in the DOM at all until the page is scrolled towards it (Indeed, Sep 2026).
+  await page.setContent('<main><h1>Review your application</h1><div style="height:5000px">Resume preview</div><div id="slot"></div><button>Submit your application</button></main>');
+  await page.evaluate(() => {
+    addEventListener('scroll', () => {
+      if (scrollY > 3000 && !document.querySelector('#slot section')) {
+        document.getElementById('slot')!.innerHTML = '<section><h2>Supporting documents</h2><button>Add</button><p>No cover letter or additional documents added.</p></section>';
+      }
+    });
+  });
+  assert.equal(await pageOffersDocuments(page), true, 'a documents section that enters the DOM only on scroll is still found');
   // PageUp's declaration dropdowns: the placeholder carries a non-empty value.
   await page.setContent('<main><label>Medical condition *<select required><option value="0">Please select</option><option value="1043">No</option><option value="1044">Yes</option></select></label><label>Notice<select><option value="" disabled selected>Choose</option><option value="7">1 week</option></select></label><label>Years<select><option value="3">3 years</option></select></label></main>');
   const selects = (await observe(page)).fields;

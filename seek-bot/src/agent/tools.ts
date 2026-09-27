@@ -1,4 +1,4 @@
-import type { Page } from 'patchright';
+import type { Frame, Page } from 'patchright';
 import { config } from '../config.js';
 import {
   captureInteractivePageState,
@@ -236,14 +236,14 @@ export async function gateAdvance(
     ctx.log(`  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
   } else {
     // The evidence, not only the verdict: whether the whole page mentions a place for documents at all.
-    // Every root's text, shadow roots included (Indeed's review section is in one).
-    const whole = await ctx.page.evaluate(() => {
+    // Every frame's and shadow root's text (Indeed's review section renders in on scroll; pageOffersDocuments has scrolled).
+    const whole = (await Promise.all(ctx.page.frames().map((frame) => frame.evaluate(() => {
       const roots: Array<Document | ShadowRoot> = [document];
       for (let i = 0; i < roots.length; i++) {
         for (const element of roots[i].querySelectorAll('*')) if (element.shadowRoot) roots.push(element.shadowRoot);
       }
       return roots.map((root) => (root instanceof Document ? root.body?.textContent : root.textContent) ?? '').join('\n');
-    }).catch(() => '');
+    }).catch(() => '')))).join('\n');
     const mentions = [/cover[\s-]?letter/i, /supporting documents?/i, /additional documents?/i]
       .filter((pattern) => pattern.test(whole)).map((pattern) => pattern.source.replace(/\\s|\[|\]|-|\?/g, ' ').replace(/\s+/g, ' ').trim());
     ctx.log(`  · no cover letter: this form has no place for one (page mentions: ${mentions.join(', ') || 'none of cover letter / supporting documents'})`);
@@ -265,7 +265,26 @@ export async function gateAdvance(
  * DOM do not depend on rendering.
  */
 export async function pageOffersDocuments(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
+  /**
+   * Rendered on scroll, not merely painted on scroll: Indeed's review page
+   * does not put the Supporting documents section into the DOM until the
+   * page has been scrolled towards it, so the walk below found nothing while
+   * the full-page screenshot (which scrolls) showed the section plainly, and
+   * Load Master went out without the letter. Walk the page to the bottom
+   * first, in every frame, and leave it there — the agent re-observes anyway.
+   */
+  for (const frame of page.frames()) {
+    await frame.evaluate(async () => {
+      const step = Math.max(400, Math.floor(innerHeight * 0.8));
+      for (let y = 0; y <= (document.body?.scrollHeight ?? 0); y += step) {
+        scrollTo(0, y);
+        await new Promise((done) => setTimeout(done, 120));
+      }
+      scrollTo(0, document.body?.scrollHeight ?? 0);
+    }).catch(() => {});
+  }
+  await page.waitForTimeout(600).catch(() => {});
+  const inFrame = async (frame: Frame) => frame.evaluate(() => {
     const place = /supporting documents?|additional documents?|cover[\s-]?letter/i;
     /*
      * Shadow roots included: Indeed's review section lives in one, so
@@ -294,6 +313,10 @@ export async function pageOffersDocuments(page: Page): Promise<boolean> {
       return false;
     });
   }).catch(() => false);
+  for (const frame of page.frames()) {
+    if (await inFrame(frame)) return true;
+  }
+  return false;
 }
 
 /** A form element's accessibility tree without the per-element bookkeeping, for a reader rather than a clicker. */
