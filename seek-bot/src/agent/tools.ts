@@ -1460,7 +1460,8 @@ async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>
 
 async function doPressKey(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const key = String(args.key ?? '').trim();
-  if (!/^(?:(?:Control|Shift|Alt|Meta|ControlOrMeta)+)*(?:[A-Z][A-Za-z0-9]+|[a-z0-9]|Space| )$/.test(key)) {
+  // Modifiers joined with "+", then a named key or one character — "Control+A" was refused before: the pattern had no "+" and no single capital.
+  if (!/^(?:(?:Control|Shift|Alt|Meta|ControlOrMeta)\+)*(?:[A-Z][A-Za-z0-9]*|[a-z0-9]|Space| )$/.test(key)) {
     return ok('Unsupported key. Use a key name such as ArrowDown, Enter, Escape, Tab or Backspace, a single character, or a combination such as Control+A.');
   }
   if (typeof args.ref === 'string' && args.ref) {

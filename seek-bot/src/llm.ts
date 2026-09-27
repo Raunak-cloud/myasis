@@ -1412,6 +1412,7 @@ export async function auditFormBeforeSubmit(
 
 A job application form is about to be sent to ${job.company} for "${job.title}" on behalf of the candidate below.
 Read the form's current state and list every answer that states something about the candidate that the CANDIDATE PROFILE, SUPPORTING DOCUMENTS and SAVED ANSWERS do not support, or that contradicts them — a wrong name, email or phone, an invented qualification, licence, employer, number, date or yes/no, a wrong option chosen. Ignore empty optional fields, consent and terms checkboxes, the résumé and cover-letter attachments, the site's own text, and neutral choices (how the candidate heard of the job, preferred contact method).
+The CANDIDATE PROFILE is the candidate's own statement of who they are and wins over the documents: an answer that matches the profile (name, contact details, work rights, salary, notice period) is supported even if a document words it differently. Where the profile is silent, the documents and saved answers decide. A document that disagrees with the profile is not a problem with the form.
 Return JSON {"problems": [{"field": "<its label>", "value": "<the current answer>", "problem": "<what is wrong, in one sentence>"}]}, with an empty list when every answer is supported.
 
 CANDIDATE PROFILE

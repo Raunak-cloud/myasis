@@ -260,7 +260,10 @@ async function logPageDataShape(page: Page, where: string): Promise<void> {
     const globals = Object.keys(w).filter((key) => /mosaic|initial|__NEXT|jobcard|_data|apollo|redux|state/i.test(key)).slice(0, 12);
     const scripts = [...document.querySelectorAll('script')].filter((s) => (s.textContent ?? '').includes('jobkey')).length;
     const cards = document.querySelectorAll('[data-jk]').length;
-    return { mosaic: Boolean(w.mosaic), providers, globals, scriptsWithJobkey: scripts, cards };
+    // Where the page actually is and what it says, in case it is not a results page at all.
+    const text = (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    const links = [...document.querySelectorAll('a[href*="jk="], a[href*="/viewjob"], a[href*="/rc/clk"]')].length;
+    return { url: location.href, title: document.title, mosaic: Boolean(w.mosaic), providers, globals, scriptsWithJobkey: scripts, cards, jobLinks: links, text };
   }).catch((error) => ({ error: (error as Error).message }));
   console.warn(`  [discovery-indeed] page data on ${where}: ${JSON.stringify(shape)}`);
 }
