@@ -451,6 +451,8 @@ class Run {
           .then((result) => {
             if (result.status === 'renewed') {
               this.push('sys', `  ↻ Search terms renewed for the next run: ${result.terms.join(', ')}`);
+            } else if (result.status === 'not-saved-terms') {
+              // A run on one-off terms says nothing about the saved ones.
             } else if (result.status === 'user-changed') {
               this.push('sys', '  Search terms were not auto-renewed because you changed them during the run.');
             } else {

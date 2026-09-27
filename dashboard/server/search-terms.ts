@@ -26,6 +26,7 @@ interface SearchTermsInput {
 type SearchTermsRenewalResult =
   | { status: 'renewed'; terms: string[] }
   | { status: 'user-changed'; terms: string[] }
+  | { status: 'not-saved-terms' }
   | { status: 'failed'; error: string };
 
 interface GeneratedSearch {
@@ -370,6 +371,13 @@ export async function renewSearchTermsAfterSparseRun(
   termsUsed: string,
   expectedSavedTerms: string,
 ): Promise<SearchTermsRenewalResult> {
+  /**
+   * Only a run on the account's own saved terms says those terms are spent.
+   * An operator's run with one-off terms (run-account.mjs KEYWORDS=...) came
+   * back sparse on 27 Sep and replaced the candidate's saved terms.
+   */
+  const key = (terms: string) => splitSearchTerms(terms).map((term) => searchTermKey(term)).sort().join('|');
+  if (key(termsUsed) !== key(expectedSavedTerms)) return { status: 'not-saved-terms' };
   const generated = await generateSearchTerms(userId, {
     currentTerms: termsUsed,
     excludeTerms: splitSearchTerms(expectedSavedTerms),
