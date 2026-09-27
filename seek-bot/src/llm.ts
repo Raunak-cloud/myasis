@@ -1123,8 +1123,10 @@ decisive detail is absent, use uncertain.
 The configured minimum salary and hourly rate above are the current application preferences.
 An older "Expected salary" value in the profile is background information, not a requirement:
 it can never make the candidate ineligible, and where the two differ the configured minimums govern.
-Treat obvious placeholder, lead-generation or deceptive listings as skip, but do not reject a
-short or unusually worded genuine ad merely because it does not match a template.
+Treat obvious placeholder, lead-generation or deceptive listings as skip — including test or
+dummy postings a board or employer left live ("[[TEST]] SAT-001: Software Engineer @ Sunny Cafe",
+"TEST - DO NOT APPLY", a job for a café hiring software engineers with a filler description) — but
+do not reject a short or unusually worded genuine ad merely because it does not match a template.
 Return decision=apply only when the work is a reasonable fit and no mandatory conflict is evidenced.
 Return decision=skip for a clear mismatch, an explicit candidate-instruction conflict,
 or an explicitly mandatory requirement the candidate demonstrably does not meet.

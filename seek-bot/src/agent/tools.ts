@@ -182,6 +182,16 @@ export async function gateAdvance(
   context?: string,
   options: { role?: string; knownSubmit?: boolean } = {},
 ): Promise<Gate> {
+  /**
+   * The observation's text is the start of the page, capped. Indeed's review
+   * page puts "Supporting documents" under the résumé preview, past that cap,
+   * so a letter the employer allowed could go unsent. Before the form moves
+   * on without a letter, the whole page is read for a place to add one.
+   */
+  if (advancesApplication(label) && !ctx.coverLetter && !ctx.coverLetterOffered) {
+    const whole = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+    if (whole && offersCoverLetter({ ...ctx.observation, text: whole })) ctx.coverLetterOffered = true;
+  }
   // Free accounts send the grounded draft; eligible paid/admin accounts the
   // humanized version from finishedCoverLetterForJob().
   if (advancesApplication(label) && ctx.coverLetterOffered && !ctx.coverLetter) {
