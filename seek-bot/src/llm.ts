@@ -306,7 +306,9 @@ For each field also set "basis", which decides whether it may be filled at all:
   years of experience are
   counted from those dates; and when the truthful answer is "No", "None" or
   "0" because nothing shows the candidate has a skill, tool, system or kind
-  of experience, that answer is supported. The résumé's work history is the
+  of experience — or has used, downloaded or signed up to a product, app,
+  service or account the employer names ("Have you signed up to LiSTNR?") —
+  that answer is supported. The résumé's work history is the
   candidate's full employment record, so whether they work, or have worked,
   for a named organisation — "Are you currently employed at <company>?",
   "Have you worked for us before?", "Are you a current or former employee or
