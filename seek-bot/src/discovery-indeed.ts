@@ -196,6 +196,11 @@ export async function recommended(page: Page): Promise<JobListing[]> {
     const arr = raw ? deepFindJobArray(JSON.parse(raw)) ?? [] : [];
     jobs = arr.map(normalise).filter((j): j is JobListing => j !== null);
   }
+  if (!jobs.length) {
+    // The feed renders the same cards as search. Without this it reported 0 recommendations on every run.
+    await logPageDataShape(page, '"Jobs for you"');
+    jobs = await readJobCards(page);
+  }
 
   return jobs.map((job) => ({ ...job, source: 'recommended' as const }));
 }
@@ -236,7 +241,32 @@ async function searchViaDom(page: Page, keywords: string, pageNum = 1): Promise<
     // again before the DOM fallback reads that page as an empty result set.
     await requireIndeedPage(page, `reading the rendered results for "${keywords}"`);
   }
+  return readJobCards(page);
+}
 
+/**
+ * What the page's own data holds when the job list is not where the reader
+ * looks: one line, so a run's log shows how Indeed now ships its results.
+ * Every run since at least 25 Sep 2026 found `mosaic` empty on search and on
+ * "Jobs for you", and nothing recorded what had replaced it.
+ */
+let shapeLogged = false;
+async function logPageDataShape(page: Page, where: string): Promise<void> {
+  if (shapeLogged) return;
+  shapeLogged = true;
+  const shape = await page.evaluate(() => {
+    const w = window as any;
+    const providers = w.mosaic?.providerData ? Object.keys(w.mosaic.providerData).slice(0, 12) : null;
+    const globals = Object.keys(w).filter((key) => /mosaic|initial|__NEXT|jobcard|_data|apollo|redux|state/i.test(key)).slice(0, 12);
+    const scripts = [...document.querySelectorAll('script')].filter((s) => (s.textContent ?? '').includes('jobkey')).length;
+    const cards = document.querySelectorAll('[data-jk]').length;
+    return { mosaic: Boolean(w.mosaic), providers, globals, scriptsWithJobkey: scripts, cards };
+  }).catch((error) => ({ error: (error as Error).message }));
+  console.warn(`  [discovery-indeed] page data on ${where}: ${JSON.stringify(shape)}`);
+}
+
+/** The job cards as rendered, via Indeed's own `data-jk`/`data-testid` hooks — the same on search and on "Jobs for you". */
+async function readJobCards(page: Page): Promise<JobListing[]> {
   const rows = await page.evaluate(() => {
     const out: any[] = [];
     document.querySelectorAll('a.jcs-JobTitle[data-jk]').forEach((anchor) => {
@@ -249,7 +279,10 @@ async function searchViaDom(page: Page, keywords: string, pageNum = 1): Promise<
       const cardText = card?.textContent ?? '';
       out.push({
         id,
-        title: anchor.textContent?.trim() ?? '',
+        // The anchor also holds badges ("New"); the title itself is the span Indeed names.
+        title: (anchor.querySelector('span[title]')?.getAttribute('title')
+          ?? anchor.querySelector('[id^="jobTitle"]')?.textContent
+          ?? anchor.textContent)?.trim() ?? '',
         company: txt('company-name'),
         location: txt('text-location'),
         salary: card?.querySelector('[data-testid^="attribute_snippet_testid salary"]')?.textContent?.trim(),
@@ -283,6 +316,7 @@ export async function search(page: Page, keywords: string, pageNum = 1): Promise
   });
   if (viaMosaic.length) return viaMosaic.map((job) => ({ ...job, source: 'search' as const }));
   console.warn(`  [discovery-indeed] mosaic data empty for "${keywords}" p${pageNum} — using DOM`);
+  await logPageDataShape(page, 'search');
   return (await searchViaDom(page, keywords, pageNum)).map((job) => ({ ...job, source: 'search' as const }));
 }
 

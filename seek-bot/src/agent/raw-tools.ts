@@ -1,4 +1,4 @@
-import type { Dialog, Locator, Page, Request, Route } from 'patchright';
+import type { Dialog, Frame, Locator, Page, Request, Route } from 'patchright';
 import { answerFields, acceptBrowserDialog, reviewBrowserScript } from '../llm.js';
 import type { FormField } from '../types.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -97,7 +97,21 @@ async function describe(locator: Locator): Promise<ElementFacts | null> {
  * main-frame check misses a click that changes only an embedded form.
  */
 async function surface(page: Page): Promise<string> {
-  const parts = await Promise.all(page.frames().map((frame) => frame
+  return framesState(page.frames());
+}
+
+/**
+ * The same fingerprint for the embedded frames alone. The agent loop's
+ * no-progress check reads the main frame's observation, so a form inside an
+ * iframe (JobAdder, many council and university sites) looked unchanged
+ * while the agent was filling it, and the application was abandoned as stuck.
+ */
+export async function embeddedSurface(page: Page): Promise<string> {
+  return framesState(page.frames().filter((frame) => frame !== page.mainFrame()));
+}
+
+async function framesState(frames: Frame[]): Promise<string> {
+  const parts = await Promise.all(frames.map((frame) => frame
     .evaluate(() => {
       const values = [...document.querySelectorAll('input, textarea, select')]
         .slice(0, 80).map((el) => `${(el as HTMLInputElement).value}:${(el as HTMLInputElement).checked}`).join('|');
@@ -375,11 +389,23 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
     if (facts.type === 'file') {
       await target.setInputFiles(file, { timeout: 10_000 });
     } else {
-      const [chooser] = await Promise.all([
+      const chooser = await Promise.all([
         ctx.page.waitForEvent('filechooser', { timeout: 8_000 }),
         target.click({ timeout: 6_000 }),
-      ]);
-      await chooser.setFiles(file, { timeout: 10_000 });
+      ]).then(([opened]) => opened).catch(() => null);
+      if (chooser) await chooser.setFiles(file, { timeout: 10_000 });
+      else {
+        /**
+         * Upload widgets often keep the real input hidden beside their button
+         * and open no picker for an automated click (go.programmed.com.au's
+         * "Upload new document"). The input nearest the button — inside the
+         * closest container that has one — is that upload's own.
+         */
+        // Only when that container holds exactly one: with a résumé and a cover-letter input side by side, guessing could send the wrong document.
+        const inputs = target.locator('xpath=ancestor-or-self::*[.//input[@type="file"]][1]//input[@type="file"]');
+        if ((await inputs.count().catch(() => 0)) !== 1) throw new Error('no file picker opened and the control has no single file input of its own');
+        await inputs.setInputFiles(file, { timeout: 10_000 });
+      }
     }
   } catch (error) {
     return ok(`The upload did not open or take the file: ${(error as Error).message.split('\n')[0].slice(0, 160)}. Snapshot the page and use the upload's own input or button.`);

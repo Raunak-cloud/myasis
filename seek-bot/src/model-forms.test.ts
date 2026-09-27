@@ -61,6 +61,12 @@ try {
     (await observe(page)).actions.some(action => /^Open State \/ Territory/.test(action.text)),
     'an icon-only dropdown button is named from the field it opens, even beside a hidden native select',
   );
+  // PageUp's declaration dropdowns: the placeholder carries a non-empty value.
+  await page.setContent('<main><label>Medical condition *<select required><option value="0">Please select</option><option value="1043">No</option><option value="1044">Yes</option></select></label><label>Notice<select><option value="" disabled selected>Choose</option><option value="7">1 week</option></select></label><label>Years<select><option value="3">3 years</option></select></label></main>');
+  const selects = (await observe(page)).fields;
+  assert.deepEqual(selects.map(field => field.currentValue), ['', '', '3 years'], 'a placeholder is no answer; a chosen option reads as its visible text');
+  await page.locator('select').first().selectOption('1043');
+  assert.equal((await observe(page)).fields[0].currentValue, 'No');
   await page.setContent('<main><label>Code<input maxlength="6"></label></main>');
   assert.equal(await fillEmailedCode(page, (await observe(page)).fields, '123456'), true);
   assert.equal(await page.locator('input').inputValue(), '123456');

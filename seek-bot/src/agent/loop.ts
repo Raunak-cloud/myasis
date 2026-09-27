@@ -12,7 +12,7 @@ import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './c
 import { RunGuards, detectConfirmation, isExternal, listingIdIn, siteDomain } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
 import { executeTool, toolSchemas, type AgentTermination, type ToolContext } from './tools.js';
-import { watchTab } from './raw-tools.js';
+import { embeddedSurface, watchTab } from './raw-tools.js';
 import { browserGmailAvailable } from '../browser-gmail.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 
@@ -762,6 +762,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       actions: ctx.observation.actions.map(a => [a.text, a.disabled]),
       fields: ctx.observation.fields.map(f => [f.label, f.currentValue, f.options]),
       text: ctx.observation.text,
+      // The observation is the main frame's; work inside an embedded form is progress too.
+      embedded: config.celeris.rawTools ? await embeddedSurface(page) : '',
     });
     if (page.url() === lastUrl && fingerprint === lastFingerprint) {
       stalls += 1;

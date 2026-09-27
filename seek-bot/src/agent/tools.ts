@@ -1396,6 +1396,27 @@ export async function executeTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
+  /**
+   * Challenge controls never reach an AI-selected action. This also closes
+   * the race where a CAPTCHA appears after observation but before the click.
+   * Solved before the tool's clock starts: CapMonster has its own deadline
+   * (200s a task, one retry), longer than any tool's, and inside the clock a
+   * slow solve abandoned the tool mid-solve (Macquarie's registration page).
+   */
+  if (!('__parseError' in args)) {
+    const captcha = await handleCaptchaWithCapMonster(ctx.page);
+    if (captcha === 'solved') {
+      // A clearing that took minutes is progress, not a stuck page.
+      ctx.guards.recordProgress();
+      return ok('CapMonster cleared the security verification. Re-observe the page and continue.');
+    }
+    if (captcha === 'blocked') {
+      return {
+        kind: 'terminal',
+        outcome: { status: 'needs-human', reason: 'CapMonster could not clear the site security verification.' },
+      };
+    }
+  }
   const limit = TOOL_TIME_LIMIT_MS[name] ?? DEFAULT_TOOL_TIME_LIMIT_MS;
   let timer: NodeJS.Timeout | undefined;
   const expired = new Promise<ToolResult>((done) => {
@@ -1420,16 +1441,6 @@ async function runTool(
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
   rememberCoverLetterOpportunity(ctx);
-  // Challenge controls never reach an AI-selected action. This also closes
-  // the race where a CAPTCHA appears after observation but before the click.
-  const captcha = await handleCaptchaWithCapMonster(ctx.page);
-  if (captcha === 'solved') return ok('CapMonster cleared the security verification. Re-observe the page and continue.');
-  if (captcha === 'blocked') {
-    return {
-      kind: 'terminal',
-      outcome: { status: 'needs-human', reason: 'CapMonster could not clear the site security verification.' },
-    };
-  }
   switch (name) {
     case 'choose_option':
       return doChooseOption(ctx, args);

@@ -285,7 +285,19 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           kind: 'select',
           required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
-          currentValue: sel.value,
+          /**
+           * What the person sees chosen, not the option's internal value: "No",
+           * not "1043". A placeholder ("Please select", or the HTML placeholder
+           * option — empty, disabled or hidden) is no answer. Reporting the raw
+           * value made PageUp's "Please select" (value "0") look answered, so
+           * the agent was told a required declaration was already done.
+           */
+          currentValue: (() => {
+            const chosen = sel.selectedOptions[0];
+            if (!chosen || chosen.disabled || chosen.hidden || chosen.value === '') return '';
+            const text = chosen.textContent?.trim() ?? '';
+            return sel.selectedIndex === 0 && /^[\s\-–—.]*(?:please\s+)?(?:select|choose)\b/i.test(text) ? '' : text;
+          })(),
           autocomplete: el.getAttribute('role') === 'combobox',
         });
         return;

@@ -27,14 +27,23 @@ function saveApplied(records: AppliedRecord[]) {
   writeFileSync(APPLIED, JSON.stringify(records, null, 2));
 }
 
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/\b(pty|ltd|limited|group|australia|au|inc|llc)\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
 /** company+title+location, normalised — matches the dedupe rule in seek.md. */
 function dedupeKey(company: string, title: string, location: string): string {
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/\b(pty|ltd|limited|group|australia|au|inc|llc)\b/g, '')
-      .replace(/[^a-z0-9]/g, '');
   return `${norm(company)}::${norm(title)}::${norm(location)}`;
+}
+
+/**
+ * One role however a board names its employer: "HCF" on Indeed and "HCF
+ * Australia" on SEEK are the same job. The run uses it to attempt a role once.
+ */
+export function roleKey(company: string, title: string): string {
+  return `${norm(company)}::${norm(title)}`;
 }
 
 export class AppliedIndex {

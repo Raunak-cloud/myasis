@@ -21,7 +21,7 @@ import {
 import { scoreJob, deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
-import { AppliedIndex, logOutcome, recentReviewFeedback, saveRunSummary, syncFromSeek } from './store.js';
+import { AppliedIndex, logOutcome, recentReviewFeedback, roleKey, saveRunSummary, syncFromSeek } from './store.js';
 import { savedAnswersUpdatedAt } from './knowledge.js';
 import { countHealth } from './run-health.js';
 import { assertHumanizerHealthy } from './humanizer.js';
@@ -730,8 +730,14 @@ async function main() {
         continue;
       }
 
-      const roleKey = `${job.title}|${job.company}`.toLowerCase().replace(/\s+/g, ' ').trim();
-      if (attemptedRoles.has(roleKey)) {
+      // Checked again here, not only at discovery: another board's listing of this job may have gone through minutes ago.
+      if (index.has(job.id, job.company, job.title, job.location)) {
+        console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
+        logOutcome({ status: 'skipped', jobId: job.id, reason: 'already applied to this role', title: job.title, company: job.company });
+        continue;
+      }
+      const role = roleKey(job.company, job.title);
+      if (attemptedRoles.has(role)) {
         console.log(`  – skipped (same role already attempted this run): ${job.title} @ ${job.company}`);
         logOutcome({ status: 'skipped', jobId: job.id, reason: 'duplicate listing of a role already attempted this run', title: job.title, company: job.company });
         continue;
@@ -743,7 +749,7 @@ async function main() {
           continue;
         }
       }
-      attemptedRoles.add(roleKey);
+      attemptedRoles.add(role);
 
       if (abortedPlatforms.has(platformId)) {
         console.log(`  – skipped (${adapter.label} stopped earlier this run after repeated friction): ${job.title} @ ${job.company}`);
