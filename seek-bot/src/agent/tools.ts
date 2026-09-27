@@ -304,7 +304,19 @@ async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
     const clearable = field && !field.required && (field.kind === 'text' || field.kind === 'textarea');
     const cleared = clearable && await ctx.page.locator(`[data-field-id="${field!.ref}"]`).first()
       .fill('', { timeout: 5_000 }).then(() => true).catch(() => false);
-    if (cleared) ctx.log(`  · cleared "${field!.label}": it held an answer that was not the candidate's (${problem.problem.slice(0, 120)})`);
+    if (cleared) {
+      ctx.log(`  · cleared "${field!.label}": it held an answer that was not the candidate's (${problem.problem.slice(0, 120)})`);
+      continue;
+    }
+    /**
+     * A required field is answered afresh, grounded like any other answer,
+     * rather than handed back: the agent could not find SEEK's pre-filled
+     * "Tell us more" on the page and the job went to the candidate over a
+     * field the answer tool could write. Only a field with no grounded answer
+     * is left for the agent and, from there, the candidate.
+     */
+    const repaired = field ? await repairPrefilled(ctx, field, problem.problem).catch(() => null) : null;
+    if (repaired) ctx.log(`  · re-answered "${field!.label}": the page held an answer that was not the candidate's`);
     else remaining.push(problem);
   }
   if (!remaining.length) {
@@ -312,6 +324,21 @@ async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
     return null;
   }
   return withheldFor(ctx, remaining);
+}
+
+/** Writes a grounded answer over a value the page held that was not the candidate's; null when there is none to write. */
+async function repairPrefilled(ctx: ToolContext, field: FormField, problem: string): Promise<string | null> {
+  const question: FormField = {
+    ...field,
+    currentValue: '',
+    description: `${field.description ? `${field.description}\n` : ''}The form had pre-filled an answer here that is not this candidate's for this application (${problem.slice(0, 200)}). Write the answer afresh for this job.`,
+  };
+  const answer = (await answerFields([question], ctx.job, ctx.profile)).answers.find((candidate) => candidate.ref === field.ref);
+  if (!answer?.grounded || !answer.value?.trim()) return null;
+  await fillField(ctx.page, field, answer.value, field.kind === 'textarea' || field.kind === 'text' ? 'type' : undefined);
+  ctx.captured.push({ question: field.label, answer: answer.value });
+  ctx.guards.recordFillSuccess(field.label);
+  return answer.value;
 }
 
 /** What the agent is told when answers on the form are not the candidate's; a field flagged twice goes to the candidate. */
