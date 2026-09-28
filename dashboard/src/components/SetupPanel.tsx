@@ -158,6 +158,9 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       >
         <FilesPanel onChanged={() => {
           setResumeLibraryVersion((value) => value + 1);
+          // The upload filled job titles and a city on the server: show them, and move on to what is left.
+          fetch('/api/settings').then((r) => r.json()).then((next) => { setSettings(next); setEdits({}); }).catch(() => {});
+          setSelectedStep(undefined);
           window.dispatchEvent(new Event('setup-status-changed'));
         }} />
       </Step>
@@ -166,7 +169,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
         id="details"
         n={2}
         title="Your details"
-        blurb="Add anything missing."
+        blurb="Check what we filled in."
         done={done('profile')}
         open={openStep === 'details'}
         onSelect={selectStep}
@@ -178,9 +181,9 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       <Step
         id="looking"
         n={3}
-        title="Job titles"
-        blurb="What work should we find?"
-        done={done('keywords')}
+        title="What you're after"
+        blurb="Job titles, city and work style."
+        done={done('looking')}
         open={openStep === 'looking'}
         onSelect={selectStep}
         onEngage={engageStep}
@@ -201,34 +204,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
           />
         </div>
 
-        <div className="field">
-          <FieldLabel
-            label="Companies to avoid"
-            optional
-            help="Jobs advertised by these employers are rejected before AI review. Close misspellings are matched automatically."
-          />
-          <TermsInput
-            id="setup-excluded-companies"
-            value={val('EXCLUDED_COMPANIES')}
-            itemLabel="company"
-            ariaLabel="Companies to avoid"
-            emptyPlaceholder="Type a company and press Enter"
-            onChange={(companies) => set('EXCLUDED_COMPANIES', companies)}
-          />
-        </div>
 
-      </Step>
-
-      <Step
-        id="where"
-        n={4}
-        title="Location and work style"
-        blurb="Choose your city and work style."
-        done={done('where')}
-        open={openStep === 'where'}
-        onSelect={selectStep}
-        onEngage={engageStep}
-      >
         <div className="field">
           <FieldLabel label="Consider these arrangements" help="Choose whether to include remote, hybrid, and on-site jobs." />
           <div className="chips">
@@ -286,11 +262,26 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
             <span className="job-meta">AUD per hour · jobs with no salary remain eligible</span>
           </label>
         </div>
+        <div className="field">
+          <FieldLabel
+            label="Companies to avoid"
+            optional
+            help="Jobs advertised by these employers are rejected before AI review. Close misspellings are matched automatically."
+          />
+          <TermsInput
+            id="setup-excluded-companies"
+            value={val('EXCLUDED_COMPANIES')}
+            itemLabel="company"
+            ariaLabel="Companies to avoid"
+            emptyPlaceholder="Type a company and press Enter"
+            onChange={(companies) => set('EXCLUDED_COMPANIES', companies)}
+          />
+        </div>
       </Step>
 
       <Step
         id="boards"
-        n={5}
+        n={4}
         title="Connect a job board"
         blurb="SEEK, or Indeed if available."
         done={done('boards')}

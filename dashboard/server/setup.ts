@@ -73,7 +73,8 @@ export async function accountSetupChecks(userId: string): Promise<{
       label: 'Location and work style set',
       done: Boolean(settings.ONSITE_CITY?.trim()) && Boolean(settings.WORK_ARRANGEMENTS?.trim()),
       hint: 'Choose a work style and city.',
-      fix: 'where',
+      // Job titles and location are one step now: what the person is after.
+      fix: 'looking',
       required: true,
     },
   };
@@ -93,11 +94,19 @@ export async function setupStatus(
   // separate waitingForBoard state in accountSetupComplete unchanged.
   const connectedBoards = (['seek', 'indeed'] as const)
     .filter((site) => readSiteState(userId, site)?.signedIn === true);
+  // Job titles and location are one step on screen, so they are one check here too.
+  const looking: SetupCheck = {
+    id: 'looking',
+    label: 'Job titles and location set',
+    done: account.keywords.done && account.where.done,
+    hint: !account.keywords.done ? account.keywords.hint : account.where.hint,
+    fix: 'looking',
+    required: true,
+  };
   const checks: SetupCheck[] = [
     account.resume,
     account.profile,
-    account.keywords,
-    account.where,
+    looking,
     {
       id: 'boards',
       label: 'Job board connected',

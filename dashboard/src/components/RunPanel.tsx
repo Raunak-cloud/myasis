@@ -352,7 +352,7 @@ export function RunPanel({
   const setup = useSetupStatus();
   /** The steps only the account holder can do; an account without them is not on the schedule yet. */
   const accountSetupIncomplete = Boolean(
-    setup?.checks.some((check) => ['resume', 'profile', 'keywords', 'where'].includes(check.id) && !check.done),
+    setup?.checks.some((check) => ['resume', 'profile', 'looking'].includes(check.id) && !check.done),
   );
   const consoleRef = useRef<HTMLDivElement>(null);
   const renewedTermsSeq = useRef(0);

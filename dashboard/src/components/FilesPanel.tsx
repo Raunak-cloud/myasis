@@ -37,23 +37,6 @@ function toBase64(file: File): Promise<string> {
   });
 }
 
-/** Profile keys as the details form names them. */
-const FIELD_LABELS: Record<string, string> = {
-  fullName: 'Full name',
-  email: 'Email',
-  phone: 'Phone',
-  suburb: 'Suburb',
-  state: 'State',
-  postcode: 'Postcode',
-  headline: 'Headline',
-  experienceSummary: 'Experience summary',
-  skills: 'Skills',
-  highestQualification: 'Highest qualification',
-  linkedin: 'LinkedIn',
-  portfolio: 'Portfolio',
-};
-
-const fieldLabel = (key: string) => FIELD_LABELS[key] ?? key;
 
 export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [resumes, setResumes] = useState<ResumeRecord[]>([]);
@@ -70,6 +53,9 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
    * to know which fields to check.
    */
   const [autofilled, setAutofilled] = useState<string[] | null>(null);
+  /** What the upload set up besides the details, for the one summary line. */
+  const [setUp, setSetUp] = useState<{ terms: number; city: string | null } | null>(null);
+  const [reading, setReading] = useState(false);
   const [autofillError, setAutofillError] = useState<string | null>(null);
 
   async function refresh(notify = false) {
@@ -88,6 +74,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
 
   async function upload(kind: 'resume' | 'knowledge', file: File) {
     setBusy(true);
+    setReading(kind === 'resume');
     setError(null);
     try {
       const base64 = await toBase64(file);
@@ -101,12 +88,14 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       else {
         setAutofilled(Array.isArray(json.autofilled) && json.autofilled.length ? json.autofilled : null);
         setAutofillError(kind === 'resume' && typeof json.autofillError === 'string' ? json.autofillError : null);
+        if (kind === 'resume') setSetUp({ terms: Array.isArray(json.terms) ? json.terms.length : 0, city: typeof json.city === 'string' ? json.city : null });
         await refresh(kind === 'resume');
       }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setReading(false);
     }
   }
 
@@ -170,9 +159,20 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
     <div className="files-grid">
       {error && <div className="banner banner-bad" style={{ gridColumn: '1/-1' }}>{error}</div>}
 
-      {autofilled && (
+      {reading && (
+        <div className="banner" style={{ gridColumn: '1/-1' }}>
+          Reading your résumé and setting things up… this takes a few seconds.
+        </div>
+      )}
+
+      {!reading && (autofilled || (setUp && (setUp.terms || setUp.city))) && (
         <div className="banner banner-ok" style={{ gridColumn: '1/-1' }}>
-          Filled from your résumé: {autofilled.map(fieldLabel).join(', ')}. Check them in step 2.
+          Set up from your résumé:{' '}
+          {[
+            autofilled?.length ? 'your details' : '',
+            setUp?.terms ? `${setUp.terms} job titles` : '',
+            setUp?.city ? `city ${setUp.city}` : '',
+          ].filter(Boolean).join(', ')}. Give them a quick check below.
         </div>
       )}
 

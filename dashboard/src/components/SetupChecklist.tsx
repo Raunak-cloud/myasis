@@ -5,8 +5,8 @@ const SetupPanel = lazy(() => import('./SetupPanel').then((module) => ({ default
 
 const ACTION_LABEL: Record<SetupSection, string> = {
   documents: 'Upload your résumé',
-  details: 'Complete your details',
-  looking: 'Add job titles',
+  details: 'Check your details',
+  looking: 'Choose what you are after',
   where: 'Choose your location and work style',
   boards: 'Connect a job board',
 };

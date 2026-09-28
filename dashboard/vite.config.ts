@@ -49,7 +49,7 @@ import { chatCompletion, humanizerEndpoint, probeHumanizer } from './server/huma
 import { routeStatus } from './server/route.js';
 import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
 import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
-import { autofillProfileFromResume } from './server/profile-autofill.js';
+import { setUpFromResume } from './server/quick-setup.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
@@ -780,15 +780,17 @@ function dataApi(): Plugin {
              * Only blank fields are touched, and a failure here is not an
              * upload failure — the résumé is saved either way.
              */
-            const autofill = await autofillProfileFromResume(userId, r.resume?.id)
-              .catch((error): { ok: false; filled: string[]; error: string } => ({ ok: false, filled: [], error: (error as Error).message }));
+            // The upload sets the account up: details, email, job titles and city, filling only what is empty.
+            const setup = await setUpFromResume(userId, r.resume?.id);
             // Said out loud either way: a form that stays empty with no word looks like nothing happened.
-            if (!autofill.ok) console.warn(`[autofill] user ${userId}: ${autofill.error}`);
+            if (setup.error) console.warn(`[autofill] user ${userId}: ${setup.error}`);
             return send({
               ok: true,
               resumes: await listResumes(userId),
-              ...(autofill.filled.length ? { autofilled: autofill.filled } : {}),
-              ...(!autofill.ok ? { autofillError: autofill.error ?? 'The résumé could not be read.' } : {}),
+              ...(setup.filled.length ? { autofilled: setup.filled } : {}),
+              ...(setup.terms.length ? { terms: setup.terms } : {}),
+              ...(setup.city ? { city: setup.city } : {}),
+              ...(setup.error ? { autofillError: setup.error } : {}),
             });
           }
           if (req.method === 'PATCH') {
