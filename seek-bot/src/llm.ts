@@ -134,6 +134,28 @@ const gemini = new GoogleGenAI({ apiKey: config.gemini.apiKey });
  * output a human reads with the candidate's name on it, so it keeps the model
  * that does it best rather than the one that keeps the dependency list short.
  */
+/**
+ * The model that writes cover-letter prose, behind one switch.
+ *
+ * COVER_LETTER_PROVIDER=celeris drafts with Celeris Magnus instead of Gemini;
+ * unset, Gemini drafts as before but a quota refusal falls through to Magnus
+ * rather than costing the application its letter — on 28 Sep 2026 Gemini's
+ * monthly spending cap answered 429 mid-application and the letter the form
+ * offered was never written.
+ */
+async function letterJson<T>(prompt: string, schema: object): Promise<T> {
+  const provider = (process.env.COVER_LETTER_PROVIDER ?? '').trim().toLowerCase();
+  if (provider === 'celeris') return json<T>(prompt, schema, 'celeris-1-magnus');
+  try {
+    return await geminiJson<T>(prompt, schema);
+  } catch (error) {
+    const message = (error as Error).message ?? String(error);
+    if (!/\b429\b|resource.?exhausted|quota|spending cap/i.test(message)) throw error;
+    console.warn(`  ! Gemini refused the letter (${message.slice(0, 90)}); drafting with Celeris Magnus instead`);
+    return json<T>(prompt, schema, 'celeris-1-magnus');
+  }
+}
+
 async function geminiJson<T>(prompt: string, schema: object): Promise<T> {
   if (!config.gemini.apiKey) {
     throw new Error('GEMINI_API_KEY is required for cover letters. Set it in .env.');
@@ -571,7 +593,7 @@ export async function fitCoverLetterToLimit(letter: string, maxLength: number, j
   if (maxLength < 0 || letter.length <= maxLength) return letter;
   const knowledge = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const out = await geminiJson<{ letter: string }>(`${GUARD}\n${APPLICANT_VOICE}\nRewrite the supplied cover note in at most ${maxLength} characters, including spaces and newlines. Keep only the strongest relevant points, preserve its voice and factual meaning, and add no new claims. Return JSON {"letter":"..."}.\n<untrusted>${letter}</untrusted>`, {
+    const out = await letterJson<{ letter: string }>(`${GUARD}\n${APPLICANT_VOICE}\nRewrite the supplied cover note in at most ${maxLength} characters, including spaces and newlines. Keep only the strongest relevant points, preserve its voice and factual meaning, and add no new claims. Return JSON {"letter":"..."}.\n<untrusted>${letter}</untrusted>`, {
       type: 'OBJECT', properties: { letter: { type: 'STRING' } }, required: ['letter'],
     });
     const shortened = out.letter.trim();
@@ -645,14 +667,14 @@ Rules:
   ${MAX_COVER_LETTER_WORDS} words.
 - Return JSON: {"letter": "..."}`;
 
-  const out = await geminiJson<{ letter: string }>(prompt, {
+  const out = await letterJson<{ letter: string }>(prompt, {
     type: 'OBJECT',
     properties: { letter: { type: 'STRING' } },
     required: ['letter'],
   });
   let draft = out.letter.trim();
   if (wordCount(draft) > MAX_COVER_LETTER_WORDS) {
-    const shortened = await geminiJson<{ letter: string }>(`${GUARD}
+    const shortened = await letterJson<{ letter: string }>(`${GUARD}
 
 ${APPLICANT_VOICE}
 
@@ -677,7 +699,7 @@ ${draft}
 
   let evidence = await letterEvidenceVerdict(draft, profile, knowledge);
   for (let attempt = 0; !evidence.supported && attempt < 2; attempt++) {
-    const repaired = await geminiJson<{ letter: string }>(`${GUARD}
+    const repaired = await letterJson<{ letter: string }>(`${GUARD}
 
 ${APPLICANT_VOICE}
 

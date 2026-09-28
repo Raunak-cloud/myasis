@@ -100,6 +100,16 @@ const GROUPS: GroupSpec[] = [
       { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },
       { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'Cover letters only. Not needed when every account reuses a fixed letter.', kind: 'secret' },
       { key: 'GEMINI_MODEL', label: 'Gemini model', help: 'The model that drafts cover letters.', kind: 'text' },
+      {
+        key: 'COVER_LETTER_PROVIDER',
+        label: 'Cover-letter writer',
+        help: 'Which model writes cover letters. Gemini also falls back to Celeris Magnus when its quota refuses.',
+        kind: 'choice',
+        options: [
+          { value: '', label: 'Gemini (Celeris fallback)' },
+          { value: 'celeris', label: 'Celeris Magnus' },
+        ],
+      },
     ],
   },
   {
