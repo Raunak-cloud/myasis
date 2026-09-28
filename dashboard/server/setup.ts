@@ -1,6 +1,7 @@
 import { listResumes } from './files.js';
 import { profileGaps } from './profile.js';
 import { loadUserSettings } from './settings.js';
+import { readSiteState } from './seek-state.js';
 
 interface SetupCheck {
   id: string;
@@ -9,7 +10,7 @@ interface SetupCheck {
   /** Shown when incomplete — says what to do, not just what is wrong. */
   hint: string;
   /** Which Setup section fixes it, or 'external' for things outside the app. */
-  fix: 'details' | 'documents' | 'looking' | 'where' | 'external';
+  fix: 'details' | 'documents' | 'looking' | 'where' | 'boards' | 'external';
   required: boolean;
 }
 
@@ -88,11 +89,25 @@ export async function setupStatus(
   userId: string,
 ): Promise<{ checks: SetupCheck[]; ready: boolean; done: number; total: number }> {
   const account = await accountSetupChecks(userId);
+  // Count board sign-in in the user's progress, but leave the scheduler's
+  // separate waitingForBoard state in accountSetupComplete unchanged.
+  const connectedBoards = (['seek', 'indeed'] as const)
+    .filter((site) => readSiteState(userId, site)?.signedIn === true);
   const checks: SetupCheck[] = [
     account.resume,
     account.profile,
     account.keywords,
     account.where,
+    {
+      id: 'boards',
+      label: 'Job board connected',
+      done: connectedBoards.length > 0,
+      hint: connectedBoards.length
+        ? `Connected to ${connectedBoards.map((site) => site === 'seek' ? 'SEEK' : 'Indeed').join(' and ')}.`
+        : 'Sign in to SEEK or Indeed so Owtomate can apply from your account.',
+      fix: 'boards',
+      required: true,
+    },
   ];
 
   const required = checks.filter((c) => c.required);

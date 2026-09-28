@@ -188,6 +188,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
       const seek: SeekState | null = body?.seek ?? null;
       const indeed: SeekState | null = body?.indeed ?? null;
       setStatus({ supported: true, session: null, seek, indeed });
+      window.dispatchEvent(new Event(BOARDS_CHANGED));
       // Only the site that was just checked can say anything new.
       if (verifySignIn && (target === 'seek' || target === 'indeed')) {
         const site = target === 'seek' ? seek : indeed;
@@ -268,18 +269,20 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
             {busy ? 'Opening…' : expired ? 'Sign in again' : 'Open SEEK'}
           </button>}
         </div>}
-        {indeedEnabled && !status.indeed?.signedIn && <div className="seek-connect-row">
+        {(indeedEnabled || (showConnected && status.indeed?.signedIn)) && (showConnected || !status.indeed?.signedIn) && <div className="seek-connect-row">
           <div>
             <h3>Indeed</h3>
             <p className="job-meta">
-              {indeedExpired
+              {status.indeed?.signedIn
+                ? 'Connected'
+                : indeedExpired
                 ? 'Signed out'
                 : 'Not connected'}
             </p>
           </div>
-          <button className="btn" disabled={busy} onClick={() => open('indeed')}>
+          {!status.indeed?.signedIn && <button className="btn" disabled={busy} onClick={() => open('indeed')}>
             {busy ? 'Opening…' : indeedExpired ? 'Sign in again' : 'Open Indeed'}
-          </button>
+          </button>}
         </div>}
       </div>
     );

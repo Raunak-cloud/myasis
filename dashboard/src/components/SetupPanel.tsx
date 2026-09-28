@@ -283,15 +283,18 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
         </div>
       </Step>
 
-      <section className="card step" aria-labelledby="setup-seek-title">
-        <div className="step-body">
-          <div>
-            <h2 className="step-title" id="setup-seek-title">Connect SEEK</h2>
-            <p className="job-meta step-blurb">Sign in to your SEEK account so Owtomate can apply for jobs for you.</p>
-          </div>
-          <SeekSignIn showConnected />
-        </div>
-      </section>
+      <Step
+        id="boards"
+        n={5}
+        title="Connect a job board"
+        blurb="Sign in to SEEK, or Indeed if available, so Owtomate can apply from your account."
+        done={done('boards')}
+        open={openStep === 'boards'}
+        onSelect={selectStep}
+        onEngage={engageStep}
+      >
+        <SeekSignIn showConnected indeedEnabled={Boolean(entitlements?.indeedApplications)} />
+      </Step>
 
       <GmailConnect />
 

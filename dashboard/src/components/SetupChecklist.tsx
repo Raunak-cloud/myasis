@@ -6,6 +6,7 @@ const ACTION_LABEL: Record<SetupSection, string> = {
   details: 'Complete your details',
   looking: 'Add job titles',
   where: 'Choose your location and work style',
+  boards: 'Connect a job board',
 };
 
 /** One clear next action; the complete readiness checklist remains available. */
