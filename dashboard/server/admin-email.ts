@@ -58,7 +58,12 @@ async function stepLines(userId: string, open: Array<{ id: string; label: string
         break;
       case 'profile': {
         const gaps = await profileGaps(userId);
-        lines.push(gaps.length ? `Check your details. Still missing: ${gaps.join(', ')}.` : 'Check your details.');
+        // Before a résumé is in, most gaps are ones the upload fills; listing them would make setup look longer than it is.
+        const resumeFirst = open.some((step) => step.id === 'resume');
+        const workRights = gaps.some((gap) => /work rights/i.test(gap));
+        lines.push(resumeFirst
+          ? `Check the details it filled in${workRights ? ' and add your work rights' : ''}.`
+          : gaps.length ? `Check your details. Still missing: ${gaps.join(', ')}.` : 'Check your details.');
         break;
       }
       case 'looking':
