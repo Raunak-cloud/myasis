@@ -89,7 +89,7 @@ export function SetupChecklist({
               </span>
               <span className="checklist-copy">
                 <strong>{check.label}</strong>
-                <span className="job-meta">{check.hint}</span>
+                {!check.done && <span className="job-meta">{check.hint}</span>}
               </span>
               {check.fix !== 'external' && (
                 <button type="button" className="btn checklist-btn" onClick={() => onFix(check.fix as SetupSection)}>

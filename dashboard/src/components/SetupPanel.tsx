@@ -45,7 +45,7 @@ function Step({
         <span className={`step-n ${done ? 'done' : ''}`}>{done ? '✓' : n}</span>
         <div>
           <h3 className="step-title">{title}</h3>
-          <p className="job-meta step-blurb">{blurb}</p>
+          {open && <p className="job-meta step-blurb">{blurb}</p>}
         </div>
         <span className="step-chevron" aria-hidden="true">+</span>
       </summary>
@@ -139,14 +139,14 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
       {status && !status.ready && (
         <div className="setup-guide">
           <strong>{status.done} of {status.total} steps complete</strong>
-          <span>Start with the open step. You can review any step at any time.</span>
+          <span>Complete these to start applying.</span>
         </div>
       )}
       <Step
         id="documents"
         n={1}
         title="Upload your résumé"
-        blurb="We'll use it to fill in the details it already contains."
+        blurb="We'll fill in what we can."
         done={done('resume')}
         open={openStep === 'documents'}
         onSelect={selectStep}
@@ -158,8 +158,8 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
       <Step
         id="details"
         n={2}
-        title="Complete your details"
-        blurb="Check what was filled in, then add anything your résumé did not include."
+        title="Your details"
+        blurb="Add anything missing."
         done={done('profile')}
         open={openStep === 'details'}
         onSelect={selectStep}
@@ -171,8 +171,8 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
       <Step
         id="looking"
         n={3}
-        title="What you're looking for"
-        blurb="Choose the roles you want the automation to find."
+        title="Job titles"
+        blurb="What work should we find?"
         done={done('keywords')}
         open={openStep === 'looking'}
         onSelect={selectStep}
@@ -192,7 +192,7 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
             refreshKey={resumeLibraryVersion}
             onGenerated={(terms) => set('KEYWORDS', terms)}
           />
-          <span className="job-meta">Comma separated. More terms cast a wider net.</span>
+          <span className="job-meta">Separate titles with commas.</span>
         </div>
 
         <div className="field">
@@ -209,7 +209,7 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
             emptyPlaceholder="Type a company and press Enter"
             onChange={(companies) => set('EXCLUDED_COMPANIES', companies)}
           />
-          <span className="job-meta">Press Enter or comma to add a company. Matching is typo-tolerant.</span>
+          <span className="job-meta">Press Enter or comma to add.</span>
         </div>
 
       </Step>
@@ -218,7 +218,7 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
         id="where"
         n={4}
         title="Location and work style"
-        blurb="Choose remote, hybrid or on-site and your city. Pay preferences are optional."
+        blurb="Choose your city and work style."
         done={done('where')}
         open={openStep === 'where'}
         onSelect={selectStep}
@@ -287,7 +287,7 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
         id="boards"
         n={5}
         title="Connect a job board"
-        blurb="Sign in to SEEK, or Indeed if available, so Owtomate can apply from your account."
+        blurb="SEEK, or Indeed if available."
         done={done('boards')}
         open={openStep === 'boards'}
         onSelect={selectStep}

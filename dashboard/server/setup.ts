@@ -46,7 +46,7 @@ export async function accountSetupChecks(userId: string): Promise<{
       id: 'resume',
       label: 'Résumé uploaded',
       done: resumes.length > 0,
-      hint: 'Upload your résumé first. We will use it to fill in the details it contains.',
+      hint: 'Upload your résumé.',
       fix: 'documents',
       required: true,
     },
@@ -55,8 +55,8 @@ export async function accountSetupChecks(userId: string): Promise<{
       label: 'Remaining details completed',
       done: gaps.length === 0,
       hint: gaps.length
-        ? `Still needed after résumé import: ${gaps.join(', ')}.`
-        : 'Name, contact, work rights and experience are set.',
+        ? `Add: ${gaps.join(', ')}.`
+        : 'Details complete.',
       fix: 'details',
       required: true,
     },
@@ -64,7 +64,7 @@ export async function accountSetupChecks(userId: string): Promise<{
       id: 'keywords',
       label: 'Search terms set',
       done: Boolean(settings.KEYWORDS?.trim()),
-      hint: 'Add the job titles you want to search for. Separate multiple titles with commas.',
+      hint: 'Add job titles, separated by commas.',
       fix: 'looking',
       required: true,
     },
@@ -72,7 +72,7 @@ export async function accountSetupChecks(userId: string): Promise<{
       id: 'where',
       label: 'Location and work style set',
       done: Boolean(settings.ONSITE_CITY?.trim()) && Boolean(settings.WORK_ARRANGEMENTS?.trim()),
-      hint: 'Choose remote, hybrid or on-site, plus your city. Pay preferences are optional.',
+      hint: 'Choose a work style and city.',
       fix: 'where',
       required: true,
     },
@@ -104,7 +104,7 @@ export async function setupStatus(
       done: connectedBoards.length > 0,
       hint: connectedBoards.length
         ? `Connected to ${connectedBoards.map((site) => site === 'seek' ? 'SEEK' : 'Indeed').join(' and ')}.`
-        : 'Sign in to SEEK or Indeed so Owtomate can apply from your account.',
+        : 'Connect SEEK, or Indeed if available.',
       fix: 'boards',
       required: true,
     },
