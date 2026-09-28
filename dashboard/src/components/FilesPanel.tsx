@@ -217,11 +217,10 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
           <div style={{ display: 'grid', gap: 8 }}>
             {resumes.map((r) => (
               <div key={r.id} className="qa" style={{ marginBottom: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                  <div style={{ minWidth: 0 }}>
+                <div className="file-item-head">
+                  <div className="file-item-main">
                     <input
-                      className="input"
-                      style={{ minWidth: 0, width: '100%', padding: '3px 7px', fontWeight: 600 }}
+                      className="input file-item-title"
                       value={r.label}
                       onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, label: e.target.value } : x)))}
                       onBlur={(e) => patchResume(r.id, { label: e.target.value })}
@@ -230,18 +229,17 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                       {r.fileName} · {kb(r.size)} · {fmtDate(r.uploadedAt)}
                     </div>
                     <input
-                      className="input"
-                      style={{ minWidth: 0, width: '100%', padding: '3px 7px', marginTop: 6 }}
+                      className="input file-item-notes"
                       placeholder="What is this résumé for? e.g. React/frontend roles"
                       value={r.notes ?? ''}
                       onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, notes: e.target.value } : x)))}
                       onBlur={(e) => patchResume(r.id, { notes: e.target.value })}
                     />
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <div className="file-item-actions">
                     <button
                       className="btn"
-                      style={{ padding: '3px 8px', fontSize: 12 }}
+                     
                       onClick={() => { setContextText(null); setPreview({ kind: 'resume', id: r.id, label: r.label, fileName: r.fileName }); }}
                     >
                       View
@@ -249,13 +247,13 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                     {r.isDefault ? (
                       <span className="badge ok">default</span>
                     ) : (
-                      <button className="btn" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => patchResume(r.id, { isDefault: true })}>
+                      <button className="btn" onClick={() => patchResume(r.id, { isDefault: true })}>
                         Make default
                       </button>
                     )}
                     <button
                       className="btn"
-                      style={{ padding: '3px 8px', fontSize: 12, color: 'var(--bad)' }}
+                      style={{ color: 'var(--bad)' }}
                       onClick={() => removeResume(r.id, r.label)}
                     >
                       ✕
@@ -303,8 +301,8 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
         <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
           {items.map((i) => (
             <div key={i.id} className="qa" style={{ marginBottom: 0, opacity: i.enabled ? 1 : 0.5 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                <div style={{ minWidth: 0 }}>
+              <div className="file-item-head">
+                <div className="file-item-main">
                   <div style={{ fontWeight: 600 }}>
                     {i.label} <span className="badge muted">{i.kind}</span>
                   </div>
@@ -314,24 +312,24 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                     {kb(i.size)}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <div className="file-item-actions">
                   <button
                     className="btn"
-                    style={{ padding: '3px 8px', fontSize: 12 }}
+                   
                     onClick={() => { setContextText(null); setPreview({ kind: 'knowledge', id: i.id, label: i.label, fileName: i.fileName }); }}
                   >
                     View
                   </button>
                   <button
                     className="btn"
-                    style={{ padding: '3px 8px', fontSize: 12 }}
+                   
                     onClick={() => patchItem(i.id, { enabled: !i.enabled })}
                   >
                     {i.enabled ? 'Disable' : 'Enable'}
                   </button>
                   <button
                     className="btn"
-                    style={{ padding: '3px 8px', fontSize: 12, color: 'var(--bad)' }}
+                    style={{ color: 'var(--bad)' }}
                     onClick={() => removeItem(i.id, i.label)}
                   >
                     ✕

@@ -189,6 +189,21 @@ a:hover { text-decoration: underline; }
 }
 @media (max-width: 900px) { .files-grid { grid-template-columns: 1fr; } }
 
+/*
+ * One résumé or document: its name and notes take the free width, the
+ * controls sit on one centre line beside them. The text column used to
+ * shrink to its content (no flex-grow), cutting the notes placeholder off,
+ * and the "default" badge stretched to the row's height with its text at
+ * the top. On a narrow card the controls wrap under the text.
+ */
+.file-item-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.file-item-main { flex: 1 1 220px; min-width: 0; }
+.file-item-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.file-item-actions .btn { padding: 4px 9px; font-size: 12px; }
+.file-item-actions .badge { align-self: center; line-height: 1.2; }
+.file-item-title { width: 100%; min-width: 0; padding: 4px 8px; font-weight: 600; }
+.file-item-notes { width: 100%; min-width: 0; padding: 4px 8px; margin-top: 6px; }
+
 /* ---------- stat cards ---------- */
 .stats {
   display: grid; gap: 12px; margin-bottom: 24px;
