@@ -23,5 +23,4 @@
 .legal .blog-sources { padding-left: 22px; font-size: 14px; }
 .legal .blog-sources li { word-break: break-word; }
 .legal .blog-sources li:target { background: var(--blue-tint); }
-.legal .blog-method { margin-top: 28px; color: var(--muted); font-size: 13.5px; }
 .legal .blog-cta { margin-top: 36px; }

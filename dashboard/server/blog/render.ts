@@ -106,7 +106,6 @@ export function renderPost(post: StoredPost, origin: string): { head: string; bo
   const sources = new Map(brief.sources.map((s) => [s.ref, s]));
   const cited = new Set([...JSON.stringify(article).matchAll(CITATION)].flatMap((m) => refsIn(m[1])));
   const newThisWeek = new Set(brief.searches.filter((s) => s.isNew).map((s) => s.suggestion));
-  const seeds = new Set(brief.searches.map((s) => s.seed)).size;
 
   const sections = article.sections.map((section) => [
     `<h2>${plain(section.heading)}</h2>`,
@@ -138,7 +137,6 @@ export function renderPost(post: StoredPost, origin: string): { head: string; bo
       <ul>${article.takeaways.map((t) => `<li>${prose(t, sources)}</li>`).join('')}</ul>
       <h2 id="sources">Sources</h2>
       <ol class="blog-sources">${sourceList}</ol>
-      <p class="blog-method"><strong>How this brief is made.</strong> Searches are Google's autocomplete suggestions in Australia for ${seeds} common job-search phrases, collected ${escapeHtml(longDate(new Date(brief.gatheredAt)))}; they show what people type, not how many. Figures come only from the sources above. The article is drafted with AI from those sources and fact-checked against them before it is published.</p>
       <section class="legal-lead blog-cta" aria-label="Try Owtomate">
         <p><strong>Spending your evenings on applications?</strong> Owtomate applies to jobs that match your résumé on SEEK and Indeed, from your own account, and asks you whenever it cannot answer honestly.</p>
         <p><a href="/api/auth/google" rel="nofollow"><strong>Start free — five applications, no card</strong></a></p>
