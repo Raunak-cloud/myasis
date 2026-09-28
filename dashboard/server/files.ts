@@ -99,6 +99,13 @@ export async function listResumes(userId: string): Promise<ResumeRecord[]> {
   return rows.map(rowToResume);
 }
 
+/**
+ * The most résumés an account keeps. The AI picks the best one per job from
+ * their notes; past a handful the choice gets noisier, not better, and each
+ * extra one is another file to keep current on SEEK.
+ */
+const MAX_RESUMES = 4;
+
 export async function addResume(
   userId: string,
   input: { fileName: string; label?: string; base64: string; notes?: string },
@@ -116,6 +123,9 @@ export async function addResume(
   ensureUserDataDir(userId);
   const resumeDir = userResumeDir(userId);
   const all = await listResumes(userId);
+  if (all.length >= MAX_RESUMES) {
+    return { ok: false, error: `You can keep up to ${MAX_RESUMES} résumés. Delete one before uploading another.` };
+  }
   // Keep the on-disk name unique without mangling what the user recognises.
   let fileName = name;
   let n = 1;

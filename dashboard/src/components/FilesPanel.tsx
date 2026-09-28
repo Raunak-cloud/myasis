@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { fmtDate } from '../format';
 import { FilePreview } from './FilePreview';
 
 interface ResumeRecord {
@@ -23,6 +22,9 @@ interface KnowledgeItem {
   size?: number;
   enabled: boolean;
 }
+
+/** Mirrors the server's MAX_RESUMES (server/files.ts), which is the actual limit. */
+const MAX_RESUMES = 4;
 
 const kb = (n = 0) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(0)} KB`);
 
@@ -56,12 +58,9 @@ const fieldLabel = (key: string) => FIELD_LABELS[key] ?? key;
 export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [resumes, setResumes] = useState<ResumeRecord[]>([]);
   const [items, setItems] = useState<KnowledgeItem[]>([]);
-  const [stats, setStats] = useState<{ enabled: number; bytes: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<{ kind: 'resume' | 'knowledge'; id: string; label: string; fileName?: string } | null>(null);
-  const [contextText, setContextText] = useState<string | null>(null);
-  const [noteLabel, setNoteLabel] = useState('');
   const [noteText, setNoteText] = useState('');
   const resumeInput = useRef<HTMLInputElement>(null);
   const knowledgeInput = useRef<HTMLInputElement>(null);
@@ -79,7 +78,6 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
     ]);
     setResumes(Array.isArray(r) ? r : []);
     setItems(k.items ?? []);
-    setStats(k.stats ?? null);
     if (notify) onChanged?.();
   }
 
@@ -120,7 +118,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   };
 
   const removeResume = async (id: string, label: string) => {
-    if (!confirm(`Delete résumé "${label}"? This removes the local copy only. It does not touch your SEEK profile.`)) return;
+    if (!confirm(`Delete "${label}"? Your SEEK profile is not changed.`)) return;
     await fetch('/api/resumes', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -139,7 +137,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   };
 
   const removeItem = async (id: string, label: string) => {
-    if (!confirm(`Delete "${label}" from the knowledge base?`)) return;
+    if (!confirm(`Delete "${label}"?`)) return;
     await fetch('/api/knowledge', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -149,41 +147,43 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   };
 
   async function addNote() {
-    if (!noteText.trim()) return;
+    const text = noteText.trim();
+    if (!text) return;
     setBusy(true);
+    // The note names itself: its opening words are all a list needs to tell notes apart.
+    const label = text.split(/\s+/).slice(0, 6).join(' ').replace(/[.,;:!?]+$/, '') || 'Note';
     await fetch('/api/knowledge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'note', label: noteLabel || 'Note', text: noteText }),
+      body: JSON.stringify({ kind: 'note', label, text }),
     });
-    setNoteLabel('');
     setNoteText('');
     setBusy(false);
     refresh();
   }
 
+  const atLimit = resumes.length >= MAX_RESUMES;
+
   return (
     <div className="files-grid">
-      {error && (
-        <div className="banner" style={{ gridColumn: '1/-1', borderColor: 'var(--bad)', background: 'var(--bad-soft)' }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="banner banner-bad" style={{ gridColumn: '1/-1' }}>{error}</div>}
 
       {autofilled && (
         <div className="banner banner-ok" style={{ gridColumn: '1/-1' }}>
-          Filled in from your résumé: {autofilled.map(fieldLabel).join(', ')}. Review them in Complete your details,
-          then add anything the résumé did not mention.
+          Filled from your résumé: {autofilled.map(fieldLabel).join(', ')}. Check them in step 2.
         </div>
       )}
 
       {/* ---------------- résumés ---------------- */}
-      <div className="card" style={{ padding: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <h3 style={{ margin: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--text-faint)' }}>
-            Résumés
-          </h3>
-          <button className="btn" disabled={busy} onClick={() => resumeInput.current?.click()}>
+      <div className="card files-card">
+        <div className="files-card-head">
+          <h3>Résumés <span className="files-count">{resumes.length} of {MAX_RESUMES}</span></h3>
+          <button
+            className="btn"
+            disabled={busy || atLimit}
+            title={atLimit ? `Up to ${MAX_RESUMES} résumés. Delete one to add another.` : undefined}
+            onClick={() => resumeInput.current?.click()}
+          >
             + Upload
           </button>
           <input
@@ -198,64 +198,46 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
             }}
           />
         </div>
-        <p className="job-meta" style={{ marginTop: 0 }}>
-          The best résumé is selected for each role and uploaded to SEEK when it is not already on your profile.
-        </p>
-        {resumes.length > 1 && (
-          <p className="job-meta" style={{ marginTop: 0 }}>
-            With more than one résumé on file, the AI picks the best match for each job from the
-            notes below to describe what each one is for.
-          </p>
-        )}
+        <p className="files-card-hint">We pick the best one for each job.</p>
 
         {resumes.length === 0 ? (
-          <div className="empty" style={{ padding: '28px 10px' }}>
-            <div className="big">No résumés yet</div>
-            <div>Upload one to target different kinds of role.</div>
-          </div>
+          <button className="files-empty" disabled={busy} onClick={() => resumeInput.current?.click()}>
+            <strong>Upload your résumé</strong>
+            <span>PDF or Word</span>
+          </button>
         ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div className="files-list">
             {resumes.map((r) => (
-              <div key={r.id} className="qa" style={{ marginBottom: 0 }}>
+              <div key={r.id} className="qa files-row">
                 <div className="file-item-head">
                   <div className="file-item-main">
                     <input
                       className="input file-item-title"
+                      aria-label="Résumé name"
                       value={r.label}
                       onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, label: e.target.value } : x)))}
                       onBlur={(e) => patchResume(r.id, { label: e.target.value })}
                     />
-                    <div className="job-meta" style={{ marginTop: 4 }}>
-                      {r.fileName} · {kb(r.size)} · {fmtDate(r.uploadedAt)}
-                    </div>
-                    <input
-                      className="input file-item-notes"
-                      placeholder="What is this résumé for? e.g. React/frontend roles"
-                      value={r.notes ?? ''}
-                      onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, notes: e.target.value } : x)))}
-                      onBlur={(e) => patchResume(r.id, { notes: e.target.value })}
-                    />
+                    <div className="job-meta files-row-meta">{r.fileName} · {kb(r.size)}</div>
+                    {resumes.length > 1 && (
+                      <input
+                        className="input file-item-notes"
+                        aria-label="Which roles this résumé is for"
+                        placeholder="Which roles is it for?"
+                        value={r.notes ?? ''}
+                        onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, notes: e.target.value } : x)))}
+                        onBlur={(e) => patchResume(r.id, { notes: e.target.value })}
+                      />
+                    )}
                   </div>
                   <div className="file-item-actions">
-                    <button
-                      className="btn"
-                     
-                      onClick={() => { setContextText(null); setPreview({ kind: 'resume', id: r.id, label: r.label, fileName: r.fileName }); }}
-                    >
+                    <button className="btn" onClick={() => setPreview({ kind: 'resume', id: r.id, label: r.label, fileName: r.fileName })}>
                       View
                     </button>
-                    {r.isDefault ? (
-                      <span className="badge ok">default</span>
-                    ) : (
-                      <button className="btn" onClick={() => patchResume(r.id, { isDefault: true })}>
-                        Make default
-                      </button>
-                    )}
-                    <button
-                      className="btn"
-                      style={{ color: 'var(--bad)' }}
-                      onClick={() => removeResume(r.id, r.label)}
-                    >
+                    {resumes.length > 1 && (r.isDefault
+                      ? <span className="badge ok">default</span>
+                      : <button className="btn" onClick={() => patchResume(r.id, { isDefault: true })}>Make default</button>)}
+                    <button className="btn" aria-label={`Delete ${r.label}`} style={{ color: 'var(--bad)' }} onClick={() => removeResume(r.id, r.label)}>
                       ✕
                     </button>
                   </div>
@@ -266,14 +248,12 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
         )}
       </div>
 
-      {/* ---------------- knowledge base ---------------- */}
-      <div className="card" style={{ padding: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <h3 style={{ margin: 0, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--text-faint)' }}>
-            Extra application details
-          </h3>
+      {/* ---------------- extra details ---------------- */}
+      <div className="card files-card">
+        <div className="files-card-head">
+          <h3>Extra details <span className="files-count">optional</span></h3>
           <button className="btn" disabled={busy} onClick={() => knowledgeInput.current?.click()}>
-            + Upload document
+            + Upload file
           </button>
           <input
             ref={knowledgeInput}
@@ -287,98 +267,39 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
             }}
           />
         </div>
-        <p className="job-meta" style={{ marginTop: 0 }}>
-          Add useful information that may not be in your résumé, such as work rights, licences,
-          certificates, availability or referee details. Owtomate uses it to answer application questions.
-          {stats && stats.enabled > 0 && (
-            <>
-              {' '}
-              <strong>{stats.enabled}</strong> saved item{stats.enabled === 1 ? '' : 's'} ready to use.
-            </>
-          )}
-        </p>
+        <p className="files-card-hint">Anything your résumé doesn't say. We use it to answer application questions.</p>
 
-        <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
-          {items.map((i) => (
-            <div key={i.id} className="qa" style={{ marginBottom: 0, opacity: i.enabled ? 1 : 0.5 }}>
-              <div className="file-item-head">
-                <div className="file-item-main">
-                  <div style={{ fontWeight: 600 }}>
-                    {i.label} <span className="badge muted">{i.kind}</span>
-                  </div>
-                  <div className="job-meta" style={{ marginTop: 3 }}>
-                    {i.kind === 'file' ? i.fileName : `${i.text?.slice(0, 90)}${(i.text?.length ?? 0) > 90 ? '…' : ''}`}
-                    {' · '}
-                    {kb(i.size)}
-                  </div>
-                </div>
-                <div className="file-item-actions">
-                  <button
-                    className="btn"
-                   
-                    onClick={() => { setContextText(null); setPreview({ kind: 'knowledge', id: i.id, label: i.label, fileName: i.fileName }); }}
-                  >
-                    View
-                  </button>
-                  <button
-                    className="btn"
-                   
-                    onClick={() => patchItem(i.id, { enabled: !i.enabled })}
-                  >
-                    {i.enabled ? 'Disable' : 'Enable'}
-                  </button>
-                  <button
-                    className="btn"
-                    style={{ color: 'var(--bad)' }}
-                    onClick={() => removeItem(i.id, i.label)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {items.length === 0 && (
-            <div className="job-meta">
-              No extra details yet. Add a note below or upload a document.
-            </div>
-          )}
-        </div>
-
-        <h3 style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--text-faint)' }}>
-          Add a note
-        </h3>
-        <div style={{ display: 'grid', gap: 8 }}>
-          <input
-            className="input"
-            placeholder="Label, e.g. Visa & work rights"
-            value={noteLabel}
-            onChange={(e) => setNoteLabel(e.target.value)}
-          />
+        <div className="files-note">
           <textarea
             className="input"
-            rows={4}
-            placeholder={'Useful details for applications. e.g.\n"Full driver licence, own car. Available to start immediately. Happy with 3 days on-site."'}
+            rows={2}
+            aria-label="Add a detail"
+            placeholder="e.g. Full driver licence. Can start next week."
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
-            style={{ resize: 'vertical' }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void addNote(); }}
           />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn primary" disabled={busy || !noteText.trim()} onClick={addNote}>
-              Add note
-            </button>
-            <button
-              className="btn"
-              onClick={async () => {
-                setPreview(null);
-                const r = await fetch('/api/knowledge/context').then((x) => x.json());
-                setContextText(r.ok ? r.text || '(nothing enabled)' : `Error: ${r.error}`);
-              }}
-            >
-              Preview saved details
-            </button>
-          </div>
+          <button className="btn primary" disabled={busy || !noteText.trim()} onClick={addNote}>Save</button>
         </div>
+
+        {items.length > 0 && (
+          <ul className="files-details">
+            {items.map((i) => (
+              <li key={i.id} className={i.enabled ? '' : 'off'}>
+                <span className="files-detail-text">
+                  {i.kind === 'file' ? <><span className="badge muted">file</span> {i.fileName ?? i.label}</> : i.text ?? i.label}
+                </span>
+                <span className="file-item-actions">
+                  {i.kind === 'file' && (
+                    <button className="btn" onClick={() => setPreview({ kind: 'knowledge', id: i.id, label: i.label, fileName: i.fileName })}>View</button>
+                  )}
+                  {!i.enabled && <button className="btn" onClick={() => patchItem(i.id, { enabled: true })}>Turn on</button>}
+                  <button className="btn" aria-label={`Delete ${i.label}`} style={{ color: 'var(--bad)' }} onClick={() => removeItem(i.id, i.label)}>✕</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {preview && (
@@ -389,30 +310,6 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
           fileName={preview.fileName}
           onClose={() => setPreview(null)}
         />
-      )}
-
-      {contextText !== null && (
-        <div className="overlay" onClick={() => setContextText(null)}>
-          <aside className="drawer" onClick={(e) => e.stopPropagation()}>
-            <div className="drawer-head">
-              <div>
-                <h2>Assembled context</h2>
-                <div className="job-meta">
-                  {contextText.length.toLocaleString()} chars, exactly what is appended to every
-                  cover-letter and screening-answer prompt
-                </div>
-              </div>
-              <button className="btn" onClick={() => setContextText(null)}>
-                Close
-              </button>
-            </div>
-            <div className="drawer-body">
-              <div className="letter" style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}>
-                {contextText}
-              </div>
-            </div>
-          </aside>
-        </div>
       )}
     </div>
   );

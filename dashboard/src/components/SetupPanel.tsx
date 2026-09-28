@@ -199,7 +199,6 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
             refreshKey={resumeLibraryVersion}
             onGenerated={(terms) => set('KEYWORDS', terms)}
           />
-          <span className="job-meta">Separate titles with commas.</span>
         </div>
 
         <div className="field">
@@ -216,7 +215,6 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
             emptyPlaceholder="Type a company and press Enter"
             onChange={(companies) => set('EXCLUDED_COMPANIES', companies)}
           />
-          <span className="job-meta">Press Enter or comma to add.</span>
         </div>
 
       </Step>

@@ -201,6 +201,34 @@ a:hover { text-decoration: underline; }
 .file-item-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .file-item-actions .btn { padding: 4px 9px; font-size: 12px; }
 .file-item-actions .badge { align-self: center; line-height: 1.2; }
+/* Setup step 1: two plain cards, one short line each. */
+.files-card { padding: 18px; }
+.files-card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.files-card-head h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint); }
+.files-count { margin-left: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-faint); }
+.files-card-hint { margin: 6px 0 12px; color: var(--text-dim); font-size: 13px; }
+.files-list { display: grid; gap: 8px; }
+.files-row { margin-bottom: 0; }
+.files-row-meta { margin-top: 4px; overflow-wrap: anywhere; }
+.files-empty {
+  width: 100%; display: grid; gap: 2px; justify-items: center; padding: 22px 12px;
+  border: 1.5px dashed var(--border); border-radius: var(--radius); background: transparent;
+  color: var(--text); font: inherit; cursor: pointer;
+}
+.files-empty:hover:not(:disabled) { border-color: var(--accent, var(--text-dim)); }
+.files-empty span { color: var(--text-faint); font-size: 12px; }
+.files-note { display: flex; gap: 8px; align-items: flex-end; }
+.files-note textarea { flex: 1 1 auto; min-width: 0; resize: vertical; }
+.files-details { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.files-details li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+}
+.files-details li.off { opacity: .55; }
+.files-detail-text { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; }
+@media (max-width: 480px) {
+  .files-note { flex-direction: column; align-items: stretch; }
+}
 .file-item-title { width: 100%; min-width: 0; padding: 4px 8px; font-weight: 600; }
 .file-item-notes { width: 100%; min-width: 0; padding: 4px 8px; margin-top: 6px; }
 
