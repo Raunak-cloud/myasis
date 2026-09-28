@@ -3,7 +3,7 @@ import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
 import { SetupChecklist } from './SetupChecklist';
-import { useSetupStatus, type SetupSection } from '../setupStatus';
+import { useSetupStatus } from '../setupStatus';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
@@ -287,12 +287,10 @@ function nextRunLabel(schedule: AutoScheduleStatus): string {
 export function RunPanel({
   lastRunAt,
   onFinished,
-  onGoSetup,
   onGoPricing,
 }: {
   lastRunAt: string | null;
   onFinished: () => void;
-  onGoSetup: (section: SetupSection) => void;
   onGoPricing: () => void;
 }) {
   /** One poll for the whole page; see runStatus.ts. */
@@ -350,6 +348,7 @@ export function RunPanel({
   const [attempt, setAttempt] = useState(0);
   const [outOfApplications, setOutOfApplications] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
+  const [setupExpanded, setSetupExpanded] = useState(false);
   const setup = useSetupStatus();
   /** The steps only the account holder can do; an account without them is not on the schedule yet. */
   const accountSetupIncomplete = Boolean(
@@ -794,7 +793,7 @@ export function RunPanel({
 
   return (
     <div className="run-layout">
-      {setup && <div className="run-span">{<SetupChecklist status={setup} onFix={onGoSetup} />}</div>}
+      {setup && <div className="run-span"><SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} /></div>}
       <div className="run-side">
       <div className="card run-controls-card">
         <div className="panel-body">
@@ -939,7 +938,7 @@ export function RunPanel({
         {!running && (
           <>
             {/* Same rule the run applies: an account that cannot fine-tune gets Indeed from its pass, not from the setting. */}
-            <SeekSignIn onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed') || Boolean(entitlements?.indeedApplications && platforms.join(',') === 'seek')} />
+            {!setupExpanded && <SeekSignIn onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed') || Boolean(entitlements?.indeedApplications && platforms.join(',') === 'seek')} />}
             <GmailConnect compact />
           </>
         )}

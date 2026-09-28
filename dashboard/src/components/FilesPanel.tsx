@@ -72,7 +72,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
    */
   const [autofilled, setAutofilled] = useState<string[] | null>(null);
 
-  async function refresh() {
+  async function refresh(notify = false) {
     const [r, k] = await Promise.all([
       fetch('/api/resumes').then((x) => x.json()),
       fetch('/api/knowledge').then((x) => x.json()),
@@ -80,7 +80,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
     setResumes(Array.isArray(r) ? r : []);
     setItems(k.items ?? []);
     setStats(k.stats ?? null);
-    onChanged?.();
+    if (notify) onChanged?.();
   }
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       if (!res.ok) setError(json.error ?? 'Upload failed.');
       else {
         setAutofilled(Array.isArray(json.autofilled) && json.autofilled.length ? json.autofilled : null);
-        await refresh();
+        await refresh(kind === 'resume');
       }
     } catch (e) {
       setError((e as Error).message);
@@ -126,7 +126,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
     });
-    refresh();
+    refresh(true);
   };
 
   const patchItem = async (id: string, patch: Partial<KnowledgeItem>) => {

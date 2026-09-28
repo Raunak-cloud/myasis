@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import type { SetupSection, SetupStatus } from '../setupStatus';
+
+const SetupPanel = lazy(() => import('./SetupPanel').then((module) => ({ default: module.SetupPanel })));
 
 const ACTION_LABEL: Record<SetupSection, string> = {
   documents: 'Upload your résumé',
@@ -9,22 +11,31 @@ const ACTION_LABEL: Record<SetupSection, string> = {
   boards: 'Connect a job board',
 };
 
-/** One clear next action; the complete readiness checklist remains available. */
+/** One clear next action, with the full setup forms available inline. */
 export function SetupChecklist({
   status,
-  onFix,
+  expanded,
+  onExpandedChange,
+  onVerifyingSignInChange,
 }: {
   status: SetupStatus;
-  onFix: (section: SetupSection) => void;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+  onVerifyingSignInChange: (verifying: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [targetStep, setTargetStep] = useState<SetupSection | null>(null);
   const outstanding = status.checks.filter((check) => !check.done);
-  if (!outstanding.length) return null;
+  if (!outstanding.length && !expanded) return null;
 
   const blocking = outstanding.filter((check) => check.required);
   const optional = outstanding.filter((check) => !check.required);
   const next = blocking[0];
   const progress = status.total ? (status.done / status.total) * 100 : 0;
+
+  const openStep = (section: SetupSection) => {
+    setTargetStep(section);
+    onExpandedChange(true);
+  };
 
   return (
     <div className={`card checklist ${blocking.length ? 'blocking' : ''}`}>
@@ -32,7 +43,7 @@ export function SetupChecklist({
         <div className="checklist-summary">
           <span className="checklist-kicker">Setup</span>
           <strong className="checklist-title">
-            {blocking.length ? 'Get ready for your first run' : 'You’re ready to run'}
+            {blocking.length ? 'Get ready for your first run' : 'Setup complete'}
           </strong>
           {!blocking.length && optional.length > 0 && (
             <span className="job-meta">
@@ -54,7 +65,7 @@ export function SetupChecklist({
         <span style={{ width: `${progress}%` }} />
       </div>
 
-      {next && (
+      {next && !expanded && (
         <div className="checklist-next">
           <div className="checklist-next-copy">
             <span className="checklist-next-label">
@@ -64,7 +75,7 @@ export function SetupChecklist({
             <span className="job-meta">{next.hint}</span>
           </div>
           {next.fix !== 'external' && (
-            <button type="button" className="btn primary checklist-primary" onClick={() => onFix(next.fix as SetupSection)}>
+            <button type="button" className="btn primary checklist-primary" onClick={() => openStep(next.fix as SetupSection)}>
               Continue setup
             </button>
           )}
@@ -75,30 +86,18 @@ export function SetupChecklist({
         type="button"
         className="checklist-disclosure"
         aria-expanded={expanded}
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          if (!expanded) setTargetStep(null);
+          onExpandedChange(!expanded);
+        }}
       >
-        {expanded ? 'Hide all steps' : `View all ${status.total} steps`}
+        {expanded ? 'Hide steps' : `Show all ${status.total} steps here`}
       </button>
 
       {expanded && (
-        <ul className="checklist-items">
-          {status.checks.map((check, index) => (
-            <li key={check.id}>
-              <span className={`checklist-mark${check.done ? ' done' : ''}`} aria-hidden="true">
-                {check.done ? '✓' : index + 1}
-              </span>
-              <span className="checklist-copy">
-                <strong>{check.label}</strong>
-                {!check.done && <span className="job-meta">{check.hint}</span>}
-              </span>
-              {check.fix !== 'external' && (
-                <button type="button" className="btn checklist-btn" onClick={() => onFix(check.fix as SetupSection)}>
-                  {check.done ? 'Review' : 'Open'}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <Suspense fallback={<div className="job-meta">Loading setup…</div>}>
+          <SetupPanel inline initialStep={targetStep} onVerifyingSignInChange={onVerifyingSignInChange} />
+        </Suspense>
       )}
     </div>
   );

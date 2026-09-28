@@ -58,7 +58,11 @@ function Step({
   );
 }
 
-export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection | null }) {
+export function SetupPanel({ initialStep = null, inline = false, onVerifyingSignInChange }: {
+  initialStep?: SetupSection | null;
+  inline?: boolean;
+  onVerifyingSignInChange?: (verifying: boolean) => void;
+}) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
@@ -135,8 +139,8 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
   const dirty = Object.keys(edits).length > 0;
 
   return (
-    <div className="setup-steps">
-      {status && !status.ready && (
+    <div className={`setup-steps${inline ? ' setup-steps-inline' : ''}`}>
+      {!inline && status && !status.ready && (
         <div className="setup-guide">
           <strong>{status.done} of {status.total} steps complete</strong>
           <span>Complete these to start applying.</span>
@@ -152,7 +156,10 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
         onSelect={selectStep}
         onEngage={engageStep}
       >
-        <FilesPanel onChanged={() => setResumeLibraryVersion((value) => value + 1)} />
+        <FilesPanel onChanged={() => {
+          setResumeLibraryVersion((value) => value + 1);
+          window.dispatchEvent(new Event('setup-status-changed'));
+        }} />
       </Step>
 
       <Step
@@ -165,7 +172,7 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
         onSelect={selectStep}
         onEngage={engageStep}
       >
-        <ProfileForm key={resumeLibraryVersion} />
+        <ProfileForm key={resumeLibraryVersion} onSaved={() => window.dispatchEvent(new Event('setup-status-changed'))} />
       </Step>
 
       <Step
@@ -293,12 +300,12 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
         onSelect={selectStep}
         onEngage={engageStep}
       >
-        <SeekSignIn showConnected indeedEnabled={Boolean(entitlements?.indeedApplications)} />
+        <SeekSignIn showConnected indeedEnabled={Boolean(entitlements?.indeedApplications)} onVerifyingChange={onVerifyingSignInChange} />
       </Step>
 
-      <GmailConnect />
+      {!inline && <GmailConnect />}
 
-      {(canFineTune || canUseAdvancedFilters) && <div className="card step">
+      {!inline && (canFineTune || canUseAdvancedFilters) && <div className="card step">
         <button className="setup-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
           <span className="step-title">{canFineTune ? 'Fine tuning' : 'Advanced filters'}</span>
           <span>{showAdvanced ? '−' : '+'}</span>
@@ -368,7 +375,7 @@ export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection 
         )}
       </div>}
 
-      <EmailAlertsToggle />
+      {!inline && <EmailAlertsToggle />}
 
       {dirty && (
         <div className="save-bar">

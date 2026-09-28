@@ -755,6 +755,9 @@ tbody tr.clickable { cursor: pointer; }
 
 /* ---------- setup steps ---------- */
 .setup-steps { display: grid; gap: 14px; }
+.setup-steps-inline { margin-top: 12px; gap: 8px; }
+.setup-steps-inline > .step { padding: 14px 16px; }
+.setup-steps-inline .save-bar { position: static; }
 .setup-guide {
   display: flex; gap: 8px 18px; align-items: baseline; flex-wrap: wrap;
   padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius);

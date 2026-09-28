@@ -29,7 +29,6 @@ import { trackPage } from './analytics';
 import { initRedditPixel, trackRedditEvent } from './redditPixel';
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
-import type { SetupSection } from './setupStatus';
 
 type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin';
 
@@ -83,7 +82,6 @@ export default function App() {
     const requested = new URLSearchParams(window.location.search).get('tab');
     return requested === 'pricing' ? 'pricing' : requested === 'support' ? 'support' : requested === 'admin' ? 'admin' : 'run';
   });
-  const [setupTarget, setSetupTarget] = useState<SetupSection | null>(null);
   const [apps, setApps] = useState<Application[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   const [running, setRunning] = useState(false);
@@ -206,7 +204,6 @@ export default function App() {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const signOutButton = useRef<HTMLButtonElement>(null);
   const go = (next: Tab) => {
-    if (next === 'setup') setSetupTarget(null);
     setTab(next);
     setMenuOpen(false);
   };
@@ -518,10 +515,6 @@ export default function App() {
             <RunPanel
               lastRunAt={lastRunAt}
               onFinished={load}
-              onGoSetup={(section) => {
-                setSetupTarget(section);
-                setTab('setup');
-              }}
               onGoPricing={() => setTab('pricing')}
             />
           )}
@@ -532,7 +525,7 @@ export default function App() {
           {tab === 'humanizer' && canRewrite && <HumanizerPanel />}
           {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'pricing' && <PricingPanel />}
-          {tab === 'setup' && <SetupPanel initialStep={setupTarget} />}
+          {tab === 'setup' && <SetupPanel />}
           {tab === 'support' && <SupportPanel />}
           </Suspense>
         </div>
