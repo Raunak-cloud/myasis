@@ -661,7 +661,9 @@ Rules:
   more years than the candidate has, do not imply they have them. It is fine to
   acknowledge being earlier-career while making the case on demonstrated work.
 - Reference at most two named projects from the profile where genuinely relevant.
-- Mention the company and role naturally. End with the candidate's name.
+- Mention the company and role naturally. End with the candidate's name exactly as the
+  CANDIDATE PROFILE gives it ("${profile.name}"), never a spelling from a document: the
+  letter must match the name on the application it goes with.
 - Do not merely repeat the advertisement. Choose the form and wording yourself.
 - Count the words before responding and keep the complete letter at or below
   ${MAX_COVER_LETTER_WORDS} words.
