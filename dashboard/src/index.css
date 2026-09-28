@@ -2175,17 +2175,18 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* Inline answer form on the attention list. */
 /* One row per question: the wording, then the same control the form used. */
-.answer-form { display: grid; gap: 12px; margin-top: 12px; max-width: 560px; }
-.answer-row { display: grid; gap: 5px; }
-.answer-label { color: var(--text); font-size: 13px; font-weight: 650; line-height: 1.4; }
-.answer-hint { display: block; }
+.answer-form { display: grid; gap: 8px; max-width: 560px; }
+.answer-row { display: grid; gap: 6px; }
+.answer-label { color: var(--text); font-size: 13.5px; font-weight: 550; line-height: 1.45; }
 .answer-form .input { width: 100%; }
 .answer-form textarea.input { resize: vertical; }
 .answer-form select.input { cursor: pointer; }
-.answer-actions { display: flex; justify-content: flex-end; padding-top: 2px; }
+.answer-actions { display: flex; justify-content: flex-start; }
 
 /* Step-by-step trace of an application that needs a person. */
-.trace-actions { margin-top: 8px; }
+.trace-actions { margin-top: 6px; }
+.link-button { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
 /**
  * A contact sheet, not a slideshow.
  *

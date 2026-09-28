@@ -470,9 +470,8 @@ async function candidateQuestion(
   field: FormField | undefined,
   problem: { field: string; value: string; problem: string },
 ): Promise<string> {
-  const fallback = `${ctx.job.company}'s application for ${ctx.job.title} asks "${problem.field.replace(/[\s*:]+$/, '')}". ` +
-    `Owtomate did not send "${problem.value.slice(0, 80)}${problem.value.length > 80 ? '…' : ''}": ${problem.problem} ` +
-    'What should it enter there for this job?';
+  // Short: it is read in a list. Why the old answer was withheld is in the run's steps.
+  const fallback = `What should Owtomate enter for "${problem.field.replace(/[\s*:]+$/, '')}" on this ${ctx.job.company} application?`;
   if (!field) return fallback;
   const asked: FormField = {
     ...field,

@@ -24,6 +24,9 @@ export interface AttentionItem {
   questions?: BlockedQuestion[];
 }
 
+/** The question as the candidate should read it: the written-out one when there is one, else the form's own label. */
+const questionText = (q: BlockedQuestion) => q.prompt?.trim() || `What should Owtomate enter for “${q.question.replace(/[\s*:]+$/, '')}”?`;
+
 /**
  * Inline form for the questions a run could not answer. Saving writes them to
  * the answer bank, which every later run reads, and takes the job off this
@@ -100,17 +103,14 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
     <div className="answer-form">
       {questions.map((q) => (
         <label key={q.question} className="answer-row">
-          <span className="answer-label">{q.prompt?.trim() || `What should Owtomate enter for “${q.question}”?`}</span>
-          {q.prompt?.trim() && q.prompt.trim() !== q.question ? (
-            <span className="job-meta answer-hint">Employer field: “{q.question}”</span>
-          ) : null}
+          <span className="answer-label">{questionText(q)}</span>
           {control(q)}
         </label>
       ))}
       {error && <div className="banner banner-bad">{error}</div>}
       <div className="answer-actions">
-        <button className="btn primary" disabled={saving || !answered.length} onClick={save}>
-          {saving ? 'Saving…' : 'Save and retry in next run'}
+        <button className="btn primary" disabled={saving || !answered.length} onClick={save} title="Saved for every future run; this job is retried on the next one.">
+          {saving ? 'Saving…' : 'Save and retry'}
         </button>
       </div>
     </div>
@@ -163,14 +163,7 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
       {questions.length > 0 && (
         <div className="trace-question-context">
           <strong>What the employer needs from you</strong>
-          {questions.map((question) => (
-            <div key={question.question}>
-              {question.prompt?.trim() || `What should Owtomate enter for “${question.question}”?`}
-              {question.prompt?.trim() && question.prompt.trim() !== question.question ? (
-                <span className="job-meta">Employer field: “{question.question}”</span>
-              ) : null}
-            </div>
-          ))}
+          {questions.map((question) => <div key={question.question}>{questionText(question)}</div>)}
         </div>
       )}
       {error && <div className="job-meta">{error}</div>}
@@ -224,10 +217,10 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
           <span className={`badge ${KIND[item.kind].tone}`}>{KIND[item.kind].label}</span>
         </td>
         <td className="job-meta attention-reason">
-          {item.reason}
-          {item.questions?.length ? <AnswerForm item={item} onSaved={onCleared} /> : null}
+          {/* With a question to answer, the question is the whole story; the reason only repeated it. */}
+          {item.questions?.length ? <AnswerForm item={item} onSaved={onCleared} /> : item.reason}
           <div className="trace-actions">
-            <button className="btn btn-small" onClick={() => setShowTrace((open) => !open)}>
+            <button type="button" className="link-button" onClick={() => setShowTrace((open) => !open)}>
               {showTrace ? 'Hide steps' : 'View steps'}
             </button>
           </div>

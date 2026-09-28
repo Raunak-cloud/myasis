@@ -374,6 +374,8 @@ For each field also set "basis", which decides whether it may be filled at all:
   Never merely repeat a vague label such as "Tell us more". For example:
   "Describe one React project you worked on, including your role, the tools you
   used, and the outcome." Keep it factual and do not invite invented details.
+  Keep it under 30 words and ask only the question: the candidate reads it in a
+  short list, so no preamble, no account of why the form stopped.
 - For select/radio fields, "value" MUST be exactly one of the given options.
 - When a field has an "inputType", that is what the browser itself will accept,
   and it overrides however the label reads. "date" takes YYYY-MM-DD and nothing
