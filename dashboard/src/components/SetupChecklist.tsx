@@ -1,23 +1,28 @@
 import { useState } from 'react';
-import type { SetupStatus } from '../setupStatus';
+import type { SetupSection, SetupStatus } from '../setupStatus';
 
+const ACTION_LABEL: Record<SetupSection, string> = {
+  documents: 'Upload your résumé',
+  details: 'Complete your details',
+  looking: 'Add job titles',
+  where: 'Choose your location and work style',
+};
 
-/** Readiness and direct next steps, shown beside the run controls. */
+/** One clear next action; the complete readiness checklist remains available. */
 export function SetupChecklist({
   status,
   onFix,
 }: {
   status: SetupStatus;
-  onFix: () => void;
+  onFix: (section: SetupSection) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const outstanding = status.checks.filter((check) => !check.done);
-
   if (!outstanding.length) return null;
 
   const blocking = outstanding.filter((check) => check.required);
   const optional = outstanding.filter((check) => !check.required);
-  const visible = blocking.length ? blocking : outstanding;
+  const next = blocking[0];
   const progress = status.total ? (status.done / status.total) * 100 : 0;
 
   return (
@@ -26,9 +31,7 @@ export function SetupChecklist({
         <div className="checklist-summary">
           <span className="checklist-kicker">Setup</span>
           <strong className="checklist-title">
-            {blocking.length
-              ? `${blocking.length} step${blocking.length > 1 ? 's' : ''} left before your first run`
-              : 'Ready to run'}
+            {blocking.length ? 'Get ready for your first run' : 'You’re ready to run'}
           </strong>
           {!blocking.length && optional.length > 0 && (
             <span className="job-meta">
@@ -36,16 +39,7 @@ export function SetupChecklist({
             </span>
           )}
         </div>
-        <div className="checklist-head-actions">
-          <span className="checklist-count">
-            {status.done} completed · {status.total - status.done} remaining
-          </span>
-          {!blocking.length && (
-            <button className="btn" onClick={() => setExpanded(!expanded)}>
-              {expanded ? 'Hide' : 'Show'}
-            </button>
-          )}
-        </div>
+        <span className="checklist-count">{status.done} of {status.total} complete</span>
       </div>
 
       <div
@@ -59,18 +53,46 @@ export function SetupChecklist({
         <span style={{ width: `${progress}%` }} />
       </div>
 
-      {(blocking.length > 0 || expanded) && (
+      {next && (
+        <div className="checklist-next">
+          <div className="checklist-next-copy">
+            <span className="checklist-next-label">
+              Step {status.checks.findIndex((check) => check.id === next.id) + 1} of {status.total}
+            </span>
+            <strong>{next.fix === 'external' ? next.label : ACTION_LABEL[next.fix]}</strong>
+            <span className="job-meta">{next.hint}</span>
+          </div>
+          {next.fix !== 'external' && (
+            <button type="button" className="btn primary checklist-primary" onClick={() => onFix(next.fix as SetupSection)}>
+              Continue setup
+            </button>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="checklist-disclosure"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? 'Hide all steps' : `View all ${status.total} steps`}
+      </button>
+
+      {expanded && (
         <ul className="checklist-items">
-          {visible.map((check, index) => (
+          {status.checks.map((check, index) => (
             <li key={check.id}>
-              <span className="checklist-mark" aria-hidden="true">{index + 1}</span>
+              <span className={`checklist-mark${check.done ? ' done' : ''}`} aria-hidden="true">
+                {check.done ? '✓' : index + 1}
+              </span>
               <span className="checklist-copy">
                 <strong>{check.label}</strong>
                 <span className="job-meta">{check.hint}</span>
               </span>
               {check.fix !== 'external' && (
-                <button className="btn checklist-btn" onClick={onFix}>
-                  Set up
+                <button type="button" className="btn checklist-btn" onClick={() => onFix(check.fix as SetupSection)}>
+                  {check.done ? 'Review' : 'Open'}
                 </button>
               )}
             </li>

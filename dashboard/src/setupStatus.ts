@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 
+export type SetupSection = 'details' | 'documents' | 'looking' | 'where';
+
 interface SetupCheck {
   id: string;
   label: string;
   done: boolean;
   hint: string;
-  fix: 'details' | 'documents' | 'looking' | 'where' | 'external';
+  fix: SetupSection | 'external';
   required: boolean;
 }
 

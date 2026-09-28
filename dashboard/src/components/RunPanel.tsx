@@ -3,7 +3,7 @@ import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
 import { SetupChecklist } from './SetupChecklist';
-import { useSetupStatus } from '../setupStatus';
+import { useSetupStatus, type SetupSection } from '../setupStatus';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
@@ -292,7 +292,7 @@ export function RunPanel({
 }: {
   lastRunAt: string | null;
   onFinished: () => void;
-  onGoSetup: () => void;
+  onGoSetup: (section: SetupSection) => void;
   onGoPricing: () => void;
 }) {
   /** One poll for the whole page; see runStatus.ts. */
@@ -934,9 +934,8 @@ export function RunPanel({
           </div>
         )}
 
-        {/* Job-board sign-in lives here rather than in Setup: it is the one
-            thing a run cannot start without, and the browser it opens is what
-            the person needs in front of them. */}
+        {/* Keep sign-in available here as well as in Setup so a lapsed session
+            can be repaired immediately before starting a run. */}
         {!running && (
           <>
             {/* Same rule the run applies: an account that cannot fine-tune gets Indeed from its pass, not from the setting. */}

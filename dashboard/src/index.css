@@ -755,6 +755,13 @@ tbody tr.clickable { cursor: pointer; }
 
 /* ---------- setup steps ---------- */
 .setup-steps { display: grid; gap: 14px; }
+.setup-guide {
+  display: flex; gap: 8px 18px; align-items: baseline; flex-wrap: wrap;
+  padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); font-size: 13px;
+}
+.setup-guide strong { color: var(--accent); }
+.setup-guide span { color: var(--text-dim); }
 .step { padding: 20px 22px; }
 .step-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
 .step-n {
@@ -794,9 +801,27 @@ tbody tr.clickable { cursor: pointer; }
 }
 .checklist-progress { height: 4px; margin-top: 16px; overflow: hidden; border-radius: 999px; background: var(--surface-2); }
 .checklist-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .25s ease; }
+.checklist-next {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  margin-top: 17px;
+}
+.checklist-next-copy { display: grid; gap: 4px; min-width: 0; }
+.checklist-next-copy strong { font-size: 16px; }
+.checklist-next-copy .job-meta { display: block; }
+.checklist-next-label {
+  color: var(--accent); font-size: 11px; font-weight: 750;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.checklist-primary { flex-shrink: 0; }
+.checklist-disclosure {
+  margin-top: 14px; padding: 4px 0; border: 0; background: none;
+  color: var(--accent); font: inherit; font-size: 12px; font-weight: 700;
+  cursor: pointer; text-align: left;
+}
+.checklist-disclosure:hover { text-decoration: underline; }
 .checklist-items {
-  list-style: none; margin: 18px 0 0; padding: 0; display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+  list-style: none; margin: 8px 0 0; padding: 0; display: grid;
+  grid-template-columns: minmax(0, 1fr); gap: 8px;
 }
 .checklist-items li {
   min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
@@ -807,6 +832,7 @@ tbody tr.clickable { cursor: pointer; }
   background: var(--accent-soft); color: var(--accent);
   display: grid; place-items: center; font-size: 12px; font-weight: 750;
 }
+.checklist-mark.done { background: var(--ok-soft); color: var(--ok); }
 .checklist-copy { min-width: 0; }
 .checklist-copy strong { display: block; font-size: 13px; }
 .checklist-copy .job-meta { display: block; margin-top: 2px; }
@@ -1310,6 +1336,8 @@ button.metric-tile:hover strong { color: var(--accent); }
   .checklist { padding: 16px; }
   .checklist-head { align-items: flex-start; }
   .checklist-head-actions { align-items: flex-end; flex-direction: column; }
+  .checklist-next { align-items: stretch; flex-direction: column; }
+  .checklist-primary { align-self: flex-start; }
   .checklist-items li { grid-template-columns: auto minmax(0, 1fr); }
   .checklist-btn { grid-column: 2; justify-self: start; }
 }

@@ -2,11 +2,12 @@ import { EmailAlertsToggle } from './EmailAlertsToggle';
 import { useEffect, useState } from 'react';
 import { GmailConnect } from './GmailConnect';
 import { FilesPanel } from './FilesPanel';
-import { useSetupStatus } from '../setupStatus';
+import { useSetupStatus, type SetupSection } from '../setupStatus';
 import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
+import { SeekSignIn } from './SeekSignIn';
 import { useEntitlements } from '../entitlements';
 import { TermsInput } from './TermsInput';
 
@@ -18,21 +19,29 @@ const ARRANGEMENTS = [
 
 /** A numbered step that shows its own completion state. */
 function Step({
+  id,
   n,
   title,
   blurb,
   done,
+  open,
+  onSelect,
+  onEngage,
   children,
 }: {
+  id: SetupSection;
   n: number;
   title: string;
   blurb: string;
   done?: boolean;
+  open: boolean;
+  onSelect: (id: SetupSection) => void;
+  onEngage: (id: SetupSection) => void;
   children: React.ReactNode;
 }) {
   return (
-    <details className="card step">
-      <summary className="step-head">
+    <details className="card step" open={open}>
+      <summary className="step-head" onClick={(event) => { event.preventDefault(); onSelect(id); }}>
         <span className={`step-n ${done ? 'done' : ''}`}>{done ? '✓' : n}</span>
         <div>
           <h3 className="step-title">{title}</h3>
@@ -40,18 +49,27 @@ function Step({
         </div>
         <span className="step-chevron" aria-hidden="true">+</span>
       </summary>
-      <div className="step-body">{children}</div>
+      <div
+        className="step-body"
+        onFocusCapture={() => onEngage(id)}
+        onPointerDownCapture={() => onEngage(id)}
+      >{children}</div>
     </details>
   );
 }
 
-export function SetupPanel() {
+export function SetupPanel({ initialStep = null }: { initialStep?: SetupSection | null }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resumeLibraryVersion, setResumeLibraryVersion] = useState(0);
   const status = useSetupStatus();
+  const [selectedStep, setSelectedStep] = useState<SetupSection | null | undefined>(undefined);
+  const first = status?.checks.find((check) => check.required && !check.done && check.fix !== 'external');
+  const openStep = selectedStep === undefined ? initialStep ?? (first?.fix as SetupSection | undefined) ?? null : selectedStep;
+  const selectStep = (id: SetupSection) => setSelectedStep(openStep === id ? null : id);
+  const engageStep = (id: SetupSection) => setSelectedStep(id);
   /**
    * These settings decide how a run behaves, and belong to the accounts that
    * drive runs. Hidden rather than disabled: a row of greyed-out inputs is an
@@ -118,29 +136,47 @@ export function SetupPanel() {
 
   return (
     <div className="setup-steps">
+      {status && !status.ready && (
+        <div className="setup-guide">
+          <strong>{status.done} of {status.total} steps complete</strong>
+          <span>Start with the open step. You can review any step at any time.</span>
+        </div>
+      )}
       <Step
+        id="documents"
         n={1}
         title="Upload your résumé"
         blurb="We'll use it to fill in the details it already contains."
         done={done('resume')}
+        open={openStep === 'documents'}
+        onSelect={selectStep}
+        onEngage={engageStep}
       >
         <FilesPanel onChanged={() => setResumeLibraryVersion((value) => value + 1)} />
       </Step>
 
       <Step
+        id="details"
         n={2}
         title="Complete your details"
         blurb="Check what was filled in, then add anything your résumé did not include."
         done={done('profile')}
+        open={openStep === 'details'}
+        onSelect={selectStep}
+        onEngage={engageStep}
       >
         <ProfileForm key={resumeLibraryVersion} />
       </Step>
 
       <Step
+        id="looking"
         n={3}
         title="What you're looking for"
         blurb="Choose the roles you want the automation to find."
         done={done('keywords')}
+        open={openStep === 'looking'}
+        onSelect={selectStep}
+        onEngage={engageStep}
       >
         <div className="field">
           <FieldLabel label="Job titles to search" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
@@ -179,10 +215,14 @@ export function SetupPanel() {
       </Step>
 
       <Step
+        id="where"
         n={4}
-        title="Where and what pay"
-        blurb="Set your preferred work arrangement, location and minimum salary."
+        title="Location and work style"
+        blurb="Choose remote, hybrid or on-site and your city. Pay preferences are optional."
         done={done('where')}
+        open={openStep === 'where'}
+        onSelect={selectStep}
+        onEngage={engageStep}
       >
         <div className="field">
           <FieldLabel label="Consider these arrangements" help="Choose whether to include remote, hybrid, and on-site jobs." />
@@ -243,6 +283,15 @@ export function SetupPanel() {
         </div>
       </Step>
 
+      <section className="card step" aria-labelledby="setup-seek-title">
+        <div className="step-body">
+          <div>
+            <h2 className="step-title" id="setup-seek-title">Connect SEEK</h2>
+            <p className="job-meta step-blurb">Sign in to your SEEK account so Owtomate can apply for jobs for you.</p>
+          </div>
+          <SeekSignIn showConnected />
+        </div>
+      </section>
 
       <GmailConnect />
 

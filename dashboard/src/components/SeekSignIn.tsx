@@ -46,8 +46,10 @@ type Status = {
 
 const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed' } as const;
 
-export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
+export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVerifyingChange }: {
   indeedEnabled?: boolean;
+  /** Keep the connection state visible on Setup, even after sign-in succeeds. */
+  showConnected?: boolean;
   /** Told whenever a sign-in check starts or settles, so the page can hold a run back until it has. */
   onVerifyingChange?: (verifying: boolean) => void;
 }) {
@@ -216,7 +218,7 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
     return () => window.removeEventListener(OPEN_BOARD_SIGNIN, onAsk);
   }, []);
 
-  if (!status) return null;
+  if (!status) return showConnected ? <div className="signin-status" role="status">Checking SEEK connection…</div> : null;
   const minutesLeft = status.session ? Math.max(0, Math.round((status.session.expiresAt - now) / 60000)) : 0;
 
   if (!status.session) {
@@ -243,7 +245,7 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
      * signed-in state on every screen, so repeating it among the run
      * controls only made it look like a setting.
      */
-    if (seekSettled && indeedSettled && !error && !notice) return null;
+    if (seekSettled && indeedSettled && !error && !notice && !showConnected) return null;
 
     const expired = status.seek?.signedIn === false;
     const indeedExpired = status.indeed?.signedIn === false;
@@ -251,18 +253,20 @@ export function SeekSignIn({ indeedEnabled = false, onVerifyingChange }: {
       <div className="seek-connect">
         {error && <div className="banner banner-bad">{error}</div>}
         {notice && <div className={`banner ${/signed out|could not/i.test(notice) ? 'banner-bad' : 'banner-ok'}`}>{notice}</div>}
-        {!status.seek?.signedIn && !status.checking && <div className="seek-connect-row">
+        {(showConnected || !status.seek?.signedIn) && !status.checking && <div className="seek-connect-row">
           <div>
             <h3>SEEK</h3>
             <p className="job-meta">
-              {expired
+              {status.seek?.signedIn
+                ? 'Connected'
+                : expired
                 ? 'Signed out'
                 : 'Not connected'}
             </p>
           </div>
-          <button className="btn primary" disabled={busy} onClick={() => open('seek')}>
+          {!status.seek?.signedIn && <button className="btn primary" disabled={busy} onClick={() => open('seek')}>
             {busy ? 'Opening…' : expired ? 'Sign in again' : 'Open SEEK'}
-          </button>
+          </button>}
         </div>}
         {indeedEnabled && !status.indeed?.signedIn && <div className="seek-connect-row">
           <div>
