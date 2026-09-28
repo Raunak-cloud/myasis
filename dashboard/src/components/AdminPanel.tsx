@@ -6,6 +6,7 @@ import { EnvView } from './EnvView';
 import { SimulateView } from './SimulateView';
 import { ProxiesView } from './ProxiesView';
 import { BlogView } from './BlogView';
+import { AdminEmailDialog } from './AdminEmailDialog';
 import type { RouteStatus } from '../route';
 
 /**
@@ -35,6 +36,7 @@ interface AdminUser {
   plan: string;
   allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null };
   setupMissing: string[];
+  emailedAt: string | null;
   resumes: number;
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
@@ -325,11 +327,12 @@ function OverviewView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
 }
 
 // ------------------------------------------------------------------ one account
-function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
+function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   userId: string;
   onClose: () => void;
   onChanged: () => void;
   onOpenRun: (run: AdminRun) => void;
+  onEmail: (userId: string) => void;
 }) {
   const [user, setUser] = useState<UserDetail | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -480,7 +483,16 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun }: {
                   {user.setupMissing.length > 0 && (
                     <>
                       <dt>Setup still needed</dt>
-                      <dd>{user.setupMissing.join(', ')}</dd>
+                      <dd>
+                        {user.setupMissing.join(', ')}{' '}
+                        <button type="button" className="btn btn-small" onClick={() => onEmail(user.id)}>Email them</button>
+                      </dd>
+                    </>
+                  )}
+                  {user.emailedAt && (
+                    <>
+                      <dt>Last emailed</dt>
+                      <dd>{when(user.emailedAt)}</dd>
                     </>
                   )}
                 </dl>
@@ -814,6 +826,8 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<UserFilter>('all');
   const [open, setOpen] = useState<string | null>(null);
+  const [emailing, setEmailing] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api<AdminUser[]>('/users').then(setUsers).catch((reason) => setError((reason as Error).message));
@@ -847,6 +861,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
 
   return (
     <div className="admin-stack">
+      {notice && <div className="banner" role="status">{notice}</div>}
       <div className="queue-bar">
         <div className="chips">
           {(Object.keys(labels) as UserFilter[]).map((key) => (
@@ -885,7 +900,19 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                     {user.plan}
                     {!user.admin && <div className="job-meta">{user.allowance.freeRemaining + Math.max(0, user.allowance.paidRemaining)} left</div>}
                   </td>
-                  <td>{user.setupMissing.length ? <span className="badge warn">{user.setupMissing.length} left</span> : <span className="badge ok">Done</span>}</td>
+                  <td className="nowrap">
+                    {user.setupMissing.length ? <span className="badge warn" title={user.setupMissing.join(', ')}>{user.setupMissing.length} left</span> : <span className="badge ok">Done</span>}
+                    {user.setupMissing.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn btn-small admin-email-button"
+                        title={user.emailedAt ? `Last emailed ${when(user.emailedAt)}` : 'Draft an email to help them finish'}
+                        onClick={(event) => { event.stopPropagation(); setEmailing(user.id); }}
+                      >
+                        {user.emailedAt ? 'Emailed' : 'Email'}
+                      </button>
+                    )}
+                  </td>
                   <td className="nowrap">
                     <span className={`admin-board ${user.boards.seek ? 'on' : ''}`}>SEEK</span>{' '}
                     <span className={`admin-board ${user.boards.indeed ? 'on' : ''}`}>Indeed</span>
@@ -911,7 +938,14 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
         </table>
         {!rows.length && <p className="job-meta admin-empty">No accounts match.</p>}
       </div>
-      {open && <UserDrawer userId={open} onClose={() => setOpen(null)} onChanged={load} onOpenRun={onOpenRun} />}
+      {open && <UserDrawer userId={open} onClose={() => setOpen(null)} onChanged={load} onOpenRun={onOpenRun} onEmail={setEmailing} />}
+      {emailing && (
+        <AdminEmailDialog
+          userId={emailing}
+          onClose={() => setEmailing(null)}
+          onSent={(to) => { setEmailing(null); setNotice(`Email sent to ${to}.`); load(); }}
+        />
+      )}
     </div>
   );
 }

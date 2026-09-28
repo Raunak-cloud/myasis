@@ -15,7 +15,8 @@ import { readServerLogs, serverHealth } from './health.js';
 import { pruneAllProfiles } from './profile-prune.js';
 import { pruneAllTraces, TRACE_RETENTION_DAYS } from './trace-retention.js';
 import { runner, readEnv, writeEnv, MAX_CONCURRENT } from './runner.js';
-import { accountSetupChecks } from './setup.js';
+import { setupStatus } from './setup.js';
+import { draftSetupEmail, sendAdminEmail } from './admin-email.js';
 import { readSiteState } from './seek-state.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
@@ -62,6 +63,8 @@ interface AdminUserRow {
   plan: string;
   allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null };
   setupMissing: string[];
+  /** When an operator last emailed this account from here. */
+  emailedAt: string | null;
   resumes: number;
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
@@ -86,11 +89,12 @@ interface AdminUserRow {
 }
 
 async function userRow(user: UserRecord): Promise<AdminUserRow> {
-  const [billing, entitlements, overrides, setup, counts, lastRun] = await Promise.all([
+  const [billing, entitlements, overrides, setup, counts, lastRun, lastEmail] = await Promise.all([
     billingStatus(user.id, user.email),
     entitlementsFor(user.id, user.email),
     adminOverridesFor(user.id),
-    accountSetupChecks(user.id),
+    // The steps as the account holder sees them, so what the operator reads and emails about matches their screen.
+    setupStatus(user.id),
     one<{ resumes: string; total: string; week: string; today: string }>(
       `SELECT
          (SELECT count(*) FROM resumes WHERE user_id = $2)::text AS resumes,
@@ -103,6 +107,7 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
       `SELECT started_at, finished_at, exit_code, trigger FROM run_starts WHERE user_id = $1 ORDER BY started_at DESC LIMIT 1`,
       [user.id],
     ),
+    one<{ sent_at: Date }>('SELECT sent_at FROM admin_emails WHERE user_id = $1 ORDER BY sent_at DESC LIMIT 1', [user.id]),
   ]);
   const admin = isAdmin(user.email);
   return {
@@ -118,7 +123,8 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
     allowance: admin
       ? { freeRemaining: billing.free.remaining, paidRemaining: -1, paidExpiresAt: null }
       : { freeRemaining: billing.free.remaining, paidRemaining: billing.paid.remaining, paidExpiresAt: billing.paid.expiresAt },
-    setupMissing: Object.values(setup).filter((check) => check.required && !check.done).map((check) => check.label),
+    setupMissing: setup.checks.filter((check) => check.required && !check.done).map((check) => check.label),
+    emailedAt: lastEmail ? new Date(lastEmail.sent_at).toISOString() : null,
     resumes: Number(counts?.resumes ?? 0),
     boards: {
       seek: readSiteState(user.id, 'seek')?.signedIn ?? null,
@@ -590,6 +596,7 @@ export async function handleAdminRequest(
     const self = target.id === actor.id;
 
     if (!action && method === 'GET') return send(await adminUserDetail(target.id));
+    if (action === 'email' && method === 'GET') return send(await draftSetupEmail(target, actor));
 
     if (method === 'DELETE' && !action) {
       const body = await readBody();
@@ -655,6 +662,10 @@ export async function handleAdminRequest(
           jobIds: body?.jobIds,
           externalUrl: body?.externalUrl,
         });
+        return result.ok ? send({ ok: true, user: await userRow(target) }) : send({ error: result.error }, result.status);
+      }
+      case 'email': {
+        const result = await sendAdminEmail(target, actor, String(body?.subject ?? ''), String(body?.body ?? ''));
         return result.ok ? send({ ok: true, user: await userRow(target) }) : send({ error: result.error }, result.status);
       }
       case 'stop': {

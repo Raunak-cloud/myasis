@@ -500,6 +500,12 @@ tbody tr.clickable { cursor: pointer; }
 .confirm h2 { margin: 0 0 10px; font-size: 17px; }
 .confirm .dim { color: var(--text-dim); }
 .confirm-actions { display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end; }
+.admin-email { width: min(640px, calc(100vw - 32px)); max-width: none; display: grid; gap: 12px; }
+.admin-email h2 { margin: 0; overflow-wrap: anywhere; }
+.admin-email .confirm-actions { flex-wrap: wrap; margin-top: 6px; }
+.admin-email .confirm-actions a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+.admin-email-body { min-height: 300px; resize: vertical; font: inherit; line-height: 1.55; padding: 10px 12px; }
+.admin-email-button { margin-left: 8px; }
 
 .run-review-overlay {
   padding: 20px;

@@ -548,3 +548,15 @@ CREATE TABLE IF NOT EXISTS search_suggestions (
   rank       INTEGER NOT NULL,
   PRIMARY KEY (week, seed, suggestion)
 );
+
+-- Personal emails an operator sent an account from the admin page, so the
+-- next operator can see who was already contacted, when, and what was said.
+CREATE TABLE IF NOT EXISTS admin_emails (
+  id       BIGSERIAL PRIMARY KEY,
+  user_id  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sent_by  BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  subject  TEXT NOT NULL,
+  body     TEXT NOT NULL,
+  sent_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS admin_emails_user_idx ON admin_emails(user_id, sent_at DESC);
