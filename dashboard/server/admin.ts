@@ -16,7 +16,7 @@ import { pruneAllProfiles } from './profile-prune.js';
 import { pruneAllTraces, TRACE_RETENTION_DAYS } from './trace-retention.js';
 import { runner, readEnv, writeEnv, MAX_CONCURRENT } from './runner.js';
 import { setupStatus } from './setup.js';
-import { draftSetupEmail, sendAdminEmail } from './admin-email.js';
+import { draftSetupEmail, sendAdminEmail, tailorSetupEmail } from './admin-email.js';
 import { readSiteState } from './seek-state.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
@@ -663,6 +663,10 @@ export async function handleAdminRequest(
           externalUrl: body?.externalUrl,
         });
         return result.ok ? send({ ok: true, user: await userRow(target) }) : send({ error: result.error }, result.status);
+      }
+      case 'email-draft': {
+        const result = await tailorSetupEmail(target, actor, String(body?.instruction ?? ''));
+        return result.ok ? send(result) : send({ error: result.error }, result.status);
       }
       case 'email': {
         const result = await sendAdminEmail(target, actor, String(body?.subject ?? ''), String(body?.body ?? ''));

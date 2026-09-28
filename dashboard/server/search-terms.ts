@@ -166,7 +166,7 @@ export async function askGeminiForJson(
  * Magnus reasons before answering and the reasoning counts against max_tokens,
  * so the budget is several times the answer's.
  */
-async function askCelerisForJson(
+export async function askCelerisForJson(
   apiKey: string,
   systemInstruction: string,
   prompt: string,

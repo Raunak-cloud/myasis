@@ -507,6 +507,8 @@ tbody tr.clickable { cursor: pointer; }
 /* Tall enough for the whole draft, growing with it where the browser can size to content. */
 .admin-email textarea.admin-email-body { min-height: min(480px, 58dvh); field-sizing: content; resize: vertical; font: inherit; line-height: 1.55; padding: 10px 12px; }
 .admin-email-button { margin-left: 8px; }
+.admin-email-tailor { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-email-tailor .input { flex: 1 1 280px; min-width: 0; }
 
 .run-review-overlay {
   padding: 20px;
