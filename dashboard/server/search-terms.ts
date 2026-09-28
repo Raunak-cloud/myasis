@@ -113,14 +113,17 @@ export function splitSearchTerms(input: unknown, limit = 100): string[] {
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  try {
-    const parsed = JSON.parse(cleaned);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
+  // A reply may wrap the object in a sentence or a code fence; the object itself is what was asked for.
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  for (const candidate of [cleaned, start >= 0 && end > start ? cleaned.slice(start, end + 1) : '']) {
+    if (!candidate) continue;
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch { /* try the next reading */ }
   }
+  return null;
 }
 
 /**
@@ -156,7 +159,13 @@ export async function askGeminiForJson(
   return askCelerisForJson(celerisKey, systemInstruction, prompt, responseSchema, temperature, limits);
 }
 
-/** The same request to Celeris's OpenAI-compatible endpoint (seek-bot/src/agent/celeris.ts speaks it too). */
+/**
+ * The same request to Celeris Magnus, over its OpenAI-compatible endpoint
+ * (seek-bot/src/agent/celeris.ts speaks it too). Magnus, not celeris-1: the
+ * small model returned unparseable JSON for a full-length résumé on 28 Sep.
+ * Magnus reasons before answering and the reasoning counts against max_tokens,
+ * so the budget is several times the answer's.
+ */
 async function askCelerisForJson(
   apiKey: string,
   systemInstruction: string,
@@ -167,7 +176,7 @@ async function askCelerisForJson(
 ): Promise<GeminiJsonResult> {
   const env = readEnv();
   const base = (process.env.CELERIS_BASE_URL ?? env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai').replace(/\/+$/, '');
-  const model = 'celeris-1';
+  const model = 'celeris-1-magnus';
   try {
     const response = await fetch(`${base}/${model}/v1/chat/completions`, {
       method: 'POST',
@@ -179,12 +188,13 @@ async function askCelerisForJson(
           { role: 'user', content: `${prompt}\n\nReturn only a JSON object.` },
         ],
         temperature: temperature ?? 0,
-        max_tokens: limits.maxOutputTokens ?? 4_096,
+        max_tokens: Math.max(8_192, (limits.maxOutputTokens ?? 4_096) * 4),
+        chat_template_kwargs: { enable_thinking: true, reasoning_effort: 'low' },
         ...(responseSchema
-          ? { response_format: { type: 'json_schema', json_schema: { name: 'reply', schema: lowerSchemaTypes(responseSchema) } } }
+          ? { response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema: strictSchema(lowerSchemaTypes(responseSchema)) } } }
           : {}),
       }),
-      signal: AbortSignal.timeout(limits.timeoutMs ?? 60_000),
+      signal: AbortSignal.timeout(Math.max(limits.timeoutMs ?? 0, 120_000)),
     });
     if (!response.ok) return { ok: false, error: `Celeris returned HTTP ${response.status}: ${(await response.text()).slice(0, 160)}` };
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string | null } }> };
@@ -193,6 +203,23 @@ async function askCelerisForJson(
   } catch (error) {
     return { ok: false, error: `Celeris request failed: ${(error as Error).message}` };
   }
+}
+
+/**
+ * Every object lists all its fields as required and allows no others. With
+ * optional fields, Celeris's constrained decoding scrambled a résumé into
+ * "email": "phone", "state": "postcode" — keys written as values. Required
+ * fields, answered with "" when the source is silent, came back right.
+ */
+function strictSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(strictSchema);
+  if (!node || typeof node !== 'object') return node;
+  const out: Record<string, unknown> = Object.fromEntries(Object.entries(node).map(([key, value]) => [key, strictSchema(value)]));
+  if (out.type === 'object' && out.properties && typeof out.properties === 'object') {
+    out.required = Object.keys(out.properties as Record<string, unknown>);
+    out.additionalProperties = false;
+  }
+  return out;
 }
 
 /** Gemini's schema dialect writes types in capitals ("OBJECT"); JSON Schema wants them lower-case. */

@@ -31,6 +31,18 @@ import type { CandidateProfile } from './candidate-profile.js';
  */
 const NEVER_INFERRED = ['workRights', 'expectedSalary', 'noticePeriod', 'gender', 'pronouns', 'disability'] as const;
 
+/** The reply's shape, so a model answers in fields rather than prose. Every field may be left out. */
+const SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    fullName: { type: 'STRING' }, email: { type: 'STRING' }, phone: { type: 'STRING' },
+    suburb: { type: 'STRING' }, state: { type: 'STRING' }, postcode: { type: 'STRING' },
+    headline: { type: 'STRING' }, experienceSummary: { type: 'STRING' }, skills: { type: 'STRING' },
+    highestQualification: { type: 'STRING' }, linkedin: { type: 'STRING' }, portfolio: { type: 'STRING' },
+    hasDriverLicence: { type: 'BOOLEAN' },
+  },
+};
+
 interface Extracted {
   fullName?: string;
   email?: string;
@@ -56,7 +68,7 @@ function prompt(text: string): string {
 
 Rules:
 - Copy what the document says. Do not infer, normalise or improve anything.
-- Omit a field entirely when the résumé does not state it. A missing field is correct and expected; a guessed one is not.
+- Leave a field as an empty string when the résumé does not state it. An empty field is correct and expected; a guessed one is not.
 - Fields: fullName, email, phone, suburb, state, postcode, headline, experienceSummary, skills, highestQualification, linkedin, portfolio, hasDriverLicence.
 - "state" is the Australian state or territory abbreviation (NSW, VIC, QLD, WA, SA, TAS, ACT, NT), and only when the résumé gives an Australian address.
 - "headline" is one short line describing the candidate, e.g. "Registered nurse with emergency experience".
@@ -78,7 +90,7 @@ async function extract(text: string): Promise<{ ok: true; value: Extracted } | {
   const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
   // No Gemini key, or Gemini refusing, falls through to Celeris inside the helper.
 
-  const result = await askGeminiForJson(apiKey, model, SYSTEM, prompt(text));
+  const result = await askGeminiForJson(apiKey, model, SYSTEM, prompt(text), SCHEMA);
   if (!result.ok || !result.value) return { ok: false, error: result.error ?? 'Gemini returned nothing.' };
   return { ok: true, value: result.value as Extracted };
 }
