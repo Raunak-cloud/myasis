@@ -16,6 +16,13 @@ declare global {
 
 const pixelId = typeof __META_PIXEL_ID__ === 'string' ? __META_PIXEL_ID__.trim() : '';
 let loaded = false;
+let loadingScript = false;
+let beaconOnly = false;
+const pendingEvents: Array<{
+  event: string;
+  parameters: Record<string, unknown>;
+  eventId?: string;
+}> = [];
 
 function fallbackBeacon(event: string, parameters: Record<string, unknown> = {}, eventId?: string): void {
   try {
@@ -38,12 +45,19 @@ function fallbackBeacon(event: string, parameters: Record<string, unknown> = {},
   }
 }
 
-function scheduleBeacon(event: string, parameters: Record<string, unknown> = {}, eventId?: string): void {
-  window.setTimeout(() => fallbackBeacon(event, parameters, eventId), 750);
-}
-
 function enabled(): boolean {
   return Boolean(pixelId) && !(typeof navigator !== 'undefined' && navigator.webdriver);
+}
+
+function reportEvent(event: string, parameters: Record<string, unknown>, eventId?: string): void {
+  if (beaconOnly) {
+    fallbackBeacon(event, parameters, eventId);
+    return;
+  }
+  if (eventId) window.fbq?.('track', event, parameters, { eventID: eventId });
+  else window.fbq?.('track', event, parameters);
+  // Events queued by the stub need a beacon only if the SDK fails to load.
+  if (loadingScript) pendingEvents.push({ event, parameters, eventId });
 }
 
 export function initMetaPixel(): void {
@@ -66,16 +80,30 @@ export function initMetaPixel(): void {
       const script = document.createElement('script');
       script.async = true;
       script.src = 'https://connect.facebook.net/en_US/fbevents.js';
-      document.head.appendChild(script);
+      loadingScript = true;
+      script.onload = () => {
+        loadingScript = false;
+        pendingEvents.length = 0;
+      };
+      const activateBeaconFallback = () => {
+        loadingScript = false;
+        beaconOnly = true;
+        for (const { event, parameters, eventId } of pendingEvents.splice(0)) {
+          fallbackBeacon(event, parameters, eventId);
+        }
+      };
+      script.onerror = activateBeaconFallback;
+      try {
+        document.head.appendChild(script);
+      } catch {
+        activateBeaconFallback();
+      }
     }
-    window.fbq?.('init', pixelId);
+    if (!beaconOnly) window.fbq?.('init', pixelId);
     const pageViewId = typeof crypto?.randomUUID === 'function'
       ? crypto.randomUUID()
       : `page:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-    window.fbq?.('track', 'PageView', {}, { eventID: pageViewId });
-    // Send the standard image beacon too. Meta deduplicates it against the
-    // browser event by event ID, so a blocked library loses no measurement.
-    scheduleBeacon('PageView', {}, pageViewId);
+    reportEvent('PageView', {}, pageViewId);
   } catch (error) {
     console.warn('[meta-pixel] could not initialise:', error);
   }
@@ -89,9 +117,7 @@ export function trackMetaEvent(
   if (!enabled()) return;
   if (!loaded) initMetaPixel();
   try {
-    if (eventId) window.fbq?.('track', event, parameters, { eventID: eventId });
-    else window.fbq?.('track', event, parameters);
-    scheduleBeacon(event, parameters, eventId);
+    reportEvent(event, parameters, eventId);
   } catch (error) {
     console.warn(`[meta-pixel] could not report ${event}:`, error);
   }
