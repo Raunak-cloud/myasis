@@ -123,7 +123,15 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
-/** Shared with profile-autofill.ts, which asks Gemini the same way. */
+/**
+ * One structured-JSON request, for résumé autofill, search-term suggestions
+ * and the blog. Gemini answers first; when it refuses over quota, is down, or
+ * is not configured, Celeris answers the same request instead.
+ *
+ * Gemini's monthly spending cap answered 429 on 28 Sep 2026, and every
+ * résumé uploaded after that left step 2 empty without a word: the autofill
+ * failed silently. The bot's cover letters already fall back the same way.
+ */
 export async function askGeminiForJson(
   apiKey: string,
   model: string,
@@ -133,6 +141,78 @@ export async function askGeminiForJson(
   temperature?: number,
   /** Long-form writing needs more room and time than a list of searches. */
   limits: { maxOutputTokens?: number; timeoutMs?: number } = {},
+): Promise<GeminiJsonResult> {
+  const gemini = apiKey
+    ? await askGeminiOnly(apiKey, model, systemInstruction, prompt, responseSchema, temperature, limits)
+      .catch((error): GeminiJsonResult => ({ ok: false, error: (error as Error).message }))
+    : { ok: false, error: 'Gemini is not configured.' } as GeminiJsonResult;
+  if (gemini.ok) return gemini;
+  // A reply that came back and was simply wrong is not a provider problem; only an unavailable provider falls through.
+  const unavailable = !apiKey || /\b(429|5\d\d)\b|quota|spending cap|exhausted|unavailable|overloaded|fetch failed|timed? ?out|aborted/i.test(gemini.error ?? '');
+  const env = readEnv();
+  const celerisKey = (process.env.CELERIS_API_KEY ?? env.CELERIS_API_KEY ?? '').trim();
+  if (!unavailable || !celerisKey) return gemini;
+  console.warn(`[ai] Gemini unavailable (${(gemini.error ?? '').slice(0, 80)}); asking Celeris instead`);
+  return askCelerisForJson(celerisKey, systemInstruction, prompt, responseSchema, temperature, limits);
+}
+
+/** The same request to Celeris's OpenAI-compatible endpoint (seek-bot/src/agent/celeris.ts speaks it too). */
+async function askCelerisForJson(
+  apiKey: string,
+  systemInstruction: string,
+  prompt: string,
+  responseSchema: Record<string, unknown> | undefined,
+  temperature: number | undefined,
+  limits: { maxOutputTokens?: number; timeoutMs?: number },
+): Promise<GeminiJsonResult> {
+  const env = readEnv();
+  const base = (process.env.CELERIS_BASE_URL ?? env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai').replace(/\/+$/, '');
+  const model = 'celeris-1';
+  try {
+    const response = await fetch(`${base}/${model}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: `${prompt}\n\nReturn only a JSON object.` },
+        ],
+        temperature: temperature ?? 0,
+        max_tokens: limits.maxOutputTokens ?? 4_096,
+        ...(responseSchema
+          ? { response_format: { type: 'json_schema', json_schema: { name: 'reply', schema: lowerSchemaTypes(responseSchema) } } }
+          : {}),
+      }),
+      signal: AbortSignal.timeout(limits.timeoutMs ?? 60_000),
+    });
+    if (!response.ok) return { ok: false, error: `Celeris returned HTTP ${response.status}: ${(await response.text()).slice(0, 160)}` };
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string | null } }> };
+    const value = parseJsonObject(payload.choices?.[0]?.message?.content?.trim() ?? '');
+    return value ? { ok: true, value } : { ok: false, error: 'Celeris returned invalid JSON.' };
+  } catch (error) {
+    return { ok: false, error: `Celeris request failed: ${(error as Error).message}` };
+  }
+}
+
+/** Gemini's schema dialect writes types in capitals ("OBJECT"); JSON Schema wants them lower-case. */
+function lowerSchemaTypes(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(lowerSchemaTypes);
+  if (!node || typeof node !== 'object') return node;
+  return Object.fromEntries(Object.entries(node).map(([key, value]) => [
+    key,
+    key === 'type' && typeof value === 'string' ? value.toLowerCase() : lowerSchemaTypes(value),
+  ]));
+}
+
+async function askGeminiOnly(
+  apiKey: string,
+  model: string,
+  systemInstruction: string,
+  prompt: string,
+  responseSchema: Record<string, unknown> | undefined,
+  temperature: number | undefined,
+  limits: { maxOutputTokens?: number; timeoutMs?: number },
 ): Promise<GeminiJsonResult> {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,

@@ -70,6 +70,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
    * to know which fields to check.
    */
   const [autofilled, setAutofilled] = useState<string[] | null>(null);
+  const [autofillError, setAutofillError] = useState<string | null>(null);
 
   async function refresh(notify = false) {
     const [r, k] = await Promise.all([
@@ -99,6 +100,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       if (!res.ok) setError(json.error ?? 'Upload failed.');
       else {
         setAutofilled(Array.isArray(json.autofilled) && json.autofilled.length ? json.autofilled : null);
+        setAutofillError(kind === 'resume' && typeof json.autofillError === 'string' ? json.autofillError : null);
         await refresh(kind === 'resume');
       }
     } catch (e) {
@@ -171,6 +173,12 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
       {autofilled && (
         <div className="banner banner-ok" style={{ gridColumn: '1/-1' }}>
           Filled from your résumé: {autofilled.map(fieldLabel).join(', ')}. Check them in step 2.
+        </div>
+      )}
+
+      {autofillError && (
+        <div className="banner" style={{ gridColumn: '1/-1' }}>
+          Saved, but we couldn't read it to fill step 2 ({autofillError}). Please fill step 2 in yourself.
         </div>
       )}
 

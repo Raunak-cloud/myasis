@@ -101,9 +101,7 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
           {text('fullName', 'Full name', { placeholder: 'Jane Smith' })}
           {text('email', 'Email', { type: 'email', placeholder: 'jane@example.com' })}
           {text('phone', 'Phone', { placeholder: '04XX XXX XXX' })}
-          {text('highestQualification', 'Highest qualification', {
-            placeholder: 'Bachelor of Information Technology',
-          })}
+          {text('highestQualification', 'Highest qualification', { placeholder: 'Bachelor of IT, UTS' })}
         </div>
         <div className="grid-3">
           {text('suburb', 'Suburb', { placeholder: 'Parramatta' })}
@@ -113,104 +111,73 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
       </div>
 
       <div className="fieldset">
-        <h4 className="fieldset-h">Work eligibility</h4>
-        <p className="job-meta fieldset-blurb">
-          Almost every application asks this. Answering it here means a run doesn't have to stop and
-          ask you.
-        </p>
+        <h4 className="fieldset-h">Work</h4>
         <div className="grid-2">
           <label className="field">
             <span className="field-label">Work rights</span>
             <select className="input" value={p.workRights} onChange={(e) => set('workRights', e.target.value)}>
               <option value="">Select…</option>
               {WORK_RIGHTS.map((w) => (
-                <option key={w} value={w}>
-                  {w}
-                </option>
+                <option key={w} value={w}>{w}</option>
               ))}
             </select>
           </label>
           {text('noticePeriod', 'Notice period', { placeholder: '2 weeks' })}
-          {text('willingToTravel', 'Willing to travel', {
-            optional: true,
-            placeholder: 'Up to 1 hour',
-          })}
         </div>
         <div className="check-row">
           <label className="check">
-            <input
-              type="checkbox"
-              checked={p.hasDriverLicence}
-              onChange={(e) => set('hasDriverLicence', e.target.checked)}
-            />
-            <span>I hold a current driver licence</span>
+            <input type="checkbox" checked={p.hasDriverLicence} onChange={(e) => set('hasDriverLicence', e.target.checked)} />
+            <span>Driver licence</span>
           </label>
           <label className="check">
-            <input
-              type="checkbox"
-              checked={p.willingToRelocate}
-              onChange={(e) => set('willingToRelocate', e.target.checked)}
-            />
-            <span>I'm willing to relocate</span>
+            <input type="checkbox" checked={p.willingToRelocate} onChange={(e) => set('willingToRelocate', e.target.checked)} />
+            <span>Willing to relocate</span>
           </label>
         </div>
       </div>
 
       <div className="fieldset">
-        <h4 className="fieldset-h">Your experience</h4>
-        <p className="job-meta fieldset-blurb">
-          Used to judge whether a job is a genuine fit and to write cover letters. Be accurate:
-          nothing here will be exaggerated on your behalf.
-        </p>
-        {text('headline', 'Professional headline', {
-          optional: true,
-          placeholder: 'Full-stack developer · React, Node, TypeScript',
-        })}
+        <h4 className="fieldset-h">Experience</h4>
+        {text('headline', 'Headline', { optional: true, placeholder: 'Full-stack developer · React, Node, TypeScript' })}
         <label className="field">
-          <span className="field-label">Experience summary</span>
+          <span className="field-label">Summary</span>
           <textarea
             className="input"
-            rows={4}
-            placeholder="e.g. 4 years building web applications, 2 of them freelance. Led delivery of…"
+            rows={3}
+            placeholder="A few honest sentences, e.g. 4 years building web apps, 2 freelance."
             value={p.experienceSummary}
             onChange={(e) => set('experienceSummary', e.target.value)}
           />
-          <span className="job-meta">A short, honest paragraph. Your résumé carries the detail.</span>
         </label>
         <label className="field">
-          <span className="field-label">Key skills</span>
+          <span className="field-label">Skills</span>
           <textarea
-            className="input mono-input"
+            className="input"
             rows={2}
-            placeholder="JavaScript, TypeScript, React, Node.js, PostgreSQL"
+            placeholder="Comma separated, e.g. JavaScript, React, Node.js, SQL"
             value={p.skills}
             onChange={(e) => set('skills', e.target.value)}
           />
-          <span className="job-meta">Comma separated. Drives how jobs are scored.</span>
         </label>
       </div>
 
       <details className="fieldset collapsible">
-        <summary className="fieldset-h">Links and optional details</summary>
+        <summary className="fieldset-h">More <span className="optional">optional</span></summary>
+        <p className="job-meta fieldset-blurb">Gender and disability are only used when a form asks.</p>
         <div className="grid-2 fieldset-inner">
-          {text('linkedin', 'LinkedIn', { optional: true, placeholder: 'https://linkedin.com/in/…' })}
-          {text('portfolio', 'Portfolio or GitHub', { optional: true, placeholder: 'https://…' })}
-          {text('pronouns', 'Pronouns', { optional: true })}
-          {text('referralSource', 'How you heard about roles', {
-            optional: true,
-            hint: 'Default answer for "how did you hear about us".',
-          })}
-          {text('gender', 'Gender', { optional: true, hint: 'Only used if a form explicitly asks.' })}
-          {text('disability', 'Disability', {
-            optional: true,
-            hint: 'Only used if a form explicitly asks.',
-          })}
+          {text('linkedin', 'LinkedIn', { placeholder: 'https://linkedin.com/in/…' })}
+          {text('portfolio', 'Portfolio or GitHub', { placeholder: 'https://…' })}
+          {text('willingToTravel', 'Willing to travel', { placeholder: 'Up to 1 hour' })}
+          {text('referralSource', 'How you heard about jobs', { placeholder: 'SEEK' })}
+          {text('pronouns', 'Pronouns')}
+          {text('gender', 'Gender')}
+          {text('disability', 'Disability')}
         </div>
       </details>
 
       <div className="profile-save">
         <button className="btn primary" disabled={!dirty || saving} onClick={save}>
-          {saving ? 'Saving…' : 'Save details'}
+          {saving ? 'Saving…' : 'Save'}
         </button>
         {savedAt && <span className="job-meta">Saved</span>}
         {dirty && !saving && <span className="job-meta">Unsaved changes</span>}

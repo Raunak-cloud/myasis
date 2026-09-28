@@ -76,7 +76,7 @@ async function extract(text: string): Promise<{ ok: true; value: Extracted } | {
   const env = readEnv();
   const apiKey = env.GEMINI_API_KEY ?? '';
   const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
-  if (!apiKey) return { ok: false, error: 'Gemini is not configured.' };
+  // No Gemini key, or Gemini refusing, falls through to Celeris inside the helper.
 
   const result = await askGeminiForJson(apiKey, model, SYSTEM, prompt(text));
   if (!result.ok || !result.value) return { ok: false, error: result.error ?? 'Gemini returned nothing.' };
@@ -97,12 +97,18 @@ interface AutofillResult {
  * empty, so it adds what an earlier résumé lacked without disturbing
  * anything already there.
  */
-export async function autofillProfileFromResume(userId: string): Promise<AutofillResult> {
+export async function autofillProfileFromResume(userId: string, resumeId?: string): Promise<AutofillResult> {
   const resumes = await listResumes(userId);
   if (!resumes.length) return { ok: false, filled: [], error: 'No résumé to read.' };
 
-  // The default résumé if one is marked, otherwise the most recent.
-  const chosen = resumes.find((r) => (r as { isDefault?: boolean }).isDefault) ?? resumes[resumes.length - 1];
+  /**
+   * The résumé just uploaded, when the caller says which. Reading the default
+   * instead meant a second upload filled nothing: the default was the old
+   * one, already read, so every blank it could fill was already filled.
+   */
+  const chosen = (resumeId ? resumes.find((r) => (r as { id: string }).id === resumeId) : undefined)
+    ?? resumes.find((r) => (r as { isDefault?: boolean }).isDefault)
+    ?? resumes[resumes.length - 1];
   const preview = await previewText(userId, 'resume', (chosen as { id: string }).id);
   const text = preview.text?.trim() ?? '';
   if (!preview.ok || !text || text.startsWith('(No text could be extracted')) {
@@ -130,7 +136,10 @@ export async function autofillProfileFromResume(userId: string): Promise<Autofil
       continue;
     }
 
-    const text = typeof value === 'string' ? value.trim() : '';
+    // Celeris returns skills as a list where Gemini gave one string; both are the same answer.
+    const text = typeof value === 'string'
+      ? value.trim()
+      : Array.isArray(value) ? value.filter((item) => typeof item === 'string' && item.trim()).join(', ') : '';
     if (!text) continue;
     if (String(current[field] ?? '').trim()) continue; // never overwrite the candidate
     (next[field] as string) = text;

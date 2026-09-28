@@ -780,11 +780,15 @@ function dataApi(): Plugin {
              * Only blank fields are touched, and a failure here is not an
              * upload failure — the résumé is saved either way.
              */
-            const autofill = await autofillProfileFromResume(userId).catch(() => null);
+            const autofill = await autofillProfileFromResume(userId, r.resume?.id)
+              .catch((error): { ok: false; filled: string[]; error: string } => ({ ok: false, filled: [], error: (error as Error).message }));
+            // Said out loud either way: a form that stays empty with no word looks like nothing happened.
+            if (!autofill.ok) console.warn(`[autofill] user ${userId}: ${autofill.error}`);
             return send({
               ok: true,
               resumes: await listResumes(userId),
-              ...(autofill?.filled.length ? { autofilled: autofill.filled } : {}),
+              ...(autofill.filled.length ? { autofilled: autofill.filled } : {}),
+              ...(!autofill.ok ? { autofillError: autofill.error ?? 'The résumé could not be read.' } : {}),
             });
           }
           if (req.method === 'PATCH') {
