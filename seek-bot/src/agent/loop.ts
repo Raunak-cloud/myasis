@@ -333,13 +333,29 @@ function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceSt
   }
 }
 
-/** Centre the unanswered field before taking the handoff screenshot. */
-async function captureBlockedField(page: Page, ref: string): Promise<string | undefined> {
+/**
+ * Centre the unanswered field before taking the handoff screenshot.
+ *
+ * Found by its ref when extraction saw it, otherwise by its label text (a
+ * field only the accessibility snapshot showed). When neither finds it, the
+ * page as it stands is still captured: the candidate is better served by the
+ * page the run stopped on than by "no capture".
+ */
+async function captureBlockedField(page: Page, ref: string | undefined, label: string): Promise<string | undefined> {
   let field: ReturnType<Page['locator']> | undefined;
   let priorOutline: { outline: string; outlineOffset: string } | undefined;
+  const plain = async () => page.screenshot({ type: 'jpeg', quality: 65 })
+    .then((shot) => `data:image/jpeg;base64,${shot.toString('base64')}`)
+    .catch(() => undefined);
   try {
-    field = page.locator(`[data-field-id="${ref}"], [data-field-id^="${ref}:"]`).first();
-    if (!(await field.count())) return undefined;
+    const byRef = ref ? page.locator(`[data-field-id="${ref}"], [data-field-id^="${ref}:"]`).first() : undefined;
+    const text = label.replace(/[\s*:]+$/, '').trim();
+    const byLabel = text ? page.getByLabel(text, { exact: false }).first() : undefined;
+    const byText = text ? page.getByText(text, { exact: false }).first() : undefined;
+    for (const candidate of [byRef, byLabel, byText]) {
+      if (candidate && await candidate.isVisible().catch(() => false)) { field = candidate; break; }
+    }
+    if (!field) return await plain();
     priorOutline = await field.evaluate((element) => {
       element.scrollIntoView({ block: 'center', inline: 'nearest' });
       const html = element as HTMLElement;
@@ -351,7 +367,7 @@ async function captureBlockedField(page: Page, ref: string): Promise<string | un
     const shot = await page.screenshot({ type: 'jpeg', quality: 65 });
     return `data:image/jpeg;base64,${shot.toString('base64')}`;
   } catch {
-    return undefined;
+    return await plain();
   } finally {
     if (field && priorOutline) {
       await field.evaluate((element, prior) => {
@@ -638,7 +654,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
     if (finalOutcome.status === 'needs-human') {
       for (const blocked of blockedQuestions) {
-        const screenshot = blocked.ref ? await captureBlockedField(page, blocked.ref) : undefined;
+        const screenshot = await captureBlockedField(page, blocked.ref, blocked.question);
         trace.push({
           step: trace.reduce((highest, item) => Math.max(highest, item.step), 0) + 1,
           url: page.url(),

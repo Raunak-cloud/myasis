@@ -347,7 +347,17 @@ async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
     }
     return ok('The pre-submit answer check could not run. Wait a moment, re-observe, and press the submit control again.');
   }
-  return await withheldFor(ctx, problems);
+  // As with the pre-filled check: a problem is about this form only if the form shows the value it quotes.
+  // Letters and digits only, so the snapshot's quoting and escaping cannot hide a real match.
+  const onForm = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const form = onForm(readableSnapshot(snapshot));
+  const real = problems.filter((problem) => {
+    const quoted = onForm(problem.value).slice(0, 40);
+    const present = !quoted || form.includes(quoted);
+    if (!present) ctx.log(`  · pre-submit check quoted "${problem.value.slice(0, 60)}" for "${problem.field.slice(0, 60)}", which is not on this form; ignored`);
+    return present;
+  });
+  return await withheldFor(ctx, real);
 }
 
 /**
@@ -383,34 +393,43 @@ async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
     ctx.log(`  · pre-filled answer check unavailable: ${(error as Error).message.slice(0, 120)}`);
     return null;
   }
-  /**
-   * A wrong answer the page kept in an optional box is removed here rather
-   * than handed back: blank is always safer than another employer's letter.
-   * Tabcorp's PageUp "Tell us more" held a note written for "Front Engineer at
-   * Fetch Pet"; the agent never cleared it and the job went to the candidate.
-   * Required fields still go back to the agent, and from there the candidate.
-   */
   const normalLabel = (text: string) => normal(text).replace(/[\s*:]+$/, '');
   const remaining: typeof problems = [];
   for (const problem of problems) {
     const field = prefilled.find((candidate) => normalLabel(candidate.label) === normalLabel(problem.field));
-    const clearable = field && !field.required && (field.kind === 'text' || field.kind === 'textarea');
-    const cleared = clearable && await ctx.page.locator(`[data-field-id="${field!.ref}"]`).first()
-      .fill('', { timeout: 5_000 }).then(() => true).catch(() => false);
-    if (cleared) {
-      ctx.log(`  · cleared "${field!.label}": it held an answer that was not the candidate's (${problem.problem.slice(0, 120)})`);
+    /**
+     * The check reviews only the fields listed to it, so a problem naming any
+     * other field is not about this page. Data Processors' SEEK form had no
+     * "Tell us more" at all: the checker reported the candidate's saved
+     * Fetch Pet answer, which it had been shown as evidence, as if the form
+     * held it. The agent searched for a box that did not exist, rewrote the
+     * wrong field, and the candidate was asked about a question nobody asked.
+     */
+    if (!field) {
+      ctx.log(`  · pre-filled check named "${problem.field.slice(0, 60)}", which is not on this page; ignored`);
       continue;
     }
     /**
-     * A required field is answered afresh, grounded like any other answer,
-     * rather than handed back: the agent could not find SEEK's pre-filled
-     * "Tell us more" on the page and the job went to the candidate over a
-     * field the answer tool could write. Only a field with no grounded answer
-     * is left for the agent and, from there, the candidate.
+     * A wrong answer the page held is answered afresh, grounded like any
+     * other, before anything else: a pitch written for this job beats both an
+     * empty box and another employer's letter. SEEK and PageUp pre-filled
+     * "Tell us more" with a note written for "Front Engineer at Fetch Pet".
+     * With no grounded answer, an optional box is emptied (blank is safer than
+     * the wrong letter) and only a required one goes back to the agent.
      */
-    const repaired = field ? await repairPrefilled(ctx, field, problem.problem).catch(() => null) : null;
-    if (repaired) ctx.log(`  · re-answered "${field!.label}": the page held an answer that was not the candidate's`);
-    else remaining.push(problem);
+    const repaired = await repairPrefilled(ctx, field, problem.problem).catch(() => null);
+    if (repaired) {
+      ctx.log(`  · re-answered "${field.label}": the page held an answer that was not the candidate's`);
+      continue;
+    }
+    const clearable = !field.required && (field.kind === 'text' || field.kind === 'textarea');
+    const cleared = clearable && await ctx.page.locator(`[data-field-id="${field.ref}"]`).first()
+      .fill('', { timeout: 5_000 }).then(() => true).catch(() => false);
+    if (cleared) {
+      ctx.log(`  · cleared "${field.label}": it held an answer that was not the candidate's (${problem.problem.slice(0, 120)})`);
+      continue;
+    }
+    remaining.push(problem);
   }
   if (!remaining.length) {
     audited.add(signature);
