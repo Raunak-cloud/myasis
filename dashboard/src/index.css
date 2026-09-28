@@ -1401,7 +1401,7 @@ button.metric-tile:hover strong { color: var(--accent); }
 .page-content { max-width: var(--page-max); margin: 0 auto; }
 
 /* ---------- support ---------- */
-.support-page { display: grid; gap: 12px; max-width: 720px; }
+.support-page { display: grid; gap: 12px; }
 .support-card { display: flex; align-items: flex-start; gap: 18px; padding: 24px; }
 .support-icon {
   flex: none; display: grid; place-items: center; width: 46px; height: 46px;
@@ -1431,7 +1431,7 @@ button.metric-tile:hover strong { color: var(--accent); }
 }
 .support-faq-list details[open] summary::after { transform: rotate(45deg); }
 .support-faq-list summary:hover { background: var(--surface-2); }
-.support-faq-list p { margin: 0; padding: 0 48px 18px 22px; color: var(--text-dim); line-height: 1.6; }
+.support-faq-list p { max-width: 90ch; margin: 0; padding: 0 48px 18px 22px; color: var(--text-dim); line-height: 1.6; }
 .card { box-shadow: 0 1px 3px rgba(18, 42, 70, .045); }
 .btn { min-height: 36px; font-weight: 550; }
 .btn.primary { box-shadow: 0 7px 20px rgba(37, 99, 166, .18); }
