@@ -76,7 +76,7 @@ function writeCookie(name: string, value: string, days: number): void {
  * than storage so the server can read it on the OAuth callback and the Stripe
  * return, neither of which runs our JavaScript.
  */
-function captureClickId(): void {
+export function captureRedditClickId(): void {
   try {
     const clickId = new URLSearchParams(location.search).get(CLICK_ID_PARAM);
     if (clickId) writeCookie(CLICK_ID_COOKIE, clickId, CLICK_ID_DAYS);
@@ -86,12 +86,21 @@ function captureClickId(): void {
 }
 
 let loaded = false;
+let pageVisitTracked = false;
 
-/** Injects Reddit's script and reports the first page. Safe to call more than once. */
-export function initRedditPixel(): void {
-  if (!enabled() || loaded) return;
+/** Injects Reddit's script. Only public landing visits should report PageVisit. */
+export function initRedditPixel(trackPageVisit = true): void {
+  if (!enabled()) return;
+  if (loaded) {
+    // A conversion may have initialised the pixel before the visitor signs out.
+    if (trackPageVisit && !pageVisitTracked) {
+      window.rdt?.('track', 'PageVisit');
+      pageVisitTracked = true;
+    }
+    return;
+  }
   loaded = true;
-  captureClickId();
+  captureRedditClickId();
 
   try {
     if (!window.rdt) {
@@ -111,7 +120,10 @@ export function initRedditPixel(): void {
     }
 
     window.rdt?.('init', pixelId);
-    window.rdt?.('track', 'PageVisit');
+    if (trackPageVisit) {
+      window.rdt?.('track', 'PageVisit');
+      pageVisitTracked = true;
+    }
   } catch (error) {
     // Tracking must never break a page — the same rule analytics.ts follows.
     console.warn('[reddit-pixel] could not initialise:', error);
@@ -125,7 +137,7 @@ export function initRedditPixel(): void {
  */
 export function trackRedditEvent(event: RedditEvent, options: RedditEventOptions = {}): void {
   if (!enabled()) return;
-  if (!loaded) initRedditPixel();
+  if (!loaded) initRedditPixel(false);
 
   try {
     const payload: Record<string, unknown> = {};

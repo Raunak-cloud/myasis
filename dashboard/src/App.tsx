@@ -26,7 +26,7 @@ import { useBoardsStatus } from './boards';
 import { useRouteStatus } from './route';
 import { JobBoardsDialog } from './components/JobBoardsDialog';
 import { trackPage } from './analytics';
-import { initRedditPixel, trackRedditEvent } from './redditPixel';
+import { captureRedditClickId, initRedditPixel, trackRedditEvent } from './redditPixel';
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
@@ -125,7 +125,9 @@ export default function App() {
    * the URL immediately: a reload must not report the sign-up a second time.
    */
   useEffect(() => {
-    initRedditPixel();
+    // Preserve attribution for returning customers without tracking their
+    // private dashboard (or the admin's customer list) as a landing visit.
+    captureRedditClickId();
     initMetaPixel();
     const params = new URLSearchParams(window.location.search);
     const signup = params.get('rdt_signup');
@@ -136,6 +138,12 @@ export default function App() {
     const query = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
   }, []);
+
+  useEffect(() => {
+    // A PageVisit is an ad landing, not every signed-in or admin app load.
+    // Wait for auth so a returning session is never mistaken for a visitor.
+    if (!authLoading && !user) initRedditPixel();
+  }, [authLoading, user]);
 
   const load = useCallback(async () => {
     const [a, n, lastRun, todayStats] = await Promise.all([
