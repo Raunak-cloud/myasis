@@ -904,7 +904,7 @@ async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): 
   let answer = (await answerFields(context, ctx.job, ctx.profile)).answers.find(candidate => candidate.ref === ref);
   if (field.required && answer?.applicationQuestion !== false && !answer?.grounded) {
     ctx.log('  ↑ thinking again about 1 dropdown before asking the candidate');
-    const reasoned = await answerFields(context, ctx.job, ctx.profile).catch(() => null);
+    const reasoned = await answerFields(context, ctx.job, ctx.profile, undefined, { deeper: true }).catch(() => null);
     const better = reasoned?.answers.find(candidate => candidate.ref === ref);
     if (better?.grounded || better?.applicationQuestion === false) answer = better;
   }
@@ -1141,10 +1141,11 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   let injectionSuspected = first.injectionSuspected;
   /**
    * Before a required question goes to the candidate, the reasoning model
-   * gets one look at it. The fast model answers most questions well, but a
-   * question it could not place — a phone code split from the number, a date
-   * spread over three boxes — is usually one that a moment's thought resolves,
-   * and a paused application costs the candidate far more than a slower call.
+   * gets a longer think about it (medium reasoning effort, not the usual
+   * low). The first pass answers most questions well, but a question it could
+   * not place — a phone code split from the number, a date spread over three
+   * boxes — is usually one that more thought resolves, and a paused
+   * application costs the candidate far more than a slower call.
    */
   const unsure = answerContext.filter((field) =>
     field.required &&
@@ -1153,7 +1154,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   );
   if (unsure.length) {
     ctx.log(`  ↑ thinking again about ${unsure.length} question(s) before asking the candidate`);
-    const second = await answerFields(unsure, ctx.job, ctx.profile).catch(() => null);
+    const second = await answerFields(unsure, ctx.job, ctx.profile, undefined, { deeper: true }).catch(() => null);
     if (second) {
       answers = answers.map((answer) => {
         const better = second.answers.find((candidate) => candidate.ref === answer.ref);

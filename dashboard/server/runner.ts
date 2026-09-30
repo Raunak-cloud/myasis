@@ -100,7 +100,9 @@ function readQualifyingJobs(dataDir: string): number | null {
   const path = resolve(dataDir, 'run-summary.json');
   if (!existsSync(path)) return null;
   try {
-    const value = JSON.parse(readFileSync(path, 'utf8')) as { qualifyingJobs?: unknown };
+    const value = JSON.parse(readFileSync(path, 'utf8')) as { qualifyingJobs?: unknown; reviewComplete?: unknown };
+    // A review cut short by the run cap says nothing about how many jobs the search terms find.
+    if (value.reviewComplete === false) return null;
     return typeof value.qualifyingJobs === 'number' && Number.isInteger(value.qualifyingJobs) && value.qualifyingJobs >= 0
       ? value.qualifyingJobs
       : null;

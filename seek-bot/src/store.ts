@@ -136,9 +136,14 @@ export function recentReviewFeedback(): Map<string, { at: string; status: string
  * `exportUserForRun` removes the previous file before every run, so a failed
  * run can never accidentally reuse an older result.
  */
-export function saveRunSummary(qualifyingJobs: number): void {
+/**
+ * How many jobs qualified, and whether review got through every listing it
+ * found. A run that stops at its cap has not shown the search to be sparse,
+ * whatever the count, so only a complete review says anything about the terms.
+ */
+export function saveRunSummary(qualifyingJobs: number, reviewComplete = true): void {
   ensureDir();
-  writeFileSync(RUN_SUMMARY, JSON.stringify({ qualifyingJobs, completedAt: new Date().toISOString() }, null, 2));
+  writeFileSync(RUN_SUMMARY, JSON.stringify({ qualifyingJobs, reviewComplete, completedAt: new Date().toISOString() }, null, 2));
 }
 
 /**

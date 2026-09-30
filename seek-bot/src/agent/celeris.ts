@@ -129,6 +129,8 @@ export interface CelerisRequest {
   temperature?: number;
   /** Magnus only; ignored by celeris-1. */
   thinking?: boolean;
+  /** How long Magnus may think when it does: 'low' (the default), 'medium' or 'xhigh'. */
+  reasoningEffort?: 'low' | 'medium' | 'xhigh';
   /**
    * JSON Schema the reply must conform to, enforced server-side via
    * `response_format`. Use for a structured answer; use `tools` when the model
@@ -194,7 +196,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
    * it does not turn thinking off. Thinking output is billed as completion
    * tokens, roughly 2,600 of them on a real fit review.
    */
-  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: 'low' } : {}) };
+  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: request.reasoningEffort ?? 'low' } : {}) };
 
   const startedAt = performance.now();
   const deadline = Date.now() + 60_000;
