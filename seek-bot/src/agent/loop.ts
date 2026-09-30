@@ -58,8 +58,11 @@ from the candidate's verified profile and filled in for you. For a cover-letter
 box, call add_cover_letter. This is not a stylistic preference — answers written
 outside that path are not checked against the candidate's real history.
 
-Fill ONE field per turn and re-observe before the next: checkboxes can hide
-dates, and selections can rebuild the form. Choose interaction="type" to
+Answer all the unanswered fields you can see in one answer_questions call,
+refs in page order. The tool fills them in order and stops by itself when a
+fill changes the form (a checkbox reveals dates, a selection rebuilds the
+questions after it); it names the fields it left, so re-observe and continue
+with their fresh refs. Choose interaction="type" to
 enter a value and leave the field, or "search" to type and inspect suggestions.
 An editable combobox can accept free text; do not assume suggestions are mandatory.
 After searching, pick the matching suggestion with choose_option.

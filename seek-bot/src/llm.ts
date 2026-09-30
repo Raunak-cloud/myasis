@@ -394,7 +394,15 @@ export async function answerFields(
    * again, same model, same prompt, temperature 0: a second bill for the same
    * answer. Letting the model reason at more length is what makes it a second look.
    */
-  options: { deeper?: boolean } = {},
+  options: {
+    deeper?: boolean;
+    /**
+     * The page the fields sit on, as untrusted text. Given once for the whole
+     * batch rather than copied into every field's description, which repeated
+     * the same 6,000 characters for each field of a multi-question page.
+     */
+    formContext?: string;
+  } = {},
 ): Promise<{ answers: FieldAnswer[]; injectionSuspected: boolean }> {
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
   const saved = loadSavedAnswers();
@@ -457,7 +465,7 @@ Location: ${job.location}
 Description: ${relevantEvidence(job.description ?? job.teaser ?? '', job.title + ' ' + profile.skills.join(' '), 16000)}
 </untrusted>
 
-<untrusted role="form-fields">
+${options.formContext ? `<untrusted role="form-context">\n${options.formContext}\n</untrusted>\n\n` : ''}<untrusted role="form-fields">
 ${JSON.stringify(fields, null, 2)}
 </untrusted>
 

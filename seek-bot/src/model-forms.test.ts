@@ -33,6 +33,8 @@ let answerRef = '';
 let answerValue = '0412345678';
 let prompt = '';
 let sendsApplication = false;
+/** When set, the answer model's reply for a multi-field call: one grounded answer per ref. */
+let batchAnswers: Array<{ ref: string; value: string }> | null = null;
 const reply =(content: unknown) =>
   new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(content) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
 globalThis.fetch = async (_input, init) => {
@@ -43,7 +45,9 @@ globalThis.fetch = async (_input, init) => {
   calls++;
   prompt = body;
   return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({
-    answers: [{ ref: answerRef, value: answerValue, applicationQuestion: true, grounded: true, basis: 'profile', profileField: 'phone' }],
+    answers: batchAnswers
+      ? batchAnswers.map((item) => ({ ...item, applicationQuestion: true, grounded: true, basis: 'profile', profileField: 'none' }))
+      : [{ ref: answerRef, value: answerValue, applicationQuestion: true, grounded: true, basis: 'profile', profileField: 'phone' }],
     injectionSuspected: false,
   }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
 };
@@ -136,8 +140,27 @@ try {
   ctx.guards.recordFillFailure('Phone', 'No dropdown');
   await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(field => field.ref), interaction: 'type', reason: 'These are editable fields, not fixed dropdowns.' });
   assert.equal(await page.locator('input').first().inputValue(), profile.phone, 'free-text combobox needs no menu');
-  assert.equal(await page.locator('input').nth(1).inputValue(), '', 'only one field changes before re-observation');
+  assert.equal(await page.locator('input').nth(1).inputValue(), '', 'a field the answer model left ungrounded stays empty');
   assert.equal(ctx.guards.unfillable.has('Phone'), false, 'successful model retry clears previous failures');
+
+  // Several questions on one page are answered in one call and filled in page order.
+  await page.setContent('<main><label>First name<input></label><label>Suburb<input></label><label>Years of experience<input></label></main>');
+  ctx = await context();
+  batchAnswers = ctx.observation.fields.map((field, i) => ({ ref: field.ref, value: ['Raunak', 'Lidcombe', '4'][i] }));
+  const before = calls;
+  const batched = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(field => field.ref).reverse(), reason: 'All three questions' });
+  assert.equal(calls - before, 1, 'one answer call for the whole page');
+  assert.deepEqual(await page.locator('input').evaluateAll(els => els.map(el => (el as HTMLInputElement).value)), ['Raunak', 'Lidcombe', '4']);
+  assert.match(JSON.stringify(batched), /Verified 3 field/);
+  // A fill that changes the form stops the batch: what follows was answered for the form as it was.
+  await page.setContent('<main><label>Currently studying<input type="checkbox" onchange="document.getElementById(\'d\').hidden=!this.checked"></label><div id="d" hidden><label>Expected completion<input type="date"></label></div><label>Suburb<input></label></main>');
+  ctx = await context();
+  batchAnswers = ctx.observation.fields.map((field) => ({ ref: field.ref, value: field.kind === 'checkbox' ? 'true' : 'Lidcombe' }));
+  const stopped = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(field => field.ref), reason: 'Both questions' });
+  assert.equal(await page.locator('input[type=checkbox]').isChecked(), true);
+  assert.equal(await page.locator('input').last().inputValue(), '', 'the field after a form change waits for a fresh look');
+  assert.match(JSON.stringify(stopped), /Not filled yet, because the form changed after an answer: Suburb/);
+  batchAnswers = null;
 
   await page.setContent('<main><label>Phone<input role="combobox" oninput="document.querySelector(\'ul\').hidden=false"></label><ul role="listbox" hidden><li role="option" onclick="document.querySelector(\'input\').value=\'WRONG\'">Unrelated suggestion</li></ul></main>');
   ctx = await context();

@@ -1,6 +1,6 @@
 import { measured, metric } from './pipeline.js';
 import { pickResumeForJob } from './resume.js';
-import { appliesThroughGovernmentSite, assessFit, coverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
+import { appliesThroughGovernmentSite, assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { config, loadProfile } from './config.js';
 import {
   launchBrowser,
@@ -755,9 +755,15 @@ async function main() {
       return;
     }
 
+    /**
+     * The next job's letter is written and humanized during the pause, not
+     * inside the application: the humanizer pass used to run when the agent
+     * reached the letter box, about a tenth of an application's time spent
+     * waiting on the form. Same calls, made earlier; one candidate ahead only,
+     * and these functions share their in-flight results with the agent.
+     */
     const prepare = (job: JobListing) => {
-      // One candidate ahead only; these functions share their in-flight results.
-      void coverLetterForJob(job, profile).catch(() => {});
+      void finishedCoverLetterForJob(job, profile).catch(() => {});
       void pickResumeForJob(job, profile).catch(() => {});
     };
     /**

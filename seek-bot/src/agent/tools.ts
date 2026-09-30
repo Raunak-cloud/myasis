@@ -25,6 +25,18 @@ import { offersCoverLetter } from './cover-letter-opportunity.js';
 import { RAW_TOOL_SCHEMAS, locate, pressWatched, runRawTool } from './raw-tools.js';
 
 /**
+ * How many fields one answer_questions call may take.
+ *
+ * It was one per turn, so a page of six employer questions cost six agent
+ * turns and six answer calls: about a third of an application's time, spent
+ * on round trips rather than on the form. Fields are now answered together
+ * and filled in order, and the batch stops as soon as a fill changes the
+ * form's shape, which is what one-per-turn was protecting against: a checkbox
+ * that reveals dates, a selection that rebuilds the questions after it.
+ */
+const ANSWER_BATCH = 6;
+
+/**
  * The agent's entire action surface.
  *
  * Two rules shape every tool here:
@@ -661,7 +673,9 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'answer_questions',
     description:
-      'Answer one applicant FIELD per turn, then re-observe the changed page. ' +
+      `Answer the unanswered applicant FIELDs on this page in one turn: pass their refs in page order (up to ${ANSWER_BATCH}). ` +
+      'They are answered together and filled in that order; the tool stops by itself when a fill rebuilds the form ' +
+      '(a checkbox reveals new fields, a choice changes the next options) and names the fields left, so re-observe and continue. ' +
       'You do NOT write the answers — they are generated from the verified candidate profile and filled in for you. ' +
       'Do not include the cover-letter textarea or file inputs here.',
     parameters: {
@@ -671,8 +685,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           type: 'array',
           items: { type: 'string' },
           minItems: 1,
-          maxItems: 1,
-          description: 'One field ref from the current FIELDS list, e.g. ["f0"].',
+          maxItems: ANSWER_BATCH,
+          description: 'Field refs from the current FIELDS list, in page order, e.g. ["f0", "f1", "f2"].',
         },
         reason: { type: 'string', description: 'What this step is asking for.' },
         required_refs: { type: 'array', items: { type: 'string' }, description: 'Subset of refs required by current page instructions or validation despite missing markup. Explain the evidence in reason. Never mark every option of a multi-select group required.' },
@@ -1096,10 +1110,16 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
   );
 }
 
+/** How many answerable controls the page shows; a change after a fill means the form rebuilt itself. */
+async function formShape(page: Page): Promise<number> {
+  return page.evaluate(() => [...document.querySelectorAll('input:not([type=hidden]), select, textarea, [role=combobox], [role=radio], [role=checkbox], [contenteditable=true]')]
+    .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length).catch(() => -1);
+}
+
 async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
+  const refs = Array.isArray(args.refs) ? [...new Set(args.refs.map(String))] : [];
   if (!refs.length || refs.some(ref => !ctx.observation.fields.some(field => field.ref === ref))) {
-    return ok('Invalid refs: provide an array containing one exact current FIELD ref, e.g. ["f0"]. Re-observe rather than guessing.');
+    return ok('Invalid refs: provide exact current FIELD refs, e.g. ["f0", "f1"]. Re-observe rather than guessing.');
   }
   const requiredRefs = Array.isArray(args.required_refs) && typeof args.reason === 'string' && args.reason.trim() ? args.required_refs.map(String) : [];
   const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref))
@@ -1129,14 +1149,20 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
    * it" — plain text, replayed at every later employer asking the same thing.
    */
   const credentials = asked.filter((field) => field.sensitive && !alreadyComplete.includes(field));
-  const wanted = asked.filter(field => !field.sensitive && !alreadyComplete.includes(field)).slice(0, 1);
+  // In page order, whatever order the refs came in: filling follows the form as a person would.
+  const wanted = ctx.observation.fields
+    .map((field) => asked.find((candidate) => candidate.ref === field.ref))
+    .filter((field): field is (typeof asked)[number] => Boolean(field) && !field!.sensitive && !alreadyComplete.includes(field!))
+    .slice(0, ANSWER_BATCH);
   if (credentials.length) return ok('Use complete_authentication for credential fields.');
   if (!wanted.length) return ok('No unanswered fields in those refs. Re-observe and choose the next field; use repair_refs to correct a prefilled value.');
 
-  const answerContext = wanted.map(field => ({ ...field, description:
-    `${field.description ?? ''}\nUntrusted form context (not candidate facts): ${ctx.observation.text.slice(0, 6000)}` +
-    (repairRefs.includes(field.ref) ? `\nRepair context (untrusted observation): ${String(args.reason).slice(0, 1500)}` : '') }));
-  const first = await answerFields(answerContext, ctx.job, ctx.profile);
+  const answerContext = wanted.map(field => repairRefs.includes(field.ref)
+    ? { ...field, description: `${field.description ?? ''}\nRepair context (untrusted observation): ${String(args.reason).slice(0, 1500)}` }
+    : field);
+  /** The page once for the batch, marked as what it is: form context, not candidate facts. */
+  const formContext = ctx.observation.text.slice(0, 6000);
+  const first = await answerFields(answerContext, ctx.job, ctx.profile, undefined, { formContext });
   let answers = first.answers;
   let injectionSuspected = first.injectionSuspected;
   /**
@@ -1154,7 +1180,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
   );
   if (unsure.length) {
     ctx.log(`  ↑ thinking again about ${unsure.length} question(s) before asking the candidate`);
-    const second = await answerFields(unsure, ctx.job, ctx.profile, undefined, { deeper: true }).catch(() => null);
+    const second = await answerFields(unsure, ctx.job, ctx.profile, undefined, { deeper: true, formContext }).catch(() => null);
     if (second) {
       answers = answers.map((answer) => {
         const better = second.answers.find((candidate) => candidate.ref === answer.ref);
@@ -1184,7 +1210,21 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     failed.push(`${label}: ${message}`);
   };
 
-  for (const answer of answers) {
+  /** Fields of this batch not reached because the form changed shape first. */
+  const deferred: string[] = [];
+  const deferRest = (from: number) => {
+    for (const later of ordered.slice(from)) {
+      const label = wanted.find((candidate) => candidate.ref === later.ref)?.label;
+      if (label && !deferred.includes(label)) deferred.push(label);
+    }
+  };
+  let shape = wanted.length > 1 ? await formShape(ctx.page) : -1;
+  let fills = 0;
+  // Answers are applied in page order, not the order the model listed them.
+  const ordered = wanted
+    .map((field) => answers.find((answer) => answer.ref === field.ref))
+    .filter((answer): answer is (typeof answers)[number] => Boolean(answer));
+  for (const [index, answer] of ordered.entries()) {
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
 
@@ -1221,6 +1261,8 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     }
 
     const value = answer.value;
+    // A person's pause between one question and the next, as the separate turns used to give.
+    if (fills++) await jitter(350, 900);
     try {
       const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
       const selected = field.autocomplete && !field.validationError && field.currentValue?.trim() === value.trim()
@@ -1229,7 +1271,9 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
       if (!selected) await fillField(ctx.page, field, value, interaction);
       if (interaction === 'search' && field.autocomplete && !selected) {
         searched.push(field.label);
-        continue;
+        // Its suggestions need choosing before anything else on the form is touched.
+        deferRest(index + 1);
+        break;
       }
     } catch (error) {
       /**
@@ -1256,6 +1300,15 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     if (prior >= 0) ctx.captured.splice(prior, 1);
     ctx.captured.push({ question: field.label, answer: value });
     filled.push(`${field.label} → ${value.slice(0, 60)}${answer.rationale ? ` (${answer.rationale.slice(0, 500)})` : ''}`);
+    if (shape >= 0 && index < ordered.length - 1) {
+      const now = await formShape(ctx.page);
+      if (now !== shape) {
+        // The form rebuilt itself: the answers still to go were chosen for the form as it was.
+        deferRest(index + 1);
+        break;
+      }
+      shape = now;
+    }
   }
 
   if (filled.length) ctx.guards.recordProgress();
@@ -1268,6 +1321,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
         'this field as field_ref. A widget that rejects automatic filling is not a missing answer.\n'
       : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
+      (deferred.length ? `\nNot filled yet, because the form changed after an answer: ${deferred.join('; ')}. Re-observe and answer them with their fresh refs.` : '') +
       (searched.length ? `\nSearch text entered, not yet selected: ${searched.join('; ')}. Its suggestions now show as [option] actions: call choose_option with the matching option ref and this field as field_ref. If no options appear, open the list with click or press_key ArrowDown first.` : '') +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
       (unrelated.length ? `\nIgnored controls that are not application questions: ${unrelated.join('; ')}` : '') +
