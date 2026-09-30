@@ -344,23 +344,27 @@ async function main() {
         adapter, keyword, total: 0, pages: 0, lowYieldPages: 0, exhausted: false,
       })));
 
-    let stoppedEarly = shouldStopDiscovery({
-      pageNumber: 0,
-      maxPages: config.limits.pagesPerKeyword,
-      promisingJobs: promisingCount(),
-      target: discoveryTarget,
-    });
-    if (stoppedEarly) {
-      console.log(
-        `  Adaptive discovery stopped after recommendations: ` +
-        `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
-      );
-    }
+    /** Order of review: in-scope listings first, then the pre-ranking's priority. */
+    const scopeRank = (job: JobListing): number => {
+      if (runScope() === 'all') return 0;
+      if (!job.applicationMode || job.applicationMode === 'unknown') return 1; // the board's panel will say
+      return outsideScope(job.applicationMode) ? 2 : 0;
+    };
+    const reviewOrder = (a: JobListing, b: JobListing) => {
+      const scoped = scopeRank(a) - scopeRank(b);
+      if (scoped) return scoped;
+      return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+    };
 
-    for (let pageNumber = 1; !stoppedEarly && pageNumber <= config.limits.pagesPerKeyword; pageNumber++) {
+    let nextPage = 1;
+    const liveStreams = () => streams.filter((stream) => !stream.exhausted && stream.lowYieldPages < 2);
+    /** Whether the job-title searches have pages they have not read yet. */
+    const searchesLeft = () => nextPage <= config.limits.pagesPerKeyword && liveStreams().length > 0;
+    /** Reads the next result page of every search still yielding. */
+    const searchPageRound = async (): Promise<void> => {
+      const pageNumber = nextPage++;
       const round: Array<{ stream: SearchStream; accepted: JobListing[] }> = [];
-      for (const stream of streams) {
-        if (stream.exhausted || stream.lowYieldPages >= 2) continue;
+      for (const stream of liveStreams()) {
         const results = await measured(
           'discovery',
           () => stream.adapter.search(page, stream.keyword, pageNumber),
@@ -382,7 +386,24 @@ async function main() {
           accepted.filter(isPromising).length,
         );
       }
+    };
 
+    let stoppedEarly = shouldStopDiscovery({
+      pageNumber: 0,
+      maxPages: config.limits.pagesPerKeyword,
+      promisingJobs: promisingCount(),
+      target: discoveryTarget,
+    });
+    if (stoppedEarly) {
+      console.log(
+        `  Adaptive discovery stopped after recommendations: ` +
+        `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
+      );
+    }
+
+    while (!stoppedEarly && searchesLeft()) {
+      await searchPageRound();
+      const pageNumber = nextPage - 1;
       if (shouldStopDiscovery({
         pageNumber,
         maxPages: config.limits.pagesPerKeyword,
@@ -394,9 +415,7 @@ async function main() {
           `  Adaptive discovery stopped after page ${pageNumber}: ` +
           `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
         );
-        break;
       }
-      if (!round.length) break;
     }
 
     for (const stream of streams) {
@@ -412,16 +431,31 @@ async function main() {
     );
 
     /** New batches were ranked as they arrived; sort the combined queue once. */
-    const scopeRank = (job: JobListing): number => {
-      if (runScope() === 'all') return 0;
-      if (!job.applicationMode || job.applicationMode === 'unknown') return 1; // the board's panel will say
-      return outsideScope(job.applicationMode) ? 2 : 0;
+    shortlist.sort(reviewOrder);
+
+    /**
+     * An early stop is a bet, not a decision. When board recommendations
+     * already fill the review slots the searches are skipped, and when those
+     * recommendations then all fail review the run used to end with nothing to
+     * apply for, its job-title searches never read (30 Sep: 28 "promising"
+     * recommendations, 0 suitable, 0 applied). Once review has gone through
+     * everything found, the searches carry on from the page they stopped at,
+     * and only what is new is reviewed: listings already applied for, recently
+     * rejected or already seen are dropped on the way in, as always.
+     */
+    let searchResumed = false;
+    const searchMore = async (): Promise<void> => {
+      if (!searchResumed) {
+        searchResumed = true;
+        console.log('\n  Suitable jobs ran short, so the job-title search continues.');
+      }
+      const before = shortlist.length;
+      const pageNumber = nextPage;
+      await searchPageRound();
+      const added = shortlist.splice(before).sort(reviewOrder);
+      shortlist.push(...added);
+      console.log(`  Search page ${pageNumber}: ${added.length} new listing(s) to review.`);
     };
-    shortlist.sort((a, b) => {
-      const scoped = scopeRank(a) - scopeRank(b);
-      if (scoped) return scoped;
-      return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
-    });
     console.log(`${shortlist.length} after dedupe + age/company filters (pre-ranked).\n`);
 
     /**
@@ -542,7 +576,7 @@ async function main() {
     let reviewIndex = 0;
     let evaluated = 0;
     let reviewStopped = false;
-    const reviewDone = () => reviewStopped || reviewIndex >= shortlist.length;
+    const reviewDone = () => reviewStopped || (reviewIndex >= shortlist.length && !searchesLeft());
     /** Nothing left to review and no fit check still out. */
     const reviewExhausted = () => reviewDone() && !pendingFits.length;
 
@@ -557,6 +591,10 @@ async function main() {
       if (evaluated >= config.limits.maxEvaluations) {
         console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
         reviewStopped = true;
+        return;
+      }
+      if (reviewIndex >= shortlist.length) {
+        await searchMore();
         return;
       }
       const stub = shortlist[reviewIndex++];
