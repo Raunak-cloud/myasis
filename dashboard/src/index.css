@@ -1847,6 +1847,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 }
 
 .activity-stats > div:last-child { border-right: 0; }
+.activity-shortfall { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-size: 12.5px; line-height: 1.5; }
 .activity-stats strong { font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .activity-stats span { color: var(--text-dim); font-size: 11px; }
 

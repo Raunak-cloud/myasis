@@ -99,7 +99,46 @@ function activitySummary(lines: LogLine[]) {
    * Submitted" beside a log that plainly listed four.
    */
   const submitted = lines.filter((line) => /✅\s*submitted/i.test(line.text)).length;
-  return { found, reviewed, suitable, submitted };
+  return { found, reviewed, suitable, submitted, shortfall: reviewShortfall(lines, reviewed) };
+}
+
+/**
+ * Why a finished run reviewed fewer jobs than its limit, from the bot's own
+ * "Filtered out" tally. "Reviewed 26" beside a limit of 100 reads as a
+ * fault; almost always the search simply ran out of new listings, most of
+ * them already checked in the last week. Null when there is nothing to
+ * explain: the run is still going, or it did reach its limit.
+ */
+function reviewShortfall(lines: LogLine[], reviewed: number): string | null {
+  if (!lastMatch(lines, /=== Run complete/)) return null;
+  if (lastMatch(lines, /evaluation cap \(\d+\) reached/i)) return null;
+  const limit = Number(lastMatch(lines, /\sMAX_EVALUATIONS=(\d+)/)?.[1] ?? 0);
+  if (!limit || reviewed >= limit) return null;
+
+  const groups: Array<[RegExp, string]> = [
+    [/^recent /, 'already checked in the last week'],
+    [/^listing age$|^posted /, 'past your age limit'],
+    [/outside run scope|external application disabled/, 'of an application type this run skipped'],
+    [/^excluded company/, 'from companies you excluded'],
+    [/waiting for your answer/, 'waiting on your answer'],
+    [/government/i, 'on government sites'],
+    [/already applied/, 'already applied to'],
+  ];
+  const counts = new Map<string, number>();
+  const start = lines.findIndex((line) => /^Filtered out:/.test(line.text.trim()));
+  for (const line of start >= 0 ? lines.slice(start + 1) : []) {
+    const match = line.text.match(/^\s*(\d+) × (.+)$/);
+    if (!match) {
+      if (line.text.trim()) break;
+      continue;
+    }
+    const label = groups.find(([pattern]) => pattern.test(match[2].trim()))?.[1];
+    if (label) counts.set(label, (counts.get(label) ?? 0) + Number(match[1]));
+  }
+  const reasons = [...counts].sort((a, b) => b[1] - a[1]).map(([label, n]) => `${n} ${label}`);
+  return `Only ${reviewed} new ${reviewed === 1 ? 'job was' : 'jobs were'} left to review (your limit is ${limit})` +
+    (reasons.length ? `: ${reasons.join(', ')}.` : '.') +
+    ' More or different job titles will find more.';
 }
 
 /**
@@ -1095,6 +1134,22 @@ export function RunPanel({
               <strong>{Math.max(summary.submitted, status?.applied ?? 0)}</strong>
               <span>Submitted</span>
             </div>
+          </div>
+        )}
+        {!running && summary.shortfall && (
+          <div className="activity-shortfall" role="note">
+            <span>{summary.shortfall}</span>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                const field = document.getElementById('saved-search-terms');
+                field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                field?.focus({ preventScroll: true });
+              }}
+            >
+              Edit job titles
+            </button>
           </div>
         )}
 

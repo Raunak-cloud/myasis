@@ -605,7 +605,7 @@ async function main() {
        */
       const excluded = deterministicExclusion(job);
       if (excluded) {
-        bump(excluded.replace(/:.*/, '').trim());
+        bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
         logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
         return;
       }
