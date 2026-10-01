@@ -198,6 +198,22 @@ async function main() {
     const active: PlatformAdapter[] = [];
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
+    /**
+     * Boards whose security check could not be passed this run. One board's
+     * wall used to end the whole run: an Indeed Cloudflare check that
+     * CapMonster could not solve while searching was thrown all the way up as
+     * "Fatal", so SEEK, signed in and working, never got its turn. A blocked
+     * board is now dropped for the rest of the run and the others carry on.
+     */
+    const blockedPlatforms = new Set<PlatformId>();
+    const isVerificationWall = (error: unknown) =>
+      /VerificationBlocked/i.test((error as Error)?.name ?? '') || /security verification|captcha|cloudflare/i.test((error as Error)?.message ?? '');
+    const blockPlatform = (adapter: PlatformAdapter, error: unknown) => {
+      if (blockedPlatforms.has(adapter.id)) return;
+      blockedPlatforms.add(adapter.id);
+      console.log(`
+⚠ ${adapter.label}: ${(error as Error).message} ${adapter.label} is left out for the rest of this run; the other board(s) carry on.`);
+    };
     const feedback = recentReviewFeedback();
 
     /** Keep enough backups for unavailable/already-applied listings. */
@@ -316,7 +332,9 @@ async function main() {
       }
 
       const recommendations = await adapter.recommended(page).catch((error) => {
-        console.warn(`  ${adapter.label} Recommended could not be loaded: ${(error as Error).message}`);
+        // A wall already up here would stand in front of every search and listing too.
+        if (isVerificationWall(error)) blockPlatform(adapter, error);
+        else console.warn(`  ${adapter.label} Recommended could not be loaded: ${(error as Error).message}`);
         return [] as JobListing[];
       });
       recommendedAccepted.push(...ingest(recommendations, adapter));
@@ -357,7 +375,7 @@ async function main() {
     };
 
     let nextPage = 1;
-    const liveStreams = () => streams.filter((stream) => !stream.exhausted && stream.lowYieldPages < 2);
+    const liveStreams = () => streams.filter((stream) => !stream.exhausted && stream.lowYieldPages < 2 && !blockedPlatforms.has(stream.adapter.id));
     /** Whether the job-title searches have pages they have not read yet. */
     const searchesLeft = () => nextPage <= config.limits.pagesPerKeyword && liveStreams().length > 0;
     /** Reads the next result page of every search still yielding. */
@@ -365,11 +383,20 @@ async function main() {
       const pageNumber = nextPage++;
       const round: Array<{ stream: SearchStream; accepted: JobListing[] }> = [];
       for (const stream of liveStreams()) {
-        const results = await measured(
-          'discovery',
-          () => stream.adapter.search(page, stream.keyword, pageNumber),
-          { platform: stream.adapter.id },
-        );
+        let results: JobListing[];
+        try {
+          results = await measured(
+            'discovery',
+            () => stream.adapter.search(page, stream.keyword, pageNumber),
+            { platform: stream.adapter.id },
+          );
+        } catch (error) {
+          // A search that fails ends that search, not the run.
+          stream.exhausted = true;
+          if (isVerificationWall(error)) blockPlatform(stream.adapter, error);
+          else console.warn(`  ! ${stream.adapter.label} search for "${stream.keyword}" failed: ${(error as Error).message}`);
+          continue;
+        }
         stream.pages++;
         stream.total += results.length;
         const accepted = ingest(results, stream.adapter);
@@ -492,7 +519,7 @@ async function main() {
       }>;
     }> = [];
     /** Once a board presents a CAPTCHA, later detail pages would be the same wall. */
-    const reviewBlockedPlatforms = new Set<PlatformId>();
+    const reviewBlockedPlatforms = blockedPlatforms;
     /** Per-platform friction streaks — a wall on one board never stops the other. */
     const frictionStreak = new Map<PlatformId, number>();
     const abortedPlatforms = new Set<PlatformId>();
@@ -581,6 +608,7 @@ async function main() {
     const reviewExhausted = () => reviewDone() && !pendingFits.length;
 
     /** Reviews the next listing in the pre-ranked queue. */
+    const jobLabel = (job: JobListing) => `${job.title} @ ${job.company}`;
     const reviewNext = async (): Promise<void> => {
       if (reviewDone()) return;
       if (qualified >= candidateCap) {
@@ -604,7 +632,14 @@ async function main() {
         bump('outside run scope');
         return;
       }
-      let job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
+      let job: JobListing;
+      try {
+        job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
+      } catch (error) {
+        if (isVerificationWall(error)) blockPlatform(adapter, error);
+        else console.warn(`  ! ${jobLabel(stub)}: the listing could not be opened (${(error as Error).message})`);
+        return;
+      }
 
       // Resolve run scope as soon as the listing CTA is known. In particular,
       // do not make a page-judgement model call or simulate reading time for an
