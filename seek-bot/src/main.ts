@@ -109,16 +109,6 @@ async function main() {
     if (!config.celeris.apiKey) {
       throw new Error('CELERIS_API_KEY is required — the browser agent drives every application.');
     }
-    /**
-     * Cover letters are the one call still on Gemini. Check the key up front:
-     * discovering it is missing part-way through an application strands a
-     * half-filled form on a real employer's site.
-     */
-    if (config.coverLetter.mode === 'tailored' && !config.gemini.apiKey) {
-      throw new Error(
-        'GEMINI_API_KEY is required for AI-tailored cover letters. Set it, or use COVER_LETTER_MODE=reuse.',
-      );
-    }
     console.log(
       `Browser agent: celeris-1-magnus (reasoning: low) ` +
         `(max ${config.celeris.maxSteps} steps, ${config.celeris.maxStepsPerPage} per page, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,

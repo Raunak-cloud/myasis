@@ -98,18 +98,6 @@ const GROUPS: GroupSpec[] = [
       { key: 'CELERIS_BASE_URL', label: 'Celeris base URL', help: 'Root only; the model id is added per request.', kind: 'url' },
       { key: 'CELERIS_TIMEOUT_MS', label: 'Celeris timeout (ms)', help: 'How long one model call may take before it is abandoned.', kind: 'number' },
       { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },
-      { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'Cover letters only. Not needed when every account reuses a fixed letter.', kind: 'secret' },
-      { key: 'GEMINI_MODEL', label: 'Gemini model', help: 'The model that drafts cover letters.', kind: 'text' },
-      {
-        key: 'COVER_LETTER_PROVIDER',
-        label: 'Cover-letter writer',
-        help: 'Which model writes cover letters. Gemini also falls back to Celeris Magnus when its quota refuses.',
-        kind: 'choice',
-        options: [
-          { value: '', label: 'Gemini (Celeris fallback)' },
-          { value: 'celeris', label: 'Celeris Magnus' },
-        ],
-      },
     ],
   },
   {
@@ -215,7 +203,6 @@ const GROUPS: GroupSpec[] = [
     note: 'Every Monday from 6am a job-market brief is written from Google searches and labour-market sources, fact-checked, and published at /blog. Manage posts in the Blog tab.',
     keys: [
       { key: 'BLOG_WEEKLY', label: 'Publish weekly', help: 'On unless set to Off. Off stops new posts; published ones stay up.', kind: 'boolean' },
-      { key: 'BLOG_MODEL', label: 'Gemini model', help: 'Writes and fact-checks the brief. Empty uses gemini-pro-latest.', kind: 'text' },
     ],
   },
   {

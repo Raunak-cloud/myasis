@@ -162,7 +162,7 @@ function readableError(raw: string): string {
   const nextSteps: Array<[RegExp, string]> = [
     [/already running with this profile/i, 'Start the run again: Owtomate now closes the leftover browser first.'],
     [/search terms or target role/i, 'Add job titles under Your search, then start the run again.'],
-    [/matching service is not configured|CELERIS_API_KEY|GEMINI_API_KEY/i, 'An AI service key is missing on the server, so an admin needs to add it.'],
+    [/matching service is not configured|CELERIS_API_KEY/i, 'An AI service key is missing on the server, so an admin needs to add it.'],
     [/AuthorMist|humanizer/i, 'The humanizer service on the server is not ready.'],
     [/browser has disconnected|has been closed|Target closed/i, 'The browser closed during the run. Start the run again.'],
     [/Timeout \d+ms exceeded|timed out/i, 'The page was slow to respond. Starting again usually works.'],

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Patchright + Gemini job search and auto-apply agent for SEEK",
+  "description": "Patchright + Celeris job search and auto-apply agent for SEEK and Indeed",
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "start": "tsc && node dist/main.js",
@@ -26,11 +26,10 @@
     "queue": "tsc && node dist/queue.js"
   },
   "dependencies": {
-    "@google/genai": "^0.14.0",
     "dotenv": "^16.4.7",
     "mammoth": "^1.12.3",
-    "pdf-parse-fork": "^1.2.0",
-    "patchright": "^1.63.0"
+    "patchright": "^1.63.0",
+    "pdf-parse-fork": "^1.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

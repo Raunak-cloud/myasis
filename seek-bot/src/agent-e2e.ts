@@ -218,8 +218,8 @@ await new Promise<void>((ready) => server.listen(0, '127.0.0.1', ready));
 const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 console.log('\ndrive');
-if (!config.celeris.apiKey || !config.celeris.apiKey) {
-  console.log('  – skipped: needs both CELERIS_API_KEY and GEMINI_API_KEY');
+if (!config.celeris.apiKey) {
+  console.log('  – skipped: needs CELERIS_API_KEY');
 } else {
   const { applyToJobWithAgent } = await import('./agent/apply-agent.js');
   const { loadProfile } = await import('./config.js');

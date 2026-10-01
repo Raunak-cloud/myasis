@@ -451,7 +451,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
  * The observation as the model sees it.
  *
  * Job-page copy is third-party text that has, in this corpus, contained live
- * prompt-injection attempts. It is fenced in <untrusted> exactly as gemini.ts
+ * prompt-injection attempts. It is fenced in <untrusted> exactly as llm.ts
  * does, and the system prompt tells the model that fence outranks anything
  * inside it.
  */

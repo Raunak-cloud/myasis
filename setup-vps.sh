@@ -175,7 +175,7 @@ if [[ -f "$ENV_FILE" ]]; then
   set_env PROFILE_PATH "$APP_DIR/profile.txt"
   set_env HUMANIZER_URL http://127.0.0.1:8091
   echo "    Updated $ENV_FILE"
-  grep -q '^GEMINI_API_KEY=.\+' "$ENV_FILE" || warn "GEMINI_API_KEY is empty — set it before running."
+  grep -q '^CELERIS_API_KEY=.\+' "$ENV_FILE" || warn "CELERIS_API_KEY is empty — set it before running."
 else
   warn "No .env yet — copy seek-bot/.env.example to .env and fill it in."
 fi

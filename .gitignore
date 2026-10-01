@@ -26,9 +26,6 @@ profile.txt
 *.pdf
 *.rtf
 render_check/
-snapshot_captcha.txt
-third_wave_bbq_response.md
-build_docx.py
 
 # Local tool configuration
 .claude/

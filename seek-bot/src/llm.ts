@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { config } from './config.js';
 import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
@@ -20,7 +19,7 @@ import {
 export const llmMeter = new CostMeter(Number.MAX_SAFE_INTEGER);
 
 /**
- * The schemas below are written in Gemini's dialect (uppercase `OBJECT`,
+ * The schemas below are written in the uppercase dialect (`OBJECT`,
  * `STRING`, …). Celeris takes standard JSON Schema, so the type names are
  * lowered on the way out. Converting here rather than rewriting every schema
  * keeps this migration to one function.
@@ -121,67 +120,13 @@ function profileBlock(p: CandidateProfile): string {
     .join('\n');
 }
 
-const gemini = new GoogleGenAI({ apiKey: config.gemini.apiKey });
-
 /**
- * Gemini, for cover letters only.
- *
- * Everything else in this file runs on Celeris, which is 6.8x faster on the
- * short structured calls. Letters are the exception, measured against the ones
- * this account actually sent: celeris-1 was no faster (~2.5s vs ~2s) and wrote
- * clunkier prose, once claiming availability the candidate's visa does not
- * allow; celeris-1-magnus wrote well but took 7-10s. A cover letter is the one
- * output a human reads with the candidate's name on it, so it keeps the model
- * that does it best rather than the one that keeps the dependency list short.
- */
-/**
- * The model that writes cover-letter prose, behind one switch.
- *
- * COVER_LETTER_PROVIDER=celeris drafts with Celeris Magnus instead of Gemini;
- * unset, Gemini drafts as before but a quota refusal falls through to Magnus
- * rather than costing the application its letter — on 28 Sep 2026 Gemini's
- * monthly spending cap answered 429 mid-application and the letter the form
- * offered was never written.
+ * Cover-letter prose is written by Celeris Magnus, like everything else here.
+ * Gemini wrote the letters until October 2026; its monthly cap refused
+ * mid-application on 28 September and the fallback to Magnus became the rule.
  */
 async function letterJson<T>(prompt: string, schema: object): Promise<T> {
-  const provider = (process.env.COVER_LETTER_PROVIDER ?? '').trim().toLowerCase();
-  if (provider === 'celeris') return json<T>(prompt, schema, 'celeris-1-magnus');
-  try {
-    return await geminiJson<T>(prompt, schema);
-  } catch (error) {
-    const message = (error as Error).message ?? String(error);
-    if (!/\b429\b|resource.?exhausted|quota|spending cap/i.test(message)) throw error;
-    console.warn(`  ! Gemini refused the letter (${message.slice(0, 90)}); drafting with Celeris Magnus instead`);
-    return json<T>(prompt, schema, 'celeris-1-magnus');
-  }
-}
-
-async function geminiJson<T>(prompt: string, schema: object): Promise<T> {
-  if (!config.gemini.apiKey) {
-    throw new Error('GEMINI_API_KEY is required for cover letters. Set it in .env.');
-  }
-  const deadline = Date.now() + 60_000;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      if (Date.now() >= deadline) throw new Error('Draft request deadline exceeded');
-      const res = await gemini.models.generateContent({
-        model: config.gemini.model,
-        contents: prompt,
-        config: { responseMimeType: 'application/json', responseSchema: schema, abortSignal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) },
-      });
-      const text = res.text;
-      if (!text) throw new Error('Drafting service returned an empty response');
-      return JSON.parse(text) as T;
-    } catch (error) {
-      lastError = error;
-      const message = (error as Error).message ?? String(error);
-      const transient = /\b429\b|resource.?exhausted|\b5\d\d\b|econnreset|etimedout|fetch failed/i.test(message);
-      if (!transient || attempt === 2) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
-    }
-  }
-  throw lastError;
+  return json<T>(prompt, schema, 'celeris-1-magnus');
 }
 
 async function json<T>(
@@ -1240,7 +1185,7 @@ as the most general-purpose one rather than guessing at a narrow match.
 const preparedLetters = new Map<string, Promise<string>>();
 export async function coverLetterForJob(job: JobListing, profile: CandidateProfile): Promise<string> {
   const evidence = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`);
-  const key = JSON.stringify([config.dataDir, job, profile, evidence, config.coverLetter, config.gemini.model]);
+  const key = JSON.stringify([config.dataDir, job, profile, evidence, config.coverLetter, 'celeris-1-magnus']);
   let pending = preparedLetters.get(key);
   if (!pending) {
     pending = measured('letter', () => coverLetterUncached(job, profile));

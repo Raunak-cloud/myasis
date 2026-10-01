@@ -73,16 +73,16 @@ export function updateQueueItem(userId: string, jobId: string, patch: Partial<Qu
 /** Loads the bot's compiled modules so answering reuses one implementation. */
 async function bot() {
   const url = (f: string) => new URL(`../../seek-bot/dist/${f}`, import.meta.url).href;
-  const [gemini, cfg] = await Promise.all([
+  const [llm, cfg] = await Promise.all([
     import(/* @vite-ignore */ url('llm.js')),
     import(/* @vite-ignore */ url('config.js')),
   ]);
-  return { gemini, cfg };
+  return { llm, cfg };
 }
 
 /**
  * Maps the dashboard's own `CandidateProfile` (Postgres `profiles` row) onto
- * the shape seek-bot's `answerFields`/`writeCoverLetter` expect. A few of
+ * the shape seek-bot's `answerFields`/`draftCoverLetter` expect. A few of
  * seek-bot's fields (excluded stacks, security clearance) are not collected
  * anywhere in the dashboard's profile form — those stay generic, per-account
  * defaults rather than pulling from the single shared `.env` (which would
@@ -149,8 +149,8 @@ export async function answerForm(
   error?: string;
 }> {
   try {
-    const { gemini, cfg } = await bot();
-    if (!cfg.config.gemini.apiKey) return { ok: false, error: 'The matching service is not configured.' };
+    const { llm, cfg } = await bot();
+    if (!cfg.config.celeris.apiKey) return { ok: false, error: 'The matching service is not configured.' };
     const profile = toBotProfile(await loadProfile(userId));
 
     // Prefer the queue's own record — richer than what the page exposes.
@@ -170,14 +170,14 @@ export async function answerForm(
     const wantsLetter = input.fields.some((f) => /cover letter/i.test(f.label));
     const [answered, letter] = await Promise.all([
       input.fields.length
-        ? gemini.answerFields(input.fields, job, profile, knowledge)
+        ? llm.answerFields(input.fields, job, profile, knowledge)
         : Promise.resolve({ answers: [], injectionSuspected: false }),
       queued?.coverLetter
         ? Promise.resolve(queued.coverLetter)
         : wantsLetter
           ? (await humanizerAllowed(userId))
-            ? gemini.writeCoverLetter(job, profile, knowledge)
-            : gemini.draftCoverLetter(job, profile, knowledge)
+            ? llm.draftCoverLetter(job, profile, knowledge).then((draft: string) => llm.polishCoverLetter(draft, job, profile, knowledge))
+            : llm.draftCoverLetter(job, profile, knowledge)
           : Promise.resolve(undefined),
     ]);
 

@@ -115,7 +115,7 @@ async function rewriteText(
 const humanizedTexts = new Set<string>();
 export const wasHumanized = (text: string): boolean => humanizedTexts.has(text.trim());
 
-/** Humanize a grounded Gemini draft through AuthorMist, wherever it is served. */
+/** Humanize a grounded draft through AuthorMist, wherever it is served. */
 export async function humanizeCoverLetter(
   letter: string,
   verifyMeaning?: (candidate: string) => Promise<boolean>,

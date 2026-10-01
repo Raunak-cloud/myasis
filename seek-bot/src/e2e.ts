@@ -73,10 +73,10 @@ async function main() {
       : ['pass', `${profile.name}, ${profile.skills.length} skills`];
   });
 
-  await stage('config: Gemini key present', async () =>
+  await stage('config: Celeris key present', async () =>
     config.celeris.apiKey
       ? ['pass', `model celeris-1`]
-      : ['fail', 'GEMINI_API_KEY missing — stack-fit checks would be skipped'],
+      : ['fail', 'CELERIS_API_KEY missing — stack-fit checks would be skipped'],
   );
 
   // ---- 2. pure logic (no network) --------------------------------------

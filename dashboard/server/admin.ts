@@ -487,7 +487,7 @@ export async function handleAdminRequest(
       const body = await readBody();
       const report = await blogReport();
       if (report.writing) return send({ error: 'A post is already being written.' }, 409);
-      if (!report.configured) return send({ error: 'Add a Gemini API key in Config first.' }, 400);
+      if (!report.configured) return send({ error: 'Add a Celeris API key in Config first.' }, 400);
       // Minutes of work: started here and followed from the report, which shows it writing.
       void publishWeek(weekOf().week, { replace: body?.replace === true });
       return send({ ok: true, started: true }, 202);

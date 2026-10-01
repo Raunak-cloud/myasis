@@ -1,5 +1,4 @@
-import { readEnv } from './runner.js';
-import { askGeminiForJson } from './search-terms.js';
+import { askModelForJson } from './search-terms.js';
 import { listResumes, previewText } from './files.js';
 import { loadProfile, saveProfile } from './profile.js';
 import type { CandidateProfile } from './candidate-profile.js';
@@ -85,13 +84,8 @@ ${text.slice(0, 24_000)}
 
 /** Exported for the check in scripts: the transcription step on its own. */
 async function extract(text: string): Promise<{ ok: true; value: Extracted } | { ok: false; error: string }> {
-  const env = readEnv();
-  const apiKey = env.GEMINI_API_KEY ?? '';
-  const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
-  // No Gemini key, or Gemini refusing, falls through to Celeris inside the helper.
-
-  const result = await askGeminiForJson(apiKey, model, SYSTEM, prompt(text), SCHEMA);
-  if (!result.ok || !result.value) return { ok: false, error: result.error ?? 'Gemini returned nothing.' };
+  const result = await askModelForJson(SYSTEM, prompt(text), SCHEMA);
+  if (!result.ok || !result.value) return { ok: false, error: result.error ?? 'The model returned nothing.' };
   return { ok: true, value: result.value as Extracted };
 }
 
@@ -148,7 +142,7 @@ export async function autofillProfileFromResume(userId: string, resumeId?: strin
       continue;
     }
 
-    // Celeris returns skills as a list where Gemini gave one string; both are the same answer.
+    // Skills may come back as a list or as one comma-separated string; both are the same answer.
     const text = typeof value === 'string'
       ? value.trim()
       : Array.isArray(value) ? value.filter((item) => typeof item === 'string' && item.trim()).join(', ') : '';

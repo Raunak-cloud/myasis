@@ -5,7 +5,7 @@ Myasis is an AI-assisted job search and application workspace. It combines a web
 ## Components
 
 - `dashboard` - React and Vite interface with a Node-based API layer
-- `seek-bot` - TypeScript, Patchright and Gemini job discovery and application workflow
+- `seek-bot` - TypeScript, Patchright and Celeris job discovery and application workflow
 - `extension` - browser assistant for reviewing and filling supported forms
 - `deploy` - Nginx configuration and VPS deployment support
 

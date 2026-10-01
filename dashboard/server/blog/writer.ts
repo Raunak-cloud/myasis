@@ -1,4 +1,4 @@
-import { askGeminiForJson } from '../search-terms.js';
+import { askModelForJson } from '../search-terms.js';
 import type { Brief } from './signals.js';
 
 /**
@@ -47,7 +47,7 @@ export interface WriterConfig {
 const MAX_REVISIONS = 3;
 const MIN_WORDS = 800;
 const MAX_WORDS = 1_900;
-/** Thinking counts against the output budget on current Gemini models. */
+/** Magnus thinks before it answers, and the thinking counts against the output budget. */
 const LIMITS = { maxOutputTokens: 32_768, timeoutMs: 5 * 60_000 };
 
 /** A citation as the model writes it: [S3], or several in one bracket, [S3, S8]. */
@@ -221,8 +221,8 @@ export function structuralProblems(article: Article, brief: Brief): string[] {
   return problems;
 }
 
-async function ask(config: WriterConfig, system: string, prompt: string, schema: Record<string, unknown>, temperature: number): Promise<Record<string, unknown>> {
-  const result = await askGeminiForJson(config.apiKey, config.model, system, prompt, schema, temperature, LIMITS);
+async function ask(_config: WriterConfig, system: string, prompt: string, schema: Record<string, unknown>, temperature: number): Promise<Record<string, unknown>> {
+  const result = await askModelForJson(system, prompt, schema, temperature, LIMITS);
   if (!result.ok || !result.value) throw new Error(result.error ?? 'The model returned nothing.');
   return result.value;
 }

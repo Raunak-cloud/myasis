@@ -38,7 +38,6 @@ At minimum, set these values in `seek-bot/.env`:
 
 ```dotenv
 DATABASE_URL=postgresql://myasis:strong-password@127.0.0.1:5432/myasis
-GEMINI_API_KEY=
 APP_BASE_URL=https://myasis.example.com
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=

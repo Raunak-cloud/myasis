@@ -37,7 +37,7 @@ import {
   isAdmin,
 } from './server/billing.js';
 import { isPaidPlanKey } from './src/pricing.js';
-import { generateSearchTerms } from './server/search-terms.js';
+import { askModelForJson, generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { checkSignin, seekCheckInProgress, signOutOfBoard } from './server/seek-check.js';
@@ -201,7 +201,7 @@ function rowToApplication(a: ApplicationRow) {
  *
  * Genuinely install-wide concerns are the deliberate exception and stay
  * unauthenticated/shared: secrets and machine config in `seek-bot/.env`
- * (`readEnv`/`readEnvSafe` — GEMINI_API_KEY, Chrome profile, humanizer URL),
+ * (`readEnv`/`readEnvSafe` — CELERIS_API_KEY, Chrome profile, humanizer URL),
  * the humanizer proxy, the Stripe webhook, and the browser/screencast debug
  * endpoints — this runs on localhost with one Chrome automation profile and
  * one humanizer server no matter which account is signed in.
@@ -405,46 +405,19 @@ function dataApi(): Plugin {
         // Operators only, like the tool it serves. Unguarded, anyone could spend the drafting model's credits.
         return currentUser(req.headers?.cookie).then((sampleUser) => {
         if (!isAdmin(sampleUser?.email)) return send({ error: 'Not available on your plan.' }, 403);
-        const env = readEnv();
-        const apiKey = env.GEMINI_API_KEY ?? '';
-        const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
-        if (!apiKey) return send({ error: 'The drafting service is not configured.' }, 503);
-
-        return fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{
-                  text:
-                    'Write an original 90-110 word sample job-application paragraph in the first person. Write in the voice of a professional applicant from an Asian country who uses English as a second language. Use clear, direct wording, straightforward vocabulary and mostly simple sentence structures. Keep it natural and professional. Do not add deliberate grammar or spelling mistakes, stereotypes, private details, a greeting, or a sign-off. Include a plausible generic software-project example so the paragraph is useful for testing a rewriting tool. Return only the complete paragraph.',
-                }],
-              }],
-              generationConfig: { maxOutputTokens: 4_096 },
-            }),
-            signal: AbortSignal.timeout(30_000),
-          },
-        ).then(async (response) => {
-          const result = await response.json() as {
-            candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
-            error?: { message?: unknown };
-          };
-          const text = result.candidates?.[0]?.content?.parts
-            ?.map((part) => typeof part.text === 'string' ? part.text : '')
-            .join('')
-            .trim();
-          if (!response.ok || !text) {
-            const message = typeof result.error?.message === 'string'
-              ? result.error.message
-              : `The drafting service returned HTTP ${response.status}.`;
-            return send({ error: message }, 502);
-          }
-          return send({ text });
-        }).catch((error) =>
-          send({ error: `Could not reach the drafting service: ${(error as Error).message}` }, 503),
-        );
+        const sample = {
+          type: 'OBJECT',
+          properties: { paragraph: { type: 'STRING' } },
+        };
+        return askModelForJson(
+          'You write sample text for testing a rewriting tool. Return JSON.',
+          'Write an original 90-110 word sample job-application paragraph in the first person. Write in the voice of a professional applicant from an Asian country who uses English as a second language. Use clear, direct wording, straightforward vocabulary and mostly simple sentence structures. Keep it natural and professional. Do not add deliberate grammar or spelling mistakes, stereotypes, private details, a greeting, or a sign-off. Include a plausible generic software-project example so the paragraph is useful for testing a rewriting tool. Return JSON {"paragraph": "..."}.',
+          sample,
+          0.9,
+        ).then((result) => {
+          const text = result.ok && typeof result.value?.paragraph === 'string' ? result.value.paragraph.trim() : '';
+          return text ? send({ text }) : send({ error: result.error ?? 'The drafting service returned nothing.' }, 502);
+        });
         });
       }
 
@@ -1177,7 +1150,7 @@ function dataApi(): Plugin {
       case '/api/run/status': {
         // Runs are per-account now, so an account only ever sees its own.
         return withUser(async (userId) => {
-          const hasKey = Boolean(readEnvSafe().GEMINI_API_KEY);
+          const hasKey = Boolean(readEnvSafe().CELERIS_API_KEY);
           return send({ ...runner.stateFor(userId), hasKey, isOwner: true });
         });
       }

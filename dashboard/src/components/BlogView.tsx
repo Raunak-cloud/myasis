@@ -58,7 +58,7 @@ export function BlogView() {
   return (
     <div className="admin-stack">
       {!report.configured ? (
-        <div className="banner banner-bad">No Gemini API key. Add one under Config → Models.</div>
+        <div className="banner banner-bad">No Celeris API key. Add one under Config → Models.</div>
       ) : !report.enabled ? (
         <div className="banner">Weekly publishing is off (Config → Weekly blog). Published posts stay up.</div>
       ) : report.writing ? (

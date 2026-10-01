@@ -10,7 +10,6 @@ import type { ToolContext } from './agent/tools.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-model-forms-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
-process.env.GEMINI_API_KEY = 'fixture-only';
 process.env.RESUME_ALLOW_UPLOAD = 'true';
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'candidate.txt'), 'Fixture resume');

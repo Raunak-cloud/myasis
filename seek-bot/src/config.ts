@@ -264,19 +264,13 @@ export const config = {
     minNonSubmitDelayMs: Number(process.env.MIN_NON_SUBMIT_DELAY_MS ?? 3_000),
     maxNonSubmitDelayMs: Number(process.env.MAX_NON_SUBMIT_DELAY_MS ?? 8_000),
     searchDelayMs: Number(process.env.SEARCH_DELAY_MS ?? 6_000),
-    /** Overlap fit checks with detail-page loading without flooding Gemini. */
+    /** Overlap fit checks with detail-page loading without flooding the model. */
     fitConcurrency: Math.max(1, Math.min(4, Number(process.env.FIT_CONCURRENCY ?? 3))),
     /** Consecutive friction signals (captcha/verification) before aborting the run. */
     frictionAbortThreshold: Number(process.env.FRICTION_ABORT ?? 2),
   },
 
 
-
-  /** Cover letters only — every other model call runs on Celeris. */
-  gemini: {
-    apiKey: process.env.GEMINI_API_KEY ?? '',
-    model: process.env.GEMINI_MODEL ?? 'gemini-3.7-flash',
-  },
 
   /**
    * Celeris drives the browser agent's per-step decisions.

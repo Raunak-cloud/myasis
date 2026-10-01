@@ -11,7 +11,7 @@
  * - Sources: published labour-market reporting the article may cite. Only
  *   publishers whose feeds and pages are open for reuse with attribution are
  *   listed. Google News RSS is deliberately absent: its terms allow personal,
- *   non-commercial use only. Gemini's Google Search grounding is absent for
+ *   non-commercial use only. Search-engine grounding is absent for
  *   the same reason: its terms forbid storing or republishing grounded results.
  */
 

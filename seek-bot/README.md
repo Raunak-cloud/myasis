@@ -1,6 +1,6 @@
 # seek-bot
 
-Patchright + Gemini agent that searches SEEK, scores listings against your
+Patchright + Celeris agent that searches SEEK, scores listings against your
 resume, and completes Quick Apply end to end.
 
 ## How SEEK actually works (verified live, Aug 2026)
@@ -28,7 +28,7 @@ to DOM reads via SEEK's own `data-automation` hooks (`jobTitle`, `jobCompany`,
 
 ```bash
 npm install
-cp .env.example .env      # add GEMINI_API_KEY
+cp .env.example .env      # add CELERIS_API_KEY
 ```
 
 Sign in to SEEK manually in the Chrome profile at `CHROME_PROFILE_DIR` once.
@@ -76,13 +76,7 @@ than `MAX_AGE_DAYS`.
 **Scoring** is seek.md's rubric: 40 skills / 15 title / 15 recency / 15 salary /
 10 credibility / 5 location.
 
-**Models.** Celeris runs everything structured — the fit check, resume choice,
-page classification and screening answers — measured at **6.8x faster** than
-Gemini on those calls (300ms vs 2046ms median, n=70). Gemini keeps cover letters
-alone: benchmarked against letters this tool actually sent, `celeris-1` was no
-faster (~2.5s vs ~2s) and wrote weaker prose, once claiming weekly availability
-the candidate's visa does not allow, while `celeris-1-magnus` wrote well but took
-7-10s. `npm run bench:fit` and `npm run bench:letter` reproduce both.
+**Models.** Celeris runs everything: `celeris-1` for the short structured calls (fit check, ranking, page classification) and `celeris-1-magnus` for the browser agent, screening answers, pre-submit audits and cover letters. There is no second provider.
 
 ### Apply engine: Celeris browser agent
 
@@ -101,7 +95,7 @@ turn, and take no model output as input:
 | Rail | Behaviour |
 |---|---|
 | Submit gate | `canSubmit()` is the only route to a submit click. Dry run withholds; an ungrounded answer blocks; an external submit blocks unless enabled |
-| Grounding | Answers still come from Gemini's grounded path. Anything it cannot support is recorded and blocks submission |
+| Grounding | Answers come from the grounded answer path. Anything it cannot support is recorded and blocks submission |
 | CAPTCHA / SEEK Pass | Attempts automated recovery; an unresolved technical wall skips the job without creating user attention |
 | Off-platform | Leaving SEEK with external apply disabled halts before anything is entered |
 | Employer authentication | Uses the candidate email, a unique site-specific credential and connected Gmail OTPs; payment and Australian government destinations remain blocked |
@@ -117,9 +111,9 @@ diffusion model built for exactly this shape of call (short, structured, tool
 -shaped), and its prompt cache bills at a tenth of the uncached rate, which is
 why the system prompt and tool definitions sit ahead of anything that varies.
 A step that stalls twice escalates to `celeris-1-magnus`, which adds reasoning,
-and attaches a screenshot. Cover letters and screening answers stay on Gemini:
-those are long-form and grounded against the candidate profile, a different job
-from picking the next button.
+and attaches a screenshot. Cover letters and screening answers go through their
+own grounded prompts: those are long-form and checked against the candidate
+profile, a different job from picking the next button.
 
 ```bash
 npm run test:agent    # guards offline, a live Celeris tool call, and a full
@@ -298,7 +292,7 @@ in DRY_RUN so the apply flow is driven to the final Submit and then withheld.
 
 | Stage | Asserts |
 |---|---|
-| config | profile.txt parses; Gemini key present |
+| config | profile.txt parses; Celeris key present |
 | scoring | salary parser against known cases; hard exclusions fire correctly |
 | security | prompt-injection detector catches attacks, no false positives |
 | resumes | library resolves, default set |

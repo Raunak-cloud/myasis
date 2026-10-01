@@ -35,7 +35,7 @@ interface GeneratedSearch {
   whySomeoneWouldSearchIt: string;
 }
 
-interface GeminiJsonResult {
+interface ModelJsonResult {
   ok: boolean;
   value?: Record<string, unknown>;
   error?: string;
@@ -74,7 +74,7 @@ function shortText(value: unknown, limit: number): string {
 }
 
 /**
- * Gemini owns the semantic decision. This only validates the structured
+ * The model owns the semantic decision. This only validates the structured
  * response and extracts the literal search-box text for the UI.
  */
 export function normalizeGeneratedSearches(input: unknown, excludedTerms: readonly string[] = []): string[] {
@@ -126,37 +126,27 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   return null;
 }
 
+/** The structured-model key, from the process environment or seek-bot/.env. */
+export function celerisKey(): string {
+  return (process.env.CELERIS_API_KEY ?? readEnv().CELERIS_API_KEY ?? '').trim();
+}
+
 /**
- * One structured-JSON request, for résumé autofill, search-term suggestions
- * and the blog. Gemini answers first; when it refuses over quota, is down, or
- * is not configured, Celeris answers the same request instead.
- *
- * Gemini's monthly spending cap answered 429 on 28 Sep 2026, and every
- * résumé uploaded after that left step 2 empty without a word: the autofill
- * failed silently. The bot's cover letters already fall back the same way.
+ * One structured-JSON request to Celeris Magnus, for résumé autofill,
+ * search-term suggestions and the blog. The one model for every such call
+ * since October 2026, when the second provider was removed.
  */
-export async function askGeminiForJson(
-  apiKey: string,
-  model: string,
+export async function askModelForJson(
   systemInstruction: string,
   prompt: string,
   responseSchema?: Record<string, unknown>,
   temperature?: number,
   /** Long-form writing needs more room and time than a list of searches. */
   limits: { maxOutputTokens?: number; timeoutMs?: number } = {},
-): Promise<GeminiJsonResult> {
-  const gemini = apiKey
-    ? await askGeminiOnly(apiKey, model, systemInstruction, prompt, responseSchema, temperature, limits)
-      .catch((error): GeminiJsonResult => ({ ok: false, error: (error as Error).message }))
-    : { ok: false, error: 'Gemini is not configured.' } as GeminiJsonResult;
-  if (gemini.ok) return gemini;
-  // A reply that came back and was simply wrong is not a provider problem; only an unavailable provider falls through.
-  const unavailable = !apiKey || /\b(429|5\d\d)\b|quota|spending cap|exhausted|unavailable|overloaded|fetch failed|timed? ?out|aborted/i.test(gemini.error ?? '');
-  const env = readEnv();
-  const celerisKey = (process.env.CELERIS_API_KEY ?? env.CELERIS_API_KEY ?? '').trim();
-  if (!unavailable || !celerisKey) return gemini;
-  console.warn(`[ai] Gemini unavailable (${(gemini.error ?? '').slice(0, 80)}); asking Celeris instead`);
-  return askCelerisForJson(celerisKey, systemInstruction, prompt, responseSchema, temperature, limits);
+): Promise<ModelJsonResult> {
+  const apiKey = celerisKey();
+  if (!apiKey) return { ok: false, error: 'Celeris is not configured. Add CELERIS_API_KEY first.' };
+  return askCelerisForJson(apiKey, systemInstruction, prompt, responseSchema, temperature, limits);
 }
 
 /**
@@ -173,7 +163,7 @@ export async function askCelerisForJson(
   responseSchema: Record<string, unknown> | undefined,
   temperature: number | undefined,
   limits: { maxOutputTokens?: number; timeoutMs?: number },
-): Promise<GeminiJsonResult> {
+): Promise<ModelJsonResult> {
   const env = readEnv();
   const base = (process.env.CELERIS_BASE_URL ?? env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai').replace(/\/+$/, '');
   const model = 'celeris-1-magnus';
@@ -222,7 +212,7 @@ function strictSchema(node: unknown): unknown {
   return out;
 }
 
-/** Gemini's schema dialect writes types in capitals ("OBJECT"); JSON Schema wants them lower-case. */
+/** The schemas here write types in capitals ("OBJECT"); JSON Schema wants them lower-case. */
 function lowerSchemaTypes(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(lowerSchemaTypes);
   if (!node || typeof node !== 'object') return node;
@@ -230,64 +220,6 @@ function lowerSchemaTypes(node: unknown): unknown {
     key,
     key === 'type' && typeof value === 'string' ? value.toLowerCase() : lowerSchemaTypes(value),
   ]));
-}
-
-async function askGeminiOnly(
-  apiKey: string,
-  model: string,
-  systemInstruction: string,
-  prompt: string,
-  responseSchema: Record<string, unknown> | undefined,
-  temperature: number | undefined,
-  limits: { maxOutputTokens?: number; timeoutMs?: number },
-): Promise<GeminiJsonResult> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: limits.maxOutputTokens ?? 4_096,
-          responseMimeType: 'application/json',
-          ...(temperature === undefined ? {} : { temperature }),
-          ...(responseSchema ? { responseSchema } : {}),
-        },
-      }),
-      signal: AbortSignal.timeout(limits.timeoutMs ?? 30_000),
-    },
-  );
-  const result = await response.json() as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: unknown }> };
-      finishReason?: unknown;
-    }>;
-    error?: { message?: unknown };
-  };
-  const raw = result.candidates?.[0]?.content?.parts
-    ?.map((part) => typeof part.text === 'string' ? part.text : '')
-    .join('')
-    .trim() ?? '';
-
-  if (!response.ok || !raw) {
-    return {
-      ok: false,
-      error: typeof result.error?.message === 'string'
-        ? result.error.message
-        : `Gemini returned HTTP ${response.status}.`,
-    };
-  }
-  const value = parseJsonObject(raw);
-  return value
-    ? { ok: true, value }
-    : {
-        ok: false,
-        error: result.candidates?.[0]?.finishReason === 'MAX_TOKENS'
-          ? 'Gemini ran out of space before finishing its answer. Please try again.'
-          : 'Gemini returned invalid JSON.',
-      };
 }
 
 export const SEARCH_TERMS_SYSTEM =
@@ -403,11 +335,8 @@ export async function generateSearchTerms(
     };
   }
 
-  const env = readEnv();
-  const apiKey = env.GEMINI_API_KEY ?? '';
-  const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
-  if (!apiKey) {
-    return { ok: false, status: 503, error: 'Gemini is not configured. Add GEMINI_API_KEY first.' };
+  if (!celerisKey()) {
+    return { ok: false, status: 503, error: 'Celeris is not configured. Add CELERIS_API_KEY first.' };
   }
 
   const currentTerms = typeof input.currentTerms === 'string' ? input.currentTerms.trim().slice(0, 1_500) : '';
@@ -427,9 +356,7 @@ export async function generateSearchTerms(
   try {
     let terms: string[] = [];
     for (let attempt = 0; attempt < 2 && !terms.length; attempt++) {
-      const generatedResult = await askGeminiForJson(
-        apiKey,
-        model,
+      const generatedResult = await askModelForJson(
         SEARCH_TERMS_SYSTEM,
         attempt === 0
           ? searchPrompt
@@ -448,7 +375,7 @@ export async function generateSearchTerms(
       return {
         ok: false,
         status: 502,
-        error: 'Gemini did not return résumé-matched job searches. Please try again.',
+        error: 'The model did not return résumé-matched job searches. Please try again.',
       };
     }
     const resumeLabels = selectedResumes.map((resume) => resume.label);

@@ -4,6 +4,7 @@ import { adminAddresses } from '../billing.js';
 import { digestConfig } from '../digest.js';
 import { RUN_TIME_ZONE } from '../entitlements.js';
 import { readEnv } from '../runner.js';
+import { celerisKey } from '../search-terms.js';
 import { postPath, type PostSummary, type StoredPost } from './render.js';
 import { gatherBrief, type Brief } from './signals.js';
 import { writePost, type Article } from './writer.js';
@@ -31,10 +32,8 @@ function blogEnabled(): boolean {
 }
 
 function writerConfig(): { apiKey: string; model: string } | null {
-  const env = readEnv();
-  const apiKey = (process.env.GEMINI_API_KEY ?? env.GEMINI_API_KEY ?? '').trim();
-  const model = (process.env.BLOG_MODEL ?? env.BLOG_MODEL ?? '').trim() || 'gemini-pro-latest';
-  return apiKey ? { apiKey, model } : null;
+  const apiKey = celerisKey();
+  return apiKey ? { apiKey, model: 'celeris-1-magnus' } : null;
 }
 
 export function siteOrigin(): string {
@@ -126,7 +125,7 @@ export function publishWeek(week: string, options: { replace?: boolean } = {}): 
   if (writing) return writing;
   writing = (async (): Promise<PublishResult> => {
     const config = writerConfig();
-    if (!config) return { ok: false, week, error: 'Add GEMINI_API_KEY first.' };
+    if (!config) return { ok: false, week, error: 'Add CELERIS_API_KEY first.' };
     const existing = await one<{ slug: string }>('SELECT slug FROM blog_posts WHERE week = $1::date', [week]);
     if (existing && !options.replace) return { ok: false, week, error: 'This week already has a post.' };
 

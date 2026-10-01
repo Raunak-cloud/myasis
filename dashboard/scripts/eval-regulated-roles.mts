@@ -25,8 +25,7 @@ process.env.ONSITE_CITY = '';
 process.env.MIN_SALARY = '0';
 process.env.MIN_HOURLY_RATE = '0';
 process.env.WORK_ARRANGEMENTS = 'remote,hybrid,onsite';
-const { searchTermsRequest, askGeminiForJson, normalizeGeneratedSearches, SEARCH_TERMS_SYSTEM } = await import('../server/search-terms.ts');
-const { readEnv } = await import('../server/runner.ts');
+const { searchTermsRequest, askModelForJson, normalizeGeneratedSearches, SEARCH_TERMS_SYSTEM } = await import('../server/search-terms.ts');
 type AssessFit = (job: unknown, profile: unknown) => Promise<{ decision: string; matchScore: number; reason: string }>;
 const { assessFit } = (await import(new URL('../../seek-bot/dist/llm.js', import.meta.url).href)) as { assessFit: AssessFit };
 
@@ -147,9 +146,6 @@ const CASES: Case[] = [
     job: { title: 'Teacher Aide', description: 'Support students in class under teacher direction. Working With Children Check required. Full working rights.' } },
 ];
 
-const env = readEnv();
-const apiKey = env.GEMINI_API_KEY ?? '';
-const model = env.GEMINI_MODEL ?? 'gemini-3.7-flash';
 const runs = Math.max(1, Number(process.argv[2]) || 3);
 
 async function checkCase(c: Case): Promise<string[]> {
@@ -157,7 +153,7 @@ async function checkCase(c: Case): Promise<string[]> {
   for (let run = 1; run <= runs; run++) {
     if (c.forbiddenSearch) {
       const { prompt, schema } = searchTermsRequest(`<resume label="CV">\n${c.resume}\n</resume>`, []);
-      const result = await askGeminiForJson(apiKey, model, SEARCH_TERMS_SYSTEM, prompt, schema, 0.9);
+      const result = await askModelForJson(SEARCH_TERMS_SYSTEM, prompt, schema, 0.9);
       const terms = result.ok ? normalizeGeneratedSearches((result.value as { searches?: unknown })?.searches) : [];
       const bad = terms.filter((term) => c.forbiddenSearch!.test(term));
       if (!result.ok || !terms.length || bad.length) failures.push(`run ${run} searches: ${terms.join(' | ') || (result.ok ? '(none)' : result.error)}${bad.length ? ` ← ${bad.join(', ')}` : ''}`);

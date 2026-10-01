@@ -113,7 +113,7 @@ screening question and answer, the scoring rubric's own reasoning, and a run
 history for that job showing each attempt and its outcome.
 
 **Activity** — all 5 outcome types (`applied`, `skipped`, `off-platform`,
-`needs-human`, `error`) with filtering, including Gemini's written
+`needs-human`, `error`) with filtering, including the model's written
 reason for every rejection.
 
 **Insights** — what's actually filtering jobs out (wrong location, stack
@@ -167,7 +167,7 @@ Because a button here sends real applications to real employers:
 - **Stop** kills the process tree (the bot owns a Chrome child, so Windows needs
   `taskkill /T`).
 - **One run at a time**; a second start returns 409.
-- **`GEMINI_API_KEY` is never sent to the browser.** `/api/settings` masks it as
+- **`CELERIS_API_KEY` is never sent to the browser.** `/api/settings` masks it as
   `set (39 chars)`, and POSTs to that route drop the key so the UI cannot
   overwrite a secret it only ever saw masked.
 - The bot's own limits still apply — daily cap, jittered delays, and the
