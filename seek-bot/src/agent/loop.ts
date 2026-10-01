@@ -833,13 +833,12 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     lastFingerprint = fingerprint;
 
     /**
-     * Magnus reasons from the first step. AGENT_STEP_MODEL=celeris-1 trials
-     * the fast model for routine steps, handing a stalled or failing page
-     * straight back to Magnus; it is off unless set, and only for testing.
+     * Magnus reasons from every step. Trialled against celeris-1 for routine
+     * steps on 2 Oct 2026 (4 runs each, same fixture application): both
+     * finished in 5 steps with no failures, and celeris-1 was no faster
+     * (133-147 s against 133-137 s). The step model is not where the time goes.
      */
-    const model: CelerisModel = config.celeris.stepModel === 'celeris-1' && stalls < config.celeris.escalateAfterStalls && !wantScreenshot
-      ? 'celeris-1'
-      : 'celeris-1-magnus';
+    const model: CelerisModel = 'celeris-1-magnus';
     if (stalls === config.celeris.escalateAfterStalls) {
       log(`  ↑ step ${guards.stepCount} stalled — ${model} reassessing the page`);
     }
