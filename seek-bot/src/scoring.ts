@@ -105,21 +105,6 @@ export function isRemoteOrHybrid(job: JobListing): boolean {
   return /\bremote\b|\bhybrid\b|work from home|wfh|flexible location/.test(hay);
 }
 
-export type Arrangement = 'remote' | 'hybrid' | 'onsite';
-
-/**
- * Hybrid is checked before remote: plenty of ads say "hybrid — 2 days remote",
- * and treating those as fully remote would wrongly accept them for someone who
- * only wants remote work.
- */
-export function classifyArrangement(job: JobListing): Arrangement {
-  const hay =
-    `${job.workArrangement ?? ''} ${job.location} ${job.title} ${job.teaser ?? ''} ${job.description ?? ''}`.toLowerCase();
-  if (/\bhybrid\b|days? (in|at) (the )?office|days? on[- ]?site|split between/.test(hay)) return 'hybrid';
-  if (/\b(fully |100% )?remote\b|work from home|\bwfh\b|remote[- ]first/.test(hay)) return 'remote';
-  return 'onsite';
-}
-
 export function isInOnsiteCity(job: JobListing): boolean {
   return job.location.toLowerCase().includes(config.rules.onsiteCity.toLowerCase());
 }

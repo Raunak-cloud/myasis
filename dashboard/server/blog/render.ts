@@ -30,7 +30,7 @@ export interface PostSummary {
 }
 
 const SITE_NAME = 'Owtomate';
-export const BLOG_TITLE = 'Australian Job Market Brief';
+const BLOG_TITLE = 'Australian Job Market Brief';
 const BLOG_DESCRIPTION = 'A weekly brief on Australian job trends: what people are searching for, what the latest labour-market figures say, and what job seekers can do about it.';
 
 /** Content pages outside the blog, for the sitemap. Update lastmod when a page changes. */
@@ -41,7 +41,7 @@ const STATIC_PAGES: Array<{ path: string; lastmod: string; changefreq: string; p
   { path: '/terms', lastmod: '2026-09-18', changefreq: 'yearly', priority: '0.3' },
 ];
 
-export function escapeHtml(text: string): string {
+function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 

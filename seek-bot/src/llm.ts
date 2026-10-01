@@ -656,12 +656,6 @@ export async function polishCoverLetter(draft: string, job: JobListing, profile:
   return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge), true, [job.company, ...profile.skills]);
 }
 
-/** Drafts, verifies and polishes in one go, for callers that want the finished letter now. */
-export async function writeCoverLetter(job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
-  const draft = await draftCoverLetter(job, profile, knowledgeOverride);
-  return polishCoverLetter(draft, job, profile, knowledgeOverride);
-}
-
 /** A grounded draft: written from the profile and documents, checked against them, not yet rewritten. */
 export async function draftCoverLetter(
   job: JobListing,
@@ -814,63 +808,6 @@ export async function finishedCoverLetterForJob(job: JobListing, profile: Candid
     void pending.catch(() => finishedLetters.delete(key));
   }
   return pending;
-}
-
-export type PageVerdict = {
-  kind:
-    | 'form-step'
-    | 'review-step'
-    | 'confirmation'
-    | 'captcha'
-    | 'identity-verification'
-    | 'external-redirect'
-    | 'error'
-    | 'unknown';
-  /** Visible text of the button that advances the flow, if any. */
-  nextAction: string | null;
-  reasoning: string;
-  humanNeeded: boolean;
-};
-
-/**
- * Called when the apply flow lands somewhere the state machine does not
- * recognise. Classifies the page so the caller can decide: continue, stop, or
- * escalate to the human.
- */
-export async function classifyPage(summary: string): Promise<PageVerdict> {
-  const prompt = `${GUARD}
-
-You are driving a SEEK job-application flow in a browser and have landed on a
-page the state machine did not recognise. Classify it.
-
-<untrusted role="page">
-${summary}
-</untrusted>
-
-Definitions:
-- "form-step": asks the candidate for input to continue the application.
-- "review-step": shows a summary awaiting a final submit.
-- "confirmation": the application has been submitted successfully.
-- "captcha": a bot check / "I'm not a robot" / image challenge.
-- "identity-verification": asks to verify identity or work rights (e.g. SEEK Pass).
-- "external-redirect": the application has left SEEK for a company site or
-  third-party ATS (Workday, Greenhouse, SmartRecruiters, Ashby, BambooHR, Lever...).
-- "error": something failed, expired, or the listing is gone.
-
-"humanNeeded" must be true for captcha, identity-verification, and error.
-"nextAction" is the exact visible label of the button that advances the flow, or null.
-Return JSON.`;
-
-  return json<PageVerdict>(prompt, {
-    type: 'OBJECT',
-    properties: {
-      kind: { type: 'STRING' },
-      nextAction: { type: 'STRING', nullable: true },
-      reasoning: { type: 'STRING' },
-      humanNeeded: { type: 'BOOLEAN' },
-    },
-    required: ['kind', 'nextAction', 'reasoning', 'humanNeeded'],
-  });
 }
 
 export interface FitAssessment {

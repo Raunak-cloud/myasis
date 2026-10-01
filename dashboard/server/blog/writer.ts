@@ -13,7 +13,7 @@ import type { Brief } from './signals.js';
  * article. A draft that still fails after two revisions is not published.
  */
 
-export interface ArticleSection {
+interface ArticleSection {
   heading: string;
   paragraphs: string[];
   bullets: string[];
@@ -137,7 +137,7 @@ const REVIEW_SCHEMA = {
 const longDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 /** The brief as the model reads it. */
-export function briefText(brief: Brief, recentTitles: readonly string[]): string {
+function briefText(brief: Brief, recentTitles: readonly string[]): string {
   const bySeed = new Map<string, string[]>();
   for (const search of brief.searches) {
     const line = `${search.rank}. ${search.suggestion}${search.isNew ? ' [NEW]' : ''}`;
@@ -189,7 +189,7 @@ function asArticle(value: Record<string, unknown>): Article {
 }
 
 /** Every piece of prose in the article, in reading order. */
-export function articleText(article: Article): string[] {
+function articleText(article: Article): string[] {
   return [article.lead, ...article.sections.flatMap((s) => [s.heading, ...s.paragraphs, ...s.bullets]), ...article.takeaways];
 }
 

@@ -145,7 +145,7 @@ export async function draftSetupEmail(account: Account, sender: { name: string |
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** The operator's plain text as email HTML: paragraphs kept, line breaks kept, web addresses clickable. */
-export function renderPlainEmail(body: string): string {
+function renderPlainEmail(body: string): string {
   const paragraphs = body.trim().split(/\n\s*\n/).map((block) =>
     escape(block)
       .replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)]/g, (url) => `<a href="${url}" style="color:#2f6fd0">${url}</a>`)
@@ -155,7 +155,7 @@ export function renderPlainEmail(body: string): string {
 </div>`;
 }
 
-export const EMAIL_LIMITS = { subject: 200, body: 10_000 } as const;
+const EMAIL_LIMITS = { subject: 200, body: 10_000 } as const;
 
 export async function sendAdminEmail(account: Account, sender: { id: string }, subject: string, body: string): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
   const cleanSubject = subject.trim();

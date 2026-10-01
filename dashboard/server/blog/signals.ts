@@ -11,7 +11,7 @@ import { EXCERPT_CHARS, SEARCH_SEEDS, SOURCES, type SourceSpec } from './sources
  * That keeps every claim traceable to a source a reader can open.
  */
 
-export interface SearchSuggestion {
+interface SearchSuggestion {
   seed: string;
   suggestion: string;
   /** Google's own order, 1 = most searched among those it shows. */
@@ -31,7 +31,7 @@ export interface BriefSource {
   excerpt: string;
 }
 
-export interface ListingSample {
+interface ListingSample {
   /** Distinct listings Owtomate reviewed for its users in the week. */
   listings: number;
   topTitles: Array<{ title: string; listings: number }>;
@@ -96,7 +96,7 @@ function decodeEntities(text: string): string {
  * Chrome (navigation, scripts, forms) is dropped; block elements become line
  * breaks so tables and lists stay legible.
  */
-export function htmlToText(html: string): string {
+function htmlToText(html: string): string {
   return decodeEntities(
     html
       .replace(/<(script|style|noscript|svg|nav|header|footer|form|iframe)\b[\s\S]*?<\/\1>/gi, ' ')

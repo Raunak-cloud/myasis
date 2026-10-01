@@ -687,32 +687,6 @@ export async function readPickerOptions(page: Page, ref: string): Promise<string
   }
 }
 
-/** Short text summary of the page, for classifying unexpected steps. */
-export async function pageSummary(page: Page): Promise<string> {
-  const title = await page.title().catch(() => '');
-  const heading = await page
-    .locator('h1, h2')
-    .first()
-    .innerText()
-    .catch(() => '');
-  const body = await page
-    .locator('main, [role="main"], body')
-    .first()
-    .innerText()
-    .catch(() => '');
-  const buttons = await page
-    .locator('button:visible, a[role="button"]:visible')
-    .allInnerTexts()
-    .catch(() => [] as string[]);
-  return [
-    `URL: ${page.url()}`,
-    `TITLE: ${title}`,
-    `HEADING: ${heading}`,
-    `BUTTONS: ${[...new Set(buttons)].slice(0, 15).join(' | ')}`,
-    `TEXT: ${body.replace(/\s+/g, ' ').slice(0, 1800)}`,
-  ].join('\n');
-}
-
 /** Fill only reports success after the browser accepts and retains the value. */
 export async function fillField(page: Page, field: FormField, value: string, modelDirected: false | 'type' | 'search' = false): Promise<void> {
   await fillFieldUnchecked(page, field, value, modelDirected);

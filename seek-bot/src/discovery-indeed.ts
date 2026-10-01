@@ -473,7 +473,7 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
   // `jobMetadataHeaderModel.jobType` is "Full-time"/"Contract"/etc — a job
   // type, not a work *arrangement* (remote/hybrid/on-site). Keep those
   // separate: workArrangement only ever reflects Indeed's remote signal here,
-  // and classifyArrangement()/isRemoteOrHybrid() in scoring.ts fall back to
+  // and isRemoteOrHybrid() in scoring.ts falls back to
   // scanning the now-populated full description for "hybrid"/"remote" wording.
   return {
     ...job,

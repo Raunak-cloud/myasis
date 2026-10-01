@@ -180,11 +180,6 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
   return relevantEvidence(value, query, MAX_CHARS);
 }
 
-/** Cheap synchronous check so callers can skip the async build entirely. */
-export function hasKnowledge(): boolean {
-  return loadKnowledge().some((i) => i.enabled) || defaultResume() !== null;
-}
-
 interface ResumeEntry {
   id: string;
   label: string;

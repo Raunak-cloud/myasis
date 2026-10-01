@@ -23,10 +23,7 @@
     "test:review-cache": "tsc && node --test dist/review-cache.test.js",
     "test:humanizer-endpoint": "tsc && node scripts/test-humanizer-endpoint.mjs",
     "test:fit-live": "tsc && node scripts/test-fit-live.mjs",
-    "queue": "tsc && node dist/queue.js",
-    "bench:fit": "tsc && node dist/bench-fit.js",
-    "bench:letter": "tsc && node dist/bench-letter.js",
-    "bench:humanizer": "tsc && node dist/bench-humanizer.js"
+    "queue": "tsc && node dist/queue.js"
   },
   "dependencies": {
     "@google/genai": "^0.14.0",

@@ -26,7 +26,7 @@ const RETRY_AFTER_HOURS = 3;
 const TICK_MS = 15 * 60_000;
 const RECENT_FOR_CONTEXT = 8;
 
-export function blogEnabled(): boolean {
+function blogEnabled(): boolean {
   return (process.env.BLOG_WEEKLY ?? readEnv().BLOG_WEEKLY ?? 'true').trim() !== 'false';
 }
 
@@ -176,7 +176,7 @@ async function tellOperator(subject: string, paragraphs: string[]): Promise<void
 }
 
 /** One pass of the scheduler: publish the current week if it is due and not yet done. */
-export async function blogTick(now: Date = new Date()): Promise<PublishResult | null> {
+async function blogTick(now: Date = new Date()): Promise<PublishResult | null> {
   if (!blogEnabled() || !writerConfig()) return null;
   const { week, due } = weekOf(now);
   if (!due) return null;

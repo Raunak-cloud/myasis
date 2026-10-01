@@ -1,4 +1,4 @@
-export interface Answer {
+interface Answer {
   question: string;
   answer: string;
 }
