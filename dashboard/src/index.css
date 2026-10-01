@@ -1931,6 +1931,26 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .activity-event.warn strong { color: var(--warn); }
 .activity-event.bad strong { color: var(--bad); }
 
+/* Each new step arrives rather than appears; the step under way breathes. */
+.activity-event { animation: activity-enter .38s cubic-bezier(.2, .7, .2, 1) both; }
+.activity-event.live .activity-dot { background: var(--accent); box-shadow: 0 0 0 1px var(--accent); animation: activity-live 1.6s ease-in-out infinite; }
+.activity-event.live strong { color: var(--text); }
+.activity-current { position: relative; overflow: hidden; }
+.activity-current-text { animation: activity-enter .32s ease-out both; }
+.activity-progress {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--bad), transparent);
+  background-size: 40% 100%; background-repeat: no-repeat;
+  animation: activity-sweep 1.8s ease-in-out infinite;
+}
+@keyframes activity-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes activity-live { 0%, 100% { box-shadow: 0 0 0 1px var(--accent), 0 0 0 0 var(--accent-soft); } 50% { box-shadow: 0 0 0 1px var(--accent), 0 0 0 6px var(--accent-soft); } }
+@keyframes activity-sweep { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .activity-event, .activity-current-text { animation: none; }
+  .activity-event.live .activity-dot, .activity-progress { animation: none; }
+}
+
 .console-actions {
   display: flex;
   align-items: center;

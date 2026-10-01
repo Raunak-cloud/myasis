@@ -31,6 +31,8 @@ interface ActivityEvent {
   title: string;
   detail?: string;
   tone: ActivityTone;
+  /** What the run is doing right now: drawn with a live pulse while the run lasts. */
+  live?: boolean;
 }
 
 interface AutoScheduleStatus {
@@ -91,7 +93,11 @@ function lastMatch(lines: LogLine[], pattern: RegExp): RegExpMatchArray | null {
 function activitySummary(lines: LogLine[]) {
   const found = Number(lastMatch(lines, /(\d+) unique listings discovered/i)?.[1] ?? 0);
   const reviewed = lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length;
-  const suitable = Number(lastMatch(lines, /(\d+) qualifying jobs/i)?.[1] ?? 0);
+  // Matches are counted as they are found; the end-of-run total wins once it is printed.
+  const suitable = Math.max(
+    lines.filter((line) => /^\s*✓\s+\d+\s+·/.test(line.text)).length,
+    Number(lastMatch(lines, /(\d+) qualifying jobs/i)?.[1] ?? 0),
+  );
   /**
    * Counted from the log like the other three, rather than read from the run
    * status. The status reports what is running now, so the moment a run ends
@@ -166,12 +172,29 @@ function readableError(raw: string): string {
   return next ? `${message}. ${next}` : `${message}.`;
 }
 
+/**
+ * The run as a person would tell it: what happened, in a handful of lines.
+ *
+ * Built from the bot's own log, but not one line per log line. Steps that
+ * repeat become one line that updates: sign-in to each board is one step,
+ * reviewing is one step whose counts climb, each application is one step
+ * whose outcome replaces "Applying". Steps that say nothing are left out —
+ * "0 Indeed Recommended jobs prioritised" told the person nothing they could
+ * use. What the run is doing now is marked live, so there is always one
+ * clear answer to "what is it doing?".
+ */
 function activityEvents(lines: LogLine[]): ActivityEvent[] {
   const events: ActivityEvent[] = [];
-  const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string) => {
+  const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string): ActivityEvent => {
     const previous = events.at(-1);
-    if (previous?.title === title && previous.detail === detail) return;
-    events.push({ id: `${line.seq}-${events.length}`, title, detail, tone });
+    if (previous?.title === title && previous.detail === detail) return previous;
+    const event: ActivityEvent = { id: `${line.seq}`, title, detail, tone };
+    events.push(event);
+    return event;
+  };
+  const listing = (rest: string) => {
+    const match = rest.match(/^(.+?)\s+@\s+(.+?)(?:\s+\(|\s+—|\s+\[|$)/);
+    return match ? { title: match[1].trim(), company: match[2].trim() } : { title: rest.trim(), company: '' };
   };
   /** The job in progress, so a failure can say which application it was. */
   let currentJob = '';
@@ -179,53 +202,125 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
   let lastErrorOutput = '';
   /** Whether the reason the run stopped has already been shown. */
   let explained = false;
+  let boards: string[] = [];
+  let boardsEvent: ActivityEvent | null = null;
+  let review: ActivityEvent | null = null;
+  let reviewed = 0;
+  let suitable = 0;
+  let latestMatch = '';
+  let application: { event: ActivityEvent; title: string; company: string; steps: string[] } | null = null;
+  let finished = false;
+
+  const reviewDetail = () =>
+    `${reviewed} checked · ${suitable} suitable` + (latestMatch ? ` · latest match: ${latestMatch}` : '');
+  const applicationDetail = (extra?: string) =>
+    [application?.company, ...(application?.steps ?? []), extra].filter(Boolean).join(' · ');
 
   for (const line of lines) {
     const text = line.text.trim();
     let match: RegExpMatchArray | null;
     if (line.stream === 'err' && text && !/^Warning:|^at\s/.test(text)) lastErrorOutput = text.replace(/^Fatal:\s*/i, '');
 
-    if (/starting live run/i.test(text)) {
+    if (/starting (live|search) run/i.test(text)) {
       add(line, 'Run started', 'done');
     } else if (/stop requested/i.test(text)) {
       add(line, 'Run stopped', 'neutral', 'You stopped this run. Anything already submitted stays submitted.');
       explained = true;
     } else if ((match = text.match(/(SEEK|Indeed) session OK/i))) {
-      add(line, `Connected to ${match[1]}`, 'done');
+      if (!boards.includes(match[1])) boards = [...boards, match[1]];
+      const title = `Signed in to ${boards.join(' and ')}`;
+      if (boardsEvent) boardsEvent.title = title;
+      else boardsEvent = add(line, title, 'done');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
-      add(line, `${match[2]} ${match[1]} Recommended jobs prioritised`, 'done');
+      // A feed with nothing in it is not news.
+      if (Number(match[2]) > 0) add(line, `${match[1]} recommended ${match[2]} jobs for you`, 'done', 'These are reviewed first.');
     } else if ((match = text.match(/⚠ (SEEK|Indeed):\s*(.*)/i))) {
-      const accountActionNeeded = /sign(?:ed)? in|verification challenge|cloudflare|captcha/i.test(text);
+      const accountActionNeeded = /sign(?:ed)? in|verification|cloudflare|captcha/i.test(text);
+      const leftOut = /left out for the rest of this run/i.test(text);
       add(
         line,
-        `${match[1]} could not be used this run`,
-        'bad',
-        `${readableError(match[2])} ${accountActionNeeded
-          ? `Sign in to ${match[1]} on the Apply page or finish its verification, then start the run again.`
-          : 'Owtomate will try again on the next run.'}`,
+        leftOut ? `${match[1]} blocked this run, so it continues on the other board` : `${match[1]} could not be used this run`,
+        leftOut ? 'warn' : 'bad',
+        leftOut
+          ? `${match[1]} asked for a security check that could not be passed automatically. It will be tried again next run.`
+          : `${readableError(match[2])} ${accountActionNeeded
+            ? `Sign in to ${match[1]} on the Apply page or finish its verification, then start the run again.`
+            : 'Owtomate will try again on the next run.'}`,
       );
     } else if ((match = text.match(/(\d+) unique listings discovered/i))) {
-      add(line, `Found ${match[1]} job listings`, 'done');
-    } else if ((match = text.match(/(\d+) qualifying jobs/i))) {
-      add(line, `${match[1]} suitable ${Number(match[1]) === 1 ? 'job' : 'jobs'} ready`, 'done');
+      add(line, `Found ${match[1]} job listings`, 'done', 'Ones already applied to or recently checked are skipped.');
+    } else if (/job-title search continues/i.test(text)) {
+      add(line, 'Searching for more jobs', 'neutral', 'The first listings ran out, so the search is reading further pages.');
+    } else if ((match = text.match(/Search page (\d+): (\d+) new listing/i))) {
+      const last = events.at(-1);
+      if (last?.title === 'Searching for more jobs') last.detail = `Page ${match[1]} added ${match[2]} new listings to review.`;
+    } else if ((match = text.match(/^([✓✗])\s+(\d+)\s+·\s+(.+)$/))) {
+      reviewed++;
+      if (match[1] === '✓') {
+        suitable++;
+        const job = listing(match[3]);
+        latestMatch = job.company ? `${job.title} at ${job.company}` : job.title;
+      }
+      if (!review) review = add(line, 'Reviewing jobs', 'neutral', reviewDetail());
+      else review.detail = reviewDetail();
     } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
       currentJob = `${match[1]} at ${match[2]}`;
-      add(line, `Applying to ${match[1]}`, 'neutral', match[2]);
+      application = { event: add(line, `Applying to ${match[1]}`, 'neutral', match[2]), title: match[1], company: match[2], steps: [] };
+    } else if (application && /cover letter (added|included)|cover letter verified/i.test(text)) {
+      if (!application.steps.includes('cover letter written')) application.steps.push('cover letter written');
+      application.event.detail = applicationDetail();
+    } else if (application && /→ submitting:/i.test(text)) {
+      application.event.detail = applicationDetail('submitting');
     } else if (/discarded a stale pre-filled cover letter/i.test(text)) {
-      add(line, 'Prepared a fresh cover letter', 'neutral');
-    } else if ((match = text.match(/✅ submitted\s*(?:\(([^)]+)\))?/i))) {
-      add(line, 'Application submitted', 'done', match[1] ? `${match[1]} this run` : undefined);
+      if (application) {
+        application.steps.push('replaced an old cover letter');
+        application.event.detail = applicationDetail();
+      }
+    } else if ((match = text.match(/✅ submitted\s*(?:\[external\]\s*)?(?:\(([^)]+)\))?/i))) {
+      if (application) {
+        application.event.title = `Applied to ${application.title}`;
+        application.event.tone = 'done';
+        application.event.detail = applicationDetail(match[1] ? `${match[1].replace('/', ' of ')} this run` : undefined);
+        application = null;
+      } else {
+        add(line, 'Application submitted', 'done', match[1] ? `${match[1]} this run` : undefined);
+      }
     } else if ((match = text.match(/⏸ needs you:\s*(.*)/i))) {
-      add(line, currentJob ? `${currentJob} needs your attention` : 'Needs your attention', 'warn', `${readableError(match[1])} Open Needs attention to finish it.`);
+      const detail = `${readableError(match[1])} Open Needs attention to finish it.`;
+      if (application) {
+        application.event.title = `${application.title} needs your answer`;
+        application.event.tone = 'warn';
+        application.event.detail = detail;
+        application = null;
+      } else {
+        add(line, 'Needs your attention', 'warn', detail);
+      }
     } else if (/↪ off-platform/i.test(text)) {
-      add(line, 'Skipped an external application', 'warn', "This application continues on the employer's website.");
+      if (application) {
+        application.event.title = `Skipped ${application.title}`;
+        application.event.tone = 'neutral';
+        application.event.detail = `${application.company} · it continues on the employer's own website.`;
+        application = null;
+      }
+    } else if ((match = text.match(/^– skipped(?: \([^)]*\))?:\s*(.*)/i)) && application) {
+      application.event.title = `Skipped ${application.title}`;
+      application.event.tone = 'neutral';
+      application.event.detail = `${application.company} · ${readableError(match[1])}`;
+      application = null;
     } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
       add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
       explained = true;
     } else if ((match = text.match(/Run cap of (\d+) reached/i))) {
       add(line, 'This run reached its limit', 'done', `${match[1]} applications is the most one run sends.`);
     } else if ((match = text.match(/✗\s+(?:unexpected )?error:\s*(.*)/i))) {
-      add(line, currentJob ? `Could not apply to ${currentJob}` : 'A step failed', 'bad', readableError(match[1]));
+      if (application) {
+        application.event.title = `Could not apply to ${application.title}`;
+        application.event.tone = 'bad';
+        application.event.detail = `${application.company} · ${readableError(match[1])}`;
+        application = null;
+      } else {
+        add(line, 'A step failed', 'bad', readableError(match[1]));
+      }
     } else if ((match = text.match(/! fit check failed for (.+?):\s*(.*)/i))) {
       add(line, `Could not review a job at ${match[1]}`, 'warn', readableError(match[2]));
     } else if ((match = text.match(/semantic pre-ranking unavailable:\s*(.*)/i))) {
@@ -247,25 +342,69 @@ function activityEvents(lines: LogLine[]): ActivityEvent[] {
     } else if ((match = text.match(/Could not record application usage:\s*(.*)/i))) {
       add(line, 'An application was sent but not counted', 'warn', readableError(match[1]));
     } else if ((match = text.match(/=== Run complete:\s*(\d+) new application/i))) {
+      finished = true;
       add(
         line,
         'Run complete',
         'done',
         `${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'} submitted.`,
       );
-    } else if ((match = text.match(/run finished \(exit ([^)]*)\)/i)) && match[1] !== '0' && !explained) {
-      add(
-        line,
-        'The run stopped unexpectedly',
-        'bad',
-        lastErrorOutput ? readableError(lastErrorOutput) : `It exited with code ${match[1]} before finishing. Start the run again.`,
-      );
+    } else if ((match = text.match(/run finished \(exit ([^)]*)\)/i))) {
+      finished = true;
+      if (match[1] !== '0' && !explained) {
+        add(
+          line,
+          'The run stopped unexpectedly',
+          'bad',
+          lastErrorOutput ? readableError(lastErrorOutput) : `It exited with code ${match[1]} before finishing. Start the run again.`,
+        );
+      }
     }
   }
 
-  return events.slice(-12);
+  // Reviewing is finished once the run is; until then it is live whenever nothing is being applied for.
+  if (review) {
+    if (finished) {
+      review.title = `Reviewed ${reviewed} ${reviewed === 1 ? 'job' : 'jobs'}`;
+      review.tone = 'done';
+    } else if (!application) {
+      review.live = true;
+    }
+  }
+  if (application && !finished) application.event.live = true;
+  return events.slice(-14);
 }
 
+
+/**
+ * A number that climbs to its new value instead of jumping, so a count going
+ * up reads as progress. Straight to the value when the person prefers less motion.
+ */
+function CountUp({ value }: { value: number }) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(value);
+  useEffect(() => {
+    const start = from.current;
+    if (start === value || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      from.current = value;
+      setShown(value);
+      return;
+    }
+    const began = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - began) / 600);
+      const eased = 1 - (1 - t) ** 3;
+      const next = Math.round(start + (value - start) * eased);
+      setShown(next);
+      from.current = next;
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+  return <>{shown}</>;
+}
 
 function formatRunDuration(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -646,21 +785,17 @@ export function RunPanel({
   };
   const summary = useMemo(() => activitySummary(lines), [lines]);
   const events = useMemo(() => activityEvents(lines), [lines]);
-  const latestApplicationLine = [...lines].reverse().find((line) => /→ Applying:/i.test(line.text));
-  const latestOutcomeLine = [...lines].reverse().find((line) =>
-    /✅ submitted|⏸ needs you:|↪ off-platform|✗ (?:unexpected )?error:/i.test(line.text),
-  );
-  const currentApplication = latestApplicationLine?.text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i);
-  const applyingNow = Boolean(
-    currentApplication && (!latestOutcomeLine || latestApplicationLine!.seq > latestOutcomeLine.seq),
-  );
-  const currentActivity = applyingNow
-    ? `Applying to ${currentApplication![1]} at ${currentApplication![2]}`
-    : summary.suitable
-      ? 'Preparing suitable jobs for application'
-      : summary.found
-        ? `Reviewing ${summary.found} job listings`
-        : 'Searching for jobs';
+  /** The one thing the run is doing now, for the card above the feed. */
+  const liveEvent = events.find((event) => event.live);
+  const currentHeading = liveEvent?.title.startsWith('Applying') ? 'Applying now'
+    : liveEvent?.title.startsWith('Reviewing') ? 'Reviewing jobs'
+      : liveEvent?.title.startsWith('Searching') ? 'Searching for more jobs'
+        : summary.found ? 'Reviewing jobs' : 'Finding jobs';
+  const currentActivity = liveEvent
+    ? [liveEvent.title.startsWith('Reviewing') ? '' : liveEvent.title, liveEvent.detail].filter(Boolean).join(' · ')
+    : summary.found
+      ? `Reading ${summary.found} job listings`
+      : 'Signing in and searching your job titles';
 
   /**
    * One table for the ceilings, mirroring `RUN_LIMITS` in server/settings.ts.
@@ -1126,12 +1261,12 @@ export function RunPanel({
 
         {lines.length > 0 && (
           <div className="activity-stats" aria-label="Run progress">
-            <div><strong>{summary.found}</strong><span>Found</span></div>
-            <div><strong>{summary.reviewed}</strong><span>Reviewed</span></div>
-            <div><strong>{summary.suitable}</strong><span>Suitable</span></div>
+            <div><strong><CountUp value={summary.found} /></strong><span>Found</span></div>
+            <div><strong><CountUp value={summary.reviewed} /></strong><span>Reviewed</span></div>
+            <div><strong><CountUp value={summary.suitable} /></strong><span>Suitable</span></div>
             <div>
               {/* Whichever knows more: the live counter mid-run, the log once it has ended. */}
-              <strong>{Math.max(summary.submitted, status?.applied ?? 0)}</strong>
+              <strong><CountUp value={Math.max(summary.submitted, status?.applied ?? 0)} /></strong>
               <span>Submitted</span>
             </div>
           </div>
@@ -1162,19 +1297,21 @@ export function RunPanel({
           ) : (
             <>
               {running && (
-                <div className="activity-current live">
+                <div className="activity-current live" aria-live="polite">
                   {/* The owl reads the page while the run does: eyes scanning, the odd double-take. */}
                   <MascotLogo size={36} className="activity-owl" />
                   <div>
-                    <strong>Applying now</strong>
-                    <span>{currentActivity}</span>
+                    <strong>{currentHeading}</strong>
+                    {/* Keyed on the text so each new step slides in rather than silently replacing the last. */}
+                    <span key={currentActivity} className="activity-current-text">{currentActivity}</span>
                   </div>
+                  <span className="activity-progress" aria-hidden="true" />
                 </div>
               )}
 
               <div className="activity-feed">
                 {events.length ? events.map((event) => (
-                  <div className={`activity-event ${event.tone}`} key={event.id}>
+                  <div className={`activity-event ${event.tone}${event.live && running ? ' live' : ''}`} key={event.id}>
                     <span className="activity-dot" aria-hidden="true" />
                     <div>
                       <strong>{event.title}</strong>
