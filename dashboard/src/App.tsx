@@ -188,11 +188,8 @@ export default function App() {
 
   const stats = useMemo(() => {
     const week = apps.filter((app) => daysSince(app.appliedAt) <= 7).length;
-    const awaiting = apps.filter(
-      (app) => !app.outcome && daysSince(app.appliedAt) >= FOLLOW_UP_DAYS,
-    ).length;
     const verification = attention.filter((item) => item.kind === 'verification').length;
-    return { week, awaiting, blocked: attention.length, verification };
+    return { week, blocked: attention.length, verification };
   }, [apps, attention]);
 
   const primaryNav: Array<{ id: Tab; label: string; badge?: number }> = [
@@ -496,12 +493,6 @@ export default function App() {
               <span>reviewed today</span>
             </div>
             {/* Only when there is something to do: a row of zeros is noise. */}
-            {stats.awaiting > 0 && (
-              <button type="button" className="metric-tile needs-action" onClick={() => setTab('applications')}>
-                <strong>{stats.awaiting}</strong>
-                <span>to follow up</span>
-              </button>
-            )}
             {stats.blocked > 0 && (
               <button type="button" className="metric-tile needs-action" onClick={() => setTab('attention')}>
                 <strong>{stats.blocked}</strong>

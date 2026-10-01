@@ -1871,7 +1871,17 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 }
 
 .activity-current > div,
-.activity-event > div { display: grid; gap: 2px; min-width: 0; }
+.activity-event > div { display: grid; gap: 2px; min-width: 0; flex: 1 1 0%; }
+/*
+ * Long job titles and match lines wrap inside the phone's width. The text
+ * columns take the space left beside the owl or the dot rather than sizing
+ * to their content, words that are longer than the line break where they
+ * must, and the feed itself never scrolls sideways.
+ */
+.activity-current > div > *,
+.activity-event > div > * { min-width: 0; overflow-wrap: anywhere; }
+.activity-feed { grid-template-columns: minmax(0, 1fr); }
+.activity-body { overflow-x: hidden; }
 .activity-current strong { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
 .activity-current span:last-child { color: var(--text); line-height: 1.45; }
 .activity-current.live { border-color: var(--bad); background: var(--bad-soft); }
