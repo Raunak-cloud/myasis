@@ -315,6 +315,8 @@ export const config = {
 
     /** Turns with no page change before escalating to the reasoning model. */
     escalateAfterStalls: Number(process.env.AGENT_ESCALATE_AFTER ?? 2),
+    /** The model for routine agent steps: Magnus unless a trial sets celeris-1. */
+    stepModel: (process.env.AGENT_STEP_MODEL ?? '').trim() === 'celeris-1' ? 'celeris-1' as const : 'celeris-1-magnus' as const,
 
     /** celeris-1 accepts images; a screenshot is attached once a step stalls. */
     useScreenshots: process.env.AGENT_SCREENSHOTS !== 'false',

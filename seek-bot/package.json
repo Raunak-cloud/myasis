@@ -23,7 +23,8 @@
     "test:review-cache": "tsc && node --test dist/review-cache.test.js",
     "test:humanizer-endpoint": "tsc && node scripts/test-humanizer-endpoint.mjs",
     "test:fit-live": "tsc && node scripts/test-fit-live.mjs",
-    "queue": "tsc && node dist/queue.js"
+    "queue": "tsc && node dist/queue.js",
+    "test:agent-speed": "tsc && node dist/agent-speed.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

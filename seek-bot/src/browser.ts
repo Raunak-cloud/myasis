@@ -516,6 +516,31 @@ export async function captureInteractivePageState(page: Page): Promise<Interacti
 }
 
 /** Wait only as long as the site needs to move to its next wizard step. */
+/**
+ * Resolves once a page has stopped doing anything: no network traffic, then
+ * no change to the document for a second. A person looking at a page that
+ * has finished loading does not keep staring at it for ten seconds, and
+ * neither should the agent; a page still loading keeps it waiting as before.
+ * Never sooner than `minMs`, never later than `maxMs`; false at the cap.
+ */
+export async function waitForPageToSettle(page: Page, minMs = 2_000, maxMs = 10_000): Promise<boolean> {
+  const started = Date.now();
+  const left = () => Math.max(0, maxMs - (Date.now() - started));
+  const idle = await page.waitForLoadState('networkidle', { timeout: left() }).then(() => true, () => false);
+  if (!idle) return false;
+  const quiet = await page.evaluate((cap) => new Promise<boolean>((resolve) => {
+    let timer = 0;
+    const done = (value: boolean) => { observer.disconnect(); clearTimeout(timer); clearTimeout(limit); resolve(value); };
+    const observer = new MutationObserver(() => { clearTimeout(timer); timer = window.setTimeout(() => done(true), 1_000); });
+    observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+    timer = window.setTimeout(() => done(true), 1_000);
+    const limit = window.setTimeout(() => done(false), cap);
+  }), Math.max(1, left())).catch(() => false);
+  const wait = minMs - (Date.now() - started);
+  if (wait > 0) await sleep(wait);
+  return quiet;
+}
+
 export async function waitForInteractivePageChange(
   page: Page,
   previous: InteractivePageState,

@@ -832,8 +832,14 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     lastUrl = page.url();
     lastFingerprint = fingerprint;
 
-    // Magnus reasons from the first step, rather than only after a fast-model stall.
-    const model: CelerisModel = 'celeris-1-magnus';
+    /**
+     * Magnus reasons from the first step. AGENT_STEP_MODEL=celeris-1 trials
+     * the fast model for routine steps, handing a stalled or failing page
+     * straight back to Magnus; it is off unless set, and only for testing.
+     */
+    const model: CelerisModel = config.celeris.stepModel === 'celeris-1' && stalls < config.celeris.escalateAfterStalls && !wantScreenshot
+      ? 'celeris-1'
+      : 'celeris-1-magnus';
     if (stalls === config.celeris.escalateAfterStalls) {
       log(`  ↑ step ${guards.stepCount} stalled — ${model} reassessing the page`);
     }

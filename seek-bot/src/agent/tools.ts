@@ -5,6 +5,7 @@ import {
   jitter,
   waitForInteractivePageChange,
   waitForInteractiveSurface,
+  waitForPageToSettle,
 } from '../browser.js';
 import { fillField, setChecked } from '../dom.js';
 import { answerFields, auditFormBeforeSubmit, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, isSubmitControl, verifySubmissionEvidence } from '../llm.js';
@@ -619,7 +620,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'wait_for_page',
-    description: 'Wait up to 10 seconds for a loading page or pending request to change, without clicking or reloading. Use before recovery actions when the page is still loading. Existing run budgets still apply.',
+    description: 'Wait for a loading page or pending request to change, without clicking or reloading. Returns as soon as the page changes or has finished loading, at most 10 seconds. Use before recovery actions when the page is still loading. Existing run budgets still apply.',
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -1815,9 +1816,20 @@ async function runTool(
     case 'accept_terms':
       return doAcceptTerms(ctx, args);
     case 'wait_for_page': {
+      /**
+       * Waits for the page to change or to settle, whichever comes first.
+       * It used to wait out the full ten seconds whenever nothing changed,
+       * which over ten days was most calls: about six seconds an application
+       * spent watching a page that had already finished loading.
+       */
       const before = await captureInteractivePageState(ctx.page);
-      const changed = await waitForInteractivePageChange(ctx.page, before, 10_000);
-      return ok(changed ? 'The page changed while waiting. Inspect the fresh observation.' : 'No page change after waiting 10 seconds. Inspect the page before choosing a recovery action.');
+      const outcome = await Promise.race([
+        waitForInteractivePageChange(ctx.page, before, 10_000).then((changed) => (changed ? 'changed' : 'timeout')),
+        waitForPageToSettle(ctx.page, 2_000, 10_000).then((settled) => (settled ? 'settled' : 'timeout')),
+      ]);
+      if (outcome === 'changed') return ok('The page changed while waiting. Inspect the fresh observation.');
+      if (outcome === 'settled') return ok('The page has finished loading and nothing is pending: nothing is going to change by itself. Inspect it and act; waiting again will not help.');
+      return ok('No page change after waiting 10 seconds. Inspect the page before choosing a recovery action.');
     }
     case 'confirm_submission': {
       if (!ctx.submissionAttempted) return ok('No submission action has been recorded for this attempt. Do not claim success; inspect the page.');

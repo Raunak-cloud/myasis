@@ -905,6 +905,9 @@ async function main() {
       }
 
       console.log(`\n→ Applying: ${job.title} @ ${job.company}`);
+      // The letter is written while the listing opens and the form's first steps are filled,
+      // not when the agent reaches the letter box. Already under way for every job but a run's first.
+      prepare(job);
 
       /**
        * A dead browser must not take the whole run's reporting with it. It is
