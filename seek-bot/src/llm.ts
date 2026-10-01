@@ -1185,7 +1185,17 @@ as the most general-purpose one rather than guessing at a narrow match.
 const preparedLetters = new Map<string, Promise<string>>();
 export async function coverLetterForJob(job: JobListing, profile: CandidateProfile): Promise<string> {
   const evidence = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`);
-  const key = JSON.stringify([config.dataDir, job, profile, evidence, config.coverLetter, 'celeris-1-magnus']);
+  /**
+   * Keyed on what the letter is written from, not the whole listing object.
+   * The apply step sets `applicationMode` on the listing as it opens it, so a
+   * key over the full object never matched the letter written ahead during
+   * the pause: every application drafted its letter again from scratch,
+   * about 20 s each on Magnus.
+   */
+  const key = JSON.stringify([
+    config.dataDir, job.id, job.title, job.company, job.description, job.teaser,
+    profile, evidence, config.coverLetter, 'celeris-1-magnus',
+  ]);
   let pending = preparedLetters.get(key);
   if (!pending) {
     pending = measured('letter', () => coverLetterUncached(job, profile));
