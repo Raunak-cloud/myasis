@@ -19,6 +19,7 @@ import {
   fetchJobDetail as fetchJobDetailIndeed,
 } from './discovery-indeed.js';
 import { scoreJob, deterministicExclusion, meetsMinimumScore } from './scoring.js';
+import { SitePacer } from './pacing.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, recentReviewFeedback, roleKey, saveRunSummary, syncFromSeek } from './store.js';
@@ -186,6 +187,8 @@ async function main() {
     const skips = new Map<string, number>();
     const reviewPriorities = new Map<string, { priority: number; reason: string }>();
     const active: PlatformAdapter[] = [];
+    /** Each board's own polite gap between searches (seek-bot/src/pacing.ts). */
+    const sitePacer = new SitePacer();
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
     /**
@@ -380,11 +383,11 @@ async function main() {
       exhausted: boolean;
     };
     const terms = config.keywords.length ? config.keywords : [config.targetRole];
-    const streams: SearchStream[] = active
-      .filter((adapter) => !targetedAdapters.has(adapter.id))
-      .flatMap((adapter) => terms.map((keyword) => ({
-        adapter, keyword, total: 0, pages: 0, lowYieldPages: 0, exhausted: false,
-      })));
+    const searchAdapters = active.filter((adapter) => !targetedAdapters.has(adapter.id));
+    // Boards take turns, so one board's polite gap is spent searching the other.
+    const streams: SearchStream[] = terms.flatMap((keyword) => searchAdapters.map((adapter) => ({
+      adapter, keyword, total: 0, pages: 0, lowYieldPages: 0, exhausted: false,
+    })));
 
     /** Order of review: in-scope listings first, then the pre-ranking's priority. */
     const scopeRank = (job: JobListing): number => {
@@ -408,6 +411,7 @@ async function main() {
       const round: Array<{ stream: SearchStream; accepted: JobListing[] }> = [];
       for (const stream of liveStreams()) {
         let results: JobListing[];
+        await sitePacer.ready(stream.adapter.id);
         try {
           results = await measured(
             'discovery',
@@ -415,6 +419,7 @@ async function main() {
             { platform: stream.adapter.id },
           );
         } catch (error) {
+          sitePacer.done(stream.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
           // A search that fails ends that search, not the run.
           stream.exhausted = true;
           if (isVerificationWall(error)) blockPlatform(stream.adapter, error);
@@ -426,7 +431,7 @@ async function main() {
         const accepted = ingest(results, stream.adapter);
         round.push({ stream, accepted });
         if (!results.length || results.length < stream.adapter.pageSize) stream.exhausted = true;
-        await jitter(config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
+        sitePacer.done(stream.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
       }
 
       const newlyAccepted = round.flatMap((item) => item.accepted);
@@ -469,7 +474,7 @@ async function main() {
       }
     }
 
-    for (const stream of streams) {
+    for (const stream of [...streams].sort((a, b) => searchAdapters.indexOf(a.adapter) - searchAdapters.indexOf(b.adapter))) {
       console.log(
         `  [${stream.adapter.label}] "${stream.keyword}" → ${stream.total} results` +
         (stream.pages > 1 ? ` (${stream.pages} pages)` : '') +
@@ -669,6 +674,8 @@ async function main() {
         return;
       }
       let job: JobListing;
+      // A search just made on this board still has its gap to run out.
+      await sitePacer.ready(adapter.id);
       try {
         job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
       } catch (error) {
