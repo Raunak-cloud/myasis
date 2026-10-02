@@ -3029,3 +3029,10 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .boards-row-main { display: grid; gap: 2px; min-width: 0; }
 .boards-row-main .job-meta { overflow-wrap: anywhere; }
 .boards-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Résumés on a job board that Owtomate does not send. */
+.board-resumes-note { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
+.board-resumes-note p { margin: 0 0 4px; overflow-wrap: anywhere; }
+.board-resumes-actions { display: flex; align-items: center; gap: 12px; }
+.board-resumes-actions a.btn { text-decoration: none; }
+.run-span:empty, .run-span:has(> :empty) { display: none; }

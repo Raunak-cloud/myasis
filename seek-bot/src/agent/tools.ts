@@ -24,6 +24,7 @@ import { authenticationValue, hostOf } from '../site-auth.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { offersCoverLetter } from './cover-letter-opportunity.js';
 import { RAW_TOOL_SCHEMAS, locate, pressWatched, runRawTool } from './raw-tools.js';
+import { ensureChosenResume } from '../resume-sync.js';
 
 /**
  * How many fields one answer_questions call may take.
@@ -83,6 +84,10 @@ export interface ToolContext {
   /** Set only after a real cover-letter input or reveal control was observed. */
   coverLetterOffered?: boolean;
   resumeUsed?: string;
+  /** The board file name the résumé went out as, once the documents step was settled. */
+  resumeName?: string;
+  /** The board's résumé choice has been made Owtomate's for this application. */
+  resumeSettled?: boolean;
   log: (line: string) => void;
   /** Side effects the candidate must be told about — see `ApplicationAction`. */
   actions: ApplicationAction[];
@@ -201,6 +206,31 @@ export async function gateAdvance(
    * so a letter the employer allowed could go unsent. Before the form moves
    * on without a letter, the whole page is read for a place to add one.
    */
+  /**
+   * The résumé a board sends is Owtomate's, never whatever it preselected.
+   * Settled here, deterministically, as the documents step is left, so the
+   * agent cannot move past it with the board's own copy (src/resume-sync.ts).
+   */
+  if (advancesApplication(label) && !ctx.resumeSettled) {
+    const chosen = await pickResumeForJob(ctx.job, ctx.profile);
+    const step = chosen ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
+    if (step.action === 'failed') {
+      return { proceed: false, result: ok(
+        `Do not advance yet: the résumé must be Owtomate's "${chosen!.seekName || chosen!.fileName}", not one the board preselected. ${step.reason} ` +
+        'Select its exact option with attach_resume, or upload it with attach_resume on the upload control, then press again.',
+      ) };
+    }
+    if (step.action !== 'none') {
+      ctx.resumeSettled = true;
+      ctx.resumeUsed = step.label;
+      ctx.resumeName = step.name;
+      const verb = { kept: 'already selected', selected: 'selected', uploaded: 'uploaded from Owtomate and selected' }[step.action];
+      ctx.log(`  📄 résumé "${step.name}" ${verb} on ${step.board === 'seek' ? 'SEEK' : 'Indeed'}`);
+      if (step.action === 'uploaded') {
+        noteAction(ctx, { kind: 'resume-uploaded', site: hostOf(ctx.page.url()), detail: `Saved Owtomate's résumé "${step.name}" to your ${step.board === 'seek' ? 'SEEK' : 'Indeed'} account and used it for this application.` });
+      }
+    }
+  }
   if (advancesApplication(label) && !ctx.coverLetter && !ctx.coverLetterOffered) {
     if (await pageOffersDocuments(ctx.page)) ctx.coverLetterOffered = true;
   }

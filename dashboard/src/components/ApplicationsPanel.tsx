@@ -316,6 +316,13 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
                 )}
               </div>
 
+              {open.resumeName && (
+                <div className="section">
+                  <h3>Résumé sent</h3>
+                  <p className="job-meta">{open.resumeName}</p>
+                </div>
+              )}
+
               {open.coverLetter && (
                 <div className="section">
                   <h3>Cover letter sent</h3>

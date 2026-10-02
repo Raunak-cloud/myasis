@@ -26,7 +26,8 @@
     "queue": "tsc && node dist/queue.js",
     "test:agent-speed": "tsc && node dist/agent-speed.test.js",
     "test:fill-verify": "tsc && node dist/fill-verify.test.js",
-    "test:reconcile": "tsc && node dist/agent/reconcile.test.js"
+    "test:reconcile": "tsc && node dist/agent/reconcile.test.js",
+    "test:resume-sync": "tsc && node dist/resume-sync.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

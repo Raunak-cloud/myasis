@@ -161,6 +161,7 @@ interface ApplicationRow {
   external: boolean;
   site: string | null;
   actions: unknown;
+  resume_name: string | null;
 }
 
 function rowToApplication(a: ApplicationRow) {
@@ -183,6 +184,7 @@ function rowToApplication(a: ApplicationRow) {
     external: a.external === true,
     site: a.site ?? undefined,
     actions: Array.isArray(a.actions) ? a.actions : [],
+    resumeName: a.resume_name ?? undefined,
   };
 }
 
@@ -435,7 +437,7 @@ function dataApi(): Plugin {
             const rows = await query<ApplicationRow>(
               `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
                       age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at,
-                      external, site, actions
+                      external, site, actions, resume_name
                  FROM applications
                 WHERE user_id = $1 AND submitted_by_myasis
                 ORDER BY applied_at DESC`,
@@ -446,7 +448,7 @@ function dataApi(): Plugin {
           const rows = await query<ApplicationRow>(
             `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
                     age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at,
-                    external, site, actions
+                    external, site, actions, resume_name
                FROM applications
               WHERE user_id = $1 AND submitted_by_myasis
               ORDER BY applied_at DESC`,
@@ -1071,6 +1073,19 @@ function dataApi(): Plugin {
             return send({ ok: true, profile: await saveProfile(userId, b ?? {}) });
           }
           return send(await loadCandidate(userId));
+        });
+      }
+
+      case '/api/board-resumes': {
+        // Saved résumés on SEEK or Indeed that Owtomate does not hold; the last run recorded them (seek-bot/src/resume-sync.ts).
+        return withUser(async (userId) => {
+          const file = resolve(userDir(userId), 'board-resumes.json');
+          let report: Record<string, { names?: unknown; seenAt?: unknown }> = {};
+          try { if (existsSync(file)) report = JSON.parse(readFileSync(file, 'utf8')); } catch { report = {}; }
+          const boards = (['seek', 'indeed'] as const)
+            .map((board) => ({ board, names: Array.isArray(report[board]?.names) ? (report[board]!.names as unknown[]).filter((n): n is string => typeof n === 'string') : [] }))
+            .filter((entry) => entry.names.length);
+          return send({ boards });
         });
       }
 

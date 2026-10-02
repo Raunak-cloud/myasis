@@ -387,6 +387,8 @@ interface AgentRunResult {
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
   resumeUsed?: string;
+  /** The board file name the résumé went out as. */
+  resumeName?: string;
   /** Side effects the candidate must be told about, whatever the outcome. */
   actions: ApplicationAction[];
   /** The employer site the attempt ended on, when it left the job board. */
@@ -685,6 +687,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       captured: ctx.captured,
       coverLetter: ctx.coverLetter,
       resumeUsed: ctx.resumeUsed,
+      resumeName: ctx.resumeName,
       actions: ctx.actions,
       // An application finished on an employer's own site is reported as such.
       ...(isExternal(page.url()) ? { site: siteHost(page.url()) } : {}),

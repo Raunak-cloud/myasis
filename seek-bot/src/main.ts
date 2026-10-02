@@ -1040,6 +1040,7 @@ async function main() {
             ageDaysAtApply: job.ageDays,
             coverLetter: outcome.coverLetter,
             answers: outcome.answers,
+            ...(outcome.resume ? { resume: outcome.resume } : {}),
             scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...reasons] : reasons,
             external: job.applicationMode === 'external',
             ...(outcome.site ? { site: outcome.site } : {}),
@@ -1050,7 +1051,7 @@ async function main() {
           break;
         case 'rehearsed':
           rehearsed++;
-          console.log(`  🧪 rehearsed — form completed, submit withheld (DRY_RUN)`);
+          console.log(`  🧪 rehearsed — form completed, submit withheld (DRY_RUN)${outcome.resume ? ` · résumé "${outcome.resume}"` : ''}`);
           if (outcome.coverLetter) {
             console.log(`\n     ── cover letter ──\n${outcome.coverLetter.replace(/^/gm, '     ')}\n`);
           }

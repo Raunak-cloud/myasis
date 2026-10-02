@@ -4,6 +4,7 @@ import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
 import { SetupChecklist } from './SetupChecklist';
 import { useSetupStatus } from '../setupStatus';
+import { BoardResumesNote } from './BoardResumesNote';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
@@ -968,6 +969,7 @@ export function RunPanel({
   return (
     <div className="run-layout">
       {setup && <div className="run-span"><SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} /></div>}
+      <div className="run-span"><BoardResumesNote /></div>
       <div className="run-side">
       <div className="card run-controls-card">
         <div className="panel-body">

@@ -301,6 +301,7 @@ export async function syncRunResultsToDb(
           site: typeof a.site === 'string' ? a.site : null,
           actions: Array.isArray(a.actions) ? a.actions : [],
           submittedByMyasis: a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
+          resumeName: typeof a.resume === 'string' ? a.resume : null,
         });
         if (inserted && (a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)))) applications++;
       }

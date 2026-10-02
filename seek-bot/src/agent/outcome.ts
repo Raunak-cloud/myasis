@@ -31,10 +31,11 @@ export function outcomeFromRun(
         ...(run.site ? { site: run.site } : {}),
         coverLetter: run.coverLetter,
         answers: run.captured,
+        ...(run.resumeName || run.resumeUsed ? { resume: run.resumeName || run.resumeUsed } : {}),
         ...extras,
       };
     case 'rehearsed':
-      return { status: 'rehearsed', jobId, coverLetter: run.coverLetter, answers: run.captured, stoppedAt: run.outcome.stoppedAt, ...extras };
+      return { status: 'rehearsed', jobId, coverLetter: run.coverLetter, answers: run.captured, stoppedAt: run.outcome.stoppedAt, ...(run.resumeName || run.resumeUsed ? { resume: run.resumeName || run.resumeUsed } : {}), ...extras };
     case 'off-platform':
       return { status: 'off-platform', jobId, redirectedTo: run.outcome.redirectedTo, ...extras };
     case 'already-applied':

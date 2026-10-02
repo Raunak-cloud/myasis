@@ -560,3 +560,7 @@ CREATE TABLE IF NOT EXISTS admin_emails (
   sent_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS admin_emails_user_idx ON admin_emails(user_id, sent_at DESC);
+
+-- The résumé file an application went out with, as the board or employer
+-- received it. Owtomate's résumé is the source of truth; this is the proof.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS resume_name TEXT;
