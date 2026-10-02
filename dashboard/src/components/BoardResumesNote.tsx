@@ -36,23 +36,19 @@ export function BoardResumesNote() {
   return (
     <div className="banner board-resumes-note" role="note">
       <div>
-        {boards.map((entry) => (
-          <div key={entry.board}>
-            {entry.names.length > 0 && (
-              <p>
-                <strong>{BOARD[entry.board]}</strong> has {entry.names.length === 1 ? 'a resume' : 'resumes'} Owtomate doesn't send:{' '}
-                {entry.names.join(', ')}.
-              </p>
-            )}
-            {(entry.replaced ?? []).map((replaced) => (
-              <p key={replaced.uploadedAs}>
-                &ldquo;{replaced.name}&rdquo; on <strong>{BOARD[entry.board]}</strong> wasn't uploaded by Owtomate, so it may differ from
-                your resume here. Owtomate saved its exact copy as &ldquo;{replaced.uploadedAs}&rdquo; and sends that.
-              </p>
-            ))}
-          </div>
-        ))}
-        <p className="job-meta">Applications always send the resume in Owtomate. To use one of these instead, upload it in Setup.</p>
+        {boards.map((entry) => {
+          // The copy Owtomate sends now is the one it saved last.
+          const sending = entry.replaced?.at(-1)?.uploadedAs;
+          return (
+            <p key={entry.board}>
+              {sending
+                ? <>On <strong>{BOARD[entry.board]}</strong>, Owtomate sends <strong>{sending}</strong>, its exact copy of your resume.</>
+                : <>On <strong>{BOARD[entry.board]}</strong>, Owtomate sends your resume from Owtomate.</>}
+              {' '}Other resumes saved there aren't used.
+            </p>
+          );
+        })}
+        <p className="job-meta">To send a different resume, upload it in Setup.</p>
       </div>
       <div className="board-resumes-actions">
         <a className="btn btn-small" href="/?tab=setup">Upload in Setup</a>
