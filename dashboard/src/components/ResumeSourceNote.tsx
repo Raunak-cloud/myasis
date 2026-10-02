@@ -10,8 +10,7 @@ export function ResumeSourceNote({ compact = false }: { compact?: boolean }) {
     <div className={`resume-source ${compact ? 'compact' : ''}`} role="note">
       <span className="resume-source-icon" aria-hidden="true">📄</span>
       <p>
-        <strong>Owtomate applies with the resume you uploaded to Owtomate.</strong>{' '}
-        <span className="job-meta">Resumes saved on SEEK or Indeed are never sent.</span>
+        <strong>Owtomate applies with the resume you uploaded to Owtomate.</strong>
       </p>
       {!compact && <a className="btn btn-small" href="/?tab=setup">Manage resume</a>}
     </div>
