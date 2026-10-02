@@ -77,11 +77,39 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   },
 };
 
+/** The tab a `?tab=` link names, if it names one. Tabs the account may not see are turned away below. */
+function tabFromUrl(url: URL | Location): Tab | null {
+  const requested = new URLSearchParams(url.search).get('tab');
+  return requested && requested in PAGE_COPY ? requested as Tab : null;
+}
+
 export default function App() {
-  const [tab, setTab] = useState<Tab>(() => {
-    const requested = new URLSearchParams(window.location.search).get('tab');
-    return requested === 'pricing' ? 'pricing' : requested === 'support' ? 'support' : requested === 'admin' ? 'admin' : 'run';
-  });
+  const [tab, setTab] = useState<Tab>(() => tabFromUrl(window.location) ?? 'run');
+  /**
+   * `?tab=` links inside the app (notes, banners) switch tabs in place rather
+   * than reloading the page; emails use the same links and land via the URL.
+   */
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor || anchor.target === '_blank') return;
+      const url = new URL(anchor.href, window.location.href);
+      const next = url.origin === window.location.origin && url.pathname === '/' ? tabFromUrl(url) : null;
+      if (!next) return;
+      event.preventDefault();
+      setTab(next);
+      window.history.pushState({}, '', `/?tab=${next}`);
+      window.scrollTo({ top: 0 });
+    };
+    const onPop = () => setTab(tabFromUrl(window.location) ?? 'run');
+    document.addEventListener('click', onClick);
+    window.addEventListener('popstate', onPop);
+    return () => {
+      document.removeEventListener('click', onClick);
+      window.removeEventListener('popstate', onPop);
+    };
+  }, []);
   const [apps, setApps] = useState<Application[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   const [running, setRunning] = useState(false);
