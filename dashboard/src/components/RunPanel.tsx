@@ -971,7 +971,6 @@ export function RunPanel({
     <div className="run-layout">
       <div className="run-span run-notes">
         {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
-        <ResumeSourceNote />
         <BoardResumesNote />
       </div>
       <div className="run-side">
@@ -1023,6 +1022,7 @@ export function RunPanel({
                 is refused by the server anyway; the button says so before it
                 is pressed rather than after.
               */}
+              <ResumeSourceNote />
               <button
                 className="btn primary lg"
                 disabled={accountSetupIncomplete || verifyingSignIn || boards === null || signedOutEverywhere || outOfAllowance}
@@ -1421,7 +1421,6 @@ export function RunPanel({
               <div className="banner banner-bad run-review-warning">
                 This run submits applications to employers. Submitted applications cannot be withdrawn here.
               </div>
-              <ResumeSourceNote compact />
 
               <section className="run-review-section run-review-search">
                 <h3>What to find</h3>
@@ -1711,6 +1710,7 @@ export function RunPanel({
             </div>
 
             <div className="confirm-actions run-review-actions">
+              <ResumeSourceNote compact />
               <button className="btn" disabled={starting} onClick={() => setConfirming(false)}>
                 Cancel
               </button>

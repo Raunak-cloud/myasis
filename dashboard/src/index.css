@@ -619,8 +619,7 @@ tbody tr.clickable { cursor: pointer; }
   .run-review-warning,
   .run-review-search,
   .run-review-limits,
-  .run-review-error,
-  .run-review-body .resume-source { grid-column: auto; }
+  .run-review-error { grid-column: auto; }
   .run-review-actions { padding: 14px 22px; }
 }
 
@@ -1620,6 +1619,10 @@ button.metric-tile:hover strong { color: var(--accent); }
   .run-dashboard .run-actions > .activity-open { grid-column: 2; grid-row: 1; }
   .run-dashboard .run-actions > .run-scope-link,
   .run-dashboard .run-actions > .job-meta { grid-column: 1 / -1; }
+  /* The resume line sits above the buttons on the pinned bar too. */
+  .run-dashboard .run-actions > .resume-line { grid-column: 1 / -1; grid-row: 1; font-size: 11.5px; }
+  .run-dashboard .run-actions:has(> .resume-line) > .btn.lg,
+  .run-dashboard .run-actions:has(> .resume-line) > .activity-open { grid-row: 2; }
 
   .activity-open {
     display: inline-flex;
@@ -2367,20 +2370,25 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 /* Applications: where it went, and what was done on the candidate's behalf. */
 .app-site-badge { margin-left: 8px; vertical-align: 1px; }
 .app-submitted { margin: 0; line-height: 1.55; }
-.resume-source {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 12px 16px;
-  border: 1px solid var(--info); background: var(--info-soft); border-radius: var(--radius);
-}
-.resume-source p { margin: 0; flex: 1; min-width: 0; line-height: 1.5; }
 .run-notes { display: grid; gap: 12px; min-width: 0; }
 .run-notes > * { margin: 0; }
-.run-review-body .resume-source { grid-column: 1 / -1; margin: 0; padding: 10px 14px; }
-.resume-source .job-meta { display: inline; }
-.resume-source-icon { font-size: 18px; }
 .app-resume { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 4px; overflow-wrap: anywhere; }
+
+/* Which resume a run sends: one quiet line above the button that starts it. */
+.resume-line {
+  display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 6px;
+  margin: 0; font-size: 12px; line-height: 1.4; color: var(--text-dim); letter-spacing: .005em;
+}
+.resume-line-icon { width: 13px; height: 13px; flex: none; color: var(--text-faint); }
+.resume-line-sep { color: var(--text-faint); }
+.resume-line a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.resume-line a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.run-dashboard .run-actions > .resume-line { justify-self: center; }
+.run-review-actions { align-items: center; }
+.run-review-actions .resume-line { margin-right: auto; justify-content: flex-start; }
 @media (max-width: 640px) {
-  .resume-source { flex-wrap: wrap; }
-  .resume-source .btn { margin-left: 30px; }
+  .run-review-actions { flex-wrap: wrap; }
+  .run-review-actions .resume-line { flex-basis: 100%; margin-right: 0; justify-content: center; }
 }
 .app-actions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .app-actions li,
