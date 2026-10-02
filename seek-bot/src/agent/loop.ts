@@ -785,6 +785,12 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
           .join('|'),
       )
       .catch(() => '');
+    // What the form holds now outranks what a tool reported earlier; the pre-submit check reviews anything settled this way.
+    const settled = guards.reconcileWithForm(ctx.observation.fields);
+    if (settled.length) {
+      ctx.rawUsed = true;
+      log(`  · the form now holds an answer for ${settled.map((label) => `"${label}"`).join(', ')}`);
+    }
     const pageBudget = guards.onPage(`${pathOf(page.url())}#${headings}`);
     if (!pageBudget.ok) return finish({ status: 'needs-human', reason: pageBudget.reason, detail: pageBudget.detail });
 

@@ -337,6 +337,37 @@ export class RunGuards {
     this.fillAttempts.delete(label);
   }
 
+  /**
+   * A failed fill the form has since taken another way.
+   *
+   * The failure lists record what a tool reported, and the form can move on
+   * without the tool: TechnologyOne's "How did you hear?" refused typed text,
+   * then took its answer from a lookup list inside a frame, opened with an
+   * ordinary click. The field held the choice, but the record of the refusal
+   * stood, and the submit was refused for a field the form had filled. So the
+   * live form decides: a field whose failed fill is on record, which now
+   * shows a value and no complaint, is answered. Questions the candidate's
+   * record could not answer are never cleared this way; only the candidate
+   * can resolve those. Returns the labels cleared, so the caller can have
+   * the pre-submit check review what the form now holds.
+   */
+  reconcileWithForm(fields: Array<{ label: string; kind: string; currentValue?: string; validationError?: string }>): string[] {
+    const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+    const failed = new Set([...this.unfillable.keys(), ...[...this.pendingFields].filter((label) => this.fillAttempts.has(label))]);
+    const cleared: string[] = [];
+    for (const label of failed) {
+      if (this.ungrounded.includes(label)) continue;
+      const field = fields.find((candidate) => normal(candidate.label) === normal(label));
+      const held = field?.kind === 'checkbox' ? field.currentValue === 'true' : Boolean(field?.currentValue?.trim());
+      if (!field || !held || field.validationError?.trim()) continue;
+      this.pendingFields.delete(label);
+      this.unfillable.delete(label);
+      this.fillAttempts.delete(label);
+      cleared.push(label);
+    }
+    return cleared;
+  }
+
   /** Why the application could not be completed, in the candidate's terms. */
   unfillableReason(): string | null {
     // Refused twice first; then anything with an answer the form refused once and never took.
