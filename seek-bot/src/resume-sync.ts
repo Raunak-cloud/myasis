@@ -126,6 +126,8 @@ export async function documentChoices(page: Page): Promise<DocumentChoice[]> {
 interface SyncEntry {
   name: string;
   sha: string;
+  /** Owtomate put this copy on the board itself: the only kind it sends. */
+  uploadedByOwtomate?: boolean;
   /** When the board said this copy was added, when Owtomate first recorded it. */
   boardAddedAt?: number;
   boardAddedTolerance?: number;
@@ -211,12 +213,12 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   reportBoardOnly(board, boardOnly);
 
   /**
-   * The copy to use. With a record, only the copy holding this exact file
-   * counts; a changed file means the board's copy is stale. Without one (a
-   * copy the person put there themselves, before Owtomate kept records), the
-   * name decides once and the content is recorded from then on.
+   * The copy to use: only one Owtomate uploaded itself, holding exactly this
+   * file. A copy the person put on the board can't be read back, so even
+   * under the same name it may differ in any detail (a phone number, a
+   * date); it is never trusted, and Owtomate's own file goes up once instead.
    */
-  const names = record ? (record.sha === sha ? [record.name] : []) : [chosen.seekName ?? '', chosen.fileName, chosen.label].filter(Boolean);
+  const names = record?.uploadedByOwtomate && record.sha === sha ? [record.name] : [];
   const matching = choices.filter((choice) => names.some((name) => sameDocument(name, choice.name)));
   const match = matching.find((choice) => choice.checked) ?? matching[0];
   /**
@@ -230,11 +232,6 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   if (match && !replacedOnBoard) {
     const wasChecked = match.checked;
     if (!wasChecked && !await select(match)) return { action: 'failed', reason: `The board's copy "${match.name}" could not be selected.` };
-    // The first sighting fixes when the copy was added; later readings of a relative date only drift.
-    const firstSeen = record?.name === match.name && record.boardAddedAt !== undefined
-      ? { boardAddedAt: record.boardAddedAt, boardAddedTolerance: record.boardAddedTolerance }
-      : shown ? { boardAddedAt: shown.at, boardAddedTolerance: shown.tolerance } : {};
-    remember(board, chosen.id, { name: match.name, sha, ...firstSeen });
     return { action: wasChecked ? 'kept' : 'selected', name: match.name, label: chosen.label, board };
   }
 
@@ -245,14 +242,21 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   let document = await documentFor(file, upload.accept);
   if (!document) return { action: 'failed', reason: `The board does not accept "${upload.accept}" and the résumé could not be converted.` };
   /**
-   * A replaced file goes up under a new name: the board keeps the old copy
-   * under the old one, and an exact name is the only way to tell them apart.
+   * The board may already hold a copy under this name: the person's own, or
+   * Owtomate's older version. Owtomate's goes up under a new name then, since
+   * an exact name is the only way to tell copies apart.
    */
-  if ((record && record.sha !== sha) || replacedOnBoard) {
+  const onBoard = (name: string) => choices.some((choice) => sameDocument(choice.name, name));
+  const collision = choices.find((choice) => sameDocument(choice.name, basename(document!)));
+  if (collision) {
     const dir = resolve(tmpdir(), 'owtomate-resume-sync');
     mkdirSync(dir, { recursive: true });
+    const base = basename(document, extname(document)), ext = extname(document);
     const stamp = new Date().toISOString().slice(0, 10);
-    const renamed = resolve(dir, `${basename(document, extname(document))} (updated ${stamp})${extname(document)}`);
+    // A name no copy on the board has, so the new upload can't be mistaken for an old one.
+    let candidate = `${base} (updated ${stamp})${ext}`;
+    for (let n = 2; onBoard(candidate); n += 1) candidate = `${base} (updated ${stamp} ${n})${ext}`;
+    const renamed = resolve(dir, candidate);
     copyFileSync(document, renamed);
     document = renamed;
   }
@@ -266,8 +270,10 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
     const now = (await documentChoices(page)).filter((choice) => sameDocument(choice.name, uploadedName));
     const listed = now.find((choice) => choice.checked) ?? now[0];
     if (listed && (listed.checked || await select(listed))) {
-      remember(board, chosen.id, { name: listed.name, sha, boardAddedAt: Date.now(), boardAddedTolerance: 24 * 60 * 60_000 });
-      if (replacedOnBoard && match) reportReplaced(board, match.name, listed.name);
+      remember(board, chosen.id, { name: listed.name, sha, uploadedByOwtomate: true, boardAddedAt: Date.now(), boardAddedTolerance: 24 * 60 * 60_000 });
+      // A same-named copy Owtomate did not put there was left alone; say so.
+      const theirs = replacedOnBoard ? match : collision && !(record?.uploadedByOwtomate && sameDocument(record.name, collision.name)) ? collision : undefined;
+      if (theirs) reportReplaced(board, theirs.name, listed.name);
       return { action: 'uploaded', name: listed.name, label: chosen.label, board };
     }
   }

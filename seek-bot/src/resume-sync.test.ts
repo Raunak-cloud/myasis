@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { chromium, type Page } from 'patchright';
 
 /**
- * Owtomate's résumé is the one a board sends: kept, selected or uploaded on
- * mock SEEK and Indeed documents steps. Fixture pages served under the
+ * Only a board copy Owtomate uploaded itself is sent; anything else, even
+ * under the same name, is replaced by Owtomate's exact file. Mock SEEK and
+ * Indeed documents steps. Fixture pages served under the
  * boards' own hosts, so nothing reaches a real board.
  */
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-resume-sync-'));
@@ -64,51 +65,74 @@ try {
   await page.route(/https:\/\/(au\.seek\.com|smartapply\.indeed\.com|employer\.example)\/.*/, (route) => route.fulfill({ contentType: 'text/html', body: html }));
   const seekUrl = 'https://au.seek.com/job/1/apply';
 
-  // 1. Already selected on SEEK: kept, and the board's other résumés reported.
-  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true }, { name: 'Raunak_Fullstack_Resume.docx' }]));
+  const today = new Date().toISOString().slice(0, 10);
+  const told = () => JSON.parse(readFileSync(join(directory, 'board-resumes.json'), 'utf8'));
+  const owtomateCopy = `Raunak_New_Resume (2) (updated ${today}).docx`;
+
+  // 1. SEEK holds the person's own copy under the same name: never trusted, since it may differ in any
+  //    detail. Owtomate's exact file goes up under a name of its own, is selected, and the person is told.
+  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: '20 days ago' }, { name: 'Raunak_Fullstack_Resume.docx' }]));
   let result = await ensureChosenResume(page, chosen);
-  assert.equal(result.action, 'kept');
-  const report = JSON.parse(readFileSync(join(directory, 'board-resumes.json'), 'utf8'));
-  assert.deepEqual(report.seek.names, ['Raunak_Fullstack_Resume.docx'], 'the board-only résumé is reported');
-  assert.equal(record().seek['5'].name, 'Raunak_New_Resume (2).docx', 'the copy is remembered by content');
+  assert.equal(result.action, 'uploaded', 'a copy Owtomate did not upload is not sent');
+  assert.equal(await checkedName(page), owtomateCopy);
+  assert.deepEqual(told().seek.names, ['Raunak_Fullstack_Resume.docx'], 'the board-only résumé is reported');
+  assert.equal(told().seekReplaced?.[0]?.name, 'Raunak_New_Resume (2).docx', 'the person is told their same-named copy was not used');
+  assert.equal(record().seek['5'].uploadedByOwtomate, true);
 
-  // 2. Saved but another preselected: Owtomate's is selected instead.
-  await open(page, seekUrl, seekStep([{ name: 'Raunak_Fullstack_Resume.docx', checked: true }, { name: 'Raunak_New_Resume (2).docx' }]));
-  result = await ensureChosenResume(page, chosen);
-  assert.equal(result.action, 'selected');
-  assert.equal(await checkedName(page), 'Raunak_New_Resume (2).docx');
-
-  // 3. Not on the board at all: uploaded and selected.
-  rmSync(join(directory, 'resume-sync.json'));
-  await open(page, seekUrl, seekStep([{ name: 'Old_CV.pdf', checked: true }]));
-  result = await ensureChosenResume(page, chosen);
-  assert.equal(result.action, 'uploaded');
-  assert.equal(await checkedName(page), 'Raunak_New_Resume (2).docx');
-
-  // 4. Owtomate's file replaced since the board got it: the stale copy is not used; the new one goes up under a new name.
-  writeFileSync(resumeFile, 'resume version two');
-  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true }]));
-  result = await ensureChosenResume(page, chosen);
-  assert.equal(result.action, 'uploaded', 'a stale copy is replaced');
-  assert.match(String(await checkedName(page)), /^Raunak_New_Resume \(2\) \(updated \d{4}-\d{2}-\d{2}\)\.docx$/);
-  // ...and next time that new copy is simply kept.
-  await open(page, seekUrl, seekStep([{ name: String(await checkedName(page)), checked: true }, { name: 'Raunak_New_Resume (2).docx' }]));
+  // 2. Owtomate's own copy, selected: kept.
+  await open(page, seekUrl, seekStep([{ name: owtomateCopy, checked: true, added: 'just now' }, { name: 'Raunak_New_Resume (2).docx' }]));
   assert.equal((await ensureChosenResume(page, chosen)).action, 'kept');
 
-  // 5. Indeed keeps one file, as PDF: the same résumé by name is kept.
-  rmSync(join(directory, 'resume-sync.json'));
-  await open(page, 'https://smartapply.indeed.com/beta/indeedapply/form/resume-selection-module/resume-selection',
-    '<main><div role="radiogroup"><div role="radio" aria-checked="true" aria-label="Raunak_New_Resume (2).pdf"></div></div><button>Continue</button></main>');
-  result = await ensureChosenResume(page, chosen);
-  assert.equal(result.action, 'kept');
+  // 3. Owtomate's copy saved but the person's preselected: Owtomate's is selected.
+  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true }, { name: owtomateCopy, added: 'just now' }]));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'selected');
+  assert.equal(await checkedName(page), owtomateCopy);
 
-  // 6. Not a board, or no résumé choice on the page: left alone.
+  // 4. Nothing of Owtomate's there and no clash: uploaded under its own file name.
+  rmSync(join(directory, 'resume-sync.json'));
+  await open(page, seekUrl, seekStep([{ name: 'Old_CV.pdf', checked: true }]));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'uploaded');
+  assert.equal(await checkedName(page), 'Raunak_New_Resume (2).docx');
+
+  // 5. Owtomate's file changed since: its older copy is not sent; the new one goes up beside it, unreported.
+  writeFileSync(resumeFile, 'resume version two');
+  const reportedBefore = told().seekReplaced?.length ?? 0;
+  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: 'just now' }]));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'uploaded', 'a stale Owtomate copy is replaced');
+  assert.equal(await checkedName(page), owtomateCopy);
+  assert.equal(told().seekReplaced?.length ?? 0, reportedBefore, "Owtomate's own older copy is not the person's");
+
+  // 6. The person replaces Owtomate's copy on SEEK under the same name, later: caught by the date,
+  //    and the new upload takes a name no copy on the board has.
+  await open(page, seekUrl, seekStep([{ name: owtomateCopy, checked: true, added: 'just now' }]));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', "Owtomate's own copy, as uploaded");
+  const entry = record().seek['5'];
+  entry.boardAddedAt -= 3 * 24 * 60 * 60_000; // as if Owtomate uploaded it three days ago
+  writeFileSync(join(directory, 'resume-sync.json'), JSON.stringify({ seek: { '5': entry } }));
+  await open(page, seekUrl, seekStep([{ name: owtomateCopy, checked: true, added: 'just now' }, { name: 'Raunak_New_Resume (2).docx', added: '20 days ago' }]));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'uploaded', "a same-named copy added later is the person's, not Owtomate's");
+  assert.equal(await checkedName(page), `Raunak_New_Resume (2) (updated ${today} 2).docx`);
+  assert.equal(told().seekReplaced.at(-1).name, owtomateCopy, 'and the person is told');
+
+  // 7. Indeed keeps one file: the person's is replaced by Owtomate's exact file, which is kept from then on.
+  rmSync(join(directory, 'resume-sync.json'));
+  const indeedUrl = 'https://smartapply.indeed.com/beta/indeedapply/form/resume-selection-module/resume-selection';
+  const indeedStep = (name: string, date: string) => `<main><div role="radiogroup"><div class="card"><div role="radio" aria-checked="true" aria-label="${name}"></div><span>${date}</span></div></div>
+    <input type="file" accept=".pdf,.docx" onchange="setTimeout(() => { document.querySelector('[role=radio]').setAttribute('aria-label', this.files[0].name); }, 300)"><button>Continue</button></main>`;
+  await open(page, indeedUrl, indeedStep('Raunak_New_Resume (2).pdf', 'September 19'));
+  result = await ensureChosenResume(page, chosen);
+  assert.equal(result.action, 'uploaded', "Indeed's own file is replaced by Owtomate's");
+  const indeedCopy = (result as { name: string }).name;
+  await open(page, indeedUrl, indeedStep(indeedCopy, new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', "Owtomate's Indeed copy is kept");
+
+  // 8. Not a board, or no résumé choice on the page: left alone.
   await open(page, 'https://employer.example/apply', seekStep([{ name: 'Old_CV.pdf', checked: true }]));
   assert.equal((await ensureChosenResume(page, chosen)).action, 'none', 'employer sites are not touched here');
   await open(page, seekUrl, '<main><label>Phone<input></label><button>Continue</button></main>');
   assert.equal((await ensureChosenResume(page, chosen)).action, 'none', 'a step without résumés is not touched');
 
-  // 8. Reading when a copy was added.
+  // 9. Reading when a copy was added.
   const now = Date.UTC(2026, 9, 2, 3, 0);
   const day = 24 * 60 * 60_000;
   assert.equal(addedAt('Added 20 days ago', now)?.at, now - 20 * day);
@@ -119,39 +143,9 @@ try {
   assert.equal(addedAt('December 30', now)?.at, Date.UTC(2025, 11, 30), 'a date without a year is never in the future');
   assert.equal(addedAt('Raunak_New_Resume.docx', now), null);
 
-  // 9. Replaced on SEEK under the same name: not Owtomate's, so Owtomate's copy goes up and the person is told.
+  // 10. Through the agent: pressing Continue on SEEK's documents step settles the résumé first.
   rmSync(join(directory, 'resume-sync.json'));
-  writeFileSync(resumeFile, 'resume version three');
-  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: '20 days ago' }]));
-  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', 'first sighting is trusted and dated');
-  assert.ok(Math.abs(record().seek['5'].boardAddedAt - (Date.now() - 20 * day)) < 60_000, 'the board copy is dated from what the board said');
-  // The next day the same file still reads as the same copy...
-  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: '21 days ago' }]));
-  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', 'a relative date drifting with time is the same copy');
-  // ...but one added just now, under the same name, is the person's own new file.
-  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: 'just now' }]));
-  result = await ensureChosenResume(page, chosen);
-  assert.equal(result.action, 'uploaded', "a same-named copy added later is replaced by Owtomate's");
-  assert.match(String(await checkedName(page)), /\(updated \d{4}-\d{2}-\d{2}\)\.docx$/);
-  const told = JSON.parse(readFileSync(join(directory, 'board-resumes.json'), 'utf8'));
-  assert.equal(told.seekReplaced?.[0]?.name, 'Raunak_New_Resume (2).docx', 'the dashboard is told which copy was replaced');
-
-  // 10. Indeed's dated single file, replaced later under the same name.
-  rmSync(join(directory, 'resume-sync.json'));
-  const indeedUrl = 'https://smartapply.indeed.com/beta/indeedapply/form/resume-selection-module/resume-selection';
-  const indeedStep = (date: string) => `<main><div role="radiogroup"><div class="card"><div role="radio" aria-checked="true" aria-label="Raunak_New_Resume (2).pdf"></div><span>${date}</span></div></div>
-    <input type="file" accept=".pdf,.docx" onchange="setTimeout(() => { const c = document.querySelector('[role=radio]'); c.setAttribute('aria-label', this.files[0].name); }, 300)"><button>Continue</button></main>`;
-  await open(page, indeedUrl, indeedStep('September 19'));
-  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept');
-  await open(page, indeedUrl, indeedStep('September 19'));
-  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', 'the same Indeed file is kept');
-  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-  await open(page, indeedUrl, indeedStep(today));
-  assert.equal((await ensureChosenResume(page, chosen)).action, 'uploaded', "Indeed's file replaced today is replaced by Owtomate's");
-
-  // 7. Through the agent: pressing Continue on SEEK's documents step settles the résumé first.
-  rmSync(join(directory, 'resume-sync.json'));
-  await open(page, seekUrl, seekStep([{ name: 'Raunak_Fullstack_Resume.docx', checked: true }, { name: 'Raunak_New_Resume (2).docx' }]));
+  await open(page, seekUrl, seekStep([{ name: 'Raunak_Fullstack_Resume.docx', checked: true }]));
   const lines: string[] = [];
   const ctx = {
     page, profile: { name: 'Fixture', phone: '0400000000', email: 'f@example.com', nationality: 'Australian', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' },
@@ -164,10 +158,10 @@ try {
   await executeTool(ctx, 'click', { ref: continueRef, reason: 'Continue to employer questions' });
   assert.equal(await checkedName(page), 'Raunak_New_Resume (2).docx', "Continue left the step with Owtomate's résumé selected");
   assert.equal((ctx as { resumeName?: string }).resumeName, 'Raunak_New_Resume (2).docx', 'the application records the file sent');
-  assert.ok(lines.some((line) => /résumé "Raunak_New_Resume \(2\)\.docx" selected on SEEK/.test(line)), lines.join(' | '));
+  assert.ok(lines.some((line) => /résumé "Raunak_New_Resume \(2\)\.docx" uploaded from Owtomate and selected on SEEK/.test(line)), lines.join(' | '));
 
   assert.ok(existsSync(join(directory, 'resume-sync.json')));
-  console.log('PASS: SEEK and Indeed send Owtomate\'s résumé: kept, selected, uploaded, replaced when stale; board-only ones reported');
+  console.log("PASS: only copies Owtomate uploaded are sent; the person's same-named copies, stale copies and later replacements are replaced by Owtomate's exact file");
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });

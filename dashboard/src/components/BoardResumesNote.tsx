@@ -46,8 +46,8 @@ export function BoardResumesNote() {
             )}
             {(entry.replaced ?? []).map((replaced) => (
               <p key={replaced.uploadedAs}>
-                You uploaded a new &ldquo;{replaced.name}&rdquo; to <strong>{BOARD[entry.board]}</strong>, so Owtomate sent its own copy
-                as &ldquo;{replaced.uploadedAs}&rdquo; instead.
+                &ldquo;{replaced.name}&rdquo; on <strong>{BOARD[entry.board]}</strong> wasn't uploaded by Owtomate, so it may differ from
+                your résumé here. Owtomate saved its exact copy as &ldquo;{replaced.uploadedAs}&rdquo; and sends that.
               </p>
             ))}
           </div>
