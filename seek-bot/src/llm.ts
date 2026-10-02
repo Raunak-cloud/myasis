@@ -84,7 +84,7 @@ asks and the answer is supported by the candidate profile.
 function constraintsBlock(p: CandidateProfile): string {
   return [
     `- allowed arrangements: ${config.rules.workArrangements.join(', ') || 'any'}`,
-    `- on-site city: ${config.rules.onsiteCity || 'not restricted'}`,
+    `- on-site city: ${config.rules.onsiteCity ? `${config.rules.onsiteCity} (on-site and hybrid roles must be based there; remote roles may be anywhere)` : 'not restricted'}`,
     `- allowed job types: ${config.rules.jobTypes.join(', ') || 'any'}`,
     `- minimum annual salary: ${config.rules.minSalary > 0 ? config.rules.minSalary : 'none'}`,
     `- minimum hourly rate: ${config.rules.minHourlyRate > 0 ? config.rules.minHourlyRate : 'none'}`,
@@ -1082,7 +1082,12 @@ Candidate constraints to enforce:
 ${constraintsBlock(profile)}
 
 Interpret those constraints from the whole ad. Do not infer on-site, job type, pay period,
-or a mandatory excluded stack from a loose keyword. An undisclosed salary is neutral unless the
+or a mandatory excluded stack from a loose keyword.
+The on-site city is where the candidate will work in person. An on-site or hybrid role based in
+another city is a skip, even when the profile says the candidate would relocate: they chose this
+city for in-person work, and a hybrid role means going into that office. A role based in the
+city or its suburbs is fine, and a fully remote role may be based anywhere in Australia. When the
+ad names more than one city and one of them is the on-site city, it is not a conflict. An undisclosed salary is neutral unless the
 candidate explicitly said otherwise; reject only when disclosed pay conflicts. If another truly
 decisive detail is absent, use uncertain.
 The configured minimum salary and hourly rate above are the current application preferences.

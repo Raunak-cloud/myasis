@@ -1580,7 +1580,7 @@ export function RunPanel({
                     </select>
                   </label>
                   <label className="field">
-                    <FieldLabel label="On-site city" help="On-site jobs are only considered when they are located in this city." />
+                    <FieldLabel label="On-site city" help="On-site and hybrid jobs are only considered when they are in this city. Remote jobs can be anywhere in Australia." />
                     <select className="input" value={val('ONSITE_CITY')} onChange={(e) => setEdit('ONSITE_CITY', e.target.value)}>
                       {!AUSTRALIAN_CITIES.includes(val('ONSITE_CITY') as typeof AUSTRALIAN_CITIES[number]) && val('ONSITE_CITY') && (
                         <option value={val('ONSITE_CITY')}>{val('ONSITE_CITY')}</option>

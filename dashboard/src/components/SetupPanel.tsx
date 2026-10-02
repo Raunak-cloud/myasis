@@ -13,7 +13,7 @@ import { TermsInput } from './TermsInput';
 
 const ARRANGEMENTS = [
   { id: 'remote', label: 'Remote', hint: 'anywhere in Australia' },
-  { id: 'hybrid', label: 'Hybrid', hint: 'anywhere in Australia' },
+  { id: 'hybrid', label: 'Hybrid', hint: 'your city only' },
   { id: 'onsite', label: 'On-site', hint: 'your city only' },
 ];
 
@@ -224,7 +224,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
 
         <div className="grid-2">
           <label className="field">
-            <FieldLabel label="My city" help="On-site jobs are only considered when they are located in this city." />
+            <FieldLabel label="My city" help="On-site and hybrid jobs are only considered when they are in this city. Remote jobs can be anywhere in Australia." />
             <select
               className="input"
               value={val('ONSITE_CITY')}
