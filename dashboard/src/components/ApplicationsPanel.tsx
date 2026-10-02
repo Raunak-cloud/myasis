@@ -154,6 +154,15 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
         />
       </div>
 
+      <div className="resume-source" role="note">
+        <span className="resume-source-icon" aria-hidden="true">📄</span>
+        <p>
+          <strong>Owtomate applies with the résumé you uploaded to Owtomate.</strong>{' '}
+          <span className="job-meta">Résumés saved on SEEK or Indeed are never sent.</span>
+        </p>
+        <a className="btn btn-small" href="/?tab=setup">Manage résumé</a>
+      </div>
+
       {accounts.length > 0 && (
         <details className="card site-accounts">
           <summary>
@@ -319,7 +328,15 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
               {open.resumeName && (
                 <div className="section">
                   <h3>Résumé sent</h3>
-                  <p className="job-meta">{open.resumeName}</p>
+                  <p className="app-resume">
+                    <strong>{open.resumeName}</strong>
+                    <span className="badge ok">From Owtomate</span>
+                  </p>
+                  <p className="job-meta">
+                    {open.external
+                      ? 'Uploaded to the employer from the résumé in your Owtomate account.'
+                      : `Owtomate's own copy of your résumé on ${boardLabel(open.platform)}, not one saved there by you.`}
+                  </p>
                 </div>
               )}
 
