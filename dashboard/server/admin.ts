@@ -403,7 +403,7 @@ async function setBlocked(user: UserRecord, blocked: boolean): Promise<void> {
  * Removes an account and everything it owns, for good.
  *
  * The database rows go with the user row (every table cascades), the visit
- * records that named the account go too, and its directory — résumés,
+ * records that named the account go too, and its directory — resumes,
  * knowledge, run logs, traces, the Chrome profile with its job-board
  * sessions — is destroyed rather than moved aside. Earlier deletions parked
  * their files under `deleted/`; any left there for this account are removed

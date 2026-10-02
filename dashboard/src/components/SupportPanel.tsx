@@ -66,7 +66,7 @@ export function SupportPanel() {
             <p>It does not guess. The application is paused and placed in Needs attention so you can provide the missing answer.</p>
           </details>
           <details>
-            <summary>How do I update my résumé or job preferences?</summary>
+            <summary>How do I update my resume or job preferences?</summary>
             <p>Open Settings to replace your documents, update your profile and change what you are looking for. Your saved changes apply to future runs.</p>
           </details>
           <details>

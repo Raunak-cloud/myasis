@@ -34,7 +34,7 @@ export function loadResumes(): ResumeRecord[] {
   }
 }
 
-/** Document formats a résumé can be sent as, with the MIME types an `accept` may name instead. */
+/** Document formats a resume can be sent as, with the MIME types an `accept` may name instead. */
 const RESUME_FORMATS: Record<string, string[]> = {
   '.pdf': ['application/pdf'],
   '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
@@ -52,7 +52,7 @@ export function acceptsFormat(accept: string, ext: string): boolean {
 }
 
 /**
- * A document (résumé, cover letter) in a format this upload accepts.
+ * A document (resume, cover letter) in a format this upload accepts.
  *
  * Employer forms restrict uploads ("PDF only" is common) while candidates
  * keep whatever they wrote in. The same document is converted once, with
@@ -87,14 +87,14 @@ export function resolveResume(idOrLabel?: string): ResumeRecord | null {
 }
 
 /**
- * Chooses which résumé a specific job application should use.
+ * Chooses which resume a specific job application should use.
  *
  * An explicit run-level override (`config.resume.select`) always wins — a
- * deliberate manual choice is never second-guessed. With zero or one résumé
+ * deliberate manual choice is never second-guessed. With zero or one resume
  * on file there is nothing to choose between either. Only with more than one
- * does this ask the model to pick, based on each résumé's own label/notes —
+ * does this ask the model to pick, based on each resume's own label/notes —
  * never on the job's fit for the candidate, which is decided separately.
- * Falls back to the default résumé on any failure or an unrecognised answer,
+ * Falls back to the default resume on any failure or an unrecognised answer,
  * so a flaky model call can never block an application outright.
  */
 async function pickResumeUncached(
@@ -114,12 +114,12 @@ async function pickResumeUncached(
     );
     const chosen = all.find((r) => r.id === resumeId);
     if (chosen) {
-      console.log(`  🎯 résumé: "${chosen.label}" — ${reason}`);
+      console.log(`  🎯 resume: "${chosen.label}" — ${reason}`);
       return chosen;
     }
-    console.warn(`  ! résumé choice "${resumeId}" matched none on file — using the default`);
+    console.warn(`  ! resume choice "${resumeId}" matched none on file — using the default`);
   } catch (error) {
-    console.warn(`  ! could not choose a résumé automatically: ${(error as Error).message} — using the default`);
+    console.warn(`  ! could not choose a resume automatically: ${(error as Error).message} — using the default`);
   }
   return resolveResume();
 }
@@ -131,10 +131,10 @@ interface FileInputDescription {
 }
 
 /**
- * Picks a résumé/document uploader without confusing it with a profile-photo
+ * Picks a resume/document uploader without confusing it with a profile-photo
  * control elsewhere on the application page. SEEK currently renders both as
  * hidden file inputs; choosing the first one opens its photo editor and leaves
- * the résumé step untouched.
+ * the resume step untouched.
  */
 export function resumeFileInputIndex(inputs: FileInputDescription[]): number {
   let best = { index: -1, score: Number.NEGATIVE_INFINITY };
@@ -144,7 +144,8 @@ export function resumeFileInputIndex(inputs: FileInputDescription[]): number {
     let score = 0;
     if (/\.pdf|\.doc|\.docx|\.rtf|\.txt|application\/pdf|msword|officedocument|text\/plain/.test(accept)) score += 120;
     if (/image\/|\.jpe?g|\.png|\.gif|\.webp|\.heic/.test(accept)) score -= 200;
-    if (/\b(resume|résumé|cv|curriculum vitae|document)\b/.test(text)) score += 60;
+    // Pages spell it either way (SEEK's step says "Resumé").
+    if (/\b(r[eé]sum[eé]?|cv|curriculum vitae|document)\b/.test(text)) score += 60;
     if (/profile photo|profile picture|headshot|avatar/.test(text)) score -= 120;
     if (/accepted file types[^\n]{0,100}(?:\.doc|\.pdf)|attach|upload/.test(text)) score += 10;
     if (score > best.score) best = { index, score };

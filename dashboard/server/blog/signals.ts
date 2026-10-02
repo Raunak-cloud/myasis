@@ -251,7 +251,7 @@ async function gatherSources(now: Date, unavailable: string[]): Promise<BriefSou
 
 /**
  * What the week's runs saw, aggregated across every account. Only listing
- * titles and counts leave this function — never a user, company or résumé —
+ * titles and counts leave this function — never a user, company or resume —
  * and a title only one account saw is dropped, so no single person's search shows.
  */
 async function gatherListingSample(): Promise<ListingSample | null> {

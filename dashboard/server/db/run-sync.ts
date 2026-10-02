@@ -17,7 +17,7 @@ import type { CandidateProfile } from '../candidate-profile.js';
  *
  *  - `exportUserForRun` (Postgres → files), called by `runner.ts` right
  *    before `spawn()`, so the child sees this account's real profile,
- *    résumés, knowledge and application history — never anyone else's.
+ *    resumes, knowledge and application history — never anyone else's.
  *  - `syncRunResultsToDb` (files → Postgres), called from the `child.on
  *    ('close', …)` handler, so what the run actually did lands back in this
  *    account's rows. This reuses `db/records.ts`'s idempotent inserts — the
@@ -240,7 +240,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
       EXCLUDED_DOMAINS: '',
       SECURITY_CLEARANCE: 'None held',
       /**
-       * A résumé saved in this account's library is an explicit choice for
+       * A resume saved in this account's library is an explicit choice for
        * applications. Let the bot add that document to the account's SEEK
        * document picker when it is not already available there. This is a
        * trusted server override rather than a browser-supplied setting.

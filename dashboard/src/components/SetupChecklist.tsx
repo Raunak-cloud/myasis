@@ -4,7 +4,7 @@ import type { SetupSection, SetupStatus } from '../setupStatus';
 const SetupPanel = lazy(() => import('./SetupPanel').then((module) => ({ default: module.SetupPanel })));
 
 const ACTION_LABEL: Record<SetupSection, string> = {
-  documents: 'Upload your résumé',
+  documents: 'Upload your resume',
   details: 'Check your details',
   looking: 'Choose what you are after',
   where: 'Choose your location and work style',

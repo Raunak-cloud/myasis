@@ -37,7 +37,7 @@ verified and never wait for the rewriting model.
 
 External employer-site applications are enabled only while an Intensive Pass
 is active. The dashboard injects this entitlement on the server, so a browser
-request cannot switch it on. Supported forms reuse the selected résumé and
+request cannot switch it on. Supported forms reuse the selected resume and
 verified profile details, and stop for CAPTCHAs, sign-ins, or unanswerable
 questions.
 
@@ -190,25 +190,25 @@ Because a button here sends real applications to real employers:
 | `/api/run/stream` | GET | SSE console (`?since=` to resume) |
 | `/api/settings` | GET/POST | read (masked) / write `.env` |
 
-## Files tab — résumés and personal context
+## Files tab — resumes and personal context
 
-### Résumé library
+### Resume library
 
-Upload multiple résumés (PDF/DOC/DOCX/RTF/TXT), label them, and pick one per run
-from the **Run bot** tab — a full-stack résumé for React roles, an AI-focused one
+Upload multiple resumes (PDF/DOC/DOCX/RTF/TXT), label them, and pick one per run
+from the **Run bot** tab — a full-stack resume for React roles, an AI-focused one
 for LLM roles.
 
-An important SEEK constraint: **its document picker only lists résumés already on
-your SEEK profile.** So the bot resolves a résumé in this order:
+An important SEEK constraint: **its document picker only lists resumes already on
+your SEEK profile.** So the bot resolves a resume in this order:
 
-1. A document on SEEK whose name matches the chosen résumé → tick it. Changes
+1. A document on SEEK whose name matches the chosen resume → tick it. Changes
    nothing about your profile.
 2. Not there → upload the selected local file to the account's SEEK document
    picker, then use it for the application.
 3. If the local file or SEEK upload control is unavailable → the run stops with
-   `needs-human`. It never silently applies with the wrong résumé.
+   `needs-human`. It never silently applies with the wrong resume.
 
-Deleting a résumé here removes the local copy only; it never touches SEEK.
+Deleting a resume here removes the local copy only; it never touches SEEK.
 
 ### Personal details the AI can consult
 

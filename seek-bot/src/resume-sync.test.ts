@@ -20,7 +20,7 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
   { id: '5', label: 'Raunak_New_Resume (2)', fileName: 'Raunak_New_Resume (2).docx', isDefault: true, uploadedAt: '2026-09-01', size: 18 },
 ]));
 process.env.CELERIS_API_KEY = 'fixture-only';
-// Every model check answers "nothing wrong, not a submit": this test is about the résumé, not the answers.
+// Every model check answers "nothing wrong, not a submit": this test is about the resume, not the answers.
 globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems: [], sends_application: false, unsafe: false, reason: 'fixture' }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
 const { ensureChosenResume, documentChoices, addedAt } = await import('./resume-sync.js');
 const { observe } = await import('./agent/observe.js');
@@ -30,11 +30,11 @@ const { CostMeter } = await import('./agent/celeris.js');
 const { loadResumes } = await import('./resume.js');
 const chosen = loadResumes()[0];
 
-/** A SEEK-like step: saved résumés as radios, an upload that saves and selects what it receives. */
+/** A SEEK-like step: saved resumes as radios, an upload that saves and selects what it receives. */
 const seekStep = (saved: Array<{ name: string; checked?: boolean; added?: string }>) => `<!doctype html><main>
-  <h3>Resumé</h3>
+  <h3>Resume</h3>
   <div id="list">${saved.map((s, i) => `<div class="item"><label><input type="radio" name="resume" value="${i}" ${s.checked ? 'checked' : ''}> <strong>${s.name}</strong></label>${s.added ? `<span>Added ${s.added}</span>` : ''}</div>`).join('')}
-  <label><input type="radio" name="resume" value="none"> Don't include a resumé</label></div>
+  <label><input type="radio" name="resume" value="none"> Don't include a resume</label></div>
   <label>Profile photo <input type="file" accept="image/*"></label>
   <button type="button">Upload</button><input id="doc" type="file" accept=".doc,.docx,.pdf,.txt,.rtf" style="display:none">
   <p>Accepted file types: .doc, .docx, .pdf, .txt and .rtf (5MB limit).</p>
@@ -75,7 +75,7 @@ try {
   let result = await ensureChosenResume(page, chosen);
   assert.equal(result.action, 'uploaded', 'a copy Owtomate did not upload is not sent');
   assert.equal(await checkedName(page), owtomateCopy);
-  assert.deepEqual(told().seek.names, ['Raunak_Fullstack_Resume.docx'], 'the board-only résumé is reported');
+  assert.deepEqual(told().seek.names, ['Raunak_Fullstack_Resume.docx'], 'the board-only resume is reported');
   assert.equal(told().seekReplaced?.[0]?.name, 'Raunak_New_Resume (2).docx', 'the person is told their same-named copy was not used');
   assert.equal(record().seek['5'].uploadedByOwtomate, true);
 
@@ -126,11 +126,11 @@ try {
   await open(page, indeedUrl, indeedStep(indeedCopy, new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })));
   assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', "Owtomate's Indeed copy is kept");
 
-  // 8. Not a board, or no résumé choice on the page: left alone.
+  // 8. Not a board, or no resume choice on the page: left alone.
   await open(page, 'https://employer.example/apply', seekStep([{ name: 'Old_CV.pdf', checked: true }]));
   assert.equal((await ensureChosenResume(page, chosen)).action, 'none', 'employer sites are not touched here');
   await open(page, seekUrl, '<main><label>Phone<input></label><button>Continue</button></main>');
-  assert.equal((await ensureChosenResume(page, chosen)).action, 'none', 'a step without résumés is not touched');
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'none', 'a step without resumes is not touched');
 
   // 9. Reading when a copy was added.
   const now = Date.UTC(2026, 9, 2, 3, 0);
@@ -143,7 +143,7 @@ try {
   assert.equal(addedAt('December 30', now)?.at, Date.UTC(2025, 11, 30), 'a date without a year is never in the future');
   assert.equal(addedAt('Raunak_New_Resume.docx', now), null);
 
-  // 10. Through the agent: pressing Continue on SEEK's documents step settles the résumé first.
+  // 10. Through the agent: pressing Continue on SEEK's documents step settles the resume first.
   rmSync(join(directory, 'resume-sync.json'));
   await open(page, seekUrl, seekStep([{ name: 'Raunak_Fullstack_Resume.docx', checked: true }]));
   const lines: string[] = [];
@@ -156,9 +156,9 @@ try {
   const continueRef = ctx.observation.actions.find((action) => /^continue$/i.test(action.text))?.ref;
   assert.ok(continueRef, 'the fixture has a Continue action');
   await executeTool(ctx, 'click', { ref: continueRef, reason: 'Continue to employer questions' });
-  assert.equal(await checkedName(page), 'Raunak_New_Resume (2).docx', "Continue left the step with Owtomate's résumé selected");
+  assert.equal(await checkedName(page), 'Raunak_New_Resume (2).docx', "Continue left the step with Owtomate's resume selected");
   assert.equal((ctx as { resumeName?: string }).resumeName, 'Raunak_New_Resume (2).docx', 'the application records the file sent');
-  assert.ok(lines.some((line) => /résumé "Raunak_New_Resume \(2\)\.docx" uploaded from Owtomate and selected on SEEK/.test(line)), lines.join(' | '));
+  assert.ok(lines.some((line) => /resume "Raunak_New_Resume \(2\)\.docx" uploaded from Owtomate and selected on SEEK/.test(line)), lines.join(' | '));
 
   assert.ok(existsSync(join(directory, 'resume-sync.json')));
   console.log("PASS: only copies Owtomate uploaded are sent; the person's same-named copies, stale copies and later replacements are replaced by Owtomate's exact file");

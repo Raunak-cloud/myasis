@@ -102,7 +102,7 @@ function readLegacyProfileFile(): CandidateProfile {
  * Idempotent: every insert goes through `db/records.ts`, which targets a
  * natural-key unique index with ON CONFLICT DO NOTHING, so re-running this
  * (e.g. to catch up an account whose local files kept growing after the first
- * migration) cannot duplicate a résumé, knowledge item, application or run
+ * migration) cannot duplicate a resume, knowledge item, application or run
  * event. The files are left untouched — the database becoming authoritative
  * is a separate switch, handled by the per-user directories in `run-sync.ts`
  * and the rewritten `profile.ts`/`files.ts`.
@@ -148,7 +148,7 @@ export async function migrateFilesToUser(email: string, name?: string) {
   }
   summary.settings = settings;
 
-  // ---- résumés (metadata + the actual binary file) ------------------------
+  // ---- resumes (metadata + the actual binary file) ------------------------
   ensureUserDataDir(uid);
   const resumes = readJson<any[]>('resumes.json', []);
   let resumeFilesCopied = 0;
@@ -157,7 +157,7 @@ export async function migrateFilesToUser(email: string, name?: string) {
       label: r.label, fileName: r.fileName, seekName: r.seekName ?? null,
       size: r.size ?? 0, isDefault: !!r.isDefault, uploadedAt: r.uploadedAt ?? new Date(),
     });
-    // The rewritten files.ts resolves every résumé under this account's own
+    // The rewritten files.ts resolves every resume under this account's own
     // directory now, not the old shared one — without this copy, the row
     // above would point at a file nobody can reach any more.
     const src = resolve(DATA_DIR, 'resumes', r.fileName);

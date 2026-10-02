@@ -43,7 +43,7 @@ export function SimulateView() {
       <div className="banner">
         Preview the dashboard as a customer in each state. Nothing is saved and no account is touched: while a preview
         is on, nothing you press is sent, and a reload or “Exit preview” brings your own dashboard back. Your own
-        résumés, settings and history stay on screen; only the plan, limits and allowance change.
+        resumes, settings and history stay on screen; only the plan, limits and allowance change.
       </div>
       {groups.map((group) => (
         <section className="card admin-section" key={group}>

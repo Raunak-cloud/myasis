@@ -39,8 +39,8 @@ check('two are not', keys({ ...healthy, recentRuns: [failed, failed] }).length =
 check('a run the person stopped is not a failure', keys({ ...healthy, recentRuns: [failed, { failed: true, stopped: true }, failed] }).length === 0);
 check('a success in between resets it', keys({ ...healthy, recentRuns: [failed, { failed: false, stopped: false }, failed] }).length === 0);
 
-check('a paying account that never finished setup is told, after a day', alertsFor({ ...healthy, missingSetup: ['Résumé uploaded'] })[0]?.holdMinutes === 24 * 60);
-check('an account with automatic runs switched off is not nagged about setup', keys({ ...healthy, missingSetup: ['Résumé uploaded'], hasAutoRuns: false }).length === 0);
+check('a paying account that never finished setup is told, after a day', alertsFor({ ...healthy, missingSetup: ['Resume uploaded'] })[0]?.holdMinutes === 24 * 60);
+check('an account with automatic runs switched off is not nagged about setup', keys({ ...healthy, missingSetup: ['Resume uploaded'], hasAutoRuns: false }).length === 0);
 
 const email = renderAlert(alertsFor({ ...healthy, billing: billing(0, true) })[0].message, 'rinu thapa', 'https://owtomate.com/', 'https://owtomate.com/api/email-alerts/off?u=2&t=abc');
 check('the email greets by first name and links to the fix', email.text.startsWith('Hi Rinu,') && email.text.includes('https://owtomate.com/?tab=pricing'));

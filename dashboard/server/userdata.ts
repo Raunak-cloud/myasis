@@ -17,7 +17,7 @@ const BOT_DIR = resolve(import.meta.dirname, '..', '..', 'seek-bot');
  * folder every account used to read and write. Its contents split into two
  * kinds:
  *
- *  - Canonical here, nowhere else: the actual résumé/knowledge binary files
+ *  - Canonical here, nowhere else: the actual resume/knowledge binary files
  *    (`resumes/`, `knowledge/` — Postgres only stores their metadata) and
  *    `queue.json` (the extension's review queue; there is no `queue_items`
  *    table, so this directory *is* its durable home, not just a run-time

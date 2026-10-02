@@ -7,24 +7,24 @@ import { config } from './config.js';
 import { documentFor, loadResumes, RESUME_DIR, resumeFileInputIndex } from './resume.js';
 
 /**
- * The candidate's résumés in Owtomate are the one source of truth for what a
+ * The candidate's resumes in Owtomate are the one source of truth for what a
  * job board sends.
  *
- * SEEK and Indeed keep their own saved résumés and preselect one on every
+ * SEEK and Indeed keep their own saved resumes and preselect one on every
  * application. The agent used to accept whatever was preselected, so an
- * employer could receive an old SEEK résumé while the answers and the cover
+ * employer could receive an old SEEK resume while the answers and the cover
  * letter were written from the current one in Owtomate: over 199 successful
  * applications, every SEEK and Indeed one went out with the board's copy.
  *
  * Before an application leaves its documents step on either board, the
- * résumé Owtomate chose for the job is the one selected there:
+ * resume Owtomate chose for the job is the one selected there:
  *  - already selected: kept;
  *  - saved on the board but not selected: selected;
  *  - not on the board, or the board's copy is older than Owtomate's file:
  *    uploaded from Owtomate and selected.
- * Which board file holds which Owtomate résumé is remembered by content
+ * Which board file holds which Owtomate resume is remembered by content
  * hash, so a replaced file is uploaded again rather than matched by name.
- * Résumés on the board that Owtomate does not hold are never used; they are
+ * Resumes on the board that Owtomate does not hold are never used; they are
  * reported so the person can bring them into Owtomate if they want them.
  */
 
@@ -93,7 +93,7 @@ export function addedAt(text: string | undefined, now = Date.now()): { at: numbe
 
 const RADIOS = 'input[type="radio"], [role="radio"]';
 
-/** Every radio on the page, in any frame, whose label is a document file name: a board's saved résumés. */
+/** Every radio on the page, in any frame, whose label is a document file name: a board's saved resumes. */
 export async function documentChoices(page: Page): Promise<DocumentChoice[]> {
   const choices: DocumentChoice[] = [];
   for (const frame of page.frames()) {
@@ -122,7 +122,7 @@ export async function documentChoices(page: Page): Promise<DocumentChoice[]> {
   return choices;
 }
 
-/** Owtomate résumé id → the board's copy of it, and the content that copy holds. */
+/** Owtomate resume id → the board's copy of it, and the content that copy holds. */
 interface SyncEntry {
   name: string;
   sha: string;
@@ -155,7 +155,7 @@ function reportReplaced(board: Board, name: string, uploadedAs: string): void {
   writeFileSync(BOARD_ONLY_FILE(), JSON.stringify(report, null, 2));
 }
 
-/** Saved résumés on a board that Owtomate does not hold, for the dashboard to mention. */
+/** Saved resumes on a board that Owtomate does not hold, for the dashboard to mention. */
 function reportBoardOnly(board: Board, names: string[]): void {
   const report = readJson<Record<string, unknown>>(BOARD_ONLY_FILE(), {});
   report[board] = { names: [...new Set(names)].sort(), seenAt: new Date().toISOString() };
@@ -192,8 +192,8 @@ export type ResumeStepResult =
   | { action: 'failed'; reason: string };
 
 /**
- * Makes the résumé Owtomate chose for this job the selected one on a board's
- * documents step. "none" when the page is not a board's résumé choice.
+ * Makes the resume Owtomate chose for this job the selected one on a board's
+ * documents step. "none" when the page is not a board's resume choice.
  */
 export async function ensureChosenResume(page: Page, chosen: { id: string; label: string; fileName: string; seekName?: string }): Promise<ResumeStepResult> {
   const board = boardOf(page.url());
@@ -202,11 +202,11 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   if (!choices.length) return { action: 'none' };
 
   const file = resolve(RESUME_DIR, chosen.fileName);
-  if (!existsSync(file)) return { action: 'failed', reason: `Owtomate's résumé "${chosen.label}" is missing from the account's files.` };
+  if (!existsSync(file)) return { action: 'failed', reason: `Owtomate's resume "${chosen.label}" is missing from the account's files.` };
   const sha = sha256(file);
   const record = readJson<SyncRecord>(SYNC_FILE(), {})[board]?.[chosen.id];
 
-  // Board copies that belong to a résumé Owtomate holds; the rest are the board's own.
+  // Board copies that belong to a resume Owtomate holds; the rest are the board's own.
   const known = loadResumes().flatMap((resume) => [resume.fileName, resume.label, resume.seekName ?? '']).filter(Boolean);
   const synced = Object.values(readJson<SyncRecord>(SYNC_FILE(), {})[board] ?? {}).map((entry) => entry.name);
   const boardOnly = choices.map((choice) => choice.name).filter((name) => ![...known, ...synced].some((own) => sameDocument(own, name)));
@@ -238,9 +238,9 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   // Not on the board, or only an older copy: upload Owtomate's file.
   const frame = choices[0].frame;
   const upload = await uploadInput(frame) ?? (frame === page.mainFrame() ? null : await uploadInput(page.mainFrame()));
-  if (!upload) return { action: 'failed', reason: 'The board shows saved résumés but no upload control was found for Owtomate\'s copy.' };
+  if (!upload) return { action: 'failed', reason: 'The board shows saved resumes but no upload control was found for Owtomate\'s copy.' };
   let document = await documentFor(file, upload.accept);
-  if (!document) return { action: 'failed', reason: `The board does not accept "${upload.accept}" and the résumé could not be converted.` };
+  if (!document) return { action: 'failed', reason: `The board does not accept "${upload.accept}" and the resume could not be converted.` };
   /**
    * The board may already hold a copy under this name: the person's own, or
    * Owtomate's older version. Owtomate's goes up under a new name then, since
@@ -277,5 +277,5 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
       return { action: 'uploaded', name: listed.name, label: chosen.label, board };
     }
   }
-  return { action: 'failed', reason: `Owtomate's résumé was sent to the board's upload but "${uploadedName}" never appeared as a selected choice.` };
+  return { action: 'failed', reason: `Owtomate's resume was sent to the board's upload but "${uploadedName}" never appeared as a selected choice.` };
 }

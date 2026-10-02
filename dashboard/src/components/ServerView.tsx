@@ -307,7 +307,7 @@ export function ServerView() {
             { label: 'Database', value: gb(storage.databaseMb), note: 'Postgres, all tables' },
             { label: 'Browser profiles', value: gb(storage.chromeMb), note: 'cleaned daily' },
             { label: 'Run traces', value: gb(storage.tracesMb), note: `kept ${health.traceRetentionDays} days` },
-            { label: 'Other account data', value: gb(storage.otherMb), note: 'résumés, logs, knowledge' },
+            { label: 'Other account data', value: gb(storage.otherMb), note: 'resumes, logs, knowledge' },
           ].map((tile) => (
             <div className="admin-tile server-storage-tile" key={tile.label}>
               <span className="job-meta">{tile.label}</span>

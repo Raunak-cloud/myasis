@@ -18,14 +18,14 @@ interface SetupCheck {
  * Is this account actually ready to run?
  *
  * A new user cannot tell whether a disappointing run means "nothing matched"
- * or "you never uploaded a résumé". Each check is phrased as the next action,
- * and ordered by how much it unblocks. Scoped to one account: résumés,
+ * or "you never uploaded a resume". Each check is phrased as the next action,
+ * and ordered by how much it unblocks. Scoped to one account: resumes,
  * knowledge, profile and search settings (KEYWORDS/ONSITE_CITY/
  * WORK_ARRANGEMENTS) are all per-user. Installation health is reported
  * elsewhere and must never make a brand-new account look partly complete.
  */
 /**
- * The steps only the account holder can do: résumé, details, search terms,
+ * The steps only the account holder can do: resume, details, search terms,
  * location. Until they are done there is nothing to apply with, so the
  * scheduler waits for them rather than trying and failing every minute — a
  * new account has not had a run fail, it has not finished setting up.
@@ -44,9 +44,9 @@ export async function accountSetupChecks(userId: string): Promise<{
   return {
     resume: {
       id: 'resume',
-      label: 'Résumé uploaded',
+      label: 'Resume uploaded',
       done: resumes.length > 0,
-      hint: 'Upload your résumé.',
+      hint: 'Upload your resume.',
       fix: 'documents',
       required: true,
     },

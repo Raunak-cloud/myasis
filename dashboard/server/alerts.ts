@@ -81,7 +81,7 @@ const ALERTS: AlertKind[] = [
       subject: 'You are out of applications, so Owtomate has stopped applying',
       paragraphs: [
         'Your applications are used up, so Owtomate has stopped applying for you.',
-        'Nothing is lost: your résumé, answers and search stay as they are, and applying picks up again as soon as you add more.',
+        'Nothing is lost: your resume, answers and search stay as they are, and applying picks up again as soon as you add more.',
       ],
       action: { label: 'See plans', tab: 'pricing' },
     }),

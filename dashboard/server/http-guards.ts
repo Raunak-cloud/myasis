@@ -19,7 +19,7 @@ export class BodyTooLarge extends Error {
   }
 }
 
-/** Plenty for a form, a profile or a cover letter; a résumé upload passes its own limit. */
+/** Plenty for a form, a profile or a cover letter; a resume upload passes its own limit. */
 export const DEFAULT_BODY_LIMIT = 256 * 1024;
 /** Uploads arrive base64-encoded, so an 8 MB file needs a little under 11 MB of body. */
 export const UPLOAD_BODY_LIMIT = 12 * 1024 * 1024;

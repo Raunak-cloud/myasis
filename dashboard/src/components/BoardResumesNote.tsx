@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Résumés saved on SEEK or Indeed that Owtomate does not hold.
+ * Resumes saved on SEEK or Indeed that Owtomate does not hold.
  *
- * Applications always send the résumé in Owtomate, never one of these, so a
+ * Applications always send the resume in Owtomate, never one of these, so a
  * person who uploads a new CV straight to SEEK would otherwise wonder why
  * employers are not getting it. Said once, with the way to use one; hidden
  * for good once dismissed, until the list changes.
@@ -40,19 +40,19 @@ export function BoardResumesNote() {
           <div key={entry.board}>
             {entry.names.length > 0 && (
               <p>
-                <strong>{BOARD[entry.board]}</strong> has {entry.names.length === 1 ? 'a résumé' : 'résumés'} Owtomate doesn't send:{' '}
+                <strong>{BOARD[entry.board]}</strong> has {entry.names.length === 1 ? 'a resume' : 'resumes'} Owtomate doesn't send:{' '}
                 {entry.names.join(', ')}.
               </p>
             )}
             {(entry.replaced ?? []).map((replaced) => (
               <p key={replaced.uploadedAs}>
                 &ldquo;{replaced.name}&rdquo; on <strong>{BOARD[entry.board]}</strong> wasn't uploaded by Owtomate, so it may differ from
-                your résumé here. Owtomate saved its exact copy as &ldquo;{replaced.uploadedAs}&rdquo; and sends that.
+                your resume here. Owtomate saved its exact copy as &ldquo;{replaced.uploadedAs}&rdquo; and sends that.
               </p>
             ))}
           </div>
         ))}
-        <p className="job-meta">Applications always send the résumé in Owtomate. To use one of these instead, upload it in Setup.</p>
+        <p className="job-meta">Applications always send the resume in Owtomate. To use one of these instead, upload it in Setup.</p>
       </div>
       <div className="board-resumes-actions">
         <a className="btn btn-small" href="/?tab=setup">Upload in Setup</a>

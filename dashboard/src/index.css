@@ -190,7 +190,7 @@ a:hover { text-decoration: underline; }
 @media (max-width: 900px) { .files-grid { grid-template-columns: 1fr; } }
 
 /*
- * One résumé or document: its name and notes take the free width, the
+ * One resume or document: its name and notes take the free width, the
  * controls sit on one centre line beside them. The text column used to
  * shrink to its content (no flex-grow), cutting the notes placeholder off,
  * and the "default" badge stretched to the row's height with its text at
@@ -3046,7 +3046,7 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .boards-row-main .job-meta { overflow-wrap: anywhere; }
 .boards-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
-/* Résumés on a job board that Owtomate does not send. */
+/* Resumes on a job board that Owtomate does not send. */
 .board-resumes-note { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
 .board-resumes-note p { margin: 0 0 4px; overflow-wrap: anywhere; }
 .board-resumes-actions { display: flex; align-items: center; gap: 12px; }

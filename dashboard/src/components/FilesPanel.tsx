@@ -48,7 +48,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   const resumeInput = useRef<HTMLInputElement>(null);
   const knowledgeInput = useRef<HTMLInputElement>(null);
   /**
-   * What reading the résumé put into the details form. Worth saying out loud:
+   * What reading the resume put into the details form. Worth saying out loud:
    * a form that fills itself silently looks broken, and the candidate needs
    * to know which fields to check.
    */
@@ -161,13 +161,13 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
 
       {reading && (
         <div className="banner" style={{ gridColumn: '1/-1' }}>
-          Reading your résumé and setting things up… this takes a few seconds.
+          Reading your resume and setting things up… this takes a few seconds.
         </div>
       )}
 
       {!reading && (autofilled || (setUp && (setUp.terms || setUp.city))) && (
         <div className="banner banner-ok" style={{ gridColumn: '1/-1' }}>
-          Set up from your résumé:{' '}
+          Set up from your resume:{' '}
           {[
             autofilled?.length ? 'your details' : '',
             setUp?.terms ? `${setUp.terms} job titles` : '',
@@ -182,14 +182,14 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
         </div>
       )}
 
-      {/* ---------------- résumés ---------------- */}
+      {/* ---------------- resumes ---------------- */}
       <div className="card files-card">
         <div className="files-card-head">
-          <h3>Résumés <span className="files-count">{resumes.length} of {MAX_RESUMES}</span></h3>
+          <h3>Resumes <span className="files-count">{resumes.length} of {MAX_RESUMES}</span></h3>
           <button
             className="btn"
             disabled={busy || atLimit}
-            title={atLimit ? `Up to ${MAX_RESUMES} résumés. Delete one to add another.` : undefined}
+            title={atLimit ? `Up to ${MAX_RESUMES} resumes. Delete one to add another.` : undefined}
             onClick={() => resumeInput.current?.click()}
           >
             + Upload
@@ -210,7 +210,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
 
         {resumes.length === 0 ? (
           <button className="files-empty" disabled={busy} onClick={() => resumeInput.current?.click()}>
-            <strong>Upload your résumé</strong>
+            <strong>Upload your resume</strong>
             <span>PDF or Word</span>
           </button>
         ) : (
@@ -221,7 +221,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                   <div className="file-item-main">
                     <input
                       className="input file-item-title"
-                      aria-label="Résumé name"
+                      aria-label="Resume name"
                       value={r.label}
                       onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, label: e.target.value } : x)))}
                       onBlur={(e) => patchResume(r.id, { label: e.target.value })}
@@ -230,7 +230,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                     {resumes.length > 1 && (
                       <input
                         className="input file-item-notes"
-                        aria-label="Which roles this résumé is for"
+                        aria-label="Which roles this resume is for"
                         placeholder="Which roles is it for?"
                         value={r.notes ?? ''}
                         onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, notes: e.target.value } : x)))}
@@ -275,7 +275,7 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
             }}
           />
         </div>
-        <p className="files-card-hint">Anything your résumé doesn't say. We use it to answer application questions.</p>
+        <p className="files-card-hint">Anything your resume doesn't say. We use it to answer application questions.</p>
 
         <div className="files-note">
           <textarea

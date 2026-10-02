@@ -29,7 +29,7 @@ export interface Entitlements {
   runScopes: boolean;
   indeedApplications: boolean;
   humanizer: boolean;
-  /** Suggestions from résumés left; null means no limit. */
+  /** Suggestions from resumes left; null means no limit. */
   searchTermSuggestionsLeft: number | null;
   timeZone: string;
 }

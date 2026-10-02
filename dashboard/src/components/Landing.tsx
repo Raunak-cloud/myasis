@@ -9,7 +9,7 @@ import { TrustStrip } from './TrustStrip';
 
 /** Mirrored word for word in index.html's FAQ structured data; change both together. */
 const QUESTIONS = [
-  { question: 'Does it actually submit applications?', answer: 'Yes. Owtomate submits applications on your behalf, using your résumé, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
+  { question: 'Does it actually submit applications?', answer: 'Yes. Owtomate submits applications on your behalf, using your resume, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
   { question: 'Is Owtomate a job application bot?', answer: `Owtomate is an application assistant, not a spam bot. Scheduled runs apply only to jobs that score at least ${SCHEDULED_MIN_SCORE}% against your profile, every application goes through your own SEEK or Indeed session, and it stops and asks you whenever it cannot answer something honestly.` },
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
@@ -21,12 +21,12 @@ const STEPS = [
   {
     code: '01',
     title: 'You tell Owtomate what you want.',
-    body: 'Add your résumé, the kinds of roles you want, where you would work, and the pay you would accept. Owtomate checks each listing it considers against what you have written. You set the rules once; the agent follows them on every run.',
+    body: 'Add your resume, the kinds of roles you want, where you would work, and the pay you would accept. Owtomate checks each listing it considers against what you have written. You set the rules once; the agent follows them on every run.',
   },
   {
     code: '02',
     title: 'Owtomate applies to the jobs that fit.',
-    body: 'It reads the listing, picks the right résumé, writes a cover letter for that role and fills in the screening questions from your profile. If it cannot answer something honestly, it stops and brings the question back to your inbox.',
+    body: 'It reads the listing, picks the right resume, writes a cover letter for that role and fills in the screening questions from your profile. If it cannot answer something honestly, it stops and brings the question back to your inbox.',
   },
   {
     code: '03',
@@ -160,7 +160,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               <span className="home-hero-mark">Owtomate</span> does it <em>for</em> you.
             </h1>
             <p className="home-hero-summary">
-              It reads SEEK and Indeed against your résumé, writes a cover letter for each job, and applies from your own account. If it cannot answer something honestly, it asks you.
+              It reads SEEK and Indeed against your resume, writes a cover letter for each job, and applies from your own account. If it cannot answer something honestly, it asks you.
             </p>
             <div className="home-hero-actions">
               {start()}
@@ -213,7 +213,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             <header className="home-how-head">
               <p className="home-how-kicker">how it works</p>
               <h2 id="how-heading">Three steps. The <em>first</em> one is the only one that needs you.</h2>
-              <p className="home-how-blurb">After that, Owtomate reads the listings, picks the right résumé and writes the cover letter. You come back for what it could not answer honestly.</p>
+              <p className="home-how-blurb">After that, Owtomate reads the listings, picks the right resume and writes the cover letter. You come back for what it could not answer honestly.</p>
             </header>
             <ol className="home-how-list">
               {STEPS.map((step) => (

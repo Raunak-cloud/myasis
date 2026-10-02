@@ -138,7 +138,7 @@ export function renderPost(post: StoredPost, origin: string): { head: string; bo
       <h2 id="sources">Sources</h2>
       <ol class="blog-sources">${sourceList}</ol>
       <section class="legal-lead blog-cta" aria-label="Try Owtomate">
-        <p><strong>Spending your evenings on applications?</strong> Owtomate applies to jobs that match your résumé on SEEK and Indeed, from your own account, and asks you whenever it cannot answer honestly.</p>
+        <p><strong>Spending your evenings on applications?</strong> Owtomate applies to jobs that match your resume on SEEK and Indeed, from your own account, and asks you whenever it cannot answer honestly.</p>
         <p><a href="/api/auth/google" rel="nofollow"><strong>Start free — five applications, no card</strong></a></p>
       </section>
     </article>`;

@@ -181,7 +181,7 @@ else
 fi
 
 say "8/8  Nightly backups and housekeeping"
-# Postgres dump plus each account's résumé/knowledge files, 14 days local,
+# Postgres dump plus each account's resume/knowledge files, 14 days local,
 # then Chrome cache and old-trace cleanup — see deploy/maintenance.sh. Runs at
 # 03:15 (Sydney), outside the auto-run window. To copy backups off the box,
 # configure an rclone remote named "backup" (any S3/R2/B2/Drive):

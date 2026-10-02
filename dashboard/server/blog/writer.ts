@@ -58,7 +58,7 @@ export const refsIn = (group: string): string[] => group.split(/\s*[,;]\s*/);
 
 const WRITER_SYSTEM = `You are the editor of Owtomate's weekly brief on the Australian job market, read by Australian job seekers.
 
-Write like a well-informed labour-market journalist: plain, specific, practical. Australian English spelling (labour, organise, résumé). No hype and no filler phrases ("in today's fast-paced world", "navigating the landscape", "delve", "game-changer", "it's no secret").
+Write like a well-informed labour-market journalist: plain, specific, practical. Australian English spelling (labour, organise, resume). No hype and no filler phrases ("in today's fast-paced world", "navigating the landscape", "delve", "game-changer", "it's no secret").
 
 FACTS. Every figure, date, trend or claim about the labour market comes from SOURCES and is followed immediately by its citation, like "... fell to 4.6% [S1]." Cite the source the fact is in, never a different one. Do not state a figure, percentage or trend that is not in the sources, and do not extrapolate: a monthly or quarterly figure is described with its own period, not as "this week". If sources disagree, say so.
 

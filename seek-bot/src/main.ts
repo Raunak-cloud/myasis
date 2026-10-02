@@ -810,7 +810,7 @@ async function main() {
      *
      * Not a quality judgement — a hosted application is simply a far better
      * bet. It is one short known flow, it costs a fraction as much to complete,
-     * and the résumé and profile are already attached. External sites are every
+     * and the resume and profile are already attached. External sites are every
      * vendor's form at once: longer, slower, and where every failed application
      * in this run came from. With a run cap in play, spending it on hosted
      * listings first means more applications actually land.
@@ -1051,7 +1051,7 @@ async function main() {
           break;
         case 'rehearsed':
           rehearsed++;
-          console.log(`  🧪 rehearsed — form completed, submit withheld (DRY_RUN)${outcome.resume ? ` · résumé "${outcome.resume}"` : ''}`);
+          console.log(`  🧪 rehearsed — form completed, submit withheld (DRY_RUN)${outcome.resume ? ` · resume "${outcome.resume}"` : ''}`);
           if (outcome.coverLetter) {
             console.log(`\n     ── cover letter ──\n${outcome.coverLetter.replace(/^/gm, '     ')}\n`);
           }

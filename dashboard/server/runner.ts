@@ -256,7 +256,7 @@ class Run {
    * dashboard run never has to rewrite .env to change its behaviour.
    *
    * Before spawning, this exports `userId`'s Postgres-backed profile,
-   * résumés, knowledge and application history into that account's own
+   * resumes, knowledge and application history into that account's own
    * `seek-bot/data/users/<userId>/` directory (see `db/run-sync.ts`) and
    * points the child at it via `DATA_DIR` — the same override mechanism as
    * `MIN_SCORE` etc. — so a run started as one account can only ever see and
@@ -345,7 +345,7 @@ class Run {
    * Runs the queue builder — discovery, scoring and drafting only. It opens no
    * application form, so unlike `start()` there is nothing here that needs a
    * confirmation gate. Same per-account export/sync as `start()` — the scan
-   * still reads this account's résumés/knowledge/applied-jobs history to
+   * still reads this account's resumes/knowledge/applied-jobs history to
    * dedupe and draft, off `DATA_DIR`, not the shared folder.
    */
   async startQueue(cdpPort: number, overrides: Record<string, string> = {}, runStartId?: string | null): Promise<{ ok: boolean; error?: string }> {

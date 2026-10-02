@@ -57,11 +57,11 @@ async function stepLines(userId: string, open: Array<{ id: string; label: string
   for (const check of open) {
     switch (check.id) {
       case 'resume':
-        lines.push('Upload your résumé. Owtomate reads it and fills in your details and job titles for you.');
+        lines.push('Upload your resume. Owtomate reads it and fills in your details and job titles for you.');
         break;
       case 'profile': {
         const gaps = await profileGaps(userId);
-        // Before a résumé is in, most gaps are ones the upload fills; listing them would make setup look longer than it is.
+        // Before a resume is in, most gaps are ones the upload fills; listing them would make setup look longer than it is.
         const resumeFirst = open.some((step) => step.id === 'resume');
         const workRights = gaps.some((gap) => /work rights/i.test(gap));
         lines.push(resumeFirst
@@ -192,7 +192,7 @@ export async function sendAdminEmail(account: Account, sender: { id: string }, s
  * operator still reads and edits it; this is a draft, never an automatic send.
  *
  * Only what the email needs leaves the server: first name, the work wanted,
- * and account state. No email address, phone or résumé text.
+ * and account state. No email address, phone or resume text.
  */
 
 const TAILOR_SCHEMA = {

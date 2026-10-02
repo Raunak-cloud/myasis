@@ -376,7 +376,7 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
   let sent: () => void;
   if (which === 'resume') {
     const document = await resumeDocument(ctx, accept, format);
-    if ('error' in document) return ok(`${document.error} Look for another way to supply the résumé; otherwise finish with cannot_complete.`);
+    if ('error' in document) return ok(`${document.error} Look for another way to supply the resume; otherwise finish with cannot_complete.`);
     file = document.file;
     sent = () => resumeSent(ctx, document.label);
   } else {
@@ -401,7 +401,7 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
          * "Upload new document"). The input nearest the button — inside the
          * closest container that has one — is that upload's own.
          */
-        // Only when that container holds exactly one: with a résumé and a cover-letter input side by side, guessing could send the wrong document.
+        // Only when that container holds exactly one: with a resume and a cover-letter input side by side, guessing could send the wrong document.
         const inputs = target.locator('xpath=ancestor-or-self::*[.//input[@type="file"]][1]//input[@type="file"]');
         if ((await inputs.count().catch(() => 0)) !== 1) throw new Error('no file picker opened and the control has no single file input of its own');
         await inputs.setInputFiles(file, { timeout: 10_000 });
@@ -412,7 +412,7 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
   }
   sent();
   ctx.guards.recordProgress();
-  return ok(`Sent the approved ${which === 'resume' ? 'résumé' : 'cover letter'}. Check the page shows the file and no upload error.`);
+  return ok(`Sent the approved ${which === 'resume' ? 'resume' : 'cover letter'}. Check the page shows the file and no upload error.`);
 }
 
 /**
@@ -649,7 +649,7 @@ export const RAW_TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'upload_file',
     description:
-      'Send the candidate\'s approved résumé or the grounded cover letter to an upload: its file input, or any button that opens a file picker (drop zones, "Upload from device"). ' +
+      'Send the candidate\'s approved resume or the grounded cover letter to an upload: its file input, or any button that opens a file picker (drop zones, "Upload from device"). ' +
       'Only these documents can be sent.',
     parameters: {
       type: 'object',

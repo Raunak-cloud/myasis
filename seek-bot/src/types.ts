@@ -128,7 +128,7 @@ export type ApplyOutcome = (
       /** Exactly what was sent, kept for the dashboard and for auditing. */
       coverLetter?: string;
       answers?: Array<{ question: string; answer: string }>;
-      /** The résumé file that went out with the application. */
+      /** The resume file that went out with the application. */
       resume?: string;
     }
   /** Dry run: form was completed but the final submit was withheld. */
@@ -177,7 +177,7 @@ export interface AppliedRecord {
   ageDaysAtApply?: number;
   /** The letter actually submitted, verbatim. */
   coverLetter?: string;
-  /** The résumé file sent, as the board or employer received it. */
+  /** The resume file sent, as the board or employer received it. */
   resume?: string;
   /** Screening questions and the answers that were submitted. */
   answers?: Array<{ question: string; answer: string }>;

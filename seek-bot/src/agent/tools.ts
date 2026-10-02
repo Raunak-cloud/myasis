@@ -84,9 +84,9 @@ export interface ToolContext {
   /** Set only after a real cover-letter input or reveal control was observed. */
   coverLetterOffered?: boolean;
   resumeUsed?: string;
-  /** The board file name the résumé went out as, once the documents step was settled. */
+  /** The board file name the resume went out as, once the documents step was settled. */
   resumeName?: string;
-  /** The board's résumé choice has been made Owtomate's for this application. */
+  /** The board's resume choice has been made Owtomate's for this application. */
   resumeSettled?: boolean;
   log: (line: string) => void;
   /** Side effects the candidate must be told about — see `ApplicationAction`. */
@@ -202,12 +202,12 @@ export async function gateAdvance(
 ): Promise<Gate> {
   /**
    * The observation's text is the start of the page, capped. Indeed's review
-   * page puts "Supporting documents" under the résumé preview, past that cap,
+   * page puts "Supporting documents" under the resume preview, past that cap,
    * so a letter the employer allowed could go unsent. Before the form moves
    * on without a letter, the whole page is read for a place to add one.
    */
   /**
-   * The résumé a board sends is Owtomate's, never whatever it preselected.
+   * The resume a board sends is Owtomate's, never whatever it preselected.
    * Settled here, deterministically, as the documents step is left, so the
    * agent cannot move past it with the board's own copy (src/resume-sync.ts).
    */
@@ -216,7 +216,7 @@ export async function gateAdvance(
     const step = chosen ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
     if (step.action === 'failed') {
       return { proceed: false, result: ok(
-        `Do not advance yet: the résumé must be Owtomate's "${chosen!.seekName || chosen!.fileName}", not one the board preselected. ${step.reason} ` +
+        `Do not advance yet: the resume must be Owtomate's "${chosen!.seekName || chosen!.fileName}", not one the board preselected. ${step.reason} ` +
         'Select its exact option with attach_resume, or upload it with attach_resume on the upload control, then press again.',
       ) };
     }
@@ -225,9 +225,9 @@ export async function gateAdvance(
       ctx.resumeUsed = step.label;
       ctx.resumeName = step.name;
       const verb = { kept: 'already selected', selected: 'selected', uploaded: 'uploaded from Owtomate and selected' }[step.action];
-      ctx.log(`  📄 résumé "${step.name}" ${verb} on ${step.board === 'seek' ? 'SEEK' : 'Indeed'}`);
+      ctx.log(`  📄 resume "${step.name}" ${verb} on ${step.board === 'seek' ? 'SEEK' : 'Indeed'}`);
       if (step.action === 'uploaded') {
-        noteAction(ctx, { kind: 'resume-uploaded', site: hostOf(ctx.page.url()), detail: `Saved Owtomate's résumé "${step.name}" to your ${step.board === 'seek' ? 'SEEK' : 'Indeed'} account and used it for this application.` });
+        noteAction(ctx, { kind: 'resume-uploaded', site: hostOf(ctx.page.url()), detail: `Saved Owtomate's resume "${step.name}" to your ${step.board === 'seek' ? 'SEEK' : 'Indeed'} account and used it for this application.` });
       }
     }
   }
@@ -1461,7 +1461,7 @@ export function coverLetterSent(ctx: ToolContext, document: { file: string; lett
   ctx.log(`  ✓ ${wasHumanized(document.letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter uploaded as ${extname(document.file).slice(1).toUpperCase()}`);
 }
 
-/** The approved résumé as a file this upload accepts, or why not. */
+/** The approved resume as a file this upload accepts, or why not. */
 export async function resumeDocument(ctx: ToolContext, accept: string, format = ''): Promise<{ file: string; label: string } | { error: string }> {
   const wanted = await pickResumeForJob(ctx.job, ctx.profile);
   if (!wanted) return { error: 'No approved local resume is available.' };

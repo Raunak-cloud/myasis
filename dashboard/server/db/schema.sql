@@ -2,7 +2,7 @@
 --
 -- Every user-owned table carries user_id with ON DELETE CASCADE, so removing an
 -- account removes everything belonging to it in one statement. That matters for
--- a product holding résumés, contact details and application history.
+-- a product holding resumes, contact details and application history.
 
 CREATE TABLE IF NOT EXISTS users (
   id            BIGSERIAL PRIMARY KEY,
@@ -71,8 +71,8 @@ CREATE TABLE IF NOT EXISTS resumes (
   seek_name   TEXT,
   size_bytes  INTEGER NOT NULL DEFAULT 0,
   is_default  BOOLEAN NOT NULL DEFAULT false,
-  -- What this résumé is for, e.g. "React/frontend roles" — read by the AI
-  -- résumé picker (seek-bot/src/resume.ts) when more than one is on file.
+  -- What this resume is for, e.g. "React/frontend roles" — read by the AI
+  -- resume picker (seek-bot/src/resume.ts) when more than one is on file.
   notes       TEXT NOT NULL DEFAULT '',
   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -261,12 +261,12 @@ CREATE TABLE IF NOT EXISTS monthly_application_usage (
   PRIMARY KEY (user_id, month_start)
 );
 
--- Existing installations created before résumé notes were added need the column.
+-- Existing installations created before resume notes were added need the column.
 ALTER TABLE resumes ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
 
 -- Natural-key dedupe so migrate-files.ts and the per-run sync in db/records.ts
 -- can both insert with ON CONFLICT DO NOTHING and be safely re-run/repeated
--- without duplicating a user's résumés, knowledge items or run history.
+-- without duplicating a user's resumes, knowledge items or run history.
 CREATE UNIQUE INDEX IF NOT EXISTS resumes_user_file_idx ON resumes(user_id, file_name);
 CREATE UNIQUE INDEX IF NOT EXISTS knowledge_items_user_file_idx
   ON knowledge_items(user_id, file_name) WHERE kind = 'file';
@@ -561,6 +561,6 @@ CREATE TABLE IF NOT EXISTS admin_emails (
 );
 CREATE INDEX IF NOT EXISTS admin_emails_user_idx ON admin_emails(user_id, sent_at DESC);
 
--- The résumé file an application went out with, as the board or employer
--- received it. Owtomate's résumé is the source of truth; this is the proof.
+-- The resume file an application went out with, as the board or employer
+-- received it. Owtomate's resume is the source of truth; this is the proof.
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS resume_name TEXT;

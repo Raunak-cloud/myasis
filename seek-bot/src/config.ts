@@ -187,7 +187,7 @@ export const config = {
   /**
    * What the candidate is actually targeting this run.
    *
-   * The fit check otherwise infers the target from the résumé, so a software
+   * The fit check otherwise infers the target from the resume, so a software
    * profile will (correctly) reject a delivery-driver ad. Setting this lets the
    * same tool serve a deliberate career change or a second job track, without
    * weakening the honesty rules — the model still may not invent experience.
@@ -375,14 +375,14 @@ export const config = {
     reusableText: decodeBase64(process.env.COVER_LETTER_TEXT_B64),
   },
 
-  /** Résumé selection for a run; set per-run from the dashboard. */
+  /** Resume selection for a run; set per-run from the dashboard. */
   resume: {
-    /** Résumé id, label, or filename from data/resumes.json. Empty = SEEK default. */
+    /** Resume id, label, or filename from data/resumes.json. Empty = SEEK default. */
     select: process.env.RESUME_SELECT ?? '',
     /**
-     * Uploading a résumé adds it to the account's documents on the job board
+     * Uploading a resume adds it to the account's documents on the job board
      * — a profile change — so a direct command-line run leaves it off. Every
-     * run the dashboard starts turns it on (db/run-sync.ts), so the résumé
+     * run the dashboard starts turns it on (db/run-sync.ts), so the resume
      * chosen for a job is uploaded to SEEK or Indeed when it is not already
      * there, and the Applications tab records that it was.
      */
@@ -390,7 +390,7 @@ export const config = {
   },
 
   /**
-   * Where this run's résumés/knowledge/applied.json/queue.json/run-log.jsonl
+   * Where this run's resumes/knowledge/applied.json/queue.json/run-log.jsonl
    * live. Overridable so the dashboard can point a spawned run at a private
    * per-account directory (`seek-bot/data/users/<id>`) instead of the single
    * shared `data/` folder — same pattern as `PROFILE_PATH` above. Defaults to

@@ -124,7 +124,7 @@ function contextSignature(items: KnowledgeItem[]): string {
 export async function buildKnowledgeContext(query = ''): Promise<string> {
   const items = loadKnowledge().filter((i) => i.enabled);
   /**
-   * The résumé is a supporting document, and for most accounts the only one.
+   * The resume is a supporting document, and for most accounts the only one.
    *
    * Leaving it out meant an employer asking for employment dates, a former
    * employer's country or a reason for leaving got nothing to answer from —
@@ -160,7 +160,7 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
     if (text) {
       const slice = text.slice(0, 60_000);
       budget -= slice.length;
-      chunks.push(`### Résumé — ${resume.label}\n${slice}`);
+      chunks.push(`### Resume — ${resume.label}\n${slice}`);
     }
   }
 
@@ -188,7 +188,7 @@ interface ResumeEntry {
 }
 
 /**
- * The candidate's canonical résumé.
+ * The candidate's canonical resume.
  *
  * Read here rather than imported from resume.ts, which already imports
  * extractText from this module — importing back would close a cycle through

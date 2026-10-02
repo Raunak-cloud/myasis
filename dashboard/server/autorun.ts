@@ -212,7 +212,7 @@ function zonedInstant(local: LocalDateTime, timeZone = RUN_TIME_ZONE): Date {
 /**
  * Why the last scheduled run for an account could not start, until one does.
  *
- * Nobody is watching a scheduled run begin, so a refusal — no résumé, no
+ * Nobody is watching a scheduled run begin, so a refusal — no resume, no
  * applications left, today's limit — used to reach only the server log, and
  * the account simply saw nothing happen. Kept in memory: the next tick after
  * a restart finds the same reason again.

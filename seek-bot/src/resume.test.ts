@@ -4,10 +4,10 @@ import { resumeFileInputIndex } from './resume.js';
 assert.equal(
   resumeFileInputIndex([
     { accept: 'image/jpeg,image/png', identity: 'profile-photo', context: 'Profile photo Upload' },
-    { accept: '.doc,.docx,.pdf,.txt,.rtf', identity: 'document-upload', context: 'Résumé Upload Accepted file types' },
+    { accept: '.doc,.docx,.pdf,.txt,.rtf', identity: 'document-upload', context: 'Resume Upload Accepted file types' },
   ]),
   1,
-  'chooses the résumé uploader instead of SEEK profile photo',
+  'chooses the resume uploader instead of SEEK profile photo',
 );
 
 assert.equal(
@@ -15,7 +15,7 @@ assert.equal(
     { accept: 'image/*', identity: 'avatar', context: 'Upload profile picture' },
   ]),
   -1,
-  'never treats an image-only uploader as a résumé uploader',
+  'never treats an image-only uploader as a resume uploader',
 );
 
 assert.equal(
@@ -42,4 +42,4 @@ const changedUi = [
 assert.equal(resumeFileInputIndex(changedUi), -1, 'does not guess when a changed UI has ambiguous uploaders');
 assert.equal(resumeFileInputIndex([changedUi[1]]), 0, 'accepts a non-image uploader selected by the model fallback');
 
-console.log('résumé uploader selection checks passed');
+console.log('resume uploader selection checks passed');

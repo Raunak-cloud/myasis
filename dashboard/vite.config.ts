@@ -189,10 +189,10 @@ function rowToApplication(a: ApplicationRow) {
 }
 
 /**
- * Local control-plane API for the bot: reads its data files, manages the résumé
+ * Local control-plane API for the bot: reads its data files, manages the resume
  * library and knowledge base, and starts/stops runs.
  *
- * Every route below that touches an account's own data (profile, résumés,
+ * Every route below that touches an account's own data (profile, resumes,
  * knowledge, applications, run log, queue, run control, setup/attention)
  * resolves `currentUser(req.headers?.cookie)` first and returns 401 if no one
  * is signed in — mirroring `/api/billing/status`'s existing pattern — then
@@ -742,7 +742,7 @@ function dataApi(): Plugin {
         });
       }
 
-      // ---- résumé library ----
+      // ---- resume library ----
       case '/api/resumes': {
         return withUser(async (userId) => {
           if (req.method === 'POST') {
@@ -753,7 +753,7 @@ function dataApi(): Plugin {
              * The details form is filled from the document that just arrived,
              * because the candidate has already written all of it down once.
              * Only blank fields are touched, and a failure here is not an
-             * upload failure — the résumé is saved either way.
+             * upload failure — the resume is saved either way.
              */
             // The upload sets the account up: details, email, job titles and city, filling only what is empty.
             const setup = await setUpFromResume(userId, r.resume?.id);
@@ -1049,7 +1049,7 @@ function dataApi(): Plugin {
         /**
          * A one-time import of the pre-database files into an account. It
          * creates the account it is told to, so it is for an admin alone:
-         * open, it would let anyone claim the previous owner's résumés.
+         * open, it would let anyone claim the previous owner's resumes.
          */
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return Promise.all([currentUser(req.headers?.cookie), readBody()]).then(async ([actor, b]) => {
@@ -1077,7 +1077,7 @@ function dataApi(): Plugin {
       }
 
       case '/api/board-resumes': {
-        // Saved résumés on SEEK or Indeed that Owtomate does not hold; the last run recorded them (seek-bot/src/resume-sync.ts).
+        // Saved resumes on SEEK or Indeed that Owtomate does not hold; the last run recorded them (seek-bot/src/resume-sync.ts).
         return withUser(async (userId) => {
           const file = resolve(userDir(userId), 'board-resumes.json');
           let report: Record<string, any> = {};

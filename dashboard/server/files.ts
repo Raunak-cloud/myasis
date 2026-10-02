@@ -4,7 +4,7 @@ import { one, query } from './db/index.js';
 import { userResumeDir, userKnowledgeDir, ensureUserDataDir } from './userdata.js';
 
 /**
- * Résumé library and knowledge base — Postgres-backed metadata (`resumes`,
+ * Resume library and knowledge base — Postgres-backed metadata (`resumes`,
  * `knowledge_items`), scoped to one account, exactly like `billing.ts`. The
  * actual binary files still live on disk (the schema only stores metadata,
  * never blobs), but now under that account's own private directory
@@ -64,7 +64,7 @@ interface KnowledgeItem {
   enabled: boolean;
 }
 
-// ---------------------------------------------------------------- résumés
+// ---------------------------------------------------------------- resumes
 
 interface ResumeRow {
   id: string;
@@ -100,7 +100,7 @@ export async function listResumes(userId: string): Promise<ResumeRecord[]> {
 }
 
 /**
- * The most résumés an account keeps. The AI picks the best one per job from
+ * The most resumes an account keeps. The AI picks the best one per job from
  * their notes; past a handful the choice gets noisier, not better, and each
  * extra one is another file to keep current on SEEK.
  */
@@ -124,7 +124,7 @@ export async function addResume(
   const resumeDir = userResumeDir(userId);
   const all = await listResumes(userId);
   if (all.length >= MAX_RESUMES) {
-    return { ok: false, error: `You can keep up to ${MAX_RESUMES} résumés. Delete one before uploading another.` };
+    return { ok: false, error: `You can keep up to ${MAX_RESUMES} resumes. Delete one before uploading another.` };
   }
   // Keep the on-disk name unique without mangling what the user recognises.
   let fileName = name;
@@ -147,7 +147,7 @@ export async function addResume(
       (input.notes ?? '').slice(0, 500),
     ],
   );
-  if (!row) return { ok: false, error: 'Could not save the résumé.' };
+  if (!row) return { ok: false, error: 'Could not save the resume.' };
 
   return {
     ok: true,

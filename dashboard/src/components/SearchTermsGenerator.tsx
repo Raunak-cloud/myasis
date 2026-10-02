@@ -34,7 +34,7 @@ export function SearchTermsGenerator({
   useEffect(() => {
     fetch('/api/resumes')
       .then(async (response) => {
-        if (!response.ok) throw new Error('Could not load résumés.');
+        if (!response.ok) throw new Error('Could not load resumes.');
         return response.json() as Promise<unknown>;
       })
       .then((value) => {
@@ -66,7 +66,7 @@ export function SearchTermsGenerator({
     if (generating || disabled) return;
     if (!selectedResumeIds.length) {
       setFailed(true);
-      setMessage('Select at least one résumé.');
+      setMessage('Select at least one resume.');
       return;
     }
     setGenerating(true);
@@ -98,7 +98,7 @@ export function SearchTermsGenerator({
       ));
       onGenerated(terms.join(', '));
       if (left !== null) setLeft(left - 1);
-      const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected résumés';
+      const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected resumes';
       setMessage(`Suggested ${terms.length} job titles from ${label}. Review them, then save.`);
     } catch (error) {
       setFailed(true);
@@ -117,7 +117,7 @@ export function SearchTermsGenerator({
         title={exhausted ? 'Your free suggestion has been used. Passes include unlimited suggestions.' : undefined}
         onClick={generate}
       >
-        {generating ? 'Suggesting…' : exhausted ? '✨ Suggestion used' : '✨ Suggest from my résumés'}
+        {generating ? 'Suggesting…' : exhausted ? '✨ Suggestion used' : '✨ Suggest from my resumes'}
       </button>
       {left !== null && !exhausted && !generating && (
         <span className="job-meta search-terms-ai-note">{left === 1 ? 'One free suggestion on your plan.' : `${left} free suggestions on your plan.`}</span>
@@ -129,8 +129,8 @@ export function SearchTermsGenerator({
         <details className="search-terms-resumes">
           <summary>
             {selectedResumeIds.length === resumes.length
-              ? `Using all ${resumes.length} résumés`
-              : `Using ${selectedResumeIds.length} of ${resumes.length} résumés`}
+              ? `Using all ${resumes.length} resumes`
+              : `Using ${selectedResumeIds.length} of ${resumes.length} resumes`}
           </summary>
           <div className="search-terms-resume-list">
             {resumes.map((resume) => (

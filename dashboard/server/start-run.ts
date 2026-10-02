@@ -124,7 +124,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   }
 
   /**
-   * Nothing works without one. The agent attaches a résumé on nearly every
+   * Nothing works without one. The agent attaches a resume on nearly every
    * form, the fit check reads it, and the cover letter is written from it —
    * so a run without one wastes an employer's time and the candidate's
    * allowance before failing on the document step.
@@ -133,7 +133,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     return {
       ok: false,
       status: 400,
-      error: 'Upload your résumé first. Applications are built from it.',
+      error: 'Upload your resume first. Applications are built from it.',
     };
   }
 

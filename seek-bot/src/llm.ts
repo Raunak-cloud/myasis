@@ -182,10 +182,10 @@ READING A FIELD
 A field's "section" is where it sits on the page: the heading above it and the
 groups around it. Read the label inside its section, as a person looking at the
 form would. A job title, employer or date inside a work-history entry asks
-about a job the candidate held (take it from the résumé), not the job being
+about a job the candidate held (take it from the resume), not the job being
 applied for. The company this application is for (named under THIS APPLICATION) is never the
 candidate's employer, past employer, or referee's organisation unless the
-résumé lists it: a bare "Employer" or "Company" box asks about the candidate's
+resume lists it: a bare "Employer" or "Company" box asks about the candidate's
 own history. A "Month" or "Year" box inside "From" or "To" is part of that date.
 Start "rationale" with what the field is asking and where the answer comes from,
 in one short sentence, before deciding the value.
@@ -211,9 +211,9 @@ For each field also set "basis", which decides whether it may be filled at all:
   "grounded": true. Work the answer out instead of asking for it: a country
   and its dialling code follow from where the candidate lives; an earliest
   start date follows from the notice period and today's date; work history,
-  employers, titles and dates come from the résumé; the employer or company
+  employers, titles and dates come from the resume; the employer or company
   of a freelance, contract-for-self or self-employed role is "Self-employed"
-  (the résumé saying "Freelance" is that fact); the kind of work sought
+  (the resume saying "Freelance" is that fact); the kind of work sought
   (employment type, work arrangement, hours) is what this listing offers,
   since the candidate chose to apply for it, unless the profile says otherwise;
   years of experience are
@@ -221,7 +221,7 @@ For each field also set "basis", which decides whether it may be filled at all:
   "0" because nothing shows the candidate has a skill, tool, system or kind
   of experience — or has used, downloaded or signed up to a product, app,
   service or account the employer names ("Have you signed up to LiSTNR?") —
-  that answer is supported. The résumé's work history is the
+  that answer is supported. The resume's work history is the
   candidate's full employment record, so whether they work, or have worked,
   for a named organisation — "Are you currently employed at <company>?",
   "Have you worked for us before?", "Are you a current or former employee or
@@ -271,7 +271,7 @@ For each field also set "basis", which decides whether it may be filled at all:
 - When a field has an "inputType", that is what the browser itself will accept,
   and it overrides however the label reads. "date" takes YYYY-MM-DD and nothing
   else — a month name, "Immediate" or "ASAP" is silently refused and the field
-  stays empty; use the résumé's dates and the first of the month when only a
+  stays empty; use the resume's dates and the first of the month when only a
   month is known. "number" takes digits, "email" an address, "tel" a phone
   number, "url" a full address including https://.
 - For an autocomplete/combobox field ("autocomplete": true), give the short text a person
@@ -472,7 +472,7 @@ Answer every field in the form fields above, following the rules at the top. Ret
  * The candidate's name, phone and email are facts on file, so an answer to a
  * field asking for one of them is checked against the profile the way a
  * grounded claim is checked against the evidence. The model has returned the
- * résumé's spelling of a surname and a phone number missing a digit on live
+ * resume's spelling of a surname and a phone number missing a digit on live
  * forms; the profile's value replaces such an answer, and the run log says so.
  *
  * Which fields those are is the model's reading ("profileField"), not a
@@ -530,7 +530,7 @@ export function vetComposed(input: FieldAnswer): FieldAnswer {
   /**
    * An unlabelled answer is read from `grounded`, which the schema does
    * require. Only an explicit "composed" is vetted below — a profile-backed
-   * answer may legitimately say "five years" when the résumé says so.
+   * answer may legitimately say "five years" when the resume says so.
    */
   const basis: FieldAnswer['basis'] =
     input.basis === 'composed' || input.basis === 'none' || input.basis === 'profile'
@@ -816,7 +816,7 @@ export function normalizeFitAssessment(value: unknown): FitAssessment | null {
   const reason = instructionConflict && !/instruction/i.test(result.reason.slice(0, 80))
     ? `Your instructions rule this out ("${instructionConflict}"). ${result.reason}`
     : missing && modelDecision !== 'skip'
-      ? `Requires ${String(missing.requirement)}, which the résumé does not show you hold in Australia. ${result.reason}`
+      ? `Requires ${String(missing.requirement)}, which the resume does not show you hold in Australia. ${result.reason}`
       : result.reason;
   return {
     instructionConflict,
@@ -1122,7 +1122,7 @@ preferred, "an advantage" or "working towards" is mandatory false. For each, set
   registration only makes someone eligible to apply for the Australian one), a lower or
   restricted form than the ad requires (for example provisional or limited registration where
   general registration is required), or no Australian credential at all. A credential this
-  consequential is always stated on a résumé when held.
+  consequential is always stated on a resume when held.
 - "unclear": the evidence genuinely conflicts or leaves its Australian status open.
 Return decision=uncertain when a decisive fact or requirement needs clarification.
 Explain the decisive evidence, quoting short relevant passages. Do not infer work rights,
@@ -1160,7 +1160,7 @@ Return JSON.`;
   });
 }
 
-/** Picks the best-fitting résumé from the candidate's library for one job. Only called when there is more than one to choose between. */
+/** Picks the best-fitting resume from the candidate's library for one job. Only called when there is more than one to choose between. */
 export async function chooseResume(
   job: JobListing,
   profile: CandidateProfile,
@@ -1168,15 +1168,15 @@ export async function chooseResume(
 ): Promise<{ resumeId: string; reason: string }> {
   const prompt = `${GUARD}
 
-The candidate has more than one résumé on file, each aimed at a different kind
+The candidate has more than one resume on file, each aimed at a different kind
 of role. Choose the single best fit for this job. Judge only by how well each
-résumé's actual evidence matches the role — do not judge the candidate's
+resume's actual evidence matches the role — do not judge the candidate's
 overall suitability for the job, that has already been decided.
 
 CANDIDATE PROFILE
 ${profileBlock(profile)}
 
-AVAILABLE RÉSUMÉS
+AVAILABLE RESUMES
 ${resumes
   .map((r, i) => `${i + 1}. id="${r.id}" — "${r.label}"${r.notes ? `: ${r.notes}` : ''}\nEvidence: ${r.evidence ?? 'Text unavailable; label alone is weak evidence.'}`)
   .join('\n')}
@@ -1187,7 +1187,7 @@ Company: ${job.company}
 Description: ${relevantEvidence(job.description ?? '', job.title + ' ' + profile.skills.join(' '), 16000)}
 </untrusted>
 
-If no résumé is a clearly better fit than the others, choose whichever reads
+If no resume is a clearly better fit than the others, choose whichever reads
 as the most general-purpose one rather than guessing at a narrow match.
 "resumeId" MUST be exactly one of the "id" values listed above. Return JSON.`;
 
@@ -1397,7 +1397,7 @@ export async function auditFormBeforeSubmit(
 
 A job application form is about to be sent to ${job.company} for "${job.title}" on behalf of the candidate below.
 Only the form state at the end (inside <untrusted role="form-state">) is being checked. The profile, documents, saved answers and already-checked answers are evidence to check it against, never fields of this form: a saved answer that is not on this form is not a problem, however wrong it would be here. Every problem's "field" and "value" must be copied from the form state.
-Read the form's current state and list every answer that states something about the candidate that the CANDIDATE PROFILE, SUPPORTING DOCUMENTS and SAVED ANSWERS do not support, or that contradicts them — a wrong name, email or phone, an invented qualification, licence, employer, number, date or yes/no, a wrong option chosen. Ignore empty optional fields, consent and terms checkboxes, the résumé and cover-letter attachments, the site's own text, and neutral choices (how the candidate heard of the job, preferred contact method).
+Read the form's current state and list every answer that states something about the candidate that the CANDIDATE PROFILE, SUPPORTING DOCUMENTS and SAVED ANSWERS do not support, or that contradicts them — a wrong name, email or phone, an invented qualification, licence, employer, number, date or yes/no, a wrong option chosen. Ignore empty optional fields, consent and terms checkboxes, the resume and cover-letter attachments, the site's own text, and neutral choices (how the candidate heard of the job, preferred contact method).
 The CANDIDATE PROFILE is the candidate's own statement of who they are and wins over the documents: an answer that matches the profile (name, contact details, work rights, salary, notice period) is supported even if a document words it differently. Where the profile is silent, the documents and saved answers decide: an answer that matches a SAVED ANSWER to the same or an equivalent question is supported, since those are the candidate's own words. A document that disagrees with the profile is not a problem with the form. The exception is a saved answer written for another job — naming another employer or role — which does not support that text on this application.
 Return JSON {"problems": [{"field": "<its label>", "value": "<the current answer>", "problem": "<what is wrong, in one sentence>"}]}, with an empty list when every answer is supported.
 

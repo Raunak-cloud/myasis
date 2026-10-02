@@ -476,7 +476,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                     SEEK {user.boards.seek === true ? 'signed in' : user.boards.seek === false ? 'signed out' : 'not checked'} ·
                     {' '}Indeed {user.boards.indeed === true ? 'signed in' : user.boards.indeed === false ? 'signed out' : 'not checked'}
                   </dd>
-                  <dt>Résumés</dt>
+                  <dt>Resumes</dt>
                   <dd>{user.resumes}</dd>
                   <dt>Runs today</dt>
                   <dd>{user.autoApply.usedToday} scheduled</dd>
@@ -779,7 +779,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
               {!user.admin && (
                 <div className="section admin-danger">
                   <h3>Delete account</h3>
-                  <p className="job-meta">Permanently removes the account and everything linked to it: résumés, runs, applications, visit records, and every file on the server including its browser profile. Nothing is kept and nothing can be recovered.</p>
+                  <p className="job-meta">Permanently removes the account and everything linked to it: resumes, runs, applications, visit records, and every file on the server including its browser profile. Nothing is kept and nothing can be recovered.</p>
                   <div className="admin-button-row">
                     <input
                       className="input"

@@ -120,7 +120,7 @@ interface ApplicationRow {
   actions?: unknown[];
   /** False when retained only to prevent duplicating an application made elsewhere. */
   submittedByMyasis?: boolean;
-  /** The résumé file sent with it. */
+  /** The resume file sent with it. */
   resumeName?: string | null;
 }
 

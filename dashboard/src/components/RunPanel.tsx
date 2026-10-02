@@ -1019,7 +1019,7 @@ export function RunPanel({
           ) : !driving ? null : (
             <>
               {/*
-                A run without a résumé, a profile, search terms or a location
+                A run without a resume, a profile, search terms or a location
                 is refused by the server anyway; the button says so before it
                 is pressed rather than after.
               */}

@@ -215,7 +215,7 @@ leaves a Chrome holding that account's profile.
 ## 6. Backups
 
 `/etc/cron.d/myasis` runs `deploy/maintenance.sh` nightly at 03:15 Sydney time: a
-`pg_dump` of the database and a tarball of every account's résumé/knowledge files
+`pg_dump` of the database and a tarball of every account's resume/knowledge files
 land in `/var/backups/myasis` (14 days kept), then idle Chrome caches and traces
 older than 30 days are cleared. Log: `/var/log/myasis-maintenance.log`.
 

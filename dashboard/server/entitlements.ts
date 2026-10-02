@@ -272,7 +272,7 @@ export interface Entitlements {
   /** Cover letters are rewritten by the humanizer. Active Search, Intensive, admins, or an explicit admin override. */
   humanizer: boolean;
   /**
-   * Search-term suggestions from résumés left. Null means no limit. The free
+   * Search-term suggestions from resumes left. Null means no limit. The free
    * plan gets one: enough to see what it does, and the reason to buy a pass
    * if it was useful.
    */
@@ -280,7 +280,7 @@ export interface Entitlements {
   timeZone: string;
 }
 
-/** What the free plan gets of the résumé-to-search-terms suggestion. */
+/** What the free plan gets of the resume-to-search-terms suggestion. */
 export const FREE_SEARCH_TERM_SUGGESTIONS = 1;
 
 export const SEARCH_TERMS_FEATURE = 'search-term-suggestion';

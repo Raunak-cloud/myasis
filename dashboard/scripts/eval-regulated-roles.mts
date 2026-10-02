@@ -4,7 +4,7 @@
  * An overseas-trained doctor cannot take a GP job without AHPRA registration;
  * nurses, lawyers, licensed trades, teachers and others are in the same
  * position with their own regulators. Both places the AI makes that call run
- * against real models: the job searches suggested from a résumé (through the
+ * against real models: the job searches suggested from a resume (through the
  * same filter the app applies), and the fit check on a listing. Recognition
  * cases (New Zealand, interstate licences, provisional or limited registration,
  * "eligible for" ads) and controls (credential held, unregulated work, the

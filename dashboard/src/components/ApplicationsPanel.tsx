@@ -318,15 +318,15 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
 
               {open.resumeName && (
                 <div className="section">
-                  <h3>Résumé sent</h3>
+                  <h3>Resume sent</h3>
                   <p className="app-resume">
                     <strong>{open.resumeName}</strong>
                     <span className="badge ok">From Owtomate</span>
                   </p>
                   <p className="job-meta">
                     {open.external
-                      ? 'Uploaded to the employer from the résumé in your Owtomate account.'
-                      : `Owtomate's own copy of your résumé on ${boardLabel(open.platform)}, not one saved there by you.`}
+                      ? 'Uploaded to the employer from the resume in your Owtomate account.'
+                      : `Owtomate's own copy of your resume on ${boardLabel(open.platform)}, not one saved there by you.`}
                   </p>
                 </div>
               )}

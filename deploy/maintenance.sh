@@ -3,7 +3,7 @@
 # /etc/cron.d/myasis (root, 03:15 server time), safe to run by hand any time:
 #
 #   1. Backs up everything that cannot be regenerated — the Postgres database
-#      and each account's résumé/knowledge files — to /var/backups/myasis,
+#      and each account's resume/knowledge files — to /var/backups/myasis,
 #      keeping 14 days locally.
 #   2. Copies the night's backup off the box when an rclone remote named
 #      "backup" exists (rclone config; any S3/R2/B2/Drive works), keeping 30

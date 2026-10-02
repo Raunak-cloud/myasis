@@ -149,7 +149,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       <Step
         id="documents"
         n={1}
-        title="Upload your résumé"
+        title="Upload your resume"
         blurb="We'll fill in what we can."
         done={done('resume')}
         open={openStep === 'documents'}

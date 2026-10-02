@@ -387,7 +387,7 @@ interface AgentRunResult {
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
   resumeUsed?: string;
-  /** The board file name the résumé went out as. */
+  /** The board file name the resume went out as. */
   resumeName?: string;
   /** Side effects the candidate must be told about, whatever the outcome. */
   actions: ApplicationAction[];

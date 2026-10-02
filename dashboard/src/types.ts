@@ -26,7 +26,7 @@ export interface Application {
   external?: boolean;
   /** That employer site's host. */
   site?: string;
-  /** The résumé file that went out with it. */
+  /** The resume file that went out with it. */
   resumeName?: string;
   /** What Myasis did on the candidate's behalf while applying. */
   actions?: ApplicationAction[];

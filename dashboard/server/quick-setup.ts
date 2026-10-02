@@ -8,17 +8,17 @@ import { generateSearchTerms } from './search-terms.js';
  * One upload sets the account up.
  *
  * Setup asked a new candidate for five things before the first application:
- * a résumé, a details form, job titles, a city and work style, and a job
- * board. Four of those are already in the résumé or the sign-in, so the
+ * a resume, a details form, job titles, a city and work style, and a job
+ * board. Four of those are already in the resume or the sign-in, so the
  * upload fills them — the details from the document, the email from the
- * Google account, job titles suggested from the résumé, the city from the
+ * Google account, job titles suggested from the resume, the city from the
  * address — and what is left for the person is to glance over them and
  * connect a board. Onboarding research is consistent that time to first
  * value decides activation; typing what a document already says is the
  * friction that loses people.
  *
  * The one rule: only what is still empty is filled. Anything the person set
- * themselves is left exactly as it is, so uploading a second résumé never
+ * themselves is left exactly as it is, so uploading a second resume never
  * undoes a choice.
  */
 
@@ -38,7 +38,7 @@ export interface QuickSetupResult {
   terms: string[];
   /** City chosen from the address, when the account had none. */
   city: string | null;
-  /** Why the résumé could not be read, when it could not. */
+  /** Why the resume could not be read, when it could not. */
   error?: string;
 }
 
@@ -47,7 +47,7 @@ export async function setUpFromResume(userId: string, resumeId?: string): Promis
     .catch((error): { ok: false; filled: string[]; error: string } => ({ ok: false, filled: [], error: (error as Error).message }));
   const filled = [...autofill.filled];
 
-  // The address they signed in with is the one they check; a résumé may carry an old one.
+  // The address they signed in with is the one they check; a resume may carry an old one.
   const profile = await loadProfile(userId);
   if (!profile.email.trim()) {
     const account = await one<{ email: string }>('SELECT email FROM users WHERE id = $1', [userId]);
