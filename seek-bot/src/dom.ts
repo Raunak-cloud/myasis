@@ -751,7 +751,30 @@ export async function fillField(page: Page, field: FormField, value: string, mod
       const national = want.replace(/^0+/, '');
       return want.length > 0 && (got === want || got === national || (national.length >= 6 && got.endsWith(national)));
     }
-    return normal(el.value) === normal(value);
+    /**
+     * The same answer, shown the form's way. A salary box that keeps digits
+     * only holds "80000" for "$80,000" and another adds ".00"; a picker such
+     * as Workday's clears its search box once a choice is made and shows the
+     * choice beside it ("1 item selected, Australia (+61)"). Both were read
+     * as rejections, and a submit was refused over answers the form held.
+     */
+    const alnum = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const amount = (text: string) => /^\s*[a-z$€£]{0,4}\s*[\d,]+(\.\d+)?\s*$/i.test(text) ? Number(text.replace(/[^\d.]/g, '')) : NaN;
+    const held = el.value ?? '';
+    if (normal(held) === normal(value) || (alnum(value).length > 0 && alnum(held) === alnum(value))) return true;
+    if (!Number.isNaN(amount(value)) && amount(value) === amount(held)) return true;
+    if (!held.trim() && alnum(value).length >= 2) {
+      let container: Element = el;
+      let node = el.parentElement;
+      for (let up = 0; up < 4 && node && node.tagName !== 'FORM' && node.tagName !== 'BODY'; up++, node = node.parentElement) {
+        if (node.querySelectorAll('input, select, textarea, [role="combobox"]').length > 1) break;
+        container = node;
+      }
+      const label = alnum(field.label);
+      const shown = alnum(container.textContent ?? '').replace(label, '');
+      return shown.includes(alnum(value));
+    }
+    return false;
   }, { field, value }, { timeout: 2000, polling: 100 }).catch(async () => {
     const complaint = await readValidationMessage(page, field);
     /**
@@ -770,9 +793,12 @@ export async function fillField(page: Page, field: FormField, value: string, mod
         : sameLabel;
       if (matches.length === 1) {
         const held = matches[0].currentValue ?? '';
+        const alnum = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+        const amount = (text: string) => /^\s*[a-z$€£]{0,4}\s*[\d,]+(\.\d+)?\s*$/i.test(text) ? Number(text.replace(/[^\d.]/g, '')) : NaN;
         const accepted = field.inputType === 'tel' || field.inputType === 'number'
           ? held.replace(/\D+/g, '').replace(/^0+/, '') === value.replace(/\D+/g, '').replace(/^0+/, '')
-          : normal(held) === normal(value);
+          : normal(held) === normal(value) || (alnum(value).length > 0 && alnum(held) === alnum(value))
+            || (!Number.isNaN(amount(value)) && amount(value) === amount(held));
         if (accepted) return;
       }
     }
