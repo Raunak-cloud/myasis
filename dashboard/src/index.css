@@ -619,7 +619,8 @@ tbody tr.clickable { cursor: pointer; }
   .run-review-warning,
   .run-review-search,
   .run-review-limits,
-  .run-review-error { grid-column: auto; }
+  .run-review-error,
+  .run-review-body .resume-source { grid-column: auto; }
   .run-review-actions { padding: 14px 22px; }
 }
 
@@ -2371,6 +2372,9 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   border: 1px solid var(--info); background: var(--info-soft); border-radius: var(--radius);
 }
 .resume-source p { margin: 0; flex: 1; min-width: 0; line-height: 1.5; }
+.run-notes { display: grid; gap: 12px; min-width: 0; }
+.run-notes > * { margin: 0; }
+.run-review-body .resume-source { grid-column: 1 / -1; margin: 0; padding: 10px 14px; }
 .resume-source .job-meta { display: inline; }
 .resume-source-icon { font-size: 18px; }
 .app-resume { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 4px; overflow-wrap: anywhere; }

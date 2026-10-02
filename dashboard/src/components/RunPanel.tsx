@@ -5,6 +5,7 @@ import { useBoardsStatus } from '../boards';
 import { SetupChecklist } from './SetupChecklist';
 import { useSetupStatus } from '../setupStatus';
 import { BoardResumesNote } from './BoardResumesNote';
+import { ResumeSourceNote } from './ResumeSourceNote';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
@@ -968,8 +969,11 @@ export function RunPanel({
 
   return (
     <div className="run-layout">
-      {setup && <div className="run-span"><SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} /></div>}
-      <div className="run-span"><BoardResumesNote /></div>
+      <div className="run-span run-notes">
+        {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
+        <ResumeSourceNote />
+        <BoardResumesNote />
+      </div>
       <div className="run-side">
       <div className="card run-controls-card">
         <div className="panel-body">
@@ -1417,6 +1421,7 @@ export function RunPanel({
               <div className="banner banner-bad run-review-warning">
                 This run submits applications to employers. Submitted applications cannot be withdrawn here.
               </div>
+              <ResumeSourceNote compact />
 
               <section className="run-review-section run-review-search">
                 <h3>What to find</h3>
