@@ -53,6 +53,42 @@ export interface DocumentChoice {
   index: number;
   name: string;
   checked: boolean;
+  /** When the board says this copy was added: SEEK's "Added 20 days ago", Indeed's "September 19". */
+  added?: string;
+}
+
+/**
+ * When a board copy was added, as a time and how precisely the board said it.
+ *
+ * The board's copy cannot be read, so its name is all that identifies it,
+ * and a person can upload a different file under the same name. What the
+ * board does show is when each copy was added; a same-named copy added after
+ * the one Owtomate recorded is a different file.
+ */
+export function addedAt(text: string | undefined, now = Date.now()): { at: number; tolerance: number } | null {
+  if (!text) return null;
+  const minute = 60_000, hour = 60 * minute, day = 24 * hour;
+  const t = text.toLowerCase();
+  if (/just now|moments? ago|today/.test(t)) return { at: now, tolerance: day };
+  if (/yesterday/.test(t)) return { at: now - day, tolerance: day };
+  const relative = t.match(/(?:about|over|almost|nearly)?\s*(\d+|an?|one)\s+(minute|hour|day|week|month|year)s?\s+ago/);
+  if (relative) {
+    const count = /^(a|an|one)$/.test(relative[1]) ? 1 : Number(relative[1]);
+    const unit = { minute, hour, day, week: 7 * day, month: 30 * day, year: 365 * day }[relative[2] as 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year'];
+    // A board rounds to its unit: "about 1 month" is anything from about three weeks to six.
+    return { at: now - count * unit, tolerance: Math.max(day, unit) };
+  }
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const absolute = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?/);
+  if (absolute) {
+    const month = months.indexOf(absolute[1]);
+    let year = absolute[3] ? Number(absolute[3]) : new Date(now).getFullYear();
+    let at = Date.UTC(year, month, Number(absolute[2]));
+    // Without a year, a date "in the future" is last year's.
+    if (!absolute[3] && at > now + day) at = Date.UTC(year -= 1, month, Number(absolute[2]));
+    return { at, tolerance: 2 * day };
+  }
+  return null;
 }
 
 const RADIOS = 'input[type="radio"], [role="radio"]';
@@ -75,16 +111,26 @@ export async function documentChoices(page: Page): Promise<DocumentChoice[]> {
           || text(element.parentElement?.parentElement);
         const match = named.match(documentName);
         const checked = input.checked === true || element.getAttribute('aria-checked') === 'true';
-        return match ? { index, name: match[1].trim(), checked } : null;
-      }).filter((choice): choice is { index: number; name: string; checked: boolean } => Boolean(choice));
-    }, { selector: RADIOS, pattern: DOCUMENT_NAME.source }).catch(() => [] as Array<{ index: number; name: string; checked: boolean }>);
+        let block: Element = element;
+        for (let up = element.parentElement, depth = 0; up && depth < 6 && up.querySelectorAll(selector).length === 1; up = up.parentElement, depth += 1) block = up;
+        const added = text(block).match(/added\s+(?:just now|[^.\n]{1,40}?\bago)|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,?\s+\d{4})?/i)?.[0];
+        return match ? { index, name: match[1].trim(), checked, ...(added ? { added } : {}) } : null;
+      }).filter((choice): choice is { index: number; name: string; checked: boolean; added?: string } => Boolean(choice));
+    }, { selector: RADIOS, pattern: DOCUMENT_NAME.source }).catch(() => [] as Array<{ index: number; name: string; checked: boolean; added?: string }>);
     for (const choice of found) choices.push({ frame, ...choice });
   }
   return choices;
 }
 
 /** Owtomate résumé id → the board's copy of it, and the content that copy holds. */
-type SyncRecord = Partial<Record<Board, Record<string, { name: string; sha: string }>>>;
+interface SyncEntry {
+  name: string;
+  sha: string;
+  /** When the board said this copy was added, when Owtomate first recorded it. */
+  boardAddedAt?: number;
+  boardAddedTolerance?: number;
+}
+type SyncRecord = Partial<Record<Board, Record<string, SyncEntry>>>;
 const SYNC_FILE = () => resolve(config.dataDir, 'resume-sync.json');
 const BOARD_ONLY_FILE = () => resolve(config.dataDir, 'board-resumes.json');
 
@@ -92,15 +138,24 @@ function readJson<T>(path: string, fallback: T): T {
   try { return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as T : fallback; } catch { return fallback; }
 }
 
-function remember(board: Board, resumeId: string, name: string, sha: string): void {
+function remember(board: Board, resumeId: string, entry: SyncEntry): void {
   const record = readJson<SyncRecord>(SYNC_FILE(), {});
-  record[board] = { ...(record[board] ?? {}), [resumeId]: { name, sha } };
+  record[board] = { ...(record[board] ?? {}), [resumeId]: entry };
   writeFileSync(SYNC_FILE(), JSON.stringify(record, null, 2));
+}
+
+/** A same-named copy replaced on the board, for the dashboard to explain. */
+function reportReplaced(board: Board, name: string, uploadedAs: string): void {
+  const report = readJson<Record<string, unknown>>(BOARD_ONLY_FILE(), {});
+  const key = `${board}Replaced`;
+  const earlier = Array.isArray(report[key]) ? report[key] as Array<{ name: string }> : [];
+  report[key] = [...earlier.filter((entry) => entry.name !== name), { name, uploadedAs, at: new Date().toISOString() }];
+  writeFileSync(BOARD_ONLY_FILE(), JSON.stringify(report, null, 2));
 }
 
 /** Saved résumés on a board that Owtomate does not hold, for the dashboard to mention. */
 function reportBoardOnly(board: Board, names: string[]): void {
-  const report = readJson<Partial<Record<Board, { names: string[]; seenAt: string }>>>(BOARD_ONLY_FILE(), {});
+  const report = readJson<Record<string, unknown>>(BOARD_ONLY_FILE(), {});
   report[board] = { names: [...new Set(names)].sort(), seenAt: new Date().toISOString() };
   writeFileSync(BOARD_ONLY_FILE(), JSON.stringify(report, null, 2));
 }
@@ -164,10 +219,22 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   const names = record ? (record.sha === sha ? [record.name] : []) : [chosen.seekName ?? '', chosen.fileName, chosen.label].filter(Boolean);
   const matching = choices.filter((choice) => names.some((name) => sameDocument(name, choice.name)));
   const match = matching.find((choice) => choice.checked) ?? matching[0];
-  if (match) {
+  /**
+   * A same-named copy the board says was added after the one recorded is a
+   * file the person uploaded there themselves: not Owtomate's, whatever its
+   * name. Owtomate's copy goes up under its own name and the person is told.
+   */
+  const shown = addedAt(match?.added);
+  const replacedOnBoard = Boolean(match && record?.boardAddedAt !== undefined && shown
+    && shown.at - record.boardAddedAt > Math.max(shown.tolerance, record.boardAddedTolerance ?? 0));
+  if (match && !replacedOnBoard) {
     const wasChecked = match.checked;
     if (!wasChecked && !await select(match)) return { action: 'failed', reason: `The board's copy "${match.name}" could not be selected.` };
-    remember(board, chosen.id, match.name, sha);
+    // The first sighting fixes when the copy was added; later readings of a relative date only drift.
+    const firstSeen = record?.name === match.name && record.boardAddedAt !== undefined
+      ? { boardAddedAt: record.boardAddedAt, boardAddedTolerance: record.boardAddedTolerance }
+      : shown ? { boardAddedAt: shown.at, boardAddedTolerance: shown.tolerance } : {};
+    remember(board, chosen.id, { name: match.name, sha, ...firstSeen });
     return { action: wasChecked ? 'kept' : 'selected', name: match.name, label: chosen.label, board };
   }
 
@@ -181,7 +248,7 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
    * A replaced file goes up under a new name: the board keeps the old copy
    * under the old one, and an exact name is the only way to tell them apart.
    */
-  if (record && record.sha !== sha) {
+  if ((record && record.sha !== sha) || replacedOnBoard) {
     const dir = resolve(tmpdir(), 'owtomate-resume-sync');
     mkdirSync(dir, { recursive: true });
     const stamp = new Date().toISOString().slice(0, 10);
@@ -199,7 +266,8 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
     const now = (await documentChoices(page)).filter((choice) => sameDocument(choice.name, uploadedName));
     const listed = now.find((choice) => choice.checked) ?? now[0];
     if (listed && (listed.checked || await select(listed))) {
-      remember(board, chosen.id, listed.name, sha);
+      remember(board, chosen.id, { name: listed.name, sha, boardAddedAt: Date.now(), boardAddedTolerance: 24 * 60 * 60_000 });
+      if (replacedOnBoard && match) reportReplaced(board, match.name, listed.name);
       return { action: 'uploaded', name: listed.name, label: chosen.label, board };
     }
   }

@@ -1080,11 +1080,19 @@ function dataApi(): Plugin {
         // Saved résumés on SEEK or Indeed that Owtomate does not hold; the last run recorded them (seek-bot/src/resume-sync.ts).
         return withUser(async (userId) => {
           const file = resolve(userDir(userId), 'board-resumes.json');
-          let report: Record<string, { names?: unknown; seenAt?: unknown }> = {};
+          let report: Record<string, any> = {};
           try { if (existsSync(file)) report = JSON.parse(readFileSync(file, 'utf8')); } catch { report = {}; }
+          const strings = (value: unknown) => (Array.isArray(value) ? value.filter((n): n is string => typeof n === 'string') : []);
           const boards = (['seek', 'indeed'] as const)
-            .map((board) => ({ board, names: Array.isArray(report[board]?.names) ? (report[board]!.names as unknown[]).filter((n): n is string => typeof n === 'string') : [] }))
-            .filter((entry) => entry.names.length);
+            .map((board) => ({
+              board,
+              names: strings(report[board]?.names),
+              // Same-named copies the person replaced on the board; Owtomate sent its own instead.
+              replaced: (Array.isArray(report[`${board}Replaced`]) ? report[`${board}Replaced`] : [])
+                .filter((entry: any) => typeof entry?.name === 'string' && typeof entry?.uploadedAs === 'string')
+                .map((entry: any) => ({ name: entry.name as string, uploadedAs: entry.uploadedAs as string })),
+            }))
+            .filter((entry) => entry.names.length || entry.replaced.length);
           return send({ boards });
         });
       }

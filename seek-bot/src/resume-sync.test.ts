@@ -21,7 +21,7 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
 process.env.CELERIS_API_KEY = 'fixture-only';
 // Every model check answers "nothing wrong, not a submit": this test is about the résumé, not the answers.
 globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems: [], sends_application: false, unsafe: false, reason: 'fixture' }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
-const { ensureChosenResume, documentChoices } = await import('./resume-sync.js');
+const { ensureChosenResume, documentChoices, addedAt } = await import('./resume-sync.js');
 const { observe } = await import('./agent/observe.js');
 const { executeTool } = await import('./agent/tools.js');
 const { RunGuards } = await import('./agent/guards.js');
@@ -30,9 +30,9 @@ const { loadResumes } = await import('./resume.js');
 const chosen = loadResumes()[0];
 
 /** A SEEK-like step: saved résumés as radios, an upload that saves and selects what it receives. */
-const seekStep = (saved: Array<{ name: string; checked?: boolean }>) => `<!doctype html><main>
+const seekStep = (saved: Array<{ name: string; checked?: boolean; added?: string }>) => `<!doctype html><main>
   <h3>Resumé</h3>
-  <div id="list">${saved.map((s, i) => `<label><input type="radio" name="resume" value="${i}" ${s.checked ? 'checked' : ''}> <strong>${s.name}</strong></label>`).join('')}
+  <div id="list">${saved.map((s, i) => `<div class="item"><label><input type="radio" name="resume" value="${i}" ${s.checked ? 'checked' : ''}> <strong>${s.name}</strong></label>${s.added ? `<span>Added ${s.added}</span>` : ''}</div>`).join('')}
   <label><input type="radio" name="resume" value="none"> Don't include a resumé</label></div>
   <label>Profile photo <input type="file" accept="image/*"></label>
   <button type="button">Upload</button><input id="doc" type="file" accept=".doc,.docx,.pdf,.txt,.rtf" style="display:none">
@@ -107,6 +107,47 @@ try {
   assert.equal((await ensureChosenResume(page, chosen)).action, 'none', 'employer sites are not touched here');
   await open(page, seekUrl, '<main><label>Phone<input></label><button>Continue</button></main>');
   assert.equal((await ensureChosenResume(page, chosen)).action, 'none', 'a step without résumés is not touched');
+
+  // 8. Reading when a copy was added.
+  const now = Date.UTC(2026, 9, 2, 3, 0);
+  const day = 24 * 60 * 60_000;
+  assert.equal(addedAt('Added 20 days ago', now)?.at, now - 20 * day);
+  assert.equal(addedAt('Added about 1 month ago', now)?.at, now - 30 * day);
+  assert.equal(addedAt('Added just now', now)?.at, now);
+  assert.equal(addedAt('Added 3 hours ago', now)?.at, now - 3 * 60 * 60_000);
+  assert.equal(addedAt('September 19', now)?.at, Date.UTC(2026, 8, 19));
+  assert.equal(addedAt('December 30', now)?.at, Date.UTC(2025, 11, 30), 'a date without a year is never in the future');
+  assert.equal(addedAt('Raunak_New_Resume.docx', now), null);
+
+  // 9. Replaced on SEEK under the same name: not Owtomate's, so Owtomate's copy goes up and the person is told.
+  rmSync(join(directory, 'resume-sync.json'));
+  writeFileSync(resumeFile, 'resume version three');
+  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: '20 days ago' }]));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', 'first sighting is trusted and dated');
+  assert.ok(Math.abs(record().seek['5'].boardAddedAt - (Date.now() - 20 * day)) < 60_000, 'the board copy is dated from what the board said');
+  // The next day the same file still reads as the same copy...
+  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: '21 days ago' }]));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', 'a relative date drifting with time is the same copy');
+  // ...but one added just now, under the same name, is the person's own new file.
+  await open(page, seekUrl, seekStep([{ name: 'Raunak_New_Resume (2).docx', checked: true, added: 'just now' }]));
+  result = await ensureChosenResume(page, chosen);
+  assert.equal(result.action, 'uploaded', "a same-named copy added later is replaced by Owtomate's");
+  assert.match(String(await checkedName(page)), /\(updated \d{4}-\d{2}-\d{2}\)\.docx$/);
+  const told = JSON.parse(readFileSync(join(directory, 'board-resumes.json'), 'utf8'));
+  assert.equal(told.seekReplaced?.[0]?.name, 'Raunak_New_Resume (2).docx', 'the dashboard is told which copy was replaced');
+
+  // 10. Indeed's dated single file, replaced later under the same name.
+  rmSync(join(directory, 'resume-sync.json'));
+  const indeedUrl = 'https://smartapply.indeed.com/beta/indeedapply/form/resume-selection-module/resume-selection';
+  const indeedStep = (date: string) => `<main><div role="radiogroup"><div class="card"><div role="radio" aria-checked="true" aria-label="Raunak_New_Resume (2).pdf"></div><span>${date}</span></div></div>
+    <input type="file" accept=".pdf,.docx" onchange="setTimeout(() => { const c = document.querySelector('[role=radio]'); c.setAttribute('aria-label', this.files[0].name); }, 300)"><button>Continue</button></main>`;
+  await open(page, indeedUrl, indeedStep('September 19'));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept');
+  await open(page, indeedUrl, indeedStep('September 19'));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'kept', 'the same Indeed file is kept');
+  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  await open(page, indeedUrl, indeedStep(today));
+  assert.equal((await ensureChosenResume(page, chosen)).action, 'uploaded', "Indeed's file replaced today is replaced by Owtomate's");
 
   // 7. Through the agent: pressing Continue on SEEK's documents step settles the résumé first.
   rmSync(join(directory, 'resume-sync.json'));

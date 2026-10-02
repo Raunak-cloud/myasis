@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
  * employers are not getting it. Said once, with the way to use one; hidden
  * for good once dismissed, until the list changes.
  */
-interface BoardResumes { boards: Array<{ board: 'seek' | 'indeed'; names: string[] }> }
+interface BoardResumes { boards: Array<{ board: 'seek' | 'indeed'; names: string[]; replaced?: Array<{ name: string; uploadedAs: string }> }> }
 
 const BOARD = { seek: 'SEEK', indeed: 'Indeed' } as const;
 
@@ -25,7 +25,7 @@ export function BoardResumesNote() {
       .catch(() => {});
   }, []);
 
-  const signature = boards.map((entry) => `${entry.board}:${entry.names.join('|')}`).join(';');
+  const signature = boards.map((entry) => `${entry.board}:${entry.names.join('|')}:${(entry.replaced ?? []).map((r) => r.uploadedAs).join('|')}`).join(';');
   if (!boards.length || dismissed === signature) return null;
 
   const dismiss = () => {
@@ -37,10 +37,20 @@ export function BoardResumesNote() {
     <div className="banner board-resumes-note" role="note">
       <div>
         {boards.map((entry) => (
-          <p key={entry.board}>
-            <strong>{BOARD[entry.board]}</strong> has {entry.names.length === 1 ? 'a résumé' : 'résumés'} Owtomate doesn't send:{' '}
-            {entry.names.join(', ')}.
-          </p>
+          <div key={entry.board}>
+            {entry.names.length > 0 && (
+              <p>
+                <strong>{BOARD[entry.board]}</strong> has {entry.names.length === 1 ? 'a résumé' : 'résumés'} Owtomate doesn't send:{' '}
+                {entry.names.join(', ')}.
+              </p>
+            )}
+            {(entry.replaced ?? []).map((replaced) => (
+              <p key={replaced.uploadedAs}>
+                You uploaded a new &ldquo;{replaced.name}&rdquo; to <strong>{BOARD[entry.board]}</strong>, so Owtomate sent its own copy
+                as &ldquo;{replaced.uploadedAs}&rdquo; instead.
+              </p>
+            ))}
+          </div>
         ))}
         <p className="job-meta">Applications always send the résumé in Owtomate. To use one of these instead, upload it in Setup.</p>
       </div>
