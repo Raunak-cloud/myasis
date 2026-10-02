@@ -1,6 +1,6 @@
 import { measured, metric } from './pipeline.js';
 import { pickResumeForJob } from './resume.js';
-import { appliesThroughGovernmentSite, assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
+import { appliesThroughGovernmentSite, assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict } from './llm.js';
 import { config, loadProfile } from './config.js';
 import {
   launchBrowser,
@@ -267,8 +267,41 @@ async function main() {
       return accepted;
     };
 
+    /**
+     * The candidate's own rules, read from the search result before the
+     * listing is opened. Two in five fit rejections were "your instructions
+     * rule this out", mostly a senior or manager title, and each one cost a
+     * page load, a reading pause and a model call to learn what the title
+     * already said. The same rule check runs here on the card; a card that
+     * leaves it open is decided on the listing, as before.
+     *
+     * Checked in the background as results arrive, a few at a time. Review
+     * never waits for one: a listing whose card is not checked yet is opened.
+     */
+    const cardConflicts = new Map<string, { conflict: string; because: string }>();
+    const cardQueue: JobListing[] = [];
+    let cardWorkers = 0;
+    const checkCards = (jobs: JobListing[]) => {
+      if (!config.celeris.apiKey || !config.aiInstructions.trim()) return;
+      cardQueue.push(...jobs);
+      while (cardWorkers < config.limits.fitConcurrency && cardQueue.length) {
+        cardWorkers++;
+        void (async () => {
+          try {
+            for (let job = cardQueue.shift(); job; job = cardQueue.shift()) {
+              const rule = await ruleConflict(job).catch(() => null);
+              if (rule?.conflict) cardConflicts.set(reviewKey(job), rule);
+            }
+          } finally {
+            cardWorkers--;
+          }
+        })();
+      }
+    };
+
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
+      checkCards(jobs);
       if (!jobs.length || !rankingAvailable) return;
       try {
         for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
@@ -278,7 +311,8 @@ async function main() {
       }
     };
     const isPromising = (job: JobListing): boolean =>
-      !rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR;
+      !cardConflicts.has(reviewKey(job))
+      && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
     const promisingCount = (): number => shortlist.filter(isPromising).length;
 
     // Sign in to every board and collect every recommendation feed first.
@@ -622,6 +656,18 @@ async function main() {
         bump('outside run scope');
         return;
       }
+      const cardRule = cardConflicts.get(reviewKey(stub));
+      if (cardRule) {
+        const reason = `Your instructions rule this out ("${cardRule.conflict}"). ${cardRule.because}`;
+        console.log(`  ✗ ${jobLabel(stub)} — ${reason} (from the search result; not opened)`);
+        metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
+        bump('fit mismatch');
+        logOutcome({
+          status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company,
+          reviewCache: reviewCacheMetadata(stub, 'fit-mismatch', reviewContext, REVIEW_TTL.fit),
+        });
+        return;
+      }
       let job: JobListing;
       try {
         job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
@@ -790,6 +836,8 @@ async function main() {
     };
 
     const printSummary = () => {
+      // Review is over: cards still waiting for a rule check would only be paid for.
+      cardQueue.length = 0;
       if (skips.size) {
         console.log('\nFiltered out:');
         for (const [reason, n] of [...skips].sort((a, b) => b[1] - a[1])) {
@@ -833,11 +881,26 @@ async function main() {
      * A pause spent reviewing. A listing takes about ten seconds (the page and
      * its reading pause), so a new one is only started while at least that
      * much of the pause is left; whatever remains is then waited out.
+     *
+     * The next job's letter starts as soon as there is a next job. It used to
+     * start only if one had already qualified when the pause began, and
+     * usually none had: the one applied for next qualified during the pause,
+     * so its letter was written inside the form, 21–44 s of every application
+     * (1 Oct, all seven). Checked again after each listing reviewed.
      */
     const REVIEW_STEP_MS = 10_000;
-    const pauseWhileReviewing = async (minMs: number, maxMs: number) => {
+    const pauseWhileReviewing = async (minMs: number, maxMs: number, prepareNext: boolean) => {
       const until = Date.now() + Math.floor(minMs + Math.random() * (maxMs - minMs));
-      while (Date.now() < until - REVIEW_STEP_MS && !reviewExhausted()) await advanceReview();
+      let prepared: JobListing | undefined;
+      const prepareBest = () => {
+        const best = prepareNext ? bestCandidate()?.job : undefined;
+        if (best && best !== prepared) prepare((prepared = best));
+      };
+      prepareBest();
+      while (Date.now() < until - REVIEW_STEP_MS && !reviewExhausted()) {
+        await advanceReview();
+        prepareBest();
+      }
       const left = until - Date.now();
       if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
     };
@@ -1036,12 +1099,11 @@ async function main() {
       if (!reviewExhausted() || bestCandidate()) {
         // Preserve full pacing after a submission or verification wall. An
         // attempt that sent nothing only needs a short, polite request gap.
-        const upcoming = bestCandidate();
-        if (upcoming && !candidateHitFriction) prepare(upcoming.job);
         const fullCooldown = outcome.status === 'applied' || candidateHitFriction;
         await pauseWhileReviewing(
           fullCooldown ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
           fullCooldown ? config.limits.maxDelayMs : config.limits.maxNonSubmitDelayMs,
+          !candidateHitFriction,
         );
       }
     }

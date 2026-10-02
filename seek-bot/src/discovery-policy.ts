@@ -25,3 +25,15 @@ export function shouldStopDiscovery(input: {
     && input.promisingJobs >= input.target;
 }
 
+
+/**
+ * The narrowest listing-age window a board's search offers that still covers
+ * the candidate's maximum age, or none when no offered window is wide enough.
+ *
+ * Boards only accept their own fixed windows. Rounding up keeps every listing
+ * the candidate wants; the local age check still drops the few days extra.
+ */
+export function boardAgeWindow(maxAgeDays: number, offered: readonly number[]): number | undefined {
+  if (!Number.isFinite(maxAgeDays) || maxAgeDays < 0) return undefined;
+  return [...offered].sort((a, b) => a - b).find((days) => days >= maxAgeDays);
+}

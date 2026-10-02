@@ -2,6 +2,7 @@ import type { Page } from 'patchright';
 import { config } from './config.js';
 import { jitter, waitForChallengeToClear } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
+import { boardAgeWindow } from './discovery-policy.js';
 import type { JobListing } from './types.js';
 
 /**
@@ -182,6 +183,9 @@ export async function recommended(page: Page): Promise<JobListing[]> {
     .map((job) => ({ ...job, source: 'recommended' as const }));
 }
 
+/** SEEK's "Listed" filter: 24 hours, 3, 7, 14 or 31 days. */
+const SEEK_DATE_RANGES = [1, 3, 7, 14, 31] as const;
+
 /**
  * Search URL for one keyword and page.
  *
@@ -197,6 +201,9 @@ export function searchUrl(keywords: string, pageNum = 1): string {
     params.set('where', location);
     params.set('distance', String(radiusKm));
   }
+  // Listings older than the candidate allows used to fill result pages and be opened only to be dropped.
+  const listedWithin = boardAgeWindow(config.rules.maxAgeDays, SEEK_DATE_RANGES);
+  if (listedWithin) params.set('daterange', String(listedWithin));
   if (pageNum > 1) params.set('page', String(pageNum));
   return `${config.seekBase}/jobs?${params.toString()}`;
 }

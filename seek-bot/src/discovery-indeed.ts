@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { jitter, waitForChallengeToClear } from './browser.js';
 import type { JobListing } from './types.js';
 import { runScope } from './run-scope.js';
+import { boardAgeWindow } from './discovery-policy.js';
 
 /**
  * How Indeed actually works (verified live against au.indeed.com, signed in,
@@ -105,11 +106,17 @@ function annualSalaryMin(extracted?: { min?: number; max?: number; type?: string
   return extracted.type === 'YEARLY' ? extracted.min : undefined;
 }
 
+/** Indeed's "Date posted" filter: last 24 hours, 3, 7 or 14 days. */
+const INDEED_DATE_POSTED = [1, 3, 7, 14] as const;
+
 function searchUrl(keywords: string, pageNum: number, selectedJobId?: string): string {
   const start = (pageNum - 1) * 10;
   const location = config.search.location || 'Australia';
   const params = new URLSearchParams({ q: keywords, l: location, sort: 'date' });
   if (start > 0) params.set('start', String(start));
+  // Listings older than the candidate allows used to fill result pages and be opened only to be dropped.
+  const postedWithin = boardAgeWindow(config.rules.maxAgeDays, INDEED_DATE_POSTED);
+  if (postedWithin) params.set('fromage', String(postedWithin));
   if (config.search.location && config.search.radiusKm > 0) {
     params.set('radius', String(config.search.radiusKm));
   }

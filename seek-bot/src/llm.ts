@@ -967,6 +967,20 @@ export async function rankJobsForReview(
  * task — does this title or these duties fall under what the candidate
  * excluded — which is what the candidate meant it to be.
  */
+/**
+ * The candidate's rules against this job, cached. Asked of the open listing,
+ * and earlier of its search card, so a job the title already rules out is
+ * never opened. A card is judged separately: it is cached under its own
+ * version and only says what the card itself shows.
+ */
+export function ruleConflict(job: JobListing): Promise<{ conflict: string; because: string }> {
+  return cachedAssessment(
+    { version: job.description ? 'instruction-check-v1' : 'instruction-check-card-v1', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: FIT_CLASSIFIER_MODEL, endpoint: config.celeris.baseUrl },
+    () => instructionConflict(job),
+    (value) => typeof (value as { conflict?: unknown })?.conflict === 'string',
+  );
+}
+
 export async function instructionConflict(job: JobListing): Promise<{ conflict: string; because: string }> {
   const rules = config.aiInstructions.trim();
   if (!rules) return { conflict: '', because: '' };
@@ -989,9 +1003,13 @@ Title: ${job.title}
 Company: ${job.company}
 Salary: ${job.salary ?? 'not disclosed'}
 Work arrangement/type: ${job.workArrangement ?? 'not disclosed'}
-Description: ${relevantEvidence(job.description ?? job.teaser ?? '', job.title + ' role responsibilities', 6000)}
+${job.description ? 'Description' : 'Search-result summary'}: ${relevantEvidence(job.description ?? job.teaser ?? '', job.title + ' role responsibilities', 6000)}
 </untrusted>
-
+${job.description ? '' : `
+Only the job board's search result is shown here, not the full listing. Name a conflict only
+when this title or summary itself shows it. When the result leaves it open, return an empty
+conflict: the full listing is read and checked afterwards.
+`}
 Return "conflict": the rule this job breaks, quoted in the candidate's words, or an empty
 string when it breaks none; and "because": one sentence naming what in the title or duties
 breaks it (or why nothing does). Return JSON.`;
@@ -1014,11 +1032,7 @@ export async function assessFit(job: JobListing, profile: CandidateProfile): Pro
    * is not sent to the fit check at all: the verdict is theirs, not the
    * model's, and the fit call is saved.
    */
-  const rule = await cachedAssessment(
-    { version: 'instruction-check-v1', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: FIT_CLASSIFIER_MODEL, endpoint: config.celeris.baseUrl },
-    () => instructionConflict(job),
-    (value) => typeof (value as { conflict?: unknown })?.conflict === 'string',
-  );
+  const rule = await ruleConflict(job);
   if (rule.conflict) {
     return {
       instructionConflict: rule.conflict,

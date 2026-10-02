@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { discoveryTarget, nextLowYieldStreak, shouldStopDiscovery } from './discovery-policy.js';
+import { boardAgeWindow, discoveryTarget, nextLowYieldStreak, shouldStopDiscovery } from './discovery-policy.js';
 
 test('caps discovery at the smaller review or candidate budget', () => {
   assert.equal(discoveryTarget(80, 24), 24);
@@ -20,4 +20,12 @@ test('two consecutive zero-yield pages stop a search stream', () => {
   streak = nextLowYieldStreak(streak, 0);
   assert.equal(streak, 2);
   assert.equal(nextLowYieldStreak(streak, 1), 0);
+});
+
+test('board age window rounds up to an offered window, never down', () => {
+  assert.equal(boardAgeWindow(14, [1, 3, 7, 14, 31]), 14);
+  assert.equal(boardAgeWindow(10, [1, 3, 7, 14, 31]), 14);
+  assert.equal(boardAgeWindow(0, [1, 3, 7, 14]), 1);
+  assert.equal(boardAgeWindow(20, [1, 3, 7, 14]), undefined);
+  assert.equal(boardAgeWindow(Number.NaN, [1, 3, 7, 14]), undefined);
 });
