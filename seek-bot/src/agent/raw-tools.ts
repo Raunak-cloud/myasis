@@ -258,7 +258,9 @@ async function clickElement(ctx: ToolContext, args: Record<string, unknown>): Pr
       .catch(() => target.dispatchEvent('click', undefined, { timeout: 3_000 }).then(() => true).catch(() => false));
     if (!clicked) return ok(`Could not click "${facts.name}". Something may cover it: close it with press_key Escape, or scroll it into view.`);
     ctx.guards.recordProgress();
-    return ok(`Clicked "${facts.name}". ${await changedAfter(ctx.page, before) ? 'The page changed.' : 'Nothing visible changed.'}`);
+    // Waited on for the page to settle; what changed is recorded and reported by the loop.
+    await changedAfter(ctx.page, before);
+    return ok(`Clicked "${facts.name}".`);
   });
 }
 
@@ -343,7 +345,8 @@ async function typeText(ctx: ToolContext, args: Record<string, unknown>): Promis
     const before = await surface(ctx.page);
     await ctx.page.keyboard.type(text, { delay: 25 });
     ctx.captured.push({ question: 'typed text', answer: text });
-    return ok(`Typed "${text.slice(0, 80)}" into the focused element. ${await changedAfter(ctx.page, before, 2_500) ? 'The page changed.' : 'Nothing visible changed — was the right element focused? Click it first.'}`);
+    await changedAfter(ctx.page, before, 2_500);
+    return ok(`Typed "${text.slice(0, 80)}" into the focused element (if nothing below shows it landed, click the right element first).`);
   });
 }
 

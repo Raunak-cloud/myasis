@@ -31,7 +31,8 @@
     "test:pacing": "tsc && node --test dist/pacing.test.js",
     "test:hcaptcha": "tsc && node dist/captcha/hcaptcha.test.js",
     "test:auth-rules": "tsc && node dist/agent/auth-rules.test.js && node --test dist/site-password.test.js",
-    "test:no-dead-ends": "tsc && node dist/agent/no-dead-ends.test.js"
+    "test:no-dead-ends": "tsc && node dist/agent/no-dead-ends.test.js",
+    "test:plan-loop": "tsc && node dist/agent/plan-loop.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

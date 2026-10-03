@@ -1,6 +1,8 @@
 import { hostOf as siteHost } from '../site-auth.js';
 import { recordWall, walledHost } from '../site-walls.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
+import { changedAnything, describeChanges, readChanges, startRecording, type PageChanges } from './page-changes.js';
+import { lessonsFor, platformOf, reviewFailure } from './lessons.js';
 import type { ApplicationAction } from '../types.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -13,7 +15,7 @@ import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js'
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal, listingIdIn, siteDomain } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
-import { executeTool, toolSchemas, type AgentTermination, type ToolContext } from './tools.js';
+import { executeTool, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
 import { embeddedSurface, watchTab } from './raw-tools.js';
 import { browserGmailAvailable } from '../browser-gmail.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -51,7 +53,31 @@ they appear in — always use refs from the most recent observation.
 
 HOW YOU ACT
 You may only call the provided tools, and only with refs you were just shown.
-Call exactly one tool per turn.
+Plan the page: call the tools this page needs, several at once, in the order
+to run them (answer the fields, choose options, attach the resume, then the
+control that moves on or submits, last). They run one after another and the
+first one that does not go as intended stops the rest, so you see what
+happened before anything else is done. Plan only what the current
+observation shows; options that appear after a click are planned next turn.
+
+WHAT HAPPENED, NOT WHAT A TOOL THINKS
+After every action you get a recorded account of what it actually did to the
+page: elements that appeared (dialogs, alerts, errors, toasts), controls whose
+state changed (selected, checked, expanded, invalid, a value typed), elements
+that went away, or a navigation. That record is the evidence; judge from it
+and from the screenshot, not from assumptions. A radio whose class gained
+"highlight" or "selected" was selected; an error that appeared names what to
+fix; "no change of any kind" means the action truly did nothing, so try a
+different element or approach rather than repeating it.
+
+THINK INDEPENDENTLY
+You decide how to get past any obstacle in the form: a widget that does not
+respond, a hidden control, an unusual flow. Inspect it (take_snapshot,
+evaluate_script to read the DOM, a screenshot), form a theory, and test it.
+The only fixed limits are the ones the tools enforce: answers come from the
+candidate's record, the approved resume and letter are the only documents,
+submission is checked first, credentials stay private, security checks are
+never bypassed.
 
 YOU DO NOT WRITE ANSWERS
 You never compose what goes into an employer's form. For employer questions,
@@ -218,6 +244,21 @@ function systemPrompt(): string {
  * still bound how long an agent may spend looking.
  */
 const LOOK_ONLY_TOOLS = new Set(['take_snapshot', 'take_screenshot', 'scroll', 'list_pages', 'get_diagnostics']);
+
+/** The most actions one plan may hold; a page needing more is planned again after the first batch. */
+const MAX_PLAN = 6;
+
+/** A tool reporting that its step did not go as intended: the rest of a plan waits for a fresh look. */
+const SURPRISE = /\b(not accepted|could not|couldn't|refused|invalid refs?|do not advance|withheld|failed|no longer on the page|not filled yet|did not|no option matches|choose a current|choose the visible|give a ref|none of those refs|that point targets|use answer_questions|unavailable|not identified|is a site control|not run)\b/i;
+
+/** Observation refs (a3, f12) a planned call names that are no longer on the page. Snapshot refs are left to their tool. */
+async function missingRefs(page: Page, args: Record<string, unknown>): Promise<string[]> {
+  const named = [args.ref, args.field_ref, ...(Array.isArray(args.refs) ? args.refs : [])]
+    .map((value) => String(value ?? '')).filter((ref) => /^[af]\d+$/.test(ref));
+  if (!named.length) return [];
+  return page.evaluate((refs) => refs.filter((ref) =>
+    !document.querySelector(`[data-ref-id="${ref}"], [data-field-id="${ref}"]`)), named).catch(() => []);
+}
 
 const BROWSER_TOOLS_PROMPT = `BROWSER TOOLS
 The tools above are built for application forms and carry the candidate's
@@ -577,6 +618,10 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let lastSignature = '';
   /** A screenshot on the next turn, because the last action failed in a way text does not explain. */
   let needVision = false;
+  /** The last turn's actions changed something in the page, as recorded there. */
+  let lastChanged = false;
+  /** A tool in the last turn reported a problem. */
+  let lastFailed = false;
   /** Where and when verified progress happened, to confirm the sign-ins and sign-ups before it. */
   const progressLog: Array<{ site: string; at: string }> = [];
   /** Consecutive tool calls that threw; see the recovery note where tools run. */
@@ -699,6 +744,14 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * come: Macquarie's portal cost four attempts across two runs on 3 Oct,
      * three to five minutes each, ending the same way every time.
      */
+    // A failed employer-site attempt is reviewed in the background, and its lesson kept for the platform.
+    if ((finalOutcome.status === 'skipped' || finalOutcome.status === 'needs-human') && isExternal(page.url())) {
+      reviewFailure({
+        host: siteHost(page.url()), company: job.company, title: job.title,
+        reason: `${finalOutcome.reason}${outcome.status === 'needs-human' && outcome.detail ? ` (${outcome.detail})` : ''}`,
+        steps: trace.map(({ tool, args, result, url }) => ({ tool, args, result, url })),
+      });
+    }
     if (finalOutcome.status !== 'applied' && finalOutcome.status !== 'rehearsed') {
       for (const action of ctx.actions) {
         if (action.kind !== 'authentication-prepared' || action.purpose !== 'sign_in') continue;
@@ -843,11 +896,12 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       // The observation is the main frame's; work inside an embedded form is progress too.
       embedded: config.celeris.rawTools ? await embeddedSurface(page) : '',
     });
-    if (page.url() === lastUrl && fingerprint === lastFingerprint && lastLookedOnly) {
-      // Looking is not failing. PERSOL's form was abandoned after scrolls and snapshots counted as six dead actions.
+    if (page.url() === lastUrl && fingerprint === lastFingerprint && (lastLookedOnly || lastChanged)) {
+      // Looking is not failing (PERSOL's form was abandoned after scrolls and snapshots counted as six dead actions),
+      // and an action the page visibly reacted to is not a dead one, whatever the observation's summary shows.
     } else if (page.url() === lastUrl && fingerprint === lastFingerprint) {
       stalls += 1;
-      note = `${note}\n\nNOTE: the page is unchanged from the previous turn — your last action had no effect. Try a different control.`;
+      note = `${note}\n\nNOTE: nothing in the page changed in response to your last action (recorded in the page itself). Try a different approach.`;
       const disabledForward = ctx.observation.actions.find(action =>
         action.disabled && /\b(?:continue|next|review|submit|send application|apply)\b/i.test(action.text),
       );
@@ -885,8 +939,16 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * (133-147 s against 133-137 s). The step model is not where the time goes.
      */
     const model: CelerisModel = 'celeris-1-magnus';
-    if (stalls === config.celeris.escalateAfterStalls) {
-      log(`  ↑ step ${guards.stepCount} stalled — ${model} reassessing the page`);
+    /**
+     * Thinking harder where it pays. A routine step reasons briefly; a step
+     * on a page that is not moving reasons at length, with the screenshot in
+     * front of it and an explicit request to step back and form a theory
+     * before acting. Paid only on the steps that are stuck.
+     */
+    const stuck = stalls >= config.celeris.escalateAfterStalls || lastFailed;
+    if (stuck) {
+      log(`  ↑ step ${guards.stepCount} stuck — ${model} thinking it through`);
+      note = `${note}\n\nSTUCK: the last ${Math.max(stalls, 1)} action(s) did not get this page further. Before acting, reason it through: what you expected, what the recorded changes and the screenshot actually show, and why your approach is not working. Then try a genuinely different approach (another control or element, the keyboard, a snapshot to find the real element, a script to inspect the widget), not the same action again.`;
     }
 
     /**
@@ -899,6 +961,10 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       const hint = loadSiteHints()[host];
       if (hint?.steps.length) {
         note = `${note}\n\nOn ${host} an earlier application succeeded with these steps (a guide, not a script):\n${hint.steps.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
+      }
+      const lessons = isExternal(page.url()) ? lessonsFor(host) : [];
+      if (lessons.length) {
+        note = `${note}\n\nLessons from earlier attempts on ${platformOf(host)} forms, written after they failed (guidance, not rules; the page in front of you decides):\n${lessons.map((lesson) => `- ${lesson}`).join('\n')}`;
       }
     }
 
@@ -921,21 +987,25 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       messages: trimmed,
       tools: toolSchemas({ vision: Boolean(ctx.observation.screenshot) }),
       requireTool: true,
-      thinking: model === 'celeris-1-magnus',
+      thinking: true,
+      reasoningEffort: stuck ? 'xhigh' : 'low',
       meter,
     });
 
-    if (reply.toolCalls.length > 1) {
-      messages.push(reply.message);
-      for (const proposed of reply.toolCalls) messages.push({ role: 'tool', tool_call_id: proposed.id, content: 'Not executed. Propose exactly one action using the current observation.' });
-      stalls++;
-      continue;
-    }
-    const call = reply.toolCalls[0];
-    if (!call) {
+    /**
+     * A plan for the page: the model may return several actions in the order
+     * to take them (answer the fields, choose the options, attach, then the
+     * forward control), and they run one after another without a model call
+     * between them. Each is checked as it runs; the first surprise — a tool
+     * reporting a problem, the page navigating or opening something new, a
+     * planned ref no longer on the page — stops the rest, and the model sees
+     * what happened and plans again.
+     */
+    const plan = reply.toolCalls.slice(0, MAX_PLAN);
+    if (!plan.length) {
       // Nothing actionable came back. One nudge, then treat it as stuck.
       messages.push(reply.message);
-      messages.push({ role: 'user', content: 'You must call exactly one tool. Choose a ref from the observation above.' });
+      messages.push({ role: 'user', content: 'Call at least one tool. Choose refs from the observation above.' });
       stalls += 1;
       if (stalls >= config.celeris.escalateAfterStalls + 2) {
         return finish({
@@ -947,93 +1017,144 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       continue;
     }
 
-    if (process.env.DEBUG_STEPS === 'true') {
-      log(`    step ${guards.stepCount}: ${call.name}(${JSON.stringify(call.args).slice(0, 120)})`);
-    }
-
     /**
-     * The same action, again and again, on a page that is not changing is a
+     * The same plan, again and again, on a page that is not changing is a
      * loop, not progress. One form ate 22 identical clicks before the step
      * budget ended it; stopping at the fourth saves the budget and the money.
      */
-    const signature = `${call.name}:${JSON.stringify(call.args)}`;
+    const signature = plan.map((call) => `${call.name}:${JSON.stringify(call.args)}`).join('|');
     repeats = signature === lastSignature ? repeats + 1 : 0;
     lastSignature = signature;
     if (repeats >= 3 && stalls >= 2) {
       return finish({
         status: 'needs-human',
         reason: 'The agent kept repeating the same action with no effect.',
-        detail: `stuck repeating ${call.name} with no effect on the page`,
+        detail: `stuck repeating ${plan[0].name} with no effect on the page`,
       });
     }
 
     messages.push(reply.message);
+    if (plan.length > 1) log(`  ▸ plan: ${plan.map((call) => call.name).join(' → ')}`);
+    lastLookedOnly = plan.every((call) => LOOK_ONLY_TOOLS.has(call.name));
+    lastChanged = false;
+    lastFailed = false;
+    const replies: Array<{ id: string; content: string }> = [];
+    let ended: ToolResult | null = null;
 
-    const step: TraceStep = {
-      step: guards.stepCount,
-      url: page.url(),
-      tool: call.name,
-      args: call.args,
-      label: describeCall(ctx, call.name, call.args),
-      screenshot: ctx.observation.screenshot ?? (await page.screenshot({ type: 'jpeg', quality: 35 }).then((b) => `data:image/jpeg;base64,${b.toString('base64')}`).catch(() => undefined)),
-    };
-    trace.push(step);
-    checkpoint();
-
-    let result;
-    lastLookedOnly = LOOK_ONLY_TOOLS.has(call.name);
-    const progressBefore = guards.progressCount;
-    try {
-      result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });
-      toolErrors = 0;
-      if (guards.progressCount > progressBefore && call.name !== 'complete_authentication') {
-        progressLog.push({ site: siteDomain(ctx.page.url()), at: new Date().toISOString() });
+    for (const [index, call] of plan.entries()) {
+      if (index > 0) {
+        // Every later step is checked against the page as it now is.
+        const missing = await missingRefs(page, call.args);
+        if (missing.length) {
+          replies.push({ id: call.id, content: `Not run: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} no longer on the page after the step before. Plan again from the fresh observation.` });
+          continue;
+        }
       }
-    } catch (error) {
-      const message = (error as Error).message.split('\n')[0].slice(0, 300);
-      step.result = `Tool failed: ${message}`;
+      if (process.env.DEBUG_STEPS === 'true') log(`    step ${guards.stepCount}: ${call.name}(${JSON.stringify(call.args).slice(0, 120)})`);
+      if (index > 0) {
+        const budget = guards.nextStep();
+        if (!budget.ok) return finish({ status: 'needs-human', reason: budget.reason, detail: budget.detail });
+      }
+
+      const step: TraceStep = {
+        step: guards.stepCount,
+        url: page.url(),
+        tool: call.name,
+        args: call.args,
+        label: describeCall(ctx, call.name, call.args),
+        screenshot: index === 0
+          ? ctx.observation.screenshot ?? (await page.screenshot({ type: 'jpeg', quality: 35 }).then((b) => `data:image/jpeg;base64,${b.toString('base64')}`).catch(() => undefined))
+          : undefined,
+      };
+      trace.push(step);
       checkpoint();
-      /**
-       * A thrown tool is usually the page, not the application: an overlay
-       * intercepting a click, a control re-rendered mid-action. The agent gets
-       * the error and a fresh look, as a person would retry. Only a closed
-       * browser, or the same breakage three times running, ends the attempt —
-       * as a skip, because the candidate cannot fix a site's technical fault
-       * and "Needs attention" is kept for questions only they can answer.
-       */
-      if (/Target (page|closed)|browser has been closed|context or browser has been closed/i.test(message) || ++toolErrors >= 3) {
-        log(`  · ${call.name} failed: ${message}`);
-        return finish({ status: 'skipped', reason: 'A step on the employer site kept failing.' });
+
+      const progressBefore = guards.progressCount;
+      const looking = LOOK_ONLY_TOOLS.has(call.name);
+      const startedAt = looking ? '' : await startRecording(page).catch(() => '');
+      let result: ToolResult;
+      try {
+        result = await measured(`tool:${call.name}`, () => executeTool(ctx, call.name, call.args), { jobId: job.id });
+        toolErrors = 0;
+        if (guards.progressCount > progressBefore && call.name !== 'complete_authentication') {
+          progressLog.push({ site: siteDomain(ctx.page.url()), at: new Date().toISOString() });
+        }
+      } catch (error) {
+        const message = (error as Error).message.split('\n')[0].slice(0, 300);
+        step.result = `Tool failed: ${message}`;
+        checkpoint();
+        /**
+         * A thrown tool is usually the page, not the application: an overlay
+         * intercepting a click, a control re-rendered mid-action. The agent gets
+         * the error and a fresh look, as a person would retry. Only a closed
+         * browser, or the same breakage three times running, ends the attempt —
+         * as a skip, because the candidate cannot fix a site's technical fault
+         * and "Needs attention" is kept for questions only they can answer.
+         */
+        if (/Target (page|closed)|browser has been closed|context or browser has been closed/i.test(message) || ++toolErrors >= 3) {
+          log(`  · ${call.name} failed: ${message}`);
+          return finish({ status: 'skipped', reason: 'A step on the employer site kept failing.' });
+        }
+        result = { kind: 'ok', message: `${call.name} failed: ${message}. Re-observe the page and try a different way to reach the same goal.` };
       }
-      result = { kind: 'ok' as const, message: `${call.name} failed: ${message}. Re-observe the page and try a different way to reach the same goal.` };
+
+      // What the action really did, recorded in the page, goes with what the tool said.
+      let changes: PageChanges | null = null;
+      if (result.kind === 'ok' && !looking && startedAt && ctx.page === page && !page.isClosed()) {
+        changes = await readChanges(page, startedAt).catch(() => null);
+        if (changes) {
+          result = { kind: 'ok', message: `${result.message}\n${describeChanges(changes)}` };
+          if (changedAnything(changes)) lastChanged = true;
+          else ctx.wantScreenshot = true;
+        }
+      }
+
+      step.result = result.kind === 'ok' ? result.message.slice(0, 600) : `ended: ${result.outcome.status}`;
+      checkpoint();
+
+      if (result.kind === 'terminal') {
+        ended = result;
+        replies.push({ id: call.id, content: 'The attempt ended here.' });
+        break;
+      }
+
+      // Answering questions, attaching a resume or writing the letter all move the
+      // application forward without necessarily changing the page, so they reset
+      // the stuck timer just as a navigation does.
+      if (['add_cover_letter', 'attach_resume'].includes(call.name) && !/could not|unavailable|failed|refused/i.test(result.message)) {
+        guards.recordProgress();
+      }
+
+      if (call.name === 'take_snapshot') {
+        // Only the newest snapshot is worth its weight; an older one is re-sent every turn for nothing.
+        if (lastSnapshotIndex >= 0 && messages[lastSnapshotIndex]?.role === 'tool') {
+          messages[lastSnapshotIndex] = { ...messages[lastSnapshotIndex], content: '[an earlier snapshot, superseded]' } as ChatMessage;
+        }
+        lastSnapshotIndex = messages.length + replies.length;
+      }
+      replies.push({ id: call.id, content: result.message });
+
+      const surprise = SURPRISE.test(result.message) || Boolean(changes?.navigated) || ctx.page !== page
+        || Boolean(changes?.appeared.some((entry) => entry.startsWith('[')));
+      if (SURPRISE.test(result.message)) lastFailed = true;
+      if (surprise && index < plan.length - 1) {
+        for (const skipped of plan.slice(index + 1)) {
+          replies.push({ id: skipped.id, content: 'Not run: the step before did not go as planned. Look at what happened and plan again from the fresh observation.' });
+        }
+        break;
+      }
+      if (index < plan.length - 1) await jitter(250, 600);
     }
 
-    step.result = result.kind === 'ok' ? result.message.slice(0, 400) : `ended: ${result.outcome.status}`;
-    checkpoint();
-    needVision = result.kind === 'ok' && /Not accepted|No option matches|did not open|Could not click|nothing on the page changed|No action|only available while a screenshot/i.test(result.message);
-
-    if (result.kind === 'terminal') {
+    for (const entry of replies) messages.push({ role: 'tool', tool_call_id: entry.id, content: entry.content });
+    if (ended && ended.kind === 'terminal') {
       // The confirmation page is authoritative even here: a submit click that
       // succeeded should be reported as applied, not as whatever the tool said.
       if (await detectConfirmation(page)) return finish({ status: 'applied' });
-      return finish(result.outcome);
+      return finish(ended.outcome);
     }
+    needVision = lastFailed;
 
-    // Answering questions, attaching a resume or writing the letter all move the
-    // application forward without necessarily changing the page, so they reset
-    // the stuck timer just as a navigation does.
-    if (['add_cover_letter', 'attach_resume'].includes(call.name) && !/could not|unavailable|failed|refused/i.test(result.message)) {
-      guards.recordProgress();
-    }
-
-    if (call.name === 'take_snapshot') {
-      // Only the newest snapshot is worth its weight; an older one is re-sent every turn for nothing.
-      if (lastSnapshotIndex >= 0 && messages[lastSnapshotIndex]?.role === 'tool') {
-        messages[lastSnapshotIndex] = { ...messages[lastSnapshotIndex], content: '[an earlier snapshot, superseded]' } as ChatMessage;
-      }
-      lastSnapshotIndex = messages.length;
-    }
-    messages.push({ role: 'tool', tool_call_id: call.id, content: result.message });
     // A tool may have moved the work to another tab (select_page).
     if (ctx.page !== page && !ctx.page.isClosed()) {
       tabsLeft.push(page);

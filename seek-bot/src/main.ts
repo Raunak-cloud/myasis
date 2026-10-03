@@ -20,6 +20,7 @@ import {
 } from './discovery-indeed.js';
 import { scoreJob, deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { SitePacer } from './pacing.js';
+import { settleReviews } from './agent/lessons.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, recentReviewFeedback, roleKey, saveRunSummary, syncFromSeek } from './store.js';
@@ -1140,6 +1141,8 @@ async function main() {
   } finally {
     metric('run-total', performance.now() - startedAt);
     await closeBrowser(ctx);
+    // Reviews of failed attempts still running finish before the process ends, so their lessons are kept.
+    await settleReviews();
   }
 }
 

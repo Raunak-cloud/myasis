@@ -958,8 +958,8 @@ async function doClick(ctx: ToolContext, args: Record<string, unknown>): Promise
     changed
       ? `Clicked "${action.text}". The page changed; a fresh observation follows.`
       : submit
-        ? `Clicked "${action.text}" but the form did not submit. A form that refuses to submit almost always shows a validation message beside an incomplete required field, often near the top: scroll up, re-observe, and answer or fix the field it names before trying again.`
-        : `Clicked "${action.text}" but nothing on the page changed. It was probably not the control that advances this step — try a different one.`,
+        ? `Clicked "${action.text}". The page shows no confirmation yet. A form that refuses to submit almost always shows a validation message beside an incomplete required field, often near the top: check what happened below, scroll up if needed, and fix the field it names before trying again.`
+        : `Clicked "${action.text}".`,
   );
 }
 
@@ -1749,7 +1749,7 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
   await waitForInteractiveSurface(ctx.page, 4_000);
   return ok(
     `Clicked at (${gx},${gy}) on <${under.tag.toLowerCase()}> "${under.text}". ` +
-      (changed ? 'The page changed; a fresh observation follows.' : 'Nothing on the page changed.'),
+      (changed ? 'The page changed; a fresh observation follows.' : ''),
   );
 }
 
@@ -1856,7 +1856,7 @@ async function doPressKey(ctx: ToolContext, args: Record<string, unknown>): Prom
     const before = await captureInteractivePageState(ctx.page);
     await ctx.page.keyboard.press(key);
     const changed = await waitForInteractivePageChange(ctx.page, before, 2_500);
-    return ok(`Pressed ${key}. ${changed ? 'The page changed; a fresh observation follows.' : 'Nothing visible changed.'}`);
+    return ok(`Pressed ${key}.${changed ? ' The page changed; a fresh observation follows.' : ''}`);
   });
 }
 
