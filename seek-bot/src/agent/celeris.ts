@@ -110,7 +110,12 @@ export class CostMeter {
   }
 
   get exhausted(): boolean {
-    return this.totals.costUsd >= this.budgetUsd;
+    return this.exceeds(1);
+  }
+
+  /** Spent at least `scale` times the base budget. */
+  exceeds(scale: number): boolean {
+    return this.totals.costUsd >= this.budgetUsd * Math.max(1, scale);
   }
 
   summary(): string {

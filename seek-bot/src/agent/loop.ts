@@ -682,6 +682,20 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
     persistTrace(job, finalOutcome, trace, page.url());
     confirmAuthentication(ctx.actions, progressLog, finalOutcome.status === 'applied' ? siteDomain(page.url()) : null);
+    /**
+     * A site Owtomate could not sign in to, which the attempt never got past,
+     * is walled for the day like a failed security check. Its account exists
+     * under a password Owtomate does not hold and its reset mail does not
+     * come: Macquarie's portal cost four attempts across two runs on 3 Oct,
+     * three to five minutes each, ending the same way every time.
+     */
+    if (finalOutcome.status !== 'applied' && finalOutcome.status !== 'rehearsed') {
+      for (const action of ctx.actions) {
+        if (action.kind !== 'authentication-prepared' || action.purpose !== 'sign_in') continue;
+        const gotIn = ctx.actions.some((known) => (known.kind === 'signed-in' || known.kind === 'account-created') && known.site === action.site);
+        if (!gotIn) recordWall(action.site, 'Owtomate could not sign in to this site and its password reset did not come through.');
+      }
+    }
     const plain: AgentTermination = finalOutcome.status === 'needs-human' ? { ...finalOutcome, detail: undefined } : finalOutcome;
     return {
       // Every needs-human carries the questions the profile could not answer, so

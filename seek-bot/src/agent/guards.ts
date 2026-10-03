@@ -211,7 +211,14 @@ export class RunGuards {
         detail: `overall time limit reached (${Math.round(elapsed / 1000)}s)`,
       };
     }
-    if (this.options.meter.exhausted) {
+    /**
+     * The model allowance grows with the step allowance, which verified
+     * progress already earns (up to three times the base). A fixed dollar
+     * cap ended a Workday form for nib, still making progress, with the
+     * account made, signed in and the letter uploaded: the steps it had
+     * earned were refused for want of the money to take them.
+     */
+    if (this.options.meter.exceeds(this.stepCeiling / this.options.maxSteps)) {
       /**
        * The meter summary — call counts, token counts, dollars — is for the
        * log. It reached the dashboard verbatim once, as the reason a job
