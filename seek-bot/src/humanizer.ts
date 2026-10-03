@@ -88,7 +88,15 @@ async function rewriteText(
       },
       {
         role: 'user',
-        content: `Rewrite this ${purpose} in a natural, personal voice while preserving its original meaning. Keep it at or below ${maxWords} words. Every number, date and duration must appear exactly as in the draft.${spelling}\n\n<draft>\n${text}\n</draft>`,
+        /**
+         * The length is asked for as a target, not only a ceiling. Told only
+         * "at or below 250", the model wrote to 250 and a draft already near
+         * the limit came back over it on most tries (three rejected rewrites
+         * on one 3 Oct application, 30 s of humanizer time for nothing). A
+         * target a little under the draft's own length keeps it inside the
+         * band without truncating it.
+         */
+        content: `Rewrite this ${purpose} in a natural, personal voice while preserving its original meaning. Aim for about ${Math.max(60, Math.min(maxWords, wordCount(text)) - 15)} words and never more than ${maxWords}. Every number, date and duration must appear exactly as in the draft.${spelling}\n\n<draft>\n${text}\n</draft>`,
       },
     ],
     temperature,
