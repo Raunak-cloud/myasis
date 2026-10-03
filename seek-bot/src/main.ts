@@ -314,8 +314,15 @@ async function main() {
         console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
       }
     };
+    /**
+     * A listing already known to be outside this run's scope fills no slot:
+     * an employer-sites-only run counted SEEK Quick Apply recommendations as
+     * promising, stopped before any job-title search, and then filtered 123
+     * of them out as "outside run scope", so new search terms were never searched.
+     */
     const isPromising = (job: JobListing): boolean =>
       !cardConflicts.has(reviewKey(job))
+      && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
       && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
     const promisingCount = (): number => shortlist.filter(isPromising).length;
 

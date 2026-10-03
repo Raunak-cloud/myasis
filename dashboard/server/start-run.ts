@@ -255,6 +255,20 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     } catch (error) {
       return { ok: false, status: 503, error: `Could not verify run allowance: ${(error as Error).message}` };
     }
+  } else {
+    /**
+     * A search submits nothing and spends no allowance, but it should review
+     * the same jobs a live run would: employer-site listings included for an
+     * account that may apply to them. Left unset, a search treated every
+     * employer-site listing as "external application disabled", so an
+     * employer-sites-only search could never find a job (0 of 191 on 4 Oct).
+     */
+    const allowance = await billingStatus(userId, email).catch(() => null);
+    overrides.ALLOW_EXTERNAL_APPLY = mayRunEmployerSiteApplications({
+      targetIsAdmin: admin,
+      initiatedByAdmin: trigger === 'admin',
+      hasIntensiveAllowance: Boolean(allowance?.paid.hasActiveIntensivePass),
+    }) ? 'true' : 'false';
   }
 
   /**
