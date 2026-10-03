@@ -571,10 +571,8 @@ export function RunPanel({
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setActivityOpen(false);
     };
-    document.body.classList.add('activity-open');
     window.addEventListener('keydown', close);
     return () => {
-      document.body.classList.remove('activity-open');
       window.removeEventListener('keydown', close);
     };
   }, [activityOpen]);

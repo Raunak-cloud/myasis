@@ -1677,7 +1677,13 @@ button.metric-tile:hover strong { color: var(--accent); }
   .run-dashboard .console-card.open .activity-body:has(> .console-empty) { display: grid; place-content: center; }
   .run-dashboard .console-card.open .console-empty { min-height: 0; margin: 0; padding: 24px 16px; }
   .activity-close { display: inline-flex; min-height: 36px; }
-  body.activity-open { overflow: hidden; }
+  /*
+   * The page behind the modal stays put. Read from the modal itself rather
+   * than a class on <body>: the body once carried "activity-open", which is
+   * also the phone's activity button, so every button style — nowrap above
+   * all — landed on the whole page and ran the log off the screen.
+   */
+  body:has(.run-dashboard .console-card.open) { overflow: hidden; }
 }
 
 @media (max-width: 900px) and (prefers-reduced-motion: reduce) {
@@ -2019,14 +2025,9 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   display: flex;
   align-items: center;
   gap: 10px;
-  /*
-   * The dot keeps its size and the sentence wraps. It inherits nowrap from an
-   * ancestor, which ran the message straight off the side of a phone, so the
-   * wrapping is set here rather than left to the cascade.
-   */
+  /* The dot keeps its size and the sentence wraps. */
   max-width: min(46ch, 100%);
   padding-inline: 16px;
-  white-space: normal;
   color: #45556d;
   font-size: 13px;
 }
