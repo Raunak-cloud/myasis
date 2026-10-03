@@ -15,7 +15,7 @@ import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js'
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal, listingIdIn, siteDomain } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
-import { checkGeneralToolAnswers, executeTool, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
+import { checkGeneralToolAnswers, executeTool, pageConfirmsSubmission, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
 import { embeddedSurface, watchTab } from './raw-tools.js';
 import { browserGmailAvailable } from '../browser-gmail.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -220,7 +220,10 @@ STOPPING
   action makes progress, call finish with "cannot_complete". That job is skipped
   without asking the candidate to fix a technical site problem.
 - Call finish with "already_applied" when the page says the candidate has
-  previously applied for this specific job.
+  previously applied for this specific job. "You've applied here before",
+  "you already have an account" or "verify your email" are about the employer
+  or the account, not this job: they are steps to continue (sign in, verify
+  the email), never a reason to stop.
 - Call finish with "nothing_to_apply_to" when the listing is expired or has no
   application form.
 - Do not guess your way past anything that looks like a verification wall.
@@ -650,7 +653,17 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   /** The last tool only looked (a snapshot, a scroll): an unchanged page after it is not an action that failed. */
   let lastLookedOnly = false;
 
-  const finish = async (outcome: AgentTermination): Promise<AgentRunResult> => {
+  const finish = async (ending: AgentTermination): Promise<AgentRunResult> => {
+    /**
+     * An attempt that ends on a limit or a stall after its submit was pressed
+     * may have gone through: the page decides, through the independent
+     * verifier, before it is reported as not sent (Accenture, 4 Oct: the
+     * model allowance ran out on the step after Submit).
+     */
+    const outcome: AgentTermination = ending.status !== 'applied' && ending.status !== 'rehearsed' && ctx.submissionAttempted
+      && await pageConfirmsSubmission(ctx)
+      ? (log('  · the page confirms the application was received after the attempt ended'), { status: 'applied' })
+      : ending;
     /**
      * What is actually worth asking the candidate: a required question the
      * profile could not answer. A control the form would not operate is not

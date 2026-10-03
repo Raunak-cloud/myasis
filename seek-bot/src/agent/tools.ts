@@ -8,7 +8,7 @@ import {
   waitForPageToSettle,
 } from '../browser.js';
 import { fillField, setChecked } from '../dom.js';
-import { answerFields, auditFormBeforeSubmit, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, isSubmitControl, verifySubmissionEvidence } from '../llm.js';
+import { answerFields, auditFormBeforeSubmit, verifyAlreadyApplied, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, isSubmitControl, verifySubmissionEvidence } from '../llm.js';
 import { acceptsFormat, pickResumeForJob, RESUME_DIR, documentFor } from '../resume.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
@@ -1676,6 +1676,12 @@ async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promis
           return { kind: 'terminal', outcome: { status: 'applied' } };
         }
       }
+      // An independent read of the page decides, as for a confirmation: "applied here before" is not this job.
+      const prior = await verifyAlreadyApplied(await submissionEvidence(ctx), ctx.job).catch(() => ({ applied: true, reason }));
+      if (!prior.applied) {
+        ctx.log(`  · not an earlier application for this job (${prior.reason.slice(0, 120)}); continuing`);
+        return ok(`The page does not say this job was applied for before: ${prior.reason} A message that the candidate is known to this employer or must verify their email is a step to continue: sign in or verify the email (enter_emailed_code / open_emailed_link) and carry on with the application.`);
+      }
       return { kind: 'terminal', outcome: { status: 'already-applied', reason } };
     }
     case 'nothing_to_apply_to':
@@ -2032,4 +2038,17 @@ export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[
   if (!problems.length) return '\nThe answers this set are supported by the candidate\'s record.';
   ctx.log(`  ✋ ${problems.length} answer(s) set by a general tool not supported: ${problems.map((problem) => problem.field).join('; ').slice(0, 160)}`);
   return `\nNOT SUPPORTED by the candidate's record, so this must not stay on the form: ${problems.map((problem) => `"${problem.field}" = "${problem.value}" (${problem.problem})`).join('; ')}. Put the right answer in with answer_questions or choose_option, or undo it; if the record has no answer, leave it for the candidate.`;
+}
+
+/**
+ * Whether the page in front of the agent confirms this application was
+ * received, read by the independent verifier (it must quote the page).
+ * For an attempt that ends on a limit right after its submit: Accenture's
+ * Workday form was submitted as the model allowance ran out, and the attempt
+ * was reported as not sent because nothing looked at the page afterwards.
+ */
+export async function pageConfirmsSubmission(ctx: ToolContext): Promise<boolean> {
+  if (ctx.page.isClosed()) return false;
+  await waitForPageToSettle(ctx.page, 1_500, 8_000).catch(() => false);
+  return verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false);
 }
