@@ -1,5 +1,6 @@
 import { hostOf as siteHost } from '../site-auth.js';
 import { recordWall, walledHost } from '../site-walls.js';
+import { commitAcceptedCredentials } from '../site-credentials.js';
 import type { ApplicationAction } from '../types.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -682,6 +683,15 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
     persistTrace(job, finalOutcome, trace, page.url());
     confirmAuthentication(ctx.actions, progressLog, finalOutcome.status === 'applied' ? siteDomain(page.url()) : null);
+    /**
+     * A password Owtomate set is remembered once the site accepted it: the
+     * account was created, or the application got in past the sign-in. It
+     * used to be written when the form was filled, so a sign-up refused
+     * because Owtomate's own 17 Sep Macquarie account already existed
+     * replaced that account's password with one it never had, and every
+     * later sign-in failed.
+     */
+    commitAcceptedCredentials(ctx.pendingCredentials, ctx.actions, ctx.profile.email);
     /**
      * A site Owtomate could not sign in to, which the attempt never got past,
      * is walled for the day like a failed security check. Its account exists

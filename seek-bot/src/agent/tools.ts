@@ -21,7 +21,7 @@ import { wasHumanized } from '../humanizer.js';
 import { countHealth } from '../run-health.js';
 import { browserGmailAvailable, findVerificationInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../site-auth.js';
-import { rememberCredential, storedCredential } from '../site-credentials.js';
+import { storedCredential } from '../site-credentials.js';
 import { recordWall } from '../site-walls.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { offersCoverLetter } from './cover-letter-opportunity.js';
@@ -87,6 +87,8 @@ export interface ToolContext {
   coverLetterOffered?: boolean;
   /** Times an advancing press was held for the missing cover letter; see gateAdvance. */
   coverLetterHeld?: number;
+  /** Passwords set on a site in this attempt and not yet accepted by it, by host. */
+  pendingCredentials?: Map<string, SiteCredential>;
   resumeUsed?: string;
   /** The board file name the resume went out as, once the documents step was settled. */
   resumeName?: string;
@@ -1136,9 +1138,17 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
    */
   const purpose = String(args.purpose ?? '');
   const setsPassword = purpose === 'create_account' || purpose === 'reset_password';
+  const site = hostOf(ctx.page.url());
+  /**
+   * A password set in this attempt and not yet accepted is used for signing
+   * in on the same site, so a sign-in right after a reset or a sign-up uses
+   * the new password. It becomes the account's remembered password only once
+   * the site accepts it (see commitCredentials); until then the remembered
+   * one stands.
+   */
   const credential: SiteCredential | null = setsPassword
     ? { format: 'readable-v1', rules: normalizeRules(args.password_rules) }
-    : storedCredential(ctx.page.url(), ctx.profile.email);
+    : ctx.pendingCredentials?.get(site) ?? storedCredential(ctx.page.url(), ctx.profile.email);
   const values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url(), credential) }));
   const unsupported = values.filter((entry) => entry.value === null);
   const missingCredential = unsupported.some((entry) => entry.field.sensitive);
@@ -1169,9 +1179,9 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
     ({ field, value }) => value !== null && (field.sensitive || field.inputType === 'password') && filled.includes(field.label),
   );
   if (credentialFilled) {
-    const site = hostOf(ctx.page.url());
     const email = ctx.profile.email;
-    if (setsPassword && credential) rememberCredential(ctx.page.url(), email, credential);
+    // Held until the site accepts it: a sign-up refused because the account already exists must not replace the password it has.
+    if (setsPassword && credential) (ctx.pendingCredentials ??= new Map()).set(site, credential);
     if (purpose === 'create_account') {
       noteAction(ctx, { kind: 'authentication-prepared', purpose: 'create_account', site, email, detail: `Filled account-registration fields on ${siteName(site)} with ${email}; account creation is not yet confirmed.` });
     } else if (purpose === 'reset_password') {
