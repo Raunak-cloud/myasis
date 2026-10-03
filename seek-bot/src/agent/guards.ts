@@ -203,8 +203,14 @@ export class RunGuards {
         detail: `stuck for ${Math.round(stuckFor / 1000)}s with no progress`,
       };
     }
+    /**
+     * Time, like steps and money, is earned by verified progress (up to three
+     * times the base). A fixed ten minutes ended NASDAQ's and Accenture's
+     * Workday forms on 3 Oct while they were still moving, account made and
+     * pages filled; a page that stops moving is still ended by the stuck timer.
+     */
     const elapsed = Date.now() - this.startedAt;
-    if (elapsed > this.options.maxTotalMs) {
+    if (elapsed > this.options.maxTotalMs * Math.max(1, this.stepCeiling / this.options.maxSteps)) {
       return {
         ok: false,
         reason: 'The application ran out of time.',
