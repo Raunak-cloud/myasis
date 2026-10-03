@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AutoGrowTextarea } from './AutoGrowTextarea';
 
 interface CandidateProfile {
   fullName: string;
@@ -141,7 +142,7 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
         {text('headline', 'Headline', { optional: true, placeholder: 'Full-stack developer · React, Node, TypeScript' })}
         <label className="field">
           <span className="field-label">Summary</span>
-          <textarea
+          <AutoGrowTextarea
             className="input"
             rows={3}
             placeholder="A few honest sentences, e.g. 4 years building web apps, 2 freelance."
@@ -151,7 +152,7 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
         </label>
         <label className="field">
           <span className="field-label">Skills</span>
-          <textarea
+          <AutoGrowTextarea
             className="input"
             rows={2}
             placeholder="Comma separated, e.g. JavaScript, React, Node.js, SQL"
