@@ -261,6 +261,15 @@ export class RunGuards {
   recordProgress(): void {
     this.lastProgressAt = Date.now();
     this.progressEvents += 1;
+    /**
+     * Verified progress of any kind earns the page a fresh allowance, as a
+     * filled field always did: a resume sent to an upload, an option chosen,
+     * a site control operated. A long single-page form (Programmed's: a
+     * location picker, then documents, then questions) ran out of its 16
+     * steps while every one of them was getting somewhere. The run's total
+     * step, time and cost ceilings, and the repeat detector, still bound it.
+     */
+    this.stepsByPage.clear();
   }
 
   /** Verified progress so far; each one earns the attempt a step. */

@@ -151,6 +151,10 @@ employers, so read the page rather than assuming an order.
   Use complete_authentication for email, username, name, phone and password
   fields. If a sign-in password is rejected, use the site's reset-password or
   create-account path, then use the emailed-code tool when a code is sent.
+- A FIELD listed by its options rather than its question ("Yes No Select an
+  option") still has its question on the page beside it: pass it in
+  answer_questions' questions, copied from the page, so the answer can be
+  worked out. Do not leave such a field to the candidate for want of a label.
   When creating an account or setting a password, read the site's password
   rules (length, special characters) and pass them as password_rules; if the
   site rejects the password, read why and call complete_authentication again

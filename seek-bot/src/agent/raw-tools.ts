@@ -298,7 +298,12 @@ async function fillElement(ctx: ToolContext, args: Record<string, unknown>): Pro
     };
     ctx.guards.rememberField(field);
     const answer = (await answerFields([field], ctx.job, ctx.profile)).answers.find((candidate) => candidate.ref === ref);
-    if (!answer || answer.applicationQuestion === false) return ok(`"${label}" was not identified as an application question; nothing entered.`);
+    if (!answer || answer.applicationQuestion === false) {
+      // A site control has no grounded answer to derive; the agent supplies what it needs typed.
+      ctx.guards.releaseAsSiteControl(label);
+      const place = [ctx.profile.suburb, ctx.profile.state].filter(Boolean).join(', ');
+      return ok(`"${label}" is a site control, not an application question, so nothing is derived for it. Call fill_element again with the value to type${place ? ` (for a location search, the candidate lives in ${place})` : ''}, then pick the suggestion that appears.`);
+    }
     if (!answer.grounded) {
       if (!field.required) return ok(`Left optional "${label}" blank: nothing in the candidate's record supports an answer.`);
       ctx.guards.rememberField(field, answer.candidatePrompt?.trim() || `What should Owtomate enter for “${label}”?`);

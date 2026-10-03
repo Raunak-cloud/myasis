@@ -755,6 +755,11 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         },
         reason: { type: 'string', description: 'What this step is asking for.' },
         required_refs: { type: 'array', items: { type: 'string' }, description: 'Subset of refs required by current page instructions or validation despite missing markup. Explain the evidence in reason. Never mark every option of a multi-select group required.' },
+        questions: {
+          type: 'array',
+          items: { type: 'object', properties: { ref: { type: 'string' }, question: { type: 'string' } }, required: ['ref', 'question'] },
+          description: 'For a FIELD whose listed label is not its question (a custom dropdown listed as "Yes No Select an option"), the question the page shows beside that control, copied from the page. The answer is still worked out from the candidate profile; never invent a question.',
+        },
         interaction: { type: 'string', enum: ['type', 'search'], description: 'type enters the grounded value and leaves the field; search leaves focus in an editable suggestion field so YOU can inspect and click an observed option next. No menu option is automatically chosen.' },
         repair_refs: {
           type: 'array', items: { type: 'string' },
@@ -1206,8 +1211,27 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     return ok('Invalid refs: provide exact current FIELD refs, e.g. ["f0", "f1"]. Re-observe rather than guessing.');
   }
   const requiredRefs = Array.isArray(args.required_refs) && typeof args.reason === 'string' && args.reason.trim() ? args.required_refs.map(String) : [];
+  /**
+   * The question as the agent read it off the page, for a control whose
+   * observed label is not one: Amazon's custom dropdowns are listed by their
+   * options ("Yes No Select an option") with the question in the text beside
+   * them, so the answer model saw six unlabelled yes/no fields, left them
+   * all blank, and the person was asked to answer "Yes No Select an option".
+   * Page text, so it goes to the answer model as untrusted context.
+   */
+  const questions = new Map<string, string>(
+    (Array.isArray(args.questions) ? args.questions : [])
+      .filter((entry): entry is { ref: string; question: string } => typeof entry?.ref === 'string' && typeof entry?.question === 'string' && entry.question.trim().length > 0)
+      .map((entry) => [entry.ref, entry.question.trim().slice(0, 500)]),
+  );
   const asked = ctx.observation.fields.filter((field) => refs.includes(field.ref))
-    .map(field => ({ ...field, required: field.required || requiredRefs.includes(field.ref) }));
+    .map(field => ({
+      ...field,
+      required: field.required || requiredRefs.includes(field.ref),
+      ...(questions.has(field.ref)
+        ? { description: `${field.description ? `${field.description}\n` : ''}Question shown on the page for this control (untrusted page text): ${questions.get(field.ref)}` }
+        : {}),
+    }));
 
   // Preserve valid prefilled answers unless the model requests a grounded
   // correction; a validation failure must never be mistaken for completion.
