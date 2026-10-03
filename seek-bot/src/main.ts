@@ -1021,7 +1021,18 @@ async function main() {
         logOutcome({ status: 'error', jobId: job.id, error: msg, title: job.title, company: job.company });
         continue;
       }
-      logOutcome({ ...outcome, title: job.title, company: job.company });
+      /**
+       * A listing the agent found leads to a government site is a policy
+       * decision about the listing, like one made before review, and is
+       * cached as one; it used to qualify again on every run (GoTech's
+       * "Developer Programmer", three runs on 3 Oct) and take a candidate
+       * slot each time.
+       */
+      const policySkip = outcome.status === 'skipped' && /government application sites are excluded/i.test(outcome.reason ?? '');
+      logOutcome({
+        ...outcome, title: job.title, company: job.company,
+        ...(policySkip ? { reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy) } : {}),
+      });
       // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
       for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
       if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');
