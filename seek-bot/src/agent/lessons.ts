@@ -37,6 +37,12 @@ const PLATFORMS: Array<[RegExp, string]> = [
   [/elmotalent|elmo/i, 'ELMO'],
   [/dayforce/i, 'Dayforce'],
   [/employmenthero/i, 'Employment Hero'],
+  [/zohorecruit/i, 'Zoho Recruit'],
+  [/hibob/i, 'HiBob'],
+  [/jazzhr|applytojob/i, 'JazzHR'],
+  [/recruitee/i, 'Recruitee'],
+  [/breezy/i, 'Breezy HR'],
+  [/personio/i, 'Personio'],
 ];
 
 /** The hiring platform behind a host, or the host itself when it is the employer's own. */
@@ -56,7 +62,10 @@ function readAll(): Record<string, Lesson[]> {
 
 /** The lessons for the platform behind this host, newest first. */
 export function lessonsFor(host: string): string[] {
-  return (readAll()[platformOf(host)] ?? []).map((entry) => entry.lesson);
+  const all = readAll();
+  // Lessons kept under the bare host, before its platform was recognised, still count.
+  const keys = [...new Set([platformOf(host), host.toLowerCase()])];
+  return keys.flatMap((key) => all[key] ?? []).map((entry) => entry.lesson).slice(0, KEEP);
 }
 
 function remember(host: string, entry: Lesson): void {
