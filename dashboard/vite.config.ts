@@ -18,7 +18,10 @@ import {
   loadUserSettings, saveUserSettings, runSettingsForUser,
   USER_SETTABLE_SETTINGS_KEYS,
 } from './server/settings.js';
-import { query, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
+import { query, one, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
+import { upsertSettingRow } from './server/db/records.js';
+/** The resume note on Apply, once dismissed: a UI preference, never part of a run's settings. */
+const BOARD_RESUMES_NOTE_DISMISSED = 'BOARD_RESUMES_NOTE_DISMISSED';
 import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
@@ -1078,7 +1081,16 @@ function dataApi(): Plugin {
 
       case '/api/board-resumes': {
         // Saved resumes on SEEK or Indeed that Owtomate does not hold; the last run recorded them (seek-bot/src/resume-sync.ts).
+        // Dismissed once, it stays dismissed for the account on every device.
+        if (req.method === 'POST') {
+          return withUser(async (userId) => {
+            await upsertSettingRow(userId, BOARD_RESUMES_NOTE_DISMISSED, new Date().toISOString());
+            send({ boards: [] });
+          });
+        }
         return withUser(async (userId) => {
+          const dismissed = await one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, BOARD_RESUMES_NOTE_DISMISSED]);
+          if (dismissed?.value) return send({ boards: [] });
           const file = resolve(userDir(userId), 'board-resumes.json');
           let report: Record<string, any> = {};
           try { if (existsSync(file)) report = JSON.parse(readFileSync(file, 'utf8')); } catch { report = {}; }
