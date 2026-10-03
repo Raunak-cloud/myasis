@@ -2002,3 +2002,34 @@ async function runTool(
       return (config.celeris.rawTools ? await runRawTool(ctx, name, args) : null) ?? ok(`No such tool "${name}".`);
   }
 }
+
+/**
+ * Answers a general tool just put on the form, checked against the
+ * candidate's record the moment they land.
+ *
+ * A script, a raw click or typed keys set a dropdown or a box without the
+ * grounded answer path, and only the check at submit used to look at them:
+ * the agent went on building a page on an answer it could not stand behind
+ * (a Degree set by script on DTN's Workday form was caught at submit, three
+ * pages later). The recorded changes say exactly what was set; the same
+ * check as the submit audit reads them now, and the agent is told straight
+ * away what the record does not support, while it is still on that page.
+ */
+export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[]): Promise<string> {
+  const set = changes.filter((change) =>
+    /now holds|aria-checked: \S+ → true|checked: \S+ → |aria-selected: \S+ → true|class \+\S*(?:selected|checked|highlight|active)/i.test(change)
+    && !/now holds \(hidden\)|now holds nothing/.test(change));
+  if (!set.length) return '';
+  let problems: Awaited<ReturnType<typeof auditFormBeforeSubmit>>;
+  try {
+    problems = await auditFormBeforeSubmit(
+      `Answers just set on the form with a general browser tool (control: what changed):\n${set.map((change) => `- ${change}`).join('\n')}`,
+      ctx.job, ctx.profile, ctx.captured,
+    );
+  } catch {
+    return '';
+  }
+  if (!problems.length) return '\nThe answers this set are supported by the candidate\'s record.';
+  ctx.log(`  ✋ ${problems.length} answer(s) set by a general tool not supported: ${problems.map((problem) => problem.field).join('; ').slice(0, 160)}`);
+  return `\nNOT SUPPORTED by the candidate's record, so this must not stay on the form: ${problems.map((problem) => `"${problem.field}" = "${problem.value}" (${problem.problem})`).join('; ')}. Put the right answer in with answer_questions or choose_option, or undo it; if the record has no answer, leave it for the candidate.`;
+}

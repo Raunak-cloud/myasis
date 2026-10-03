@@ -15,7 +15,7 @@ import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js'
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal, listingIdIn, siteDomain } from './guards.js';
 import { looksUnrendered, observe, renderObservation, waitForApplicationSurface, type Observation } from './observe.js';
-import { executeTool, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
+import { checkGeneralToolAnswers, executeTool, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
 import { embeddedSurface, watchTab } from './raw-tools.js';
 import { browserGmailAvailable } from '../browser-gmail.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
@@ -244,6 +244,9 @@ function systemPrompt(): string {
  * still bound how long an agent may spend looking.
  */
 const LOOK_ONLY_TOOLS = new Set(['take_snapshot', 'take_screenshot', 'scroll', 'list_pages', 'get_diagnostics']);
+
+/** Tools that can change an answer without the grounded answer path; what they set is checked as it lands. */
+const GENERAL_TOOLS = new Set(['evaluate_script', 'click_element', 'fill_element', 'type_text', 'press_key', 'click_point', 'drag']);
 
 /** The most actions one plan may hold; a page needing more is planned again after the first batch. */
 const MAX_PLAN = 6;
@@ -1103,7 +1106,10 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       if (result.kind === 'ok' && !looking && startedAt && ctx.page === page && !page.isClosed()) {
         changes = await readChanges(page, startedAt).catch(() => null);
         if (changes) {
-          result = { kind: 'ok', message: `${result.message}\n${describeChanges(changes)}` };
+          // Answers a general tool set are checked against the record now, not three pages later at submit.
+          const check = GENERAL_TOOLS.has(call.name) ? await checkGeneralToolAnswers(ctx, changes.controls).catch(() => '') : '';
+          if (/NOT SUPPORTED/.test(check)) lastFailed = true;
+          result = { kind: 'ok', message: `${result.message}\n${describeChanges(changes)}${check}` };
           if (changedAnything(changes)) lastChanged = true;
           else ctx.wantScreenshot = true;
         }

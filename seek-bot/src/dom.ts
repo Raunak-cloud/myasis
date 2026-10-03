@@ -32,6 +32,22 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       !text.includes(' ') && (/[._]/.test(text) || /^[A-Z0-9_.-]+$/.test(text)) && !text.endsWith('?');
 
     /**
+     * A caption is text about a field, never the content of another control.
+     *
+     * Zoho Recruit puts a salutation dropdown ("-None-") right before the
+     * First Name box, so "-None-" was read as that box's label, and the
+     * answerer was asked to answer a field called "-None-". Text that is, or
+     * sits inside, a dropdown, a button, an option list or an input, and text
+     * that reads like an unset choice, is the wrong kind of text to name a
+     * field by; the search goes on to the next candidate.
+     */
+    const CONTROL = 'input, select, textarea, button, [role="combobox"], [role="listbox"], [role="option"], [role="button"], [role="radio"], [role="checkbox"], [contenteditable="true"]';
+    const isControl = (node: Element | null): boolean =>
+      Boolean(node && (node.matches(CONTROL) || node.querySelector(CONTROL) || /dropdown|select|picker|combobox/i.test(node.tagName)));
+    const unsetChoice = (text: string): boolean =>
+      /^[\s\-–—.*]*(?:none|n\/a|select|choose|please (?:select|choose)|select an option|select one|--)[\s\-–—.*]*$/i.test(text);
+
+    /**
      * The nearest caption above an element.
      *
      * A question and its inputs are often siblings rather than parent and
@@ -45,9 +61,9 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       let node: Element | null = start;
       for (let up = 0; up < 6 && node; up++, node = node.parentElement) {
         for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
-          if (sib.querySelector('input, select, textarea')) continue;
+          if (isControl(sib)) continue;
           const text = (sib as HTMLElement).innerText?.trim().replace(/\s+/g, ' ') ?? '';
-          if (text && text.length > 2 && text.length < 200 && !opaqueName(text) && !reject(text)) return text;
+          if (text && text.length > 2 && text.length < 200 && !opaqueName(text) && !unsetChoice(text) && !reject(text)) return text;
         }
       }
       return '';
@@ -98,15 +114,15 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       for (let depth = 0; depth < 3 && box; depth++, box = box.parentElement) {
         const inner = box.querySelector('label');
         const text = usefulLabel(inner ?? null);
-        if (text && text.length < 120 && !inner!.querySelector('input, select, textarea')) return text;
+        if (text && text.length < 120 && !inner!.querySelector('input, select, textarea') && !unsetChoice(text)) return text;
         if (depth === 0) {
           const prev = el.previousElementSibling as HTMLElement | null;
           const prevText = prev?.innerText?.trim();
-          if (prevText && prevText.length < 120 && !prev!.querySelector('input, select, textarea')) return prevText;
+          if (prevText && prevText.length < 120 && !isControl(prev) && !unsetChoice(prevText)) return prevText;
         }
       }
       const placeholder = el.getAttribute('placeholder');
-      if (placeholder) return placeholder;
+      if (placeholder && !unsetChoice(placeholder)) return placeholder;
 
       const fieldset = el.closest('fieldset, [role="group"]');
       const legend = fieldset?.querySelector('legend, h1, h2, h3, h4, [role="heading"]')?.textContent?.trim();
@@ -131,9 +147,9 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         const scope = el.closest('form, section, article, fieldset, [class*="card"]') ?? document.body;
         let best: { text: string; score: number } | null = null;
         for (const candidate of scope.querySelectorAll('label, span, p, div, h1, h2, h3, h4, a')) {
-          if (candidate.contains(el) || candidate.querySelector('input, select, textarea')) continue;
+          if (candidate.contains(el) || isControl(candidate) || candidate.closest(CONTROL)) continue;
           const text = (candidate as HTMLElement).innerText?.trim().replace(/\s+/g, ' ') ?? '';
-          if (!text || text.length < 3 || text.length > 120 || opaqueName(text)) continue;
+          if (!text || text.length < 3 || text.length > 120 || opaqueName(text) || unsetChoice(text)) continue;
           const r = candidate.getBoundingClientRect();
           if (!r.width && !r.height) continue;
           const dx = Math.max(0, Math.max(r.left - rect.right, rect.left - r.right));
@@ -274,6 +290,17 @@ export async function extractFields(page: Page): Promise<FormField[]> {
       const label = labelFor(el);
       const description = descriptionFor(el, label);
       const section = sectionFor(el, label);
+      /**
+       * What the field's own markup calls it (name, id, autocomplete,
+       * placeholder): machine words, but the answerer can tell from
+       * name="First_Name" what a box is for when its caption reads "-None-"
+       * or is missing altogether.
+       */
+      const hints = ['name', 'id', 'autocomplete', 'placeholder', 'aria-label']
+        .map((attribute) => [attribute, el.getAttribute(attribute)?.trim() ?? ''] as const)
+        .filter(([, value]) => value && value !== label && value.length <= 80 && !/^[\da-f-]{16,}$/i.test(value))
+        .map(([attribute, value]) => `${attribute}=${value}`)
+        .join(' ');
 
       if (el.tagName === 'SELECT') {
         const sel = el as unknown as HTMLSelectElement;
@@ -283,6 +310,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
           ...(description ? { description } : {}),
           ...(section ? { section } : {}),
           kind: 'select',
+          ...(hints ? { hints } : {}),
           required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
           /**
@@ -309,6 +337,7 @@ export async function extractFields(page: Page): Promise<FormField[]> {
         ...(description ? { description } : {}),
         ...(section ? { section } : {}),
         kind: el.tagName === 'TEXTAREA' ? 'textarea' : el.type === 'checkbox' ? 'checkbox' : 'text',
+        ...(hints ? { hints } : {}),
         required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox',

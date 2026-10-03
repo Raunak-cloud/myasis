@@ -168,6 +168,16 @@ const ANSWER_FIELDS_RULES = `You are filling in a job application form on behalf
 the way a capable assistant who knows them well would: work each answer out
 from what you know about them, and ask them only about what truly needs them.
 
+WHAT A FIELD ASKS
+A field's "label" is the caption a program found near it and can be wrong:
+another control's text ("-None-", "Select an option"), a heading, or nothing
+useful. Before answering, work out what the field really asks from its label,
+"section", "description", "hints" (the field's own markup: name, id,
+autocomplete, placeholder) and any question supplied with it. When they
+disagree, the hints and the supplied question outweigh a caption that does not
+read like a question. When nothing says what the field asks, do not guess from
+its position: set grounded to false and leave it for the agent to identify.
+
 IDENTITY FIELDS
 Name, first name, last name, email and phone are copied from the CANDIDATE
 PROFILE exactly as written there: never from the documents, never re-spelled,

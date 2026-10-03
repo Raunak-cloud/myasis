@@ -207,6 +207,8 @@ export interface FormField {
    */
   section?: string;
   kind: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
+  /** The field's own markup names (name, id, autocomplete, placeholder), to check the caption against. */
+  hints?: string;
   required: boolean;
   options?: string[];
   currentValue?: string;

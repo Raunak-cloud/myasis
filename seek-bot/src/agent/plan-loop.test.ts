@@ -23,6 +23,7 @@ process.env.DRY_RUN = 'true';
 
 type Body = { messages: Array<{ role: string; content: unknown; tool_call_id?: string }>; tools?: unknown[]; chat_template_kwargs?: { reasoning_effort?: string }; response_format?: unknown };
 const agentTurns: Body[] = [];
+let auditProblems: Array<{ field: string; value: string; problem: string }> = [];
 let lessonReply = { cause: 'fixture', within_agent_control: false, lesson: '' };
 let script: Array<(body: Body) => Array<{ name: string; args: Record<string, unknown> }>> = [];
 const lastObservation = (body: Body) => {
@@ -41,7 +42,7 @@ globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
     return reply({ role: 'assistant', content: null, tool_calls: calls.map((call, i) => ({ id: `c${agentTurns.length}-${i}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) });
   }
   // Every other model check: nothing wrong, not a submit, no lesson.
-  return reply({ role: 'assistant', content: JSON.stringify({ problems: [], sends_application: false, unsafe: false, reason: 'fixture', confirmed: false, quote: '', ...lessonReply }) });
+  return reply({ role: 'assistant', content: JSON.stringify({ problems: auditProblems, sends_application: false, unsafe: false, reason: 'fixture', confirmed: false, quote: '', ...lessonReply }) });
 }) as typeof fetch;
 
 const { runApplicationAgent } = await import('./loop.js');
@@ -102,6 +103,23 @@ try {
   assert.ok(agentTurns.some((turn) => /STUCK: the last/.test(lastObservation(turn))), 'and is asked to step back and form a theory');
   assert.ok(agentTurns.slice(1).some((turn) => turn.messages.some((message) => message.role === 'tool' && /no change of any kind was recorded/.test(String(message.content)))), 'a dead click is reported as doing nothing at all');
 
+  // An answer a general tool sets is checked against the record the moment it lands.
+  const scripted = '<!doctype html><main><h1>Apply</h1><form><label>Degree <select name="degree"><option></option><option>PhD</option><option>Bachelor</option></select></label><button type="button">Next</button></form></main>';
+  await page.route('https://careers.script-employer.example/**', (route) => route.fulfill({ contentType: 'text/html', body: scripted }));
+  await page.goto('https://careers.script-employer.example/apply');
+  agentTurns.length = 0;
+  auditProblems = [{ field: 'Degree', value: 'PhD', problem: 'The candidate holds a bachelor degree, not a PhD.' }];
+  script = [() => [{ name: 'evaluate_script', args: { function: "() => { const s = document.querySelector('select'); s.value = 'PhD'; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; }" } }]];
+  await runApplicationAgent({
+    page,
+    job: { id: 'fixture-3', title: 'Junior Developer', company: 'Script Employer', location: 'Sydney', url: 'https://careers.script-employer.example/apply', applicationMode: 'external' } as never,
+    profile: { name: 'Raunak Shrestha', phone: '0400000000', email: 'raunak@example.com', nationality: 'Nepali', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' } as never,
+    log: (line) => lines.push(line),
+  });
+  auditProblems = [];
+  const scriptResult = agentTurns[1]?.messages.filter((message) => message.role === 'tool').map((message) => String(message.content)).join(' | ') ?? '';
+  assert.match(scriptResult, /NOT SUPPORTED by the candidate's record.*"Degree" = "PhD"/s, `a scripted answer the record does not support is flagged at once: ${scriptResult.slice(0, 600)}`);
+
   // A failure is reviewed, and its lesson is kept for every employer on the same platform.
   lessonReply = { cause: 'The Reset Password button is a Workday click filter, not the button.', within_agent_control: true, lesson: 'On Workday, press buttons through their data-automation-id="click_filter" overlay; clicking the label does nothing.' };
   reviewFailure({ host: 'nib.wd105.myworkdayjobs.com', company: 'nib', title: 'Analyst', reason: 'The page did not change in response to anything the agent tried.', steps: Array.from({ length: 5 }, (_, i) => ({ tool: 'click', args: { ref: `a${i}` }, result: 'Clicked "Reset Password".' })) });
@@ -111,7 +129,7 @@ try {
   assert.match(lessonsFor('dtn.wd1.myworkdayjobs.com')[0] ?? '', /click_filter/, 'a lesson learnt at nib reaches DTN, both Workday');
   assert.equal(lessonsFor('careers.gov.example').length, 0, 'a policy skip teaches nothing');
 
-  console.log('PASS: a plan runs in one model turn, stops at the first surprise, every action reports what it really did, a stuck turn thinks at length, and failures leave lessons per platform');
+  console.log('PASS: a plan runs in one model turn, stops at the first surprise, every action reports what it really did, a stuck turn thinks at length, a scripted answer is checked as it lands, and failures leave lessons per platform');
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });

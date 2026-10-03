@@ -214,8 +214,19 @@ export async function recommended(page: Page): Promise<JobListing[]> {
       await page.mouse.wheel(0, 1_600).catch(() => {});
       await jitter(700, 1_300);
     }
-    await logPageDataShape(page, '"Jobs for you"');
     jobs = await readJobCards(page);
+    /**
+     * Checked on the live page (4 Oct 2026): for this kind of account Indeed's
+     * signed-in home page has no "Jobs for you" at all, only a welcome, "Add
+     * pay / Add commute" and the account's recent searches, so there is
+     * nothing to read. Said plainly rather than as a page-data dump; the
+     * dump is kept for a page that does show job cards Owtomate cannot read.
+     */
+    if (!jobs.length) {
+      const feedShown = await page.locator('a[href*="jk="], a[href*="/viewjob"], [data-jk]').count().catch(() => 0);
+      if (feedShown) await logPageDataShape(page, '"Jobs for you"');
+      else console.log('  Indeed shows no recommended jobs on this account\'s home page (only recent searches); its job-title searches carry Indeed this run.');
+    }
   }
 
   return jobs.map((job) => ({ ...job, source: 'recommended' as const }));
