@@ -829,11 +829,17 @@ async function main() {
       const sourcePriority = Number(b.job.source === 'recommended') - Number(a.job.source === 'recommended');
       return sourcePriority || b.score - a.score;
     };
-    /** The best qualified job still to try; an employer-site one only once review has no hosted one left to find. */
+    /**
+     * The best qualified job still to try. An employer-site one waits until
+     * review can find no hosted one, but only while hosted applications are
+     * in this run's scope: in an employer-sites-only run every candidate is
+     * an employer site, and waiting had the run review every listing it could
+     * find (up to the evaluation cap, half an hour) before its first application.
+     */
     const bestCandidate = () => {
       const best = candidates.filter((c) => !abortedPlatforms.has(c.job.platform ?? 'seek')).sort(preference)[0];
       if (!best) return undefined;
-      if (hostedFirst(best.job) === 1 && !reviewExhausted()) return undefined;
+      if (hostedFirst(best.job) === 1 && !outsideScope('hosted') && !reviewExhausted()) return undefined;
       return best;
     };
     const takeCandidate = () => {
