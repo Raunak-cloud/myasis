@@ -133,6 +133,50 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
 }
 
 /**
+ * Whether an hCaptcha is actually in front of the person: a checkbox to tick
+ * or a puzzle that has opened.
+ *
+ * hCaptcha's frames load with the page whether or not it will ever ask
+ * anything. Invisible hCaptcha (Lever's application forms) keeps them hidden,
+ * scores the visitor in the background, and shows a puzzle after submit only
+ * when the score demands it; most of the time it never does. Treating its mere
+ * presence as a wall ended those applications before a field was filled, so
+ * only a rendered, on-screen hCaptcha frame counts, the way an invisible
+ * reCAPTCHA only counts once its image challenge opens. CapMonster offers no
+ * hCaptcha task, so a puzzle that does open still ends with the person.
+ *
+ * Only documents outside hCaptcha are read: its own frames nest the checkbox
+ * and puzzle inside a hidden outer frame, and only the outer one says whether
+ * any of it is showing.
+ */
+export async function hcaptchaShowing(page: Page): Promise<boolean> {
+  const hosts = page.frames().filter((frame) => !/hcaptcha\.com/i.test(frame.url()));
+  for (const host of hosts) {
+    const showing = await host
+      .evaluate(() => {
+        for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[src*="hcaptcha.com"]')) {
+          if (/frame=checkbox-invisible/.test(frame.src)) continue;
+          const box = frame.getBoundingClientRect();
+          // Parked off-page (hCaptcha's closed puzzle sits at top -10000px) is hidden; further down a long form is not.
+          if (box.width < 20 || box.height < 20 || box.top + window.scrollY < -1000 || box.left + window.scrollX < -1000) continue;
+          const style = getComputedStyle(frame);
+          if (style.visibility === 'hidden' || style.display === 'none') continue;
+          let faded = false;
+          for (let element: Element | null = frame; element && !faded; element = element.parentElement) {
+            const own = getComputedStyle(element);
+            faded = own.opacity === '0' || own.display === 'none';
+          }
+          if (!faded) return true;
+        }
+        return false;
+      })
+      .catch(() => false);
+    if (showing) return true;
+  }
+  return false;
+}
+
+/**
  * True for any visible CAPTCHA/security surface, including providers this
  * integration cannot yet parameterise. Unknown challenges are still kept away
  * from the browser agent: only CapMonster may interact with them, and a type it
@@ -141,13 +185,14 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
 export async function hasCaptchaSurface(page: Page): Promise<boolean> {
   if (await detectChallenge(page)) return true;
   if (page.frames().some(frame =>
-    /(?:hcaptcha\.com|arkoselabs\.com|funcaptcha\.com|geetest\.com|captcha-delivery\.com|awswaf\.com|imperva\.com)/i.test(frame.url()))) {
+    /(?:arkoselabs\.com|funcaptcha\.com|geetest\.com|captcha-delivery\.com|awswaf\.com|imperva\.com)/i.test(frame.url()))) {
     return true;
   }
+  if (await hcaptchaShowing(page)) return true;
   return page
     .evaluate(() => {
       if (/captcha|additional verification required|verify (?:that )?you are human/i.test(document.title)) return true;
-      const selector = '.h-captcha, [data-hcaptcha-widget-id], [class*="geetest" i], [id*="funcaptcha" i], [data-captcha-provider]';
+      const selector = '[class*="geetest" i], [id*="funcaptcha" i], [data-captcha-provider]';
       return [...document.querySelectorAll(selector)].some(element => {
         const box = (element as HTMLElement).getBoundingClientRect();
         const style = getComputedStyle(element as HTMLElement);
