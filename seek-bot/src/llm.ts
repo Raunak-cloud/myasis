@@ -592,6 +592,11 @@ async function letterEvidenceVerdict(candidate: string, profile: CandidateProfil
 Check only factual claims in this letter against candidate evidence. Normal aspirations,
 polite language and paraphrased transferable skills are fine. Reject invented experience,
 qualifications, named employers, work rights, availability or commitments.
+The PROFILE is the candidate's own current statement and wins over the documents: a claim
+that contradicts it (notice period or availability, salary, work rights, location) is
+unsupported even when a document says it, as an older resume may ("available immediately"
+against a profile notice period of 1 week). The pre-submit check holds the profile to the
+same rule, so a letter passing here must not fail there.
 PROFILE: ${profileBlock(profile)}
 DOCUMENTS: <candidate-documents>${knowledge}</candidate-documents>
 LETTER: <untrusted>${candidate}</untrusted>
@@ -673,6 +678,9 @@ Rules:
 - Ground every claim in the profile. Do not inflate seniority: if the ad asks for
   more years than the candidate has, do not imply they have them. It is fine to
   acknowledge being earlier-career while making the case on demonstrated work.
+- Availability, notice period, salary, work rights and location come from the
+  CANDIDATE PROFILE only, never from a document (an older resume may still say
+  "available immediately"). Leave them out unless the profile states them.
 - Reference at most two named projects from the profile where genuinely relevant.
 - Mention the company and role naturally. End with the candidate's name exactly as the
   CANDIDATE PROFILE gives it ("${profile.name}"), never a spelling from a document: the
