@@ -20,7 +20,8 @@ import { handleCaptchaWithCapMonster } from '../captcha.js';
 import { wasHumanized } from '../humanizer.js';
 import { countHealth } from '../run-health.js';
 import { browserGmailAvailable, findVerificationInBrowser } from '../browser-gmail.js';
-import { authenticationValue, hostOf } from '../site-auth.js';
+import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../site-auth.js';
+import { rememberCredential, storedCredential } from '../site-credentials.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { offersCoverLetter } from './cover-letter-opportunity.js';
 import { RAW_TOOL_SCHEMAS, locate, pressWatched, runRawTool } from './raw-tools.js';
@@ -682,7 +683,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     description:
       'Fill sign-in or account-creation fields using the candidate profile and the private site credential. ' +
       'Use this for email, username, name, phone, password and password-confirmation fields. Pass every authentication FIELD on the page. ' +
-      'Do not use answer_questions for credentials. After filling, click the sign-in, create-account or continue control.',
+      'Do not use answer_questions for credentials. After filling, click the sign-in, create-account or continue control. ' +
+      "When creating an account or setting a new password, read the site's password requirements (stated beside the field, " +
+      'or in the message after a rejected password) and pass them as password_rules; the password is then built to fit them. ' +
+      'You never see or choose the password itself.',
     parameters: {
       type: 'object',
       properties: {
@@ -697,6 +701,16 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           description: 'What this page does with the credential: sign in to an existing account, create a new one, or set a new password.',
         },
         reason: { type: 'string', description: 'What on the page shows that purpose.' },
+        password_rules: {
+          type: 'object',
+          description: "For create_account and reset_password: the site's password requirements as the page states them. Omit what it does not say.",
+          properties: {
+            max_length: { type: 'integer', description: 'Most characters allowed.' },
+            min_length: { type: 'integer', description: 'Fewest characters required.' },
+            symbols: { type: 'string', enum: ['required', 'allowed', 'not_allowed'], description: 'Whether special characters are required, allowed or forbidden.' },
+            allowed_symbols: { type: 'string', description: 'The special characters the site accepts, when it lists them, e.g. "!@#$".' },
+          },
+        },
       },
       required: ['refs', 'purpose', 'reason'],
     },
@@ -1090,7 +1104,17 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
     return ok('None of those refs are authentication fields on this page. Choose refs from the current FIELDS list.');
   }
 
-  const values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url()) }));
+  /**
+   * Which password: a new account or a reset gets a readable one built to the
+   * rules the agent read off the page; signing in uses whatever this account
+   * was given when it was made (the original formula if Owtomate has no record).
+   */
+  const purpose = String(args.purpose ?? '');
+  const setsPassword = purpose === 'create_account' || purpose === 'reset_password';
+  const credential: SiteCredential | null = setsPassword
+    ? { format: 'readable-v1', rules: normalizeRules(args.password_rules) }
+    : storedCredential(ctx.page.url(), ctx.profile.email);
+  const values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url(), credential) }));
   const unsupported = values.filter((entry) => entry.value === null);
   const missingCredential = unsupported.some((entry) => entry.field.sensitive);
   if (missingCredential) {
@@ -1122,7 +1146,7 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
   if (credentialFilled) {
     const site = hostOf(ctx.page.url());
     const email = ctx.profile.email;
-    const purpose = String(args.purpose ?? '');
+    if (setsPassword && credential) rememberCredential(ctx.page.url(), email, credential);
     if (purpose === 'create_account') {
       noteAction(ctx, { kind: 'authentication-prepared', purpose: 'create_account', site, email, detail: `Filled account-registration fields on ${siteName(site)} with ${email}; account creation is not yet confirmed.` });
     } else if (purpose === 'reset_password') {
@@ -1137,7 +1161,8 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
         ? ` Use answer_questions for the remaining profile field(s): ${unsupported.map((entry) => `${entry.field.ref} (${entry.field.label})`).join(', ')}.`
         : '') +
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
-      ' Continue with the sign-in or account-creation control.',
+      ' Continue with the sign-in or account-creation control.' +
+      (setsPassword ? ' If the site then rejects the password for its rules, call complete_authentication again with password_rules taken from that message.' : ''),
   );
 }
 

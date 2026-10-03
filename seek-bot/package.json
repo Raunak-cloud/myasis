@@ -29,7 +29,8 @@
     "test:reconcile": "tsc && node dist/agent/reconcile.test.js",
     "test:resume-sync": "tsc && node dist/resume-sync.test.js",
     "test:pacing": "tsc && node --test dist/pacing.test.js",
-    "test:hcaptcha": "tsc && node dist/captcha/hcaptcha.test.js"
+    "test:hcaptcha": "tsc && node dist/captcha/hcaptcha.test.js",
+    "test:auth-rules": "tsc && node dist/agent/auth-rules.test.js && node --test dist/site-password.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

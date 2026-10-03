@@ -1,5 +1,8 @@
 import { one, query } from './db/index.js';
 import { readEnv } from './runner.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { userDir } from './userdata.js';
 
 /**
  * Employer-site accounts Myasis created or used for a candidate.
@@ -45,7 +48,17 @@ export async function listSiteAccounts(userId: string): Promise<SiteAccount[]> {
   }));
 }
 
-type SiteAuthModule = { sitePassword: (url: string, email: string, secret?: string) => string | null };
+type SiteAuthModule = { sitePassword: (url: string, email: string, secret?: string, credential?: unknown) => string | null };
+
+/** How the bot made this account's password (seek-bot/src/site-credentials.ts); none means the original formula. */
+function credentialFor(userId: string, site: string, email: string): unknown {
+  const file = resolve(userDir(userId), 'site-credentials.json');
+  try {
+    return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8'))[`${site.toLowerCase().replace(/^www\./, '')}|${email.trim().toLowerCase()}`] ?? null : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The password for one of this account's recorded site accounts, or null when there is no such account. */
 export async function sitePasswordFor(userId: string, site: string, email: string): Promise<string | null> {
@@ -58,5 +71,5 @@ export async function sitePasswordFor(userId: string, site: string, email: strin
     /* @vite-ignore */ new URL('../../seek-bot/dist/site-auth.js', import.meta.url).href
   )) as SiteAuthModule;
   const secret = process.env.SITE_AUTH_SECRET ?? readEnv().SITE_AUTH_SECRET;
-  return sitePassword(`https://${site}`, email, secret);
+  return sitePassword(`https://${site}`, email, secret, credentialFor(userId, site, email));
 }

@@ -150,6 +150,10 @@ employers, so read the page rather than assuming an order.
   Use complete_authentication for email, username, name, phone and password
   fields. If a sign-in password is rejected, use the site's reset-password or
   create-account path, then use the emailed-code tool when a code is sent.
+  When creating an account or setting a password, read the site's password
+  rules (length, special characters) and pass them as password_rules; if the
+  site rejects the password, read why and call complete_authentication again
+  with the corrected rules rather than giving up.
 - Custom controls are driven step by step, the way a person uses them. A
   dropdown that is not a native select shows as an action "(opens a list)":
   click it, then its entries appear as [option] actions — pick one with
