@@ -22,6 +22,7 @@ import { countHealth } from '../run-health.js';
 import { browserGmailAvailable, findVerificationInBrowser } from '../browser-gmail.js';
 import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../site-auth.js';
 import { rememberCredential, storedCredential } from '../site-credentials.js';
+import { recordWall } from '../site-walls.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { offersCoverLetter } from './cover-letter-opportunity.js';
 import { RAW_TOOL_SCHEMAS, locate, pressWatched, runRawTool } from './raw-tools.js';
@@ -84,6 +85,8 @@ export interface ToolContext {
   coverLetter?: string;
   /** Set only after a real cover-letter input or reveal control was observed. */
   coverLetterOffered?: boolean;
+  /** Times an advancing press was held for the missing cover letter; see gateAdvance. */
+  coverLetterHeld?: number;
   resumeUsed?: string;
   /** The board file name the resume went out as, once the documents step was settled. */
   resumeName?: string;
@@ -238,12 +241,29 @@ export async function gateAdvance(
   // Free accounts send the grounded draft; eligible paid/admin accounts the
   // humanized version from finishedCoverLetterForJob().
   if (advancesApplication(label) && ctx.coverLetterOffered && !ctx.coverLetter) {
-    return { proceed: false, result: ok(
-      'Do not advance yet: this application offers a cover letter and none has been verified. ' +
-      'Reveal it first if it is folded away or below — on Indeed, scroll to the bottom of the review page and click ' +
-      'the Add control beside "Supporting documents" to open the cover-letter option — then call add_cover_letter with ' +
-      'the writing FIELD ref, or the upload ACTION ref when it only takes a file.',
-    ) };
+    /**
+     * Held, but never for good. The page is held once on the strength of a
+     * mention ("cover letter" in its text) and up to three times while the
+     * observation shows an actual place for one; after that the application
+     * goes on without a letter. An APRA form (Oracle) mentioned a cover
+     * letter and had no control for it, and the hold, with no way out, spent
+     * the page's whole step budget and lost the application: a letter the
+     * form cannot take is not worth the application.
+     */
+    const actionable = offersCoverLetter(ctx.observation);
+    const held = ctx.coverLetterHeld ?? 0;
+    if (held < (actionable ? 3 : 1)) {
+      ctx.coverLetterHeld = held + 1;
+      return { proceed: false, result: ok(
+        'Do not advance yet: this application offers a cover letter and none has been verified. ' +
+        'Reveal it first if it is folded away or below — on Indeed, scroll to the bottom of the review page and click ' +
+        'the Add control beside "Supporting documents" to open the cover-letter option — then call add_cover_letter with ' +
+        'the writing FIELD ref, or the upload ACTION ref when it only takes a file.' +
+        (actionable ? '' : ' If, after looking, the page has no place for a letter, press the control again and the application continues without one.'),
+      ) };
+    }
+    ctx.log(`  · no cover letter: the page ${actionable ? 'shows a place for one that could not be used' : 'mentions one but has no place for it'}; continuing without`);
+    ctx.coverLetterOffered = false;
   }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${label}"`);
@@ -1168,7 +1188,15 @@ async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, u
 
 /** How many answerable controls the page shows; a change after a fill means the form rebuilt itself. */
 async function formShape(page: Page): Promise<number> {
+  /**
+   * The form's own controls only. A suggestion list or menu that a fill opens
+   * (Oracle's salary combobox, a suburb picker) brings controls of its own
+   * and read as the form rebuilding itself, so every answer after the first
+   * was deferred and the same batch was asked for again, four times on one
+   * APRA page.
+   */
   return page.evaluate(() => [...document.querySelectorAll('input:not([type=hidden]), select, textarea, [role=combobox], [role=radio], [role=checkbox], [contenteditable=true]')]
+    .filter((el) => !el.closest('[role=listbox], [role=menu], [role=option], [aria-live]'))
     .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length).catch(() => -1);
 }
 
@@ -1288,9 +1316,8 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
     // an application question from a site search box or misread section title.
     // Only genuine application questions may become candidate tasks.
     if (answer.applicationQuestion === false) {
-      ctx.guards.pendingFields.delete(field.label);
-      ctx.guards.resolveGrounding(field.label);
-      unrelated.push(field.label);
+      ctx.guards.releaseAsSiteControl(field.label);
+      unrelated.push(`${field.ref} (${field.label})`);
       continue;
     }
 
@@ -1380,7 +1407,7 @@ async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>
       (deferred.length ? `\nNot filled yet, because the form changed after an answer: ${deferred.join('; ')}. Re-observe and answer them with their fresh refs.` : '') +
       (searched.length ? `\nSearch text entered, not yet selected: ${searched.join('; ')}. Its suggestions now show as [option] actions: call choose_option with the matching option ref and this field as field_ref. If no options appear, open the list with click or press_key ArrowDown first.` : '') +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
-      (unrelated.length ? `\nIgnored controls that are not application questions: ${unrelated.join('; ')}` : '') +
+      (unrelated.length ? `\nNot application questions, so left to you as site controls: ${unrelated.join('; ')}. Operate them with fill_element (give the value, e.g. the candidate's suburb for a location search), type_text or click, then pick the observed option.` : '') +
       (repeated.length
         ? `\nSTOP asking about: ${repeated.join('; ')}. These required questions have no answer in the candidate's profile and calling answer_questions again cannot change that — only the candidate can supply them. Finish with status "needs_human" now.`
         : '') +
@@ -1668,7 +1695,9 @@ async function doClickPoint(ctx: ToolContext, args: Record<string, unknown>): Pr
   if (!under) return ok('Nothing is under that point. Re-observe and try a ref or a different point.');
   const pointedAction = under.actionRef ? ctx.observation.actions.find(action => action.ref === under.actionRef) : undefined;
   if (pointedAction?.role === 'option') return ok('That point targets a dropdown option. Use choose_option so the choice is grounded in the candidate profile; coordinate bypasses are refused.');
-  if (under.fieldRef || under.formControl) return ok(`That point targets ${under.fieldRef ? `FIELD ${under.fieldRef}` : 'a form control'}. Use its grounded field tool; for a required terms checkbox use accept_terms (with its ref, or the same screenshot x/y). Coordinates cannot bypass answer verification.`);
+  const pointedField = under.fieldRef ? ctx.observation.fields.find((field) => field.ref === under.fieldRef) : undefined;
+  const siteControl = Boolean(pointedField && ctx.guards.siteControls.has(pointedField.label));
+  if ((under.fieldRef || under.formControl) && !siteControl) return ok(`That point targets ${under.fieldRef ? `FIELD ${under.fieldRef}` : 'a form control'}. Use its grounded field tool; for a required terms checkbox use accept_terms (with its ref, or the same screenshot x/y). Coordinates cannot bypass answer verification.`);
   if (under.href && isAustralianGovernmentUrl(under.href)) {
     return {
       kind: 'terminal',
@@ -1835,10 +1864,9 @@ export async function executeTool(
       return ok('CapMonster cleared the security verification. Re-observe the page and continue.');
     }
     if (captcha === 'blocked') {
-      return {
-        kind: 'terminal',
-        outcome: { status: 'needs-human', reason: 'CapMonster could not clear the site security verification.' },
-      };
+      const reason = 'CapMonster could not clear the site security verification.';
+      if (isExternal(ctx.page.url())) recordWall(hostOf(ctx.page.url()), reason);
+      return { kind: 'terminal', outcome: { status: 'needs-human', reason } };
     }
   }
   const limit = TOOL_TIME_LIMIT_MS[name] ?? DEFAULT_TOOL_TIME_LIMIT_MS;

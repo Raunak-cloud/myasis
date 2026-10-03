@@ -280,8 +280,8 @@ async function fillElement(ctx: ToolContext, args: Record<string, unknown>): Pro
   const observed = facts.fieldRef ? ctx.observation.fields.find((field) => field.ref === facts.fieldRef) : undefined;
   const label = observed?.label ?? facts.name;
   if (ctx.guards.ungrounded.includes(label)) return ok(`"${label}" has no answer in the candidate's record; only the candidate can supply it.`);
-  // An observed field is answered by answer_questions unless that already failed on it.
-  if (observed && !ctx.guards.unfillable.has(label) && !ctx.guards.fillAttemptsFor(label)) {
+  // An observed field is answered by answer_questions unless that already failed on it, or declined it as a site control.
+  if (observed && !ctx.guards.unfillable.has(label) && !ctx.guards.fillAttemptsFor(label) && !ctx.guards.siteControls.has(label)) {
     return ok(`"${label}" is FIELD ${observed.ref} in the observation: use answer_questions for it. fill_element is for fields it cannot reach or could not fill.`);
   }
 

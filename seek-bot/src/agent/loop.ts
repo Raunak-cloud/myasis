@@ -1,4 +1,5 @@
 import { hostOf as siteHost } from '../site-auth.js';
+import { recordWall, walledHost } from '../site-walls.js';
 import type { ApplicationAction } from '../types.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -741,6 +742,12 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       return finish({ status: 'skipped', reason: 'The application form closed before it was finished.' });
     }
 
+    // A site whose check stopped an application within the day stops this one before any work on it.
+    const wall = isExternal(page.url()) ? walledHost(siteHost(page.url())) : null;
+    if (wall) {
+      return finish({ status: 'skipped', reason: `${siteHost(page.url())} is not attempted today: ${wall.reason}` });
+    }
+
     if (isAustralianGovernmentUrl(page.url())) {
       return finish({ status: 'skipped', reason: 'Australian government application sites are excluded.' });
     }
@@ -754,11 +761,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * checkbox, mistake it for consent, or reload the verification page.
      */
     if (!(await waitForChallengeToClear(page, 60_000))) {
-      return finish({
-        status: 'needs-human',
-        reason: 'The site security verification could not be cleared automatically.',
-        detail: 'CAPTCHA remained after the automatic solver attempt',
-      });
+      const reason = 'The site security verification could not be cleared automatically.';
+      if (isExternal(page.url())) recordWall(siteHost(page.url()), reason);
+      return finish({ status: 'needs-human', reason, detail: 'CAPTCHA remained after the automatic solver attempt' });
     }
 
     /**

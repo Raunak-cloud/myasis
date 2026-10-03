@@ -186,7 +186,12 @@ export async function findVerificationInBrowser(
       }
     }
 
-    if (!seenMail) return { error: 'Gmail did not finish loading in this browser profile.' };
+    if (!seenMail) {
+      // Say where the tab ended up: the next person to read the log should not have to guess.
+      const title = await bounded(page.title(), 2_000, '');
+      log(`  ✉ Gmail tab after the wait: ${page.url().slice(0, 120)}${title ? ` ("${title.slice(0, 60)}")` : ''}`);
+      return { error: 'Gmail did not finish loading in this browser profile.' };
+    }
     if (!seenRows) return { error: 'No verification email arrived in Gmail within the wait.' };
     return { error: `No email in Gmail carried a ${want === 'either' ? 'code or link' : want} for this site within the wait.` };
   } finally {

@@ -304,6 +304,24 @@ export class RunGuards {
   readonly unfillable = new Map<string, string>();
   private readonly fillAttempts = new Map<string, number>();
 
+  /**
+   * Observed fields the answer model judged to be the site's own controls, not
+   * application questions: a "Search by city" box inside a location picker, a
+   * filter. The grounded answer tool declines them, so the general tools must
+   * take them, or no tool can operate the control at all. One Programmed form
+   * (PERSOL) spent its whole page budget that way: answer_questions ignored
+   * the search box, fill_element and click_point sent the agent back to
+   * answer_questions, and the suburb was never chosen.
+   */
+  readonly siteControls = new Set<string>();
+
+  /** The answer model declined this field as a site control; the general tools may operate it. */
+  releaseAsSiteControl(label: string): void {
+    this.siteControls.add(label);
+    this.pendingFields.delete(label);
+    this.resolveGrounding(label);
+  }
+
   /** Times filling this field has failed and not yet succeeded. */
   fillAttemptsFor(label: string): number {
     return this.fillAttempts.get(label) ?? 0;
