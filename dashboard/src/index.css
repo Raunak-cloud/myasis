@@ -265,10 +265,10 @@ a:hover { text-decoration: underline; }
 .filters { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .input, select.input {
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
-  border-radius: 8px; padding: 7px 11px; min-width: 200px; outline: none;
+  border-radius: 8px; padding: 7px 11px; min-width: min(200px, 100%); outline: none;
 }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-select.input { min-width: 150px; cursor: pointer; }
+select.input { min-width: min(150px, 100%); cursor: pointer; }
 
 /* ---------- table ---------- */
 .card {
@@ -1416,10 +1416,11 @@ button.metric-tile:hover strong { color: var(--accent); }
   flex: none; display: grid; place-items: center; width: 46px; height: 46px;
   border-radius: 12px; background: var(--accent-soft); color: var(--accent);
 }
-.support-copy { display: grid; justify-items: start; gap: 12px; }
+.support-copy { display: grid; justify-items: start; gap: 12px; min-width: 0; }
 .support-copy h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
 .support-copy p { max-width: 60ch; margin: 0; color: var(--text-dim); line-height: 1.6; }
-.support-email { display: inline-flex; align-items: center; text-decoration: none; }
+/* The address is one long word; on the narrowest phones it breaks rather than pushing past the card. */
+.support-email { display: inline-flex; align-items: center; max-width: 100%; overflow-wrap: anywhere; text-decoration: none; }
 .support-email:hover { text-decoration: none; }
 .support-copy-status { min-height: 1.4em; color: var(--text-dim); font-size: 12px; }
 .support-copy-status.copied { color: var(--ok); }
@@ -1566,7 +1567,8 @@ button.metric-tile:hover strong { color: var(--accent); }
   }
   .nav-open .nav-scrim { opacity: 1; pointer-events: auto; }
   /* The page behind a drawer does not scroll with it. */
-  body.nav-open { overflow: hidden; }
+  /* Read from the open menu itself, like the activity modal's lock: no state is copied onto <body>. */
+  body:has(.app-shell.nav-open) { overflow: hidden; }
 
   .main-shell { padding: 22px 16px 44px; }
   .page-header { margin-bottom: 18px; }
@@ -2576,7 +2578,7 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .admin-ignored { margin-bottom: 12px; }
 .admin-ignored li { align-items: center; }
 .admin-pages { display: flex; flex-wrap: wrap; gap: 4px; }
-.admin-pages span { padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--surface-2); color: var(--text-dim); white-space: nowrap; }
+.admin-pages span { min-width: 0; padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--surface-2); color: var(--text-dim); overflow-wrap: anywhere; }
 .admin-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 .admin-attribution { margin: 0; }
 
@@ -2685,6 +2687,56 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
       radial-gradient(farthest-side at 0 50%, rgba(18, 42, 70, .16), transparent) 0 0 / 11px 100% no-repeat scroll,
       radial-gradient(farthest-side at 100% 50%, rgba(18, 42, 70, .16), transparent) 100% 0 / 11px 100% no-repeat scroll;
   }
+
+  /*
+   * Data tables (StackedTable) become one card per row instead of scrolling
+   * sideways. The first cell heads the card; every other cell is a line under
+   * its column's name, which StackedTable copies from the header row into
+   * `data-label`. The header stays readable to screen readers. `.table-wrap`
+   * in the selectors outranks per-table column widths and alignment.
+   */
+  .stacked-table thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+  .stacked-table, .stacked-table tbody, .stacked-table tr { display: block; width: 100%; }
+  .stacked-table { table-layout: auto; min-width: 0; }
+  .stacked-table tr { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .stacked-table tbody tr:last-child { border-bottom: 0; }
+  .table-wrap .stacked-table td {
+    display: block;
+    position: relative;
+    width: auto;
+    min-width: 0;
+    padding: 3px 14px 3px calc(34% + 14px);
+    border: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .table-wrap .stacked-table td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 14px;
+    width: calc(34% - 6px);
+    padding-top: 2px;
+    color: var(--text-faint);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+  .table-wrap .stacked-table td:first-child,
+  .table-wrap .stacked-table td:not([data-label]) { padding-left: 14px; }
+  .table-wrap .stacked-table td:first-child { padding-bottom: 6px; }
+  .table-wrap .stacked-table td:first-child::before,
+  .table-wrap .stacked-table td:not([data-label])::before { content: none; }
+  .table-wrap .stacked-table td:empty { display: none; }
+  /* The table is no longer wider than its card, so the scroll shadows and the scrolling go. */
+  .table-wrap:has(> .stacked-table) { overflow-x: visible; background: var(--surface); }
+  .admin-section.table-wrap:has(> .stacked-table) { padding-inline: 0; }
+  .admin-section.table-wrap:has(> .stacked-table) > :not(.stacked-table) { margin-inline: 14px; }
 
   /* Needs-attention items become cards on phones instead of an 860px table. */
   .attention-list {
@@ -2850,9 +2902,11 @@ textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 
   /* Counts and controls sit under the heading rather than fighting it for the row. */
   .queue-bar { align-items: flex-start; gap: 10px; }
-  .admin-nav { width: 100%; overflow-x: auto; scrollbar-width: none; }
-  .admin-nav::-webkit-scrollbar { display: none; }
-  .admin-nav button { flex: 0 0 auto; padding: 7px 13px; font-size: 13px; }
+  /* Every section stays in view: the tabs wrap onto a second row rather than scrolling off the edge. */
+  .admin-nav { width: 100%; flex-wrap: wrap; }
+  .admin-nav button { flex: 1 0 auto; padding: 7px 13px; font-size: 13px; }
+  /* Breakdown names wrap instead of being cut with an ellipsis; the fill still marks the share. */
+  .admin-fill { white-space: normal; overflow-wrap: anywhere; }
   .admin-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .admin-tile { padding: 12px 13px; }
   .admin-tile strong { font-size: 20px; }

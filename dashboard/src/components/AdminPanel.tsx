@@ -8,6 +8,7 @@ import { ProxiesView } from './ProxiesView';
 import { BlogView } from './BlogView';
 import { AdminEmailDialog } from './AdminEmailDialog';
 import type { RouteStatus } from '../route';
+import { StackedTable } from './StackedTable';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -210,7 +211,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
   if (!runs.length) return <p className="job-meta admin-empty">No runs yet.</p>;
   return (
     <div className="table-wrap">
-      <table>
+      <StackedTable>
         <thead>
           <tr>
             {showUser && <th>Account</th>}
@@ -250,7 +251,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
             );
           })}
         </tbody>
-      </table>
+      </StackedTable>
     </div>
   );
 }
@@ -873,7 +874,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
         <input className="input" placeholder="Search name or email" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
       <div className="card table-wrap">
-        <table>
+        <StackedTable>
           <thead>
             <tr>
               <th>Account</th>
@@ -935,7 +936,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
               );
             })}
           </tbody>
-        </table>
+        </StackedTable>
         {!rows.length && <p className="job-meta admin-empty">No accounts match.</p>}
       </div>
       {open && <UserDrawer userId={open} onClose={() => setOpen(null)} onChanged={load} onOpenRun={onOpenRun} onEmail={setEmailing} />}
@@ -1250,7 +1251,7 @@ function VisitorsView() {
               Ignore an address to leave its visits out of every report from now on.
             </p>
             {data.addresses.list.length ? (
-              <table>
+              <StackedTable>
                 <thead>
                   <tr>
                     <th>Address</th>
@@ -1275,7 +1276,7 @@ function VisitorsView() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </StackedTable>
             ) : (
               <p className="job-meta admin-empty">No addresses {home ? `in ${homeName}` : `outside ${homeName}`} in this period.</p>
             )}
@@ -1335,7 +1336,7 @@ function VisitorsView() {
 
           <section className="card table-wrap admin-section">
             <h3>Recent visits</h3>
-            <table>
+            <StackedTable>
               <thead>
                 <tr>
                   <th>When</th>
@@ -1407,7 +1408,7 @@ function VisitorsView() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </StackedTable>
             {!data.recent.length && <p className="job-meta admin-empty">No visits in this period.</p>}
           </section>
 

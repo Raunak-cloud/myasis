@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../adminApi';
+import { StackedTable } from './StackedTable';
 
 /**
  * The machine, on one screen.
@@ -324,7 +325,7 @@ export function ServerView() {
         )}
         {storage.perUser.length > 0 && (
           <div className="table-wrap">
-            <table className="server-table">
+            <StackedTable className="server-table">
               <thead>
                 <tr>
                   <th>Account</th>
@@ -343,7 +344,7 @@ export function ServerView() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </StackedTable>
           </div>
         )}
       </section>

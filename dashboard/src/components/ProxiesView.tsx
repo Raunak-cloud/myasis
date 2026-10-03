@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../adminApi';
+import { StackedTable } from './StackedTable';
 
 /**
  * The Webshare pool: which dedicated address each paying account holds,
@@ -88,7 +89,7 @@ export function ProxiesView() {
           </button>
         </div>
         <div className="table-wrap">
-          <table>
+          <StackedTable>
             <thead>
               <tr>
                 <th>Address</th>
@@ -119,7 +120,7 @@ export function ProxiesView() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </StackedTable>
         </div>
         {!report.proxies.length && <p className="job-meta admin-empty">{report.enabled ? 'No static residential proxies found on your Webshare account yet.' : 'The pool is off.'}</p>}
       </section>

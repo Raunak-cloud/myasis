@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../adminApi';
+import { StackedTable } from './StackedTable';
 
 /**
  * The weekly job-market brief: what has gone up, what failed, and the two
@@ -80,7 +81,7 @@ export function BlogView() {
           </button>
         </div>
         <div className="table-wrap">
-          <table>
+          <StackedTable>
             <thead>
               <tr>
                 <th>Week</th>
@@ -109,7 +110,7 @@ export function BlogView() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </StackedTable>
         </div>
         {!report.posts.length && <p className="job-meta admin-empty">Nothing published yet.</p>}
       </section>

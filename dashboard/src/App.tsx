@@ -255,10 +255,8 @@ export default function App() {
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setMenuOpen(false);
     };
-    document.body.classList.add('nav-open');
     window.addEventListener('keydown', close);
     return () => {
-      document.body.classList.remove('nav-open');
       window.removeEventListener('keydown', close);
     };
   }, [menuOpen]);
