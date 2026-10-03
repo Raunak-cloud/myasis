@@ -1915,11 +1915,25 @@ async function runTool(
       return ok('No page change after waiting 10 seconds. Inspect the page before choosing a recovery action.');
     }
     case 'confirm_submission': {
-      if (!ctx.submissionAttempted) return ok('No submission action has been recorded for this attempt. Do not claim success; inspect the page.');
+      /**
+       * The page is the authority, not the record of what was pressed. A form
+       * can send itself on a control the gates never read as a submit (an
+       * emailed-code "Next" on LiveHire lodged oOh!'s application), and the
+       * agent, seeing the confirmation, was told no submit had been recorded
+       * until the repeat detector ended the attempt. The independent verifier
+       * still has to quote an explicit confirmation from the page, and only
+       * an application with something entered can have been sent.
+       */
+      const sent = Boolean(ctx.captured.length || ctx.resumeUsed || ctx.coverLetter);
+      if (!ctx.submissionAttempted && !sent) return ok('Nothing has been entered or sent for this application yet. Do not claim success; inspect the page.');
       const evidence = await submissionEvidence(ctx);
-      return await verifySubmissionEvidence(evidence, ctx.job)
-        ? { kind: 'terminal', outcome: { status: 'applied' } }
-        : ok('The employer page does not yet verify a completed submission. Inspect its validation or wait for confirmation.');
+      if (await verifySubmissionEvidence(evidence, ctx.job)) {
+        if (!ctx.submissionAttempted) ctx.log('  · the page confirms the application was received, though no control was read as its submit');
+        return { kind: 'terminal', outcome: { status: 'applied' } };
+      }
+      return ok(ctx.submissionAttempted
+        ? 'The employer page does not yet verify a completed submission. Inspect its validation or wait for confirmation.'
+        : 'No submit has been pressed and the page does not confirm a submission. Find and press the form\'s own submit control; do not call this again until it has been pressed or the page says the application was received.');
     }
     case 'reload_page': {
       if (ctx.submissionAttempted || ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) return ok('Reload withheld: application data was entered or submission attempted. Preserve the form and inspect its current state.');
