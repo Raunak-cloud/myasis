@@ -267,7 +267,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       for (const action of ctx.actions) {
         if (action.kind !== 'authentication-prepared' || action.purpose !== 'sign_in') continue;
         const gotIn = ctx.actions.some((known) => (known.kind === 'signed-in' || known.kind === 'account-created') && known.site === action.site);
-        if (!gotIn) recordWall(action.site, 'Owtomate could not sign in to this site and its password reset did not come through.');
+        if (!gotIn) recordWall(action.site, 'Owtomate could not sign in to this site and its password reset did not come through.', job.company);
       }
     }
     const plain: AgentTermination = finalOutcome.status === 'needs-human' ? { ...finalOutcome, detail: undefined } : finalOutcome;
@@ -335,7 +335,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
 
     // A site whose check stopped an application within the day stops this one before any work on it.
-    const wall = isExternal(page.url()) ? walledHost(siteHost(page.url())) : null;
+    const wall = isExternal(page.url()) ? walledHost(siteHost(page.url()), job.company) : null;
     if (wall) {
       return finish({ status: 'skipped', reason: `${siteHost(page.url())} is not attempted today: ${wall.reason}` });
     }

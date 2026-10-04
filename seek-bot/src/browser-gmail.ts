@@ -31,6 +31,20 @@ const INBOX = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(SEA
 
 /** Gmail's shell renders long before the rows; reload rarely so a render can finish. */
 const RELOAD_EVERY_MS = 20_000;
+/**
+ * A Gmail that has not shown its mailbox by now will not show it in this
+ * wait. Across 87 email waits up to 4 Oct, every one that found its mail did
+ * so within 40 seconds, and a Gmail that never loaded held the agent for the
+ * full two minutes before saying so.
+ */
+const MAILBOX_LOAD_MS = 45_000;
+/**
+ * How long a wait for one kind keeps going after the site's email turned out
+ * to carry the other (a code where a link was expected). Long enough for the
+ * expected email to land if both were sent; then the agent is told at once
+ * instead of waiting out the whole budget for an email that is not coming.
+ */
+const OTHER_KIND_GRACE_MS = 30_000;
 /** Messages opened per look. Newest and most site-relevant first. */
 const OPEN_AT_MOST = 3;
 /** Gmail's message-list rows: the accessible role first, the long-stable class as a fallback. */
@@ -141,16 +155,28 @@ export async function findVerificationInBrowser(
   const page = await bounded(context.newPage(), 10_000, null);
   if (!page) return { error: 'Could not open a Gmail tab in this browser profile.' };
   try {
-    await bounded(page.goto(INBOX, { waitUntil: 'domcontentloaded', timeout: 30_000 }), Math.min(left(), 32_000), null);
+    const started = Date.now();
+    const openInbox = () => bounded(page.goto(INBOX, { waitUntil: 'domcontentloaded', timeout: 20_000 }), Math.min(left(), 21_000), null);
+    await openInbox();
     let seenMail = false;
     let seenRows = false;
     const examined = new Set<string>();
     let nextReload = Date.now() + RELOAD_EVERY_MS;
+    let otherKind: VerificationResult | null = null;
 
     while (left() > 0) {
+      if (otherKind && Date.now() - started > OTHER_KIND_GRACE_MS) {
+        log(`  ✉ the site's email carries a ${otherKind.kind}, not a ${want}: "${otherKind.subject.slice(0, 60)}"`);
+        return otherKind;
+      }
       const where = await state(page);
       if (where === 'signed-out') {
         return { error: 'The Gmail account is signed out in this browser profile. Sign it in again from the dashboard, then re-run.' };
+      }
+      if (where === 'loading' && !seenMail) {
+        if (Date.now() - started > MAILBOX_LOAD_MS) break;
+        // A navigation that never committed leaves the tab on about:blank, where a reload can never reach Gmail.
+        if (!/^https:\/\/mail\.google\.com\//.test(page.url())) await openInbox();
       }
       if (where === 'mail') {
         seenMail = true;
@@ -171,10 +197,11 @@ export async function findVerificationInBrowser(
           }
           if (emails.length) {
             const found = await bounded(readVerificationEmails(emails, { site: options.site ?? '', hint, want }), Math.min(left(), 60_000), null);
-            if (found) {
+            if (found && (want === 'either' || found.kind === want)) {
               log(`  ✉ read the ${found.kind} in "${found.subject.slice(0, 60)}"`);
               return found;
             }
+            if (found) otherKind ??= found;
           }
         }
       }
@@ -192,6 +219,7 @@ export async function findVerificationInBrowser(
       log(`  ✉ Gmail tab after the wait: ${page.url().slice(0, 120)}${title ? ` ("${title.slice(0, 60)}")` : ''}`);
       return { error: 'Gmail did not finish loading in this browser profile.' };
     }
+    if (otherKind) return otherKind;
     if (!seenRows) return { error: 'No verification email arrived in Gmail within the wait.' };
     return { error: `No email in Gmail carried a ${want === 'either' ? 'code or link' : want} for this site within the wait.` };
   } finally {

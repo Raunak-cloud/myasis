@@ -1274,6 +1274,10 @@ export interface VerificationEmail {
  * open. Read by the model because emails vary without end; checked against
  * the message itself, so a code must appear verbatim in that email and a link
  * must be one of its own links. Returns null when no email answers the ask.
+ *
+ * The site's email is returned even when it carries the other kind (a code
+ * where the agent waited for a link): the caller tells the agent at once,
+ * instead of waiting out the whole budget for a link that will never come.
  */
 export async function readVerificationEmails(
   emails: VerificationEmail[],
@@ -1292,7 +1296,8 @@ A job application on ${ask.site || 'an employer site'}${ask.hint ? ` (sender lik
 Choose the email that belongs to that site and request. Prefer the newest (lowest newest_rank) when several match; ignore job alerts, newsletters and other companies.
 For a code, copy it exactly as written in that email's text (keep letters, digits and any hyphen; drop spaces between digit groups only if the page would need them joined).
 For a link, give the index of the link that verifies/activates/confirms the account or resets the password — never unsubscribe, privacy, help or marketing links.
-If no email carries what is asked, return email -1.
+If that site's email carries the other kind instead (a code where a link was expected, or a link where a code was expected), return it with its real kind.
+If no email belongs to that site and request, return email -1.
 Return JSON {"email": index or -1, "kind": "code" | "link", "code": "..." or "", "link": index or -1}.
 <untrusted>${JSON.stringify(listed)}</untrusted>`, {
     type: 'OBJECT',
@@ -1301,7 +1306,7 @@ Return JSON {"email": index or -1, "kind": "code" | "link", "code": "..." or "",
   });
   const email = emails[verdict.email];
   if (!email) return null;
-  if (verdict.kind === 'code' && ask.want !== 'link') {
+  if (verdict.kind === 'code') {
     const code = verdict.code.trim();
     const compact = (value: string) => value.replace(/\s+/g, '');
     // Grounding: the code must be in the message, allowing only for spacing between groups.
@@ -1310,7 +1315,7 @@ Return JSON {"email": index or -1, "kind": "code" | "link", "code": "..." or "",
     }
     return null;
   }
-  if (verdict.kind === 'link' && ask.want !== 'code') {
+  if (verdict.kind === 'link') {
     const link = email.links[verdict.link];
     return link ? { kind: 'link', value: link.url, subject: email.subject } : null;
   }

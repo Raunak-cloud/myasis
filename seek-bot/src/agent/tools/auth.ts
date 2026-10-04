@@ -123,7 +123,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   ctx.log('  ✉ waiting for the emailed verification code');
 
   const found = await findVerificationInBrowser(ctx.page.context(), { hint, site: hostOf(ctx.page.url()), want: 'code', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
-  if (!('error' in found) && found.kind !== 'code') return ok('The email carries a link, not a code. Call open_emailed_link instead.');
+  if (!('error' in found) && found.kind !== 'code') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a link, not a code. Call open_emailed_link instead.`);
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
     /**
@@ -168,6 +168,7 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
     if (/signed out/i.test(found.error)) return ok(`${found.error} Try another authentication option; otherwise finish with "cannot_complete".`);
     return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".`);
   }
+  if (found.kind !== 'link') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a code, not a link. Call enter_emailed_code with the code field(s) instead.`);
   if (isAustralianGovernmentUrl(found.value)) {
     return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' } };
   }

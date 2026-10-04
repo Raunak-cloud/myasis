@@ -87,6 +87,11 @@ try {
   recordWall('jobs.lever.co', 'The site security verification could not be cleared automatically.');
   assert.match(walledHost('jobs.lever.co')?.reason ?? '', /security verification/);
   assert.equal(walledHost('careers.example.com'), null, 'other sites are untouched');
+  // A failed sign-in walls one employer's account, not every employer on a shared host.
+  recordWall('career2.successfactors.example', 'Owtomate could not sign in to this site.', 'Nestlé');
+  assert.match(walledHost('career2.successfactors.example', 'Nestlé')?.reason ?? '', /could not sign in/);
+  assert.equal(walledHost('career2.successfactors.example', 'Coca-Cola'), null, 'another employer on the shared host is still attempted');
+  assert.match(walledHost('jobs.lever.co', 'Any employer')?.reason ?? '', /security verification/, 'a host-wide wall applies to every employer');
 
   console.log("PASS: declined site controls are operable, a letter mention does not hold a step, the agent's no-letter statement is questioned once against the page, and a walled site is remembered");
 } finally {

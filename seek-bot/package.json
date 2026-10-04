@@ -37,7 +37,8 @@
     "test:sent-record": "tsc && node dist/agent/sent-record.test.js",
     "test:form-replay": "tsc && node dist/form-replay.test.js",
     "replay": "node dist/form-replay.js",
-    "test:submit-gate": "tsc && node dist/agent/submit-gate.test.js"
+    "test:submit-gate": "tsc && node dist/agent/submit-gate.test.js",
+    "test:email-wait": "tsc && node dist/email-wait.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
