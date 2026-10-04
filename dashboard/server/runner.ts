@@ -575,6 +575,29 @@ class RunPool {
     return this.runs.get(userId)?.state ?? { ...IDLE_STATE, ownerUserId: null };
   }
 
+  /**
+   * Accounts whose run is being prepared: sign-in checks, profile clean-up,
+   * route choice. Claimed and checked in one synchronous step, so a second
+   * Start for the same account is refused before it can close the browser
+   * the first one is about to use.
+   */
+  private starting = new Set<string>();
+
+  claimStart(userId: string): boolean {
+    if (this.starting.has(userId) || this.runs.get(userId)?.occupiesSlot) return false;
+    this.starting.add(userId);
+    return true;
+  }
+
+  releaseStart(userId: string): void {
+    this.starting.delete(userId);
+  }
+
+  /** A run is starting or holds this account's browser; nothing else may open it. */
+  inUse(userId: string): boolean {
+    return this.starting.has(userId) || Boolean(this.runs.get(userId)?.occupiesSlot);
+  }
+
   browserPortFor(userId: string): number | null {
     return this.runs.get(userId)?.browserPort ?? null;
   }

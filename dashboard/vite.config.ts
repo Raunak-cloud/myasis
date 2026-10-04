@@ -43,7 +43,7 @@ import { isPaidPlanKey } from './src/pricing.js';
 import { askModelForJson, generateSearchTerms } from './server/search-terms.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
-import { checkSignin, seekCheckInProgress, signOutOfBoard } from './server/seek-check.js';
+import { checkSignin, seekCheckInProgress, signOutOfBoard, waitForSigninChecks } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
 import { applyRunPolicy, discardRunStart, entitlementsFor, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
@@ -59,9 +59,7 @@ import { startBlogScheduler } from './server/blog/index.js';
 import { blogPages } from './server/blog/pages.js';
 import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
-import { releaseChromeProfile } from './server/chrome-profile.js';
 import { stopAllSignins } from './server/signin.js';
-
 
 type RewriteGuard = { validateRewrite: (original: string, candidate: string, maxWords: number) => string | null };
 
@@ -858,7 +856,7 @@ function dataApi(): Plugin {
          */
         return withUser(async (userId) => {
           if (req.method === 'POST') {
-            if (runner.stateFor(userId).running) {
+            if (runner.inUse(userId)) {
               return send({ error: 'Stop your current run first — Chrome cannot open the same profile twice.' }, 409);
             }
             // Same window, same profile; only the page it opens on differs.
@@ -915,7 +913,8 @@ function dataApi(): Plugin {
            * The page polls while `checking` is true and settles on each site's
            * freshly recorded answer.
            */
-          if (verifySites.length && !sessionFor(userId) && !runner.stateFor(userId).running) {
+          // Not while a run is starting either: a check opened then would hold the profile the bot is about to launch on.
+          if (verifySites.length && !sessionFor(userId) && !runner.inUse(userId)) {
             const [firstSite, ...remainingSites] = verifySites;
             // Start the first check before composing the response so
             // `checking` is already true and a cached tick cannot flash.
@@ -1232,12 +1231,19 @@ function dataApi(): Plugin {
           // Same reasoning as /api/run: without this the scan inherits the
           // shared .env's search settings instead of this account's.
           const settings = applyRunPolicy(await runSettingsForUser(userId, { unlimited: entitlements.tier === 'admin' }), entitlements, 'manual');
-          if (sessionFor(userId)) stopSignin(userId);
-          await releaseChromeProfile(userChromeDir(userId));
-          const runStartId = await recordRunStart(userId, 'scan', 'manual').catch(() => null);
-          const r = await runner.startQueue(userId, settings, runStartId);
-          if (!r.ok) await discardRunStart(runStartId).catch(() => {});
-          return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
+          // Claimed like a run start, so a scan never closes a browser a run is using.
+          if (!runner.claimStart(userId)) return send({ error: 'A run is already starting or in progress for this account.' }, 409);
+          try {
+            if (sessionFor(userId)) stopSignin(userId);
+            const ready = await waitForSigninChecks(userId);
+            if (!ready.ok) return send({ error: ready.error }, 409);
+            const runStartId = await recordRunStart(userId, 'scan', 'manual').catch(() => null);
+            const r = await runner.startQueue(userId, settings, runStartId);
+            if (!r.ok) await discardRunStart(runStartId).catch(() => {});
+            return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
+          } finally {
+            runner.releaseStart(userId);
+          }
         });
       }
 

@@ -18,8 +18,6 @@ import {
 import { listResumes } from './files.js';
 import { checkSignin, waitForSigninChecks } from './seek-check.js';
 import { sessionFor, stopSignin } from './signin.js';
-import { releaseChromeProfile } from './chrome-profile.js';
-import { userChromeDir } from './userdata.js';
 import { externalSubmittedToday, submittedToday } from './today.js';
 import { readSiteState } from './seek-state.js';
 import { browserRoute, describeRoute } from './route.js';
@@ -97,7 +95,26 @@ export function allowanceRefusal(allowance: Pick<BillingStatus, 'totalRemaining'
     : null;
 }
 
+/**
+ * One start per account at a time.
+ *
+ * Preparing a run closes any browser left on the account's profile. Before
+ * this claim, a second Start (a double click, or the scheduler and a person
+ * together) reached that clean-up while the first run's browser was open,
+ * closed it, and was then refused as "already in progress".
+ */
 export async function startRun(request: StartRunRequest): Promise<StartRunOutcome> {
+  if (!runner.claimStart(request.userId)) {
+    return { ok: false, status: 409, error: 'A run is already starting or in progress for this account.' };
+  }
+  try {
+    return await prepareAndStart(request);
+  } finally {
+    runner.releaseStart(request.userId);
+  }
+}
+
+async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
   const admin = isAdmin(email);
   let borrowFreeProxy = false;
@@ -296,15 +313,15 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
    * The run needs the account's browser profile to itself.
    *
    * A person still signing in keeps it for now if the scheduler is asking;
-   * if they pressed Start themselves, they are done signing in. Anything
-   * else holding the profile is a browser nobody is using any more.
+   * if they pressed Start themselves, they are done signing in. Sign-in
+   * checks already going are waited for; only then is anything else holding
+   * the profile a browser nobody is using any more.
    */
   if (sessionFor(userId)) {
     // Only the account holder pressing Start ends their own sign-in; nobody else closes a window they are using.
     if (trigger !== 'manual') return { ok: false, status: 409, error: 'A sign-in is in progress for this account.' };
     stopSignin(userId);
   }
-  await releaseChromeProfile(userChromeDir(userId));
 
   const browserReady = await waitForSigninChecks(userId);
   if (!browserReady.ok) return { ok: false, status: 409, error: browserReady.error };

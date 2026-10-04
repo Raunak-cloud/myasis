@@ -7,6 +7,7 @@ import { readSiteState, type SeekState, type SigninSite } from './seek-state.js'
 import { userChromeDir, userDir } from './userdata.js';
 import { browserRoute } from './route.js';
 import { chromeGoogleAccounts } from './chrome-accounts.js';
+import { releaseChromeProfile } from './chrome-profile.js';
 
 /**
  * Finds out whether an account is really signed in to SEEK.
@@ -64,7 +65,10 @@ export async function waitForSigninChecks(userId: string): Promise<{ ok: true } 
     await Promise.allSettled(checks);
   }
 
-  if (!(await waitForProfileFree(userChromeDir(userId)))) {
+  // No check and no sign-in window holds the profile now, so a Chrome still on it was left behind.
+  const profileDir = userChromeDir(userId);
+  await releaseChromeProfile(profileDir);
+  if (!(await waitForProfileFree(profileDir))) {
     return { ok: false, error: 'The account browser is still closing. Wait a few seconds, then start the run again.' };
   }
   return { ok: true };
@@ -76,7 +80,7 @@ export async function waitForSigninChecks(userId: string): Promise<{ ok: true } 
  * sign-in window has it, and waits for a check that is already going.
  */
 export async function signOutOfBoard(userId: string, site: SigninSite): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (runner.stateFor(userId).running) return { ok: false, error: 'A run is using this account right now. Sign out once it has finished.' };
+  if (runner.inUse(userId)) return { ok: false, error: 'A run is using this account right now. Sign out once it has finished.' };
   if (sessionFor(userId)) return { ok: false, error: 'Close the sign-in window first.' };
   const free = await waitForSigninChecks(userId);
   if (!free.ok) return free;
