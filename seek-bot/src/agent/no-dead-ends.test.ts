@@ -34,7 +34,7 @@ try {
       job: { id: '1', title: 'Front End Developer', company: 'PERSOL', location: 'Sydney', url: 'https://go.programmed.example/job/apply/1' },
       observation: await observe(page), captured: [], actions: [], log: (line: string) => logged.push(line),
       guards: new RunGuards({ maxSteps: 30, maxStepsPerPage: 16, maxStuckMs: 60_000, maxTotalMs: 600_000, meter: new CostMeter(1) }),
-    } as unknown as Parameters<typeof executeTool>[0] & { coverLetterOffered?: boolean; coverLetterHeld?: number; guards: InstanceType<typeof RunGuards> };
+    } as unknown as Parameters<typeof executeTool>[0] & { captured: Array<{ question: string; answer: string }>; guards: InstanceType<typeof RunGuards> };
     return ctx;
   };
   const logged: string[] = [];
@@ -55,22 +55,32 @@ try {
   assert.doesNotMatch(message(result), /use answer_questions/i, message(result));
   assert.equal(await page.inputValue('input[name=city]'), 'Parramatta', 'the general tool filled the released control');
 
-  // 2. The cover-letter hold lets go: once for a mere mention, so a form with no place for a letter still goes on.
+  // 2. A mention of a letter is not a place for one: an ordinary step moves on.
   const mention = `<!doctype html><main><form>
     <p>Applications with a cover letter are welcome.</p>
-    <label>Enter First Name <input name="first" value="Raunak"></label>
+    <label>Enter First Name <input value="Raunak"></label>
     <button type="button" onclick="document.body.insertAdjacentHTML('beforeend', '<p id=next>Next page</p>')">Next</button></form></main>`;
   ctx = await open(mention);
-  ctx.coverLetterOffered = true;
   const next = ctx.observation.actions.find((action) => /^next$/i.test(action.text));
   assert.ok(next, 'the fixture has a Next action');
-  result = await executeTool(ctx, 'click', { ref: next!.ref, reason: 'Next step' });
-  assert.match(message(result), /do not advance yet/i, 'held once so the agent looks for the letter');
-  assert.equal(await page.locator('#next').count(), 0);
-  ctx.observation = await observe(page);
-  result = await executeTool(ctx, 'click', { ref: next!.ref, reason: 'Next step, no letter box found' });
-  assert.equal(await page.locator('#next').count(), 1, 'the second press goes through');
-  assert.ok(logged.some((line) => /no cover letter: the page mentions one but has no place for it/.test(line)), logged.join(' | '));
+  result = await executeTool(ctx, 'click', { ref: next!.ref, reason: 'Next step', sends_application: false });
+  assert.equal(await page.locator('#next').count(), 1, 'Next goes through on a page that only mentions a letter');
+
+  // 2b. At the final submit, moving on without a letter takes the agent's statement, questioned once when the page shows a place.
+  const withBox = `<!doctype html><main><form>
+    <label>First name <input value="Raunak"></label>
+    <label>Cover letter <textarea></textarea></label>
+    <button type="button" onclick="document.title='SENT'">Submit application</button></form></main>`;
+  ctx = await open(withBox);
+  ctx.captured.push({ question: 'First name', answer: 'Raunak' });
+  const submitRef = ctx.observation.actions.find((action) => /submit/i.test(action.text))!.ref;
+  result = await executeTool(ctx, 'click', { ref: submitRef, reason: 'submit', sends_application: true });
+  assert.match(message(result), /has a place for a cover letter/, 'a submit past a letter box is held');
+  result = await executeTool(ctx, 'click', { ref: submitRef, reason: 'submit', sends_application: true, no_cover_letter_place: 'there is no letter field' });
+  assert.match(message(result), /but this step lists a cover-letter control/, 'a statement against the evidence is questioned once');
+  result = await executeTool(ctx, 'click', { ref: submitRef, reason: 'submit', sends_application: true, no_cover_letter_place: 'the box is for a different purpose and rejects text' });
+  assert.ok(!/cover letter/i.test(message(result)) || /withheld|rehears/i.test(message(result)) || result.kind === 'terminal', `a repeated statement is accepted: ${message(result)}`);
+  assert.ok(logged.some((line) => /no cover letter: the box is for a different purpose/.test(line)), logged.join(' | '));
 
   // 3. A site whose check stopped an application is remembered for the day.
   assert.equal(walledHost('jobs.lever.co'), null);
@@ -78,7 +88,7 @@ try {
   assert.match(walledHost('jobs.lever.co')?.reason ?? '', /security verification/);
   assert.equal(walledHost('careers.example.com'), null, 'other sites are untouched');
 
-  console.log('PASS: declined site controls are operable, the cover-letter hold lets go, and a walled site is remembered');
+  console.log("PASS: declined site controls are operable, a letter mention does not hold a step, the agent's no-letter statement is questioned once against the page, and a walled site is remembered");
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });

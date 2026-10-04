@@ -8,7 +8,7 @@ import { hostOf } from '../site-auth.js';
 import { recordWall } from '../site-walls.js';
 import { runRawTool } from './raw-tools.js';
 import { ToolResult, ToolContext, ok } from './tools/context.js';
-import { rememberCoverLetterOpportunity, submissionEvidence } from './tools/gate.js';
+import { submissionEvidence } from './tools/gate.js';
 import { doClick, doScroll, doClickPoint, doPressKey } from './tools/actions.js';
 import { doChooseOption, doAcceptTerms, doAnswerQuestions } from './tools/answers.js';
 import { doCompleteAuthentication, doEnterEmailedCode, EMAIL_WAIT_MS, doOpenEmailedLink } from './tools/auth.js';
@@ -96,7 +96,8 @@ async function runTool(
   if ('__parseError' in args) {
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
   }
-  rememberCoverLetterOpportunity(ctx);
+  ctx.declaredSubmit = typeof args.sends_application === 'boolean' ? args.sends_application : undefined;
+  ctx.declaredNoLetter = typeof args.no_cover_letter_place === 'string' && args.no_cover_letter_place.trim() ? args.no_cover_letter_place.trim() : undefined;
   switch (name) {
     case 'choose_option':
       return doChooseOption(ctx, args);

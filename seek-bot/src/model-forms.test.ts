@@ -191,7 +191,7 @@ try {
   await page.setContent('<main><label>Cover letter<textarea></textarea></label><button onclick="document.body.dataset.advanced=\'yes\'">Continue</button></main>');
   ctx = await context();
   const blockedAdvance = await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Continue' });
-  assert.ok(blockedAdvance.kind === 'ok' && blockedAdvance.message.includes('Do not advance yet'));
+  assert.ok(blockedAdvance.kind === 'ok' && blockedAdvance.message.includes('has a place for a cover letter'), 'a step with a letter box holds the forward press until the letter is added');
   assert.equal(await page.locator('body').getAttribute('data-advanced'), null, 'an offered cover letter cannot be skipped');
   await executeTool(ctx, 'add_cover_letter', { ref: ctx.observation.fields[0].ref });
   await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Continue after letter' });
@@ -209,7 +209,7 @@ try {
   const indeedSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
   assert.ok(indeedSubmit, 'Indeed fixture exposes its submit action');
   const blockedIndeedSubmit = await executeTool(ctx, 'click', { ref: indeedSubmit.ref, reason: 'Submit' });
-  assert.ok(blockedIndeedSubmit.kind === 'ok' && blockedIndeedSubmit.message.includes('Do not advance yet'));
+  assert.ok(blockedIndeedSubmit.kind === 'ok' && /cover letter/i.test(blockedIndeedSubmit.message));
   assert.equal(
     await page.locator('body').getAttribute('data-submitted'),
     null,
@@ -233,7 +233,7 @@ try {
   const contextualSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
   assert.ok(contextualSubmit, 'long Indeed fixture exposes its submit action');
   const blockedTruncatedSubmit = await executeTool(ctx, 'click', { ref: contextualSubmit.ref, reason: 'Submit' });
-  assert.ok(blockedTruncatedSubmit.kind === 'ok' && blockedTruncatedSubmit.message.includes('Do not advance yet'));
+  assert.ok(blockedTruncatedSubmit.kind === 'ok' && /cover letter/i.test(blockedTruncatedSubmit.message));
   assert.equal(
     await page.locator('body').getAttribute('data-submitted'),
     null,
@@ -244,10 +244,10 @@ try {
   ctx = await context();
   ctx.observation.url = 'https://smartapply.indeed.com/beta/indeedapply/form/review-module';
   const indeedSubmitWithoutDocuments = ctx.observation.actions[0];
-  const indeedWithoutLetterOption = await executeTool(ctx, 'click', { ref: indeedSubmitWithoutDocuments.ref, reason: 'Submit' });
+  const indeedWithoutLetterOption = await executeTool(ctx, 'click', { ref: indeedSubmitWithoutDocuments.ref, reason: 'Submit', sends_application: true, no_cover_letter_place: 'the review page has no supporting documents or cover letter option' });
   assert.ok(
     !(indeedWithoutLetterOption.kind === 'ok' && /cover letter/i.test(indeedWithoutLetterOption.message)),
-    'an Indeed application that offers no cover-letter option is not held back for one',
+    'an Indeed application whose agent states it offers no cover-letter option is not held back for one',
   );
 
   await page.route('https://smartapply.indeed.com/beta/indeedapply/form/questions-module/questions/review-fixture', route => route.fulfill({
@@ -256,7 +256,7 @@ try {
   }));
   await page.goto('https://smartapply.indeed.com/beta/indeedapply/form/questions-module/questions/review-fixture');
   ctx = await context();
-  await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Open review' });
+  await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Open review', sends_application: false });
   assert.equal(await page.locator('body').getAttribute('data-reviewed'), 'yes', 'Indeed review navigation remains available before a cover letter is added');
 
   await page.setContent('<main><label>Photo<input type="file" accept="image/*"></label><label>CV<input type="file" accept=".txt,.pdf"></label></main>');
@@ -423,7 +423,7 @@ try {
   sendCtx.captured.push({ question: 'Phone', answer: '0412345678' });
   sendsApplication = true;
   process.env.DRY_RUN = 'true';
-  const withheld = await executeTool(sendCtx, 'click', { ref: sendCtx.observation.actions.find(action => action.text === 'Send')!.ref, reason: 'Finish' });
+  const withheld = await executeTool(sendCtx, 'click', { ref: sendCtx.observation.actions.find(action => action.text === 'Send')!.ref, reason: 'Finish', no_cover_letter_place: 'the form has only a phone field and no letter box or upload' });
   delete process.env.DRY_RUN;
   sendsApplication = false;
   assert.ok(withheld.kind === 'terminal' && withheld.outcome.status === 'rehearsed', 'an unlisted submit wording is withheld in a rehearsal');

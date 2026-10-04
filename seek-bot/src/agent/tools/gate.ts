@@ -15,16 +15,6 @@ import { ToolResult, ToolContext, ok, noteAction, toolRun } from './context.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
-/**
- * Remember only actionable cover-letter UI, never wording in a job advert.
- * This lets the submit gate enforce the plan promise without blocking an
- * employer that simply did not include a place to receive a letter.
- */
-export function rememberCoverLetterOpportunity(ctx: ToolContext): void {
-  if (ctx.coverLetterOffered) return;
-  ctx.coverLetterOffered = offersCoverLetter(ctx.observation);
-}
-
 export const advancesApplication = (text: string): boolean =>
   /^(continue|next|review(?: your)? application|preview application|save and continue)$/i.test(text.trim()) ||
   isSubmitAction(text);
@@ -64,6 +54,15 @@ export async function transmits(ctx: ToolContext, label: string, context?: strin
    * not, and skipping them when it is sends an unchecked application.
    */
   if ((ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) && /^(apply|apply now|submit|send|send application|finish|complete|complete application|confirm|confirm and submit)\b/i.test(label.trim())) return true;
+  /**
+   * The agent's own judgement, given with the press, decides; the backstop
+   * above still makes a submit-worded control on a filled form a submit. A
+   * separate model is asked only when the agent did not say.
+   */
+  if (typeof ctx.declaredSubmit === 'boolean') {
+    if (ctx.declaredSubmit) ctx.log(`  · "${label.slice(0, 60)}" is the final submit (the agent's judgement)`);
+    return ctx.declaredSubmit;
+  }
   // Nothing typed, attached or on the page: there is nothing a click could send.
   if (!ctx.captured.length && !ctx.resumeUsed && !ctx.coverLetter && !ctx.observation.fields.length) return false;
   /**
@@ -149,36 +148,6 @@ export async function gateAdvance(
       }
     }
   }
-  if (advancesApplication(label) && !ctx.coverLetter && !ctx.coverLetterOffered) {
-    if (await pageOffersDocuments(ctx.page)) ctx.coverLetterOffered = true;
-  }
-  // Free accounts send the grounded draft; eligible paid/admin accounts the
-  // humanized version from finishedCoverLetterForJob().
-  if (advancesApplication(label) && ctx.coverLetterOffered && !ctx.coverLetter) {
-    /**
-     * Held, but never for good. The page is held once on the strength of a
-     * mention ("cover letter" in its text) and up to three times while the
-     * observation shows an actual place for one; after that the application
-     * goes on without a letter. An APRA form (Oracle) mentioned a cover
-     * letter and had no control for it, and the hold, with no way out, spent
-     * the page's whole step budget and lost the application: a letter the
-     * form cannot take is not worth the application.
-     */
-    const actionable = offersCoverLetter(ctx.observation);
-    const held = ctx.coverLetterHeld ?? 0;
-    if (held < (actionable ? 3 : 1)) {
-      ctx.coverLetterHeld = held + 1;
-      return { proceed: false, result: ok(
-        'Do not advance yet: this application offers a cover letter and none has been verified. ' +
-        'Reveal it first if it is folded away or below — on Indeed, scroll to the bottom of the review page and click ' +
-        'the Add control beside "Supporting documents" to open the cover-letter option — then call add_cover_letter with ' +
-        'the writing FIELD ref, or the upload ACTION ref when it only takes a file.' +
-        (actionable ? '' : ' If, after looking, the page has no place for a letter, press the control again and the application continues without one.'),
-      ) };
-    }
-    ctx.log(`  · no cover letter: the page ${actionable ? 'shows a place for one that could not be used' : 'mentions one but has no place for it'}; continuing without`);
-    ctx.coverLetterOffered = false;
-  }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${label}"`);
   if (!entry && (options.knownSubmit || advancesApplication(label))) {
@@ -188,6 +157,13 @@ export async function gateAdvance(
   const submit = options.knownSubmit === true
     || (!entry && options.role !== 'toggle' && options.role !== 'file' && await transmits(ctx, label, context));
   ctx.pressJudged = true;
+  if (!entry) {
+    // Asked at the press the agent itself calls the final submit; a press a word list calls a submit
+    // but the agent does not (Indeed's "Review your application") still runs the submit gates below.
+    const final = ctx.declaredSubmit ?? submit;
+    const letter = await coverLetterCheck(ctx, label, final);
+    if (letter) return { proceed: false, result: letter };
+  }
   if (!submit) return { proceed: true, submit: false };
 
   if (ctx.submissionAttempted && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
@@ -567,4 +543,37 @@ export async function recordWhatWasSent(ctx: ToolContext): Promise<void> {
     const now = field && field.kind !== 'checkbox' && !field.sensitive ? field.currentValue?.trim() : '';
     if (now && normal(now) !== normal(item.answer)) item.answer = now;
   }
+}
+
+/**
+ * Whether the application may move on without a cover letter, decided from
+ * the agent's own statement checked against what the page shows.
+ *
+ * A word-matching rule used to decide: a page that merely mentioned a letter
+ * held every forward press (APRA's Oracle form spent its step budget there),
+ * and a letter section rendered out of view was missed (Indeed). Now an
+ * ordinary step moves on unless it shows a letter control itself; the final
+ * submit asks the agent once; and a statement that the form has no place
+ * for a letter is accepted, after being questioned once if the page does
+ * show one (a cover-letter control in view, or a supporting-documents
+ * section anywhere on the page).
+ */
+async function coverLetterCheck(ctx: ToolContext, label: string, submit: boolean): Promise<ToolResult | null> {
+  if (ctx.coverLetter || ctx.letterResolved || !(submit || advancesApplication(label))) return null;
+  const shown = offersCoverLetter(ctx.observation);
+  if (!shown && !submit) return null;
+  const elsewhere = !shown && submit ? await pageOffersDocuments(ctx.page) : false;
+  const stated = ctx.declaredNoLetter;
+  if (stated) {
+    if ((shown || elsewhere) && !ctx.letterChallenged) {
+      ctx.letterChallenged = true;
+      return ok(`You said the form has no place for a cover letter ("${stated.slice(0, 200)}"), but ${shown ? 'this step lists a cover-letter control in its FIELDS or ACTIONS' : 'the page has a supporting-documents or cover-letter section, possibly below or folded away'}. Add the letter with add_cover_letter (the writing FIELD, or the upload ACTION when it takes a file); if you have checked and it really cannot take one, press again with no_cover_letter_place saying why.`);
+    }
+    ctx.letterResolved = true;
+    ctx.log(`  · no cover letter: ${stated.slice(0, 160)}`);
+    return null;
+  }
+  return ok(shown
+    ? 'This step has a place for a cover letter and none has been added. Add it with add_cover_letter (the writing FIELD, or the upload ACTION when it takes a file) before moving on; if it is not really a place for a letter, press again with no_cover_letter_place saying why.'
+    : `This sends the application without a cover letter. If the form takes one anywhere (a cover-letter box, supporting documents, attachments; scroll down and open any Add control), add it with add_cover_letter; otherwise press again with no_cover_letter_place saying what you checked.${elsewhere ? ' The page does have a supporting-documents or cover-letter section.' : ''}`);
 }

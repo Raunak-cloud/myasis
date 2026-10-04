@@ -63,7 +63,38 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
-  ];
+  ].map(withPressJudgement);
+}
+
+/**
+ * What the agent itself judges about a press, carried on the press: whether
+ * it sends the finished application, and, when moving on without a cover
+ * letter, why the form has no place for one. The agent sees the whole page
+ * and already says so in its reason ("Submit the application by clicking
+ * Apply"); a separate model asked the first question again on every forward
+ * press, and a word-matching rule answered the second.
+ */
+const PRESSING_TOOLS = new Set(['click', 'click_element', 'click_point', 'press_key']);
+function withPressJudgement(tool: ToolSchema): ToolSchema {
+  if (!PRESSING_TOOLS.has(tool.name)) return tool;
+  const parameters = tool.parameters as { properties?: Record<string, unknown> };
+  return {
+    ...tool,
+    parameters: {
+      ...tool.parameters,
+      properties: {
+        ...(parameters.properties ?? {}),
+        sends_application: {
+          type: 'boolean',
+          description: 'Your judgement: true when this press sends the finished application to the employer (the final submit), false for anything else (opening the form, Next, Continue, Save, a menu).',
+        },
+        no_cover_letter_place: {
+          type: 'string',
+          description: 'Only when moving on or submitting without having added a cover letter: what you checked that shows this form has no place for one (no cover-letter box, no supporting-documents upload, after scrolling and opening any Add control).',
+        },
+      },
+    },
+  };
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [

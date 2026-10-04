@@ -66,9 +66,14 @@ export interface ToolContext {
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
   /** Set only after a real cover-letter input or reveal control was observed. */
-  coverLetterOffered?: boolean;
-  /** Times an advancing press was held for the missing cover letter; see gateAdvance. */
-  coverLetterHeld?: number;
+  /** The agent's own judgement on the current press: does it send the application? */
+  declaredSubmit?: boolean;
+  /** The agent's own statement, on the current press, of why the form has no place for a cover letter. */
+  declaredNoLetter?: string;
+  /** Moving on without a letter has been settled for this application (the agent's statement accepted). */
+  letterResolved?: boolean;
+  /** The agent's statement was questioned once against what the page shows. */
+  letterChallenged?: boolean;
   /** Passwords set on a site in this attempt and not yet accepted by it, by host. */
   pendingCredentials?: Map<string, SiteCredential>;
   resumeUsed?: string;

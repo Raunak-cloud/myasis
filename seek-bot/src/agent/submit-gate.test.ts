@@ -17,7 +17,8 @@ process.env.CELERIS_API_KEY = 'fixture-only';
 process.env.DRY_RUN = 'true';
 process.env.ALLOW_EXTERNAL_APPLY = 'true';
 // The model would call "Apply" not a submit both times; the gate must not rely on it.
-globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: false, problems: [], unsafe: false, reason: 'fixture' }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+let modelCalls = 0;
+globalThis.fetch = (async () => (modelCalls++, new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: false, problems: [], unsafe: false, reason: 'fixture' }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } }))) as typeof fetch;
 const { observe } = await import('./observe.js');
 const { executeTool } = await import('./tools.js');
 const { RunGuards } = await import('./guards.js');
@@ -48,11 +49,21 @@ try {
   await page.goto('https://career2.successfactors-fixture.example/portalcareer');
   ctx.observation = await observe(page);
   ctx.captured.push({ question: 'First name', answer: 'Raunak' });
-  result = await executeTool(ctx, 'click', { ref: applyRef(), reason: 'submit' });
+  result = await executeTool(ctx, 'click', { ref: applyRef(), reason: 'submit', no_cover_letter_place: 'the form has no letter box or upload' });
   assert.notEqual(await page.title(), 'SENT', 'the filled form was not sent');
   assert.equal(result.kind, 'terminal');
   assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed', 'the rehearsal ends at the withheld submit');
-  console.log('PASS: a control that opened a form is still gated as the submit once the form is filled, and a rehearsal never sends');
+  // The agent's own judgement decides a press no word would give away, with no separate model call.
+  html = `<!doctype html><main><form><label>First name <input value="Raunak"></label><button type="button" onclick="document.title='SENT'">Proceed</button></form></main>`;
+  await page.goto('https://career2.successfactors-fixture.example/portalcareer');
+  ctx.observation = await observe(page);
+  const before = modelCalls;
+  const proceed = ctx.observation.actions.find((action) => /^proceed$/i.test(action.text))!.ref;
+  result = await executeTool(ctx, 'click', { ref: proceed, reason: 'send it', sends_application: true, no_cover_letter_place: 'the form has no letter box or upload' });
+  assert.notEqual(await page.title(), 'SENT', 'what the agent says is the submit is gated as one');
+  assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed');
+  assert.equal(modelCalls - before, 0, 'no separate model call was needed to judge it');
+  console.log("PASS: a control that opened a form is still gated as the submit once the form is filled, the agent's own submit judgement is used without another model call, and a rehearsal never sends");
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });
