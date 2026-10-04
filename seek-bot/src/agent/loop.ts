@@ -88,7 +88,19 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     actions: [],
   };
 
-  const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt() }];
+  /**
+   * Which job this is, in a message of its own that is never compressed or
+   * trimmed. It used to open the first page's description, so it went when
+   * that page was compressed, and from the second page on the agent no longer
+   * knew which job it was applying for — the one thing it needs on a careers
+   * site that lands on a job list after sign-in. Kept out of the system prompt
+   * so that prompt stays identical, and cached, across applications.
+   */
+  const messages: ChatMessage[] = [
+    { role: 'system', content: systemPrompt() },
+    // The listing's own words are data, quoted as such.
+    { role: 'user', content: `APPLICATION: you are applying for the job titled ${JSON.stringify(job.title)} at ${JSON.stringify(job.company)} (${JSON.stringify(job.location)}). Every page from here on is part of this one application; if a site shows several jobs, this is the one to apply for.` },
+  ];
   /**
    * Where each page description sits in the transcript.
    *
@@ -110,9 +122,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
     observationIndices.length = 0;
   };
-  let note =
-    `You are applying for: ${job.title} at ${job.company} (${job.location}).\n` +
-    'Complete this application. Begin by reading the page below.';
+  let note = 'Complete this application. Begin by reading the page below.';
   /** Consecutive turns that produced no page change — the escalation trigger. */
   let stalls = 0;
   let repeats = 0;
