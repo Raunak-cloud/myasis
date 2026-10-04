@@ -1,6 +1,7 @@
 import { hostOf as siteHost } from '../site-auth.js';
 import { recordWall, walledHost } from '../site-walls.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
+import { recordFormPage } from '../form-corpus.js';
 import { changedAnything, describeChanges, readChanges, startRecording, type PageChanges } from './page-changes.js';
 import { lessonsFor, platformOf, reviewFailure } from './lessons.js';
 import type { ApplicationAction } from '../types.js';
@@ -880,6 +881,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       await jitter(800, 1_500);
       ctx.observation = await observe(page, { screenshot: wantScreenshot });
     }
+    // Each distinct employer form page is kept for replay after code changes (form-corpus.ts).
+    if (isExternal(page.url())) await recordFormPage(page, ctx.observation);
 
     /**
      * The page of the form this step is on: its path and its headings. A long

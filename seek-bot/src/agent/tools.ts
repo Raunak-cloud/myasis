@@ -7,7 +7,7 @@ import {
   waitForInteractiveSurface,
   waitForPageToSettle,
 } from '../browser.js';
-import { fillField, setChecked } from '../dom.js';
+import { extractFields, fillField, setChecked } from '../dom.js';
 import { answerFields, auditFormBeforeSubmit, verifyAlreadyApplied, finishedCoverLetterForJob, fitCoverLetterToLimit, isRequiredConsent, isSubmitControl, verifySubmissionEvidence } from '../llm.js';
 import { acceptsFormat, pickResumeForJob, RESUME_DIR, documentFor } from '../resume.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -293,6 +293,8 @@ export async function gateAdvance(
   }
   const audit = await auditBeforeSubmit(ctx);
   if (audit) return { proceed: false, result: audit };
+  // What goes out is what is recorded, for a rehearsal as for a real submission.
+  await recordWhatWasSent(ctx);
   if (!verdict.allowed) {
     ctx.log(`  ✋ dry run — withheld "${label}"`);
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } } };
@@ -1500,6 +1502,8 @@ async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>)
   }
   catch (error) { return ok(`Cover letter not accepted: ${(error as Error).message}. Re-observe and choose the current writing field or resolve the form's validation.`); }
   ctx.coverLetter = letter;
+  // Marked, so what the box holds when the form is sent can be read back as the letter that went (recordWhatWasSent).
+  await target.evaluate((el) => el.setAttribute('data-owt-letter', '1')).catch(() => {});
   ctx.guards.recordFillSuccess(label);
   if (config.humanizer.enabled) countHealth(wasHumanized(letter) ? 'humanizedLetters' : 'draftLetters');
   ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter added`);
@@ -2051,4 +2055,35 @@ export async function pageConfirmsSubmission(ctx: ToolContext): Promise<boolean>
   if (ctx.page.isClosed()) return false;
   await waitForPageToSettle(ctx.page, 1_500, 8_000).catch(() => false);
   return verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false);
+}
+
+/**
+ * The application's record is what the form held when it was sent, not what
+ * Owtomate first wrote. Arinco's letter was corrected on the form after the
+ * pre-submit check (the draft said "available immediately", the profile a
+ * week's notice), and the dashboard kept showing the draft. Read just before
+ * the submit is pressed: the letter box Owtomate wrote, and every answer it
+ * gave, as the form now holds them.
+ */
+export async function recordWhatWasSent(ctx: ToolContext): Promise<void> {
+  const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
+  for (const frame of ctx.page.frames()) {
+    const held = await frame.evaluate(() => {
+      const box = document.querySelector('[data-owt-letter]') as HTMLTextAreaElement | HTMLInputElement | HTMLElement | null;
+      if (!box) return null;
+      return 'value' in box && typeof (box as HTMLTextAreaElement).value === 'string' ? (box as HTMLTextAreaElement).value : (box as HTMLElement).innerText;
+    }).catch(() => null);
+    if (held === null) continue;
+    if (held.trim() && normal(held) !== normal(ctx.coverLetter ?? '')) {
+      ctx.coverLetter = held.trim();
+      ctx.log('  · the letter on the form differs from the first draft; the one sent is recorded');
+    }
+    break;
+  }
+  const fields = await extractFields(ctx.page).catch(() => []);
+  for (const item of ctx.captured) {
+    const field = fields.find((candidate) => normal(candidate.label) === normal(item.question));
+    const now = field && field.kind !== 'checkbox' && !field.sensitive ? field.currentValue?.trim() : '';
+    if (now && normal(now) !== normal(item.answer)) item.answer = now;
+  }
 }

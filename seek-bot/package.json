@@ -33,7 +33,10 @@
     "test:auth-rules": "tsc && node dist/agent/auth-rules.test.js && node --test dist/site-password.test.js",
     "test:no-dead-ends": "tsc && node dist/agent/no-dead-ends.test.js",
     "test:plan-loop": "tsc && node dist/agent/plan-loop.test.js",
-    "test:labels": "tsc && node dist/labels.test.js"
+    "test:labels": "tsc && node dist/labels.test.js",
+    "test:sent-record": "tsc && node dist/agent/sent-record.test.js",
+    "test:form-replay": "tsc && node dist/form-replay.test.js",
+    "replay": "node dist/form-replay.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
