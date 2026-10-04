@@ -208,7 +208,7 @@ try {
   ctx = await context();
   const indeedSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
   assert.ok(indeedSubmit, 'Indeed fixture exposes its submit action');
-  const blockedIndeedSubmit = await executeTool(ctx, 'click', { ref: indeedSubmit.ref, reason: 'Submit' });
+  const blockedIndeedSubmit = await executeTool(ctx, 'click', { ref: indeedSubmit.ref, reason: 'Submit', sends_application: true });
   assert.ok(blockedIndeedSubmit.kind === 'ok' && /cover letter/i.test(blockedIndeedSubmit.message));
   assert.equal(
     await page.locator('body').getAttribute('data-submitted'),
@@ -232,7 +232,7 @@ try {
   assert.match(contextualAdd?.context ?? '', /Supporting documents.*No cover letter/i);
   const contextualSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
   assert.ok(contextualSubmit, 'long Indeed fixture exposes its submit action');
-  const blockedTruncatedSubmit = await executeTool(ctx, 'click', { ref: contextualSubmit.ref, reason: 'Submit' });
+  const blockedTruncatedSubmit = await executeTool(ctx, 'click', { ref: contextualSubmit.ref, reason: 'Submit', sends_application: true });
   assert.ok(blockedTruncatedSubmit.kind === 'ok' && /cover letter/i.test(blockedTruncatedSubmit.message));
   assert.equal(
     await page.locator('body').getAttribute('data-submitted'),

@@ -20,20 +20,6 @@ import { CostMeter } from './celeris.js';
 
 const clean = (s: string) => s.replace(/[​-‍⁠﻿ ]/g, ' ').replace(/\s+/g, ' ').trim();
 
-/**
- * Controls that can transmit an application.
- *
- * SEEK uses "Review and submit" as the terminal action on some one-page
- * applications rather than navigating to a separate /review page, so every
- * submit-labelled action is treated as terminal. A rehearsal must never click
- * one, whatever the agent believes it is doing.
- */
-const SUBMIT_LABELS =
-  /^(review and submit|review your application|submit your application|submit application|submit|send application|apply now|finish application|complete application)$/i;
-
-export function isSubmitAction(text: string): boolean {
-  return SUBMIT_LABELS.test(clean(text).toLowerCase());
-}
 
 /**
  * "Apply now" on a job advert opens the form; on a completed form it sends

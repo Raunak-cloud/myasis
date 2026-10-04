@@ -21,7 +21,7 @@ process.env.DRY_RUN = 'true';
 process.env.REHEARSE = 'true';
 
 const { config } = await import('./config.js');
-const { isSubmitAction, isExternal, isForbiddenDestination, RunGuards } = await import('./agent/guards.js');
+const { isExternal, isForbiddenDestination, RunGuards } = await import('./agent/guards.js');
 const { CostMeter, celerisChat } = await import('./agent/celeris.js');
 
 let failures = 0;
@@ -32,10 +32,6 @@ const check = (name: string, condition: boolean, detail = '') => {
 
 // ---- stage: guards -------------------------------------------------------
 console.log('\nguards');
-check('recognises SEEK terminal submit labels', isSubmitAction('Submit application'));
-check('recognises "Review and submit" as terminal', isSubmitAction('Review and submit'));
-check('survives invisible padding characters', isSubmitAction('Submit​ application'));
-check('does not treat Continue as a submit', !isSubmitAction('Continue'));
 check('seek.com.au is not external', !isExternal('https://www.seek.com.au/apply/123'));
 check('an ATS host is external', isExternal('https://jobs.smartrecruiters.com/x/y'));
 check('SEEK external apply path is external', isExternal('https://www.seek.com.au/apply/external/123'));

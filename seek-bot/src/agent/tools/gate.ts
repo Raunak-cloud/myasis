@@ -6,7 +6,7 @@ import { answerFields, auditFormBeforeSubmit, isSubmitControl, verifySubmissionE
 import { pickResumeForJob } from '../../resume.js';
 import { resolve } from 'node:path';
 import type { FormField } from '../../types.js';
-import { isEntryAction, isSubmitAction } from '../guards.js';
+import { isEntryAction } from '../guards.js';
 import { wasHumanized } from '../../humanizer.js';
 import { hostOf } from '../../site-auth.js';
 import { offersCoverLetter } from '../cover-letter-opportunity.js';
@@ -16,8 +16,24 @@ import { ToolResult, ToolContext, ok, noteAction, toolRun } from './context.js';
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
 export const advancesApplication = (text: string): boolean =>
-  /^(continue|next|review(?: your)? application|preview application|save and continue)$/i.test(text.trim()) ||
-  isSubmitAction(text);
+  /^(continue|next|review(?: your)? application|preview application|save and continue)$/i.test(text.trim());
+
+/**
+ * The one fixed rule left about submits, and only a safety net: once anything
+ * has been entered, a control that says it applies, submits or sends goes
+ * through the submit gates whatever the agent judged. Wrongly applied it
+ * costs a check; wrongly missed, an unchecked application goes out (Nestlé,
+ * 4 Oct). Every other submit decision is the agent's own.
+ */
+export function submitWorded(ctx: ToolContext, label: string): boolean {
+  return Boolean(ctx.captured.length || ctx.resumeUsed || ctx.coverLetter)
+    // "Review and submit" is SEEK's terminal action on some one-page applications.
+    && /^(apply|apply now|submit|send|send application|finish|complete|complete application|confirm|confirm and submit|review and submit)\b/i.test(label.trim());
+}
+
+/** A press that moves the application on: a forward step, or one the agent or the safety net calls the submit. */
+const movesForward = (ctx: ToolContext, label: string): boolean =>
+  advancesApplication(label) || ctx.declaredSubmit === true || submitWorded(ctx, label);
 
 /**
  * What the page shows after a submit, for the independent verifier.
@@ -45,15 +61,8 @@ export const submitVerdicts = new Map<string, boolean>();
  */
 export async function transmits(ctx: ToolContext, label: string, context?: string): Promise<boolean> {
   if (isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) return false;
-  if (isSubmitAction(label)) return true;
   if (!label.trim() || /\(opens a list\)$/.test(label)) return false;
-  /**
-   * Once anything has been entered, a control that says it applies, submits
-   * or sends is treated as the submit, whatever the model makes of it: its
-   * gates (the audit, the letter, the dry-run hold) cost a little when it is
-   * not, and skipping them when it is sends an unchecked application.
-   */
-  if ((ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) && /^(apply|apply now|submit|send|send application|finish|complete|complete application|confirm|confirm and submit)\b/i.test(label.trim())) return true;
+  if (submitWorded(ctx, label)) return true;
   /**
    * The agent's own judgement, given with the press, decides; the backstop
    * above still makes a submit-worded control on a filled form a submit. A
@@ -128,7 +137,7 @@ export async function gateAdvance(
    * Settled here, deterministically, as the documents step is left, so the
    * agent cannot move past it with the board's own copy (src/resume-sync.ts).
    */
-  if (advancesApplication(label) && !ctx.resumeSettled) {
+  if (movesForward(ctx, label) && !ctx.resumeSettled) {
     const chosen = await pickResumeForJob(ctx.job, ctx.profile);
     const step = chosen ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
     if (step.action === 'failed') {
@@ -150,7 +159,7 @@ export async function gateAdvance(
   }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${label}"`);
-  if (!entry && (options.knownSubmit || advancesApplication(label))) {
+  if (!entry && (options.knownSubmit || movesForward(ctx, label))) {
     const held = await auditPrefilled(ctx);
     if (held) return { proceed: false, result: held };
   }
@@ -559,7 +568,7 @@ export async function recordWhatWasSent(ctx: ToolContext): Promise<void> {
  * section anywhere on the page).
  */
 async function coverLetterCheck(ctx: ToolContext, label: string, submit: boolean): Promise<ToolResult | null> {
-  if (ctx.coverLetter || ctx.letterResolved || !(submit || advancesApplication(label))) return null;
+  if (ctx.coverLetter || ctx.letterResolved || !(submit || movesForward(ctx, label))) return null;
   const shown = offersCoverLetter(ctx.observation);
   if (!shown && !submit) return null;
   const elsewhere = !shown && submit ? await pageOffersDocuments(ctx.page) : false;
