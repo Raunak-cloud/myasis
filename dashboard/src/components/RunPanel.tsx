@@ -956,7 +956,7 @@ export function RunPanel({
           <div className="activity-stats" aria-label="Run progress">
             <div><strong><CountUp value={summary.found} /></strong><span>Found</span></div>
             <div><strong><CountUp value={summary.reviewed} /></strong><span>Reviewed</span></div>
-            <div><strong><CountUp value={summary.suitable} /></strong><span>Suitable</span></div>
+            <div><strong><CountUp value={summary.suitable} /></strong><span>Profile matches</span></div>
             <div>
               {/* Whichever knows more: the live counter mid-run, the log once it has ended. */}
               <strong><CountUp value={Math.max(summary.submitted, status?.applied ?? 0)} /></strong>
@@ -966,7 +966,7 @@ export function RunPanel({
         )}
         {summary.suitable > 0 && (
           <div className="activity-shortfall" role="note">
-            Suitable jobs match your profile; some may be skipped. Application outcomes are explained below.
+            {summary.outcomeSummary ?? 'Profile matches meet your job criteria. Final checks may skip roles you already applied to; each skip is explained below.'}
           </div>
         )}
         {!running && summary.shortfall && (

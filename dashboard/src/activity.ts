@@ -40,7 +40,8 @@ export function activitySummary(lines: LogLine[]) {
    * Submitted" beside a log that plainly listed four.
    */
   const submitted = lines.filter((line) => /✅\s*submitted/i.test(line.text)).length;
-  return { found, reviewed, suitable, submitted, shortfall: reviewShortfall(lines, reviewed) };
+  const outcomeSummary = activityEvents(lines, Infinity).find((event) => event.title === 'Run complete')?.detail ?? null;
+  return { found, reviewed, suitable, submitted, outcomeSummary, shortfall: reviewShortfall(lines, reviewed) };
 }
 
 /**
@@ -118,7 +119,7 @@ function readableError(raw: string): string {
  * use. What the run is doing now is marked live, so there is always one
  * clear answer to "what is it doing?".
  */
-export function activityEvents(lines: LogLine[]): ActivityEvent[] {
+export function activityEvents(lines: LogLine[], limit = 14): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string): ActivityEvent => {
     const previous = events.at(-1);
@@ -147,7 +148,7 @@ export function activityEvents(lines: LogLine[]): ActivityEvent[] {
   let finished = false;
 
   const reviewDetail = () =>
-    `${reviewed} checked · ${suitable} suitable` + (latestMatch ? ` · latest match: ${latestMatch}` : '');
+    `${reviewed} checked · ${suitable} profile ${suitable === 1 ? 'match' : 'matches'}` + (latestMatch ? ` · latest match: ${latestMatch}` : '');
   const applicationDetail = (extra?: string) =>
     [application?.company, ...(application?.steps ?? []), extra].filter(Boolean).join(' · ');
 
@@ -330,7 +331,7 @@ export function activityEvents(lines: LogLine[]): ActivityEvent[] {
     }
   }
   if (application && !finished) application.event.live = true;
-  return events.slice(-14);
+  return events.slice(-limit);
 }
 
 /** Reconcile matches with outcomes before the visible feed is shortened. */
@@ -341,7 +342,7 @@ function completionDetail(lines: LogLine[], suitable: number, submitted: number,
   const needsHuman = count('needs-human');
   const failed = count('failed');
   const parts = [
-    ...(suitable > 0 ? [`${suitable} suitable`] : []),
+    ...(suitable > 0 ? [`${suitable} profile ${suitable === 1 ? 'match' : 'matches'}`] : []),
     `${submitted} ${submitted === 1 ? 'application' : 'applications'} submitted`,
     ...(alreadyApplied ? [`${alreadyApplied} skipped: already applied`] : []),
     ...(skipped ? [`${skipped} skipped for other reasons`] : []),
@@ -353,7 +354,7 @@ function completionDetail(lines: LogLine[], suitable: number, submitted: number,
     const reason = lastMatch(lines, /(?:Run|Daily) cap of \d+ (?:already )?reached/i)
       ? 'the application limit was reached'
       : lastMatch(lines, /anti-bot challenges/i) ? 'the job board blocked further attempts' : null;
-    parts.push(`${remaining} suitable ${remaining === 1 ? 'job' : 'jobs'} not submitted${reason ? `: ${reason}` : ''}`);
+    parts.push(`${remaining} matched ${remaining === 1 ? 'job' : 'jobs'} not submitted${reason ? `: ${reason}` : ''}`);
   }
   return `${parts.join(' · ')}.`;
 }

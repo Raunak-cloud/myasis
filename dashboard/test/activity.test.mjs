@@ -21,13 +21,13 @@ test('seven matches and five submissions explain both previously hidden duplicat
     '7 qualifying jobs.',
     '=== Run complete: 5 new application(s) ===',
   ]);
-  assert.deepEqual(activitySummary(lines), { found: 395, reviewed: 7, suitable: 7, submitted: 5, shortfall: null });
+  assert.deepEqual(activitySummary(lines), { found: 395, reviewed: 7, suitable: 7, submitted: 5, outcomeSummary: completion(lines), shortfall: null });
   for (const title of ['Product Engineer', 'Applications Specialist']) {
     const event = activityEvents(lines).find((event) => event.title === `Already applied to ${title}`);
     assert.equal(event.tone, 'neutral');
     assert.match(event.detail, /No new application was sent/);
   }
-  assert.equal(completion(lines), '7 suitable · 5 applications submitted · 2 skipped: already applied.');
+  assert.equal(completion(lines), '7 profile matches · 5 applications submitted · 2 skipped: already applied.');
 });
 
 test('duplicates detected on a form, other skips, human input and errors remain distinct', () => {
@@ -48,7 +48,7 @@ test('duplicates detected on a form, other skips, human input and errors remain 
   const events = activityEvents(lines);
   assert.equal(events.filter((event) => event.outcome === 'already-applied').length, 1);
   assert.equal(events.filter((event) => event.outcome === 'skipped').length, 3);
-  assert.equal(completion(lines), '6 suitable · 0 applications submitted · 1 skipped: already applied · 3 skipped for other reasons · 1 needs your attention · 1 application failed.');
+  assert.equal(completion(lines), '6 profile matches · 0 applications submitted · 1 skipped: already applied · 3 skipped for other reasons · 1 needs your attention · 1 application failed.');
   assert.equal(events.some((event) => event.title.startsWith('Applying to')), false);
 });
 
@@ -61,7 +61,7 @@ test('a cap explains suitable jobs remaining without implying duplicate applicat
     'Run cap of 1 reached.',
     '=== Run complete: 1 new application(s) ===',
   ]);
-  assert.equal(completion(lines), '2 suitable · 1 application submitted · 1 suitable job not submitted: the application limit was reached.');
+  assert.equal(completion(lines), '2 profile matches · 1 application submitted · 1 matched job not submitted: the application limit was reached.');
 });
 
 test('completion retains skip totals when earlier events leave the visible feed', () => {
@@ -73,7 +73,8 @@ test('completion retains skip totals when earlier events leave the visible feed'
     '=== Run complete: 0 new application(s) ===',
   ]);
   assert.equal(activityEvents(lines).length, 14);
-  assert.equal(completion(lines), '20 suitable · 0 applications submitted · 20 skipped: already applied.');
+  assert.equal(activitySummary(lines).outcomeSummary, completion(lines));
+  assert.equal(completion(lines), '20 profile matches · 0 applications submitted · 20 skipped: already applied.');
 });
 
 test('search-only runs and unfinished runs do not report submissions or completion', () => {
