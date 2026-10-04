@@ -315,18 +315,18 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       await workingIn(page);
     }
     watchTab(page, ctx);
+    /**
+     * Deterministic checks run before the model gets a turn, in this order.
+     * Confirmation is first — before the step budget too, so a sent
+     * application is never reported as out of steps — and before friction,
+     * because SEEK renders a SEEK Pass upsell on its own success page, which
+     * the friction detector reads as a wall: reporting a submitted
+     * application as needs-human would leave it unrecorded and set up a
+     * duplicate on the next run.
+     */
     if (await detectConfirmation(page)) return finish({ status: 'applied' });
     const budget = guards.nextStep();
     if (!budget.ok) return finish({ status: 'needs-human', reason: budget.reason, detail: budget.detail });
-
-    /**
-     * Deterministic checks run before the model gets a turn, in this order.
-     * Confirmation is first because SEEK renders a SEEK Pass upsell on its own
-     * success page, which the friction detector reads as a wall — reporting a
-     * submitted application as needs-human would leave it unrecorded and set
-     * up a duplicate on the next run.
-     */
-    if (await detectConfirmation(page)) return finish({ status: 'applied' });
 
     // Another job's listing means this application's form is gone; nothing done on that page is for this job.
     const listing = listingIdIn(page.url());
