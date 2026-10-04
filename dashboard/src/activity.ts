@@ -1,3 +1,5 @@
+import { plainReason } from './run-messages.ts';
+
 export interface LogLine {
   seq: number;
   ts?: string;
@@ -84,12 +86,10 @@ function reviewShortfall(lines: LogLine[], reviewed: number): string | null {
 }
 
 /**
- * An error as a person can read it: the first line of the message, without
- * the browser driver's call log, plus the next step where one is known.
- * The message itself is always shown — "something went wrong" told nobody
- * what to do.
+ * Translate diagnostics before displaying them. Admins can see the original
+ * first line here and the full diagnostic in the admin run console.
  */
-function readableError(raw: string): string {
+export function formatActivityReason(raw: string, isAdmin = false): string {
   const message = (raw
     .replace(/^(?:Error:\s*)+/i, '')
     .split(/\r?\n|\s+Call log:/)[0]
@@ -105,7 +105,11 @@ function readableError(raw: string): string {
     [/net::ERR|ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i, 'The connection dropped for a moment. Start the run again.'],
   ];
   const next = nextSteps.find(([pattern]) => pattern.test(message))?.[1];
-  return next ? `${message}. ${next}` : `${message}.`;
+  if (isAdmin) return next ? `${message}. ${next}` : `${message}.`;
+  const plain = plainReason(message).replace(/[.\s]+$/, '');
+  if (plain !== message) return `${plain}.`;
+  // Known recovery steps explain the problem without exposing the diagnostic.
+  return next ? next : `${plain}.`;
 }
 
 /**
@@ -119,7 +123,8 @@ function readableError(raw: string): string {
  * use. What the run is doing now is marked live, so there is always one
  * clear answer to "what is it doing?".
  */
-export function activityEvents(lines: LogLine[], limit = 14): ActivityEvent[] {
+export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): ActivityEvent[] {
+  const readableError = (raw: string) => formatActivityReason(raw, isAdmin);
   const events: ActivityEvent[] = [];
   const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string): ActivityEvent => {
     const previous = events.at(-1);
@@ -315,7 +320,9 @@ export function activityEvents(lines: LogLine[], limit = 14): ActivityEvent[] {
           line,
           'The run stopped unexpectedly',
           'bad',
-          lastErrorOutput ? readableError(lastErrorOutput) : `It exited with code ${match[1]} before finishing. Start the run again.`,
+          lastErrorOutput ? readableError(lastErrorOutput) : isAdmin
+            ? `It exited with code ${match[1]} before finishing. Start the run again.`
+            : 'The run stopped before finishing. Please try again.',
         );
       }
     }

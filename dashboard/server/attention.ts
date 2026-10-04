@@ -1,4 +1,6 @@
 import { query } from './db/index.js';
+import { plainReason } from '../src/run-messages.js';
+export { plainReason } from '../src/run-messages.js';
 
 /**
  * Everything a run could not finish on its own — Postgres-backed and scoped
@@ -85,60 +87,6 @@ const ATTENTION_STATUSES = new Set(['needs-human']);
  * Items are deduped to the latest attempt per job, and anything since
  * applied drops off automatically.
  */
-/**
- * Plain wording for reasons written before runs produced their own.
- *
- * Older rows hold the technical form — "model budget exhausted (21 calls ·
- * 339614 prompt (28% cached) · $0.05270)" — because that string was once the
- * only one a run produced. Runs now write a plain reason and keep the detail
- * in their log; this covers what is already stored. The final line strips a
- * meter summary from anything the patterns miss, so a token count can never
- * reach the page whatever the wording around it.
- */
-const PLAIN: Array<[RegExp, string]> = [
-  [/^model budget exhausted/i, 'The application used up its allowance for one attempt.'],
-  [/^step budget exhausted/i, 'The application needed more steps than one attempt allows.'],
-  [/^stuck for \d+s/i, 'The page stopped responding to what the agent did.'],
-  [/^overall time limit/i, 'The application ran out of time.'],
-  [/^the agent stopped proposing/i, 'The agent could not work out a next step on this page.'],
-  [/^stuck repeating/i, 'The agent kept repeating the same action with no effect.'],
-  [/^no progress after six/i, 'The page did not change in response to anything the agent tried.'],
-  [/^agent claimed submission/i, 'The application was not confirmed as submitted.'],
-  [/^[a-z_]+ failed: /i, 'A step failed while filling in the application.'],
-  [/^Fields not verified: (.+)/i, 'Required answers could not be confirmed: $1'],
-  [/^the model could not ground \d+ answer\(s\): (.+)/i, 'These questions could not be answered from the profile: $1'],
-  [/^submit is on an external site/i, "The application continues on the employer's own site."],
-  /**
-   * A thrown error, in the browser driver's own words.
-   *
-   * These reach the tab verbatim — "locator.click: Timeout 30000ms exceeded.
-   * Call log: - waiting for locator('[data-automation=...]')" — which tells a
-   * candidate nothing and reads like the product is broken. Matched loosely on
-   * purpose: it is the shape of machinery talking, and every library has its
-   * own. The original still goes to the run log.
-   */
-  [/^\w+\.\w+: |Timeout \d+ms exceeded|Call log:|net::ERR_|page\.goto|waiting for locator/i,
-    'The page did not respond as expected, so the application stopped.'],
-];
-
-/** A meter summary, wherever it sits: "21 calls · 339614 prompt (28% cached) · 3042 completion · $0.05270". */
-const METER = /\s*\(?\d+ calls · .*?\$\d+(?:\.\d+)?\)?/g;
-
-export function plainReason(reason: string): string {
-  const withoutInternalRefs = reason.replace(/\s*\([af]\d+(?::\d+)?\)/gi, '');
-  for (const [pattern, wording] of PLAIN) {
-    if (!pattern.test(withoutInternalRefs)) continue;
-    /**
-     * A wording with a "$1" keeps the part of the original it refers to —
-     * the list of questions. Any other wording replaces the whole reason:
-     * the original's tail is the technical part ("(24 steps)", the meter),
-     * which is exactly what must not be shown.
-     */
-    return wording.includes('$1') ? withoutInternalRefs.replace(pattern, wording) : wording;
-  }
-  return withoutInternalRefs.replace(METER, '').trim();
-}
-
 export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<string>): AttentionItem[] {
   const latest = new Map<string, AttentionItem>();
 

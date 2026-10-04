@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activityEvents, activitySummary } from '../src/activity.ts';
+import { activityEvents, activitySummary, formatActivityReason } from '../src/activity.ts';
+import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 const completion = (lines) => activityEvents(lines).find((event) => event.title === 'Run complete').detail;
@@ -81,4 +82,45 @@ test('search-only runs and unfinished runs do not report submissions or completi
   const lines = log(['▶ starting search run', '✓ 80 · Role @ Employer (Sydney NSW) [SEEK]', '1 qualifying jobs.']);
   assert.equal(activitySummary(lines).submitted, 0);
   assert.equal(activityEvents(lines).some((event) => event.title === 'Run complete'), false);
+});
+
+test('users see a plain security-check explanation while admins retain diagnostics', () => {
+  const reason = 'jobs.lever.co is not attempted today: CapMonster could not clear the site security verification.';
+  const lines = log([
+    '→ Applying: Software Engineer @ Deputy.com',
+    `– skipped: ${reason}`,
+    '=== Run complete: 0 new application(s) ===',
+  ]);
+  const user = activityEvents(lines).find((event) => event.outcome === 'skipped');
+  assert.equal(user.detail, "Deputy.com · The site's security check could not be completed.");
+  const admin = activityEvents(lines, 14, true).find((event) => event.outcome === 'skipped');
+  assert.equal(admin.detail, `Deputy.com · ${reason}`);
+  assert.equal(lines[1].text, `– skipped: ${reason}`);
+  assert.equal(plainReason(reason), "The site's security check could not be completed.");
+});
+
+test('technical details are translated across skips, errors, board failures and fatal failures', () => {
+  const reasons = [
+    'CapMonster could not clear the sign-in security verification.',
+    'locator.click: Timeout 30000ms exceeded. Call log: waiting for locator(#submit)',
+    'CELERIS_API_KEY is missing',
+    'TypeError: request failed with HTTP 503 at https://api.example.test',
+    'step budget exhausted (24 steps)',
+    'model budget exhausted (21 calls · 339614 prompt (28% cached) · $0.05270)',
+  ];
+  for (const reason of reasons) {
+    for (const text of [`– skipped: ${reason}`, `✗ error: ${reason}`, `⚠ SEEK: ${reason}`, `Fatal: ${reason}`]) {
+      const lines = log(['→ Applying: Example role @ Employer', text]);
+      const detail = activityEvents(lines).at(-1).detail;
+      assert.doesNotMatch(detail, /CapMonster|locator|30000|CELERIS|TypeError|503|https:|budget|24 steps|339614|0\.05270/i);
+      assert.ok(activityEvents(lines, 14, true).at(-1).detail.includes(reason.split(/[.:]/)[0]));
+    }
+  }
+  assert.equal(formatActivityReason('Required answer: What is your notice period?'), 'Required answer: What is your notice period?.');
+});
+
+test('unexpected exits expose exit codes only to admins', () => {
+  const lines = log(['run finished (exit 137)']);
+  assert.equal(activityEvents(lines)[0].detail, 'The run stopped before finishing. Please try again.');
+  assert.match(activityEvents(lines, 14, true)[0].detail, /code 137/);
 });

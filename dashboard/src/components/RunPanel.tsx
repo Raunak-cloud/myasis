@@ -17,7 +17,7 @@ import { MascotLogo } from './MascotLogo';
 import { useRunStatus } from '../runStatus';
 import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
-import { activityEvents, activitySummary, type LogLine } from '../activity';
+import { activityEvents, activitySummary, formatActivityReason, type LogLine } from '../activity';
 
 
 interface AutoScheduleStatus {
@@ -473,7 +473,7 @@ export function RunPanel({
     setEdit('PLATFORMS', [...next].join(','));
   };
   const summary = useMemo(() => activitySummary(lines), [lines]);
-  const events = useMemo(() => activityEvents(lines), [lines]);
+  const events = useMemo(() => activityEvents(lines, 14, isAdmin), [lines, isAdmin]);
   /** The one thing the run is doing now, for the card above the feed. */
   const liveEvent = events.find((event) => event.live);
   const currentHeading = liveEvent?.title.startsWith('Applying') ? 'Applying now'
@@ -796,7 +796,7 @@ export function RunPanel({
         )}
         {autoSchedule?.lastError && !running && !entitlements?.autoApplyPaused && !signedOutEverywhere && (
           <div className="banner banner-bad run-auto-error" role="alert">
-            <strong>The last scheduled run could not start.</strong> {autoSchedule.lastError.message}
+            <strong>The last scheduled run could not start.</strong> {formatActivityReason(autoSchedule.lastError.message, isAdmin)}
           </div>
         )}
 
