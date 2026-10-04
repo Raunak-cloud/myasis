@@ -978,7 +978,8 @@ async function main() {
         continue;
       }
 
-      const completed = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : applied;
+      // A rehearsal's cap counts every application that reached its end, so one that somehow went out still stops it.
+      const completed = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed + applied : applied;
       if (completed >= config.limits.maxApplicationsPerRun) {
         console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
         break;

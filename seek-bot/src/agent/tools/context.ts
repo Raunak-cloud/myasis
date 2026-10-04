@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Page } from 'patchright';
 import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../../types.js';
 import type { Observation } from '../observe.js';
@@ -52,6 +53,9 @@ export type AgentTermination =
 export type ToolResult = { kind: 'ok'; message: string } | { kind: 'terminal'; outcome: AgentTermination };
 
 export interface ToolContext {
+  /** Counts tool calls; a call past its time limit is retired and can no longer press anything. */
+  toolGeneration?: number;
+  retiredGenerations?: number[];
   page: Page;
   job: JobListing;
   profile: CandidateProfile;
@@ -99,6 +103,9 @@ export interface ToolContext {
   /** Recent failed requests and console errors, per tab, for get_diagnostics. */
   diagnostics?: WeakMap<Page, string[]>;
 }
+
+/** Which tool call the current code runs for, so an abandoned one can be told apart from the live one. */
+export const toolRun = new AsyncLocalStorage<{ generation: number }>();
 
 export const ok = (message: string): ToolResult => ({ kind: 'ok', message });
 

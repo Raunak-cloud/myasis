@@ -1,3 +1,4 @@
+import { toolRun } from './tools/context.js';
 import { config } from '../config.js';
 import { captureInteractivePageState, waitForInteractivePageChange, waitForPageToSettle } from '../browser.js';
 import { verifySubmissionEvidence } from '../llm.js';
@@ -67,14 +68,21 @@ export async function executeTool(
   }
   const limit = TOOL_TIME_LIMIT_MS[name] ?? DEFAULT_TOOL_TIME_LIMIT_MS;
   let timer: NodeJS.Timeout | undefined;
+  const generation = (ctx.toolGeneration = (ctx.toolGeneration ?? 0) + 1);
   const expired = new Promise<ToolResult>((done) => {
     timer = setTimeout(() => {
+      /**
+       * The abandoned call keeps running in the background, and may still
+       * reach a control: on Nestlé's form one did, after the agent had moved
+       * on. It is retired here, and the gate refuses any press it attempts.
+       */
+      ctx.retiredGenerations = [...(ctx.retiredGenerations ?? []), generation];
       ctx.log(`  ⏱ ${name} did not finish within ${Math.round(limit / 1000)}s; continuing without it`);
       done(ok(`The ${name} call did not finish within ${Math.round(limit / 1000)} seconds and was abandoned. The page may have changed: re-observe before acting.`));
     }, limit);
   });
   try {
-    return await Promise.race([runTool(ctx, name, args), expired]);
+    return await Promise.race([toolRun.run({ generation }, () => runTool(ctx, name, args)), expired]);
   } finally {
     clearTimeout(timer);
   }

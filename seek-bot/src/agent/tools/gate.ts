@@ -11,7 +11,7 @@ import { wasHumanized } from '../../humanizer.js';
 import { hostOf } from '../../site-auth.js';
 import { offersCoverLetter } from '../cover-letter-opportunity.js';
 import { ensureChosenResume } from '../../resume-sync.js';
-import { ToolResult, ToolContext, ok, noteAction } from './context.js';
+import { ToolResult, ToolContext, ok, noteAction, toolRun } from './context.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -57,12 +57,27 @@ export async function transmits(ctx: ToolContext, label: string, context?: strin
   if (isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) return false;
   if (isSubmitAction(label)) return true;
   if (!label.trim() || /\(opens a list\)$/.test(label)) return false;
+  /**
+   * Once anything has been entered, a control that says it applies, submits
+   * or sends is treated as the submit, whatever the model makes of it: its
+   * gates (the audit, the letter, the dry-run hold) cost a little when it is
+   * not, and skipping them when it is sends an unchecked application.
+   */
+  if ((ctx.captured.length || ctx.resumeUsed || ctx.coverLetter) && /^(apply|apply now|submit|send|send application|finish|complete|complete application|confirm|confirm and submit)\b/i.test(label.trim())) return true;
   // Nothing typed, attached or on the page: there is nothing a click could send.
   if (!ctx.captured.length && !ctx.resumeUsed && !ctx.coverLetter && !ctx.observation.fields.length) return false;
-  let key = label;
+  /**
+   * A verdict holds for the form as it was when it was given. Keyed by page
+   * and label alone, SuccessFactors' "Apply" (one address for the whole
+   * flow) was judged at the start, before anything was entered, as opening
+   * the form; the same verdict was reused once the form was complete, and
+   * the final submit was pressed with no audit, and during a rehearsal.
+   */
+  const entered = ctx.captured.length + (ctx.resumeUsed ? 1 : 0) + (ctx.coverLetter ? 1 : 0);
+  let key = `${label}|${entered}|${ctx.observation.fields.length}`;
   try {
     const url = new URL(ctx.page.url());
-    key = `${url.host}${url.pathname}|${label}`;
+    key = `${url.host}${url.pathname}|${key}`;
   } catch {}
   const known = submitVerdicts.get(key);
   if (known !== undefined) return known;
@@ -97,6 +112,12 @@ export async function gateAdvance(
   context?: string,
   options: { role?: string; knownSubmit?: boolean } = {},
 ): Promise<Gate> {
+  // A call already abandoned for taking too long may not press anything: the agent has moved on without it.
+  const run = toolRun.getStore();
+  if (run && ctx.retiredGenerations?.includes(run.generation)) {
+    ctx.log(`  · held "${label.slice(0, 60)}": it came from a step already abandoned`);
+    return { proceed: false, result: ok('This step was abandoned for taking too long; nothing was pressed.') };
+  }
   /**
    * The observation's text is the start of the page, capped. Indeed's review
    * page puts "Supporting documents" under the resume preview, past that cap,
