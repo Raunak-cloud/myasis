@@ -86,38 +86,52 @@ export async function recordFormPage(page: Page, observation: Observation): Prom
 export async function snapshotPage(page: Page): Promise<string | null> {
   const captured = await page.evaluate(() => {
     const clone = document.documentElement.cloneNode(true) as HTMLElement;
-    const originals = document.querySelectorAll('input, textarea, select option');
-    const copies = clone.querySelectorAll('input, textarea, select option');
-    originals.forEach((element, index) => {
-      const copy = copies[index];
-      if (!copy) return;
-      if (element instanceof HTMLInputElement) {
-        if (element.type === 'checkbox' || element.type === 'radio') {
-          if (element.checked) copy.setAttribute('checked', ''); else copy.removeAttribute('checked');
-        } else if (element.type !== 'password' && element.type !== 'file') copy.setAttribute('value', element.value);
-      } else if (element instanceof HTMLTextAreaElement) copy.textContent = element.value;
-      else if (element instanceof HTMLOptionElement) {
-        if (element.selected) copy.setAttribute('selected', ''); else copy.removeAttribute('selected');
-      }
-    });
     /**
-     * Whether each element is shown, written into the copy itself: the reading
-     * of a page depends on what is hidden (a field behind a collapsed section,
-     * a dialog not yet open), and a stylesheet may not be recoverable offline.
+     * Each element of the copy gets what the live one shows but its markup
+     * does not: the value typed, the box checked, the option chosen, whether
+     * it is hidden (a field behind a collapsed section, a dialog not yet open;
+     * a stylesheet may not be recoverable offline). Open shadow roots are
+     * copied in too, as declarative shadow DOM: chat widgets and some form
+     * components (Paradox's assistant on Nestlé's page) live in one, and the
+     * observation reads them.
      */
-    const live = document.documentElement.querySelectorAll('*');
-    const copied = clone.querySelectorAll('*');
-    live.forEach((element, index) => {
-      const copy = copied[index];
-      if (!copy || !(element instanceof HTMLElement || element instanceof SVGElement)) return;
-      const style = getComputedStyle(element);
-      const baked = [
-        style.display === 'none' ? 'display:none !important' : '',
-        style.visibility === 'hidden' ? 'visibility:hidden !important' : '',
-        style.opacity === '0' ? 'opacity:0 !important' : '',
-      ].filter(Boolean).join(';');
-      if (baked) copy.setAttribute('style', `${copy.getAttribute('style') ?? ''};${baked}`);
-    });
+    const bake = (liveRoot: ParentNode, copyRoot: ParentNode): void => {
+      const live = [...liveRoot.querySelectorAll('*')];
+      const copied = [...copyRoot.querySelectorAll('*')];
+      live.forEach((element, index) => {
+        const copy = copied[index];
+        if (!copy) return;
+        if (element instanceof HTMLInputElement) {
+          if (element.type === 'checkbox' || element.type === 'radio') {
+            if (element.checked) copy.setAttribute('checked', ''); else copy.removeAttribute('checked');
+          } else if (element.type !== 'password' && element.type !== 'file') copy.setAttribute('value', element.value);
+        } else if (element instanceof HTMLTextAreaElement) copy.textContent = element.value;
+        else if (element instanceof HTMLOptionElement) {
+          if (element.selected) copy.setAttribute('selected', ''); else copy.removeAttribute('selected');
+        }
+        if (element instanceof HTMLElement || element instanceof SVGElement) {
+          const style = getComputedStyle(element);
+          const baked = [
+            style.display === 'none' ? 'display:none !important' : '',
+            style.visibility === 'hidden' ? 'visibility:hidden !important' : '',
+            style.opacity === '0' ? 'opacity:0 !important' : '',
+          ].filter(Boolean).join(';');
+          if (baked) copy.setAttribute('style', `${copy.getAttribute('style') ?? ''};${baked}`);
+        }
+        const shadow = element.shadowRoot;
+        if (shadow) {
+          const holder = document.createElement('div');
+          shadow.childNodes.forEach((node) => holder.appendChild(node.cloneNode(true)));
+          bake(shadow, holder);
+          holder.querySelectorAll('script').forEach((node) => node.remove());
+          const template = document.createElement('template');
+          template.setAttribute('shadowrootmode', 'open');
+          template.innerHTML = holder.innerHTML;
+          copy.insertBefore(template, copy.firstChild);
+        }
+      });
+    };
+    bake(document.documentElement, clone);
     clone.querySelectorAll('script, noscript, link[rel="preload"], link[rel="modulepreload"]').forEach((node) => node.remove());
     const rules: string[] = [];
     const external: string[] = [];

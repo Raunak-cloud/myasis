@@ -24,7 +24,10 @@ const form = `<!doctype html><html><head><link rel="stylesheet" href="https://cd
   <div class="hidden-by-css"><label>Internal code <input name="internal"></label></div>
   <label><input type="checkbox" name="terms"> I agree to the terms</label>
   <p>Attach a cover letter if you like.</p><button type="button">Upload cover letter</button>
-  <button type="button">Save and Continue</button></form></main></body></html>`;
+  <button type="button">Save and Continue</button></form></main>
+  <chat-widget></chat-widget>
+  <script>customElements.define('chat-widget', class extends HTMLElement { connectedCallback() { this.attachShadow({ mode: 'open' }).innerHTML = '<div><label>Write a reply <textarea name="reply"></textarea></label></div>'; } });</script>
+  </body></html>`;
 const css = '.hidden-by-css { display: none; }';
 
 const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -38,6 +41,7 @@ try {
   await page.check('input[name="terms"]');
   const observation = await observe(page);
   assert.ok(!observation.fields.some((field) => /internal code/i.test(field.label)), 'the field hidden by the stylesheet is not observed live');
+  assert.ok(observation.fields.some((field) => /write a reply/i.test(field.label)), 'the field inside a shadow root is observed live');
   await recordFormPage(page, observation);
   await recordFormPage(page, observation); // the same page twice is kept once
 
@@ -61,7 +65,7 @@ try {
   assert.equal(run.status, 1, 'a field no longer found fails the replay');
   assert.match(run.stdout, /✗ .*fields found: \d+ → \d+/);
 
-  console.log('PASS: real form pages are recorded once, replay offline with their state and styles, and a worse reading fails the replay');
+  console.log('PASS: real form pages are recorded once, replay offline with their state, styles and shadow roots, and a worse reading fails the replay');
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });
