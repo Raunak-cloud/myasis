@@ -1,5 +1,10 @@
 # Myasis
 
+Weekly, extra and rewritten blogs use Gemini for drafting and source checks, then
+publish the approved Gemini prose directly. Blog generation and showing a hidden
+post do not require Featherless or a humanizer. Existing humanization metadata is
+kept as history; published articles are not automatically rewritten by this change.
+
 Vite + React control panel for the `seek-bot` agent. Read-only viewer over the bot's
 own data files — it can display application history but never mutate it.
 

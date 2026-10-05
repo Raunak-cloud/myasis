@@ -13,7 +13,7 @@ test('Factual repair limits measure actual changes instead of copied paragraph c
   assert.equal(changedWordCount('Keep every unchanged word.', 'Keep every unchanged word.'), 0);
   assert.equal(changedWordCount('Entire original paragraph removed.', 'All prose rewritten completely.'), 4);
 });
-test('Cover-letter settings cannot disable or make blog humanizing optional', async (t) => {
+test('Explicit style-pass configuration is independent of cover-letter settings', async (t) => {
   const values = { HUMANIZER_URL: config.endpoint.base, HUMANIZER_API_KEY: config.endpoint.apiKey!, HUMANIZER_MODEL: config.endpoint.model, HUMANIZER_MODE: 'off', HUMANIZER_REQUIRED: 'false' };
   const before = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
   t.after(() => Object.keys(values).forEach((name) => { if (before[name] === undefined) delete process.env[name]; else process.env[name] = before[name]; }));
@@ -23,7 +23,7 @@ test('Cover-letter settings cannot disable or make blog humanizing optional', as
   assert.equal(await blogHumanizerConfig(), null);
 });
 
-test('Unavailable humanizer readiness prevents blog generation', async (t) => {
+test('An explicitly requested style pass reports an unavailable humanizer', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => new Response('Refused', { status: 403 }));
   await assert.rejects(assertBlogHumanizerReady(config), /Not published.*unavailable.*key was refused/);
 });

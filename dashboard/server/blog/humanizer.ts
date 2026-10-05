@@ -21,7 +21,7 @@ export interface Humanization {
 export const BLOG_HUMANIZER_VERSION = 2;
 class HumanizerValidationError extends Error {}
 
-/** Cover-letter mode and optional fallback settings never bypass mandatory blog humanizing. */
+/** Endpoint configuration for an explicitly requested style pass, independent of cover-letter mode. */
 export async function blogHumanizerConfig(): Promise<BlogHumanizerConfig | null> {
   const endpoint = await humanizerEndpoint();
   if (!endpoint?.apiKey) return null;

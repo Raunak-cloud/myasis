@@ -1,8 +1,16 @@
 import { humanizeArticle, humanizationRecord, type BlogHumanizerConfig } from './humanizer.js';
-import { finishHumanizedPost, type Article, type WriterConfig } from './writer.js';
+import { finishHumanizedPost, publicationProblems, type Article, type WriterConfig } from './writer.js';
 import type { Brief } from './signals.js';
 
-/** Both publication paths use this gate. There is no fallback to unhumanized prose. */
+/** Weekly, extra and rewritten posts publish the Gemini prose after a final source check. */
+export async function prepareDirectPublication(original: Article, brief: Brief, writer: WriterConfig) {
+  const article = structuredClone(original);
+  const problems = await publicationProblems(brief, original, article, writer);
+  if (problems.length) throw new Error(`Not published: the article failed its final fact-check — ${problems.slice(0, 3).join(' | ')}`);
+  return { article, humanization: null };
+}
+
+/** Retained for an explicitly requested style pass, outside automatic blog publication. */
 export async function prepareForPublication(original: Article, brief: Brief, writer: WriterConfig, humanizer: BlogHumanizerConfig) {
   const result = await humanizeArticle(original, humanizer);
   return finalizeHumanizedPublication(original, brief, writer, humanizer, result);

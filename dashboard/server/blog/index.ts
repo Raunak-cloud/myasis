@@ -8,8 +8,7 @@ import { writerConfig } from './models.js';
 import { postPath, type PostSummary, type StoredPost } from './render.js';
 import { gatherBrief, type Brief } from './signals.js';
 import { writePost, type Article } from './writer.js';
-import { assertBlogHumanizerReady, blogHumanizerConfig } from './humanizer.js';
-import { prepareForPublication } from './publication.js';
+import { prepareDirectPublication } from './publication.js';
 
 /**
  * The weekly job-market brief: when it is written, where it is kept, and
@@ -143,17 +142,14 @@ export function publishWeek(week: string, options: { replace?: boolean; addition
       [week],
     );
     try {
-      const humanizer = await blogHumanizerConfig();
-      if (!humanizer) throw new Error('Not published: configure the Featherless humanizer URL and API key under Config → Humanizer. All blogs must be humanized.');
-      await assertBlogHumanizerReady(humanizer);
       const brief = await gatherBrief(week);
       const recent = await query<{ title: string }>(
         'SELECT title FROM blog_posts ORDER BY published_at DESC LIMIT $1',
         [RECENT_FOR_CONTEXT],
       );
       const written = await writePost(brief, recent.map((row) => row.title), config);
-      console.log(`[blog] ${week}: humanizing verified draft`);
-      const prepared = await prepareForPublication(written.article, brief, config, humanizer);
+      console.log(`[blog] ${week}: checking Gemini draft before publication`);
+      const prepared = await prepareDirectPublication(written.article, brief, config);
       const slug = existing?.slug ?? await freeSlug(prepared.article.slug || prepared.article.title, week);
       await query(
         `INSERT INTO blog_posts (week, slug, title, description, article, brief, model, revisions, kind, original_article, humanization)
@@ -240,8 +236,6 @@ export function startBlogScheduler(): void {
 export interface BlogReport {
   enabled: boolean;
   configured: boolean;
-  humanizerConfigured: boolean;
-  humanizerModel: string | null;
   model: string | null;
   currentWeek: string;
   writing: boolean;
@@ -266,13 +260,10 @@ export async function blogReport(): Promise<BlogReport> {
     ),
   ]);
   const config = writerConfig();
-  const humanizer = await blogHumanizerConfig();
   const origin = siteOrigin();
   return {
     enabled: blogEnabled(),
     configured: Boolean(config),
-    humanizerConfigured: Boolean(humanizer),
-    humanizerModel: humanizer?.endpoint.model ?? null,
     model: config?.model ?? null,
     currentWeek: weekOf().week,
     writing: isBlogWriting(),
@@ -285,9 +276,6 @@ export async function blogReport(): Promise<BlogReport> {
 }
 
 export async function setPostHidden(id: string, hidden: boolean): Promise<boolean> {
-  if (!hidden && await one('SELECT 1 FROM blog_posts WHERE id = $1::bigint AND humanization IS NULL', [id])) {
-    throw new Error('This blog must be humanized and fact-checked before it can be shown.');
-  }
   const rows = await query(
     `UPDATE blog_posts SET hidden_at = CASE WHEN $2 THEN coalesce(hidden_at, now()) ELSE NULL END WHERE id = $1::bigint RETURNING id`,
     [id, hidden],
