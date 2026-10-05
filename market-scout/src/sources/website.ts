@@ -250,7 +250,7 @@ export async function previewWebsite(url: string): Promise<Evidence> {
 export const website: Source = {
   id: 'website',
   label: 'Websites (competitor and own sites)',
-  describe: 'A site\'s positioning, pricing, offers, CTAs, on-page SEO (titles, metas, H1s, schema), content inventory from its sitemap, and its marketing stack including which ad pixels it runs.',
+  describe: "Collected website pages, structured product listings, service terms and page checks, plus sitemap inventory and detected technology. Installed tracking does not prove active advertising.",
   queryHint: 'The site\'s homepage URL or domain (e.g. "https://www.competitor.com").',
   defaultLimit: 7,
   unavailable: () => '',

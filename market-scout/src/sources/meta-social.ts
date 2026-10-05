@@ -79,7 +79,7 @@ const postItem = {
 export const instagram: Source = {
   id: 'instagram',
   label: 'Instagram (public profiles)',
-  describe: 'A public Instagram account\'s followers and recent posts with likes, comments and views: what a competitor or creator posts and what lands.',
+  describe: "A sample of public Instagram posts and available follower, view and interaction counts. These do not establish sales or buyer demand.",
   queryHint: '"@handle" of a public account (brand, competitor or creator).',
   defaultLimit: 30,
   unavailable: () => '',

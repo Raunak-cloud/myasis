@@ -70,7 +70,7 @@ function fromPost(data: Record<string, unknown>, query: string): Evidence {
 export const reddit: Source = {
   id: 'reddit',
   label: 'Reddit (official API)',
-  describe: 'Reddit posts and top comments: candid voice of customer — pain points, objections, alternatives people compare, the exact words buyers use.',
+  describe: "Public Reddit posts and comments with verbatim quotations. These are potential customer perspectives; buyer identity and representativeness are not independently verified.",
   queryHint: 'A search phrase (e.g. "best crm for freelancers"), or "r/subreddit" for that community\'s top posts of the year. Add " in r/sub" to search within one community.',
   defaultLimit: 40,
   unavailable: () =>
