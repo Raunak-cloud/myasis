@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { articleHash, assertBlogHumanizerReady, blogHumanizerConfig, humanizeArticle, humanizedTextProblem, restoreDecimalSpacing, type BlogHumanizerConfig } from './humanizer.js';
 import { prepareForPublication } from './publication.js';
-import { changedWordCount, type Article } from './writer.js';
+import { changedWordCount, resolvePassageCorrections, applyCorrections, type Article } from './writer.js';
 import type { Brief } from './signals.js';
 
 const config: BlogHumanizerConfig = { endpoint: { base: 'https://api.featherless.ai', apiKey: 'test-key', model: 'authormist/authormist-originality' }, timeoutMs: 10_000, repetitionPenalty: 1.05, topK: 40 };
@@ -139,7 +139,7 @@ test('A failing final fact-check prevents publication even after successful huma
     if (String(url).includes('featherless')) return humanizerReply(init);
     const request = JSON.parse(init.body as string);
     const value = request.generationConfig.responseJsonSchema.properties.edits
-      ? { edits: [{ original: 'unemployment', replacement: 'unemployment' }] }
+      ? { edits: [{ passage: 1, replacement: rewritten(text) }] }
       : { approved: false, issues: [{ excerpt: 'unemployment', problem: 'Changed meaning', fix: 'Preserve meaning' }] };
     return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(value) }] } }] });
   });
@@ -152,7 +152,7 @@ test('Final repairs preserve humanized style and still require review approval',
     if (String(url).includes('featherless')) return humanizerReply(init);
     const request = JSON.parse(init.body as string);
     const value = request.generationConfig.responseJsonSchema.properties.edits
-      ? { edits: [{ original: 'unemployment rose', replacement: 'seasonally adjusted unemployment rose' }] }
+      ? { edits: [{ passage: 1, replacement: rewritten(text).replace('unemployment rose', 'seasonally adjusted unemployment rose') }] }
       : ++reviews === 1 ? { approved: false, issues: [{ excerpt: 'unemployment rose', problem: 'Missing qualification', fix: 'Restore seasonally adjusted' }] } : { approved: true, issues: [] };
     return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(value) }] } }] });
   });
@@ -175,7 +175,7 @@ test('Humanizer numeric drift must be repaired before final approval and publica
     const request = JSON.parse(init.body as string);
     if (request.generationConfig.responseJsonSchema.properties.edits) {
       repairs++;
-      return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ edits: [{ original: '4.7%', replacement: '4.6%' }] }) }] } }] });
+      return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ edits: [{ passage: 1, replacement: rewritten(text) }] }) }] } }] });
     }
     assert.doesNotMatch(request.contents[0].parts[0].text.split('DRAFT\n\n').at(-1), /4\.7/);
     return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ approved: true, issues: [] }) }] } }] });
@@ -183,5 +183,17 @@ test('Humanizer numeric drift must be repaired before final approval and publica
   const result = await prepareForPublication(article, brief, { provider: 'gemini', apiKey: 'key', model: 'gemini-test' }, config);
   assert.equal(repairs, 1);
   assert.match(result.article.lead, /4\.6%/);
+});
+
+test('Typed passage corrections resolve repeated text without a model-generated search string', () => {
+  const repeated = structuredClone(article);
+  repeated.lead = repeated.sections[0].paragraphs[0] = 'A 4.7% rate was reported [S1].';
+  const patch = resolvePassageCorrections(repeated, { edits: [{ passage: 2, replacement: 'A 4.6% rate was reported [S1].' }] });
+  const corrected = applyCorrections(repeated, patch);
+  assert.equal(corrected.lead, repeated.lead);
+  assert.equal(corrected.sections[0].paragraphs[0], 'A 4.6% rate was reported [S1].');
+  assert.throws(() => resolvePassageCorrections(repeated, { edits: [{ passage: 0, replacement: 'Wrong' }] }), /invalid passage/);
+  assert.throws(() => resolvePassageCorrections(repeated, { edits: [{ passage: 999, replacement: 'Wrong' }] }), /invalid passage/);
+  assert.throws(() => resolvePassageCorrections(repeated, { edits: [{ passage: 2, replacement: 'One' }, { passage: 2, replacement: 'Two' }] }), /Combine corrections/);
 });
 

@@ -57,7 +57,9 @@ export function humanizedTextProblem(original: string, candidate: string, factsM
   if (!factsMayBeRepaired && JSON.stringify(figures(original)) !== JSON.stringify(figures(candidate))) return 'a figure or date was changed, added or removed';
   if (JSON.stringify(citations(original)) !== JSON.stringify(citations(candidate))) return 'a citation was changed, added, removed or reordered';
   if (JSON.stringify(addresses(original)) !== JSON.stringify(addresses(candidate))) return 'a web address or email was changed';
-  if (words(candidate) < Math.floor(words(original) * 0.7) || words(candidate) > Math.ceil(words(original) * 1.3) + 5) return 'the rewrite changed the passage length too much';
+  const minimum = Math.floor(words(original) * 0.6);
+  const maximum = Math.ceil(words(original) * 1.5) + 5;
+  if (words(candidate) < minimum || words(candidate) > maximum) return `the rewrite has ${words(candidate)} words; retain ${minimum}–${maximum} words and all the original facts`;
   if (/<\/?draft>|```|^\s*(?:here(?:'s| is) (?:the|your)|rewritten (?:text|passage):)/i.test(candidate)) return 'the response contains editing instructions or wrappers';
   return null;
 }
