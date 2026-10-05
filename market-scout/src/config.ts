@@ -18,7 +18,7 @@ const bool = (name: string, fallback: boolean) => {
 };
 
 export const config = {
-  webSearch: { apiKey: str('BRAVE_SEARCH_API_KEY'), enabled: bool('SCOUT_WEB_SEARCH', true) },
+  webSearch: { enabled: bool('SCOUT_WEB_SEARCH', true) },
   celeris: {
     apiKey: str('CELERIS_API_KEY'),
     /** Root only: the model id is a path segment Celeris derives per request. */

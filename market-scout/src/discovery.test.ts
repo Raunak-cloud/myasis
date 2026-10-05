@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { candidateUrl, verifiedCandidate, relatedWebsites, shortSeed } from './core/discovery.js';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { candidateUrl, verifiedCandidate, shortSeed } from './core/discovery.js';
 import { evidence } from './core/store.js';
 import { baselinePlan } from './core/planner.js';
 import type { Brief } from './core/types.js';
@@ -32,22 +29,6 @@ test('automatic website candidates are public HTTPS roots, without credentials o
   assert.equal(candidateUrl('https://shop.example.com/products/topi?utm=test'), 'https://shop.example.com/');
   for (const url of ['http://shop.example.com/', 'https://localhost/', 'https://127.0.0.1/', 'https://host.internal/', 'https://user:secret@shop.example.com/', 'https://shop.example.com:5190/']) assert.equal(candidateUrl(url), undefined);
 });
-
-test('discovery can reuse related public-site leads without importing another market or category', () => {
-  const root = mkdtempSync(join(tmpdir(), 'scout-discovery-'));
-  try {
-    const write = (name: string, product: string, country: string, website: string) => {
-      const dir = join(root, name); mkdirSync(dir);
-      writeFileSync(join(dir, 'brief.json'), JSON.stringify({ product, niche: '', country, websites: [website] }));
-    };
-    write('nepali', 'Traditional Nepali clothing', 'AU', 'https://boutiquenepal.com.au/');
-    write('foreign', 'Traditional Nepalese clothing', 'CA', 'https://another.example.com/');
-    write('other', 'Gym activewear for women', 'AU', 'https://gym.example.com/');
-    const brief = { product: 'Traditional Nepalese clothing', niche: '', country: 'AU' } as Brief;
-    assert.deepEqual(relatedWebsites(brief, root), ['https://boutiquenepal.com.au/']);
-  } finally { assert.equal(dirname(resolve(root)), resolve(tmpdir())); assert.ok(root.includes('scout-discovery-')); rmSync(root, { recursive: true, force: true }); }
-});
-
 
 test('suggested search seeds remove punctuation-only words and cap category length', () => {
   assert.equal(shortSeed('Traditional Nepalese clothing in Australia, including Dhaka topi'), 'nepali clothing including');

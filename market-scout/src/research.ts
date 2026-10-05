@@ -92,7 +92,7 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
   try {
     if (!options.reportOnly) {
       if (brief.autoDiscover !== false && (brief.autoDiscover || !brief.websites.length || !brief.audience || !brief.niche)) {
-        brief = await discoverMarket(brief, store, meter, log);
+        brief = await discoverMarket(brief, store, meter, log, deadline);
         store.writeJson('brief.json', brief);
         store.writeJson('discovery.json', brief.discovery);
       }

@@ -100,7 +100,7 @@ To add a source, create one file in `src/sources/` that exports a `Source`, then
 - **Logged out, always.** Collection uses public pages and never signs in.
 - **A block means stop.** On a login wall, CAPTCHA or challenge, the host is abandoned. The scout does not solve challenges or disguise itself.
 - **robots.txt (RFC 9309)** applies to the crawler: website audits and any URL the scout discovers. Public ad-transparency libraries, and the pages a task names explicitly, are visited as a person would visit them: one tab, paced per host.
-- **No Google SERP scraping.** Search pages sit behind SearchGuard. Keyword research uses autocomplete instead. Keyword difficulty therefore isn't measured, and the brief says so.
+- **Browser-based discovery.** A bounded collector reads organic Google and Bing results, then verifies candidate websites. No search API key is needed, and AI guesses or previous-run sites are never substituted for live discovery. Blocked/empty searches are reported as gaps. Keyword suggestions still use autocomplete; keyword difficulty is not measured.
 - **Reddit needs API access.** Reddit is API-only, and its free tier is non-commercial. A commercial product needs Reddit's approval.
 - **Personal data.** Quotes are kept short and linked to their source. Don't republish copied creative; summarise it.
 

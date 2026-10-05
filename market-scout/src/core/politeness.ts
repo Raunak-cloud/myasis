@@ -218,11 +218,9 @@ export function isBlocked(url: string): boolean {
 }
 
 /**
- * Search-engine result pages are off limits to every browser path. Google's
- * sit behind SearchGuard, and getting around it is what the 2026 SerpApi
- * suits are about; the other engines' terms forbid automated querying too.
- * A planner once sent the agent to google.com/search, so this is enforced
- * where pages are opened, not left to prompts.
+ * Recognize search pages. Only the bounded browser-discovery collector opens
+ * them; generic crawler/agent tasks still open specific sites. A challenge
+ * stops the engine, and is never solved or bypassed.
  */
 export function searchEngineOf(url: string): string {
   let parsed: URL;

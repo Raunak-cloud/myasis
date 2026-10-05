@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { searchLeads } from './core/search-discovery.js';
+import { discoveryQueries, searchCompetitors, searchLeads } from './core/search-discovery.js';
 import { validateTasks, planTasks } from './core/planner.js';
 import { reviewEvidence, coverageState } from './core/quality.js';
 import { BlockedError } from './core/politeness.js';
@@ -18,9 +18,42 @@ import { runResearch } from './research.js';
 const brief: Brief = { product: 'Traditional Nepalese clothing and Dhaka topi in Australia', niche: 'Nepali clothing', country: 'AU', audience: '', brand: '', language: 'en', competitors: [], websites: ['https://retailer.com.au/'], goals: [], sources: [], autoDiscover: false };
 
 test('search leads use public result URLs; model prose, malformed data and unsafe citations are ignored', () => {
-  const response = { text: 'https://invented.com/', web: { results: [{ url: 'https://retailer.com.au/product' }, { url: 'https://retailer.com.au/other' }, { url: 'javascript:alert(1)' }, { url: 'https://user:pass@unsafe.com/' }, { url: 'https://127.0.0.1/' }] } };
+  const response = [{ url: 'https://retailer.com.au/product', title: 'Retailer' }, { url: 'https://retailer.com.au/other', title: 'Other product' }, { url: 'javascript:alert(1)', title: 'Bad' }, { url: 'https://user:pass@unsafe.com/', title: 'Bad' }, { url: 'https://127.0.0.1/', title: 'Bad' }, { url: 'https://invented.com/' }, { url: 'https://google.com/search?q=retailer', title: 'Search navigation' }];
   assert.deepEqual(searchLeads(response), ['https://retailer.com.au/']);
   for (const bad of [null, {}, { web: { results: {} } }]) assert.deepEqual(searchLeads(bad), []);
+});
+
+test('browser result wrappers resolve only public websites and malformed destinations are ignored', () => {
+  const target = 'https://retailer.com.au/product';
+  assert.deepEqual(searchLeads([{ url: `https://www.google.com/url?q=${encodeURIComponent(target)}`, title: 'Shop' }, { url: `https://www.bing.com/ck/a?u=a1${Buffer.from(target).toString('base64url')}`, title: 'Shop' }, { url: 'https://www.bing.com/ck/a?u=a1bad', title: 'Bad' }, { url: 'https://www.google.com/url?q=https%3A%2F%2F127.0.0.1%2F', title: 'Bad' }, { url: 'https://instagram.com/shop/', title: 'Social profile' }]), ['https://retailer.com.au/']);
+});
+
+test('browser discovery queries use the product and actual market without guessing business identities', () => {
+  assert.deepEqual(discoveryQueries({ ...brief, niche: '', product: 'Nepali clothing, including topi' }), ['Nepali clothing Australia shop', 'Nepali clothing Australia retailers']);
+  assert.deepEqual(discoveryQueries({ ...brief, country: 'GB' }), ['Nepali clothing United Kingdom shop', 'Nepali clothing United Kingdom retailers']);
+});
+
+test('opaque Google links require visible public citations and unrelated result text is excluded', () => {
+  const url = 'https://www.google.com/goto?url=opaque';
+  assert.deepEqual(searchLeads([{ url, title: 'Boutique Nepal', displayedUrl: 'https://boutiquenepal.com.au › clothing' }, { url, title: 'Traditional definition', displayedUrl: 'https://dictionary.com/' }, { url, title: 'Nepali clothing' }, { url, title: 'Nepali clothing', displayedUrl: 'https://localhost/' }], 'Traditional Nepalese clothing'), ['https://boutiquenepal.com.au/']);
+});
+
+test('browser discovery records blocked and partial searches without retrying a blocked engine or inventing leads', async () => {
+  const calls: string[] = [];
+  const result = await searchCompetitors(brief, () => {}, Date.now() + 5000, async (engine, url) => {
+    calls.push(engine);
+    assert.equal(new URL(url).searchParams.get('q')?.includes('Australia'), true);
+    if (engine === 'Google') throw new BlockedError('www.google.com', 'CAPTCHA');
+    if (calls.length === 3) throw new Error('navigation timed out');
+    return [{ url: 'https://retailer.com.au/', title: 'Nepali clothing shop', displayedUrl: '', snippet: '' }];
+  });
+  assert.deepEqual(calls, ['Google', 'Bing', 'Bing']);
+  assert.deepEqual(result.websites, ['https://retailer.com.au/']);
+  assert.deepEqual(result.searches.map((s) => s.status), ['blocked', 'ok', 'error']);
+  assert.equal(result.searches[1].results?.length, 1);
+  const expired = await searchCompetitors(brief, () => {}, Date.now() - 1, async () => { throw new Error('must not open a browser after deadline'); });
+  assert.equal(expired.searches.length, 0);
+  assert.equal(expired.websites.length, 0);
 });
 
 test('planner rejects invented advertiser domains, malformed model data and unsupported task reasons', () => {

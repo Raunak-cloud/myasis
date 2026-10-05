@@ -50,3 +50,9 @@ Independent browser checks matched the collected variant-specific offers: House 
 This small targeted sample supports those listing observations, not overall market accuracy or sales predictions. Customer quotations, country-specific search volume and business performance were not measured.
 
 The final product-only browser run `2026-10-05T12-27-06-research-63a1c5d1` reused the two retailer leads from the independently seeded audit and freshly checked their homepage quotations before collection. It collected 102 records, retained 85 and excluded 17. This validates history-assisted setup, not unconfigured live search. Both retailers had direct target-market evidence on their pages. The report reader rechecks these quotations and normalizes suggested category punctuation.
+
+### Browser-only discovery - 6 October 2026
+
+The user requested browser-only competitor discovery. This replaces the optional Brave adapter above: no search-provider key or search API call is used. The collector opens bounded Google and Bing searches in Scout's own browser, records rendered organic links and visible citations, and verifies candidate homepages. AI-generated identities and previous-run website leads are removed from automatic discovery. Manual website inputs remain available. Search attempts, actual result text, timestamps, empty results and blocks are saved in search-discovery.json; reports show a browser-search log. Captchas and refusals stop that engine.
+
+Live testing on the VPS found seven website leads for traditional Nepalese clothing in Australia, including House of Nepal, Boutique Nepal, Aarohi and Trendy Collections. Google's opaque /goto links required reading the displayed website citation. Unrelated Bing results were filtered before homepage verification. These are search leads, not a market-coverage or accuracy percentage.

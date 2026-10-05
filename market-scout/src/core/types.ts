@@ -77,10 +77,22 @@ export interface Brief {
 
 export interface MarketDiscovery {
   searchQueries?: string[];
+  searches?: SearchAttempt[];
   audienceBasis: 'suggested' | 'provided';
   categoryBasis: 'suggested' | 'provided';
   competitors: Array<{ name: string; website: string; evidenceId: string; productQuote: string; marketQuote: string; region: 'target' | 'unknown' }>;
   notes: string[];
+}
+
+export interface SearchAttempt {
+  engine: 'Google' | 'Bing';
+  query: string;
+  url: string;
+  status: 'ok' | 'empty' | 'blocked' | 'error';
+  websites: string[];
+  collectedAt: string;
+  note: string;
+  results?: Array<{ url: string; title: string; displayedUrl: string; snippet: string }>;
 }
 
 /** One unit of collection work, produced by the planner and run by a source. */
