@@ -240,6 +240,18 @@ function articleText(article: Article): string[] {
 
 const wordCount = (article: Article) => articleText(article).join(' ').replace(CITATION, '').split(/\s+/).filter(Boolean).length;
 
+/** Deterministic final gate: humanizing cannot alter a passage's figures or dates. */
+export function numericPublicationProblems(original: Article, candidate: Article): string[] {
+  const prose = (article: Article) => [article.lead, ...article.sections.flatMap((s) => [...s.paragraphs, ...s.bullets]), ...article.takeaways];
+  const before = prose(original);
+  const after = prose(candidate);
+  if (before.length !== after.length) return ['Restore the original paragraph, bullet and takeaway structure.'];
+  const figures = (text: string) => (text.replace(CITATION, '').match(/\b\d+(?:[.,]\d+)*\b/g) ?? []).map((n) => String(Number(n.replaceAll(',', '')))).sort();
+  return before.flatMap((text, i) => JSON.stringify(figures(text)) === JSON.stringify(figures(after[i])) ? [] : [
+    `Passage ${i + 1}: restore its original figures and dates. Expected ${JSON.stringify(figures(text))}; found ${JSON.stringify(figures(after[i]))}. Original: ${text} Humanized: ${after[i]}`,
+  ]);
+}
+
 /** What code can know for certain. Each problem goes back to the writer like a reviewer's note. */
 export function structuralProblems(article: Article, brief: Brief): string[] {
   const problems: string[] = [];
@@ -297,7 +309,9 @@ export async function finishHumanizedPost(brief: Brief, original: Article, candi
   for (let round = 0; ; round++) {
     const structural = structuralProblems(article, brief);
     if (structural.length) throw new Error(`Not published: the humanized article failed validation — ${structural.join(' | ')}`);
-    const notes = await publicationProblems(brief, original, article, config);
+    // Restore mechanical discrepancies first; then review meaning and sources.
+    const numeric = numericPublicationProblems(original, article);
+    const notes = numeric.length ? numeric : await publicationProblems(brief, original, article, config);
     if (!notes.length) return { article, repairs };
     if (round >= MAX_REVISIONS) throw new Error(`Not published: the humanized article failed its final fact-check — ${notes.slice(0, 3).join(' | ')}`);
     console.log(`[blog] final humanized fact-check: ${notes.length} correction(s)`);

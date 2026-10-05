@@ -35,22 +35,22 @@ export async function assertBlogHumanizerReady(config: BlogHumanizerConfig): Pro
 }
 
 const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
-const figures = (text: string) => (text.replace(CITATION, '').match(/\b\d+(?:[.,]\d+)*\b/g) ?? []).map((n) => n.replaceAll(',', '')).sort();
+const figures = (text: string) => (text.replace(CITATION, '').match(/\b\d+(?:[.,]\d+)*\b/g) ?? []).map((n) => String(Number(n.replaceAll(',', '')))).sort();
 const citations = (text: string) => [...text.matchAll(CITATION)].map((m) => refsIn(m[1]).join(','));
 const addresses = (text: string) => (text.match(/https?:\/\/\S+|[\w.+-]+@[\w.-]+\.\w+/g) ?? []).map((s) => s.replace(/[.,;:!?)]*$/, '')).sort();
 
 /** Repair spacing in a decimal only when that exact figure occurs in the original. */
 export function restoreDecimalSpacing(original: string, candidate: string): string {
   const allowed = new Set(figures(original));
-  return candidate.replace(/\b(\d+)\.\s+(\d+)\b/g, (whole, a, b) => allowed.has(`${a}.${b}`) ? `${a}.${b}` : whole);
+  return candidate.replace(/\b(\d+)\s*\.\s*(\d+)\b/g, (whole, a, b) => allowed.has(String(Number(`${a}.${b}`))) ? `${a}.${b}` : whole);
 }
 
 /** A style pass must preserve figures and citation order in each original paragraph. */
-export function humanizedTextProblem(original: string, candidate: string): string | null {
+export function humanizedTextProblem(original: string, candidate: string, factsMayBeRepaired = false): string | null {
   if (!candidate.trim()) return 'empty text';
   const normalise = (text: string) => text.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase();
   if (normalise(original) === normalise(candidate)) return 'the original text was returned unchanged';
-  if (JSON.stringify(figures(original)) !== JSON.stringify(figures(candidate))) return 'a figure or date was changed, added or removed';
+  if (!factsMayBeRepaired && JSON.stringify(figures(original)) !== JSON.stringify(figures(candidate))) return 'a figure or date was changed, added or removed';
   if (JSON.stringify(citations(original)) !== JSON.stringify(citations(candidate))) return 'a citation was changed, added, removed or reordered';
   if (JSON.stringify(addresses(original)) !== JSON.stringify(addresses(candidate))) return 'a web address or email was changed';
   if (words(candidate) < Math.floor(words(original) * 0.7) || words(candidate) > Math.ceil(words(original) * 1.3) + 5) return 'the rewrite changed the passage length too much';
@@ -75,7 +75,9 @@ async function humanizeText(original: string, config: BlogHumanizerConfig, feedb
     const choice = payload.choices?.[0];
     if (choice?.finish_reason !== 'stop') throw new Error(`Not published: the blog humanizer did not finish (${choice?.finish_reason ?? 'no response'}).`);
     const candidate = restoreDecimalSpacing(original, typeof choice.message?.content === 'string' ? choice.message.content.trim() : '');
-    problem = humanizedTextProblem(original, candidate) ?? '';
+    // Every numeric mismatch is repaired and checked again by the publication
+    // gate. A style-model sample is never itself sufficient to publish.
+    problem = humanizedTextProblem(original, candidate, true) ?? '';
     if (!problem) return candidate;
     console.warn(`[blog] humanizer passage retry ${attempt + 1}/3: ${problem}`);
   }
@@ -103,7 +105,7 @@ async function humanizeParagraph(original: string, config: BlogHumanizerConfig, 
   }
   result += await rewritePiece(original.slice(cursor), false);
   // Catch every source-marker or numeric change across the complete paragraph too.
-  const invalid = humanizedTextProblem(original, result);
+  const invalid = humanizedTextProblem(original, result, true);
   if (invalid) throw new Error(`Not published: the blog humanizer returned an invalid paragraph (${invalid}).`);
   return result;
 }

@@ -138,3 +138,24 @@ test('Final repairs preserve humanized style and still require review approval',
   assert.equal(reviews, 2);
   assert.equal(result.humanization.articleHash, articleHash(result.article));
 });
+
+test('Humanizer numeric drift must be repaired before final approval and publication', async (t) => {
+  let repairs = 0;
+  t.mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
+    if (String(url).includes('featherless')) {
+      const request = JSON.parse(init.body as string);
+      const draft = request.messages[1].content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1];
+      return response(rewritten(draft).replace('4.6%', '4.7%'));
+    }
+    const request = JSON.parse(init.body as string);
+    if (request.generationConfig.responseJsonSchema.properties.edits) {
+      repairs++;
+      return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ edits: [{ original: '4.7%', replacement: '4.6%' }] }) }] } }] });
+    }
+    assert.doesNotMatch(request.contents[0].parts[0].text.split('DRAFT\n\n').at(-1), /4\.7/);
+    return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ approved: true, issues: [] }) }] } }] });
+  });
+  const result = await prepareForPublication(article, brief, { provider: 'gemini', apiKey: 'key', model: 'gemini-test' }, config);
+  assert.equal(repairs, 1);
+  assert.match(result.article.lead, /4\.6%/);
+});
