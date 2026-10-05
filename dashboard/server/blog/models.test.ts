@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { envReport } from '../env-settings.js';
 import { createBlogModel, writerConfig, type WriterConfig } from './models.js';
-import { writePost, type Article } from './writer.js';
+import { applyCorrections, writePost, type Article } from './writer.js';
 import type { Brief } from './signals.js';
 
 const gemini: WriterConfig = { provider: 'gemini', apiKey: 'test-gemini-key', model: 'gemini-3.8-flash' };
@@ -16,8 +16,22 @@ test('A Gemini failure stops blog writing without calling another provider', asy
     return new Response('High demand', { status: 503 });
   });
   await assert.rejects(createBlogModel(gemini).ask('system', 'prompt', schema, 0), /Gemini returned HTTP 503/);
-  assert.equal(urls.length, 1);
-  assert.match(urls[0], /^https:\/\/generativelanguage\.googleapis\.com\//);
+  assert.equal(urls.length, 3);
+  assert.ok(urls.every((url) => /^https:\/\/generativelanguage\.googleapis\.com\//.test(url)));
+});
+
+test('A temporary Gemini outage retries the same request and can recover', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => ++calls === 1 ? new Response('High demand', { status: 503 }) : geminiReply({ approved: true }));
+  assert.deepEqual(await createBlogModel(gemini).ask('system', 'prompt', schema, 0), { approved: true });
+  assert.equal(calls, 2);
+});
+
+test('A Gemini authentication failure is not retried', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; return new Response('Invalid key', { status: 403 }); });
+  await assert.rejects(createBlogModel(gemini).ask('system', 'prompt', schema, 0), /HTTP 403/);
+  assert.equal(calls, 1);
 });
 
 test('Gemini refuses incomplete or blocked responses', async (t) => {
@@ -65,7 +79,7 @@ const brief: Brief = {
 };
 
 test('Gemini handles drafting, fact-checking and every revision', async (t) => {
-  const values = [article, { approved: false, issues: [{ excerpt: 'Read', problem: 'Unclear', fix: 'Clarify' }] }, article, { approved: true, issues: [] }];
+  const values = [article, { approved: false, issues: [{ excerpt: 'Read', problem: 'Unclear', fix: 'Clarify' }] }, { edits: [{ original: article.lead, replacement: 'Consult these releases [S1, S2, S3].' }] }, { approved: true, issues: [] }];
   let calls = 0;
   t.mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
     calls++;
@@ -77,14 +91,27 @@ test('Gemini handles drafting, fact-checking and every revision', async (t) => {
   const result = await writePost(brief, ['An earlier angle'], gemini);
   assert.equal(result.model, gemini.model);
   assert.equal(result.revisions.length, 1);
+  assert.equal(result.article.lead, 'Consult these releases [S1, S2, S3].');
+  assert.deepEqual(result.article.sections, article.sections);
   assert.equal(calls, 4);
 });
 
 test('A draft that never passes fact-checking is never returned for publishing', async (t) => {
   t.mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
     const request = JSON.parse(init.body as string);
-    return geminiReply(request.generationConfig.responseJsonSchema.properties.approved
-      ? { approved: false, issues: [{ excerpt: 'Read', problem: 'Unsupported', fix: 'Remove' }] } : article);
+    const properties = request.generationConfig.responseJsonSchema.properties;
+    return geminiReply(properties.approved
+      ? { approved: false, issues: [{ excerpt: 'Read', problem: 'Unsupported', fix: 'Remove' }] }
+      : properties.edits ? { edits: [{ original: article.lead, replacement: article.lead }] } : article);
   });
   await assert.rejects(writePost(brief, [], gemini), /Not published/);
+});
+
+test('Fact-check edits preserve unrelated citations and reject ambiguous or missing originals', () => {
+  const corrected = applyCorrections(article, { edits: [{ original: article.lead, replacement: 'Only this supported claim remains [S1].' }] });
+  assert.equal(corrected.lead, 'Only this supported claim remains [S1].');
+  assert.deepEqual(corrected.sections, article.sections);
+  assert.equal(article.lead, 'Read these releases [S1, S2, S3].');
+  assert.throws(() => applyCorrections(article, { edits: [{ original: '[S1, S2, S3]', replacement: '[S2]' }] }), /exactly one/);
+  assert.throws(() => applyCorrections(article, { edits: [{ original: 'Invented excerpt', replacement: 'Replacement' }] }), /exactly one/);
 });

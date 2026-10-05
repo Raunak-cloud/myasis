@@ -1,4 +1,5 @@
 import { readEnv } from '../runner.js';
+import { setTimeout as delay } from 'node:timers/promises';
 export interface WriterConfig {
   provider: 'gemini';
   apiKey: string;
@@ -17,7 +18,10 @@ export function writerConfig(): WriterConfig | null {
 const TIMEOUT_MS = 5 * 60_000;
 
 async function askGemini(config: WriterConfig, system: string, prompt: string, schema: Record<string, unknown>, temperature: number): Promise<Record<string, unknown>> {
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, {
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  let response: Response;
+  for (let attempt = 0; ; attempt++) {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey },
     body: JSON.stringify({
@@ -25,8 +29,15 @@ async function askGemini(config: WriterConfig, system: string, prompt: string, s
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: { temperature, maxOutputTokens: 32_768, responseMimeType: 'application/json', responseJsonSchema: schema },
     }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+      signal,
+    });
+    if (attempt >= 2 || ![429, 500, 502, 503, 504].includes(response.status)) break;
+    await response.text();
+    const retryAfter = Number(response.headers.get('retry-after'));
+    const waitMs = Math.max(500 * 2 ** attempt, Number.isFinite(retryAfter) ? Math.min(15_000, retryAfter * 1_000) : 0);
+    console.log(`[blog] Gemini HTTP ${response.status}; retrying request (${attempt + 1}/2)`);
+    await delay(waitMs, undefined, { signal });
+  }
   if (!response.ok) throw new Error(`Gemini returned HTTP ${response.status}: ${(await response.text()).slice(0, 400)}`);
   const payload = await response.json() as {
     candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
