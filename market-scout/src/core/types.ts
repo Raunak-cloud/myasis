@@ -76,6 +76,7 @@ export interface Brief {
 }
 
 export interface MarketDiscovery {
+  searchQueries?: string[];
   audienceBasis: 'suggested' | 'provided';
   categoryBasis: 'suggested' | 'provided';
   competitors: Array<{ name: string; website: string; evidenceId: string; productQuote: string; marketQuote: string; region: 'target' | 'unknown' }>;

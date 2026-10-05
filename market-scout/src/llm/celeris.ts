@@ -70,13 +70,9 @@ export class CostMeter {
   cachedTokens = 0;
   completionTokens = 0;
   costUsd = 0;
+  externalCalls = 0;
 
   constructor(public budgetUsd: number) {}
-
-  /** Guarantees `usd` more headroom than already spent — for the final write-up of a run that spent its budget collecting. */
-  reserve(usd: number): void {
-    this.budgetUsd = Math.max(this.budgetUsd, this.costUsd + usd);
-  }
 
   record(usage: unknown): void {
     const u = (usage ?? {}) as { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
@@ -90,6 +86,12 @@ export class CostMeter {
     this.costUsd += ((prompt - cached) * RATES.promptUncached + cached * RATES.promptCached + completion * RATES.completion) / 1_000_000;
   }
 
+  recordExternalEstimate(usd: number): void {
+    if (Number.isFinite(usd) && usd >= 0) { this.costUsd += usd; this.externalCalls++; }
+  }
+
+  get remainingUsd(): number { return Math.max(0, this.budgetUsd - this.costUsd); }
+
   /** Fraction of the budget still unspent, 0..1. */
   get remaining(): number {
     return Math.max(0, 1 - this.costUsd / this.budgetUsd);
@@ -101,7 +103,7 @@ export class CostMeter {
 
   summary(): string {
     const cacheRate = this.promptTokens ? Math.round((this.cachedTokens / this.promptTokens) * 100) : 0;
-    return `${this.calls} model calls · ${this.promptTokens} prompt (${cacheRate}% cached) · ${this.completionTokens} completion · $${this.costUsd.toFixed(4)}`;
+    return `${this.calls} Celeris calls${this.externalCalls ? ` + ${this.externalCalls} live search` : ''} · ${this.promptTokens} prompt (${cacheRate}% cached) · ${this.completionTokens} completion · estimated $${this.costUsd.toFixed(4)}`;
   }
 }
 
@@ -190,6 +192,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       await inFlight.acquire();
       let response: Response;
       try {
+        request.meter?.assertAvailable();
         response = await fetch(endpointFor(request.model), {
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${config.celeris.apiKey}` },

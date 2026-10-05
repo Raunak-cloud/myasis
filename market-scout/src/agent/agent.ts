@@ -312,7 +312,8 @@ async function runTool(
       for (const record of found) {
         const key = state.options.recordKey(record);
         if (!key || state.records.has(key) || state.records.size >= state.maxRecords) continue;
-        state.records.set(key, { ...record, sourceUrl: page.url() });
+        const quote = typeof record.text === 'string' ? record.text.trim() : '';
+        state.records.set(key, { ...record, sourceUrl: page.url(), literalQuoteVerified: quote.length >= 20 && facts.markdown.includes(quote) });
         added += 1;
       }
       const sample = found.slice(0, 3).map((record) => JSON.stringify(record).slice(0, 160)).join('\n');

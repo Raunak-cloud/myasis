@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config } from './config.js';
 import { closeBrowser } from './browser/session.js';
-import { planFollowUp, planTasks } from './core/planner.js';
+import { planFollowUp, planTasks, validateTasks } from './core/planner.js';
 import { reviewEvidence } from './core/quality.js';
 import { candidateUrl, discoverMarket } from './core/discovery.js';
 import { BlockedError } from './core/politeness.js';
@@ -67,21 +67,24 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
     await mapLimit(tasks, Math.max(1, config.budget.concurrency), async (task) => {
       const source = sourceById(task.source)!;
       const started = Date.now();
+      const savedBefore = new Set(store.all().filter((i) => i.source === task.source && i.query === task.query).map((i) => i.id));
       const record = (ok: boolean, count: number, note: string) => {
         coverage.push({ task, ok, count, note, ms: Date.now() - started });
+        store.writeJson('coverage.json', coverage);
         log(`${ok ? '✓' : '✗'} ${task.source} "${task.query}": ${ok ? `${count} items` : note} (${Math.round((Date.now() - started) / 1000)}s)`);
       };
       if (Date.now() > deadline) return record(false, 0, 'run time limit reached before this task');
-      if (meter.remaining < 0.25) return record(false, 0, 'model budget reserved for analysis');
+      if (!source) return record(false, 0, 'Unknown source');
       log(`→ ${task.source} "${task.query}"`);
       try {
-        const items = await source.run(task, { brief, store, meter, log });
+        const collectionNotes: string[] = [];
+        const items = await source.run(task, { brief, store, meter, log, deadline, collectionNotes });
         store.add(items);
-        record(true, items.length, items.length ? '' : 'No matching public evidence was returned.');
+        record(!collectionNotes.length, items.length, collectionNotes.join('; ') || (items.length ? '' : 'No matching public evidence was returned.'));
       } catch (error) {
         const note =
           error instanceof BlockedError ? error.message : error instanceof BudgetExceededError ? 'model budget spent' : (error as Error).message.split('\n')[0].slice(0, 240);
-        record(false, 0, note);
+        record(false, store.all().filter((i) => i.source === task.source && i.query === task.query && !savedBefore.has(i.id)).length, note);
       }
     });
   };
@@ -94,7 +97,7 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
         store.writeJson('discovery.json', brief.discovery);
       }
       const maxTasks = options.maxTasks ?? 14;
-      const first = options.tasks ?? (await planTasks(brief, meter, maxTasks));
+      const first = options.tasks ? validateTasks(brief, options.tasks, [], maxTasks) : await planTasks(brief, meter, maxTasks);
       if (!options.tasks && brief.ownWebsite && !first.some((t) => t.source === 'website' && t.query === brief.ownWebsite)) {
         first.unshift({ source: 'website', query: brief.ownWebsite, limit: 6, why: 'Audit your own website for page-specific improvements.' });
         if (first.length > maxTasks) first.pop();
@@ -122,8 +125,6 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
   store.writeJson('insights.json', insights);
 
   log('Building source-checked findings…');
-  // The brief gets a little headroom past the collection budget: a run that collected everything should not end unreported.
-  meter.reserve(0.15);
   const runCoverage = options.reportOnly ? readCoverage(store) : coverage;
   // The measured insights stand on their own; a failed write-up must not lose them.
   const draft = await synthesize(brief, insights, runCoverage, store, meter).catch((error: Error) => {
@@ -140,7 +141,8 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
       coverage: runCoverage,
     };
   });
-  const report: Report = { ...draft, quality, version: 3, status: draft.sections.length && runCoverage.some((r) => r.ok && r.count > 0) ? 'ready' : 'partial', cost: meter.summary() };
+  const complete = draft.sections.length && runCoverage.some((r) => r.ok && r.count > 0) && runCoverage.every((r) => r.ok) && !(brief.autoDiscover && !brief.websites.length);
+  const report: Report = { ...draft, quality, version: 3, status: complete ? 'ready' : 'partial', cost: meter.summary() };
 
   const files = {
     json: store.writeJson('report.json', report),

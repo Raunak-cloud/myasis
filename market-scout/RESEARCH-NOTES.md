@@ -26,3 +26,14 @@ This is a bounded public-source research tool, not an exhaustive market census. 
 No Search Console, GA4, ad-account or licensed keyword-provider connection was added in this release. Those would enable actual business performance and country-specific estimated keyword metrics, with provider, date range, geography and attribution displayed. Implement these only through explicit authorized integrations; never fill missing fields with synthetic numbers.
 
 Existing reports and downloads are revalidated when opened. **Recheck saved evidence** also writes updated report files and archives the originals before rewriting. Public comments are potential customer evidence; buyer identity is not independently verified.
+
+
+## Live robustness audit, 5 October 2026
+
+The default browser run `2026-10-05T11-51-33-research` completed but exposed incorrect completion labelling, an unverified ad-domain task, CAPTCHA failures represented as empty success, occasion videos without a clothing match, unverified model summaries, and slow autocomplete expansion. These are failure findings, not a market opportunity.
+
+Implemented: optional live-search result URLs as website leads (followed by fresh homepage evidence checks), explicit search-provider failures, validation of malformed planner output and advertiser domains, neutral task reasons, per-host blocked follow-up exclusions, bounded autocomplete requests and total record limits, incremental coverage persistence, partial-report status, literal quote verification for browser-agent findings, clothing relevance checks for videos, snapshot-based social velocity and consistent comparison denominators, safe run IDs, collision-resistant run folders, and child-process startup/close handling. Removed unused AI clustering/tagging calls and automatic budget extension. Model cost remains an estimate; already in-flight requests can exceed the remaining estimate, and provider invoices/free quotas may differ.
+
+The existing Google key successfully lists available models, but Gemini 2.5 Flash generation is unavailable to new users and Gemini 3.8 Flash returns HTTP 429 for quota/billing. Gemini generation is not claimed as operational on this account. Google quota must be restored for Gemini generation. The search-discovery adapter uses Brave Search API when BRAVE_SEARCH_API_KEY is configured, otherwise reports its absence and verifies model/history leads. It has not been live-validated against Brave on this account. Account credentials were not copied or printed.
+
+Reference: [Brave Search API](https://api-dashboard.search.brave.com/documentation/quickstart). The optional collector makes one bounded search request and estimates $0.01 for a successful search. A search result alone does not prove product relevance or target-market service. Google Search grounding was evaluated but excluded: its current service terms prohibit using returned links as automated crawling leads.

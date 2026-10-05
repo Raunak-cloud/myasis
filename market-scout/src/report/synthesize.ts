@@ -83,7 +83,7 @@ export function preparePublicReport(report: Report, store: EvidenceStore): Repor
   const discovery = report.brief.discovery;
   const usableIds = new Set(reviewed.evidence.map((p) => p.id));
   const brief = discovery ? { ...report.brief, discovery: { ...discovery, competitors: discovery.competitors.filter((c) => usableIds.has(c.evidenceId) && Boolean(c.productQuote.trim()) && store.get(c.evidenceId)?.text.includes(c.productQuote)) } } : report.brief;
-  return { ...report, brief, insights, quality: reviewed.quality, sections, executiveSummary: sections.map((s) => ({ ...s.findings[0], action: 'Choose a suggested test below and measure the result.' })).slice(0, 5), recommendations: supported ? buildRecommendations(insights) : [], marketingPlan: supported ? buildMarketingPlan(brief, reviewed.evidence) : undefined };
+  return { ...report, status: sections.length && report.coverage.every((r) => r.ok) && !(brief.autoDiscover && !brief.websites.length) ? 'ready' : 'partial', brief, insights, quality: reviewed.quality, sections, executiveSummary: sections.map((s) => ({ ...s.findings[0], action: 'Choose a suggested test below and measure the result.' })).slice(0, 5), recommendations: supported ? buildRecommendations(insights) : [], marketingPlan: supported ? buildMarketingPlan(brief, reviewed.evidence) : undefined };
 }
 
 /** Build public findings from measurements and exact records, not model verdicts.

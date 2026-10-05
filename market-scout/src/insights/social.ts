@@ -56,7 +56,7 @@ export interface SocialInsights {
 const sum = (...values: Array<number | undefined>) => values.reduce<number>((total, value) => total + (Number.isFinite(value) ? (value as number) : 0), 0);
 
 function median(values: number[]): number {
-  const sorted = values.filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+  const sorted = values.filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
   if (!sorted.length) return Number.NaN;
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
@@ -78,9 +78,10 @@ export function scorePosts(items: Evidence[]): ScoredPost[] {
   const posts = items.filter((item) => (item.kind === 'post' || item.kind === 'video') && item.source !== 'website' && item.source !== 'agent');
   const rates = new Map(posts.map((post) => [post.id, engagementRate(post)]));
   const baselines = new Map<string, number>();
+  const basis = (post: Evidence) => post.source === 'reddit' ? 'score' : post.metrics.views > 0 ? 'views' : post.metrics.followers > 0 ? 'followers' : 'unknown';
   const baselineKey = (post: Evidence) => {
-    const byAuthor = posts.filter((other) => other.source === post.source && other.author === post.author).length >= 3;
-    return byAuthor ? `${post.source}|author|${post.author}` : `${post.source}|query|${post.query}`;
+    const byAuthor = Boolean(post.author) && posts.filter((other) => other.source === post.source && other.author === post.author && basis(other) === basis(post)).length >= 3;
+    return byAuthor ? `${post.source}|author|${post.author}|${basis(post)}` : `${post.source}|query|${post.query}|${basis(post)}`;
   };
   for (const post of posts) {
     const key = baselineKey(post);
@@ -91,7 +92,8 @@ export function scorePosts(items: Evidence[]): ScoredPost[] {
   return posts.map((post) => {
     const rate = rates.get(post.id) ?? Number.NaN;
     const base = baselines.get(baselineKey(post)) ?? Number.NaN;
-    const ageDays = post.publishedAt ? Math.max(1, (Date.now() - Date.parse(post.publishedAt)) / 86_400_000) : Number.NaN;
+    const age = post.publishedAt ? (Date.parse(post.collectedAt) - Date.parse(post.publishedAt)) / 86_400_000 : Number.NaN;
+    const ageDays = age >= 0 ? Math.max(1, age) : Number.NaN;
     const interactions = sum(post.metrics.likes, post.metrics.comments, post.metrics.shares, post.metrics.saves, post.metrics.score);
     return {
       id: post.id,

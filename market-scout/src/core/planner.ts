@@ -60,39 +60,47 @@ const TASKS_SCHEMA = {
   },
 };
 
-function validate(brief: Brief, tasks: Task[], existing: Task[], max: number): Task[] {
+export function validateTasks(brief: Brief, tasks: unknown, existing: Task[], max: number): Task[] {
   const seen = new Set(existing.map((task) => `${task.source}|${task.query.trim().toLowerCase()}`));
   const out: Task[] = [];
-  for (const task of tasks) {
+  for (const task of Array.isArray(tasks) ? tasks : []) {
     if (out.length >= max) break;
+    if (!task || typeof task.source !== 'string' || typeof task.query !== 'string' || !task.query.trim()) continue;
     const source = sourceById(task.source);
     const key = `${task.source}|${task.query.trim().toLowerCase()}`;
     if (!source || !task.query?.trim() || seen.has(key) || !allowed(brief, task.source)) continue;
     // A task that can only open a search-engine results page would be refused at the browser; do not spend a slot on it.
     if (task.source === 'agent' && searchEngineOf(task.query.split('::')[0].trim())) continue;
+    if (task.source === 'website' || task.source === 'agent') {
+      try { const url = new URL(task.query.split('::')[0].trim()); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) continue; } catch { continue; }
+    }
+    if (task.source === 'google-ads' && /\.[a-z]{2,}\b/i.test(task.query)) {
+      const domain = task.query.replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '').toLowerCase();
+      if (!brief.websites.some((u) => { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase() === domain; } catch { return false; } })) continue;
+    }
     seen.add(key);
-    out.push({ ...task, query: task.query.trim(), limit: Math.min(source.defaultLimit * 2, Math.max(5, task.limit || source.defaultLimit)) });
+    out.push({ source: source.id, query: task.query.trim().slice(0, 2000), why: `Collect available public evidence from ${source.label}; results may be limited.`, limit: Math.min(source.defaultLimit * 2, Math.max(5, Number.isFinite(task.limit) ? Math.floor(task.limit) : source.defaultLimit)) });
   }
   return out;
 }
 
 export async function planTasks(brief: Brief, meter: CostMeter, maxTasks: number): Promise<Task[]> {
   const baseline = baselinePlan(brief);
+  const core = validateTasks(brief, baseline.filter((t) => t.source === 'website' || t.source === 'autocomplete'), [], maxTasks);
   try {
     const reply = await askJson<{ tasks: Task[] }>({
       model: 'celeris-1-magnus',
       system: 'You are a senior marketing researcher planning data collection. Choose the sources and exact queries that best answer the brief. Prefer specific queries (brand names, precise phrases, @handles, domains) over vague ones. Never plan tasks for UNAVAILABLE sources.',
-      prompt: `BRIEF\n${JSON.stringify(brief, null, 2)}\n\nSOURCES\n${catalog(brief)}\n\nPlan up to ${maxTasks} tasks that together answer the goals: SEO keywords and questions, the ads that perform in this market, what organic content gets traction, the audience's own words, and how competitors position and price. Cover each competitor on the ad libraries that suit them (B2B → linkedin-ads too; any → google-ads by domain). Use 2-3 different autocomplete seeds when the niche has several angles.`,
+      prompt: `BRIEF\n${JSON.stringify(brief, null, 2)}\n\nSOURCES\n${catalog(brief)}\n\nPlan up to ${maxTasks} tasks that together answer the goals: SEO keywords and questions, public ad examples without claims of performance, what organic content gets traction, the audience's own words, and how competitors position and price. Cover each competitor on the ad libraries that suit them (B2B → linkedin-ads too; any → google-ads by domain). Use 2-3 different autocomplete seeds when the niche has several angles.`,
       schema: TASKS_SCHEMA,
       meter,
       effort: 'medium',
       maxTokens: 4_000,
     });
-    const core = validate(brief, baseline.filter((t) => t.source === 'website' || t.source === 'autocomplete'), [], maxTasks);
-    const planned = validate(brief, reply.tasks ?? [], core, Math.max(0, maxTasks - core.length));
-    return [...core, ...planned, ...validate(brief, baseline, [...core, ...planned], Math.max(0, maxTasks - core.length - planned.length))];
+    const planned = validateTasks(brief, reply.tasks ?? [], core, Math.max(0, maxTasks - core.length));
+    return [...core, ...planned, ...validateTasks(brief, baseline, [...core, ...planned], Math.max(0, maxTasks - core.length - planned.length))];
   } catch {
-    return validate(brief, baseline, [], maxTasks);
+    return [...core, ...validateTasks(brief, baseline, core, Math.max(0, maxTasks - core.length))];
   }
 }
 
@@ -134,8 +142,12 @@ export async function planFollowUp(brief: Brief, results: TaskResult[], evidence
       effort: 'medium',
       maxTokens: 4_000,
     });
-    const blockedSources = new Set(results.filter((result) => !result.ok && /refused|blocked|wall|challenge/i.test(result.note)).map((result) => result.task.source));
-    return validate(brief, (reply.tasks ?? []).filter((task) => !blockedSources.has(task.source)), results.map((result) => result.task), maxTasks);
+    const scope = (task: Task) => {
+      if (task.source === 'website' || task.source === 'agent') { try { return `${task.source}|${new URL(task.query.split('::')[0].trim()).hostname}`; } catch { return task.source; } }
+      return task.source;
+    };
+    const blockedSources = new Set(results.filter((result) => !result.ok && /refused|blocked|wall|challenge|captcha/i.test(result.note)).map((result) => scope(result.task)));
+    return validateTasks(brief, reply.tasks, results.map((result) => result.task), maxTasks).filter((task) => !blockedSources.has(scope(task)));
   } catch {
     return [];
   }

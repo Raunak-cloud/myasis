@@ -55,7 +55,7 @@ test('a Dhaka Topi song query cannot become a product-search recommendation', ()
 });
 
 test('social profile must be linked from the business website; captions are not customer research', () => {
-  const items = [fixture({ source: 'website', kind: 'page', url: 'https://houseofnepal.com.au/', text: 'Our shop', attributes: { socialLinks: ['https://www.instagram.com/verified_nepal/'] } }), fixture({ source: 'instagram', kind: 'profile', url: 'https://www.instagram.com/houseofnepal/', author: 'houseofnepal' }), fixture({ source: 'instagram', kind: 'profile', url: 'https://www.instagram.com/verified_nepal/' }), fixture({ source: 'tiktok', kind: 'video', text: 'Keep your culture alive', author: 'seller' }), fixture({ source: 'reddit', kind: 'comment', text: 'The sizing did not fit me' })];
+  const items = [fixture({ source: 'website', kind: 'page', url: 'https://houseofnepal.com.au/', text: 'Our shop', attributes: { socialLinks: ['https://www.instagram.com/verified_nepal/'] } }), fixture({ source: 'instagram', kind: 'profile', url: 'https://www.instagram.com/houseofnepal/', author: 'houseofnepal' }), fixture({ source: 'instagram', kind: 'profile', url: 'https://www.instagram.com/verified_nepal/' }), fixture({ source: 'tiktok', kind: 'video', text: 'Dhaka topi: keep your culture alive', author: 'seller' }), fixture({ source: 'reddit', kind: 'comment', text: 'The sizing did not fit me' })];
   const result = reviewEvidence(items, brief);
   assert.equal(result.quality.unverified, 1);
   assert.equal(result.quality.customerItems, 1);

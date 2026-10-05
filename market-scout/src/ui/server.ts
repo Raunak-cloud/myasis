@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, type WriteStream } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
@@ -25,7 +26,7 @@ import { preparePublicReport, type Report } from '../report/synthesize.js';
  * site or machine may trigger it.
  */
 
-const RUN_ID = /^[\w.-]+$/;
+const RUN_ID = /^[a-zA-Z0-9][\w.-]{0,159}$/;
 const runsDir = () => resolve(config.dataDir, 'runs');
 const pagePath = fileURLToPath(new URL('../../ui/index.html', import.meta.url));
 const cliPath = fileURLToPath(new URL('../cli.js', import.meta.url));
@@ -47,7 +48,7 @@ export async function startUi(port = Number(process.env.SCOUT_UI_PORT) || 5190):
   const server = createServer((req, res) => {
     handle(req, res, origin).catch((error: Error) => send(res, 500, { error: error.message }));
   });
-  await new Promise<void>((done) => server.listen(port, '127.0.0.1', done));
+  await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', done); });
   console.log(`Market Scout is open at ${origin}  (Ctrl+C to quit)`);
   if (process.env.SCOUT_NO_OPEN === '1') return;
   const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', origin]] : process.platform === 'darwin' ? ['open', [origin]] : ['xdg-open', [origin]];
@@ -92,11 +93,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
     if (existsSync(resolve('..', '.deploying'))) return send(res, 503, { error: 'An update is being installed. Try again shortly.' });
     if (active) return send(res, 409, { error: 'A run is already in progress. Stop it or wait for it to finish.' });
     if (!config.celeris.apiKey) return send(res, 400, { error: 'CELERIS_API_KEY is not set in market-scout/.env.' });
-    const body = (await readJson(req)) as Partial<Brief> & { maxTasks?: number; followUps?: number; budgetUsd?: number };
+    let parsed: unknown;
+    try { parsed = await readJson(req); } catch { return send(res, 400, { error: 'Send a valid JSON object no larger than 100 KB.' }); }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return send(res, 400, { error: 'Send a JSON object.' });
+    const body = parsed as Partial<Brief> & { maxTasks?: number; followUps?: number; budgetUsd?: number };
     const brief = toBrief(body);
     if (brief.ownWebsite && !candidateUrl(brief.ownWebsite)) return send(res, 400, { error: 'Your website must be a public HTTPS address.' });
     if (!brief.product && !brief.niche) return send(res, 400, { error: 'Describe the product or the niche.' });
-    const id = `${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}-${(brief.brand || brief.niche || 'research').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`;
+    const id = `${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}-${(brief.brand || brief.niche || 'research').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}-${randomUUID().slice(0, 8)}`;
     const dir = join(runsDir(), id);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'brief.json'), JSON.stringify(brief, null, 2));
@@ -180,7 +184,8 @@ function launch(id: string, dir: string, args: string[]): void {
     });
     output?.on('end', () => { if (buffer.trim()) emit(buffer); });
   }
-  child.on('exit', (code) => {
+  child.on('error', (error) => emit(`Process could not start: ${error.message}`));
+  child.on('close', (code) => {
     const report = safeJson<{ status?: string }>(join(dir, 'report.json'));
     const outcome = run.status === 'stopping' ? 'stopped' : code === 0 ? (report?.status === 'partial' ? 'partial' : 'done') : 'failed';
     writeFileSync(join(dir, 'run-state.json'), JSON.stringify({ status: outcome, finishedAt: new Date().toISOString() }));
@@ -211,12 +216,14 @@ function stream(id: string, dir: string, res: ServerResponse): void {
 
 export function statusOf(dir: string): string {
   if (active && resolve(dir) === join(runsDir(), active.id)) return 'running';
+  const saved = safeJson<Report>(join(dir, 'report.json'));
+  const limited = saved && (saved.status === 'partial' || saved.coverage?.some((r) => !r.ok) || (saved.brief?.autoDiscover && !saved.brief.websites?.length));
   const state = safeJson<{ status: string }>(join(dir, 'run-state.json'));
-  if (state) return state.status === 'running' ? 'incomplete' : state.status;
+  if (state) return state.status === 'running' ? 'incomplete' : state.status === 'done' && limited ? 'partial' : state.status;
   const log = existsSync(join(dir, 'run.log')) ? readFileSync(join(dir, 'run.log'), 'utf8') : '';
   const last = [...log.matchAll(/\[run (done|partial|stopped|failed)\]/g)].at(-1)?.[1];
   if (last === 'failed' || last === 'stopped' || last === 'partial') return last;
-  if (existsSync(join(dir, 'report.html'))) return safeJson<{ status?: string }>(join(dir, 'report.json'))?.status === 'partial' ? 'partial' : 'done';
+  if (existsSync(join(dir, 'report.html'))) return limited ? 'partial' : 'done';
   return last ?? 'incomplete';
 }
 
@@ -283,7 +290,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return raw ? JSON.parse(raw) : {};
 }
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Number(value) || min));
+const clamp = (value: number, min: number, max: number) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Number(value))) : min;
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   if (res.headersSent) return;

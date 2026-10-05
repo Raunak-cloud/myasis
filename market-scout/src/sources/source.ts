@@ -3,6 +3,7 @@ import { runAgent } from '../agent/agent.js';
 import { distill } from '../browser/distill.js';
 import { captureJson, embeddedJson, scrollToLoad, visit } from '../browser/session.js';
 import { findRecords } from '../core/harvest.js';
+import { BlockedError } from '../core/politeness.js';
 import type { EvidenceStore } from '../core/store.js';
 import type { Brief, Evidence, SourceId, Task } from '../core/types.js';
 import type { CostMeter } from '../llm/celeris.js';
@@ -29,6 +30,8 @@ export interface Source {
 }
 
 export interface SourceContext {
+  deadline?: number;
+  collectionNotes?: string[];
   brief: Brief;
   store: EvidenceStore;
   meter: CostMeter;
@@ -127,6 +130,10 @@ export async function browseAndExtract<T extends Record<string, unknown>>(page: 
     log: ctx.log,
   });
   ctx.log(`  agent ${outcome.status} after ${outcome.steps} steps: ${outcome.summary}`);
+  if (!outcome.records.length && outcome.status !== 'done') {
+    if (outcome.status === 'blocked') throw new BlockedError(new URL(spec.url).hostname, outcome.summary);
+    throw new Error(`Browser collection incomplete (${outcome.status}): ${outcome.summary.slice(0, 180)}`);
+  }
   return outcome.records
     .map((record) => spec.fromItem(record as unknown as T, record.sourceUrl))
     .filter((item): item is Evidence => Boolean(item));

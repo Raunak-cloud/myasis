@@ -75,23 +75,27 @@ export const autocomplete: Source = {
   async run(task, ctx) {
     const [seed, flag] = task.query.split('|').map((part) => part.trim());
     const engines: Engine[] = ['google', 'youtube', 'bing', ...(flag === 'amazon' ? (['amazon'] as const) : [])];
-    const queries = expansions(seed, task.limit > 300);
+    // Bounded work even when a seed produces very few suggestions.
+    const queries = expansions(seed, false).slice(0, 8);
     const found = new Map<string, Evidence>();
     // Engines are different hosts, so they run side by side; each paces itself.
     await Promise.all(
-      engines.map(async (engine) => {
+      engines.map(async (engine, engineIndex) => {
         let mine = 0;
+        const share = Math.floor(task.limit / engines.length) + (engineIndex < task.limit % engines.length ? 1 : 0);
         for (const query of queries) {
           // Each engine stops on its own once it has given its share.
-          if (mine >= task.limit) return;
+          if (mine >= share || Date.now() >= (ctx.deadline ?? Infinity)) return;
           let suggestions: string[];
           try {
             suggestions = await suggest(engine, query, ctx.brief.country, ctx.brief.language);
           } catch (error) {
+            ctx.collectionNotes?.push(`${engine} autocomplete unavailable: ${(error as Error).message.slice(0, 120)}`);
             ctx.log(`  ${engine} autocomplete stopped: ${(error as Error).message}`);
             return;
           }
           suggestions.forEach((phrase, index) => {
+            if (mine >= share || typeof phrase !== 'string') return;
             const text = phrase.trim().toLowerCase();
             const id = `${engine}:${text}`;
             if (!text || found.has(id)) return;
@@ -115,7 +119,7 @@ export const autocomplete: Source = {
         }
       }),
     );
-    return [...found.values()];
+    return [...found.values()].slice(0, task.limit);
   },
 };
 

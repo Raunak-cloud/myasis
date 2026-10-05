@@ -5,6 +5,7 @@ import { mapLimit, UNTRUSTED } from '../llm/extract.js';
 import { previewWebsite } from '../sources/website.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { searchCompetitors } from './search-discovery.js';
 
 type Proposal = { niche: string; audience: string; candidates: Array<{ name: string; website: string }> };
 export type CandidateCheck = { relevant: boolean; name: string; productQuote: string; marketQuote: string };
@@ -50,7 +51,18 @@ export function verifiedCandidate(item: Evidence, check: CandidateCheck, country
 export async function discoverMarket(brief: Brief, store: EvidenceStore, meter: CostMeter, log: (line: string) => void): Promise<Brief> {
   const discovery: MarketDiscovery = { audienceBasis: brief.audience ? 'provided' : 'suggested', categoryBasis: brief.niche ? 'provided' : 'suggested', competitors: [], notes: [] };
   log('Discovering your market: category, likely audience and competitor websites...');
-  const known = relatedWebsites(brief, dirname(store.dir));
+  const history = relatedWebsites(brief, dirname(store.dir));
+  let searched: string[] = [];
+  try {
+    log('Searching for cited competitor websites...');
+    const live = await searchCompetitors(brief, meter);
+    if (live) {
+      searched = live.websites.map(candidateUrl).filter((u): u is string => Boolean(u));
+      discovery.searchQueries = live.queries;
+      discovery.notes.push('Live web search supplied website leads. Each candidate was then checked against its own public website; search citations alone do not verify a competitor.');
+    } else discovery.notes.push('Live web search is not configured or its research budget is unavailable. Competitor discovery uses checked leads from model knowledge or related research; it may miss businesses.');
+  } catch (error) { discovery.notes.push((error as Error).message); log('Live competitor search unavailable; checking existing leads instead.'); }
+  const known = [...new Set([...searched, ...history])].slice(0, 8);
   let proposal: Proposal;
   try {
     proposal = await askJson<Proposal>({
@@ -61,10 +73,12 @@ export async function discoverMarket(brief: Brief, store: EvidenceStore, meter: 
     });
   } catch {
     discovery.notes.push('Automatic setup could not reach the model. Research will use the product description; no competitor identities were invented.');
-    return { ...brief, discovery };
+    proposal = { niche: '', audience: '', candidates: [] };
   }
-  const expanded = { ...brief, niche: brief.niche || proposal.niche.trim().slice(0, 120), audience: brief.audience || proposal.audience.trim().slice(0, 600) };
-  const candidates = [...new Set([...(proposal.candidates ?? []).map((c) => candidateUrl(c.website)).filter((u): u is string => Boolean(u)), ...known])].filter((u) => !brief.websites.some((v) => candidateUrl(v) === u)).slice(0, 4);
+  const seed = String(proposal.niche || brief.product).toLowerCase().replace(/nepalese/g, 'nepali').replace(/\b(?:traditional|in australia|australia|australian|united states|united kingdom|new zealand)\b/g, '').trim().split(/\s+/).slice(0, 3).join(' ');
+  const expanded = { ...brief, niche: brief.niche || seed, audience: brief.audience || String(proposal.audience || '').trim().slice(0, 600) };
+  const guesses = searched.length ? [] : (Array.isArray(proposal.candidates) ? proposal.candidates : []).filter((c) => c && typeof c.website === 'string').map((c) => candidateUrl(c.website)).filter((u): u is string => Boolean(u));
+  const candidates = [...new Set([...known, ...guesses])].filter((u) => !brief.websites.some((v) => candidateUrl(v) === u)).slice(0, 4);
   const checked = await mapLimit(candidates, 2, async (url) => {
     log(`Checking competitor website: ${url}`);
     try {
@@ -88,8 +102,9 @@ export async function discoverMarket(brief: Brief, store: EvidenceStore, meter: 
     }
   });
   discovery.competitors = checked.filter((c): c is NonNullable<typeof c> => Boolean(c)).filter((c, i, a) => a.findIndex((v) => v.website === c.website) === i);
-  discovery.notes.push('Competitor candidates came from model knowledge and were checked against public homepages. This is not an exhaustive live search of the whole market.');
-  if (known.length) discovery.notes.push('Public website leads from earlier research on similar products were considered and checked again.');
+  if (!searched.length) discovery.notes.push('Without usable live search, competitor candidates came from prior research or model knowledge and were checked against public homepages.');
+  discovery.notes.push('This bounded research is not an exhaustive search of the whole market.');
+  if (history.length) discovery.notes.push('Public website leads from earlier research on similar products were considered and checked again.');
   if (!discovery.competitors.length && !brief.websites.length) discovery.notes.push('No competitor website could be verified. Remaining research uses product searches; missing competitors are shown as a gap.');
   log(`Market setup ready: ${expanded.niche}; ${discovery.competitors.length} verified competitor websites. Audience is ${discovery.audienceBasis === 'suggested' ? 'a suggested segment to validate' : 'provided by you'}.`);
   return { ...expanded, competitors: [...new Set([...brief.competitors, ...discovery.competitors.map((c) => c.name)])], websites: [...new Set([...brief.websites, ...discovery.competitors.map((c) => c.website)])], discovery };

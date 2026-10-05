@@ -109,7 +109,8 @@ export async function analyzeKeywords(all: Evidence[], brief: Brief, meter: Cost
     }));
   if (!keywords.length) return { total: 0, questions: [], topKeywords: [], clusters: [], trends };
 
-  const clusters = await clusterKeywords(keywords.slice(0, 600), brief, meter);
+  // Public reports use exact phrases; avoid unused speculative clustering.
+  const clusters: KeywordCluster[] = [];
 
 
   return {

@@ -1,6 +1,7 @@
 import { runAgent } from '../agent/agent.js';
 import { withPage } from '../browser/session.js';
 import { evidence } from '../core/store.js';
+import { BlockedError } from '../core/politeness.js';
 import type { SourceId } from '../core/types.js';
 import { googleAds, linkedinAds, pinterestTrends } from './ad-libraries.js';
 import { autocomplete } from './autocomplete.js';
@@ -35,7 +36,7 @@ const agentSource: Source = {
         startUrl,
         recordProperties: {
           title: { type: 'string', description: 'A short label for the finding.' },
-          text: { type: 'string', description: 'The finding, quoting the page where possible.' },
+          text: { type: 'string', description: 'An exact, contiguous literal quotation from the page. Do not paraphrase or combine separate passages.' },
           author: { type: 'string', description: 'Who wrote or published it, if shown.' },
           date: { type: 'string' },
           rating: { type: 'number', description: 'Star rating or score if shown, else 0.' },
@@ -48,7 +49,7 @@ const agentSource: Source = {
       }),
     );
     ctx.log(`  agent ${outcome.status} after ${outcome.steps} steps: ${outcome.summary}`);
-    return outcome.records.map((record) =>
+    const items = outcome.records.map((record) =>
       evidence({
         source: 'agent',
         kind: 'page',
@@ -58,11 +59,17 @@ const agentSource: Source = {
         text: String(record.text ?? ''),
         author: String(record.author ?? ''),
         publishedAt: Number.isFinite(Date.parse(String(record.date))) ? new Date(String(record.date)).toISOString() : '',
-        metrics: { rating: Number(record.rating) || Number.NaN },
-        attributes: { foundOn: record.sourceUrl, goal },
+        metrics: {},
+        attributes: { foundOn: record.sourceUrl, goal, literalQuoteVerified: String(record.literalQuoteVerified === true) },
         query: task.query,
       }),
     );
+    if (outcome.status !== 'done') {
+      ctx.store.add(items);
+      if (outcome.status === 'blocked') throw new BlockedError(new URL(startUrl).hostname, outcome.summary);
+      throw new Error(`Browser collection incomplete (${outcome.status}): ${outcome.summary.slice(0, 180)}`);
+    }
+    return items;
   },
 };
 

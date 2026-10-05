@@ -132,47 +132,6 @@ export async function analyzeAds(all: Evidence[], meter: CostMeter): Promise<AdI
   winners.sort((a, b) => b.score - a.score);
   const top = winners.slice(0, 60);
 
-  const taggable = top.filter((ad) => ad.text || ad.headline);
-  const batches: ScoredAd[][] = [];
-  for (let i = 0; i < taggable.length; i += 12) batches.push(taggable.slice(i, i + 12));
-  await mapLimit(batches, 3, async (batch) => {
-    try {
-      const reply = await askJson<{ ads: Array<AdTags & { index: number }> }>({
-        model: 'celeris-1',
-        system: `You are a performance-marketing creative strategist who tags ads with a fixed taxonomy. ${UNTRUSTED}`,
-        prompt: `Tag each ad.\n- hook: how the opening line grabs attention (${HOOKS.join(', ')})\n- angle: the specific reason it should persuade, in under 12 words\n- awareness: Eugene Schwartz stage the copy is written for (${AWARENESS.join(', ')})\n- offer: the offer if any (discount, free trial, bundle, guarantee, free shipping, none…)\n- proof: the proof used (reviews, numbers, expert, before/after, press, none…)\n- emotion: the main emotion targeted\n\n${batch.map((ad, index) => `[${index}] ${ad.advertiser}\nHeadline: ${ad.headline}\nCTA: ${ad.cta}\nCopy: ${ad.text.slice(0, 900)}`).join('\n\n')}`,
-        schema: {
-          type: 'object',
-          properties: {
-            ads: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  index: { type: 'integer' },
-                  hook: { type: 'string', enum: [...HOOKS] },
-                  angle: { type: 'string' },
-                  awareness: { type: 'string', enum: [...AWARENESS] },
-                  offer: { type: 'string' },
-                  proof: { type: 'string' },
-                  emotion: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-        meter,
-        maxTokens: 2_500,
-      });
-      for (const tags of reply.ads ?? []) {
-        const ad = batch[tags.index];
-        if (ad) ad.tags = { hook: tags.hook, angle: tags.angle, awareness: tags.awareness, offer: tags.offer, proof: tags.proof, emotion: tags.emotion };
-      }
-    } catch {
-      // Untagged ads still rank; they just do not count toward patterns.
-    }
-  });
-
   const tally = (pickValue: (ad: ScoredAd) => string) => {
     const weights = new Map<string, { weight: number; ads: number }>();
     let total = 0;
