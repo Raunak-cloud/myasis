@@ -1,4 +1,5 @@
 import { reviewEvidence, unsupportedClaim, type QualitySummary } from '../core/quality.js';
+import { shortSeed, verifiedCandidate } from '../core/discovery.js';
 import { buildMarketingPlan, type MarketingPlan } from './planning.js';
 import { siteProfiles } from '../insights/competitors.js';
 import { mergeKeywords } from '../insights/keywords.js';
@@ -82,8 +83,12 @@ export function preparePublicReport(report: Report, store: EvidenceStore): Repor
   const sections = supported ? measuredSections(insights, store) : [];
   const discovery = report.brief.discovery;
   const usableIds = new Set(reviewed.evidence.map((p) => p.id));
-  const brief = discovery ? { ...report.brief, discovery: { ...discovery, competitors: discovery.competitors.filter((c) => usableIds.has(c.evidenceId) && Boolean(c.productQuote.trim()) && store.get(c.evidenceId)?.text.includes(c.productQuote)) } } : report.brief;
-  return { ...report, status: sections.length && report.coverage.every((r) => r.ok) && !(brief.autoDiscover && !brief.websites.length) ? 'ready' : 'partial', brief, insights, quality: reviewed.quality, sections, executiveSummary: sections.map((s) => ({ ...s.findings[0], action: 'Choose a suggested test below and measure the result.' })).slice(0, 5), recommendations: supported ? buildRecommendations(insights) : [], marketingPlan: supported ? buildMarketingPlan(brief, reviewed.evidence) : undefined };
+  const brief = discovery ? { ...report.brief, niche: discovery.categoryBasis === 'suggested' ? shortSeed(report.brief.niche) : report.brief.niche, discovery: { ...discovery, competitors: discovery.competitors.flatMap((c) => {
+    const page = usableIds.has(c.evidenceId) ? store.get(c.evidenceId) : undefined;
+    const checked = page ? verifiedCandidate(page, { relevant: true, name: c.name, productQuote: c.productQuote, marketQuote: c.marketQuote }, report.brief.country) : undefined;
+    return checked ? [checked] : [];
+  }) } } : report.brief;
+  return { ...report, headline: `Research findings for ${brief.brand || brief.niche || brief.product}`, status: sections.length && report.coverage.every((r) => r.ok) && !(brief.autoDiscover && !brief.websites.length) ? 'ready' : 'partial', brief, insights, quality: reviewed.quality, sections, executiveSummary: sections.map((s) => ({ ...s.findings[0], action: 'Choose a suggested test below and measure the result.' })).slice(0, 5), recommendations: supported ? buildRecommendations(insights) : [], marketingPlan: supported ? buildMarketingPlan(brief, reviewed.evidence) : undefined };
 }
 
 /** Build public findings from measurements and exact records, not model verdicts.

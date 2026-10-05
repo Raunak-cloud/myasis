@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { candidateUrl, verifiedCandidate, relatedWebsites } from './core/discovery.js';
+import { candidateUrl, verifiedCandidate, relatedWebsites, shortSeed } from './core/discovery.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -46,4 +46,18 @@ test('discovery can reuse related public-site leads without importing another ma
     const brief = { product: 'Traditional Nepalese clothing', niche: '', country: 'AU' } as Brief;
     assert.deepEqual(relatedWebsites(brief, root), ['https://boutiquenepal.com.au/']);
   } finally { assert.equal(dirname(resolve(root)), resolve(tmpdir())); assert.ok(root.includes('scout-discovery-')); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test('suggested search seeds remove punctuation-only words and cap category length', () => {
+  assert.equal(shortSeed('Traditional Nepalese clothing in Australia, including Dhaka topi'), 'nepali clothing including');
+  assert.equal(shortSeed('Nepali clothing ,'), 'nepali clothing');
+});
+
+test('literal product quotes can establish the target market despite a failed market-quote extraction', () => {
+  const local = { ...page, text: 'Boutique Nepal sells Nepali clothing in Australia.' };
+  const result = verifiedCandidate(local, { ...check, productQuote: 'sells Nepali clothing in Australia.', marketQuote: 'Made up shipping statement' }, 'AU');
+  assert.equal(result?.region, 'target');
+  assert.equal(result?.marketQuote, 'sells Nepali clothing in Australia.');
+  assert.equal(verifiedCandidate(page, { ...check, relevant: 'true' as unknown as boolean }, 'AU'), undefined);
 });

@@ -37,3 +37,16 @@ Implemented: optional live-search result URLs as website leads (followed by fres
 The existing Google key successfully lists available models, but Gemini 2.5 Flash generation is unavailable to new users and Gemini 3.8 Flash returns HTTP 429 for quota/billing. Gemini generation is not claimed as operational on this account. Google quota must be restored for Gemini generation. The search-discovery adapter uses Brave Search API when BRAVE_SEARCH_API_KEY is configured, otherwise reports its absence and verifies model/history leads. It has not been live-validated against Brave on this account. Account credentials were not copied or printed.
 
 Reference: [Brave Search API](https://api-dashboard.search.brave.com/documentation/quickstart). The optional collector makes one bounded search request and estimates $0.01 for a successful search. A search result alone does not prove product relevance or target-market service. Google Search grounding was evaluated but excluded: its current service terms prohibit using returned links as automated crawling leads.
+
+
+### Production validation
+
+All 52 automated checks and the TypeScript build passed on Windows and the production Linux host. The default 14-task/four-follow-up browser run produced 676 records; revalidation retained 492 and set aside 184 (80 irrelevant and 104 requiring verification). That is evidence filtering, not an independently measured accuracy percentage. The original report is now labelled limited.
+
+The upgraded, bounded browser run `2026-10-05T12-22-49-nepali-clothing-e34c1078` used two independently supplied retailer URLs, autocomplete and website auditing: 77 records collected, 69 retained, 8 excluded. Autocomplete completed in 20.1 seconds; the two site tasks completed in 78.4 and 95.4 seconds. These timings come from different bounded queries, not a controlled speed benchmark.
+
+Independent browser checks matched the collected variant-specific offers: House of Nepal Daura Suruwal Nepalese National Dress, Size 8/Blue, AUD 89; Boutique Nepal Nepali Daura Suruwal for Men, 42/RockBlue/With Topi, AUD 89; Boutique Nepal Red Nepali Velvet Dhaka Topi, 22.5 inches, AUD 15 and available to add to cart; its 23-inch variant was AUD 15 and sold out. Availability means the site displayed that state, not that an order or warehouse inventory was independently verified. The outfits include different accessories; pricing comparisons must preserve variants and bundle contents. No checkout or purchase was performed.
+
+This small targeted sample supports those listing observations, not overall market accuracy or sales predictions. Customer quotations, country-specific search volume and business performance were not measured.
+
+The final product-only browser run `2026-10-05T12-27-06-research-63a1c5d1` reused the two retailer leads from the independently seeded audit and freshly checked their homepage quotations before collection. It collected 102 records, retained 85 and excluded 17. This validates history-assisted setup, not unconfigured live search. Both retailers had direct target-market evidence on their pages. The report reader rechecks these quotations and normalizes suggested category punctuation.

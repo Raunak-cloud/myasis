@@ -10,6 +10,10 @@ import { searchCompetitors } from './search-discovery.js';
 type Proposal = { niche: string; audience: string; candidates: Array<{ name: string; website: string }> };
 export type CandidateCheck = { relevant: boolean; name: string; productQuote: string; marketQuote: string };
 
+export function shortSeed(value: string): string {
+  return value.toLowerCase().replace(/nepalese/g, 'nepali').replace(/\b(?:traditional|in australia|australia|australian|united states|united kingdom|new zealand)\b/g, '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').trim().split(/\s+/).slice(0, 3).join(' ');
+}
+
 /** Reuse public sites from related research as leads, then verify them again. */
 export function relatedWebsites(brief: Brief, runsDir: string): string[] {
   const words = (s: string) => new Set(s.toLowerCase().replace(/nepalese/g, 'nepali').match(/[a-z]{4,}/g)?.filter((w) => !/^(australia|australian|online|business|brand|market|sell|selling|with|from)$/.test(w)) ?? []);
@@ -39,12 +43,13 @@ export function candidateUrl(raw: string): string | undefined {
 
 /** A model's name/URL suggestion is not a competitor until a page supports it. */
 export function verifiedCandidate(item: Evidence, check: CandidateCheck, country: string): MarketDiscovery['competitors'][number] | undefined {
-  if (!check.relevant || !check.name.trim() || check.productQuote.trim().length < 12 || !item.text.includes(check.productQuote)) return;
+  if (check.relevant !== true || typeof check.name !== 'string' || typeof check.productQuote !== 'string' || (check.marketQuote != null && typeof check.marketQuote !== 'string') || !check.name.trim() || check.productQuote.trim().length < 12 || !item.text.includes(check.productQuote)) return;
   const nameWords = check.name.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [];
   if (!nameWords.length || !nameWords.every((w) => `${item.title} ${item.text}`.toLowerCase().includes(w))) return;
   let quote = check.marketQuote && item.text.includes(check.marketQuote) ? check.marketQuote : '';
   const regionWords: Record<string, RegExp> = { AU: /australia|australian|sydney|melbourne|brisbane/i, US: /united states|\busa\b|\bus shipping\b/i, GB: /united kingdom|\buk\b|london/i, NZ: /new zealand|auckland/i, CA: /canada|canadian|toronto/i };
   if (!check.marketQuote) quote = regionWords[country]?.test(check.productQuote) ? check.productQuote : item.text.split(/(?<=[.!?])\s+/).find((line) => regionWords[country]?.test(line) && line.length < 500) || '';
+  if (!regionWords[country]?.test(quote) && regionWords[country]?.test(check.productQuote)) quote = check.productQuote;
   return { name: check.name.trim(), website: new URL(item.url).origin + '/', evidenceId: item.id, productQuote: check.productQuote, marketQuote: quote, region: regionWords[country]?.test(quote) ? 'target' : 'unknown' };
 }
 
@@ -75,7 +80,7 @@ export async function discoverMarket(brief: Brief, store: EvidenceStore, meter: 
     discovery.notes.push('Automatic setup could not reach the model. Research will use the product description; no competitor identities were invented.');
     proposal = { niche: '', audience: '', candidates: [] };
   }
-  const seed = String(proposal.niche || brief.product).toLowerCase().replace(/nepalese/g, 'nepali').replace(/\b(?:traditional|in australia|australia|australian|united states|united kingdom|new zealand)\b/g, '').trim().split(/\s+/).slice(0, 3).join(' ');
+  const seed = shortSeed(typeof proposal.niche === 'string' && proposal.niche.trim() ? proposal.niche : brief.product);
   const expanded = { ...brief, niche: brief.niche || seed, audience: brief.audience || String(proposal.audience || '').trim().slice(0, 600) };
   const guesses = searched.length ? [] : (Array.isArray(proposal.candidates) ? proposal.candidates : []).filter((c) => c && typeof c.website === 'string').map((c) => candidateUrl(c.website)).filter((u): u is string => Boolean(u));
   const provided = brief.websites.map(candidateUrl).filter((u): u is string => Boolean(u) && u !== candidateUrl(brief.ownWebsite || ''));

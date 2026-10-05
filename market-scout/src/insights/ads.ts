@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Evidence } from '../core/types.js';
-import { askJson, type CostMeter } from '../llm/celeris.js';
-import { mapLimit, UNTRUSTED } from '../llm/extract.js';
+import { type CostMeter } from '../llm/celeris.js';
 
 /** Rank observed ad date spans, variants and placements. These signals do not
  * establish spend, continuous activity, conversions or profitability. */
