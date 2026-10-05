@@ -29,7 +29,10 @@ active_runs() {
 # changes (deploy/replay-check.sh). A regression stops the deploy here, while
 # the running code is untouched; FORCE_DEPLOY=1 overrides after a person has
 # judged the difference (and accepted it with form-replay.js --accept).
-if ! bash "$APP/deploy/replay-check.sh"; then
+as_app "cd $APP && git fetch -q origin main"
+if as_app "cd $APP && git diff --quiet HEAD origin/main -- seek-bot deploy/replay-check.sh"; then
+  echo 'replay: job-agent code unchanged; no form replay needed for this release'
+elif ! bash "$APP/deploy/replay-check.sh"; then
   if [ "${FORCE_DEPLOY:-}" = 1 ]; then
     echo "replay found regressions; deploying anyway (FORCE_DEPLOY=1)"
   else
