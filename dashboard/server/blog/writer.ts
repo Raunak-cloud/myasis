@@ -177,7 +177,7 @@ export function applyCorrections(article: Article, value: Record<string, unknown
       return item;
     };
     const next = visit(corrected) as Article;
-    if (matches !== 1) throw new Error(`A fact-check correction matched ${matches} places; it must match exactly one.`);
+    if (matches !== 1) throw new Error(`A fact-check correction for ${JSON.stringify(edit.original).slice(0, 180)} matched ${matches} places; it must match exactly one.`);
     corrected = next;
   }
   return asArticle(corrected as unknown as Record<string, unknown>);

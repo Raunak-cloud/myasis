@@ -29,7 +29,10 @@ async function askGemini(config: WriterConfig, system: string, prompt: string, s
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature, maxOutputTokens, responseMimeType: 'application/json', responseJsonSchema: schema },
+      generationConfig: {
+        temperature, maxOutputTokens, responseMimeType: 'application/json', responseJsonSchema: schema,
+        ...(config.model.includes('flash-lite') ? { thinkingConfig: { thinkingLevel: 'HIGH' } } : {}),
+      },
     }),
       signal,
     });
