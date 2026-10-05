@@ -24,7 +24,7 @@ import { userDir } from './userdata.js';
 import { PAID_PLANS, isPassPlanKey } from '../src/pricing.js';
 import { clientIp, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
 import { redditCapiHealth } from './reddit-capi.js';
-import { blogReport, publishWeek, setPostHidden, weekOf } from './blog/index.js';
+import { blogReport, isBlogWriting, publishWeek, setPostHidden, weekOf } from './blog/index.js';
 
 /**
  * The operator's view of the whole installation: every account, every run,
@@ -485,11 +485,18 @@ export async function handleAdminRequest(
     if (path === '/blog' && method === 'GET') return send(await blogReport());
     if (path === '/blog/write' && method === 'POST') {
       const body = await readBody();
+      if (['replace', 'additional'].some((key) => body?.[key] !== undefined && typeof body[key] !== 'boolean')) {
+        return send({ error: 'replace and additional must be booleans.' }, 400);
+      }
+      if (body?.additional === true && body?.replace === true) return send({ error: 'Choose either rewrite or add another blog.' }, 400);
       const report = await blogReport();
-      if (report.writing) return send({ error: 'A post is already being written.' }, 409);
-      if (!report.configured) return send({ error: 'Add a Celeris API key in Config first.' }, 400);
+      if (isBlogWriting()) return send({ error: 'A post is already being written.' }, 409);
+      if (!report.configured) return send({ error: 'Configure a blog provider and API key under Config → Weekly blog first.' }, 400);
+      if (!body?.additional && !body?.replace && report.posts.some((post) => post.week === report.currentWeek && post.kind === 'weekly')) {
+        return send({ error: 'This week already has a brief. Use Add another blog for a separate post.' }, 409);
+      }
       // Minutes of work: started here and followed from the report, which shows it writing.
-      void publishWeek(weekOf().week, { replace: body?.replace === true });
+      void publishWeek(weekOf().week, { replace: body?.replace === true, additional: body?.additional === true });
       return send({ ok: true, started: true }, 202);
     }
     if ((match = path.match(/^\/blog\/(\d+)$/)) && method === 'PATCH') {

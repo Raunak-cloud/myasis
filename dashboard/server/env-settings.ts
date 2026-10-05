@@ -94,7 +94,7 @@ const GROUPS: GroupSpec[] = [
     key: 'models',
     title: 'Models',
     keys: [
-      { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and every structured model call. Required.', kind: 'secret' },
+      { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and structured model calls. Blogs can fall back to Gemini.', kind: 'secret' },
       { key: 'CELERIS_BASE_URL', label: 'Celeris base URL', help: 'Root only; the model id is added per request.', kind: 'url' },
       { key: 'CELERIS_TIMEOUT_MS', label: 'Celeris timeout (ms)', help: 'How long one model call may take before it is abandoned.', kind: 'number' },
       { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },
@@ -200,9 +200,12 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'blog',
     title: 'Weekly blog',
-    note: 'Every Monday from 6am a job-market brief is written from Google searches and labour-market sources, fact-checked, and published at /blog. Manage posts in the Blog tab.',
+    note: 'Every Monday from 6am a job-market brief is researched, fact-checked, and published at /blog. Add another blog in the Blog tab publishes an extra post through the same process.',
     keys: [
-      { key: 'BLOG_WEEKLY', label: 'Publish weekly', help: 'On unless set to Off. Off stops new posts; published ones stay up.', kind: 'boolean' },
+      { key: 'BLOG_WEEKLY', label: 'Publish weekly', help: 'On unless set to Off. Off stops scheduled posts; manual writing stays available.', kind: 'boolean' },
+      { key: 'BLOG_PROVIDER', label: 'Blog writer', help: 'Auto uses Celeris with its 16,384-token ceiling and switches to Gemini if it runs out of output tokens. If only a Gemini key is set, Auto uses Gemini.', kind: 'choice', options: [{ value: 'auto', label: 'Auto: Celeris, then Gemini if needed' }, { value: 'celeris', label: 'Celeris only' }, { value: 'gemini', label: 'Gemini only' }] },
+      { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'From Google AI Studio. Enables the blog fallback or Gemini-only writing. Stored on the server.', kind: 'secret' },
+      { key: 'BLOG_GEMINI_MODEL', label: 'Gemini blog model', help: 'Defaults to gemini-3.8-flash. Used for drafting, fact-checking and revisions after switching to Gemini.', kind: 'text' },
     ],
   },
   {

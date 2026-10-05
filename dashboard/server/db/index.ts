@@ -74,7 +74,7 @@ export async function health(): Promise<DbHealth> {
   }
 }
 
-/** Applies schema.sql. Safe to re-run — every statement is IF NOT EXISTS. */
+/** Applies schema.sql, including idempotent upgrades of existing tables. */
 export async function migrate(): Promise<{ ok: boolean; error?: string }> {
   const file = resolve(import.meta.dirname, 'schema.sql');
   if (!existsSync(file)) return { ok: false, error: 'schema.sql not found' };

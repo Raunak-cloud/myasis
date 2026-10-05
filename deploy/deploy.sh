@@ -58,6 +58,9 @@ as_app "set -o pipefail; cd $APP/seek-bot && npm ci --no-audit --no-fund 2>&1 | 
 as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
+# Apply idempotent schema upgrades before the new dashboard and its scheduler
+# start querying new columns. A migration failure leaves the old process up.
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"
 # pm2 remembers the environment a process was started with, and --update-env only
 # adds what the calling shell has. So the run limit is changed by giving it to this
 # script (MAX_CONCURRENT_RUNS=3 bash deploy.sh): it is handed to pm2 on the restart

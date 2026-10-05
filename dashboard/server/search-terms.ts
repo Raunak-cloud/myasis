@@ -39,6 +39,7 @@ interface ModelJsonResult {
   ok: boolean;
   value?: Record<string, unknown>;
   error?: string;
+  tokenLimitReached?: boolean;
 }
 
 /** Case and punctuation do not make a job-board search meaningfully new. */
@@ -133,8 +134,7 @@ export function celerisKey(): string {
 
 /**
  * One structured-JSON request to Celeris Magnus, for resume autofill,
- * search-term suggestions and the blog. The one model for every such call
- * since October 2026, when the second provider was removed.
+ * search-term suggestions. The blog selects its provider separately.
  */
 export async function askModelForJson(
   systemInstruction: string,
@@ -178,7 +178,9 @@ export async function askCelerisForJson(
           { role: 'user', content: `${prompt}\n\nReturn only a JSON object.` },
         ],
         temperature: temperature ?? 0,
-        max_tokens: Math.max(8_192, (limits.maxOutputTokens ?? 4_096) * 4),
+        // Magnus includes reasoning in this budget. The serving endpoint caps
+        // output at 16,384 even though its context window is 131,072.
+        max_tokens: Math.min(16_384, Math.max(8_192, (limits.maxOutputTokens ?? 4_096) * 4)),
         chat_template_kwargs: { enable_thinking: true, reasoning_effort: 'low' },
         ...(responseSchema
           ? { response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema: strictSchema(lowerSchemaTypes(responseSchema)) } } }
@@ -186,9 +188,18 @@ export async function askCelerisForJson(
       }),
       signal: AbortSignal.timeout(Math.max(limits.timeoutMs ?? 0, 120_000)),
     });
-    if (!response.ok) return { ok: false, error: `Celeris returned HTTP ${response.status}: ${(await response.text()).slice(0, 160)}` };
-    const payload = await response.json() as { choices?: Array<{ message?: { content?: string | null } }> };
-    const value = parseJsonObject(payload.choices?.[0]?.message?.content?.trim() ?? '');
+    if (!response.ok) {
+      const message = await response.text();
+      return {
+        ok: false,
+        error: `Celeris returned HTTP ${response.status}: ${message.slice(0, 400)}`,
+        tokenLimitReached: response.status === 400 && /output token limit|max_tokens[^.]*exceed/i.test(message),
+      };
+    }
+    const payload = await response.json() as { choices?: Array<{ finish_reason?: string; message?: { content?: string | null } }> };
+    const choice = payload.choices?.[0];
+    if (choice?.finish_reason === 'length') return { ok: false, error: 'Celeris reached its 16,384-token output limit.', tokenLimitReached: true };
+    const value = parseJsonObject(choice?.message?.content?.trim() ?? '');
     return value ? { ok: true, value } : { ok: false, error: 'Celeris returned invalid JSON.' };
   } catch (error) {
     return { ok: false, error: `Celeris request failed: ${(error as Error).message}` };

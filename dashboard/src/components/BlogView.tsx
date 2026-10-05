@@ -3,8 +3,8 @@ import { api } from '../adminApi';
 import { StackedTable } from './StackedTable';
 
 /**
- * The weekly job-market brief: what has gone up, what failed, and the two
- * controls an operator needs — take a post down, or write this week's now.
+ * The weekly job-market brief: what has gone up, what failed, and the
+ * controls to hide a post, rewrite the weekly brief, or publish an extra post.
  * Writing, fact-checking and publishing all happen on the server.
  */
 
@@ -12,10 +12,11 @@ interface BlogReport {
   enabled: boolean;
   configured: boolean;
   model: string | null;
+  fallbackModel: string | null;
   currentWeek: string;
   writing: boolean;
-  posts: Array<{ id: string; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
-  attempts: Array<{ week: string; attempts: number; lastAttemptAt: string | null; lastError: string | null }>;
+  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
+  attempts: Array<{ kind: 'weekly' | 'extra'; week: string; attempts: number; lastAttemptAt: string | null; lastError: string | null }>;
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -35,11 +36,11 @@ export function BlogView() {
     return () => window.clearInterval(id);
   }, [load, report?.writing]);
 
-  function write(replace: boolean) {
+  function write(replace: boolean, additional = false) {
     setBusy(true);
     setError(null);
-    api('/blog/write', { method: 'POST', json: { replace } })
-      .then(load)
+    api('/blog/write', { method: 'POST', json: { replace, additional } })
+      .then(() => { setReport((current) => current && { ...current, writing: true }); load(); })
       .catch((reason) => setError((reason as Error).message))
       .finally(() => setBusy(false));
   }
@@ -53,22 +54,21 @@ export function BlogView() {
 
   if (!report) return <div className="admin-stack">{error ? <div className="banner banner-bad">{error}</div> : <p className="job-meta">Loading…</p>}</div>;
 
-  const thisWeek = report.posts.find((post) => post.week === report.currentWeek);
+  const thisWeek = report.posts.find((post) => post.week === report.currentWeek && post.kind === 'weekly');
   const thisWeekAttempt = report.attempts.find((attempt) => attempt.week === report.currentWeek);
 
   return (
     <div className="admin-stack">
       {!report.configured ? (
-        <div className="banner banner-bad">No Celeris API key. Add one under Config → Models.</div>
-      ) : !report.enabled ? (
-        <div className="banner">Weekly publishing is off (Config → Weekly blog). Published posts stay up.</div>
+        <div className="banner banner-bad">Configure a blog provider and API key under Config → Weekly blog.</div>
       ) : report.writing ? (
-        <div className="banner">Writing this week’s brief — gathering searches and sources, drafting, fact-checking. This takes a few minutes.</div>
-      ) : thisWeekAttempt?.lastError && !thisWeek ? (
-        <div className="banner banner-bad">This week’s brief failed ({thisWeekAttempt.attempts} tries): {thisWeekAttempt.lastError}</div>
+        <div className="banner">Writing a blog — gathering searches and sources, drafting, fact-checking, then publishing. This takes a few minutes.</div>
+      ) : thisWeekAttempt?.lastError ? (
+        <div className="banner banner-bad">{thisWeekAttempt.kind === 'extra' ? 'Extra blog' : 'Weekly brief'} failed ({thisWeekAttempt.attempts} tries this week): {thisWeekAttempt.lastError}</div>
       ) : (
-        <div className="banner banner-ok">{thisWeek ? 'This week’s brief is published.' : 'This week’s brief goes up from 6am Monday.'} Model: {report.model}.</div>
+        <div className="banner banner-ok">{thisWeek ? 'This week’s brief is published.' : report.enabled ? 'This week’s brief goes up from 6am Monday.' : 'Ready to write a blog.'} Model: {report.model}.{report.fallbackModel && ` Gemini fallback: ${report.fallbackModel}.`}</div>
       )}
+      {!report.enabled && <div className="banner">Weekly publishing is off (Config → Weekly blog). You can still write posts here.</div>}
       {error && <div className="banner banner-bad">{error}</div>}
 
       <section className="card admin-section">
@@ -76,10 +76,14 @@ export function BlogView() {
           <p className="job-meta" style={{ margin: 0 }}>
             {report.posts.length} post(s) · <a href="/blog" target="_blank" rel="noreferrer">/blog</a> · week of {report.currentWeek}
           </p>
-          <button className="btn primary" disabled={!report.configured || report.writing || busy} onClick={() => write(Boolean(thisWeek))}>
-            {report.writing ? 'Writing…' : thisWeek ? 'Rewrite this week’s' : 'Write now'}
-          </button>
+          <div className="admin-button-row">
+            <button className="btn" disabled={!report.configured || report.writing || busy} onClick={() => write(Boolean(thisWeek))}>
+              {report.writing ? 'Writing…' : thisWeek ? 'Rewrite this week’s' : 'Write now'}
+            </button>
+            <button className="btn primary" disabled={!report.configured || report.writing || busy} onClick={() => write(false, true)}>Add another blog</button>
+          </div>
         </div>
+        <p className="job-meta">Add another blog researches a different angle, checks the facts, and publishes a separate post on the website.</p>
         <div className="table-wrap">
           <StackedTable>
             <thead>
@@ -93,7 +97,7 @@ export function BlogView() {
             <tbody>
               {report.posts.map((post) => (
                 <tr key={post.id}>
-                  <td>{post.week}</td>
+                  <td>{post.week}<span className="job-meta" style={{ display: 'block' }}>{post.kind === 'extra' ? 'Extra post' : 'Weekly brief'}</span></td>
                   <td>
                     <a href={post.url} target="_blank" rel="noreferrer">{post.title}</a>
                     <span className="job-meta" style={{ display: 'block' }}>

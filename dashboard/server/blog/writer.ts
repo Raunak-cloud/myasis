@@ -1,4 +1,5 @@
-import { askModelForJson } from '../search-terms.js';
+import { createBlogModel, type WriterConfig } from './models.js';
+export type { WriterConfig } from './models.js';
 import type { Brief } from './signals.js';
 
 /**
@@ -39,16 +40,9 @@ export interface WrittenPost {
   revisions: string[][];
 }
 
-export interface WriterConfig {
-  apiKey: string;
-  model: string;
-}
-
 const MAX_REVISIONS = 3;
 const MIN_WORDS = 800;
 const MAX_WORDS = 1_900;
-/** Magnus thinks before it answers, and the thinking counts against the output budget. */
-const LIMITS = { maxOutputTokens: 32_768, timeoutMs: 5 * 60_000 };
 
 /** A citation as the model writes it: [S3], or several in one bracket, [S3, S8]. */
 export const CITATION = /\[\s*(S\d+(?:\s*[,;]\s*S\d+)*)\s*\]/g;
@@ -221,15 +215,8 @@ export function structuralProblems(article: Article, brief: Brief): string[] {
   return problems;
 }
 
-async function ask(_config: WriterConfig, system: string, prompt: string, schema: Record<string, unknown>, temperature: number): Promise<Record<string, unknown>> {
-  const result = await askModelForJson(system, prompt, schema, temperature, LIMITS);
-  if (!result.ok || !result.value) throw new Error(result.error ?? 'The model returned nothing.');
-  return result.value;
-}
-
-async function review(config: WriterConfig, brief: string, article: Article): Promise<string[]> {
+async function review(ask: ReturnType<typeof createBlogModel>['ask'], brief: string, article: Article): Promise<string[]> {
   const verdict = await ask(
-    config,
     REVIEWER_SYSTEM,
     `BRIEF\n\n${brief}\n\n===\n\nDRAFT\n\n${JSON.stringify(article, null, 2)}`,
     REVIEW_SCHEMA,
@@ -244,20 +231,21 @@ async function review(config: WriterConfig, brief: string, article: Article): Pr
 export async function writePost(brief: Brief, recentTitles: readonly string[], config: WriterConfig): Promise<WrittenPost> {
   if (brief.sources.length < 2) throw new Error(`Only ${brief.sources.length} source(s) could be read this week; not enough to write from.`);
   const briefBlock = briefText(brief, recentTitles);
+  const model = createBlogModel(config);
+  const ask = model.ask;
 
-  let article = asArticle(await ask(config, WRITER_SYSTEM, `${briefBlock}\n\n===\n\nWrite this week's article.`, ARTICLE_SCHEMA, 0.7));
+  let article = asArticle(await ask(WRITER_SYSTEM, `${briefBlock}\n\n===\n\nWrite this week's article.`, ARTICLE_SCHEMA, 0.7));
   const revisions: string[][] = [];
 
   for (let round = 0; ; round++) {
     const structural = structuralProblems(article, brief);
     // The fact check is the expensive call; a draft that is structurally wrong is revised first.
-    const notes = structural.length ? structural : await review(config, briefBlock, article);
-    if (!notes.length) return { article, model: config.model, revisions };
+    const notes = structural.length ? structural : await review(ask, briefBlock, article);
+    if (!notes.length) return { article, model: model.model(), revisions };
     if (round >= MAX_REVISIONS) throw new Error(`Not published: the draft still had problems after ${MAX_REVISIONS} revisions — ${notes.slice(0, 3).join(' | ')}`);
     revisions.push(notes);
     console.log(`[blog] revision ${round + 1}: ${notes.length} ${structural.length ? 'structural' : 'fact-check'} note(s)`);
     article = asArticle(await ask(
-      config,
       WRITER_SYSTEM,
       `${briefBlock}\n\n===\n\nYOUR DRAFT\n\n${JSON.stringify(article, null, 2)}\n\n===\n\nA fact-checker found these problems. Fix every one and return the whole corrected article. Change only what the notes require: every other sentence stays exactly as it is, so no new errors are introduced.\n\n${notes.map((n) => `- ${n}`).join('\n')}`,
       ARTICLE_SCHEMA,

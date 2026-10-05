@@ -512,10 +512,12 @@ CREATE INDEX IF NOT EXISTS feature_uses_user_feature_idx ON feature_uses (user_i
 
 -- The weekly job-market brief at /blog (server/blog). Pages are rendered from
 -- these rows on every request, so storing a post publishes it and setting
--- hidden_at takes it down; neither needs a deploy. One post per week.
+-- hidden_at takes it down; neither needs a deploy. One scheduled brief per
+-- week, plus extra posts written on demand through the same pipeline.
 CREATE TABLE IF NOT EXISTS blog_posts (
   id           BIGSERIAL PRIMARY KEY,
-  week         DATE NOT NULL UNIQUE,
+  week         DATE NOT NULL,
+  kind         TEXT NOT NULL DEFAULT 'weekly' CHECK (kind IN ('weekly', 'extra')),
   slug         TEXT NOT NULL UNIQUE,
   title        TEXT NOT NULL,
   description  TEXT NOT NULL,
@@ -528,11 +530,23 @@ CREATE TABLE IF NOT EXISTS blog_posts (
   published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Preserve existing posts as weekly briefs when upgrading an older database.
+ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'weekly' CHECK (kind IN ('weekly', 'extra'));
+ALTER TABLE blog_posts DROP CONSTRAINT IF EXISTS blog_posts_week_key;
+CREATE UNIQUE INDEX IF NOT EXISTS blog_posts_weekly_week_idx ON blog_posts (week) WHERE kind = 'weekly';
 CREATE INDEX IF NOT EXISTS blog_posts_published_idx ON blog_posts(published_at DESC) WHERE hidden_at IS NULL;
 
 -- Tries at writing a week's post, so a failing week backs off across restarts
 -- instead of calling the model on every tick.
 CREATE TABLE IF NOT EXISTS blog_attempts (
+  week            DATE PRIMARY KEY,
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at TIMESTAMPTZ,
+  last_error      TEXT
+);
+
+-- Keep manual extra-post failures visible without spending weekly retries.
+CREATE TABLE IF NOT EXISTS blog_extra_attempts (
   week            DATE PRIMARY KEY,
   attempts        INTEGER NOT NULL DEFAULT 0,
   last_attempt_at TIMESTAMPTZ,

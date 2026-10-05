@@ -681,6 +681,7 @@ export function readEnv(): Record<string, string> {
 }
 
 const SECRET_KEYS = new Set([
+  'GEMINI_API_KEY',
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
   // Found while fixing the per-account data isolation bug: both were being
