@@ -322,7 +322,9 @@ export async function finishHumanizedPost(brief: Brief, original: Article, candi
   let article = structuredClone(candidate);
   let repairs = 0;
   let editedWords = 0;
-  const budget = Math.max(30, Math.floor(wordCount(candidate) * 0.35));
+  let numericRounds = 0;
+  let reviewRounds = 0;
+  const budget = Math.max(30, Math.floor(wordCount(candidate) * 0.4));
   const ask = createBlogModel(config).ask;
   for (let round = 0; ; round++) {
     const structural = structuralProblems(article, brief);
@@ -331,8 +333,8 @@ export async function finishHumanizedPost(brief: Brief, original: Article, candi
     const numeric = numericPublicationProblems(original, article);
     const notes = numeric.length ? numeric : await publicationProblems(brief, original, article, config);
     if (!notes.length) return { article, repairs };
-    if (round >= MAX_REVISIONS + 1) throw new Error(`Not published: the humanized article failed its final fact-check — ${notes.slice(0, 3).join(' | ')}`);
-    console.log(`[blog] final humanized fact-check: ${notes.length} correction(s)`);
+    if (numeric.length ? numericRounds++ >= MAX_REVISIONS + 1 : reviewRounds++ >= MAX_REVISIONS + 1) throw new Error(`Not published: the humanized article failed its final fact-check — ${notes.slice(0, 3).join(' | ')}`);
+    console.log(`[blog] final humanized ${numeric.length ? 'numeric' : 'source'} check: ${notes.length} correction(s)`);
     const prompt = `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE\n${JSON.stringify(original)}\n\nHUMANIZED DRAFT\n${JSON.stringify(article)}\n\nFINAL FACT-CHECK NOTES\n${notes.join('\n')}\n\nRepair only the incorrect facts, omitted qualifications or wrong citation attachments using the smallest unique exact text snippets. Preserve the humanizer's voice and all unaffected words. Do not rewrite a paragraph or whole article. Across all edits, change at most ${budget - editedWords} words; unchanged context copied to locate an edit does not count. Return non-overlapping exact text edits against HUMANIZED DRAFT.`;
     let error = '';
     for (let attempt = 0; ; attempt++) {
