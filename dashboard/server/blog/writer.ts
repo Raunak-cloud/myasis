@@ -147,6 +147,7 @@ const CORRECTION_SCHEMA = {
         properties: {
           original: { type: 'string', description: 'The shortest unique exact text needing correction, usually a few words. Include only enough surrounding words to identify it; never select an entire paragraph for a local error.' },
           replacement: { type: 'string', description: 'Corrected text, with each claim cited to its actual source. Empty text removes an unsupported claim.' },
+          passage: { type: 'integer', minimum: 0, description: 'For notes labelled Passage N, use that N to scope the edit to this body passage. Otherwise omit or use 0 to search the article. Passage order is lead, then each section paragraphs and bullets, then takeaways.' },
         },
         required: ['original', 'replacement'],
       },
@@ -176,7 +177,20 @@ export function applyCorrections(article: Article, value: Record<string, unknown
       if (item && typeof item === 'object') return Object.fromEntries(Object.entries(item).map(([key, content]) => [key, visit(content)]));
       return item;
     };
-    const next = visit(corrected) as Article;
+    let next: Article;
+    if (edit.passage !== undefined && edit.passage !== 0) {
+      if (!Number.isInteger(edit.passage) || edit.passage < 1) throw new Error('A fact-check correction has an invalid passage number.');
+      next = structuredClone(corrected);
+      const slots: Array<{ text: string; save: (text: string) => void }> = [{ text: next.lead, save: (text) => { next.lead = text; } }];
+      for (const section of next.sections) {
+        section.paragraphs.forEach((text, i) => slots.push({ text, save: (value) => { section.paragraphs[i] = value; } }));
+        section.bullets.forEach((text, i) => slots.push({ text, save: (value) => { section.bullets[i] = value; } }));
+      }
+      next.takeaways.forEach((text, i) => slots.push({ text, save: (value) => { next.takeaways[i] = value; } }));
+      const slot = slots[edit.passage - 1];
+      if (!slot) throw new Error('A fact-check correction refers to a nonexistent passage.');
+      slot.save(visit(slot.text) as string);
+    } else next = visit(corrected) as Article;
     if (matches !== 1) throw new Error(`A fact-check correction for ${JSON.stringify(edit.original).slice(0, 180)} matched ${matches} places; it must match exactly one.`);
     corrected = next;
   }
@@ -335,7 +349,10 @@ export async function finishHumanizedPost(brief: Brief, original: Article, candi
     if (!notes.length) return { article, repairs };
     if (numeric.length ? numericRounds++ >= MAX_REVISIONS + 1 : reviewRounds++ >= MAX_REVISIONS + 1) throw new Error(`Not published: the humanized article failed its final fact-check — ${notes.slice(0, 3).join(' | ')}`);
     console.log(`[blog] final humanized ${numeric.length ? 'numeric' : 'source'} check: ${notes.length} correction(s)`);
-    const prompt = `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE\n${JSON.stringify(original)}\n\nHUMANIZED DRAFT\n${JSON.stringify(article)}\n\nFINAL FACT-CHECK NOTES\n${notes.join('\n')}\n\nRepair only the incorrect facts, omitted qualifications or wrong citation attachments using the smallest unique exact text snippets. Preserve the humanizer's voice and all unaffected words. Do not rewrite a paragraph or whole article. Across all edits, change at most ${budget - editedWords} words; unchanged context copied to locate an edit does not count. Return non-overlapping exact text edits against HUMANIZED DRAFT.`;
+    const context = numeric.length
+      ? `NUMERIC CORRECTIONS ONLY. Each note supplies the original and humanized passage. Restore exactly the expected figures and dates, including missing ones and numbers rewritten in words. For each edit include its Passage number so identical figures elsewhere remain untouched. Copy original snippets from the HUMANIZED text in that note, never from its original verified text.\n\n${notes.join('\n\n')}`
+      : `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE\n${JSON.stringify(original)}\n\nHUMANIZED DRAFT\n${JSON.stringify(article)}\n\nFINAL FACT-CHECK NOTES\n${notes.join('\n')}`;
+    const prompt = `${context}\n\nRepair only the incorrect facts, omitted qualifications or wrong citation attachments using the smallest unique exact text snippets. Preserve the humanizer's voice and all unaffected words. Do not rewrite a paragraph or whole article. Across all edits, change at most ${budget - editedWords} words; unchanged context copied to locate an edit does not count. Return non-overlapping exact text edits.`;
     let error = '';
     for (let attempt = 0; ; attempt++) {
       const patch = await ask(FINAL_REPAIR_SYSTEM, `${prompt}${error ? `\nYour previous edits were rejected: ${error}. Return corrected minimal edits.` : ''}`, CORRECTION_SCHEMA, 0.1);

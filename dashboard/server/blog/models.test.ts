@@ -125,3 +125,14 @@ test('Fact-check edits preserve unrelated citations and reject ambiguous or miss
   assert.throws(() => applyCorrections(article, { edits: [{ original: '[S1, S2, S3]', replacement: '[S2]' }] }), /exactly one/);
   assert.throws(() => applyCorrections(article, { edits: [{ original: 'Invented excerpt', replacement: 'Replacement' }] }), /exactly one/);
 });
+
+test('Passage-scoped corrections do not change repeated figures elsewhere', () => {
+  const repeated = structuredClone(article);
+  repeated.lead = 'The rate rose by .9% [S1].';
+  repeated.sections[0].paragraphs[0] = 'The rate rose by .9% [S2].';
+  const corrected = applyCorrections(repeated, { edits: [{ passage: 2, original: '.9%', replacement: '0.9%' }] });
+  assert.equal(corrected.lead, repeated.lead);
+  assert.equal(corrected.sections[0].paragraphs[0], 'The rate rose by 0.9% [S2].');
+  assert.throws(() => applyCorrections(repeated, { edits: [{ passage: 999, original: '.9%', replacement: '0.9%' }] }), /nonexistent passage/);
+  assert.throws(() => applyCorrections(repeated, { edits: [{ passage: -1, original: '.9%', replacement: '0.9%' }] }), /invalid passage/);
+});
