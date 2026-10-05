@@ -20,7 +20,8 @@ const TIMEOUT_MS = 5 * 60_000;
 async function askGemini(config: WriterConfig, system: string, prompt: string, schema: Record<string, unknown>, temperature: number): Promise<Record<string, unknown>> {
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   const fields = schema.properties as Record<string, unknown> | undefined;
-  const maxOutputTokens = fields?.approved || fields?.edits ? 16_384 : 32_768;
+  // Flash-Lite's high reasoning shares this allowance with the JSON answer.
+  const maxOutputTokens = config.model.includes('flash-lite') ? 65_536 : fields?.approved || fields?.edits ? 16_384 : 32_768;
   let response: Response;
   for (let attempt = 0; ; attempt++) {
     response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, {

@@ -42,6 +42,16 @@ test('Gemini refuses incomplete or blocked responses', async (t) => {
   await assert.rejects(createBlogModel(gemini).ask('system', 'prompt', schema, 0), /SAFETY/);
 });
 
+test('Reasoning-enabled Flash-Lite has room for both reasoning and the complete JSON answer', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
+    const request = JSON.parse(init.body as string);
+    assert.equal(request.generationConfig.maxOutputTokens, 65_536);
+    assert.equal(request.generationConfig.thinkingConfig.thinkingLevel, 'HIGH');
+    return geminiReply({ approved: true });
+  });
+  assert.deepEqual(await createBlogModel({ ...gemini, model: 'gemini-3.1-flash-lite' }).ask('system', 'prompt', schema, 0), { approved: true });
+});
+
 test('Blogs always use Gemini, including installs with a legacy Celeris provider setting', (t) => {
   const names = ['BLOG_PROVIDER', 'CELERIS_API_KEY', 'GEMINI_API_KEY', 'BLOG_GEMINI_MODEL'];
   const before = Object.fromEntries(names.map((name) => [name, process.env[name]]));
