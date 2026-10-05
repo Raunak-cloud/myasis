@@ -1,6 +1,6 @@
 import { getPool, query } from '../server/db/index.js';
 import { writerConfig } from '../server/blog/models.js';
-import { assertBlogHumanizerReady, articleHash, blogHumanizerConfig, humanizeArticle } from '../server/blog/humanizer.js';
+import { assertBlogHumanizerReady, articleHash, blogHumanizerConfig, humanizeArticle, BLOG_HUMANIZER_VERSION } from '../server/blog/humanizer.js';
 import { finalizeHumanizedPublication } from '../server/blog/publication.js';
 import { writePost, type Article, type WrittenPost } from '../server/blog/writer.js';
 import type { Brief } from '../server/blog/signals.js';
@@ -24,6 +24,7 @@ try {
   interface Checkpoint {
     sourceHash: string;
     humanizerModel: string;
+    humanizerVersion?: number;
     verified: WrittenPost;
     humanized?: Awaited<ReturnType<typeof humanizeArticle>>;
   }
@@ -36,7 +37,10 @@ try {
       let stage: Checkpoint | undefined;
       try {
         const cached = JSON.parse(await readFile(path, 'utf8')) as Checkpoint;
-        if (cached.sourceHash === sourceHash && cached.humanizerModel === humanizer.endpoint.model) stage = cached;
+        if (cached.sourceHash === sourceHash && cached.humanizerModel === humanizer.endpoint.model) {
+          stage = cached;
+          if (stage.humanizerVersion !== BLOG_HUMANIZER_VERSION) stage.humanized = undefined;
+        }
       } catch { /* No complete, current checkpoint: perform the required stages. */ }
       const save = async () => {
         await writeFile(`${path}.next`, JSON.stringify(stage), { mode: 0o600 });
@@ -48,6 +52,7 @@ try {
       }
       if (!stage.humanized) {
         stage.humanized = await humanizeArticle(stage.verified.article, humanizer);
+        stage.humanizerVersion = BLOG_HUMANIZER_VERSION;
         await save();
       } else console.log(`Resuming completed humanizer pass for ${post.slug}.`);
       const verified = stage.verified;

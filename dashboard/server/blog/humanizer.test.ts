@@ -64,8 +64,8 @@ const rewritten = (draft: string) => draft.startsWith('The unemployment rate')
 
 function humanizerReply(init: RequestInit) {
   const request = JSON.parse(init.body as string);
-  const draft = request.messages[1].content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1];
-  assert.doesNotMatch(draft, /\[S\d/); // Citations remain attached by code, outside the style model.
+  const draft = request.messages.at(-1).content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1];
+  assert.equal(request.temperature, 0.3);
   return response(rewritten(draft));
 }
 
@@ -93,9 +93,28 @@ test('Humanizer failures never fall back to the raw article', async (t) => {
   t.mock.restoreAll();
   t.mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
     const request = JSON.parse(init.body as string);
-    return response(request.messages[1].content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1]);
+    return response(request.messages.at(-1).content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1]);
   });
   await assert.rejects(humanizeArticle(article, config), /returned unchanged/);
+});
+
+test('A paragraph that loses its citations uses anchored humanizing instead', async (t) => {
+  let rejected = 0;
+  let anchored = 0;
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
+    const request = JSON.parse(init.body as string);
+    const draft = request.messages.at(-1).content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1];
+    if (draft.startsWith('The unemployment rate')) {
+      if (draft.includes('[S1]')) { rejected++; return response(rewritten(draft).replace('[S1]', '[S99]')); }
+      anchored++;
+    }
+    return response(rewritten(draft));
+  });
+  const result = await humanizeArticle(article, config);
+  assert.equal(rejected, 3);
+  assert.equal(anchored, 1);
+  assert.equal(result.article.lead, rewritten(text));
+  assert.equal(result.blocks, 10);
 });
 
 test('Only a humanized article approved by the final Gemini review can publish', async (t) => {
@@ -150,7 +169,7 @@ test('Humanizer numeric drift must be repaired before final approval and publica
   t.mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
     if (String(url).includes('featherless')) {
       const request = JSON.parse(init.body as string);
-      const draft = request.messages[1].content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1];
+      const draft = request.messages.at(-1).content.match(/<draft>\n([\s\S]*)\n<\/draft>/)[1];
       return response(rewritten(draft).replace('4.6%', '4.7%'));
     }
     const request = JSON.parse(init.body as string);
@@ -165,3 +184,4 @@ test('Humanizer numeric drift must be repaired before final approval and publica
   assert.equal(repairs, 1);
   assert.match(result.article.lead, /4\.6%/);
 });
+
