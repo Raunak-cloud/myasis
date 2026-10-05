@@ -160,6 +160,32 @@ try {
   assert.equal((ctx as { resumeName?: string }).resumeName, 'Raunak_New_Resume (2).docx', 'the application records the file sent');
   assert.ok(lines.some((line) => /resume "Raunak_New_Resume \(2\)\.docx" uploaded from Owtomate and selected on SEEK/.test(line)), lines.join(' | '));
 
+  // 11. Indeed opens straight on its review page with the resume it already held (Carlton Railway Pharmacy, 5 Oct):
+  //     the submit is held, the resume step reopened and Owtomate's resume selected; the next submit goes through.
+  rmSync(join(directory, 'resume-sync.json'), { force: true });
+  const reviewUrl = 'https://smartapply.indeed.com/beta/indeedapply/form/review-module';
+  const reviewPage = `<main><h2>Resume</h2><p>Old Indeed CV.pdf</p><h2>Submit</h2><button onclick="document.body.dataset.submitted='yes'">Submit your application</button></main>`;
+  await page.route(indeedUrl, (route) => route.fulfill({ contentType: 'text/html', body: indeedStep('Old Indeed CV.pdf', 'August 2') }));
+  await open(page, reviewUrl, reviewPage);
+  const reviewLines: string[] = [];
+  const reviewCtx = { ...ctx, observation: await observe(page), captured: [], actions: [], resumeSettled: undefined, resumeUsed: undefined, resumeName: undefined, log: (line: string) => reviewLines.push(line) } as unknown as Parameters<typeof executeTool>[0];
+  reviewCtx.job = { ...reviewCtx.job, url: reviewUrl };
+  const submitRef = reviewCtx.observation.actions.find((action) => action.text === 'Submit your application')?.ref;
+  assert.ok(submitRef, 'the review fixture has its submit');
+  const held = await executeTool(reviewCtx, 'click', { ref: submitRef, reason: 'Submit', sends_application: true, no_cover_letter_place: 'the review page offers no documents' });
+  assert.ok(held.kind === 'ok' && /Not submitted yet/.test(held.message), `held for the resume: ${JSON.stringify(held)}`);
+  assert.match(page.url(), /resume-selection/, 'the resume step was reopened');
+  const sentName = (reviewCtx as { resumeName?: string }).resumeName;
+  assert.ok(sentName && sentName.startsWith('Raunak_New_Resume (2)'), `Owtomate's resume is now the one selected (${sentName})`);
+  assert.equal(await checkedName(page), sentName);
+  assert.ok(reviewLines.some((line) => /straight to review/.test(line)), reviewLines.join(' | '));
+
+  await open(page, reviewUrl, reviewPage);
+  reviewCtx.observation = await observe(page);
+  const again = reviewCtx.observation.actions.find((action) => action.text === 'Submit your application')?.ref;
+  const second = await executeTool(reviewCtx, 'click', { ref: again!, reason: 'Submit', sends_application: true, no_cover_letter_place: 'the review page offers no documents' });
+  assert.ok(!(second.kind === 'ok' && /Not submitted/.test(second.message)), `a settled resume is not held again: ${JSON.stringify(second)}`);
+
   assert.ok(existsSync(join(directory, 'resume-sync.json')));
   console.log("PASS: only copies Owtomate uploaded are sent; the person's same-named copies, stale copies and later replacements are replaced by Owtomate's exact file");
 } finally {

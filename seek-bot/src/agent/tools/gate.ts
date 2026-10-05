@@ -10,7 +10,7 @@ import { isEntryAction } from '../guards.js';
 import { wasHumanized } from '../../humanizer.js';
 import { hostOf } from '../../site-auth.js';
 import { offersCoverLetter } from '../cover-letter-opportunity.js';
-import { ensureChosenResume } from '../../resume-sync.js';
+import { boardOf, ensureChosenResume, reopenIndeedResumeStep, type ResumeStepResult } from '../../resume-sync.js';
 import { ToolResult, ToolContext, ok, noteAction, toolRun } from './context.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
@@ -98,6 +98,18 @@ export async function transmits(ctx: ToolContext, label: string, context?: strin
   return verdict;
 }
 
+/** Records that the board's resume choice is Owtomate's, and what the person should be told. */
+function settleResume(ctx: ToolContext, step: Extract<ResumeStepResult, { name: string }>): void {
+  ctx.resumeSettled = true;
+  ctx.resumeUsed = step.label;
+  ctx.resumeName = step.name;
+  const verb = { kept: 'already selected', selected: 'selected', uploaded: 'uploaded from Owtomate and selected' }[step.action];
+  ctx.log(`  📄 resume "${step.name}" ${verb} on ${step.board === 'seek' ? 'SEEK' : 'Indeed'}`);
+  if (step.action === 'uploaded') {
+    noteAction(ctx, { kind: 'resume-uploaded', site: hostOf(ctx.page.url()), detail: `Saved Owtomate's resume "${step.name}" to your ${step.board === 'seek' ? 'SEEK' : 'Indeed'} account and used it for this application.` });
+  }
+}
+
 export type Gate = { proceed: true; submit: boolean } | { proceed: false; result: ToolResult };
 
 /**
@@ -146,16 +158,7 @@ export async function gateAdvance(
         'Select its exact option with attach_resume, or upload it with attach_resume on the upload control, then press again.',
       ) };
     }
-    if (step.action !== 'none') {
-      ctx.resumeSettled = true;
-      ctx.resumeUsed = step.label;
-      ctx.resumeName = step.name;
-      const verb = { kept: 'already selected', selected: 'selected', uploaded: 'uploaded from Owtomate and selected' }[step.action];
-      ctx.log(`  📄 resume "${step.name}" ${verb} on ${step.board === 'seek' ? 'SEEK' : 'Indeed'}`);
-      if (step.action === 'uploaded') {
-        noteAction(ctx, { kind: 'resume-uploaded', site: hostOf(ctx.page.url()), detail: `Saved Owtomate's resume "${step.name}" to your ${step.board === 'seek' ? 'SEEK' : 'Indeed'} account and used it for this application.` });
-      }
-    }
+    if (step.action !== 'none') settleResume(ctx, step);
   }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${label}"`);
@@ -174,6 +177,41 @@ export async function gateAdvance(
     if (letter) return { proceed: false, result: letter };
   }
   if (!submit) return { proceed: true, submit: false };
+
+  /**
+   * Indeed can open an application straight on its review page with the
+   * resume it already holds for the account attached, so no resume step ever
+   * came up for the check above. Nothing is submitted on Indeed until the
+   * resume is known to be Owtomate's: the resume step is reopened and settled,
+   * and the agent goes through to the review page again.
+   */
+  if (!ctx.resumeSettled && !ctx.resumeUsed && boardOf(ctx.page.url()) === 'indeed') {
+    const chosen = await pickResumeForJob(ctx.job, ctx.profile);
+    if (chosen) {
+      ctx.resumeReopenTries = (ctx.resumeReopenTries ?? 0) + 1;
+      if (ctx.resumeReopenTries > 2) {
+        return { proceed: false, result: { kind: 'terminal', outcome: {
+          status: 'needs-human',
+          reason: 'Indeed attached a resume Owtomate could not replace with the one chosen for this job, so nothing was sent.',
+          detail: 'resume step could not be reopened from the review page',
+        } } };
+      }
+      ctx.log('  ↺ Indeed went straight to review with its own saved resume attached; reopening the resume step');
+      const step = await reopenIndeedResumeStep(ctx.page, chosen);
+      if (step.action === 'kept' || step.action === 'selected' || step.action === 'uploaded') {
+        settleResume(ctx, step);
+        return { proceed: false, result: ok(
+          `Not submitted yet: Indeed had skipped its resume step and attached the resume it already held. The resume step is now open and Owtomate's "${step.name}" is selected. ` +
+          'Continue through the form (answer anything it asks again) to the review page, then submit.',
+        ) };
+      }
+      return { proceed: false, result: ok(
+        `Not submitted: the resume Indeed attached is not confirmed as Owtomate's "${chosen.seekName || chosen.fileName}". ` +
+        (step.action === 'failed' ? `${step.reason} ` : 'The resume step could not be opened automatically. ') +
+        'Open the resume step from the review page (the edit or change control of its resume section), select that resume with attach_resume, continue to review and submit again.',
+      ) };
+    }
+  }
 
   if (ctx.submissionAttempted && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'applied' } } };

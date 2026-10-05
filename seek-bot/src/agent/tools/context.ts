@@ -81,6 +81,8 @@ export interface ToolContext {
   resumeName?: string;
   /** The board's resume choice has been made Owtomate's for this application. */
   resumeSettled?: boolean;
+  /** Times the Indeed resume step had to be reopened from the review page; bounded so a stuck page ends as needs-human. */
+  resumeReopenTries?: number;
   log: (line: string) => void;
   /** Side effects the candidate must be told about — see `ApplicationAction`. */
   actions: ApplicationAction[];

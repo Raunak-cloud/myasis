@@ -279,3 +279,36 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   }
   return { action: 'failed', reason: `Owtomate's resume was sent to the board's upload but "${uploadedName}" never appeared as a selected choice.` };
 }
+
+/** Indeed's own route to the resume choice inside an application already under way. */
+export const INDEED_RESUME_STEP = 'https://smartapply.indeed.com/beta/indeedapply/form/resume-selection-module/resume-selection';
+
+/**
+ * An Indeed application that opened on its review page: Indeed skipped the
+ * resume choice and attached the resume it already had for the account, so
+ * nothing was ever compared with the resume Owtomate chose. Carlton Railway
+ * Pharmacy went out on 5 Oct with a résumé the person had uploaded to Indeed
+ * long before, while Owtomate's chosen one sat unused.
+ *
+ * Reopens the resume step — through the review page's own edit control when it
+ * has one, by Indeed's route otherwise — and settles the choice there exactly
+ * as an ordinary resume step is settled.
+ */
+export async function reopenIndeedResumeStep(page: Page, chosen: { id: string; label: string; fileName: string; seekName?: string }): Promise<ResumeStepResult> {
+  if (boardOf(page.url()) !== 'indeed') return { action: 'none' };
+  let opened = false;
+  for (const frame of page.frames()) {
+    const control = frame.locator('a[href*="resume-selection"], a[href*="resume-module"]:not([href*="additional-documents"]), button[aria-label*="resume" i]:not([aria-label*="download" i])').first();
+    if (await control.isVisible().catch(() => false)) {
+      opened = await control.click({ timeout: 5_000 }).then(() => true, () => false);
+      if (opened) break;
+    }
+  }
+  if (!opened) await page.goto(INDEED_RESUME_STEP, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
+  // The choices render after the module's data arrives.
+  for (const deadline = Date.now() + 15_000; Date.now() < deadline; await page.waitForTimeout(1_000)) {
+    if (/resume-selection/.test(page.url()) && (await documentChoices(page)).length) break;
+  }
+  if (!/resume-selection/.test(page.url())) return { action: 'none' };
+  return ensureChosenResume(page, chosen);
+}
