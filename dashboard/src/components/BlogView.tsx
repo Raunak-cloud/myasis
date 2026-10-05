@@ -11,10 +11,12 @@ import { StackedTable } from './StackedTable';
 interface BlogReport {
   enabled: boolean;
   configured: boolean;
+  humanizerConfigured: boolean;
+  humanizerModel: string | null;
   model: string | null;
   currentWeek: string;
   writing: boolean;
-  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
+  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; humanizedAt: string | null; humanizerModel: string | null; revisions: number; unavailable: string[] }>;
   attempts: Array<{ kind: 'weekly' | 'extra'; week: string; attempts: number; lastAttemptAt: string | null; lastError: string | null }>;
 }
 
@@ -60,12 +62,14 @@ export function BlogView() {
     <div className="admin-stack">
       {!report.configured ? (
         <div className="banner banner-bad">Add a Gemini API key under Config → Weekly blog.</div>
+      ) : !report.humanizerConfigured ? (
+        <div className="banner banner-bad">Configure Featherless under Config → Humanizer. All blogs require humanizing before publication.</div>
       ) : report.writing ? (
-        <div className="banner">Writing a blog — gathering searches and sources, drafting, fact-checking, then publishing. This takes a few minutes.</div>
+        <div className="banner">Writing a blog — researching, drafting, fact-checking, humanizing, then checking the final article before publishing. This takes a few minutes.</div>
       ) : thisWeekAttempt?.lastError ? (
         <div className="banner banner-bad">{thisWeekAttempt.kind === 'extra' ? 'Extra blog' : 'Weekly brief'} failed ({thisWeekAttempt.attempts} tries this week): {thisWeekAttempt.lastError}</div>
       ) : (
-        <div className="banner banner-ok">{thisWeek ? 'This week’s brief is published.' : report.enabled ? 'This week’s brief goes up from 6am Monday.' : 'Ready to write a blog.'} Writer: Gemini ({report.model}).</div>
+        <div className="banner banner-ok">{thisWeek ? 'This week’s brief is published.' : report.enabled ? 'This week’s brief goes up from 6am Monday.' : 'Ready to write a blog.'} Writer: Gemini ({report.model}). Humanizer: {report.humanizerModel} (required).</div>
       )}
       {!report.enabled && <div className="banner">Weekly publishing is off (Config → Weekly blog). You can still write posts here.</div>}
       {error && <div className="banner banner-bad">{error}</div>}
@@ -76,13 +80,13 @@ export function BlogView() {
             {report.posts.length} post(s) · <a href="/blog" target="_blank" rel="noreferrer">/blog</a> · week of {report.currentWeek}
           </p>
           <div className="admin-button-row">
-            <button className="btn" disabled={!report.configured || report.writing || busy} onClick={() => write(Boolean(thisWeek))}>
+            <button className="btn" disabled={!report.configured || !report.humanizerConfigured || report.writing || busy} onClick={() => write(Boolean(thisWeek))}>
               {report.writing ? 'Writing…' : thisWeek ? 'Rewrite this week’s' : 'Write now'}
             </button>
-            <button className="btn primary" disabled={!report.configured || report.writing || busy} onClick={() => write(false, true)}>Add another blog</button>
+            <button className="btn primary" disabled={!report.configured || !report.humanizerConfigured || report.writing || busy} onClick={() => write(false, true)}>Add another blog</button>
           </div>
         </div>
-        <p className="job-meta">Add another blog researches a different angle, checks the facts, and publishes a separate post on the website.</p>
+        <p className="job-meta">Add another blog researches a different angle, humanizes the writing, checks the final article, and publishes a separate post on the website.</p>
         <div className="table-wrap">
           <StackedTable>
             <thead>
@@ -103,6 +107,7 @@ export function BlogView() {
                       Published {when(post.publishedAt)}
                       {post.updatedAt !== post.publishedAt ? ` · rewritten ${when(post.updatedAt)}` : ''}
                       {` · ${post.revisions} fact-check revision(s)`}
+                      {post.humanizedAt ? ` · Humanized (${post.humanizerModel})` : ' · Awaiting humanizing'}
                       {post.unavailable.length > 0 && ` · written without: ${post.unavailable.join('; ')}`}
                     </span>
                   </td>

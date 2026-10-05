@@ -526,12 +526,17 @@ CREATE TABLE IF NOT EXISTS blog_posts (
   brief        JSONB NOT NULL,
   model        TEXT NOT NULL,
   revisions    JSONB NOT NULL DEFAULT '[]'::jsonb,
+  original_article JSONB,
+  -- Populated only after mandatory humanizing and a final fact-check pass.
+  humanization JSONB,
   hidden_at    TIMESTAMPTZ,
   published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- Preserve existing posts as weekly briefs when upgrading an older database.
 ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'weekly' CHECK (kind IN ('weekly', 'extra'));
+ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS original_article JSONB;
+ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS humanization JSONB;
 ALTER TABLE blog_posts DROP CONSTRAINT IF EXISTS blog_posts_week_key;
 CREATE UNIQUE INDEX IF NOT EXISTS blog_posts_weekly_week_idx ON blog_posts (week) WHERE kind = 'weekly';
 CREATE INDEX IF NOT EXISTS blog_posts_published_idx ON blog_posts(published_at DESC) WHERE hidden_at IS NULL;

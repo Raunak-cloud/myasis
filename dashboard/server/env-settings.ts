@@ -117,13 +117,13 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'humanizer',
     title: 'Humanizer',
-    note: 'Rewrites cover letters in natural words. For Featherless: URL https://api.featherless.ai, model authormist/authormist-originality, and your API key. Leave the URL empty to switch it off.',
+    note: 'Rewrites cover letters and every blog in natural words. Blogs require this service and a final fact-check before publication. For Featherless: URL https://api.featherless.ai, model authormist/authormist-originality, and your API key.',
     banner: humanizerBanner,
     keys: [
       { key: 'HUMANIZER_URL', label: 'Featherless URL', help: 'Use https://api.featherless.ai. Leave empty to disable rewriting.', kind: 'url' },
       { key: 'HUMANIZER_API_KEY', label: 'Featherless API key', help: 'Required for Featherless rewriting and readiness checks.', kind: 'secret' },
       { key: 'HUMANIZER_MODEL', label: 'Model name', help: 'As the endpoint knows it. On Featherless: authormist/authormist-originality.', kind: 'text' },
-      { key: 'HUMANIZER_MODE', label: 'Mode', help: 'Empty for the selective pass, "always" to rewrite every letter, "off" to disable.', kind: 'text' },
+      { key: 'HUMANIZER_MODE', label: 'Cover-letter mode', help: 'Empty for the selective pass, "always" to rewrite every letter, "off" to disable cover-letter rewriting. Blog humanizing is always required.', kind: 'text' },
       { key: 'HUMANIZER_REQUIRED', label: 'Required', help: 'Refuse to start a writing run while the humanizer is down.', kind: 'boolean' },
       { key: 'HUMANIZER_TIMEOUT_MS', label: 'Request timeout (ms)', help: 'One rewrite request.', kind: 'number' },
       { key: 'HUMANIZER_REWRITE_BUDGET_MS', label: 'Rewrite budget (ms)', help: 'Total time allowed for all attempts on one letter.', kind: 'number' },
@@ -200,7 +200,7 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'blog',
     title: 'Weekly blog',
-    note: 'Gemini drafts, fact-checks and revises every blog. Every Monday from 6am a researched brief is published at /blog. Add another blog publishes an extra post through the same process.',
+    note: 'Gemini drafts, fact-checks and revises every blog. Featherless then humanizes the writing, followed by a final fact-check before publication. Every Monday from 6am a researched brief is published at /blog. Add another blog uses the same required process.',
     keys: [
       { key: 'BLOG_WEEKLY', label: 'Publish weekly', help: 'On unless set to Off. Off stops scheduled posts; manual writing stays available.', kind: 'boolean' },
       { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'From Google AI Studio. Required for all blog writing. Stored on the server.', kind: 'secret' },

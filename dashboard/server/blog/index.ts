@@ -8,6 +8,8 @@ import { writerConfig } from './models.js';
 import { postPath, type PostSummary, type StoredPost } from './render.js';
 import { gatherBrief, type Brief } from './signals.js';
 import { writePost, type Article } from './writer.js';
+import { assertBlogHumanizerReady, blogHumanizerConfig } from './humanizer.js';
+import { prepareForPublication } from './publication.js';
 
 /**
  * The weekly job-market brief: when it is written, where it is kept, and
@@ -141,20 +143,26 @@ export function publishWeek(week: string, options: { replace?: boolean; addition
       [week],
     );
     try {
+      const humanizer = await blogHumanizerConfig();
+      if (!humanizer) throw new Error('Not published: configure the Featherless humanizer URL and API key under Config → Humanizer. All blogs must be humanized.');
+      await assertBlogHumanizerReady(humanizer);
       const brief = await gatherBrief(week);
       const recent = await query<{ title: string }>(
         'SELECT title FROM blog_posts ORDER BY published_at DESC LIMIT $1',
         [RECENT_FOR_CONTEXT],
       );
       const written = await writePost(brief, recent.map((row) => row.title), config);
-      const slug = existing?.slug ?? await freeSlug(written.article.slug || written.article.title, week);
+      console.log(`[blog] ${week}: humanizing verified draft`);
+      const prepared = await prepareForPublication(written.article, brief, config, humanizer);
+      const slug = existing?.slug ?? await freeSlug(prepared.article.slug || prepared.article.title, week);
       await query(
-        `INSERT INTO blog_posts (week, slug, title, description, article, brief, model, revisions, kind)
-         VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO blog_posts (week, slug, title, description, article, brief, model, revisions, kind, original_article, humanization)
+         VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (week) WHERE kind = 'weekly' DO UPDATE SET
            title = EXCLUDED.title, description = EXCLUDED.description, article = EXCLUDED.article,
-           brief = EXCLUDED.brief, model = EXCLUDED.model, revisions = EXCLUDED.revisions, updated_at = now()`,
-        [week, slug, written.article.title, written.article.metaDescription, written.article, brief, written.model, JSON.stringify(written.revisions), options.additional ? 'extra' : 'weekly'],
+           brief = EXCLUDED.brief, model = EXCLUDED.model, revisions = EXCLUDED.revisions,
+           original_article = EXCLUDED.original_article, humanization = EXCLUDED.humanization, updated_at = now()`,
+        [week, slug, prepared.article.title, prepared.article.metaDescription, prepared.article, brief, written.model, JSON.stringify(written.revisions), options.additional ? 'extra' : 'weekly', written.article, prepared.humanization],
       );
       await query(`UPDATE ${attemptsTable} SET last_error = NULL WHERE week = $1::date`, [week]);
       const url = `${siteOrigin()}${postPath(slug)}`;
@@ -232,18 +240,21 @@ export function startBlogScheduler(): void {
 export interface BlogReport {
   enabled: boolean;
   configured: boolean;
+  humanizerConfigured: boolean;
+  humanizerModel: string | null;
   model: string | null;
   currentWeek: string;
   writing: boolean;
-  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
+  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; humanizedAt: string | null; humanizerModel: string | null; revisions: number; unavailable: string[] }>;
   attempts: Array<{ kind: 'weekly' | 'extra'; week: string; attempts: number; lastAttemptAt: string | null; lastError: string | null }>;
 }
 
 export async function blogReport(): Promise<BlogReport> {
   const [posts, attempts] = await Promise.all([
-    query<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; hidden: boolean; published_at: Date; updated_at: Date; revisions: number; unavailable: string[] | null }>(
+    query<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; hidden: boolean; published_at: Date; updated_at: Date; humanized_at: string | null; humanizer_model: string | null; revisions: number; unavailable: string[] | null }>(
       `SELECT id::text, kind, week::text, slug, title, hidden_at IS NOT NULL AS hidden, published_at, updated_at,
               jsonb_array_length(revisions) AS revisions,
+              humanization->>'completedAt' AS humanized_at, humanization->>'model' AS humanizer_model,
               ARRAY(SELECT jsonb_array_elements_text(brief->'unavailable')) AS unavailable
          FROM blog_posts ORDER BY published_at DESC LIMIT 100`,
     ),
@@ -255,22 +266,28 @@ export async function blogReport(): Promise<BlogReport> {
     ),
   ]);
   const config = writerConfig();
+  const humanizer = await blogHumanizerConfig();
   const origin = siteOrigin();
   return {
     enabled: blogEnabled(),
     configured: Boolean(config),
+    humanizerConfigured: Boolean(humanizer),
+    humanizerModel: humanizer?.endpoint.model ?? null,
     model: config?.model ?? null,
     currentWeek: weekOf().week,
     writing: isBlogWriting(),
     posts: posts.map((p) => ({
       id: p.id, kind: p.kind, week: p.week, slug: p.slug, title: p.title, url: `${origin}${postPath(p.slug)}`, hidden: p.hidden,
-      publishedAt: p.published_at.toISOString(), updatedAt: p.updated_at.toISOString(), revisions: p.revisions, unavailable: p.unavailable ?? [],
+      publishedAt: p.published_at.toISOString(), updatedAt: p.updated_at.toISOString(), humanizedAt: p.humanized_at, humanizerModel: p.humanizer_model, revisions: p.revisions, unavailable: p.unavailable ?? [],
     })),
     attempts: attempts.map((a) => ({ kind: a.kind, week: a.week, attempts: a.attempts, lastAttemptAt: a.last_attempt_at?.toISOString() ?? null, lastError: a.last_error })),
   };
 }
 
 export async function setPostHidden(id: string, hidden: boolean): Promise<boolean> {
+  if (!hidden && await one('SELECT 1 FROM blog_posts WHERE id = $1::bigint AND humanization IS NULL', [id])) {
+    throw new Error('This blog must be humanized and fact-checked before it can be shown.');
+  }
   const rows = await query(
     `UPDATE blog_posts SET hidden_at = CASE WHEN $2 THEN coalesce(hidden_at, now()) ELSE NULL END WHERE id = $1::bigint RETURNING id`,
     [id, hidden],

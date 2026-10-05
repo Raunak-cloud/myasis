@@ -78,6 +78,7 @@ Compare the draft with the brief and list every problem that should stop publica
 - a monthly or quarterly figure presented as this week's;
 - invented search volumes or percentages, or a search called new that is not marked NEW;
 - the Owtomate sample presented as the whole market;
+- if ORIGINAL VERIFIED ARTICLE is supplied, a rewrite changing its meaning, dropping facts or qualifications, or weakening the connection between a claim and its citation;
 - advice that is wrong or unsafe for an Australian job seeker;
 - promotion beyond one factual sentence about Owtomate;
 - filler or keyword stuffing a reader would notice.
@@ -278,13 +279,21 @@ async function review(ask: ReturnType<typeof createBlogModel>['ask'], brief: str
   return verdict.approved === true && !notes.length ? [] : notes.length ? notes : ['The reviewer did not approve the draft.'];
 }
 
-export async function writePost(brief: Brief, recentTitles: readonly string[], config: WriterConfig): Promise<WrittenPost> {
+/** Check the exact humanizer output without subsequently rewriting it through Gemini. */
+export async function publicationProblems(brief: Brief, original: Article, candidate: Article, config: WriterConfig): Promise<string[]> {
+  const structural = structuralProblems(candidate, brief);
+  if (structural.length) return structural;
+  const block = `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE (check that the rewrite preserves its facts, meaning and qualifications)\n${JSON.stringify(original, null, 2)}`;
+  return review(createBlogModel(config).ask, block, candidate);
+}
+
+export async function writePost(brief: Brief, recentTitles: readonly string[], config: WriterConfig, initialArticle?: Article): Promise<WrittenPost> {
   if (brief.sources.length < 2) throw new Error(`Only ${brief.sources.length} source(s) could be read this week; not enough to write from.`);
   const briefBlock = briefText(brief, recentTitles);
   const model = createBlogModel(config);
   const ask = model.ask;
 
-  let article = asArticle(await ask(WRITER_SYSTEM, `${briefBlock}\n\n===\n\nWrite this week's article.`, ARTICLE_SCHEMA, 0.7));
+  let article = initialArticle ? structuredClone(initialArticle) : asArticle(await ask(WRITER_SYSTEM, `${briefBlock}\n\n===\n\nWrite this week's article.`, ARTICLE_SCHEMA, 0.7));
   const revisions: string[][] = [];
 
   for (let round = 0; ; round++) {
