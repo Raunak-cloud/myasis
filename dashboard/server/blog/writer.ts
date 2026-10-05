@@ -300,6 +300,19 @@ export async function publicationProblems(brief: Brief, original: Article, candi
 }
 
 /** Repair only small factual spans after humanizing; never regenerate the humanized article. */
+export function changedWordCount(original: string, replacement: string): number {
+  const before = original.split(/\s+/).filter(Boolean);
+  const after = replacement.split(/\s+/).filter(Boolean);
+  // Count actual replaced words, not unchanged context copied to make an edit unique.
+  let previous = new Uint32Array(after.length + 1);
+  for (const word of before) {
+    const current = new Uint32Array(after.length + 1);
+    for (let j = 0; j < after.length; j++) current[j + 1] = word === after[j] ? previous[j] + 1 : Math.max(previous[j + 1], current[j]);
+    previous = current;
+  }
+  return Math.max(before.length, after.length) - previous[after.length];
+}
+
 export async function finishHumanizedPost(brief: Brief, original: Article, candidate: Article, config: WriterConfig): Promise<{ article: Article; repairs: number }> {
   let article = structuredClone(candidate);
   let repairs = 0;
@@ -313,14 +326,14 @@ export async function finishHumanizedPost(brief: Brief, original: Article, candi
     const numeric = numericPublicationProblems(original, article);
     const notes = numeric.length ? numeric : await publicationProblems(brief, original, article, config);
     if (!notes.length) return { article, repairs };
-    if (round >= MAX_REVISIONS) throw new Error(`Not published: the humanized article failed its final fact-check — ${notes.slice(0, 3).join(' | ')}`);
+    if (round >= MAX_REVISIONS + 1) throw new Error(`Not published: the humanized article failed its final fact-check — ${notes.slice(0, 3).join(' | ')}`);
     console.log(`[blog] final humanized fact-check: ${notes.length} correction(s)`);
-    const prompt = `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE\n${JSON.stringify(original)}\n\nHUMANIZED DRAFT\n${JSON.stringify(article)}\n\nFINAL FACT-CHECK NOTES\n${notes.join('\n')}\n\nRepair only the incorrect facts, omitted qualifications or wrong citation attachments using the smallest unique exact text snippets. Preserve the humanizer's voice and all unaffected words. Do not rewrite a paragraph or whole article. The originals across all edits together may contain at most ${budget - editedWords} words. Return non-overlapping exact text edits against HUMANIZED DRAFT.`;
+    const prompt = `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE\n${JSON.stringify(original)}\n\nHUMANIZED DRAFT\n${JSON.stringify(article)}\n\nFINAL FACT-CHECK NOTES\n${notes.join('\n')}\n\nRepair only the incorrect facts, omitted qualifications or wrong citation attachments using the smallest unique exact text snippets. Preserve the humanizer's voice and all unaffected words. Do not rewrite a paragraph or whole article. Across all edits, change at most ${budget - editedWords} words; unchanged context copied to locate an edit does not count. Return non-overlapping exact text edits against HUMANIZED DRAFT.`;
     let error = '';
     for (let attempt = 0; ; attempt++) {
       const patch = await ask(WRITER_SYSTEM, `${prompt}${error ? `\nYour previous edits were rejected: ${error}. Return corrected minimal edits.` : ''}`, CORRECTION_SCHEMA, 0.1);
       try {
-        const wordsEdited = Array.isArray(patch.edits) ? patch.edits.reduce((total, edit) => total + (typeof edit?.original === 'string' ? edit.original.split(/\s+/).filter(Boolean).length : budget + 1), 0) : budget + 1;
+        const wordsEdited = Array.isArray(patch.edits) ? patch.edits.reduce((total, edit) => total + (typeof edit?.original === 'string' && typeof edit?.replacement === 'string' ? changedWordCount(edit.original, edit.replacement) : budget + 1), 0) : budget + 1;
         if (editedWords + wordsEdited > budget) throw new Error('The edits replace too much humanized prose; use shorter exact snippets.');
         const next = applyCorrections(article, patch);
         // A fact repair cannot regenerate metadata or the editorial structure.

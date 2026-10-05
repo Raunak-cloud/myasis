@@ -2,11 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { articleHash, assertBlogHumanizerReady, blogHumanizerConfig, humanizeArticle, humanizedTextProblem, restoreDecimalSpacing, type BlogHumanizerConfig } from './humanizer.js';
 import { prepareForPublication } from './publication.js';
-import type { Article } from './writer.js';
+import { changedWordCount, type Article } from './writer.js';
 import type { Brief } from './signals.js';
 
 const config: BlogHumanizerConfig = { endpoint: { base: 'https://api.featherless.ai', apiKey: 'test-key', model: 'authormist/authormist-originality' }, timeoutMs: 10_000, repetitionPenalty: 1.05, topK: 40 };
 const text = 'The unemployment rate increased to 4.6% in August 2026 [S1].';
+test('Factual repair limits measure actual changes instead of copied paragraph context', () => {
+  assert.equal(changedWordCount('The rate rose to 4.7% in August 2026.', 'The rate rose to 4.6% in August 2026.'), 1);
+  assert.equal(changedWordCount('Unemployment rose in August.', 'Seasonally adjusted unemployment rose in August.'), 3);
+  assert.equal(changedWordCount('Keep every unchanged word.', 'Keep every unchanged word.'), 0);
+  assert.equal(changedWordCount('Entire original paragraph removed.', 'All prose rewritten completely.'), 4);
+});
 test('Cover-letter settings cannot disable or make blog humanizing optional', async (t) => {
   const values = { HUMANIZER_URL: config.endpoint.base, HUMANIZER_API_KEY: config.endpoint.apiKey!, HUMANIZER_MODEL: config.endpoint.model, HUMANIZER_MODE: 'off', HUMANIZER_REQUIRED: 'false' };
   const before = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
