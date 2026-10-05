@@ -60,6 +60,8 @@ export interface Brief {
   /** The niche or category, used to seed searches. */
   niche: string;
   brand: string;
+  /** Optional user-owned site, separate from competitor comparisons. */
+  ownWebsite?: string;
   competitors: string[];
   /** Competitor or own sites to audit. */
   websites: string[];

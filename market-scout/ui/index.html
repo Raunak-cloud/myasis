@@ -91,6 +91,8 @@ a.btn{border-radius:8px;border:1px solid var(--accent);background:var(--accent);
         <summary>More options: competitors, goals and budget</summary>
         <label for="country">Market to research <small>defaults to Australia</small></label><select id="country" name="country"><option value="AU">Australia</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="CA">Canada</option><option value="NZ">New Zealand</option><option value="IN">India</option><option value="SG">Singapore</option><option value="DE">Germany</option><option value="FR">France</option></select>
         <label for="brand">Your brand <small>optional</small></label><input id="brand" name="brand" maxlength="80" placeholder="Your business name">
+        <label for="ownWebsite">Your website <small>optional</small></label><input type="url" id="ownWebsite" name="ownWebsite" maxlength="200" placeholder="https://your-business.com.au">
+        <p class="hint">Add your site for page-specific fixes. Competitor sites are used for comparison.</p>
         <label class="hint"><input type="checkbox" id="manualDetails"> Add details I already know</label>
         <div id="manualFields" hidden>
         <label for="audience">Audience <small>optional override</small></label><input id="audience" name="audience" maxlength="400" placeholder="Leave blank for the agent to suggest">
@@ -152,7 +154,7 @@ let source = null;
 let timer = null;
 
 function draft(save) {
-  const fields = ['product', 'niche', 'brand', 'competitors', 'websites', 'country', 'language', 'audience', 'goals', 'maxTasks', 'followUps'];
+  const fields = ['product', 'niche', 'brand', 'ownWebsite', 'competitors', 'websites', 'country', 'language', 'audience', 'goals', 'maxTasks', 'followUps'];
   try {
     if (save) localStorage.setItem('scout-draft', JSON.stringify(Object.fromEntries(fields.map((f) => [f, $(f).value]))));
     else {
@@ -191,7 +193,7 @@ async function loadRuns() {
         <span class="badge ${esc(r.status)}">${esc(STATUS[r.status] || r.status)}</span>
       </div>
       <span class="run-meta">${esc(r.niche)}${r.country ? ' · ' + esc(r.country) : ''} · ${new Date(r.startedAt).toLocaleString()}${r.cost ? ' · ' + esc(r.cost.split(' · ').pop()) : ''}</span>
-      ${r.version === 2 ? `<span class="run-head">${esc(r.headline)}</span><span class="run-meta">${r.quality ? `${r.quality.included} usable items | ${r.quality.excluded + r.quality.unverified} set aside | ${r.quality.customerItems} customer sources` : 'Evidence review unavailable'}</span>` : r.headline ? '<span class="legacy">Older report - recheck before using its conclusions</span>' : r.status === 'running' ? '<span class="run-meta">Your agent is setting up the research and collecting evidence.</span>' : '<span class="run-meta">No report yet. Create one from any saved evidence.</span>'}
+      ${[2, 3].includes(r.version) ? `<span class="run-head">${esc(r.headline)}</span><span class="run-meta">${r.quality ? `${r.quality.included} usable items | ${r.quality.excluded + r.quality.unverified} set aside | ${r.quality.customerItems} potential customer sources` : 'Evidence review unavailable'}</span>` : r.headline ? '<span class="legacy">Older report - recheck before using its conclusions</span>' : r.status === 'running' ? '<span class="run-meta">Your agent is setting up the research and collecting evidence.</span>' : '<span class="run-meta">No report yet. Create one from any saved evidence.</span>'}
       <div class="actions">
         ${(r.status === 'done' || r.status === 'partial') ? `<a class="btn" href="${BASE}/runs/${encodeURIComponent(r.id)}/report.html" target="_blank" rel="noopener">Open report</a>` : ''}
         <button type="button" data-watch="${esc(r.id)}">${r.status === 'running' ? 'View progress' : 'View activity'}</button>
@@ -290,6 +292,7 @@ $('form').addEventListener('submit', async (event) => {
   const f = new FormData($('form'));
   const body = {
     product: f.get('product'), autoDiscover: true, niche: $('manualDetails').checked ? f.get('niche') : '', brand: f.get('brand'),
+    ownWebsite: f.get('ownWebsite'),
     competitors: $('manualDetails').checked ? String(f.get('competitors') || '') : '', websites: $('manualDetails').checked ? String(f.get('websites') || '').split('\n') : [],
     country: f.get('country'), language: f.get('language'), audience: $('manualDetails').checked ? f.get('audience') : '',
     goals: String(f.get('goals') || 'Find relevant searches, compare verified competitors and suggest measurable marketing tests.').split('\n'), sources: f.getAll('sources'),

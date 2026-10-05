@@ -5,10 +5,12 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import type { Brief, SourceId } from '../core/types.js';
+import { candidateUrl } from '../core/discovery.js';
+import { reviewEvidence } from '../core/quality.js';
 import { SOURCES } from '../sources/index.js';
 import { EvidenceStore } from '../core/store.js';
-import { renderHtml } from '../report/render.js';
-import type { Report } from '../report/synthesize.js';
+import { renderHtml, renderMarkdown } from '../report/render.js';
+import { preparePublicReport, type Report } from '../report/synthesize.js';
 
 /**
  * The local web interface: a form that starts a research run, its progress
@@ -92,6 +94,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
     if (!config.celeris.apiKey) return send(res, 400, { error: 'CELERIS_API_KEY is not set in market-scout/.env.' });
     const body = (await readJson(req)) as Partial<Brief> & { maxTasks?: number; followUps?: number; budgetUsd?: number };
     const brief = toBrief(body);
+    if (brief.ownWebsite && !candidateUrl(brief.ownWebsite)) return send(res, 400, { error: 'Your website must be a public HTTPS address.' });
     if (!brief.product && !brief.niche) return send(res, 400, { error: 'Describe the product or the niche.' });
     const id = `${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}-${(brief.brand || brief.niche || 'research').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`;
     const dir = join(runsDir(), id);
@@ -142,10 +145,12 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
   if (req.method === 'GET' && report && RUN_ID.test(report[1])) {
     const file = join(runsDir(), report[1], `report.${report[2]}`);
     if (!existsSync(file)) return send(res, 404, { error: 'No report yet' });
+    const data = safeJson<Report>(join(runsDir(), report[1], 'report.json'));
+    if (!data) return send(res, 422, { error: 'Saved report data is unavailable; recheck the saved evidence before using this report.' });
     const type = { html: 'text/html; charset=utf-8', md: 'text/markdown; charset=utf-8', json: 'application/json' }[report[2] as 'html'];
     res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
-    const data = report[2] === 'html' ? safeJson<Report>(join(runsDir(), report[1], 'report.json')) : undefined;
-    const content = data ? renderHtml(data, new EvidenceStore(join(runsDir(), report[1]))) : readFileSync(file, 'utf8');
+    const store = new EvidenceStore(join(runsDir(), report[1]));
+    const content = data ? report[2] === 'html' ? renderHtml(data, store) : report[2] === 'md' ? renderMarkdown(data, store) : JSON.stringify(preparePublicReport(data, store), null, 2) : readFileSync(file, 'utf8');
     res.end(report[2] === 'html' ? content.replace('href="/"', `href="${basePath}/"`) : content);
     return;
   }
@@ -234,7 +239,7 @@ function listRuns() {
         headline: report?.headline ?? '',
         cost: report?.cost ?? '',
         version: report?.version ?? 1,
-        quality: report?.quality,
+        quality: report && brief ? reviewEvidence(new EvidenceStore(dir).all(), brief).quality : undefined,
       };
     })
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -250,6 +255,7 @@ function toBrief(body: Partial<Brief>): Brief {
     product: text(body.product),
     niche: text(body.niche, 120),
     brand: text(body.brand, 80),
+    ownWebsite: text(body.ownWebsite, 200),
     competitors: list(body.competitors),
     websites: list(body.websites),
     country: (text(body.country, 2) || 'AU').toUpperCase(),

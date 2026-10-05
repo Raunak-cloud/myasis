@@ -166,6 +166,7 @@ function briefFrom(values: Record<string, unknown>): Brief {
   const text = (key: string) => (typeof values[key] === 'string' ? (values[key] as string).trim() : '');
   return {
     autoDiscover: file.autoDiscover,
+    ownWebsite: file.ownWebsite,
     product: text('product') || file.product || '',
     niche: text('niche') || file.niche || '',
     brand: text('brand') || file.brand || '',

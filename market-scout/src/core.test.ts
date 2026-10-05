@@ -153,9 +153,9 @@ test('website helpers: stack, key pages, inventory, SEO issues', () => {
   assert.ok(inv.topics.includes('how to x'));
   const page = evidence({ source: 'website', kind: 'page', url: 'https://a.com', title: 'A', metrics: { titleLength: 1, h1Count: 2, wordCount: 100, imagesWithoutAlt: 0, metaDescriptionLength: 0 }, attributes: { pageType: 'home' } });
   const issues = seoIssues(page);
-  assert.ok(issues.includes('2 H1s'));
+  assert.ok(!issues.includes('2 H1s')); // multiple H1s alone do not prove an SEO problem
   assert.ok(issues.includes('no meta description'));
-  assert.ok(issues.some((i) => i.startsWith('thin content')));
+  assert.ok(!issues.some((i) => i.startsWith('thin content'))); // no minimum Google word count
 });
 
 test('tasks interleave by source so parallel slots hit different hosts', async () => {

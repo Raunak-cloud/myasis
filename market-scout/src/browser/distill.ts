@@ -37,7 +37,7 @@ export interface PageFacts {
   links: Array<{ text: string; href: string }>;
   socialLinks: string[];
   commerceText: string;
-  products: Array<{ name: string; price: string; currency: string; availability: string; url: string }>;
+  products: Array<{ name: string; price: string; currency: string; availability: string; url: string; priceBasis: string }>;
   markdown: string;
 }
 
@@ -71,7 +71,7 @@ export async function distill(page: Page, maxChars = 20_000): Promise<PageFacts>
               for (const offer of offers) {
                 if (!offer || typeof offer !== 'object') continue;
                 const o = offer as Record<string, unknown>;
-                products.push({ name: String(product.name ?? ''), price: String(o.price ?? o.lowPrice ?? ''), currency: String(o.priceCurrency ?? ''), availability: String(o.availability ?? ''), url: String(o.url ?? location.href) });
+                products.push({ name: String(product.name ?? ''), price: String(o.price ?? o.lowPrice ?? ''), currency: String(o.priceCurrency ?? ''), availability: String(o.availability ?? ''), url: String(o.url ?? location.href), priceBasis: o.price == null && o.lowPrice != null ? 'lowest listed price' : 'listed offer' });
               }
             }
             stack.push(...Object.values(node as Record<string, unknown>));

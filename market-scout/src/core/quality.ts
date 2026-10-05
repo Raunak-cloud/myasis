@@ -33,7 +33,7 @@ const COUNTRIES: Record<string, RegExp> = {
 };
 
 /** Keep raw evidence intact. Only reviewed items may feed planning and analysis. */
-export function reviewEvidence(items: Evidence[], brief: Brief): { evidence: Evidence[]; quality: QualitySummary } {
+export function reviewEvidence(items: Evidence[], brief: Brief, now = Date.now()): { evidence: Evidence[]; quality: QualitySummary } {
   const domains = new Set(brief.websites.map(host).filter(Boolean));
   const brands = [brief.brand, ...brief.competitors].map(normal).filter((s) => s.length >= 4);
   const category = [...new Set(terms(`${brief.niche} ${brief.product}`))].filter((s) => !/^(australia|australian|traditional|evaluate|compare|online|delivery|website|business|brand|market|nepalese|nepali|nepal|sold|with|from|wear|clothing)$/.test(s));
@@ -47,6 +47,14 @@ export function reviewEvidence(items: Evidence[], brief: Brief): { evidence: Evi
     let role: EvidenceReview['role'] = item.kind === 'ad' || item.source === 'website' || identity ? 'seller' : item.kind === 'video' || item.kind === 'profile' ? 'creator' : 'unknown';
     if (item.kind === 'comment' || (item.source === 'reddit' && item.kind === 'post') || item.attributes.customerReview === 'verified') role = identity ? 'seller' : 'customer';
     const base = { id: item.id, region, role } as const;
+    try {
+      const url = new URL(item.url);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid source URL');
+    } catch { return { ...base, status: 'unverified', reason: 'Source has no valid HTTP(S) citation.' }; }
+    const collected = Date.parse(item.collectedAt);
+    if (!Number.isFinite(collected) || collected > now + 300_000) return { ...base, status: 'unverified', reason: 'Collection date is missing, invalid or in the future.' };
+    if (item.publishedAt && (!Number.isFinite(Date.parse(item.publishedAt)) || Date.parse(item.publishedAt) > now + 300_000)) return { ...base, status: 'unverified', reason: 'Published date is invalid or in the future; verify the source.' };
+    if (Object.entries(item.metrics).some(([key, value]) => !Number.isFinite(value) || (/^(views|likes|comments|shares|saves|followers|rank|daysRunning|variants|wordCount|titleLength|metaDescriptionLength|h1Count|imagesWithoutAlt)$/.test(key) && value < 0))) return { ...base, status: 'unverified', reason: 'Source contains an invalid measurement; excluded from findings and scores.' };
     if (item.source === 'website' && /^https?:\/\//.test(item.query) && !sameWebsite(item.url, item.query)) return { ...base, status: 'excluded', reason: 'Page belongs to another website than the requested audit.' };
     if (item.attributes.discoveryStatus === 'rejected') return { ...base, status: 'excluded', reason: 'Automatic setup could not verify this site as a relevant competitor.' };
     if (apparel && item.source === 'autocomplete' && /\b(?:mailo|song|lyrics|chords|mp3|geet)\b/i.test(text)) return { ...base, status: 'excluded', reason: 'Search targets music rather than a clothing purchase or styling question.' };
@@ -69,7 +77,7 @@ export function reviewEvidence(items: Evidence[], brief: Brief): { evidence: Evi
       if (i.source === 'google-ads') delete metrics.active;
       return { ...i, metrics, attributes: { ...i.attributes, reviewRegion: r.region, reviewRole: r.role } };
     }),
-    quality: { version: 2, collected: items.length, included: included.size, excluded: reviews.filter((r) => r.status === 'excluded').length, unverified: reviews.filter((r) => r.status === 'unverified').length, regionUnknown: reviews.filter((r) => r.status === 'included' && r.region === 'unknown').length, customerItems: reviews.filter((r) => r.status === 'included' && r.role === 'customer').length, reviews },
+    quality: { version: 3, collected: items.length, included: included.size, excluded: reviews.filter((r) => r.status === 'excluded').length, unverified: reviews.filter((r) => r.status === 'unverified').length, regionUnknown: reviews.filter((r) => r.status === 'included' && r.region === 'unknown').length, customerItems: reviews.filter((r) => r.status === 'included' && r.role === 'customer').length, reviews },
   };
 }
 

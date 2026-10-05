@@ -20,6 +20,7 @@ export class EvidenceStore {
         if (!line.trim()) continue;
         try {
           const record = JSON.parse(line) as Evidence;
+          if (!record || ['id', 'source', 'kind', 'url', 'title', 'text', 'author', 'publishedAt', 'query', 'collectedAt'].some((key) => typeof record[key as keyof Evidence] !== 'string') || !record.attributes || typeof record.attributes !== 'object' || Array.isArray(record.attributes) || !record.metrics || typeof record.metrics !== 'object' || Array.isArray(record.metrics)) continue;
           this.byId.set(record.id, record);
         } catch {
           // A line torn by a crash mid-write; the rest of the file is intact.
@@ -33,7 +34,9 @@ export class EvidenceStore {
     let added = 0;
     for (const item of items) {
       const known = this.byId.get(item.id);
-      const merged = known ? { ...known, ...item, metrics: { ...known.metrics, ...item.metrics } } : item;
+      // Keep unavailable counts unavailable in the newest snapshot.
+      // The append-only log retains previous observations for inspection.
+      const merged = item;
       if (!known) added += 1;
       this.byId.set(item.id, merged);
       appendFileSync(this.file, `${JSON.stringify(merged)}\n`);
@@ -89,7 +92,7 @@ export function evidence(
 export function parseCount(raw: unknown): number {
   if (typeof raw === 'number') return raw;
   if (typeof raw !== 'string') return Number.NaN;
-  const match = /([\d.,]+)\s*([kmb])?/i.exec(raw.replace(/\s/g, ''));
+  const match = /(-?[\d.,]+)\s*([kmb])?/i.exec(raw.replace(/\s/g, ''));
   if (!match) return Number.NaN;
   const base = Number(match[1].replace(/,/g, ''));
   const scale = { k: 1e3, m: 1e6, b: 1e9 }[(match[2] ?? '').toLowerCase() as 'k' | 'm' | 'b'] ?? 1;

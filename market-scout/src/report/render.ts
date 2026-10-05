@@ -1,7 +1,7 @@
 import { coverageState } from '../core/quality.js';
 import { tierFor } from '../insights/ads.js';
 import type { EvidenceStore } from '../core/store.js';
-import type { Finding, Report } from './synthesize.js';
+import { preparePublicReport, type Finding, type Report } from './synthesize.js';
 
 /**
  * The report as Markdown (for docs and chat) and as one self-contained HTML
@@ -23,7 +23,7 @@ class Footnotes {
   list() {
     return [...this.order.entries()].map(([id, n]) => {
       const item = this.store.get(id)!;
-      return { n, url: item.url, source: item.source, kind: item.kind, author: item.author, title: (item.title || item.text).slice(0, 140).replace(/\s+/g, ' ') };
+      return { n, collectedAt: item.collectedAt, publishedAt: item.publishedAt, url: item.url, source: item.source, kind: item.kind, author: item.author, title: (item.title || item.text).slice(0, 140).replace(/\s+/g, ' ') };
     });
   }
 }
@@ -37,6 +37,7 @@ const stockLabel = (value: string | undefined) => {
 };
 
 export function renderMarkdown(report: Report, store: EvidenceStore): string {
+  report = preparePublicReport(report, store);
   const notes = new Footnotes(store);
   const cites = (ids: string[]) => notes.ref(ids).map((ref) => `[[${ref.n}]](${ref.url})`).join('');
   const finding = (f: Finding) => `${f.finding}${f.basis === 'inferred' ? ' *(inferred)*' : ''} ${cites(f.evidence)}${f.check?.startsWith('partly') ? ` — *check: ${f.check}*` : ''}\n  ${f.soWhat}`;
@@ -55,7 +56,7 @@ export function renderMarkdown(report: Report, store: EvidenceStore): string {
   }
 
   out.push('## Key findings');
-  if (report.quality) out.push(`Evidence reviewed: ${report.quality.included} usable / ${report.quality.collected} collected; ${report.quality.excluded} irrelevant; ${report.quality.unverified} unverified; ${report.quality.regionUnknown} with unconfirmed geography; ${report.quality.customerItems} customer sources.\n`);
+  if (report.quality) out.push(`Evidence reviewed: ${report.quality.included} usable / ${report.quality.collected} collected; ${report.quality.excluded} irrelevant; ${report.quality.unverified} unverified; ${report.quality.regionUnknown} with unconfirmed geography; ${report.quality.customerItems} potential customer sources.\n`);
   for (const item of report.executiveSummary) out.push(`- ${finding(item)}\n  **Action:** ${item.action}`);
 
   out.push('\n## Suggested tests');
@@ -66,43 +67,37 @@ export function renderMarkdown(report: Report, store: EvidenceStore): string {
     for (const item of section.findings) out.push(`- ${finding(item)}`);
   }
 
-  if (insights.keywords.clusters.length) {
-    out.push('\n## Search ideas');
-    out.push('| Cluster | Intent | Opportunity | Page to build | Keywords |\n|---|---|---|---|---|');
-    for (const cluster of insights.keywords.clusters) out.push(`| ${cluster.name} | ${cluster.intent} | ${cluster.opportunity} | ${cluster.pageIdea} (${cluster.format}) | ${cluster.keywords.slice(0, 10).join(', ')} |`);
-    if (insights.keywords.questions.length) out.push(`\n**Questions people ask:** ${insights.keywords.questions.slice(0, 40).join(' · ')}`);
+  if (insights.keywords.topKeywords.length) {
+    out.push('\n## Search suggestions');
+    out.push('Exact autocomplete suggestions. Search intent is a rule-based interpretation; search volume is not measured.');
+    for (const k of insights.keywords.topKeywords.slice(0, 40)) out.push(`- "${k.phrase}" (${k.engines.join(', ')}) ${cites(k.evidenceIds)}`);
   }
 
   if (insights.ads.winners.length) {
     out.push('\n## Advertising observations');
-    out.push('| Advertiser | Tier | Days | Variants | Hook | Angle | CTA | Ad |\n|---|---|---|---|---|---|---|---|');
+    out.push('| Advertiser | Date span | Days | Variants | CTA | Ad |\n|---|---|---|---|---|---|');
     for (const ad of insights.ads.winners.slice(0, 25)) {
-      out.push(`| ${ad.advertiser} | ${tierFor(ad.daysRunning)} | ${num(ad.daysRunning)} | ${ad.variants} | ${ad.tags?.hook ?? ''} | ${ad.tags?.angle ?? ''} | ${ad.cta} | [${(ad.headline || ad.text).slice(0, 60).replace(/[|\n]/g, ' ')}](${ad.url}) |`);
+      out.push(`| ${ad.advertiser} | ${tierFor(ad.daysRunning)} | ${num(ad.daysRunning)} | ${ad.variants} | ${ad.cta} | [${(ad.headline || ad.text).slice(0, 60).replace(/[|\n]/g, ' ')}](${ad.url}) |`);
     }
   }
 
   if (insights.social.voc.length) {
-    out.push('\n## Independent customer feedback');
+    out.push('\n## Potential customer feedback');
     for (const theme of insights.social.voc.slice(0, 20)) {
-      out.push(`- **${theme.type}: ${theme.theme}** (${theme.mentions})`);
+      out.push(`- **${theme.theme}** (${theme.mentions})`);
       for (const quote of theme.quotes.slice(0, 3)) out.push(`  - "${quote.quote}" [↗](${quote.url})`);
     }
   }
 
   if (insights.competitors.length) {
-    out.push('\n## Competitor sites');
-    out.push('AI summaries of seller claims. Check the linked source for prices and conditions.');
-    out.push('| Site | Value proposition | Pricing | Offer / trial | Ad pixels | SEO issues |\n|---|---|---|---|---|---|');
-    for (const site of insights.competitors) {
-      const p = site.positioning;
-      out.push(`| ${site.host} | ${p?.valueProposition ?? ''} | ${p ? p.priceTiers.map((t) => `${t.name} ${t.price}`).join(', ') || p.pricingModel : ''} | ${p ? [p.freeTrial, ...p.offers].filter(Boolean).join('; ') : ''} | ${site.pixels.join(', ')} | ${site.seoIssues.length} |`);
-    }
+    out.push('\n## Audited websites');
+    for (const site of insights.competitors) for (const page of site.pages.slice(0, 3)) out.push(`- ${site.host}: ${page.title} [Source page](${page.url}) ${cites([page.evidenceId])}`);
   }
 
   for (const site of insights.competitors) {
     if (site.retail?.length) {
       out.push(`\n## Product listings: ${site.host}`);
-      for (const product of site.retail) out.push(`- ${product.name}: ${product.price} ${product.currency || '(currency unknown)'}; stock ${stockLabel(product.availability)}. [Check listing](${product.url}) ${cites([product.evidenceId])}`);
+      for (const product of site.retail) out.push(`- ${product.name} (${product.priceBasis || 'listed offer'}): ${product.price} ${product.currency || '(currency unknown)'}; stock ${stockLabel(product.availability)}. [Check listing](${product.url}) ${cites([product.evidenceId])}`);
     }
     for (const terms of site.serviceTerms ?? []) out.push(`\n### ${site.host}: ${terms.type}\n${terms.text}\n[Check current policy](${terms.url})`);
   }
@@ -114,15 +109,25 @@ export function renderMarkdown(report: Report, store: EvidenceStore): string {
   out.push('\n## Coverage');
   for (const result of report.coverage) out.push(`- ${result.task.source} "${result.task.query}": ${result.ok ? `${result.count} items (${coverageState(result)})` : `${coverageState(result)} (${result.note})`}`);
 
+  if (report.marketingPlan) {
+    const plan = report.marketingPlan;
+    out.push('\n## Data availability', 'Observed: collected public pages, suggestions and available platform counts.', 'Not measured: monthly search volume, keyword difficulty, competitor traffic, sales, conversion rate, spend and ROAS.');
+    out.push(plan.evidenceWindow ? `Source collection window: ${plan.evidenceWindow.first} to ${plan.evidenceWindow.last}. Rewriting this report does not refresh the sources.` : 'No usable source collection dates available.');
+    out.push('\n## Four-week action plan');
+    for (const step of plan.roadmap) out.push(`- Week ${step.week}: ${step.action}\n  Measure: ${step.measure} ${cites(step.evidence)}`);
+    out.push('\n## Website checks');
+    for (const check of plan.auditActions) out.push(`- ${check.priority} (${check.owner}): ${check.issue}. ${check.action} [Page](${check.url}) Collected: ${check.collectedAt} ${cites([check.evidenceId])}`);
+  }
   out.push('\n## Sources');
-  for (const note of notes.list()) out.push(`${note.n}. [${note.source} ${note.kind}${note.author ? ` · ${note.author}` : ''}](${note.url}) — ${note.title}`);
+  for (const note of notes.list()) out.push(`${note.n}. [${note.source} ${note.kind}${note.author ? ` · ${note.author}` : ''}](${note.url}) — ${note.title}. Collected: ${note.collectedAt}${note.publishedAt ? `; source published: ${note.publishedAt}` : ''}`);
   return out.join('\n');
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 export function renderHtml(report: Report, store: EvidenceStore): string {
-  if (report.version !== 2) report = { ...report, headline: 'Older report: recheck its saved evidence before using conclusions.', executiveSummary: [], recommendations: [], sections: [] };
+  report = preparePublicReport(report, store);
+  if (![2, 3].includes(report.version ?? 0)) report = { ...report, headline: 'Older report: recheck its saved evidence before using conclusions.', executiveSummary: [], recommendations: [], sections: [] };
   const notes = new Footnotes(store);
   const cites = (ids: string[]) => notes.ref(ids).map((ref) => `<a class="cite" href="${esc(ref.url)}" title="${esc(ref.label)}" target="_blank" rel="noopener">${ref.n}</a>`).join('');
   const finding = (f: Finding, action?: string) => `
@@ -138,6 +143,10 @@ export function renderHtml(report: Report, store: EvidenceStore): string {
       : '';
   const { insights } = report;
 
+  const plan = report.marketingPlan;
+  const planHtml = plan ? `<section id="plan"><h2>Your four-week action plan</h2><p class="muted">Suggested work to test, not a forecast. Use your own results to decide what to continue.</p><ol class="next-steps">${plan.roadmap.map((s) => `<li><strong>Week ${s.week}: ${esc(s.action)}</strong><p class="muted">${esc(s.measure)}</p>${cites(s.evidence)}</li>`).join('')}</ol></section><section id="audit"><h2>${report.brief.ownWebsite ? 'Checks for your website' : 'Website comparison checks'}</h2><p class="muted">${report.brief.ownWebsite ? 'Priorities suggest review order; they are not a ranking or traffic forecast.' : 'Add your website under More options to receive fixes for your own pages. These observations describe the sampled comparison sites.'}</p>${plan.auditActions.length ? `<div class="scroll"><table><thead><tr><th>Review order</th><th>Observed check</th><th>Suggested action</th><th>Source</th></tr></thead><tbody>${plan.auditActions.map((a) => `<tr><td>${esc(a.priority)}</td><td>${esc(a.issue)}</td><td>${esc(a.action)}</td><td><a href="${esc(a.url)}" target="_blank" rel="noopener">View page</a>${cites([a.evidenceId])}<br><span class="small muted">${esc(a.collectedAt)}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No applicable checks found in the collected pages. This is not a complete site audit or confirmation that the website has no issues.</p>'}</section>` : '';
+  const dataHtml = `<section id="data"><h2>What this report can measure</h2><p><strong>Observed:</strong> collected pages, search suggestions and available public platform counts.</p><p><strong>Suggested:</strong> audience, search intent and actions to test.</p><p><strong>Not measured:</strong> monthly search volume, keyword difficulty, competitor traffic, sales, conversion rate, spend and ROAS.</p><p class="small muted">${plan?.evidenceWindow ? `Sources collected from ${esc(plan.evidenceWindow.first)} to ${esc(plan.evidenceWindow.last)}. ` : ''}Report generated: ${esc(report.generatedAt)}. Regenerating a report does not refresh its source data. Public counts may be rounded by the platform.</p></section>`;
+
   const body = `
 <header>
   <p class="eyebrow">${esc(report.brief.niche)} · ${esc(report.brief.country)} · ${esc(report.generatedAt.slice(0, 10))}</p>
@@ -149,36 +158,34 @@ ${report.brief.discovery ? `<section id="market"><h2>Your market</h2><p><strong>
 
 <section id="findings"><h2>Key findings</h2><ul class="findings">${report.executiveSummary.map((f) => finding(f, f.action)).join('')}</ul></section>
 
-<section id="steps"><h2>What to test next</h2><p class="muted">These are experiments, not predicted results. Choose one, define a budget or time limit, and track enquiries or orders.</p><ol class="next-steps">${report.recommendations.map((r) => `<li><strong>${esc(r.action)}</strong><span class="tag">${esc(r.channel)}</span><p class="muted">${esc(r.hypothesis)}</p><span class="small">${cites(r.evidence)}</span></li>`).join('')}</ol></section>
+${dataHtml}${planHtml}
+<details class="detail" id="steps"><summary>More suggested tests</summary><h2>What to test next</h2><p class="muted">These are experiments, not predicted results. Choose one, define a budget or time limit, and track enquiries or orders.</p><ol class="next-steps">${report.recommendations.map((r) => `<li><strong>${esc(r.action)}</strong><span class="tag">${esc(r.channel)}</span><p class="muted">${esc(r.hypothesis)}</p><span class="small">${cites(r.evidence)}</span></li>`).join('')}</ol></details>
 
 ${report.sections.map((s) => `<section><h2>${esc(s.title)}</h2><ul class="findings">${s.findings.map((f) => finding(f)).join('')}</ul></section>`).join('')}
 
-${insights.keywords.clusters.length ? `<section><h2>Search ideas</h2><p class="muted">${insights.keywords.total} phrases from search autocomplete. Opportunity ranks clusters against each other by engine agreement, suggestion rank and intent; it is not search volume.</p><div class="scroll"><table>
-  <thead><tr><th>Cluster</th><th>Intent</th><th title="Relative suggestion score; not monthly searches">Relative score</th><th>Page to build</th><th>Keywords</th></tr></thead>
-  <tbody>${insights.keywords.clusters.map((c) => `<tr><td><strong>${esc(c.name)}</strong></td><td>${esc(c.intent)}</td><td class="num">${c.opportunity}</td><td>${esc(c.pageIdea)} <span class="muted">(${esc(c.format)})</span></td><td class="small">${esc(c.keywords.slice(0, 12).join(', '))}</td></tr>`).join('')}</tbody>
-</table></div>${insights.keywords.questions.length ? `<h3>Questions people ask</h3><p class="chips">${insights.keywords.questions.slice(0, 40).map((q) => `<span>${esc(q)}</span>`).join('')}</p>` : ''}</section>` : ''}
+${insights.keywords.topKeywords.length ? `<section><h2>Search suggestions</h2><p class="muted">Exact phrases returned by autocomplete. Intent is a rule-based interpretation, not verified buyer demand. Search volume is not measured.</p><div class="scroll"><table><thead><tr><th>Suggestion</th><th>Suggested intent</th><th>Engine</th><th>Source</th></tr></thead><tbody>${insights.keywords.topKeywords.slice(0, 40).map((k) => `<tr><td>${esc(k.phrase)}</td><td>${esc(k.intent)}</td><td>${esc(k.engines.join(', '))}</td><td>${cites(k.evidenceIds)}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
 
-${insights.ads.winners.length ? `<section><h2>Public advertising examples</h2><p class="muted">${insights.ads.total} ads from ${insights.ads.advertisers.length} advertisers. Ranked by days running × variants × placements, within each advertiser; no library shows commercial spend.</p>
+${insights.ads.winners.length ? `<section><h2>Public advertising examples</h2><p class="muted">${insights.ads.total} ads from ${insights.ads.advertisers.length} advertisers. Ordered by observed date span × variants × placements, within each advertiser; no library shows commercial spend.</p>
 <div class="grid">${bars('Hooks', insights.ads.patterns.hook)}${bars('Awareness stage', insights.ads.patterns.awareness)}${bars('Offers', insights.ads.patterns.offer)}${bars('CTAs', insights.ads.patterns.cta)}</div>
 <div class="cards">${insights.ads.winners.slice(0, 24).map((ad) => `<article class="card"><p class="eyebrow">${esc(ad.advertiser)} · ${esc(ad.source)}</p><p class="tier tier-${esc(tierFor(ad.daysRunning).replace(/\s/g, '-'))}">${esc(tierFor(ad.daysRunning))} · ${num(ad.daysRunning)} days · ${ad.variants} variant${ad.variants === 1 ? '' : 's'}</p>${ad.headline ? `<h4>${esc(ad.headline)}</h4>` : ''}<p class="copy">${esc(ad.text.slice(0, 320))}</p>${ad.tags ? `<p class="small muted">Hook: ${esc(ad.tags.hook)} · ${esc(ad.tags.awareness)}<br>Angle: ${esc(ad.tags.angle)}</p>` : ''}<a href="${esc(ad.url)}" target="_blank" rel="noopener">View ad${ad.cta ? ` · ${esc(ad.cta)}` : ''} →</a></article>`).join('')}</div></section>` : ''}
 
 ${Object.keys(insights.social.topByPlatform).length ? `<section><h2>Content examples</h2>${Object.entries(insights.social.topByPlatform).map(([platform, posts]) => `<h3>${esc(platform)}</h3><div class="scroll"><table><thead><tr><th>Post</th><th>Engagement</th><th>Comparison</th></tr></thead><tbody>${posts.slice(0, 8).map((p) => `<tr><td><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.text.slice(0, 140) || p.url)}</a><br><span class="muted">${esc(p.author)}</span></td><td class="num">${platform === 'reddit' ? `${num(p.engagementRate)} pts` : Number.isFinite(p.engagementRate) ? `${(p.engagementRate * 100).toFixed(2)}%` : '—'}</td><td class="num">${Number.isFinite(p.outlier) ? `${p.outlier}× (${esc(p.baseline || "sample baseline unknown")})` : '—'}</td></tr>`).join('')}</tbody></table></div>`).join('')}</section>` : ''}
 
-${insights.social.voc.length ? `<section><h2>Independent customer feedback</h2><div class="cards">${insights.social.voc.slice(0, 18).map((t) => `<article class="card"><p class="eyebrow">${esc(t.type)} · ${t.mentions} mention${t.mentions === 1 ? '' : 's'}</p><h4>${esc(t.theme)}</h4>${t.quotes.slice(0, 3).map((q) => `<blockquote><a href="${esc(q.url)}" target="_blank" rel="noopener">“${esc(q.quote)}”</a></blockquote>`).join('')}</article>`).join('')}</div></section>` : ''}
+${insights.social.voc.length ? `<section><h2>Potential customer feedback</h2><div class="cards">${insights.social.voc.slice(0, 18).map((t) => `<article class="card"><p class="eyebrow">${esc(t.type)} · ${t.mentions} mention${t.mentions === 1 ? '' : 's'}</p><h4>${esc(t.theme)}</h4>${t.quotes.slice(0, 3).map((q) => `<blockquote><a href="${esc(q.url)}" target="_blank" rel="noopener">“${esc(q.quote)}”</a></blockquote>`).join('')}</article>`).join('')}</div></section>` : ''}
 
-${insights.competitors.length ? `<section><h2>Competitor sites</h2><p class="muted">AI summaries of seller claims. Verify prices, offers and conditions in the original pages. SEO checks apply only to collected pages.</p><div class="scroll"><table><thead><tr><th>Site</th><th>Positioning</th><th>Pricing &amp; offers</th><th>Installed tracking</th><th>SEO issues</th></tr></thead><tbody>${insights.competitors.map((s) => `<tr><td><strong>${esc(s.host)}</strong><br><span class="small muted">${esc(s.stack.join(', '))}</span></td><td>${esc(s.positioning?.valueProposition ?? '')}<br><span class="small muted">${esc(s.positioning?.differentiators.join(' · ') ?? '')}</span></td><td class="small">${esc(s.positioning ? [s.positioning.priceTiers.map((t) => `${t.name} ${t.price}${t.period ? `/${t.period}` : ''}`).join(', ') || s.positioning.pricingModel, s.positioning.freeTrial, ...s.positioning.offers].filter(Boolean).join(' · ') : '')}</td><td class="small">${esc(s.pixels.join(', ') || 'none found')}</td><td class="small">${s.seoIssues.slice(0, 6).map((i) => esc(i.issue)).join('<br>')}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+${insights.competitors.length ? `<section><h2>Audited websites</h2><p class="muted">Titles and descriptions below are copied from collected pages. Seller statements do not independently establish product quality or business performance.</p>${insights.competitors.map((site) => `<h3>${esc(site.host)}</h3><ul>${site.pages.slice(0, 3).map((p) => `<li><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.url)}</a>${cites([p.evidenceId])}<p class="small muted">${esc(store.get(p.evidenceId)?.attributes.metaDescription || 'No page description collected.')}</p></li>`).join('')}</ul><p class="small muted">Installed tracking: ${esc(site.pixels.join(', ') || 'none detected in this crawl')}. This does not prove active advertising.</p>`).join('')}</section>` : ''}
 
-${insights.competitors.some((site) => site.retail?.length || site.serviceTerms?.length) ? `<section><h2>Products and service information</h2><p class="muted">Prices are individual listings, not a market average. Unknown currency or stock stays unknown. Return and delivery conditions are linked below.</p>${insights.competitors.map((site) => `<h3>${esc(site.host)}</h3>${site.retail?.length ? `<div class="scroll"><table><thead><tr><th>Product</th><th>Listed price</th><th>Stock</th><th>Source</th></tr></thead><tbody>${site.retail.slice(0, 15).map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.price)} ${esc(p.currency || 'currency not stated')}</td><td>${esc(stockLabel(p.availability))}</td><td><a href="${esc(p.url)}" target="_blank" rel="noopener">Check listing</a>${cites([p.evidenceId])}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No structured product prices collected.</p>'}${(site.serviceTerms ?? []).map((t) => `<details><summary>${esc(t.type)} - view source terms</summary><p class="terms">${esc(t.text)}</p><a href="${esc(t.url)}" target="_blank" rel="noopener">Check current policy</a></details>`).join('')}`).join('')}</section>` : ''}
+${insights.competitors.some((site) => site.retail?.length || site.serviceTerms?.length) ? `<section><h2>Products and service information</h2><p class="muted">Prices are individual listings, not a market average. Unknown currency or stock stays unknown. Return and delivery conditions are linked below.</p>${insights.competitors.map((site) => `<h3>${esc(site.host)}</h3>${site.retail?.length ? `<div class="scroll"><table><thead><tr><th>Product</th><th>Listed price</th><th>Stock</th><th>Source</th></tr></thead><tbody>${site.retail.slice(0, 15).map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.priceBasis || 'listed offer')}: ${esc(p.price)} ${esc(p.currency || 'currency not stated')}</td><td>${esc(stockLabel(p.availability))}</td><td><a href="${esc(p.url)}" target="_blank" rel="noopener">Check listing</a>${cites([p.evidenceId])}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No structured product prices collected.</p>'}${(site.serviceTerms ?? []).map((t) => `<details><summary>${esc(t.type)} - view source terms</summary><p class="terms">${esc(t.text)}</p><a href="${esc(t.url)}" target="_blank" rel="noopener">Check current policy</a></details>`).join('')}`).join('')}</section>` : ''}
 
 ${report.caveats.length ? `<section><h2>Caveats</h2><ul>${report.caveats.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></section>` : ''}
 
 ${report.quality ? `<section><h2>Items set aside</h2><p class="muted">These items did not contribute to the findings or scores.</p><ul class="small">${report.quality.reviews.filter((r) => r.status !== 'included').slice(0, 100).map((r) => `<li>${esc(store.get(r.id)?.author || store.get(r.id)?.title || r.id)} - ${esc(r.reason)}</li>`).join('')}</ul></section>` : ''}
 <section><h2>Research coverage</h2><ul class="small">${report.coverage.map((r) => `<li>${esc(r.task.source)} “${esc(r.task.query)}”: ${esc(coverageState(r))} · ${r.count} items${r.note ? ` — ${esc(r.note)}` : ''}</li>`).join('')}</ul><p class="small muted">${esc(report.cost)}</p></section>
 
-<section><h2>Sources</h2><ol class="sources small">${notes.list().map((n) => `<li value="${n.n}"><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.source)} ${esc(n.kind)}${n.author ? ` · ${esc(n.author)}` : ''}</a> — ${esc(n.title)}</li>`).join('')}</ol></section>`;
+<section><h2>Sources</h2><ol class="sources small">${notes.list().map((n) => `<li value="${n.n}"><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.source)} ${esc(n.kind)}${n.author ? ` · ${esc(n.author)}` : ''}</a> — ${esc(n.title)}<br><span class="muted">Collected: ${esc(n.collectedAt)}${n.publishedAt ? ` ? Source published: ${esc(n.publishedAt)}` : ''}</span></li>`).join('')}</ol></section>`;
 
   const quality = report.quality;
-  const overview = quality ? `<section id="quality" class="quality"><h2>How strong is the evidence?</h2><div class="stats"><div><strong>${quality.included}</strong><span>usable items</span></div><div><strong>${quality.excluded + quality.unverified}</strong><span>items set aside</span></div><div><strong>${quality.regionUnknown}</strong><span>location unconfirmed</span></div><div><strong>${quality.customerItems}</strong><span>customer sources</span></div></div><p>${report.status === 'partial' ? 'Limited report: there are not enough source records for key findings.' : 'Key findings describe collected measurements and source records. They do not establish market size or guarantee results.'}</p>${!quality.customerItems ? '<p class="warn">No independent customer feedback was collected. Customer needs still need validation.</p>' : ''}</section>` : '<p class="legacy">This is an older report without the new evidence checks. Recheck its saved evidence before acting.</p>';
+  const overview = quality ? `<section id="quality" class="quality"><h2>How strong is the evidence?</h2><div class="stats"><div><strong>${quality.included}</strong><span>usable items</span></div><div><strong>${quality.excluded + quality.unverified}</strong><span>items set aside</span></div><div><strong>${quality.regionUnknown}</strong><span>location unconfirmed</span></div><div><strong>${quality.customerItems}</strong><span>potential customer sources</span></div></div><p>${report.status === 'partial' ? 'Limited report: there are not enough source records for key findings.' : 'Key findings describe collected measurements and source records. They do not establish market size or guarantee results.'}</p>${!quality.customerItems ? '<p class="warn">No potential customer feedback was collected. Customer needs still need validation.</p>' : ''}</section>` : '<p class="legacy">This is an older report without the new evidence checks. Recheck its saved evidence before acting.</p>';
   const simplified = body.replace(/<section><h2>([^<]+)<\/h2>([\s\S]*?)<\/section>/g, (_match, title, contents) => `<details class="detail"><summary>${title}</summary>${contents}</details>`);
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -205,5 +212,5 @@ header{padding-bottom:24px;border-bottom:1px solid var(--line)}h1{font-size:2.1r
 .bar{display:grid;grid-template-columns:1fr 90px 40px;align-items:center;gap:8px;font-size:.85rem;margin:4px 0}.bar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar i{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--bar) var(--w),var(--line) var(--w))}.bar b{font-weight:500;text-align:right}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chips span{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:.85rem;background:var(--card)}
 a{color:var(--accent)}.sources li{margin:2px 0}
-</style></head><body><main><nav class="report-nav"><a href="/">Back to your research</a><a href="#quality">Evidence quality</a><a href="#findings">Key findings</a><a href="#steps">Next steps</a><a href="report.md" download>Download report</a></nav>${simplified.replace('</header>', '</header>' + overview)}</main></body></html>`;
+</style></head><body><main><nav class="report-nav"><a href="/">Back to your research</a><a href="#quality">Evidence quality</a><a href="#findings">Key findings</a><a href="#plan">Action plan</a><a href="report.md" download>Download report</a></nav>${simplified.replace('</header>', '</header>' + overview)}</main></body></html>`;
 }

@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { closeBrowser } from './browser/session.js';
 import { planFollowUp, planTasks } from './core/planner.js';
 import { reviewEvidence } from './core/quality.js';
-import { discoverMarket } from './core/discovery.js';
+import { candidateUrl, discoverMarket } from './core/discovery.js';
 import { BlockedError } from './core/politeness.js';
 import { EvidenceStore } from './core/store.js';
 import type { Brief, Task, TaskResult } from './core/types.js';
@@ -45,6 +45,11 @@ export interface RunOutput {
 }
 
 export async function runResearch(brief: Brief, options: RunOptions = {}): Promise<RunOutput> {
+  if (brief.ownWebsite) {
+    const ownWebsite = candidateUrl(brief.ownWebsite);
+    if (!ownWebsite) throw new Error('Your website must be a public HTTPS address.');
+    brief = { ...brief, ownWebsite, websites: [...new Set([...brief.websites, ownWebsite])] };
+  }
   const log = options.log ?? ((line: string) => console.log(line));
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const slug = (brief.brand || brief.niche || 'research').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
@@ -90,6 +95,10 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
       }
       const maxTasks = options.maxTasks ?? 14;
       const first = options.tasks ?? (await planTasks(brief, meter, maxTasks));
+      if (!options.tasks && brief.ownWebsite && !first.some((t) => t.source === 'website' && t.query === brief.ownWebsite)) {
+        first.unshift({ source: 'website', query: brief.ownWebsite, limit: 6, why: 'Audit your own website for page-specific improvements.' });
+        if (first.length > maxTasks) first.pop();
+      }
       await runTasks(first);
       const followUps = options.tasks ? [] : await planFollowUp(brief, coverage, reviewEvidence(store.all(), brief).evidence, meter, options.followUps ?? 6);
       if (followUps.length && Date.now() < deadline) await runTasks(followUps);
@@ -131,7 +140,7 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
       coverage: runCoverage,
     };
   });
-  const report: Report = { ...draft, quality, version: 2, status: draft.sections.length && runCoverage.some((r) => r.ok && r.count > 0) ? 'ready' : 'partial', cost: meter.summary() };
+  const report: Report = { ...draft, quality, version: 3, status: draft.sections.length && runCoverage.some((r) => r.ok && r.count > 0) ? 'ready' : 'partial', cost: meter.summary() };
 
   const files = {
     json: store.writeJson('report.json', report),
