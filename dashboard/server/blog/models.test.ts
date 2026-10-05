@@ -46,10 +46,11 @@ test('Reasoning-enabled Flash-Lite has room for both reasoning and the complete 
   t.mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
     const request = JSON.parse(init.body as string);
     assert.equal(request.generationConfig.maxOutputTokens, 65_536);
-    assert.equal(request.generationConfig.thinkingConfig.thinkingLevel, 'HIGH');
+    assert.equal(request.generationConfig.thinkingConfig.thinkingLevel, request.generationConfig.responseJsonSchema.properties.edits ? 'MEDIUM' : 'HIGH');
     return geminiReply({ approved: true });
   });
   assert.deepEqual(await createBlogModel({ ...gemini, model: 'gemini-3.1-flash-lite' }).ask('system', 'prompt', schema, 0), { approved: true });
+  await createBlogModel({ ...gemini, model: 'gemini-3.1-flash-lite' }).ask('system', 'prompt', { type: 'object', properties: { edits: { type: 'array' } } }, 0);
 });
 
 test('Blogs always use Gemini, including installs with a legacy Celeris provider setting', (t) => {

@@ -32,7 +32,7 @@ async function askGemini(config: WriterConfig, system: string, prompt: string, s
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         temperature, maxOutputTokens, responseMimeType: 'application/json', responseJsonSchema: schema,
-        ...(config.model.includes('flash-lite') ? { thinkingConfig: { thinkingLevel: 'HIGH' } } : {}),
+        ...(config.model.includes('flash-lite') ? { thinkingConfig: { thinkingLevel: fields?.edits ? 'MEDIUM' : 'HIGH' } } : {}),
       },
     }),
       signal,
