@@ -63,7 +63,10 @@ export function BlogView() {
       ) : report.writing ? (
         <div className="banner">Writing a blog — researching, drafting with Gemini, and fact-checking before publishing. This takes a few minutes.</div>
       ) : thisWeekAttempt?.lastError ? (
-        <div className="banner banner-bad">{thisWeekAttempt.kind === 'extra' ? 'Extra blog' : 'Weekly brief'} failed ({thisWeekAttempt.attempts} tries this week): {thisWeekAttempt.lastError}</div>
+        <div className="banner banner-bad">
+          The previous {thisWeekAttempt.kind === 'extra' ? 'extra blog' : 'weekly brief'} attempt failed ({thisWeekAttempt.attempts} tries this week).
+          <details><summary>View failure details</summary>{thisWeekAttempt.lastError}</details>
+        </div>
       ) : (
         <div className="banner banner-ok">{thisWeek ? 'This week’s brief is published.' : report.enabled ? 'This week’s brief goes up from 6am Monday.' : 'Ready to write a blog.'} Writer: Gemini ({report.model}).</div>
       )}
