@@ -204,7 +204,7 @@ const GROUPS: GroupSpec[] = [
     keys: [
       { key: 'BLOG_WEEKLY', label: 'Publish weekly', help: 'On unless set to Off. Off stops scheduled posts; manual writing stays available.', kind: 'boolean' },
       { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'From Google AI Studio. Required for all blog writing. Stored on the server.', kind: 'secret' },
-      { key: 'BLOG_GEMINI_MODEL', label: 'Gemini blog model', help: 'Defaults to gemini-3.8-flash. Used for all blog drafting, fact-checking and revisions.', kind: 'text' },
+      { key: 'BLOG_GEMINI_MODEL', label: 'Gemini blog model', help: 'Defaults to gemini-3.5-flash. Used for all blog drafting, fact-checking and revisions.', kind: 'text' },
     ],
   },
   {

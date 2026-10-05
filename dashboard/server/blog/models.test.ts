@@ -5,7 +5,7 @@ import { createBlogModel, writerConfig, type WriterConfig } from './models.js';
 import { applyCorrections, writePost, type Article } from './writer.js';
 import type { Brief } from './signals.js';
 
-const gemini: WriterConfig = { provider: 'gemini', apiKey: 'test-gemini-key', model: 'gemini-3.8-flash' };
+const gemini: WriterConfig = { provider: 'gemini', apiKey: 'test-gemini-key', model: 'gemini-3.5-flash' };
 const schema = { type: 'object', properties: { approved: { type: 'boolean' } }, required: ['approved'] };
 const geminiReply = (value: unknown, finishReason = 'STOP') => Response.json({ candidates: [{ finishReason, content: { parts: [{ text: 'not JSON: private reasoning', thought: true }, { text: JSON.stringify(value) }] } }] });
 

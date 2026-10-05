@@ -11,7 +11,7 @@ export function writerConfig(): WriterConfig | null {
   const setting = (key: string) => (process.env[key] ?? env[key] ?? '').trim();
   const geminiKey = setting('GEMINI_API_KEY');
   return geminiKey
-    ? { provider: 'gemini', apiKey: geminiKey, model: setting('BLOG_GEMINI_MODEL') || 'gemini-3.8-flash' }
+    ? { provider: 'gemini', apiKey: geminiKey, model: setting('BLOG_GEMINI_MODEL') || 'gemini-3.5-flash' }
     : null;
 }
 
