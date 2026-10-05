@@ -78,7 +78,8 @@ export async function discoverMarket(brief: Brief, store: EvidenceStore, meter: 
   const seed = String(proposal.niche || brief.product).toLowerCase().replace(/nepalese/g, 'nepali').replace(/\b(?:traditional|in australia|australia|australian|united states|united kingdom|new zealand)\b/g, '').trim().split(/\s+/).slice(0, 3).join(' ');
   const expanded = { ...brief, niche: brief.niche || seed, audience: brief.audience || String(proposal.audience || '').trim().slice(0, 600) };
   const guesses = searched.length ? [] : (Array.isArray(proposal.candidates) ? proposal.candidates : []).filter((c) => c && typeof c.website === 'string').map((c) => candidateUrl(c.website)).filter((u): u is string => Boolean(u));
-  const candidates = [...new Set([...known, ...guesses])].filter((u) => !brief.websites.some((v) => candidateUrl(v) === u)).slice(0, 4);
+  const provided = brief.websites.map(candidateUrl).filter((u): u is string => Boolean(u) && u !== candidateUrl(brief.ownWebsite || ''));
+  const candidates = [...new Set([...provided, ...known, ...guesses])].filter((u) => u !== candidateUrl(brief.ownWebsite || '')).slice(0, 4);
   const checked = await mapLimit(candidates, 2, async (url) => {
     log(`Checking competitor website: ${url}`);
     try {
