@@ -31,6 +31,7 @@ test('browser result wrappers resolve only public websites and malformed destina
 test('browser discovery queries use the product and actual market without guessing business identities', () => {
   assert.deepEqual(discoveryQueries({ ...brief, niche: '', product: 'Nepali clothing, including topi' }), ['Nepali clothing Australia shop', 'Nepali clothing Australia retailers']);
   assert.deepEqual(discoveryQueries({ ...brief, country: 'GB' }), ['Nepali clothing United Kingdom shop', 'Nepali clothing United Kingdom retailers']);
+  assert.deepEqual(discoveryQueries({ ...brief, niche: '', product: 'Traditional Nepalese clothing in Australia, including topi' }), ['Traditional Nepalese clothing Australia shop', 'Traditional Nepalese clothing Australia retailers']);
 });
 
 test('opaque Google links require visible public citations and unrelated result text is excluded', () => {

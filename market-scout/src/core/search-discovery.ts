@@ -38,7 +38,8 @@ export function searchLeads(links: unknown, product = ''): string[] {
 export function discoveryQueries(brief: Brief): string[] {
   const countries: Record<string, string> = { AU: 'Australia', US: 'United States', GB: 'United Kingdom', NZ: 'New Zealand', CA: 'Canada', IN: 'India', SG: 'Singapore', DE: 'Germany', FR: 'France' };
   const country = countries[brief.country] || brief.country;
-  const product = (brief.niche || brief.product.split(/[,;\n]|\bincluding\b/i)[0]).trim().slice(0, 180);
+  const countryPattern = country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const product = (brief.niche || brief.product.split(/[,;\n]|\bincluding\b/i)[0]).replace(new RegExp(`\\b(?:in\\s+|for\\s+)?${countryPattern}\\b`, 'ig'), '').replace(/\s+/g, ' ').trim().slice(0, 180);
   return [`${product} ${country} shop`, `${product} ${country} retailers`];
 }
 

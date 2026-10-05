@@ -10,7 +10,7 @@ type Proposal = { niche: string; audience: string };
 export type CandidateCheck = { relevant: boolean; name: string; productQuote: string; marketQuote: string };
 
 export function shortSeed(value: string): string {
-  return value.toLowerCase().replace(/nepalese/g, 'nepali').replace(/\b(?:traditional|in australia|australia|australian|united states|united kingdom|new zealand)\b/g, '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').trim().split(/\s+/).slice(0, 3).join(' ');
+  return value.toLowerCase().split(/[,;\n]|\bincluding\b/i)[0].replace(/nepalese/g, 'nepali').replace(/\b(?:traditional|in australia|australia|australian|united states|united kingdom|new zealand)\b/g, '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').trim().split(/\s+/).slice(0, 3).join(' ');
 }
 
 export function candidateUrl(raw: string): string | undefined {

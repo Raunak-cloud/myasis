@@ -31,8 +31,9 @@ test('automatic website candidates are public HTTPS roots, without credentials o
 });
 
 test('suggested search seeds remove punctuation-only words and cap category length', () => {
-  assert.equal(shortSeed('Traditional Nepalese clothing in Australia, including Dhaka topi'), 'nepali clothing including');
+  assert.equal(shortSeed('Traditional Nepalese clothing in Australia, including Dhaka topi'), 'nepali clothing');
   assert.equal(shortSeed('Nepali clothing ,'), 'nepali clothing');
+  assert.equal(shortSeed('nepali clothing including'), 'nepali clothing');
 });
 
 test('literal product quotes can establish the target market despite a failed market-quote extraction', () => {
