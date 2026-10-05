@@ -109,13 +109,10 @@ Extra posts receive their own addresses and appear immediately at `/blog`,
 in the RSS feed and in the sitemap. **Rewrite this week's** updates the weekly
 brief at its existing address; it does not replace an extra post.
 
-Under Config → Weekly blog, `BLOG_PROVIDER=auto` (the default) uses Celeris
-Magnus first. Requests are capped at its serving endpoint's 16,384-token
-output limit, including reasoning. If it reaches that limit, a configured
-`GEMINI_API_KEY` switches that call and the remaining checks/revisions to
-Gemini. With only a Gemini key, Auto uses Gemini from the start. Select
-`gemini` to always use Gemini or `celeris` to disable fallback.
-`BLOG_GEMINI_MODEL` defaults to `gemini-3.8-flash`.
+Gemini handles all blog drafting, fact-checking and revisions. Add
+`GEMINI_API_KEY` under Config → Weekly blog. `BLOG_GEMINI_MODEL` defaults to
+`gemini-3.8-flash`. Blog writing requires a Gemini key; the retired
+`BLOG_PROVIDER` setting is ignored on older installs.
 
 Apply `/api/db/migrate` as a signed-in admin after installing this update.
 The migration preserves existing posts as weekly briefs and allows separate

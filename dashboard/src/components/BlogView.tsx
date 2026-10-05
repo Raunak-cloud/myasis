@@ -12,7 +12,6 @@ interface BlogReport {
   enabled: boolean;
   configured: boolean;
   model: string | null;
-  fallbackModel: string | null;
   currentWeek: string;
   writing: boolean;
   posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
@@ -60,13 +59,13 @@ export function BlogView() {
   return (
     <div className="admin-stack">
       {!report.configured ? (
-        <div className="banner banner-bad">Configure a blog provider and API key under Config → Weekly blog.</div>
+        <div className="banner banner-bad">Add a Gemini API key under Config → Weekly blog.</div>
       ) : report.writing ? (
         <div className="banner">Writing a blog — gathering searches and sources, drafting, fact-checking, then publishing. This takes a few minutes.</div>
       ) : thisWeekAttempt?.lastError ? (
         <div className="banner banner-bad">{thisWeekAttempt.kind === 'extra' ? 'Extra blog' : 'Weekly brief'} failed ({thisWeekAttempt.attempts} tries this week): {thisWeekAttempt.lastError}</div>
       ) : (
-        <div className="banner banner-ok">{thisWeek ? 'This week’s brief is published.' : report.enabled ? 'This week’s brief goes up from 6am Monday.' : 'Ready to write a blog.'} Model: {report.model}.{report.fallbackModel && ` Gemini fallback: ${report.fallbackModel}.`}</div>
+        <div className="banner banner-ok">{thisWeek ? 'This week’s brief is published.' : report.enabled ? 'This week’s brief goes up from 6am Monday.' : 'Ready to write a blog.'} Writer: Gemini ({report.model}).</div>
       )}
       {!report.enabled && <div className="banner">Weekly publishing is off (Config → Weekly blog). You can still write posts here.</div>}
       {error && <div className="banner banner-bad">{error}</div>}

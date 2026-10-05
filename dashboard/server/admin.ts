@@ -491,7 +491,7 @@ export async function handleAdminRequest(
       if (body?.additional === true && body?.replace === true) return send({ error: 'Choose either rewrite or add another blog.' }, 400);
       const report = await blogReport();
       if (isBlogWriting()) return send({ error: 'A post is already being written.' }, 409);
-      if (!report.configured) return send({ error: 'Configure a blog provider and API key under Config → Weekly blog first.' }, 400);
+      if (!report.configured) return send({ error: 'Add a Gemini API key under Config → Weekly blog first.' }, 400);
       if (!body?.additional && !body?.replace && report.posts.some((post) => post.week === report.currentWeek && post.kind === 'weekly')) {
         return send({ error: 'This week already has a brief. Use Add another blog for a separate post.' }, 409);
       }

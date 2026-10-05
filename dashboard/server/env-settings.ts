@@ -94,7 +94,7 @@ const GROUPS: GroupSpec[] = [
     key: 'models',
     title: 'Models',
     keys: [
-      { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and structured model calls. Blogs can fall back to Gemini.', kind: 'secret' },
+      { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and job-application model calls.', kind: 'secret' },
       { key: 'CELERIS_BASE_URL', label: 'Celeris base URL', help: 'Root only; the model id is added per request.', kind: 'url' },
       { key: 'CELERIS_TIMEOUT_MS', label: 'Celeris timeout (ms)', help: 'How long one model call may take before it is abandoned.', kind: 'number' },
       { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },
@@ -200,12 +200,11 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'blog',
     title: 'Weekly blog',
-    note: 'Every Monday from 6am a job-market brief is researched, fact-checked, and published at /blog. Add another blog in the Blog tab publishes an extra post through the same process.',
+    note: 'Gemini drafts, fact-checks and revises every blog. Every Monday from 6am a researched brief is published at /blog. Add another blog publishes an extra post through the same process.',
     keys: [
       { key: 'BLOG_WEEKLY', label: 'Publish weekly', help: 'On unless set to Off. Off stops scheduled posts; manual writing stays available.', kind: 'boolean' },
-      { key: 'BLOG_PROVIDER', label: 'Blog writer', help: 'Auto uses Celeris with its 16,384-token ceiling and switches to Gemini if it runs out of output tokens. If only a Gemini key is set, Auto uses Gemini.', kind: 'choice', options: [{ value: 'auto', label: 'Auto: Celeris, then Gemini if needed' }, { value: 'celeris', label: 'Celeris only' }, { value: 'gemini', label: 'Gemini only' }] },
-      { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'From Google AI Studio. Enables the blog fallback or Gemini-only writing. Stored on the server.', kind: 'secret' },
-      { key: 'BLOG_GEMINI_MODEL', label: 'Gemini blog model', help: 'Defaults to gemini-3.8-flash. Used for drafting, fact-checking and revisions after switching to Gemini.', kind: 'text' },
+      { key: 'GEMINI_API_KEY', label: 'Gemini API key', help: 'From Google AI Studio. Required for all blog writing. Stored on the server.', kind: 'secret' },
+      { key: 'BLOG_GEMINI_MODEL', label: 'Gemini blog model', help: 'Defaults to gemini-3.8-flash. Used for all blog drafting, fact-checking and revisions.', kind: 'text' },
     ],
   },
   {
@@ -267,6 +266,8 @@ const KNOWN_PREFIX = /^(sk_live_|sk_test_|rk_live_|rk_test_|whsec_|pk_live_|pk_t
 
 const KNOWN = new Map<string, Spec>();
 for (const group of GROUPS) for (const spec of group.keys) KNOWN.set(spec.key, spec);
+// Older installs can still carry this setting; blog writing now uses Gemini only.
+const RETIRED = new Set(['BLOG_PROVIDER']);
 
 /** A name that looks like it holds a credential is treated as one even when the catalogue has never heard of it. */
 const SECRET_NAME = /(SECRET|API_KEY|TOKEN|PASSWORD|PASSWD|PRIVATE|_URL$)/;
@@ -379,12 +380,12 @@ export function envReport(): EnvReport {
 
   // Anything in the file the catalogue does not describe still has to be reachable.
   const other = Object.keys(env)
-    .filter((key) => !KNOWN.has(key) && !PER_ACCOUNT.has(key))
+    .filter((key) => !KNOWN.has(key) && !PER_ACCOUNT.has(key) && !RETIRED.has(key))
     .sort()
     .map((key) => entryFor(key, undefined, env));
   if (other.length) groups.push({ key: 'other', title: 'Other', note: 'In the file but not described here.', entries: other });
 
-  const hidden = Object.keys(env).filter((key) => PER_ACCOUNT.has(key)).length;
+  const hidden = Object.keys(env).filter((key) => PER_ACCOUNT.has(key) || RETIRED.has(key)).length;
   return { groups, hidden, restartPending, file: resolve(BOT_DIR, '.env') };
 }
 

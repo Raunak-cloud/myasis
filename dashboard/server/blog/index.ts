@@ -129,7 +129,7 @@ export function publishWeek(week: string, options: { replace?: boolean; addition
   if (options.replace && options.additional) return Promise.resolve({ ok: false, week, error: 'Choose either rewrite or add another blog.' });
   writing = (async (): Promise<PublishResult> => {
     const config = writerConfig();
-    if (!config) return { ok: false, week, error: 'Configure a blog provider and API key under Config → Weekly blog first.' };
+    if (!config) return { ok: false, week, error: 'Add a Gemini API key under Config → Weekly blog first.' };
     const existing = options.additional ? null : await one<{ slug: string }>("SELECT slug FROM blog_posts WHERE week = $1::date AND kind = 'weekly'", [week]);
     if (existing && !options.replace) return { ok: false, week, error: 'This week already has a post.' };
     // Manual extra posts must not exhaust the scheduler's weekly retry budget.
@@ -233,7 +233,6 @@ export interface BlogReport {
   enabled: boolean;
   configured: boolean;
   model: string | null;
-  fallbackModel: string | null;
   currentWeek: string;
   writing: boolean;
   posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
@@ -261,7 +260,6 @@ export async function blogReport(): Promise<BlogReport> {
     enabled: blogEnabled(),
     configured: Boolean(config),
     model: config?.model ?? null,
-    fallbackModel: config?.fallback?.model ?? null,
     currentWeek: weekOf().week,
     writing: isBlogWriting(),
     posts: posts.map((p) => ({
