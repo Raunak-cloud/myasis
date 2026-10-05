@@ -186,6 +186,40 @@ try {
   const second = await executeTool(reviewCtx, 'click', { ref: again!, reason: 'Submit', sends_application: true, no_cover_letter_place: 'the review page offers no documents' });
   assert.ok(!(second.kind === 'ok' && /Not submitted/.test(second.message)), `a settled resume is not held again: ${JSON.stringify(second)}`);
 
+  // 12. SEEK at its ten-resumé limit opens "select a resumé to delete" instead of saving the upload (Rinu Thapa, 5 Oct):
+  //     that is reported as a full profile, not waited on and not "fixed" by deleting anything.
+  rmSync(join(directory, 'resume-sync.json'), { force: true });
+  const fullStep = `<!doctype html><main><h3>Resume</h3>
+    <label><input type="radio" name="resume" checked> <strong>Someone else.pdf</strong></label>
+    <input id="doc" type="file" accept=".doc,.docx,.pdf"><button>Continue</button>
+    <script>document.getElementById('doc').addEventListener('change', () => { location.hash = 'document-limit-resume';
+      document.querySelector('main').insertAdjacentHTML('beforeend', '<p>Please select a resumé to delete from your list and try again.</p>'); });</script></main>`;
+  await open(page, seekUrl, fullStep);
+  const full = await ensureChosenResume(page, chosen);
+  assert.ok(full.action === 'failed' && full.full === true, `a full profile is reported as full: ${JSON.stringify(full)}`);
+
+  // 13. The agent's own attach_resume on SEEK's documents step goes through resume-sync: one copy, recorded, settled.
+  rmSync(join(directory, 'resume-sync.json'), { force: true });
+  await open(page, seekUrl, seekStep([{ name: 'Old_CV.pdf', checked: true }]));
+  const agentLines: string[] = [];
+  const agentCtx = { ...ctx, observation: await observe(page), captured: [], actions: [], resumeSettled: undefined, resumeUsed: undefined, resumeName: undefined, log: (line: string) => agentLines.push(line) } as unknown as Parameters<typeof executeTool>[0];
+  const uploadRef = agentCtx.observation.actions.find((action) => action.role === 'file' && !/photo/i.test(action.text + (action.context ?? '')))?.ref
+    ?? agentCtx.observation.actions.find((action) => action.role === 'file')?.ref;
+  const attached = await executeTool(agentCtx, 'attach_resume', { ref: uploadRef, format: 'docx' });
+  assert.ok(attached.kind === 'ok' && /is selected on SEEK/.test(attached.message), `attach_resume settled through resume-sync: ${JSON.stringify(attached)}`);
+  assert.equal((await documentChoices(page)).filter((choice) => choice.name.startsWith('Raunak_New_Resume')).length, 1, 'exactly one copy went up');
+  assert.ok(record().seek['5']?.uploadedByOwtomate, 'and it is recorded as Owtomate\'s, to be reused next time');
+  const again2 = await executeTool(agentCtx, 'attach_resume', { ref: uploadRef, format: 'docx' });
+  assert.ok(again2.kind === 'ok' && /already settled/.test(again2.message), 'a second attach does not upload again');
+
+  // 14. Nothing on the person's board account is deleted, by any click.
+  await open(page, seekUrl, '<main><h3>Resume</h3><button onclick="document.body.dataset.deleted=\'yes\'">Delete</button><button>Continue</button></main>');
+  const deleteCtx = { ...agentCtx, observation: await observe(page) } as unknown as Parameters<typeof executeTool>[0];
+  const deleteRef = deleteCtx.observation.actions.find((action) => action.text === 'Delete')?.ref;
+  const refused = await executeTool(deleteCtx, 'click', { ref: deleteRef, reason: 'free a slot' });
+  assert.ok(refused.kind === 'ok' && /Not allowed/.test(refused.message), `delete refused: ${JSON.stringify(refused)}`);
+  assert.equal(await page.locator('body').getAttribute('data-deleted'), null, 'the delete control was never pressed');
+
   assert.ok(existsSync(join(directory, 'resume-sync.json')));
   console.log("PASS: only copies Owtomate uploaded are sent; the person's same-named copies, stale copies and later replacements are replaced by Owtomate's exact file");
 } finally {

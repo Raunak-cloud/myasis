@@ -189,7 +189,8 @@ async function uploadInput(frame: Frame) {
 export type ResumeStepResult =
   | { action: 'none' }
   | { action: 'kept' | 'selected' | 'uploaded'; name: string; label: string; board: Board }
-  | { action: 'failed'; reason: string };
+  /** `full`: the board refused the upload because the account already holds its maximum of documents. */
+  | { action: 'failed'; reason: string; full?: boolean };
 
 /**
  * Makes the resume Owtomate chose for this job the selected one on a board's
@@ -267,6 +268,20 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     await page.waitForTimeout(1_000);
+    /**
+     * SEEK keeps at most ten resumés. At the limit it does not save the
+     * upload; it opens "Please select a resumé to delete from your list and
+     * try again" instead. Waiting for the file to appear then never ends, and
+     * on 5 Oct the agent went on to delete the person's own documents to make
+     * room. Owtomate deletes nothing on anyone's account: the person is told.
+     */
+    if (await boardFull(page)) {
+      return {
+        action: 'failed',
+        full: true,
+        reason: `Your ${board === 'seek' ? 'SEEK' : 'Indeed'} profile already holds the most resumés it allows, so Owtomate could not add "${chosen.label}". Remove resumés you no longer need from your ${board === 'seek' ? 'SEEK' : 'Indeed'} profile, then run again.`,
+      };
+    }
     const now = (await documentChoices(page)).filter((choice) => sameDocument(choice.name, uploadedName));
     const listed = now.find((choice) => choice.checked) ?? now[0];
     if (listed && (listed.checked || await select(listed))) {
@@ -311,4 +326,14 @@ export async function reopenIndeedResumeStep(page: Page, chosen: { id: string; l
   }
   if (!/resume-selection/.test(page.url())) return { action: 'none' };
   return ensureChosenResume(page, chosen);
+}
+
+/** The board's "too many documents" step: SEEK's #document-limit page, or its words anywhere in a frame. */
+async function boardFull(page: Page): Promise<boolean> {
+  if (/document-limit/i.test(page.url())) return true;
+  for (const frame of page.frames()) {
+    const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+    if (/select a resum[eé] to delete|reached the (maximum|limit) (number )?of resum[eé]s|delete a resum[eé] (from your list )?(and|to) (try again|upload)/i.test(text)) return true;
+  }
+  return false;
 }

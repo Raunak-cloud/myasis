@@ -10,6 +10,7 @@ import { countHealth } from '../../run-health.js';
 import { hostOf } from '../../site-auth.js';
 import { locate } from '../raw-tools.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
+import { boardResumeInstead } from './resume-step.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -132,6 +133,9 @@ export function resumeSent(ctx: ToolContext, label: string): void {
 
 /** The model selects the control; this tool supplies only the approved local document. */
 export async function doAttachResume(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  // A job board's documents step is settled by resume-sync, so the board never gets a second copy.
+  const onBoard = await boardResumeInstead(ctx);
+  if (onBoard) return onBoard;
   const wanted = await pickResumeForJob(ctx.job, ctx.profile);
   if (!wanted) return ok('No approved local resume is available. Finish with cannot_complete; do not choose an arbitrary document.');
   const ref = typeof args.ref === 'string' ? args.ref : '';

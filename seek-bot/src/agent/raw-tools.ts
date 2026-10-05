@@ -1,5 +1,6 @@
 import type { Dialog, Frame, Locator, Page, Request, Route } from 'patchright';
 import { answerFields, acceptBrowserDialog, reviewBrowserScript } from '../llm.js';
+import { boardResumeInstead } from './tools/resume-step.js';
 import type { FormField } from '../types.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import type { ToolSchema } from './celeris.js';
@@ -383,6 +384,9 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
   let file: string;
   let sent: () => void;
   if (which === 'resume') {
+    // A job board's documents step is settled by resume-sync, so the board never gets a second copy.
+    const onBoard = await boardResumeInstead(ctx);
+    if (onBoard) return onBoard;
     const document = await resumeDocument(ctx, accept, format);
     if ('error' in document) return ok(`${document.error} Look for another way to supply the resume; otherwise finish with cannot_complete.`);
     file = document.file;

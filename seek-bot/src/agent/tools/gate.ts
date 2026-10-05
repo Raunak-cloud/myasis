@@ -10,7 +10,8 @@ import { isEntryAction } from '../guards.js';
 import { wasHumanized } from '../../humanizer.js';
 import { hostOf } from '../../site-auth.js';
 import { offersCoverLetter } from '../cover-letter-opportunity.js';
-import { boardOf, ensureChosenResume, reopenIndeedResumeStep, type ResumeStepResult } from '../../resume-sync.js';
+import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resume-sync.js';
+import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, noteAction, toolRun } from './context.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
@@ -98,18 +99,6 @@ export async function transmits(ctx: ToolContext, label: string, context?: strin
   return verdict;
 }
 
-/** Records that the board's resume choice is Owtomate's, and what the person should be told. */
-function settleResume(ctx: ToolContext, step: Extract<ResumeStepResult, { name: string }>): void {
-  ctx.resumeSettled = true;
-  ctx.resumeUsed = step.label;
-  ctx.resumeName = step.name;
-  const verb = { kept: 'already selected', selected: 'selected', uploaded: 'uploaded from Owtomate and selected' }[step.action];
-  ctx.log(`  📄 resume "${step.name}" ${verb} on ${step.board === 'seek' ? 'SEEK' : 'Indeed'}`);
-  if (step.action === 'uploaded') {
-    noteAction(ctx, { kind: 'resume-uploaded', site: hostOf(ctx.page.url()), detail: `Saved Owtomate's resume "${step.name}" to your ${step.board === 'seek' ? 'SEEK' : 'Indeed'} account and used it for this application.` });
-  }
-}
-
 export type Gate = { proceed: true; submit: boolean } | { proceed: false; result: ToolResult };
 
 /**
@@ -149,9 +138,20 @@ export async function gateAdvance(
    * Settled here, deterministically, as the documents step is left, so the
    * agent cannot move past it with the board's own copy (src/resume-sync.ts).
    */
+  /**
+   * Nothing saved on the person's job-board account is deleted: their
+   * resumés, cover letters and profile are theirs. On 5 Oct the agent deleted
+   * documents from a SEEK profile to make room for an upload.
+   */
+  // The control's own words only: nearby copy such as "you can remove this later" must not hold a Continue.
+  if (boardOf(ctx.page.url()) && /^\W*(delete|remove|discard)\b/i.test(label.trim())) {
+    ctx.log(`  ⛔ held "${label.slice(0, 60)}": nothing on the person's ${boardOf(ctx.page.url()) === 'seek' ? 'SEEK' : 'Indeed'} account is deleted`);
+    return { proceed: false, result: ok('Not allowed: nothing saved on the person\'s job-board account (resumés, cover letters, profile) may be deleted or removed. If the board says its document limit is reached, finish with needs_human and say so.') };
+  }
   if (movesForward(ctx, label) && !ctx.resumeSettled) {
     const chosen = await pickResumeForJob(ctx.job, ctx.profile);
     const step = chosen ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
+    if (step.action === 'failed' && step.full) return { proceed: false, result: boardFullOutcome(step) };
     if (step.action === 'failed') {
       return { proceed: false, result: ok(
         `Do not advance yet: the resume must be Owtomate's "${chosen!.seekName || chosen!.fileName}", not one the board preselected. ${step.reason} ` +
@@ -198,6 +198,7 @@ export async function gateAdvance(
       }
       ctx.log('  ↺ Indeed went straight to review with its own saved resume attached; reopening the resume step');
       const step = await reopenIndeedResumeStep(ctx.page, chosen);
+      if (step.action === 'failed' && step.full) return { proceed: false, result: boardFullOutcome(step) };
       if (step.action === 'kept' || step.action === 'selected' || step.action === 'uploaded') {
         settleResume(ctx, step);
         return { proceed: false, result: ok(
