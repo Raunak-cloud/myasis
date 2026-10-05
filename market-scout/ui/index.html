@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Market Scout</title>
+<style>
+:root{--bg:#f7f6f2;--fg:#1d1c1a;--muted:#6b6862;--line:#e3e0d8;--card:#fff;--accent:#2f5d50;--accent-fg:#fff;--accent-soft:#e3eee9;--warn:#a2461f;--warn-soft:#f6e7df;--ok:#2f7d4f;--run:#2f5d8a;--run-soft:#e2ebf5;--focus:#2f5d50}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--fg:#ecebe7;--muted:#a3a09a;--line:#2e2d2a;--card:#1c1c1a;--accent:#8cc4b2;--accent-fg:#10201b;--accent-soft:#22332e;--warn:#e59a74;--warn-soft:#3a2419;--ok:#7fcb9b;--run:#8fb6e0;--run-soft:#1e2a38;--focus:#8cc4b2}}
+:root[data-theme="dark"]{--bg:#141413;--fg:#ecebe7;--muted:#a3a09a;--line:#2e2d2a;--card:#1c1c1a;--accent:#8cc4b2;--accent-fg:#10201b;--accent-soft:#22332e;--warn:#e59a74;--warn-soft:#3a2419;--ok:#7fcb9b;--run:#8fb6e0;--run-soft:#1e2a38;--focus:#8cc4b2}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 24px;border-bottom:1px solid var(--line)}
+header h1{font-size:1.15rem;margin:0;letter-spacing:-.01em}
+header h1 span{color:var(--muted);font-weight:400}
+.pill{font-size:.78rem;border-radius:999px;padding:3px 10px;background:var(--accent-soft);color:var(--accent)}
+.pill.bad{background:var(--warn-soft);color:var(--warn)}
+main{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:24px;max-width:1280px;margin:0 auto;padding:24px}
+@media (max-width:900px){main{grid-template-columns:1fr;padding:16px}}
+section.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+h2{font-size:1rem;margin:0 0 4px}
+.sub{color:var(--muted);font-size:.86rem;margin:0 0 16px}
+label{display:block;font-size:.84rem;font-weight:600;margin:14px 0 5px}
+label small{font-weight:400;color:var(--muted)}
+input,textarea,select{width:100%;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+textarea{resize:vertical;min-height:62px}
+input:focus,textarea:focus,select:focus,button:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:.82rem;font-weight:400;margin:0;cursor:pointer;background:var(--bg)}
+.chip input{width:auto;margin:0}
+.chip.off{opacity:.5;cursor:not-allowed}
+.chip:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+details{margin-top:14px}
+summary{cursor:pointer;font-size:.84rem;font-weight:600}
+button{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:7px 14px;cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600;width:100%;padding:10px;margin-top:18px}
+button.danger{color:var(--warn);border-color:var(--warn)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.error{color:var(--warn);font-size:.86rem;margin-top:10px;min-height:1em}
+.right{display:flex;flex-direction:column;gap:24px;min-width:0}
+.live-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.phases{display:flex;gap:4px;margin:14px 0;flex-wrap:wrap}
+.phase{font-size:.78rem;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.phase.now{background:var(--run-soft);color:var(--run);border-color:var(--run)}
+.phase.past{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.tasks{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.task{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:.88rem;padding:7px 10px;border-radius:8px;background:var(--bg)}
+.task .src{font-weight:600}
+.task .q{color:var(--muted);overflow-wrap:anywhere}
+.task .res{font-size:.8rem;color:var(--muted);text-align:right;white-space:nowrap}
+.task.failed .res{color:var(--warn);white-space:normal;max-width:260px}
+.ico{width:16px;height:16px;border-radius:50%;margin-top:2px;border:2px solid var(--line)}
+.running .ico{border-color:var(--run);border-top-color:transparent;animation:spin 1s linear infinite}
+.done .ico{background:var(--ok);border-color:var(--ok)}
+.failed .ico{background:var(--warn);border-color:var(--warn)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.running .ico{animation:none}}
+pre.log{max-height:320px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.78rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}
+.runs{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.run{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:6px}
+.run-top{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+.run-title{font-weight:600}
+.run-meta{color:var(--muted);font-size:.8rem}
+.run-head{font-size:.88rem}
+.badge{font-size:.74rem;border-radius:999px;padding:2px 9px;background:var(--bg);border:1px solid var(--line);color:var(--muted)}
+.badge.done{color:var(--ok);border-color:var(--ok)}
+.badge.running{color:var(--run);border-color:var(--run)}
+.badge.failed,.badge.stopped,.badge.incomplete{color:var(--warn);border-color:var(--warn)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions a,.actions button{font-size:.84rem;padding:5px 12px}
+a.btn{border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);text-decoration:none;font-weight:600}
+.empty{color:var(--muted);font-size:.9rem}
+.elapsed{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.86rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>Market Scout <span>· public marketing research</span></h1>
+  <span id="status" class="pill">Checking…</span>
+</header>
+<main>
+  <section class="panel" aria-labelledby="new-h">
+    <h2 id="new-h">New research</h2>
+    <p class="sub">Describe what you sell. The agent plans the research, browses ad libraries, social platforms and sites, then writes a cited brief.</p>
+    <form id="form" autocomplete="off">
+      <label for="product">What you sell</label>
+      <textarea id="product" name="product" rows="2" placeholder="Australian activewear brand for women who lift weights"></textarea>
+      <div class="row">
+        <div><label for="niche">Niche</label><input id="niche" name="niche" placeholder="women's gym activewear"></div>
+        <div><label for="brand">Your brand</label><input id="brand" name="brand" placeholder="LiftLab"></div>
+      </div>
+      <label for="competitors">Competitors <small>comma-separated</small></label>
+      <input id="competitors" name="competitors" placeholder="Gymshark, Lorna Jane">
+      <label for="websites">Websites to audit <small>one per line</small></label>
+      <textarea id="websites" name="websites" rows="2" placeholder="https://www.lornajane.com.au"></textarea>
+      <div class="row">
+        <div>
+          <label for="country">Country</label>
+          <select id="country" name="country">
+            <option value="AU">Australia</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="CA">Canada</option><option value="NZ">New Zealand</option><option value="IE">Ireland</option><option value="IN">India</option><option value="SG">Singapore</option><option value="DE">Germany</option><option value="FR">France</option><option value="NL">Netherlands</option><option value="ES">Spain</option><option value="IT">Italy</option>
+          </select>
+        </div>
+        <div><label for="language">Language</label><input id="language" name="language" value="en"></div>
+      </div>
+      <label for="audience">Audience</label>
+      <input id="audience" name="audience" placeholder="Australian women 18-35 who strength train">
+      <label for="goals">Goals <small>one per line, optional</small></label>
+      <textarea id="goals" name="goals" rows="2" placeholder="Ad angles and hooks that work in this market&#10;SEO keywords and content ideas"></textarea>
+      <label>Sources <small>none ticked = the planner chooses</small></label>
+      <div id="sources" class="chips"></div>
+      <details>
+        <summary>Limits</summary>
+        <div class="row">
+          <div><label for="maxTasks">Tasks in round one</label><input id="maxTasks" name="maxTasks" type="number" min="1" max="30" value="10"></div>
+          <div><label for="followUps">Follow-up tasks</label><input id="followUps" name="followUps" type="number" min="0" max="12" value="4"></div>
+        </div>
+        <label for="budgetUsd">Model budget (USD)</label>
+        <input id="budgetUsd" name="budgetUsd" type="number" min="0.1" max="20" step="0.1">
+      </details>
+      <button id="start" class="primary" type="submit">Start research</button>
+      <p id="formError" class="error" role="alert"></p>
+    </form>
+  </section>
+
+  <div class="right">
+    <section id="live" class="panel" hidden aria-live="polite">
+      <div class="live-head">
+        <div>
+          <h2 id="liveTitle">Research run</h2>
+          <span id="elapsed" class="elapsed"></span>
+        </div>
+        <div class="actions">
+          <a id="liveReport" class="btn" target="_blank" rel="noopener" hidden>Open report</a>
+          <button id="stop" class="danger" type="button" hidden>Stop</button>
+          <button id="closeLive" type="button">Close</button>
+        </div>
+      </div>
+      <div class="phases" id="phases"></div>
+      <ul id="tasks" class="tasks"></ul>
+      <details>
+        <summary>Full log</summary>
+        <pre id="log" class="log"></pre>
+      </details>
+    </section>
+
+    <section class="panel" aria-labelledby="runs-h">
+      <h2 id="runs-h">Reports</h2>
+      <p class="sub">Every run, newest first. Reports open in a new tab.</p>
+      <ul id="runs" class="runs"></ul>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const PHASES = ['Planning', 'Collecting', 'Follow-ups', 'Analysing', 'Writing', 'Done'];
+let activeId = null;
+let source = null;
+let timer = null;
+
+function draft(save) {
+  const fields = ['product', 'niche', 'brand', 'competitors', 'websites', 'country', 'language', 'audience', 'goals', 'maxTasks', 'followUps'];
+  try {
+    if (save) localStorage.setItem('scout-draft', JSON.stringify(Object.fromEntries(fields.map((f) => [f, $(f).value]))));
+    else {
+      const saved = JSON.parse(localStorage.getItem('scout-draft') || '{}');
+      for (const f of fields) if (saved[f] !== undefined) $(f).value = saved[f];
+    }
+  } catch { /* storage may be unavailable; the form works without it */ }
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: { 'content-type': 'application/json' } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+
+async function loadSources() {
+  const data = await api('/api/sources');
+  $('status').textContent = data.celeris ? 'Celeris connected' : 'CELERIS_API_KEY missing';
+  $('status').className = data.celeris ? 'pill' : 'pill bad';
+  $('budgetUsd').value = $('budgetUsd').value || data.budgetUsd;
+  $('sources').innerHTML = data.sources.map((s) => `
+    <label class="chip${s.unavailable ? ' off' : ''}" title="${esc(s.unavailable || s.describe)}">
+      <input type="checkbox" name="sources" value="${esc(s.id)}" ${s.unavailable ? 'disabled' : ''}> ${esc(s.id)}
+    </label>`).join('');
+}
+
+async function loadRuns() {
+  const data = await api('/api/runs');
+  const list = $('runs');
+  if (!data.runs.length) { list.innerHTML = '<li class="empty">No runs yet. Start one on the left.</li>'; return data; }
+  list.innerHTML = data.runs.map((r) => `
+    <li class="run">
+      <div class="run-top">
+        <span class="run-title">${esc(r.brand || r.niche || r.product || r.id)}</span>
+        <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
+      </div>
+      <span class="run-meta">${esc(r.niche)}${r.country ? ' · ' + esc(r.country) : ''} · ${new Date(r.startedAt).toLocaleString()}${r.cost ? ' · ' + esc(r.cost.split(' · ').pop()) : ''}</span>
+      ${r.headline ? `<span class="run-head">${esc(r.headline)}</span>` : ''}
+      <div class="actions">
+        ${r.status === 'done' ? `<a class="btn" href="/runs/${encodeURIComponent(r.id)}/report.html" target="_blank" rel="noopener">Open report</a>` : ''}
+        <button type="button" data-watch="${esc(r.id)}">${r.status === 'running' ? 'Watch progress' : 'Show log'}</button>
+        ${r.status !== 'running' && !data.active ? `<button type="button" data-report="${esc(r.id)}">${r.status === 'done' ? 'Rewrite report' : 'Write report'}</button>` : ''}
+      </div>
+    </li>`).join('');
+  return data;
+}
+
+function phaseFrom(state) {
+  $('phases').innerHTML = PHASES.map((p, i) => `<span class="phase ${i < state ? 'past' : i === state ? 'now' : ''}">${p}</span>`).join('');
+}
+
+function watch(id, title) {
+  source?.close();
+  clearInterval(timer);
+  activeId = id;
+  $('live').hidden = false;
+  $('liveTitle').textContent = title || id;
+  $('tasks').innerHTML = '';
+  $('log').textContent = '';
+  $('liveReport').hidden = true;
+  $('stop').hidden = false;
+  const tasks = new Map();
+  let phase = 0;
+  let rounds = 0;
+  const started = Date.now();
+  timer = setInterval(() => {
+    const s = Math.floor((Date.now() - started) / 1000);
+    $('elapsed').textContent = `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+  }, 1000);
+  phaseFrom(phase);
+
+  const render = () => {
+    $('tasks').innerHTML = [...tasks.values()].map((t) => `
+      <li class="task ${t.state}">
+        <span class="ico" aria-label="${t.state}"></span>
+        <span><span class="src">${esc(t.source)}</span> <span class="q">${esc(t.query)}</span></span>
+        <span class="res">${esc(t.result || '')}</span>
+      </li>`).join('');
+  };
+
+  source = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
+  source.onmessage = (event) => {
+    const { line } = JSON.parse(event.data);
+    const log = $('log');
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+    log.textContent += line + '\n';
+    if (atBottom) log.scrollTop = log.scrollHeight;
+    let m;
+    if ((m = /^(\d+) tasks:/.exec(line))) { rounds += 1; phase = Math.max(phase, rounds > 1 ? 2 : 1); }
+    else if ((m = /^\s+· (\S+) "(.*)" \(\d+\)/.exec(line))) tasks.set(`${m[1]}|${m[2]}`, { source: m[1], query: m[2], state: 'pending' });
+    else if ((m = /^→ (\S+) "(.*)"$/.exec(line))) { const t = tasks.get(`${m[1]}|${m[2]}`) || { source: m[1], query: m[2] }; t.state = 'running'; tasks.set(`${m[1]}|${m[2]}`, t); }
+    else if ((m = /^([✓✗]) (\S+) "(.*)": (.*)$/.exec(line))) { const t = tasks.get(`${m[2]}|${m[3]}`) || { source: m[2], query: m[3] }; t.state = m[1] === '✓' ? 'done' : 'failed'; t.result = m[4]; tasks.set(`${m[2]}|${m[3]}`, t); }
+    else if (/^Collected \d+ items/.test(line)) phase = 3;
+    else if (/^Writing and fact-checking/.test(line)) phase = 4;
+    else if (/^Done\./.test(line)) phase = 5;
+    phaseFrom(phase);
+    render();
+  };
+  source.addEventListener('end', (event) => {
+    const { outcome } = JSON.parse(event.data);
+    source.close();
+    clearInterval(timer);
+    $('stop').hidden = true;
+    $('elapsed').textContent = outcome === 'done' ? 'Finished' : outcome === 'running' ? '' : `Ended: ${outcome}`;
+    if (outcome === 'done') { phaseFrom(5); $('liveReport').href = `/runs/${encodeURIComponent(id)}/report.html`; $('liveReport').hidden = false; }
+    if (activeId === id) loadRuns().then(syncButtons);
+  });
+}
+
+function syncButtons(data) {
+  $('start').disabled = Boolean(data && data.active);
+  $('start').textContent = data && data.active ? 'A run is in progress' : 'Start research';
+}
+
+$('form').addEventListener('input', () => draft(true));
+$('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  $('formError').textContent = '';
+  const f = new FormData($('form'));
+  const body = {
+    product: f.get('product'), niche: f.get('niche'), brand: f.get('brand'),
+    competitors: String(f.get('competitors') || ''), websites: String(f.get('websites') || '').split('\n'),
+    country: f.get('country'), language: f.get('language'), audience: f.get('audience'),
+    goals: String(f.get('goals') || '').split('\n'), sources: f.getAll('sources'),
+    maxTasks: Number(f.get('maxTasks')), followUps: Number(f.get('followUps')), budgetUsd: Number(f.get('budgetUsd')),
+  };
+  try {
+    $('start').disabled = true;
+    const { id } = await api('/api/runs', { method: 'POST', body: JSON.stringify(body) });
+    watch(id, body.brand || body.niche || 'Research run');
+    syncButtons(await loadRuns());
+  } catch (error) {
+    $('formError').textContent = error.message;
+    $('start').disabled = false;
+  }
+});
+
+$('runs').addEventListener('click', async (event) => {
+  const watchId = event.target.dataset?.watch;
+  const reportId = event.target.dataset?.report;
+  if (watchId) watch(watchId, event.target.closest('.run').querySelector('.run-title').textContent);
+  if (reportId) {
+    try {
+      await api(`/api/runs/${encodeURIComponent(reportId)}/report`, { method: 'POST' });
+      watch(reportId, event.target.closest('.run').querySelector('.run-title').textContent);
+      syncButtons(await loadRuns());
+    } catch (error) { alert(error.message); }
+  }
+});
+
+$('stop').addEventListener('click', async () => {
+  if (!activeId || !confirm('Stop this run? Evidence collected so far is kept, and you can write a report from it.')) return;
+  try { await api(`/api/runs/${encodeURIComponent(activeId)}/stop`, { method: 'POST' }); } catch (error) { alert(error.message); }
+});
+$('closeLive').addEventListener('click', () => { source?.close(); clearInterval(timer); $('live').hidden = true; activeId = null; });
+
+draft(false);
+loadSources().catch((error) => { $('status').textContent = error.message; $('status').className = 'pill bad'; });
+loadRuns().then((data) => {
+  syncButtons(data);
+  if (data.active) {
+    const run = data.runs.find((r) => r.id === data.active);
+    watch(data.active, run ? run.brand || run.niche : data.active);
+  }
+});
+setInterval(() => { if (!activeId) loadRuns().then(syncButtons).catch(() => {}); }, 15000);
+</script>
+</body>
+</html>

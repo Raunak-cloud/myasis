@@ -1,0 +1,27 @@
+{
+  "name": "market-scout",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Celeris-driven browser agent that gathers public marketing data (ads, social, SEO, competitor sites) and turns it into an evidence-cited insights brief",
+  "bin": {
+    "market-scout": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
+    "dev": "tsc && node dist/cli.js",
+    "scout": "node dist/cli.js",
+    "ui": "tsc && node dist/cli.js ui",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "browsers": "patchright install chromium"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "patchright": "1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,112 @@
+# Market Scout
+
+A browser agent that researches a market from public data and writes an evidence-cited marketing brief. It covers SEO keywords and questions, ads that keep running, organic content that gets traction, the audience's own words, and how competitors position and price.
+
+Every model call goes to Celeris:
+- **`celeris-1`** extracts records from pages, tags ads, picks key pages and reads ad screenshots.
+- **`celeris-1-magnus`** plans the research, drives the browser agent, clusters keywords, reads competitor positioning, writes the brief and fact-checks it.
+
+## Web interface
+
+```bash
+npm run ui        # builds, then opens http://127.0.0.1:5190
+```
+
+From the page you can:
+- start a run from a form;
+- watch each task as it runs;
+- stop a run (the evidence collected so far is kept);
+- open any past report;
+- write or rewrite a run's report from its saved evidence.
+
+The page listens on 127.0.0.1 only and accepts POSTs only from its own origin. One run at a time, because every run drives the same browser profile.
+
+## Run it
+
+```bash
+npm ci
+cp .env.example .env               # add CELERIS_API_KEY
+npm run dev -- sources             # what can run with this configuration
+
+npm run dev -- research \
+  --product "Australian activewear brand for women who lift" \
+  --niche "women's gym activewear" --brand "LiftLab" \
+  --competitors "Gymshark,Alphalete,Lorna Jane" \
+  --sites "https://www.lornajane.com.au" --country AU \
+  --goal "ad angles that work" --goal "SEO keywords and content ideas"
+
+npm run dev -- collect meta-ads "Gymshark"        # one source, printed
+npm run dev -- agent https://www.trustpilot.com/review/gymshark.com "complaints and praise in recent reviews"
+npm run dev -- research --resume .scout/runs/<run>  # re-analyse a run
+```
+
+Run the CLI from the compiled build (`npm run dev` or `npm run build && npm run scout`), not through tsx. Code that runs inside the page breaks under tsx's `__name` helper.
+
+Each run writes these files to `.scout/runs/<time>-<brand>/`:
+- `report.html`: the shareable brief
+- `report.md`
+- `report.json`
+- `insights.json`
+- `evidence.jsonl`: every item collected, written as it arrives
+- `coverage.json`
+
+## How a run works
+
+```
+brief ─► plan (Magnus) ─► collect, round 1 ─► follow-up plan from leads ─► collect, round 2
+      ─► measure (code + celeris-1) ─► write brief (Magnus) ─► fact-check (Magnus) ─► render
+```
+
+- **Planning.** The planner reads each source's declaration: what it yields, what its query means, and whether it can run. Code checks the plan it returns and adds a fixed baseline of core tasks.
+- **Follow-up round.** Round two goes after the leads round one turned up: advertisers nobody named, landing domains, subreddits and creators.
+- **Reading a source.** Each browser source reads data in three tiers and moves to the next only when the earlier one finds nothing:
+  1. **The platform's own JSON.** This means captured network responses (GraphQL, RPC) and embedded hydration data. Records are picked by what they are, not where they sit, so renamed wrappers don't break a source. This tier costs nothing and is exact.
+  2. **The rendered page text.** `celeris-1` reads the distilled page, extracting chunk by chunk, and code merges the results.
+  3. **The browser agent.** It takes over for data behind search boxes and filters. It sees numbered page elements and can only act on those, so it never writes selectors or scripts. Magnus picks up to four actions per turn. Hard limits on steps, spend and repeated no-op actions stop it, and so does any wall. When it stalls it switches to deeper reasoning and gets a screenshot.
+- **Measuring.** Code does the measuring; the models only label.
+
+| What | How it's measured |
+|---|---|
+| Keywords | Merged across engines. Intent comes from modifier rules. "Demand" is engine agreement plus suggestion rank: a relative signal, not volume. Magnus clusters the keywords but may only use phrases it was given. |
+| Ads | Score = log(days running) × (1 + log(variants)) × placement breadth × still active. Tiers: 30, 60 and 90+ days. Ads are ranked within each advertiser. `celeris-1` tags hook, angle, awareness stage, offer and proof, then the tags are counted weighted by score. |
+| Organic posts | Engagement is divided by views (TikTok, YouTube, Reels) or by followers (Instagram feed). Each post also gets an outlier ratio against its author's median. |
+| Voice of customer | Verbatim quotes only. Each quote is checked to be an exact substring of its source before it is kept. |
+| Competitor sites | SEO checklist measured on the page. Stack and ad-pixel fingerprints. A content inventory from the sitemap. Magnus reads positioning and pricing from the site's own pages. |
+
+- **The brief.** Findings cite evidence by number. A finding labelled "observed" with no valid citation is relabelled "inferred". Magnus then checks each observed finding against the text it cites and removes unsupported ones.
+
+## Sources
+
+| Source | Route | Notes |
+|---|---|---|
+| `autocomplete` | Google, YouTube, Bing and Amazon suggest endpoints | Expands each seed with questions, comparisons, buying words and a–z. |
+| `meta-ads` | Public Ad Library page (GraphQL captured). The Graph API is used when `META_AD_LIBRARY_TOKEN` is set and the country is EU/UK. | Follows a matching advertiser's own page of ads. No spend data for commercial ads. |
+| `google-ads` | Ads Transparency Center, through its SearchCreatives RPC | Reads first- and last-shown dates. Copy for the longest-running creatives is read from screenshots. |
+| `linkedin-ads` | Public LinkedIn Ad Library | Needs a headed browser. |
+| `tiktok` | Public profiles, hashtags and search (rehydration JSON and item_list) | Views, likes, comments, shares and saves. |
+| `tiktok-creative` | Creative Center (anonymous view) and the EU ad library | Shows only a few items when you aren't logged in. |
+| `instagram` | `business_discovery` API, or public pages logged out | Logged out, post queries are refused. Instead each post page's meta gives likes, comments, date and caption. |
+| `facebook` | Public page, logged out | Usually only a few posts before a login wall. |
+| `youtube` | Data API v3 with `YOUTUBE_API_KEY`, or `ytInitialData` | |
+| `reddit` | Official OAuth API only | Needs `REDDIT_CLIENT_ID`/`SECRET`. The anonymous endpoints are closed. |
+| `trends` | Pinterest Trends API | Needs `PINTEREST_ACCESS_TOKEN`. |
+| `website` | Sitemap and key pages in the browser | Obeys robots.txt. A cheap model picks the key pages from the homepage's links. |
+| `agent` | Any public site | Use `"<url> :: <what to find>"`. Good for reviews, forums and marketplaces. |
+
+To add a source, create one file in `src/sources/` that exports a `Source`, then add it to the list in `src/sources/index.ts`. The planner, analyzers and report all read the common `Evidence` shape, so nothing else changes.
+
+## Operating rules
+
+- **Logged out, always.** The browser profile is never signed in to anything. Public data viewed logged out is the position courts have upheld (Meta v. Bright Data, X v. Bright Data). Logged-in scraping is where contract liability starts (hiQ v. LinkedIn).
+- **A block means stop.** On a 429, a login wall, a CAPTCHA or a challenge page, that host is abandoned for the rest of the run. The scout never solves CAPTCHAs, rotates identities or disguises headless mode. Getting around those measures is the conduct the 2026 SerpApi suits are about.
+- **robots.txt (RFC 9309)** applies to the crawler: website audits and any URL the scout discovers. Public ad-transparency libraries, and the pages a task names explicitly, are visited as a person would visit them: one tab, paced per host.
+- **No Google SERP scraping.** Search pages sit behind SearchGuard. Keyword research uses autocomplete instead. Keyword difficulty therefore isn't measured, and the brief says so.
+- **Reddit needs API access.** Reddit is API-only, and its free tier is non-commercial. A commercial product needs Reddit's approval.
+- **Personal data.** Quotes are kept short and linked to their source. Don't republish copied creative; summarise it.
+
+## Checks
+
+```bash
+npm test                      # deterministic logic: robots, harvest, scoring, intent, SEO rules
+npx tsc --noEmit -p .
+```

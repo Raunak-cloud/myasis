@@ -1,0 +1,142 @@
+import { SOURCES, sourceById } from '../sources/index.js';
+import { askJson, type CostMeter } from '../llm/celeris.js';
+import { searchEngineOf } from './politeness.js';
+import type { Brief, Evidence, SourceId, Task, TaskResult } from './types.js';
+
+/**
+ * Turns a brief into collection tasks, and a first round's findings into a
+ * second round — the "deep research" loop: search broadly, look at what came
+ * back, then go after the leads it surfaced (an advertiser nobody named, a
+ * subreddit where the audience actually talks, a rival's landing page).
+ *
+ * Magnus plans; code validates. A task for a source that cannot run, or a
+ * duplicate, is dropped, and a deterministic baseline guarantees the core
+ * coverage even if planning fails.
+ */
+
+function catalog(brief: Brief): string {
+  return SOURCES.filter((source) => !brief.sources.length || brief.sources.includes(source.id))
+    .map((source) => {
+      const why = source.unavailable();
+      return `- ${source.id}: ${source.label}. ${source.describe}\n  query: ${source.queryHint}\n  default limit: ${source.defaultLimit}${why ? `\n  UNAVAILABLE: ${why}` : ''}`;
+    })
+    .join('\n');
+}
+
+function allowed(brief: Brief, id: SourceId): boolean {
+  const source = sourceById(id);
+  return Boolean(source && !source.unavailable() && (!brief.sources.length || brief.sources.includes(id)));
+}
+
+export function baselinePlan(brief: Brief): Task[] {
+  const seed = brief.niche || brief.product;
+  const tasks: Task[] = [
+    { source: 'autocomplete', query: seed, limit: 200, why: 'What people search for in this niche.' },
+    { source: 'meta-ads', query: seed, limit: 50, why: 'Ads running in the niche.' },
+    ...brief.competitors.slice(0, 5).map((name): Task => ({ source: 'meta-ads', query: name, limit: 40, why: `${name}'s Facebook and Instagram ads.` })),
+    ...brief.websites.slice(0, 5).map((url): Task => ({ source: 'website', query: url, limit: 7, why: 'Positioning, pricing, SEO and stack.' })),
+    { source: 'reddit', query: seed, limit: 40, why: 'Voice of customer.' },
+    { source: 'youtube', query: seed, limit: 25, why: 'Content demand.' },
+    { source: 'tiktok-creative', query: 'hashtags', limit: 30, why: 'Trending hashtags.' },
+  ];
+  return tasks.filter((task) => allowed(brief, task.source));
+}
+
+const TASKS_SCHEMA = {
+  type: 'object',
+  properties: {
+    tasks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          source: { type: 'string', enum: SOURCES.map((source) => source.id) },
+          query: { type: 'string' },
+          limit: { type: 'integer' },
+          why: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
+function validate(brief: Brief, tasks: Task[], existing: Task[], max: number): Task[] {
+  const seen = new Set(existing.map((task) => `${task.source}|${task.query.trim().toLowerCase()}`));
+  const out: Task[] = [];
+  for (const task of tasks) {
+    if (out.length >= max) break;
+    const source = sourceById(task.source);
+    const key = `${task.source}|${task.query.trim().toLowerCase()}`;
+    if (!source || !task.query?.trim() || seen.has(key) || !allowed(brief, task.source)) continue;
+    // A task that can only open a search-engine results page would be refused at the browser; do not spend a slot on it.
+    if (task.source === 'agent' && searchEngineOf(task.query.split('::')[0].trim())) continue;
+    seen.add(key);
+    out.push({ ...task, query: task.query.trim(), limit: Math.min(source.defaultLimit * 2, Math.max(5, task.limit || source.defaultLimit)) });
+  }
+  return out;
+}
+
+export async function planTasks(brief: Brief, meter: CostMeter, maxTasks: number): Promise<Task[]> {
+  const baseline = baselinePlan(brief);
+  try {
+    const reply = await askJson<{ tasks: Task[] }>({
+      model: 'celeris-1-magnus',
+      system: 'You are a senior marketing researcher planning data collection. Choose the sources and exact queries that best answer the brief. Prefer specific queries (brand names, precise phrases, @handles, domains) over vague ones. Never plan tasks for UNAVAILABLE sources.',
+      prompt: `BRIEF\n${JSON.stringify(brief, null, 2)}\n\nSOURCES\n${catalog(brief)}\n\nPlan up to ${maxTasks} tasks that together answer the goals: SEO keywords and questions, the ads that perform in this market, what organic content gets traction, the audience's own words, and how competitors position and price. Cover each competitor on the ad libraries that suit them (B2B → linkedin-ads too; any → google-ads by domain). Use 2-3 different autocomplete seeds when the niche has several angles.`,
+      schema: TASKS_SCHEMA,
+      meter,
+      effort: 'medium',
+      maxTokens: 4_000,
+    });
+    const planned = validate(brief, reply.tasks ?? [], [], maxTasks);
+    // The baseline fills in core coverage the plan skipped.
+    return [...planned, ...validate(brief, baseline, planned, Math.max(0, maxTasks - planned.length))];
+  } catch {
+    return validate(brief, baseline, [], maxTasks);
+  }
+}
+
+/** Leads worth following, mined from round one: names, places and handles that came up. */
+function leads(evidence: Evidence[]): string {
+  const count = (values: string[]) => {
+    const tally = new Map<string, number>();
+    for (const value of values.filter(Boolean)) tally.set(value, (tally.get(value) ?? 0) + 1);
+    return [...tally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([value, n]) => `${value} (${n})`).join(', ');
+  };
+  const hosts = evidence.flatMap((item) => {
+    // Ad landing pages, outbound links, and sites the agent visited: the competitors the brief did not name.
+    const url = String(item.attributes.landingUrl ?? item.attributes.outboundUrl ?? (item.source === 'agent' ? item.url : '') ?? '');
+    try {
+      return url ? [new URL(url).host.replace(/^www\./, '')] : [];
+    } catch {
+      return [];
+    }
+  });
+  return [
+    `Advertisers seen: ${count(evidence.filter((item) => item.kind === 'ad').map((item) => item.author))}`,
+    `Websites seen (ad landing pages, outbound links, sites the agent visited) — audit the competitors among them with the website source: ${count(hosts)}`,
+    `Subreddits: ${count(evidence.map((item) => String(item.attributes.subreddit ?? '')))}`,
+    `Creators/accounts: ${count(evidence.filter((item) => item.kind === 'video' || item.kind === 'post').map((item) => item.author))}`,
+    `Hashtags: ${count(evidence.flatMap((item) => (Array.isArray(item.attributes.hashtags) ? item.attributes.hashtags : [])))}`,
+  ].join('\n');
+}
+
+export async function planFollowUp(brief: Brief, results: TaskResult[], evidence: Evidence[], meter: CostMeter, maxTasks: number): Promise<Task[]> {
+  if (maxTasks <= 0) return [];
+  const done = results.map((result) => `- ${result.task.source} "${result.task.query}": ${result.ok ? `${result.count} items` : `failed — ${result.note}`}`).join('\n');
+  try {
+    const reply = await askJson<{ tasks: Task[] }>({
+      model: 'celeris-1-magnus',
+      system: 'You are a senior marketing researcher reviewing a first round of data collection and deciding what to collect next. Follow concrete leads; fill gaps; do not repeat tasks. Never plan tasks for UNAVAILABLE sources or for sources that were blocked.',
+      prompt: `BRIEF\n${JSON.stringify(brief, null, 2)}\n\nSOURCES\n${catalog(brief)}\n\nROUND ONE\n${done}\n\nLEADS FOUND\n${leads(evidence)}\n\nPlan up to ${maxTasks} follow-up tasks: competitors discovered in the ads but not yet researched (their ads on other libraries, their websites), the communities where the audience talks, top creators' profiles, and any goal round one left thin. Return an empty list if coverage is already sufficient.`,
+      schema: TASKS_SCHEMA,
+      meter,
+      effort: 'medium',
+      maxTokens: 4_000,
+    });
+    const blockedSources = new Set(results.filter((result) => !result.ok && /refused|blocked|wall|challenge/i.test(result.note)).map((result) => result.task.source));
+    return validate(brief, (reply.tasks ?? []).filter((task) => !blockedSources.has(task.source)), results.map((result) => result.task), maxTasks);
+  } catch {
+    return [];
+  }
+}

@@ -17,4 +17,5 @@ Think like a senior software developer. Prioritize holistic, architectural solut
 - Employer-site login and account creation are automated with per-site credentials; Australian government sites are excluded before AI review.
 - x11vnc binds `127.0.0.1` only, behind the authenticated dashboard WebSocket. Never publish a VNC port.
 - Never route the bot's outbound traffic through Cloudflare WARP.
+- `market-scout/` is a standalone marketing-research browser agent (Celeris only). Run it from the compiled build (`npm run dev -- …`), never tsx (page-evaluate code breaks under `__name`). It is logged-out only: a block, wall or CAPTCHA stops that host and is never worked around. Reddit is official-API only. No Google SERP scraping. Checks: `npm test` and `npx tsc --noEmit -p .` in that folder.
 - Weekly blog (`dashboard/server/blog`): posts live in Postgres and are rendered per request into `blog.html`, so publishing or hiding needs no deploy. Sources are declared in `sources.ts`; never use Google News RSS or Gemini Search grounding (their terms forbid republishing). Checks: `npx tsx server/blog/blog.test.ts`.
