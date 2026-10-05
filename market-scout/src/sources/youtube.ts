@@ -88,7 +88,7 @@ type VideoItem = { title: string; channel: string; views: string; age: string; u
 export const youtube: Source = {
   id: 'youtube',
   label: 'YouTube',
-  describe: 'YouTube videos for a topic or a channel\'s uploads, with views, likes and comments: content demand, formats and titles that win.',
+  describe: 'YouTube videos for a topic or a channel\'s uploads, with views, likes and comments: content examples and available public counts. Views and engagement do not establish sales or buyer demand.',
   queryHint: 'A search phrase, or "@handle" for a channel\'s latest uploads.',
   defaultLimit: 30,
   unavailable: () => '',

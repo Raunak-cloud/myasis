@@ -43,7 +43,7 @@ function daysRunning(first: string, last: string): number {
 export const googleAds: Source = {
   id: 'google-ads',
   label: 'Google Ads Transparency Center (Search, YouTube, Display, Shopping)',
-  describe: 'Every Google ad (Search, YouTube, Display) an advertiser is running, by domain or advertiser name: formats, copy, how long each has run.',
+  describe: 'A sample of public Google ad records by advertiser or domain, including available copy and date spans. Collection is not exhaustive; date spans do not prove continuous activity or spend.',
   queryHint: 'The advertiser\'s website domain (best, e.g. "hubspot.com") or the advertiser\'s legal/brand name.',
   defaultLimit: 40,
   unavailable: () => '',

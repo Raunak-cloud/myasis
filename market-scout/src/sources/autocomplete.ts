@@ -68,7 +68,7 @@ async function suggest(engine: Engine, query: string, country: string, language:
 export const autocomplete: Source = {
   id: 'autocomplete',
   label: 'Search autocomplete (Google, YouTube, Bing, Amazon)',
-  describe: 'Real search phrases and questions people type, with popularity order. The base of SEO keyword research, content ideas and FAQ topics. Cheap and fast.',
+  describe: 'Autocomplete suggestions in the order returned by each engine. Useful topic ideas; suggestion order does not measure popularity, search volume or local buyer demand.',
   queryHint: 'A short seed phrase of 1-3 words (e.g. "protein powder", "crm for startups"). Add "|amazon" to include Amazon for physical products.',
   defaultLimit: 200,
   unavailable: () => '',
