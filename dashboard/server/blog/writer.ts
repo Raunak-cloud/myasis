@@ -279,12 +279,48 @@ async function review(ask: ReturnType<typeof createBlogModel>['ask'], brief: str
   return verdict.approved === true && !notes.length ? [] : notes.length ? notes : ['The reviewer did not approve the draft.'];
 }
 
-/** Check the exact humanizer output without subsequently rewriting it through Gemini. */
+/** Check humanized prose against both the original verified article and its sources. */
 export async function publicationProblems(brief: Brief, original: Article, candidate: Article, config: WriterConfig): Promise<string[]> {
   const structural = structuralProblems(candidate, brief);
   if (structural.length) return structural;
   const block = `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE (check that the rewrite preserves its facts, meaning and qualifications)\n${JSON.stringify(original, null, 2)}`;
   return review(createBlogModel(config).ask, block, candidate);
+}
+
+/** Repair only small factual spans after humanizing; never regenerate the humanized article. */
+export async function finishHumanizedPost(brief: Brief, original: Article, candidate: Article, config: WriterConfig): Promise<{ article: Article; repairs: number }> {
+  let article = structuredClone(candidate);
+  let repairs = 0;
+  let editedWords = 0;
+  const budget = Math.max(30, Math.floor(wordCount(candidate) * 0.2));
+  const ask = createBlogModel(config).ask;
+  for (let round = 0; ; round++) {
+    const structural = structuralProblems(article, brief);
+    if (structural.length) throw new Error(`Not published: the humanized article failed validation — ${structural.join(' | ')}`);
+    const notes = await publicationProblems(brief, original, article, config);
+    if (!notes.length) return { article, repairs };
+    if (round >= MAX_REVISIONS) throw new Error(`Not published: the humanized article failed its final fact-check — ${notes.slice(0, 3).join(' | ')}`);
+    console.log(`[blog] final humanized fact-check: ${notes.length} correction(s)`);
+    const prompt = `${briefText(brief, [])}\n\nORIGINAL VERIFIED ARTICLE\n${JSON.stringify(original)}\n\nHUMANIZED DRAFT\n${JSON.stringify(article)}\n\nFINAL FACT-CHECK NOTES\n${notes.join('\n')}\n\nRepair only the incorrect facts, omitted qualifications or wrong citation attachments using the smallest unique exact text snippets. Preserve the humanizer's voice and all unaffected words. Do not rewrite a paragraph or whole article. The originals across all edits together may contain at most ${budget - editedWords} words. Return non-overlapping exact text edits against HUMANIZED DRAFT.`;
+    let error = '';
+    for (let attempt = 0; ; attempt++) {
+      const patch = await ask(WRITER_SYSTEM, `${prompt}${error ? `\nYour previous edits were rejected: ${error}. Return corrected minimal edits.` : ''}`, CORRECTION_SCHEMA, 0.1);
+      try {
+        const wordsEdited = Array.isArray(patch.edits) ? patch.edits.reduce((total, edit) => total + (typeof edit?.original === 'string' ? edit.original.split(/\s+/).filter(Boolean).length : budget + 1), 0) : budget + 1;
+        if (editedWords + wordsEdited > budget) throw new Error('The edits replace too much humanized prose; use shorter exact snippets.');
+        const next = applyCorrections(article, patch);
+        // A fact repair cannot regenerate metadata or the editorial structure.
+        if (next.title !== candidate.title || next.slug !== candidate.slug || next.metaDescription !== candidate.metaDescription || next.focusKeyword !== candidate.focusKeyword || JSON.stringify(next.targetSearches) !== JSON.stringify(candidate.targetSearches) || next.sections.length !== candidate.sections.length || next.sections.some((section, i) => section.heading !== candidate.sections[i].heading)) throw new Error('A fact repair changed fixed article fields.');
+        article = next;
+        editedWords += wordsEdited;
+        repairs += (patch.edits as unknown[]).length;
+        break;
+      } catch (failure) {
+        error = (failure as Error).message;
+        if (attempt >= 1) throw new Error(`Not published: ${error}`);
+      }
+    }
+  }
 }
 
 export async function writePost(brief: Brief, recentTitles: readonly string[], config: WriterConfig, initialArticle?: Article): Promise<WrittenPost> {
