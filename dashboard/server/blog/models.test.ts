@@ -85,7 +85,7 @@ test('Gemini handles drafting, fact-checking and every revision', async (t) => {
     calls++;
     assert.match(String(url), /^https:\/\/generativelanguage\.googleapis\.com\//);
     const request = JSON.parse(init.body as string);
-    assert.equal(request.generationConfig.maxOutputTokens, 32_768);
+    assert.equal(request.generationConfig.maxOutputTokens, request.generationConfig.responseJsonSchema.properties.approved || request.generationConfig.responseJsonSchema.properties.edits ? 16_384 : 32_768);
     return geminiReply(values.shift());
   });
   const result = await writePost(brief, ['An earlier angle'], gemini);

@@ -322,7 +322,7 @@ export async function finishHumanizedPost(brief: Brief, original: Article, candi
   let article = structuredClone(candidate);
   let repairs = 0;
   let editedWords = 0;
-  const budget = Math.max(30, Math.floor(wordCount(candidate) * 0.2));
+  const budget = Math.max(30, Math.floor(wordCount(candidate) * 0.35));
   const ask = createBlogModel(config).ask;
   for (let round = 0; ; round++) {
     const structural = structuralProblems(article, brief);
