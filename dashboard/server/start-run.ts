@@ -8,6 +8,7 @@ import {
 } from './billing.js';
 import {
   applyRunPolicy,
+  PLATFORMS_CHOSEN_KEY,
   discardRunStart,
   entitlementsFor,
   recordRunStart,
@@ -179,7 +180,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */
-  const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto');
+  const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1');
   /**
    * An admin narrowing a run to boards is a decision, even when it reads like
    * the default: the policy turns a plain "seek" into "seek,indeed" for a pass

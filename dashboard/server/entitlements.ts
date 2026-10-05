@@ -169,6 +169,29 @@ export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, '
  * live applications then receive their fixed safety threshold regardless of
  * any saved value.
  */
+/** Set once the account picks its job boards itself; from then on its list is used exactly as picked. */
+export const PLATFORMS_CHOSEN_KEY = 'PLATFORMS_CHOSEN';
+
+/**
+ * The boards a run uses. A list the account picked is used exactly as
+ * picked. Otherwise the plan decides: SEEK and Indeed when the pass includes
+ * Indeed, SEEK alone when it does not.
+ *
+ * A saved "seek" is not itself a choice: the run screen saves every field when
+ * a run starts, so the product default lands in the database for accounts
+ * that never looked at the boards. The marker is the choice. Without it, a
+ * person who unticked Indeed got Indeed anyway (Rinu Thapa, 5 Oct): her "seek"
+ * read exactly like the default and was widened back to both boards.
+ */
+export function effectivePlatforms(
+  saved: Record<string, string | undefined>,
+  entitlement: Pick<Entitlements, 'indeedApplications'>,
+): string {
+  const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
+  if (saved[PLATFORMS_CHOSEN_KEY] === '1') return value;
+  return entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
+}
+
 export function applyRunPolicy(
   settings: Record<string, string>,
   entitlement: Pick<
@@ -176,6 +199,8 @@ export function applyRunPolicy(
     'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer' | 'maxApplicationsPerRunOverride'
   >,
   trigger: 'manual' | 'auto',
+  /** Whether the account picked its boards itself (see effectivePlatforms). */
+  boardsChosen = false,
 ): Record<string, string> {
   const resolved = { ...settings };
   // The field was removed. An old saved value or shared .env value must not
@@ -186,15 +211,8 @@ export function applyRunPolicy(
       if (!mayEditRunSetting(key, entitlement)) resolved[key] = RUN_SETTING_DEFAULTS[key] ?? '';
     }
   }
-  /**
-   * A pass that includes Indeed adds it for every tier. An account that can
-   * fine-tune keeps a board list it chose itself; the product default is
-   * not a choice, and leaving Indeed off it left paying accounts on SEEK
-   * alone without anyone deciding that.
-   */
-  if (entitlement.indeedApplications && (resolved.PLATFORMS ?? '').trim() === RUN_SETTING_DEFAULTS.PLATFORMS) {
-    resolved.PLATFORMS = 'seek,indeed';
-  }
+  // A pass that includes Indeed adds it, unless the account picked its boards itself.
+  resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '' }, entitlement);
   /**
    * An operator's numbers for this account win over both the plan's own
    * default and whatever the account saved — that is the point of setting

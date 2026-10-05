@@ -1,4 +1,4 @@
-import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, SCHEDULED_MIN_SCORE } from './entitlements.js';
+import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, effectivePlatforms, PLATFORMS_CHOSEN_KEY, SCHEDULED_MIN_SCORE } from './entitlements.js';
 import { manualRunRefusal } from './start-run.js';
 import { PLAN_LIMITS, PLAN_PRESENTATION } from '../src/pricing.js';
 
@@ -146,6 +146,15 @@ check('a review override holds for an admin\'s scheduled runs too', adminOverrid
 const posted = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '40', PLATFORMS: 'seek' }, intensivePolicy, 'manual');
 check('a posted evaluation count cannot lower or raise the Intensive plan', posted.MAX_EVALUATIONS === '80');
 check('a posted default board list still includes the Indeed an Intensive Pass pays for', posted.PLATFORMS === 'seek,indeed');
+
+// A board list the account picked is used exactly as picked (Rinu Thapa unticked Indeed and got it anyway, 5 Oct).
+const chosenSeek = applyRunPolicy({ ...saved, PLATFORMS: 'seek' }, jobSearchPolicy, 'manual', true);
+check('SEEK alone, picked by the account, stays SEEK alone on a pass that includes Indeed', chosenSeek.PLATFORMS === 'seek');
+check('Indeed alone, picked by the account, stays Indeed alone', applyRunPolicy({ ...saved, PLATFORMS: 'indeed' }, intensivePolicy, 'manual', true).PLATFORMS === 'indeed');
+check('the plan default still adds Indeed when nothing was picked', effectivePlatforms({ PLATFORMS: 'seek' }, jobSearchPolicy) === 'seek,indeed');
+check('nothing saved at all: the plan default', effectivePlatforms({}, jobSearchPolicy) === 'seek,indeed' && effectivePlatforms({}, freePolicy) === 'seek');
+check('a picked SEEK-only list is reported as SEEK only', effectivePlatforms({ PLATFORMS: 'seek', [PLATFORMS_CHOSEN_KEY]: '1' }, intensivePolicy) === 'seek');
+check('a free account is never given Indeed', effectivePlatforms({ PLATFORMS: 'seek' }, freePolicy) === 'seek');
 
 // Every number a plan advertises is the number the server enforces.
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');

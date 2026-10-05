@@ -805,7 +805,7 @@ export function RunPanel({
         {!running && (
           <>
             {/* Same rule the run applies: an account that cannot fine-tune gets Indeed from its pass, not from the setting. */}
-            {!setupExpanded && <SeekSignIn onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed') || Boolean(entitlements?.indeedApplications && platforms.join(',') === 'seek')} />}
+            {!setupExpanded && <SeekSignIn onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed')} />}
             <GmailConnect compact />
           </>
         )}

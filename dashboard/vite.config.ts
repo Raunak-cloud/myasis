@@ -46,7 +46,7 @@ import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc }
 import { checkSignin, seekCheckInProgress, signOutOfBoard, waitForSigninChecks } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
 import { chromeGoogleAccounts } from './server/chrome-accounts.js';
-import { applyRunPolicy, discardRunStart, entitlementsFor, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
+import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
 import { chatCompletion, humanizerEndpoint, probeHumanizer } from './server/humanizer-endpoint.js';
 import { routeStatus } from './server/route.js';
@@ -500,10 +500,18 @@ function dataApi(): Plugin {
               if (!mayEditRunSetting(key, entitlements)) continue;
               updates[key] = String(value ?? '');
             }
+            // Boards that differ from what a run would have used are the person's own choice, kept from now on.
+            const before = await loadUserSettings(userId);
+            if (updates.PLATFORMS !== undefined && updates.PLATFORMS.trim() !== effectivePlatforms(before, entitlements)) {
+              await upsertSettingRow(userId, PLATFORMS_CHOSEN_KEY, '1');
+            }
             const settings = await saveUserSettings(userId, updates);
-            return send({ ok: true, settings });
+            return send({ ok: true, settings: { ...settings, PLATFORMS: effectivePlatforms(settings, entitlements) } });
           }
-          return send(await loadUserSettings(userId));
+          // What the run screen shows is what a run would use, not the raw saved value.
+          const viewer = await currentUser(req.headers?.cookie);
+          const saved = await loadUserSettings(userId);
+          return send({ ...saved, PLATFORMS: effectivePlatforms(saved, await entitlementsFor(userId, viewer?.email)) });
         });
       }
 
