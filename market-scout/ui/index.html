@@ -87,6 +87,7 @@ a.btn{border-radius:8px;border:1px solid var(--accent);background:var(--accent);
       <label for="product">What do you sell? <small>required</small></label>
       <textarea id="product" name="product" rows="3" required maxlength="400" placeholder="Traditional Nepali outfits for weddings and festivals, sold in Australia"></textarea>
       <p class="hint">The agent finds competitors, checks their websites, suggests an audience and runs the research for you. Market: <strong id="marketCountry">Australia</strong>.</p>
+      <p id="discoveryHelp" class="hint" hidden>Live competitor search is not connected. The agent checks available leads but may miss competitors; you can add known websites in More options.</p>
       <details id="moreOptions">
         <summary>More options: competitors, goals and budget</summary>
         <label for="country">Market to research <small>defaults to Australia</small></label><select id="country" name="country"><option value="AU">Australia</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="CA">Canada</option><option value="NZ">New Zealand</option><option value="IN">India</option><option value="SG">Singapore</option><option value="DE">Germany</option><option value="FR">France</option></select>
@@ -104,7 +105,7 @@ a.btn{border-radius:8px;border:1px solid var(--accent);background:var(--accent);
         <label for="goals">What would you like to learn? <small>optional, one goal per line</small></label><textarea id="goals" name="goals" rows="2" placeholder="Find relevant product searches and compare competitor prices"></textarea>
         <label for="language">Research language</label><input id="language" name="language" value="en" placeholder="en">
         <label>Research sources <small>leave empty for automatic selection</small></label><div id="sources" class="chips"></div>
-        <details><summary>Research limits</summary><div class="row"><div><label for="maxTasks">Initial searches</label><input id="maxTasks" name="maxTasks" type="number" min="1" max="30" value="14"></div><div><label for="followUps">Follow-up searches</label><input id="followUps" name="followUps" type="number" min="0" max="12" value="4"></div></div><label for="budgetUsd">Model budget in USD</label><input id="budgetUsd" name="budgetUsd" type="number" min="0.1" max="20" step="0.1"><p class="hint">Collection stays within this budget. Up to $0.15 extra is reserved to finish the report.</p></details>
+        <details><summary>Research limits</summary><div class="row"><div><label for="maxTasks">Initial research tasks</label><input id="maxTasks" name="maxTasks" type="number" min="1" max="30" value="14"></div><div><label for="followUps">Follow-up research tasks</label><input id="followUps" name="followUps" type="number" min="0" max="12" value="4"></div></div><label for="budgetUsd">Model budget in USD</label><input id="budgetUsd" name="budgetUsd" type="number" min="0.1" max="20" step="0.1"><p class="hint">Sets an estimated AI spending limit. Calls already in progress may finish.</p></details>
       </details>
       <button id="start" class="primary" type="submit">Research my market</button>
       <p class="hint">Research takes a few minutes. Keyword suggestions and public ads provide clues; they do not measure sales or market size.</p>
@@ -175,6 +176,7 @@ async function loadSources() {
   const data = await api('/api/sources');
   $('status').textContent = data.celeris ? 'Ready to research' : 'Research setup needed';
   $('status').className = data.celeris ? 'pill' : 'pill bad';
+  $('discoveryHelp').hidden = Boolean(data.webSearch);
   $('budgetUsd').value = $('budgetUsd').value || data.budgetUsd;
   $('sources').innerHTML = data.sources.map((s) => `
     <label class="chip${s.unavailable ? ' off' : ''}" title="${esc(s.unavailable || s.describe)}">

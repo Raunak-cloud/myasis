@@ -83,6 +83,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
     return send(res, 200, {
       sources: SOURCES.map((source) => ({ id: source.id, label: source.label, describe: source.describe, queryHint: source.queryHint, unavailable: source.unavailable() })),
       celeris: Boolean(config.celeris.apiKey),
+      webSearch: Boolean(config.webSearch.enabled && config.webSearch.apiKey),
       budgetUsd: config.budget.usd,
     });
   }
