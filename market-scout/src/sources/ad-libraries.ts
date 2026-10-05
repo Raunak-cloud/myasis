@@ -95,8 +95,8 @@ export const googleAds: Source = {
               text: '',
               author: String(node['12']),
               publishedAt: first,
-              metrics: { daysRunning: daysRunning(first, last), variants: 1, active: Date.now() - Date.parse(last) < 3 * 86_400_000 ? 1 : 0 },
-              attributes: { format, lastShown: last, domain: pickString(node, '14') },
+              metrics: { daysRunning: daysRunning(first, last), variants: 1 },
+              attributes: { format, lastShown: last, domain: pickString(node, '14'), region, activityBasis: 'First/last observation; active status is not provided.' },
               query: task.query,
             });
           },

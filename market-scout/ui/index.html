@@ -56,7 +56,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .failed .ico{background:var(--warn);border-color:var(--warn)}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.running .ico{animation:none}}
-pre.log{max-height:320px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.78rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}
+.hint{font-size:.8rem;color:var(--muted);margin:8px 0}.legacy{font-size:.82rem;color:var(--warn);background:var(--warn-soft);padding:7px 9px;border-radius:6px}.badge.partial{color:var(--warn);border-color:var(--warn)}[hidden]{display:none!important}pre.log{max-height:320px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.78rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}
 .runs{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .run{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:6px}
 .run-top{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
@@ -76,49 +76,36 @@ a.btn{border-radius:8px;border:1px solid var(--accent);background:var(--accent);
 </head>
 <body>
 <header>
-  <h1>Market Scout <span>· public marketing research</span></h1>
+  <h1>Market Scout <span>· understand your market</span></h1>
   <span id="status" class="pill">Checking…</span>
 </header>
 <main>
   <section class="panel" aria-labelledby="new-h">
-    <h2 id="new-h">New research</h2>
-    <p class="sub">Describe what you sell. The agent plans the research, browses ad libraries, social platforms and sites, then writes a cited brief.</p>
+    <h2 id="new-h">Understand your market</h2>
+    <p class="sub">Just tell us what you sell. Your agent will work out the research details and return sourced findings and ideas to test.</p>
     <form id="form" autocomplete="off">
-      <label for="product">What you sell</label>
-      <textarea id="product" name="product" rows="2" placeholder="Australian activewear brand for women who lift weights"></textarea>
-      <div class="row">
-        <div><label for="niche">Niche</label><input id="niche" name="niche" placeholder="women's gym activewear"></div>
-        <div><label for="brand">Your brand</label><input id="brand" name="brand" placeholder="LiftLab"></div>
-      </div>
-      <label for="competitors">Competitors <small>comma-separated</small></label>
-      <input id="competitors" name="competitors" placeholder="Gymshark, Lorna Jane">
-      <label for="websites">Websites to audit <small>one per line</small></label>
-      <textarea id="websites" name="websites" rows="2" placeholder="https://www.lornajane.com.au"></textarea>
-      <div class="row">
-        <div>
-          <label for="country">Country</label>
-          <select id="country" name="country">
-            <option value="AU">Australia</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="CA">Canada</option><option value="NZ">New Zealand</option><option value="IE">Ireland</option><option value="IN">India</option><option value="SG">Singapore</option><option value="DE">Germany</option><option value="FR">France</option><option value="NL">Netherlands</option><option value="ES">Spain</option><option value="IT">Italy</option>
-          </select>
+      <label for="product">What do you sell? <small>required</small></label>
+      <textarea id="product" name="product" rows="3" required maxlength="400" placeholder="Traditional Nepali outfits for weddings and festivals, sold in Australia"></textarea>
+      <p class="hint">The agent finds competitors, checks their websites, suggests an audience and runs the research for you. Market: <strong id="marketCountry">Australia</strong>.</p>
+      <details id="moreOptions">
+        <summary>More options: competitors, goals and budget</summary>
+        <label for="country">Market to research <small>defaults to Australia</small></label><select id="country" name="country"><option value="AU">Australia</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="CA">Canada</option><option value="NZ">New Zealand</option><option value="IN">India</option><option value="SG">Singapore</option><option value="DE">Germany</option><option value="FR">France</option></select>
+        <label for="brand">Your brand <small>optional</small></label><input id="brand" name="brand" maxlength="80" placeholder="Your business name">
+        <label class="hint"><input type="checkbox" id="manualDetails"> Add details I already know</label>
+        <div id="manualFields" hidden>
+        <label for="audience">Audience <small>optional override</small></label><input id="audience" name="audience" maxlength="400" placeholder="Leave blank for the agent to suggest">
+        <label for="niche">Product category <small>optional</small></label><input id="niche" name="niche" maxlength="120" placeholder="Nepali traditional clothing">
+        <label for="competitors">Competitor names <small>separate with commas</small></label><input id="competitors" name="competitors" placeholder="House of Nepal, Boutique Nepal">
+        <label for="websites">Competitor websites <small>one per line</small></label><textarea id="websites" name="websites" rows="3" placeholder="https://houseofnepal.com.au/"></textarea>
+        <p class="hint">Use real retailer URLs. The tool checks their products and service information before suggesting opportunities.</p>
         </div>
-        <div><label for="language">Language</label><input id="language" name="language" value="en"></div>
-      </div>
-      <label for="audience">Audience</label>
-      <input id="audience" name="audience" placeholder="Australian women 18-35 who strength train">
-      <label for="goals">Goals <small>one per line, optional</small></label>
-      <textarea id="goals" name="goals" rows="2" placeholder="Ad angles and hooks that work in this market&#10;SEO keywords and content ideas"></textarea>
-      <label>Sources <small>none ticked = the planner chooses</small></label>
-      <div id="sources" class="chips"></div>
-      <details>
-        <summary>Limits</summary>
-        <div class="row">
-          <div><label for="maxTasks">Tasks in round one</label><input id="maxTasks" name="maxTasks" type="number" min="1" max="30" value="10"></div>
-          <div><label for="followUps">Follow-up tasks</label><input id="followUps" name="followUps" type="number" min="0" max="12" value="4"></div>
-        </div>
-        <label for="budgetUsd">Model budget (USD)</label>
-        <input id="budgetUsd" name="budgetUsd" type="number" min="0.1" max="20" step="0.1">
+        <label for="goals">What would you like to learn? <small>optional, one goal per line</small></label><textarea id="goals" name="goals" rows="2" placeholder="Find relevant product searches and compare competitor prices"></textarea>
+        <label for="language">Research language</label><input id="language" name="language" value="en" placeholder="en">
+        <label>Research sources <small>leave empty for automatic selection</small></label><div id="sources" class="chips"></div>
+        <details><summary>Research limits</summary><div class="row"><div><label for="maxTasks">Initial searches</label><input id="maxTasks" name="maxTasks" type="number" min="1" max="30" value="14"></div><div><label for="followUps">Follow-up searches</label><input id="followUps" name="followUps" type="number" min="0" max="12" value="4"></div></div><label for="budgetUsd">Model budget in USD</label><input id="budgetUsd" name="budgetUsd" type="number" min="0.1" max="20" step="0.1"><p class="hint">Collection stays within this budget. Up to $0.15 extra is reserved to finish the report.</p></details>
       </details>
-      <button id="start" class="primary" type="submit">Start research</button>
+      <button id="start" class="primary" type="submit">Research my market</button>
+      <p class="hint">Research takes a few minutes. Keyword suggestions and public ads provide clues; they do not measure sales or market size.</p>
       <p id="formError" class="error" role="alert"></p>
     </form>
   </section>
@@ -137,16 +124,17 @@ a.btn{border-radius:8px;border:1px solid var(--accent);background:var(--accent);
         </div>
       </div>
       <div class="phases" id="phases"></div>
-      <ul id="tasks" class="tasks"></ul>
+      <div id="discovered" hidden></div>
+      <p id="progressHelp" class="sub">We are gathering public evidence, removing unrelated results and checking the report.</p><details><summary>View research activity</summary><ul id="tasks" class="tasks"></ul></details>
       <details>
-        <summary>Full log</summary>
+        <summary>Technical log</summary>
         <pre id="log" class="log"></pre>
       </details>
     </section>
 
     <section class="panel" aria-labelledby="runs-h">
-      <h2 id="runs-h">Reports</h2>
-      <p class="sub">Every run, newest first. Reports open in a new tab.</p>
+      <h2 id="runs-h">Your research</h2>
+      <p class="sub">Open a report to see key findings, suggested tests and evidence quality.</p>
       <ul id="runs" class="runs"></ul>
     </section>
   </div>
@@ -154,8 +142,11 @@ a.btn{border-radius:8px;border:1px solid var(--accent);background:var(--accent);
 
 <script>
 const $ = (id) => document.getElementById(id);
+const BASE = document.body.dataset.basePath || '';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const PHASES = ['Planning', 'Collecting', 'Follow-ups', 'Analysing', 'Writing', 'Done'];
+const PHASES = ['Discover your market', 'Gather evidence', 'Fill gaps', 'Review relevance', 'Check findings', 'Ready'];
+const STATUS = { done: 'Ready', partial: 'Limited results', running: 'Researching', stopped: 'Stopped', failed: 'Needs attention', incomplete: 'Incomplete' };
+const SOURCE_NAMES = { autocomplete: 'Search suggestions', 'meta-ads': 'Facebook & Instagram ads', 'google-ads': 'Google ads', website: 'Retailer websites', tiktok: 'TikTok content', instagram: 'Instagram accounts', youtube: 'YouTube videos', reddit: 'Reddit discussions', agent: 'Other public websites', trends: 'Pinterest trends', 'tiktok-creative': 'TikTok ad library', facebook: 'Facebook pages', 'linkedin-ads': 'LinkedIn ads' };
 let activeId = null;
 let source = null;
 let timer = null;
@@ -172,7 +163,7 @@ function draft(save) {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(path, { ...options, headers: { 'content-type': 'application/json' } });
+  const res = await fetch(BASE + path, { ...options, headers: { 'content-type': 'application/json' } });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
@@ -180,12 +171,12 @@ async function api(path, options = {}) {
 
 async function loadSources() {
   const data = await api('/api/sources');
-  $('status').textContent = data.celeris ? 'Celeris connected' : 'CELERIS_API_KEY missing';
+  $('status').textContent = data.celeris ? 'Ready to research' : 'Research setup needed';
   $('status').className = data.celeris ? 'pill' : 'pill bad';
   $('budgetUsd').value = $('budgetUsd').value || data.budgetUsd;
   $('sources').innerHTML = data.sources.map((s) => `
     <label class="chip${s.unavailable ? ' off' : ''}" title="${esc(s.unavailable || s.describe)}">
-      <input type="checkbox" name="sources" value="${esc(s.id)}" ${s.unavailable ? 'disabled' : ''}> ${esc(s.id)}
+      <input type="checkbox" name="sources" value="${esc(s.id)}" ${s.unavailable ? 'disabled' : ''}> ${esc(SOURCE_NAMES[s.id] || s.id)}${s.unavailable ? " - unavailable" : ""}
     </label>`).join('');
 }
 
@@ -197,17 +188,27 @@ async function loadRuns() {
     <li class="run">
       <div class="run-top">
         <span class="run-title">${esc(r.brand || r.niche || r.product || r.id)}</span>
-        <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
+        <span class="badge ${esc(r.status)}">${esc(STATUS[r.status] || r.status)}</span>
       </div>
       <span class="run-meta">${esc(r.niche)}${r.country ? ' · ' + esc(r.country) : ''} · ${new Date(r.startedAt).toLocaleString()}${r.cost ? ' · ' + esc(r.cost.split(' · ').pop()) : ''}</span>
-      ${r.headline ? `<span class="run-head">${esc(r.headline)}</span>` : ''}
+      ${r.version === 2 ? `<span class="run-head">${esc(r.headline)}</span><span class="run-meta">${r.quality ? `${r.quality.included} usable items | ${r.quality.excluded + r.quality.unverified} set aside | ${r.quality.customerItems} customer sources` : 'Evidence review unavailable'}</span>` : r.headline ? '<span class="legacy">Older report - recheck before using its conclusions</span>' : r.status === 'running' ? '<span class="run-meta">Your agent is setting up the research and collecting evidence.</span>' : '<span class="run-meta">No report yet. Create one from any saved evidence.</span>'}
       <div class="actions">
-        ${r.status === 'done' ? `<a class="btn" href="/runs/${encodeURIComponent(r.id)}/report.html" target="_blank" rel="noopener">Open report</a>` : ''}
-        <button type="button" data-watch="${esc(r.id)}">${r.status === 'running' ? 'Watch progress' : 'Show log'}</button>
-        ${r.status !== 'running' && !data.active ? `<button type="button" data-report="${esc(r.id)}">${r.status === 'done' ? 'Rewrite report' : 'Write report'}</button>` : ''}
+        ${(r.status === 'done' || r.status === 'partial') ? `<a class="btn" href="${BASE}/runs/${encodeURIComponent(r.id)}/report.html" target="_blank" rel="noopener">Open report</a>` : ''}
+        <button type="button" data-watch="${esc(r.id)}">${r.status === 'running' ? 'View progress' : 'View activity'}</button>
+        ${r.status !== 'running' && !data.active ? `<button type="button" data-report="${esc(r.id)}">${r.status === 'done' || r.status === 'partial' ? 'Recheck saved evidence' : 'Create report'}</button>` : ''}
       </div>
     </li>`).join('');
   return data;
+}
+
+async function loadContext(id) {
+  try {
+    const data = await api(`/api/runs/${encodeURIComponent(id)}/context`);
+    if (!data.discovery || activeId !== id) return;
+    $('liveTitle').textContent = data.brand || data.niche || data.product;
+    $('discovered').hidden = false;
+    $('discovered').innerHTML = `<h3>Your agent found</h3><p><strong>Category:</strong> ${esc(data.niche)}</p><p><strong>${data.discovery.audienceBasis === 'provided' ? 'Your audience' : 'Suggested audience'}:</strong> ${esc(data.audience || 'Not available yet')} <span class="hint">Validate with actual buyers.</span></p><p><strong>Competitors to audit:</strong></p><ul>${data.discovery.competitors.map((c) => `<li><strong>${esc(c.name)}</strong> &middot; <a href="${esc(c.website)}" target="_blank" rel="noopener">${esc(c.website)}</a>${c.region === 'unknown' ? ' (target market unconfirmed)' : ''}</li>`).join('') || '<li>No competitor website could be verified.</li>'}</ul>`;
+  } catch { /* context arrives once automatic setup is complete */ }
 }
 
 function phaseFrom(state) {
@@ -223,6 +224,9 @@ function watch(id, title) {
   $('tasks').innerHTML = '';
   $('log').textContent = '';
   $('liveReport').hidden = true;
+  $('discovered').hidden = true;
+  $('progressHelp').textContent = 'Your agent is finding competitors and gathering public evidence.';
+  loadContext(id);
   $('stop').hidden = false;
   const tasks = new Map();
   let phase = 0;
@@ -243,7 +247,7 @@ function watch(id, title) {
       </li>`).join('');
   };
 
-  source = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
+  source = new EventSource(`${BASE}/api/runs/${encodeURIComponent(id)}/events`);
   source.onmessage = (event) => {
     const { line } = JSON.parse(event.data);
     const log = $('log');
@@ -255,8 +259,9 @@ function watch(id, title) {
     else if ((m = /^\s+· (\S+) "(.*)" \(\d+\)/.exec(line))) tasks.set(`${m[1]}|${m[2]}`, { source: m[1], query: m[2], state: 'pending' });
     else if ((m = /^→ (\S+) "(.*)"$/.exec(line))) { const t = tasks.get(`${m[1]}|${m[2]}`) || { source: m[1], query: m[2] }; t.state = 'running'; tasks.set(`${m[1]}|${m[2]}`, t); }
     else if ((m = /^([✓✗]) (\S+) "(.*)": (.*)$/.exec(line))) { const t = tasks.get(`${m[2]}|${m[3]}`) || { source: m[2], query: m[3] }; t.state = m[1] === '✓' ? 'done' : 'failed'; t.result = m[4]; tasks.set(`${m[2]}|${m[3]}`, t); }
+    else if (/^Market setup ready:/.test(line)) { loadContext(id); phase = 0; }
     else if (/^Collected \d+ items/.test(line)) phase = 3;
-    else if (/^Writing and fact-checking/.test(line)) phase = 4;
+    else if (/^(Writing and fact-checking|Building source-checked)/.test(line)) phase = 4;
     else if (/^Done\./.test(line)) phase = 5;
     phaseFrom(phase);
     render();
@@ -266,15 +271,16 @@ function watch(id, title) {
     source.close();
     clearInterval(timer);
     $('stop').hidden = true;
-    $('elapsed').textContent = outcome === 'done' ? 'Finished' : outcome === 'running' ? '' : `Ended: ${outcome}`;
-    if (outcome === 'done') { phaseFrom(5); $('liveReport').href = `/runs/${encodeURIComponent(id)}/report.html`; $('liveReport').hidden = false; }
+    $('progressHelp').textContent = outcome === 'done' ? 'Your report is ready. Open it to review the audience, competitors and findings.' : outcome === 'partial' ? 'Some evidence could not be collected. Open the limited report to see what is available.' : 'The run has ended. Any collected evidence is saved.';
+    $('elapsed').textContent = outcome === 'done' ? 'Report ready' : outcome === 'partial' ? 'Report ready with limited results' : outcome === 'running' ? '' : `Ended: ${outcome}`;
+    if (outcome === 'done' || outcome === 'partial') { loadContext(id); phaseFrom(5); $('liveReport').href = `${BASE}/runs/${encodeURIComponent(id)}/report.html`; $('liveReport').hidden = false; }
     if (activeId === id) loadRuns().then(syncButtons);
   });
 }
 
 function syncButtons(data) {
   $('start').disabled = Boolean(data && data.active);
-  $('start').textContent = data && data.active ? 'A run is in progress' : 'Start research';
+  $('start').textContent = data && data.active ? 'Research in progress...' : 'Research my market';
 }
 
 $('form').addEventListener('input', () => draft(true));
@@ -283,16 +289,16 @@ $('form').addEventListener('submit', async (event) => {
   $('formError').textContent = '';
   const f = new FormData($('form'));
   const body = {
-    product: f.get('product'), niche: f.get('niche'), brand: f.get('brand'),
-    competitors: String(f.get('competitors') || ''), websites: String(f.get('websites') || '').split('\n'),
-    country: f.get('country'), language: f.get('language'), audience: f.get('audience'),
-    goals: String(f.get('goals') || '').split('\n'), sources: f.getAll('sources'),
+    product: f.get('product'), autoDiscover: true, niche: $('manualDetails').checked ? f.get('niche') : '', brand: f.get('brand'),
+    competitors: $('manualDetails').checked ? String(f.get('competitors') || '') : '', websites: $('manualDetails').checked ? String(f.get('websites') || '').split('\n') : [],
+    country: f.get('country'), language: f.get('language'), audience: $('manualDetails').checked ? f.get('audience') : '',
+    goals: String(f.get('goals') || 'Find relevant searches, compare verified competitors and suggest measurable marketing tests.').split('\n'), sources: f.getAll('sources'),
     maxTasks: Number(f.get('maxTasks')), followUps: Number(f.get('followUps')), budgetUsd: Number(f.get('budgetUsd')),
   };
   try {
     $('start').disabled = true;
     const { id } = await api('/api/runs', { method: 'POST', body: JSON.stringify(body) });
-    watch(id, body.brand || body.niche || 'Research run');
+    watch(id, body.brand || body.niche || body.product || 'Research run');
     syncButtons(await loadRuns());
   } catch (error) {
     $('formError').textContent = error.message;
@@ -319,7 +325,10 @@ $('stop').addEventListener('click', async () => {
 });
 $('closeLive').addEventListener('click', () => { source?.close(); clearInterval(timer); $('live').hidden = true; activeId = null; });
 
+$('manualDetails').addEventListener('change', () => { $('manualFields').hidden = !$('manualDetails').checked; });
+$('country').addEventListener('change', () => { $('marketCountry').textContent = $('country').selectedOptions[0].textContent; });
 draft(false);
+$('marketCountry').textContent = $('country').selectedOptions[0].textContent;
 loadSources().catch((error) => { $('status').textContent = error.message; $('status').className = 'pill bad'; });
 loadRuns().then((data) => {
   syncButtons(data);

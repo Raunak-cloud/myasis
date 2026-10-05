@@ -26,6 +26,7 @@ export interface ScoredPost {
   outlier: number;
   velocity: number;
   metrics: Record<string, number>;
+  baseline: 'creator sample' | 'search sample';
 }
 
 export interface VocQuote {
@@ -102,6 +103,7 @@ export function scorePosts(items: Evidence[]): ScoredPost[] {
       outlier: Number.isFinite(rate) && Number.isFinite(base) && base > 0 ? Number((rate / base).toFixed(2)) : Number.NaN,
       velocity: Number.isFinite(ageDays) ? Math.round(interactions / ageDays) : Number.NaN,
       metrics: post.metrics,
+      baseline: baselineKey(post).includes('|author|') ? 'creator sample' : 'search sample',
     };
   });
 }
@@ -136,7 +138,7 @@ export async function analyzeSocial(all: Evidence[], meter: CostMeter): Promise<
     .slice(0, 30);
 
   // ---- Voice of customer ----
-  const conversational = all.filter((item) => ['reddit', 'agent', 'instagram', 'facebook', 'tiktok', 'youtube'].includes(item.source) && item.text.length >= 40);
+  const conversational = all.filter((item) => item.attributes.reviewRole === 'customer' && item.text.length >= 40);
   const weightOf = (item: Evidence) => 1 + Math.log1p(Math.max(0, sum(item.metrics.score, item.metrics.likes, item.metrics.comments)));
   const ranked = [...conversational].sort((a, b) => weightOf(b) - weightOf(a)).slice(0, 240);
   const batches: Evidence[][] = [];

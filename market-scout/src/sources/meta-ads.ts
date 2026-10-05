@@ -42,7 +42,8 @@ function fromGraphql(node: Record<string, unknown>, query: string): Evidence | u
   if (!id) return undefined;
   const snapshot = (pick(node, 'snapshot') ?? {}) as Record<string, unknown>;
   const startedAt = toIsoDate(pick(node, 'start_date', 'startDate'));
-  const active = pick(node, 'is_active', 'isActive') !== false;
+    const activeValue = pick(node, 'is_active', 'isActive');
+    const active = activeValue === true;
   const endedAt = active ? '' : toIsoDate(pick(node, 'end_date', 'endDate'));
   const body = pickString(snapshot, 'body.text', 'cards.0.body', 'body');
   const platforms = (pick(node, 'publisher_platform', 'publisherPlatform') as string[] | undefined) ?? [];
@@ -63,7 +64,7 @@ function fromGraphql(node: Record<string, unknown>, query: string): Evidence | u
       daysRunning: daysBetween(startedAt, endedAt),
       variants: pickNumber(node, 'collation_count') || 1,
       platforms: platforms.length || 1,
-      active: active ? 1 : 0,
+      active: typeof activeValue === 'boolean' ? (active ? 1 : 0) : Number.NaN,
       pageLikes: pickNumber(snapshot, 'page_like_count'),
       euReach: pickNumber(node, 'reach_estimate', 'eu_total_reach'),
     },
@@ -138,7 +139,7 @@ async function viaApi(query: string, country: string, limit: number): Promise<Ev
 export const metaAds: Source = {
   id: 'meta-ads',
   label: 'Meta Ad Library (Facebook, Instagram, Messenger, Audience Network)',
-  describe: 'Live and past Facebook/Instagram ads for a keyword or advertiser: copy, CTA, landing page, start date, variant count, platforms. Long-running ads with many variants are the proven winners.',
+  describe: 'Public Facebook/Instagram ad copy, CTA, landing page, dates and variants. Longevity is an observation, not evidence of profit or conversions.',
   queryHint: 'An advertiser/brand name or a keyword that appears in ad copy (e.g. "Gymshark", "meal prep delivery").',
   defaultLimit: 60,
   unavailable: () => '',
@@ -204,8 +205,8 @@ export const metaAds: Source = {
       if (!advertiser) return found;
       ctx.log(`  following advertiser page ${advertiser}`);
       const own = await browseAndExtract<Item>(page, spec(library({ view_all_page_id: advertiser, search_type: 'page' }), task.limit), ctx).catch(() => []);
-      const merged = new Map([...own, ...found].map((item) => [item.id, item]));
-      return [...merged.values()].slice(0, task.limit);
+      // A business query must not merge unrelated keyword matches into its own ads.
+      return own.filter((item) => String(item.attributes.pageId ?? '') === advertiser || normalise(item.author).includes(wanted)).slice(0, task.limit);
     });
   },
 };

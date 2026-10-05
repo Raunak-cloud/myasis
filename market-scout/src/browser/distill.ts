@@ -35,6 +35,9 @@ export interface PageFacts {
   generator: string;
   /** Internal links with their anchor text, for crawling and site structure. */
   links: Array<{ text: string; href: string }>;
+  socialLinks: string[];
+  commerceText: string;
+  products: Array<{ name: string; price: string; currency: string; availability: string; url: string }>;
   markdown: string;
 }
 
@@ -51,6 +54,7 @@ export async function distill(page: Page, maxChars = 20_000): Promise<PageFacts>
     const meta = (selector: string) => clean(doc.querySelector(selector)?.getAttribute('content'));
 
     const jsonLdTypes: string[] = [];
+    const products: PageFacts['products'] = [];
     for (const script of doc.querySelectorAll('script[type="application/ld+json"]')) {
       try {
         const stack: unknown[] = [JSON.parse(script.textContent ?? '')];
@@ -61,6 +65,15 @@ export async function distill(page: Page, maxChars = 20_000): Promise<PageFacts>
             const type = (node as Record<string, unknown>)['@type'];
             if (typeof type === 'string') jsonLdTypes.push(type);
             else if (Array.isArray(type)) jsonLdTypes.push(...type.filter((t): t is string => typeof t === 'string'));
+            if (type === 'Product' || (Array.isArray(type) && type.includes('Product'))) {
+              const product = node as Record<string, unknown>;
+              const offers = Array.isArray(product.offers) ? product.offers : [product.offers];
+              for (const offer of offers) {
+                if (!offer || typeof offer !== 'object') continue;
+                const o = offer as Record<string, unknown>;
+                products.push({ name: String(product.name ?? ''), price: String(o.price ?? o.lowPrice ?? ''), currency: String(o.priceCurrency ?? ''), availability: String(o.availability ?? ''), url: String(o.url ?? location.href) });
+              }
+            }
             stack.push(...Object.values(node as Record<string, unknown>));
           }
         }
@@ -162,6 +175,9 @@ export async function distill(page: Page, maxChars = 20_000): Promise<PageFacts>
     }
 
     const bodyText = clean(doc.body?.innerText);
+    // Product-card prices and service terms must survive link-density pruning.
+    const bodyLines = (doc.body?.innerText ?? '').split('\n').map(clean).filter(Boolean);
+    const commerceText = bodyLines.flatMap((line, i) => /(?:AUD|USD|GBP|NZD|CAD|EUR|\$|£|€)\s?\d|shipping|delivery|dispatch|pickup|pick.up|return|refund|exchange|size|measurement|made in|stock|sold out/i.test(line) ? bodyLines.slice(Math.max(0, i - 2), i + 2) : []).filter((line, i, a) => a.indexOf(line) === i).join('\n').slice(0, 12_000);
     return {
       url: location.href,
       title: clean(doc.title),
@@ -183,6 +199,9 @@ export async function distill(page: Page, maxChars = 20_000): Promise<PageFacts>
       inlineSignals,
       generator: meta('meta[name="generator"]'),
       links,
+      socialLinks: [...doc.querySelectorAll<HTMLAnchorElement>('a[href]')].map((a) => a.href).filter((u) => /^https?:\/\/(?:www\.)?(?:instagram\.com|facebook\.com|tiktok\.com|youtube\.com)\//i.test(u)).slice(0, 30),
+      commerceText,
+      products: products.slice(0, 80),
       markdown: out.join('\n').slice(0, limit),
     };
   }, maxChars);

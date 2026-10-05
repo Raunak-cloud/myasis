@@ -1,11 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, type WriteStream } from 'node:fs';
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, type WriteStream } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import type { Brief, SourceId } from '../core/types.js';
 import { SOURCES } from '../sources/index.js';
+import { EvidenceStore } from '../core/store.js';
+import { renderHtml } from '../report/render.js';
+import type { Report } from '../report/synthesize.js';
 
 /**
  * The local web interface: a form that starts a research run, its progress
@@ -24,6 +27,7 @@ const RUN_ID = /^[\w.-]+$/;
 const runsDir = () => resolve(config.dataDir, 'runs');
 const pagePath = fileURLToPath(new URL('../../ui/index.html', import.meta.url));
 const cliPath = fileURLToPath(new URL('../cli.js', import.meta.url));
+const basePath = process.env.SCOUT_UI_BASE_PATH === '/market-research' ? '/market-research' : '';
 
 interface ActiveRun {
   id: string;
@@ -43,6 +47,7 @@ export async function startUi(port = Number(process.env.SCOUT_UI_PORT) || 5190):
   });
   await new Promise<void>((done) => server.listen(port, '127.0.0.1', done));
   console.log(`Market Scout is open at ${origin}  (Ctrl+C to quit)`);
+  if (process.env.SCOUT_NO_OPEN === '1') return;
   const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', origin]] : process.platform === 'darwin' ? ['open', [origin]] : ['xdg-open', [origin]];
   spawn(opener[0] as string, opener[1] as string[], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
 }
@@ -59,7 +64,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
 
   if (req.method === 'GET' && (path === '/' || path === '/index.html')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(readFileSync(pagePath));
+    res.end(readFileSync(pagePath, 'utf8')
+      .replace('<body>', `<body data-base-path="${basePath}">`)
+      .replace(/<script>[\s\S]*?<\/script>/, `<script src="${basePath}/app.js"></script>`));
+    return;
+  }
+
+  if (req.method === 'GET' && path === '/app.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(readFileSync(pagePath, 'utf8').match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '');
     return;
   }
 
@@ -74,6 +87,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
   if (req.method === 'GET' && path === '/api/runs') return send(res, 200, { runs: listRuns(), active: active?.id ?? null });
 
   if (req.method === 'POST' && path === '/api/runs') {
+    if (existsSync(resolve('..', '.deploying'))) return send(res, 503, { error: 'An update is being installed. Try again shortly.' });
     if (active) return send(res, 409, { error: 'A run is already in progress. Stop it or wait for it to finish.' });
     if (!config.celeris.apiKey) return send(res, 400, { error: 'CELERIS_API_KEY is not set in market-scout/.env.' });
     const body = (await readJson(req)) as Partial<Brief> & { maxTasks?: number; followUps?: number; budgetUsd?: number };
@@ -98,6 +112,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
     if (!existsSync(dir)) return send(res, 404, { error: 'No such run' });
     const action = match[2] ?? '';
 
+    if (req.method === 'GET' && action === '/context') return send(res, 200, safeJson<Brief>(join(dir, 'brief.json')) ?? {});
+
     if (req.method === 'GET' && action === '/events') return stream(id, dir, res);
 
     if (req.method === 'POST' && action === '/stop') {
@@ -111,7 +127,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
     }
 
     if (req.method === 'POST' && action === '/report') {
+      if (existsSync(resolve('..', '.deploying'))) return send(res, 503, { error: 'An update is being installed. Try again shortly.' });
       if (active) return send(res, 409, { error: 'Wait for the current run to finish.' });
+      const archive = join(dir, 'previous-reports', new Date().toISOString().replace(/[:.]/g, '-'));
+      mkdirSync(archive, { recursive: true });
+      for (const file of ['report.html', 'report.md', 'report.json', 'insights.json', 'quality.json']) if (existsSync(join(dir, file))) copyFileSync(join(dir, file), join(archive, file));
       launch(id, dir, [cliPath, 'research', '--resume', dir]);
       return send(res, 202, { ok: true });
     }
@@ -124,7 +144,9 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
     if (!existsSync(file)) return send(res, 404, { error: 'No report yet' });
     const type = { html: 'text/html; charset=utf-8', md: 'text/markdown; charset=utf-8', json: 'application/json' }[report[2] as 'html'];
     res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
-    res.end(readFileSync(file));
+    const data = report[2] === 'html' ? safeJson<Report>(join(runsDir(), report[1], 'report.json')) : undefined;
+    const content = data ? renderHtml(data, new EvidenceStore(join(runsDir(), report[1]))) : readFileSync(file, 'utf8');
+    res.end(report[2] === 'html' ? content.replace('href="/"', `href="${basePath}/"`) : content);
     return;
   }
 
@@ -132,6 +154,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, origin: string)
 }
 
 function launch(id: string, dir: string, args: string[]): void {
+  writeFileSync(join(dir, 'run-state.json'), JSON.stringify({ status: 'running', startedAt: new Date().toISOString() }));
   const log = createWriteStream(join(dir, 'run.log'), { flags: 'a' });
   const child = spawn(process.execPath, args, { cwd: resolve('.'), env: process.env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   const run: ActiveRun = { id, child, lines: [], listeners: new Set(), log, status: 'running' };
@@ -150,9 +173,12 @@ function launch(id: string, dir: string, args: string[]): void {
       buffer = parts.pop() ?? '';
       parts.forEach(emit);
     });
+    output?.on('end', () => { if (buffer.trim()) emit(buffer); });
   }
   child.on('exit', (code) => {
-    const outcome = run.status === 'stopping' ? 'stopped' : code === 0 ? 'done' : 'failed';
+    const report = safeJson<{ status?: string }>(join(dir, 'report.json'));
+    const outcome = run.status === 'stopping' ? 'stopped' : code === 0 ? (report?.status === 'partial' ? 'partial' : 'done') : 'failed';
+    writeFileSync(join(dir, 'run-state.json'), JSON.stringify({ status: outcome, finishedAt: new Date().toISOString() }));
     emit(`[run ${outcome}]`);
     for (const client of run.listeners) {
       client.write(`event: end\ndata: ${JSON.stringify({ outcome })}\n\n`);
@@ -178,12 +204,15 @@ function stream(id: string, dir: string, res: ServerResponse): void {
   res.on('close', () => run.listeners.delete(res));
 }
 
-function statusOf(dir: string): string {
+export function statusOf(dir: string): string {
   if (active && resolve(dir) === join(runsDir(), active.id)) return 'running';
-  if (existsSync(join(dir, 'report.html'))) return 'done';
+  const state = safeJson<{ status: string }>(join(dir, 'run-state.json'));
+  if (state) return state.status === 'running' ? 'incomplete' : state.status;
   const log = existsSync(join(dir, 'run.log')) ? readFileSync(join(dir, 'run.log'), 'utf8') : '';
-  if (log.includes('[run stopped]')) return 'stopped';
-  return log.includes('[run failed]') ? 'failed' : 'incomplete';
+  const last = [...log.matchAll(/\[run (done|partial|stopped|failed)\]/g)].at(-1)?.[1];
+  if (last === 'failed' || last === 'stopped' || last === 'partial') return last;
+  if (existsSync(join(dir, 'report.html'))) return safeJson<{ status?: string }>(join(dir, 'report.json'))?.status === 'partial' ? 'partial' : 'done';
+  return last ?? 'incomplete';
 }
 
 function listRuns() {
@@ -193,7 +222,7 @@ function listRuns() {
     .map((id) => {
       const dir = join(runsDir(), id);
       const brief = safeJson<Brief>(join(dir, 'brief.json'));
-      const report = safeJson<{ headline?: string; cost?: string }>(join(dir, 'report.json'));
+      const report = safeJson<{ headline?: string; cost?: string; version?: number; quality?: { included: number; excluded: number; unverified: number; customerItems: number } }>(join(dir, 'report.json'));
       return {
         id,
         brand: brief?.brand ?? '',
@@ -204,6 +233,8 @@ function listRuns() {
         status: statusOf(dir),
         headline: report?.headline ?? '',
         cost: report?.cost ?? '',
+        version: report?.version ?? 1,
+        quality: report?.quality,
       };
     })
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -215,6 +246,7 @@ function toBrief(body: Partial<Brief>): Brief {
     (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,\n]/) : []).map((item) => text(item, 200)).filter(Boolean).slice(0, max);
   const known = new Set(SOURCES.map((source) => source.id));
   return {
+    autoDiscover: body.autoDiscover !== false,
     product: text(body.product),
     niche: text(body.niche, 120),
     brand: text(body.brand, 80),

@@ -7,6 +7,30 @@ const host = process.env.HOST || '127.0.0.1';
 module.exports = {
   apps: [
     {
+      name: 'market-scout',
+      cwd: path.join(appRoot, 'market-scout'),
+      script: path.join(appRoot, 'market-scout', 'dist', 'cli.js'),
+      args: 'ui',
+      interpreter: process.execPath,
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      kill_timeout: 35_000,
+      restart_delay: 2_000,
+      time: true,
+      env: {
+        NODE_ENV: 'production',
+        DOTENV_CONFIG_PATH: path.join(appRoot, 'seek-bot', '.env'),
+        DISPLAY: ':99',
+        HEADLESS: 'false',
+        SCOUT_NO_OPEN: '1',
+        SCOUT_UI_BASE_PATH: '/market-research',
+        SCOUT_PROFILE_DIR: path.join(appRoot, 'market-scout', '.scout', 'profile'),
+        CELERIS_MAX_OUTPUT_TOKENS: '8192',
+      },
+    },
+    {
       name: 'myasis-dashboard',
       cwd: path.join(appRoot, 'dashboard'),
       script: path.join(appRoot, 'dashboard', 'node_modules', 'vite', 'bin', 'vite.js'),

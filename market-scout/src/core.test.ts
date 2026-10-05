@@ -105,10 +105,10 @@ test('keywords merge across engines and rank by agreement', () => {
 });
 
 test('ad tiers and score favour longevity and variants', () => {
-  assert.equal(tierFor(95), 'evergreen');
-  assert.equal(tierFor(61), 'proven');
-  assert.equal(tierFor(30), 'likely profitable');
-  assert.equal(tierFor(3), 'testing');
+  assert.equal(tierFor(95), '90+ days observed');
+  assert.equal(tierFor(61), '60–89 days observed');
+  assert.equal(tierFor(30), '30–59 days observed');
+  assert.equal(tierFor(3), 'under 30 days observed');
   assert.ok(scoreAd(90, 1, 1, true) > scoreAd(10, 1, 1, true));
   assert.ok(scoreAd(30, 8, 1, true) > scoreAd(30, 1, 1, true));
   assert.ok(scoreAd(30, 1, 1, true) > scoreAd(30, 1, 1, false));

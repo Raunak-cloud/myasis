@@ -4,7 +4,7 @@ A browser agent that researches a market from public data and writes an evidence
 
 Every model call goes to Celeris:
 - **`celeris-1`** extracts records from pages, tags ads, picks key pages and reads ad screenshots.
-- **`celeris-1-magnus`** plans the research, drives the browser agent, clusters keywords, reads competitor positioning, writes the brief and fact-checks it.
+- **`celeris-1-magnus`** plans the research, drives the browser agent, clusters keywords, reads competitor positioning, reads seller positioning. Code builds the public findings from measurements and cited records.
 
 ## Web interface
 
@@ -69,11 +69,11 @@ brief ─► plan (Magnus) ─► collect, round 1 ─► follow-up plan from le
 |---|---|
 | Keywords | Merged across engines. Intent comes from modifier rules. "Demand" is engine agreement plus suggestion rank: a relative signal, not volume. Magnus clusters the keywords but may only use phrases it was given. |
 | Ads | Score = log(days running) × (1 + log(variants)) × placement breadth × still active. Tiers: 30, 60 and 90+ days. Ads are ranked within each advertiser. `celeris-1` tags hook, angle, awareness stage, offer and proof, then the tags are counted weighted by score. |
-| Organic posts | Engagement is divided by views (TikTok, YouTube, Reels) or by followers (Instagram feed). Each post also gets an outlier ratio against its author's median. |
-| Voice of customer | Verbatim quotes only. Each quote is checked to be an exact substring of its source before it is kept. |
+| Organic posts | Engagement is divided by views (TikTok, YouTube, Reels) or by followers (Instagram feed). Each post gets a comparison against its creator sample when enough posts exist, otherwise its search sample; the baseline is labelled. |
+| Voice of customer | Only customer-source items, not seller or creator captions. Each verbatim quote is checked to be an exact substring of its source before it is kept. |
 | Competitor sites | SEO checklist measured on the page. Stack and ad-pixel fingerprints. A content inventory from the sitemap. Magnus reads positioning and pricing from the site's own pages. |
 
-- **The brief.** Findings cite evidence by number. A finding labelled "observed" with no valid citation is relabelled "inferred". Magnus then checks each observed finding against the text it cites and removes unsupported ones.
+- **The brief.** Public findings use measured records and exact citations. AI interpretations stay labelled in supporting detail. Suggested actions are experiments, not predicted results. Uncited and unchecked model claims cannot enter the summary.
 
 ## Sources
 
@@ -97,8 +97,8 @@ To add a source, create one file in `src/sources/` that exports a `Source`, then
 
 ## Operating rules
 
-- **Logged out, always.** The browser profile is never signed in to anything. Public data viewed logged out is the position courts have upheld (Meta v. Bright Data, X v. Bright Data). Logged-in scraping is where contract liability starts (hiQ v. LinkedIn).
-- **A block means stop.** On a 429, a login wall, a CAPTCHA or a challenge page, that host is abandoned for the rest of the run. The scout never solves CAPTCHAs, rotates identities or disguises headless mode. Getting around those measures is the conduct the 2026 SerpApi suits are about.
+- **Logged out, always.** Collection uses public pages and never signs in.
+- **A block means stop.** On a login wall, CAPTCHA or challenge, the host is abandoned. The scout does not solve challenges or disguise itself.
 - **robots.txt (RFC 9309)** applies to the crawler: website audits and any URL the scout discovers. Public ad-transparency libraries, and the pages a task names explicitly, are visited as a person would visit them: one tab, paced per host.
 - **No Google SERP scraping.** Search pages sit behind SearchGuard. Keyword research uses autocomplete instead. Keyword difficulty therefore isn't measured, and the brief says so.
 - **Reddit needs API access.** Reddit is API-only, and its free tier is non-commercial. A commercial product needs Reddit's approval.
@@ -110,3 +110,58 @@ To add a source, create one file in `src/sources/` that exports a `Source`, then
 npm test                      # deterministic logic: robots, harvest, scoring, intent, SEO rules
 npx tsc --noEmit -p .
 ```
+
+
+## Evidence checks and simple interface (v2)
+
+The main screen asks only what you sell. Audience, country, brand, competitors,
+sources, goals and budget are under More options. Reports put evidence quality,
+verified findings and suggested tests first; supporting detail is expandable.
+
+- Raw evidence stays append-only. `quality.json` records each inclusion, rejection,
+  uncertain identity and geographic assessment. Only reviewed evidence feeds follow-up
+  planning and analysis. Generic suggestions are not confirmed local demand.
+- Business ad searches use matched advertiser pages. Unrelated health, charity,
+  travel and other-category ads are set aside for clothing research. Unknown identities
+  are excluded from scoring until verified. Instagram profiles need a website link.
+- Partly supported, unsupported, unchecked and uncited claims cannot be published.
+  The summary uses measured source records rather than generating new conclusions.
+- Ad date-span labels make no profitability claims. Social comparisons identify
+  their creator-sample or search-sample baseline. Only customer comments/reviews feed
+  customer feedback; creator captions remain content examples.
+- Retail crawls reserve product, delivery, returns and sizing coverage. Structured
+  product prices retain currency, stock status, evidence and URL. A pixel is installed
+  tracking, not proof of active advertising.
+- No-result, blocked, failed and partial runs have distinct states. Rechecking archives
+  the previous report in `previous-reports/`. Older reports show a recheck warning.
+- Search volume, market size and campaign profitability remain unknown unless a
+  suitable measured data source is connected. The tool does not manufacture them.
+
+Use `SCOUT_NO_OPEN=1` when running the local UI as a background service.
+
+## Start with only a product
+
+The default UI needs only **What do you sell?** The market defaults to Australia
+and can be changed under More options. The agent proposes a category, likely
+audience and up to four competitor homepages, visits each public homepage,
+and requires exact product evidence before including a competitor in planning.
+The audience stays labelled as a suggestion to validate. Candidates come from
+model knowledge; homepage verification does not make this an exhaustive market
+search. Failed checks remain visible as coverage gaps, never invented identities.
+
+Optional audience/category/competitor overrides are available under **Add details
+I already know**. Existing draft values are ignored unless this option is enabled.
+The discovered context appears during the run and in the final report.
+
+## Production
+
+On Owtomate, admins open **Admin > Market research** at `/market-research/`.
+The dashboard checks the existing admin session on every page, API and report
+request and proxies to a separate PM2 service on loopback port 5190. Cookies
+are not forwarded into Market Scout. POSTs require the Owtomate origin.
+The UI serves JavaScript separately to work with the site's existing CSP.
+
+`deploy/deploy.sh` builds and tests the service after waiting for active research
+and job runs. Market Scout uses the existing server Celeris configuration through
+`DOTENV_CONFIG_PATH`; its browser profile and research files remain separate from
+job applications. This update does not add database tables.

@@ -22,7 +22,8 @@ import { query, one, health as dbHealth, migrate as dbMigrate } from './server/d
 import { upsertSettingRow } from './server/db/records.js';
 /** The resume note on Apply, once dismissed: a UI preference, never part of a run's settings. */
 const BOARD_RESUMES_NOTE_DISMISSED = 'BOARD_RESUMES_NOTE_DISMISSED';
-import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
+import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
+import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
@@ -210,7 +211,12 @@ function rowToApplication(a: ApplicationRow) {
  * one humanizer server no matter which account is signed in.
  */
 function dataApi(): Plugin {
+  const research = marketScoutProxy(async (req) => {
+    const user = await currentUser(req.headers.cookie);
+    return user ? (isAdmin(user.email) ? 'admin' : 'user') : null;
+  }, upgradeOriginAllowed);
   const handler = (req: any, res: any, next: any) => {
+    if (/^\/market-research(?:\/|\?|$)/.test(req.url ?? '')) return research(req, res);
     /**
      * The landing page is baked into the built HTML for crawlers. Someone
      * arriving with a session is about to see the app, and would otherwise

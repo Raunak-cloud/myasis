@@ -1434,6 +1434,7 @@ export function AdminPanel() {
             {labels[key]}
           </button>
         ))}
+        <a className="btn" href="/market-research/" target="_blank" rel="noopener">Market research</a>
       </nav>
       {view === 'overview' && <OverviewView onOpenRun={setOpenRun} />}
       {view === 'users' && <UsersView onOpenRun={setOpenRun} />}

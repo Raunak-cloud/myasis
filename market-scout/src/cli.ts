@@ -165,6 +165,7 @@ function briefFrom(values: Record<string, unknown>): Brief {
   const file = typeof values.brief === 'string' && existsSync(values.brief) ? (JSON.parse(readFileSync(values.brief, 'utf8')) as Partial<Brief>) : {};
   const text = (key: string) => (typeof values[key] === 'string' ? (values[key] as string).trim() : '');
   return {
+    autoDiscover: file.autoDiscover,
     product: text('product') || file.product || '',
     niche: text('niche') || file.niche || '',
     brand: text('brand') || file.brand || '',

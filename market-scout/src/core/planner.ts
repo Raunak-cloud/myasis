@@ -88,9 +88,9 @@ export async function planTasks(brief: Brief, meter: CostMeter, maxTasks: number
       effort: 'medium',
       maxTokens: 4_000,
     });
-    const planned = validate(brief, reply.tasks ?? [], [], maxTasks);
-    // The baseline fills in core coverage the plan skipped.
-    return [...planned, ...validate(brief, baseline, planned, Math.max(0, maxTasks - planned.length))];
+    const core = validate(brief, baseline.filter((t) => t.source === 'website' || t.source === 'autocomplete'), [], maxTasks);
+    const planned = validate(brief, reply.tasks ?? [], core, Math.max(0, maxTasks - core.length));
+    return [...core, ...planned, ...validate(brief, baseline, [...core, ...planned], Math.max(0, maxTasks - core.length - planned.length))];
   } catch {
     return validate(brief, baseline, [], maxTasks);
   }

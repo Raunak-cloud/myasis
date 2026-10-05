@@ -3,6 +3,8 @@ import { join, resolve } from 'node:path';
 import { config } from './config.js';
 import { closeBrowser } from './browser/session.js';
 import { planFollowUp, planTasks } from './core/planner.js';
+import { reviewEvidence } from './core/quality.js';
+import { discoverMarket } from './core/discovery.js';
 import { BlockedError } from './core/politeness.js';
 import { EvidenceStore } from './core/store.js';
 import type { Brief, Task, TaskResult } from './core/types.js';
@@ -70,7 +72,7 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
       try {
         const items = await source.run(task, { brief, store, meter, log });
         store.add(items);
-        record(true, items.length, '');
+        record(true, items.length, items.length ? '' : 'No matching public evidence was returned.');
       } catch (error) {
         const note =
           error instanceof BlockedError ? error.message : error instanceof BudgetExceededError ? 'model budget spent' : (error as Error).message.split('\n')[0].slice(0, 240);
@@ -81,10 +83,15 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
 
   try {
     if (!options.reportOnly) {
+      if (brief.autoDiscover !== false && (brief.autoDiscover || !brief.websites.length || !brief.audience || !brief.niche)) {
+        brief = await discoverMarket(brief, store, meter, log);
+        store.writeJson('brief.json', brief);
+        store.writeJson('discovery.json', brief.discovery);
+      }
       const maxTasks = options.maxTasks ?? 14;
       const first = options.tasks ?? (await planTasks(brief, meter, maxTasks));
       await runTasks(first);
-      const followUps = options.tasks ? [] : await planFollowUp(brief, coverage, store.all(), meter, options.followUps ?? 6);
+      const followUps = options.tasks ? [] : await planFollowUp(brief, coverage, reviewEvidence(store.all(), brief).evidence, meter, options.followUps ?? 6);
       if (followUps.length && Date.now() < deadline) await runTasks(followUps);
       store.writeJson('coverage.json', coverage);
     }
@@ -93,7 +100,9 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
   }
 
   log(`\nCollected ${store.size} items. Analysing…`);
-  const all = store.all();
+  const { evidence: all, quality } = reviewEvidence(store.all(), brief);
+  store.writeJson('quality.json', quality);
+  log(`Evidence review: ${quality.included} usable, ${quality.excluded} irrelevant, ${quality.unverified} awaiting verification.`);
   const [keywords, ads, social, competitors] = await Promise.all([
     analyzeKeywords(all, brief, meter),
     analyzeAds(all, meter),
@@ -103,7 +112,7 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
   const insights = { keywords, ads, social, competitors };
   store.writeJson('insights.json', insights);
 
-  log('Writing and fact-checking the brief…');
+  log('Building source-checked findings…');
   // The brief gets a little headroom past the collection budget: a run that collected everything should not end unreported.
   meter.reserve(0.15);
   const runCoverage = options.reportOnly ? readCoverage(store) : coverage;
@@ -122,7 +131,7 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
       coverage: runCoverage,
     };
   });
-  const report: Report = { ...draft, cost: meter.summary() };
+  const report: Report = { ...draft, quality, version: 2, status: draft.sections.length && runCoverage.some((r) => r.ok && r.count > 0) ? 'ready' : 'partial', cost: meter.summary() };
 
   const files = {
     json: store.writeJson('report.json', report),

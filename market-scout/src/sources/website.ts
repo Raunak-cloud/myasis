@@ -4,6 +4,7 @@ import { visit, withPage } from '../browser/session.js';
 import { BlockedError, disallowReason, fetchText, http, politely, robotsAllows, robotsFor } from '../core/politeness.js';
 import { evidence } from '../core/store.js';
 import type { Evidence } from '../core/types.js';
+import { sameWebsite } from '../core/quality.js';
 import { askJson, type CostMeter } from '../llm/celeris.js';
 import { UNTRUSTED } from '../llm/extract.js';
 import type { Source } from './source.js';
@@ -16,7 +17,7 @@ import type { Source } from './source.js';
  * This is the one true crawler, so robots.txt governs every URL it opens.
  */
 
-/** Script hosts and inline markers → the tool behind them. Ad pixels show which channels a competitor buys. */
+/** Script hosts and inline markers → the tool behind them. Ad pixels show installed tracking, not current campaigns. */
 const FINGERPRINTS: Array<{ name: string; kind: 'pixel' | 'analytics' | 'platform' | 'marketing' | 'support'; pattern: RegExp }> = [
   { name: 'Meta Pixel', kind: 'pixel', pattern: /connect\.facebook\.net|fbq\(/i },
   { name: 'TikTok Pixel', kind: 'pixel', pattern: /analytics\.tiktok\.com|ttq\.load/i },
@@ -86,6 +87,21 @@ export function pickKeyPages(links: Array<{ text: string; href: string }>, limit
     if (chosen.length >= limit) break;
   }
   return chosen;
+}
+
+/** Reserve product and service-policy coverage for physical-goods research. */
+export function pickRetailPages(links: Array<{ text: string; href: string }>, product: string, limit: number): Array<{ label: string; url: string }> {
+  if (!/clothing|wear|fashion|dress|saree|sari|kurta|topi|retail|shop|product|goods/i.test(product)) return [];
+  const words = [...new Set(product.toLowerCase().match(/[a-z]{4,}/g) ?? [])].filter((w) => !/^(traditional|australia|australian|online|delivery|products|compare|website)$/.test(w));
+  const unique = links.filter((l, i, a) => a.findIndex((o) => o.href === l.href) === i);
+  const selected: Array<{ label: string; url: string }> = [];
+  for (const [label, pattern] of [['shipping', /shipping|delivery|dispatch/i], ['returns', /refund|returns|exchange-policy/i], ['sizing', /size-guide|sizing|measurement/i]] as const) {
+    const found = unique.find((l) => pattern.test(`${l.text} ${l.href}`));
+    if (found) selected.push({ label, url: found.href });
+  }
+  const relevant = unique.filter((l) => /\/products?\/|\/collections\//.test(l.href)).map((l) => ({ ...l, score: words.filter((w) => `${l.text} ${l.href}`.toLowerCase().includes(w)).length })).filter((l) => l.score > 0).sort((a, b) => b.score - a.score);
+  // Product prices and stock are more useful than a generic all-products page.
+  return [...relevant.slice(0, Math.max(1, limit - selected.length)).map((l) => ({ label: 'product', url: l.href })), ...selected].filter((p, i, a) => a.findIndex((o) => o.url === p.url) === i).slice(0, limit);
 }
 
 /**
@@ -187,7 +203,7 @@ function pageEvidence(facts: PageFacts, label: string, query: string): Evidence 
     key: facts.url.replace(/[?#].*$/, ''),
     url: facts.url,
     title: facts.title,
-    text: facts.markdown.slice(0, 10_000),
+    text: `${facts.markdown}\n\nPRODUCT PRICES AND SERVICE TERMS (page text)\n${facts.commerceText ?? ''}`.slice(0, 22_000),
     author: new URL(facts.url).host,
     metrics: {
       wordCount: facts.wordCount,
@@ -213,8 +229,21 @@ function pageEvidence(facts: PageFacts, label: string, query: string): Evidence 
       analytics: stack.analytics ?? [],
       platform: stack.platform ?? [],
       marketingTools: [...(stack.marketing ?? []), ...(stack.support ?? [])],
+      socialLinks: facts.socialLinks ?? [],
+      products: JSON.stringify(facts.products ?? []),
+      commerceText: facts.commerceText ?? '',
     },
     query,
+  });
+}
+
+/** A discovery candidate gets a real homepage check before a full audit. */
+export async function previewWebsite(url: string): Promise<Evidence> {
+  if (!(await robotsAllows(url))) throw new BlockedError(new URL(url).host, await disallowReason(url));
+  return withPage(async (page) => {
+    await visit(page, url);
+    if (!sameWebsite(page.url(), url)) throw new Error('The candidate redirected to another website; its identity could not be verified.');
+    return pageEvidence(await distill(page, 18_000), 'home', url);
   });
 }
 
@@ -251,8 +280,9 @@ export const website: Source = {
     await withPage(async (page) => {
       if (!(await robotsAllows(start.toString()))) throw new BlockedError(start.host, await disallowReason(start.toString()));
       await visit(page, start.toString());
+      if (!sameWebsite(page.url(), start.toString())) throw new Error('The requested site redirected to another website; no audit was recorded.');
       const home = await distill(page, 15_000);
-      out.push(pageEvidence(home, 'home', task.query));
+      out.push(pageEvidence(home, /\/products?\//.test(new URL(home.url).pathname) ? 'product' : 'home', task.query));
       const internal = [...home.links, ...urls.map((href) => ({ text: '', href }))].filter((link) => {
         try {
           return new URL(link.href).host === new URL(home.url).host;
@@ -260,10 +290,15 @@ export const website: Source = {
           return false;
         }
       });
-      for (const target of await chooseKeyPages(home.links.filter((link) => internal.includes(link)), internal, Math.max(0, task.limit - 1), ctx.meter)) {
+      const limit = Math.max(0, task.limit - 1);
+      const retail = pickRetailPages(internal, `${ctx.brief.product} ${ctx.brief.niche}`, Math.min(4, limit));
+      const model = await chooseKeyPages(home.links.filter((link) => internal.includes(link)), internal, limit, ctx.meter);
+      const targets = [...retail, ...model].filter((p, i, a) => p.url !== home.url && a.findIndex((o) => o.url === p.url) === i).slice(0, limit);
+      for (const target of targets) {
         if (!(await robotsAllows(target.url))) continue;
         try {
           await visit(page, target.url);
+          if (!sameWebsite(page.url(), start.toString())) throw new Error('The audit page redirected to another website.');
           out.push(pageEvidence(await distill(page, 15_000), target.label, task.query));
         } catch (error) {
           if (error instanceof BlockedError) throw error;

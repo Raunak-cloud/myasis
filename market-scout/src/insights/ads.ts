@@ -3,18 +3,8 @@ import type { Evidence } from '../core/types.js';
 import { askJson, type CostMeter } from '../llm/celeris.js';
 import { mapLimit, UNTRUSTED } from '../llm/extract.js';
 
-/**
- * Which ads are winning, when no library shows commercial spend.
- *
- * Advertisers stop paying for ads that lose, so the signals are survival and
- * scaling: days running (30+ likely profitable, 60+ proven, 90+ evergreen —
- * about one ad in nine lasts past 60 days), variants of the same concept,
- * and placements. Ads are ranked within each advertiser, because spend
- * levels differ by orders of magnitude between advertisers.
- *
- * celeris-1 then tags each top ad's hook, angle, awareness stage and offer;
- * counting tags weighted by the score shows which angles are winning.
- */
+/** Rank observed ad date spans, variants and placements. These signals do not
+ * establish spend, continuous activity, conversions or profitability. */
 
 /** Brand advertisers mostly open with slogans, product shots and launches; without those the tagger filed two ads in three under "other". */
 export const HOOKS = ['question', 'bold claim', 'problem callout', 'testimonial', 'demo', 'us vs them', 'statistic', 'founder story', 'offer first', 'curiosity', 'social proof', 'how-to', 'identity statement', 'product showcase', 'new launch', 'seasonal or event', 'other'] as const;
@@ -31,9 +21,9 @@ export interface ScoredAd {
   daysRunning: number;
   variants: number;
   platforms: number;
-  active: boolean;
+  active: boolean | null;
   score: number;
-  tier: 'evergreen' | 'proven' | 'likely profitable' | 'testing' | 'unknown age';
+  tier: '90+ days observed' | '60–89 days observed' | '30–59 days observed' | 'under 30 days observed' | 'unknown age';
   tags?: AdTags;
 }
 
@@ -57,14 +47,14 @@ export interface AdInsights {
 
 export function tierFor(days: number): ScoredAd['tier'] {
   if (!Number.isFinite(days)) return 'unknown age';
-  if (days >= 90) return 'evergreen';
-  if (days >= 60) return 'proven';
-  if (days >= 30) return 'likely profitable';
-  return 'testing';
+  if (days >= 90) return '90+ days observed';
+  if (days >= 60) return '60–89 days observed';
+  if (days >= 30) return '30–59 days observed';
+  return 'under 30 days observed';
 }
 
 /** log(days) × (1 + log(variants)) × placement breadth × still-running. */
-export function scoreAd(days: number, variants: number, platforms: number, active: boolean): number {
+export function scoreAd(days: number, variants: number, platforms: number, active: boolean | null): number {
   const age = Number.isFinite(days) ? Math.log(1 + days) : Math.log(1 + 7);
   return Number((age * (1 + Math.log(Math.max(1, variants))) * (1 + 0.15 * (Math.max(1, platforms) - 1)) * (active ? 1 : 0.75)).toFixed(3));
 }
@@ -86,11 +76,11 @@ export function scoreAds(items: Evidence[]): ScoredAd[] {
     const days = ad.metrics.daysRunning ?? Number.NaN;
     const variants = Math.max(ad.metrics.variants ?? 1, groups.get(concept(ad)) ?? 1);
     const platforms = ad.metrics.platforms ?? 1;
-    const active = (ad.metrics.active ?? 1) === 1;
+    const active = Number.isFinite(ad.metrics.active) ? ad.metrics.active === 1 : null;
     return {
       id: ad.id,
       url: ad.url,
-      advertiser: ad.author || '(unknown)',
+      advertiser: ad.author || `Unidentified advertiser (${ad.id})`,
       source: ad.source,
       text: ad.text,
       headline: ad.title,

@@ -19,6 +19,9 @@ active_runs() {
   for pid in $(pgrep -f 'node dist/(main|queue)\.js' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/seek-bot" ] && n=$((n + 1))
   done
+  for pid in $(pgrep -f 'node .*cli\.js research' || true); do
+    [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/market-scout" ] && n=$((n + 1))
+  done
   echo "$n"
 }
 
@@ -56,8 +59,11 @@ as_app "cd $APP && git pull -q origin main && git log --oneline -1"
 # cannot build without this step.
 as_app "set -o pipefail; cd $APP/seek-bot && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 | tail -1"
+as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/market-scout.test.ts"
+as_app "cd $APP/market-scout && npm exec tsc -- -p . && npm test"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"
@@ -69,3 +75,4 @@ RUN_LIMIT=""
 if [[ "${MAX_CONCURRENT_RUNS:-}" =~ ^[1-9][0-9]?$ ]]; then RUN_LIMIT="MAX_CONCURRENT_RUNS=$MAX_CONCURRENT_RUNS "; fi
 # The dashboard closes its browsers on SIGINT; pm2 waits for it before forcing.
 as_app "${RUN_LIMIT}pm2 restart myasis-dashboard --update-env --kill-timeout 8000 > /dev/null && pm2 save > /dev/null && echo restarted"
+as_app "cd $APP && pm2 startOrReload ecosystem.config.cjs --only market-scout --update-env > /dev/null && pm2 save > /dev/null && echo 'market research restarted'"

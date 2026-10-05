@@ -52,6 +52,9 @@ export interface Evidence {
 }
 
 export interface Brief {
+  /** Discover missing research context from the product before planning. */
+  autoDiscover?: boolean;
+  discovery?: MarketDiscovery;
   /** What is being marketed, in a sentence. */
   product: string;
   /** The niche or category, used to seed searches. */
@@ -68,6 +71,13 @@ export interface Brief {
   goals: string[];
   /** Restrict to these sources; empty means let the planner choose. */
   sources: SourceId[];
+}
+
+export interface MarketDiscovery {
+  audienceBasis: 'suggested' | 'provided';
+  categoryBasis: 'suggested' | 'provided';
+  competitors: Array<{ name: string; website: string; evidenceId: string; productQuote: string; marketQuote: string; region: 'target' | 'unknown' }>;
+  notes: string[];
 }
 
 /** One unit of collection work, produced by the planner and run by a source. */

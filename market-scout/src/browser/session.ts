@@ -17,7 +17,8 @@ import { markBlocked, OffLimitsError, politely, searchEngineOf, useBrowserFetch 
 let shared: Promise<BrowserContext> | undefined;
 
 export function browser(): Promise<BrowserContext> {
-  shared ??= (async () => {
+  if (shared) return shared;
+  const pending = (async () => {
     const dir = resolve(config.browser.profileDir);
     mkdirSync(dir, { recursive: true });
     const proxy = config.browser.proxy ? parseProxy(config.browser.proxy) : undefined;
@@ -38,7 +39,11 @@ export function browser(): Promise<BrowserContext> {
     context.setDefaultTimeout(15_000);
     return context;
   })();
-  return shared;
+  shared = pending;
+  void pending.then((context) => {
+    context.on('close', () => { if (shared === pending) shared = undefined; });
+  }, () => { if (shared === pending) shared = undefined; });
+  return pending;
 }
 
 /** robots.txt and sitemaps through a real browser tab when a CDN refuses plain clients. Not counted against page slots. */
@@ -72,12 +77,13 @@ function parseProxy(raw: string) {
 /** A fresh tab, closed by the caller. Bounded by the run's concurrency. */
 export async function withPage<T>(work: (page: Page) => Promise<T>): Promise<T> {
   await pageSlots.acquire();
-  const context = await browser();
-  const page = await context.newPage();
+  let page: Page | undefined;
   try {
+    const context = await browser();
+    page = await context.newPage();
     return await work(page);
   } finally {
-    await page.close().catch(() => {});
+    await page?.close().catch(() => {});
     pageSlots.release();
   }
 }
