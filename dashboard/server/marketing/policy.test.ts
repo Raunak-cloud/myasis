@@ -45,6 +45,9 @@ test('planner rejects invented evidence, repeated topics and external product UR
   assert.equal(topics.length,1);assert.equal(topics[0].basis,'search-suggestion');assert.equal(topics[0].productUrl,site.url);
   assert.ok(topics[0].rationale.includes('unmeasured'));
   assert.equal(curateTopics([raw],profile,research,[raw.title],site.url).length,0);
+  assert.equal(curateTopics([{...raw,title:'Write in thirty minutes',angle:'Save 30-60 minutes per task'}],profile,research,[],site.url).length,0);
+  assert.equal(curateTopics([{...raw,title:'Automate without breaking rules'}],profile,research,[],site.url).length,0);
+  assert.equal(curateTopics([{...raw,angle:'Sending more applications changes your odds'}],profile,research,[],site.url).length,0);
   assert.ok(sameTopic('A useful workflow organisation guide','Useful workflow organisation'));
 });
 test('exports escape model markup and preserve the real configured CTA',()=>{
