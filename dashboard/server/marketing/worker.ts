@@ -3,7 +3,7 @@ import { getPool, one, query } from '../db/index.js';
 import { deploying } from '../runner.js';
 import { readWebsite, researchWebsite, stopMarketingBrowsers } from './scout.js';
 import { planContent, reviewContent, writeContent } from './content.js';
-import { articleHash, nextWeeklyRun, publicationProblem, topicKey, validateArticle } from './policy.js';
+import { articleHash, nextWeeklyRun, productsRemainVerified, publicationProblem, topicKey, validateArticle } from './policy.js';
 import { MarketingError, marketingOrigin, ownedSite, ownerIsAdmin, siteView, topicView, transaction, type JobRow } from './store.js';
 
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -22,10 +22,10 @@ async function research(job: JobRow) {
   const profile=await readWebsite(before,job.user_id);
   await progress(job,'Finding competitors and buyer questions in the browser…');
   const snapshot=await researchWebsite(before,job.user_id,profile);
-  // A changed product description needs another human confirmation.
+  // Model wording can change on a refresh; changed confirmed source facts need another review.
   await query(`UPDATE marketing_sites SET profile=$3,research=$4,name=CASE WHEN name='' THEN $5 ELSE name END,
-    profile_confirmed=CASE WHEN profile->>'sells'=$6 THEN profile_confirmed ELSE false END,updated_at=now()
-    WHERE id=$1 AND user_id=$2`,[job.site_id,job.user_id,profile,snapshot,profile.name,profile.sells]);
+    profile_confirmed=profile_confirmed AND $6::boolean,updated_at=now()
+    WHERE id=$1 AND user_id=$2`,[job.site_id,job.user_id,profile,snapshot,profile.name,productsRemainVerified(before.profile,profile)]);
   await progress(job,'Building a useful, evidence-linked content plan…');
   const site=siteView(await ownedSite(job.user_id,job.site_id));
   const topics=await planContent(site,profile,snapshot,await titles(site.id,site.publisher==='owtomate'));

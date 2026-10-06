@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nextWeeklyRun, ownedLink, publicationProblem, sameTopic, validateArticle } from './policy.js';
+import { nextWeeklyRun, ownedLink, productsRemainVerified, publicationProblem, sameTopic, validateArticle } from './policy.js';
 import { contentBrief, curateTopics, exportArticle } from './content.js';
 import { publicationSourceProblem } from './worker.js';
 import type { MarketingArticle, MarketingResearch, MarketingSite, WebsiteProfile } from '../../src/marketingTypes.js';
@@ -32,6 +32,13 @@ test('old draft evidence cannot inherit freshness from a newer site research run
   assert.equal(publicationSourceProblem({gatheredAt:stamp,sources:[source]}),null);
   assert.ok(publicationSourceProblem({gatheredAt:stamp,sources:[{collectedAt:'2020-01-01'}]}));
   assert.ok(publicationSourceProblem({gatheredAt:stamp,sources:[{}]}));
+});
+test('weekly refresh preserves confirmation across model wording changes but requires review of changed product evidence',()=>{
+  const previous={...profile,productQuotes:[{url:site.url,quote:'Verified product information'}]};
+  const next={...profile,sells:'Reworded category',pages:[{...profile.pages[0],text:'Other copy. Verified product information. Updated page.'}]};
+  assert.equal(productsRemainVerified(previous,next),true);
+  assert.equal(productsRemainVerified(previous,{...next,pages:[{...next.pages[0],text:'Different products now.'}]}),false);
+  assert.equal(productsRemainVerified(null,next),false);
 });
 test('forged citations, truncated articles and performance guarantees fail validation',()=>{
   assert.equal(validateArticle(article,['S1']).slug,article.slug);

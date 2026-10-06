@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { MarketingArticle, MarketingSite } from '../../src/marketingTypes.js';
+import type { MarketingArticle, MarketingSite, WebsiteProfile } from '../../src/marketingTypes.js';
 
 export const COUNTRIES = ['AU', 'US', 'GB', 'CA', 'NZ', 'IN', 'SG', 'DE', 'FR'];
 export const isId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -10,6 +10,11 @@ function canonical(value:unknown):unknown {
   return value;
 }
 export const articleHash = (article: MarketingArticle) => createHash('sha256').update(JSON.stringify(canonical(article))).digest('hex');
+
+/** Keep approval when the confirmed product evidence is still on the same public pages. */
+export function productsRemainVerified(previous:WebsiteProfile|null,next:WebsiteProfile):boolean {
+  return Boolean(previous?.productQuotes.length && previous.productQuotes.every(q=>next.pages.some(p=>p.url.replace('https://www.','https://')===q.url.replace('https://www.','https://') && p.text.includes(q.quote))));
+}
 
 export function sameTopic(a: string, b: string): boolean {
   const left = new Set(topicKey(a).split(' ').filter((w) => w.length > 2 && !/^(the|and|for|how|your|with|guide)$/.test(w)));
