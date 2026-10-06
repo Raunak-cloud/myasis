@@ -38,10 +38,11 @@ export async function publicFetch(raw: string, options: {method?:string;body?:st
   if(!addresses.length || addresses.some(a=>!isPublicAddress(a.address))) throw new Error('Private network address refused.');
   const selected=addresses[0];
   const response=await new Promise<Response>((resolve,reject)=>{
-    const req=(url.protocol==='https:'?httpsRequest:httpRequest)(url,{
+    const requestOptions={
       method:options.method || 'GET',headers:options.headers,
-      lookup:((_host:unknown,_opts:unknown,callback:(error:Error|null,address:string,family:number)=>void)=>callback(null,selected.address,selected.family)) as never,
-    },res=>{
+      lookup:((_host:unknown,opts:{all?:boolean},callback:(error:Error|null,address:unknown,family?:number)=>void)=>opts.all?callback(null,[selected]):callback(null,selected.address,selected.family)) as never,
+    };
+    const req=(url.protocol==='https:'?httpsRequest:httpRequest)(url,requestOptions,res=>{
       const chunks:Buffer[]=[];let bytes=0;
       res.on('data',(chunk:Buffer)=>{bytes+=chunk.length;if(bytes>4*1024*1024) req.destroy(new Error('Website text response is too large.'));else chunks.push(chunk);});
       res.on('error',reject);
