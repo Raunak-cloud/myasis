@@ -21,6 +21,7 @@ interface SearchSuggestion {
 }
 
 export interface BriefSource {
+  collectedAt?: string;
   /** Stable within one brief: S1, S2, … — what the article cites. */
   ref: string;
   publisher: string;
@@ -41,6 +42,7 @@ interface ListingSample {
 }
 
 export interface Brief {
+  marketing?: { siteId: string; topicId: string; ctaLabel: string; ctaUrl: string; audience: string; keywordBasis: 'search-suggestion' | 'website-topic' | 'custom' };
   /** The Monday the post is published for, YYYY-MM-DD in the run time zone. */
   week: string;
   gatheredAt: string;

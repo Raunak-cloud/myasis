@@ -19,6 +19,7 @@ const bool = (name: string, fallback: boolean) => {
 
 export const config = {
   webSearch: { enabled: bool('SCOUT_WEB_SEARCH', true) },
+  publicOnly: bool('SCOUT_PUBLIC_ONLY', false),
   celeris: {
     apiKey: str('CELERIS_API_KEY'),
     /** Root only: the model id is a path segment Celeris derives per request. */

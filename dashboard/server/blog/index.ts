@@ -192,6 +192,7 @@ async function tellOperator(subject: string, paragraphs: string[]): Promise<void
 /** One pass of the scheduler: publish the current week if it is due and not yet done. */
 async function blogTick(now: Date = new Date()): Promise<PublishResult | null> {
   if (!blogEnabled() || !writerConfig()) return null;
+  if (await one("SELECT 1 FROM marketing_sites WHERE publisher='owtomate' AND owns_blog_schedule")) return null;
   const { week, due } = weekOf(now);
   if (!due) return null;
   if (await one("SELECT 1 FROM blog_posts WHERE week = $1::date AND kind = 'weekly'", [week])) return null;

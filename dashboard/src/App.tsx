@@ -14,6 +14,7 @@ const HumanizerPanel = lazy(() => import('./components/HumanizerPanel').then((m)
 const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
 const PricingPanel = lazy(() => import('./components/PricingPanel').then((m) => ({ default: m.PricingPanel })));
 const SupportPanel = lazy(() => import('./components/SupportPanel').then((m) => ({ default: m.SupportPanel })));
+const MarketingAgent = lazy(() => import('./components/MarketingAgent').then((m) => ({ default: m.MarketingAgent })));
 import { daysSince } from './format';
 import { useAuth, wasSignedIn } from './components/SignIn';
 import { Landing } from './components/Landing';
@@ -30,7 +31,7 @@ import { captureRedditClickId, initRedditPixel, trackRedditEvent } from './reddi
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
-type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin';
+type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -43,6 +44,7 @@ interface TodayStats {
 }
 
 const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
+  marketing: { title: 'Marketing agent', description: 'Turn your website into an evidence-based blog plan.' },
   run: {
     title: 'Apply for jobs',
     description: '',
@@ -224,6 +226,7 @@ export default function App() {
     { id: 'run', label: 'Apply' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
     { id: 'applications', label: 'Applications', badge: apps.length },
+    { id: 'marketing', label: 'Marketing' },
   ];
 
   /**
@@ -544,6 +547,7 @@ export default function App() {
             />
           )}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
+          {tab === 'marketing' && <MarketingAgent />}
           {tab === 'applications' && (
             <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} />
           )}

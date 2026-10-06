@@ -19,9 +19,16 @@ active_runs() {
   for pid in $(pgrep -f 'node dist/(main|queue)\.js' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/seek-bot" ] && n=$((n + 1))
   done
-  for pid in $(pgrep -f 'node .*cli\.js research' || true); do
+  for pid in $(pgrep -f 'node .*cli\.js (research|scan-site)' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/market-scout" ] && n=$((n + 1))
   done
+  local marketing
+  marketing=0
+  if [ -f "$APP/dashboard/scripts/marketing-active.mts" ]; then
+    marketing=$(as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/marketing-active.mts")
+  fi
+  [[ "$marketing" =~ ^[0-9]+$ ]] || marketing=1
+  n=$((n + marketing))
   echo "$n"
 }
 
@@ -65,7 +72,7 @@ as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 |
 as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/market-scout.test.ts server/blog/*.test.ts"
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/market-scout.test.ts server/blog/*.test.ts server/marketing/*.test.ts"
 as_app "cd $APP/market-scout && npm exec tsc -- -p . && npm test"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.

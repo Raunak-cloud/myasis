@@ -4,6 +4,7 @@ import { chromium, type BrowserContext, type Page, type Response } from 'patchri
 import { config } from '../config.js';
 import { parseLooseJson } from '../core/harvest.js';
 import { markBlocked, OffLimitsError, politely, searchEngineOf, useBrowserFetch } from '../core/politeness.js';
+import { assertPublicUrl } from '../core/public-url.js';
 
 /**
  * The scout's one browser: a persistent, logged-out profile.
@@ -28,6 +29,7 @@ export function browser(): Promise<BrowserContext> {
       timezoneId: config.browser.timezone,
       viewport: { width: 1366, height: 900 },
       proxy,
+      ...(config.publicOnly ? { serviceWorkers: 'block' as const } : {}),
     };
     // An installed Chrome first (no download, and the browser sites expect); the bundled Chromium otherwise.
     const context = config.browser.chromePath
@@ -37,6 +39,10 @@ export function browser(): Promise<BrowserContext> {
           .catch(() => chromium.launchPersistentContext(dir, options));
     context.setDefaultNavigationTimeout(config.browser.navigationTimeoutMs);
     context.setDefaultTimeout(15_000);
+    if (config.publicOnly) await context.route('**/*', async (route) => {
+      try { await assertPublicUrl(route.request().url()); await route.continue(); }
+      catch { await route.abort('blockedbyclient').catch(() => {}); }
+    });
     return context;
   })();
   shared = pending;

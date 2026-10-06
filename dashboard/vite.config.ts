@@ -57,6 +57,8 @@ import { setUpFromResume } from './server/quick-setup.js';
 import { startRun } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
+import { handleMarketing } from './server/marketing/api.js';
+import { startMarketingWorker, stopMarketingWorker } from './server/marketing/worker.js';
 import { blogPages } from './server/blog/pages.js';
 import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
@@ -322,6 +324,9 @@ function dataApi(): Plugin {
 
     // The operator's dashboard: every route in it checks for an admin on each request.
     if (route.startsWith('/api/admin/')) return handleAdminRequest(req, res, url, send, readBody);
+    if (route.startsWith('/api/marketing/')) return currentUser(req.headers.cookie).then(user => user
+      ? handleMarketing(req,res,url,user,send,readBody)
+      : send({error:'Sign in required.'},401));
 
     /**
      * Visitor beacons, from the page itself, signed in or not. They answer
@@ -1378,6 +1383,7 @@ function dataApi(): Plugin {
       void dbMigrate()
         .then((r) => {
           if (!r.ok) console.error(`Database schema could not be applied: ${r.error}`);
+          else startMarketingWorker();
         })
         .finally(() => {
           startAutoRunner();
@@ -1401,6 +1407,7 @@ function dataApi(): Plugin {
         stopping = true;
         console.log(`[shutdown] ${signal}: stopping runs and sign-in browsers`);
         runner.stopAll();
+        stopMarketingWorker();
         stopAllSignins();
         setTimeout(() => process.exit(0), 3000).unref();
       };

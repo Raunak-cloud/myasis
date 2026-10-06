@@ -583,3 +583,54 @@ CREATE INDEX IF NOT EXISTS admin_emails_user_idx ON admin_emails(user_id, sent_a
 -- The resume file an application went out with, as the board or employer
 -- received it. Owtomate's resume is the source of truth; this is the proof.
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS resume_name TEXT;
+-- Website marketing workspaces. Each job and draft belongs to one signed-in account.
+CREATE TABLE IF NOT EXISTS marketing_sites (
+  id UUID PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  url TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT 'AU',
+  profile JSONB, research JSONB, voice TEXT NOT NULL DEFAULT 'Plain, practical and helpful',
+  audience TEXT NOT NULL DEFAULT '', cta_label TEXT NOT NULL DEFAULT 'Explore our products', cta_url TEXT NOT NULL,
+  profile_confirmed BOOLEAN NOT NULL DEFAULT false,
+  publisher TEXT NOT NULL DEFAULT 'export' CHECK (publisher IN ('owtomate', 'export')),
+  schedule_enabled BOOLEAN NOT NULL DEFAULT false, publish_mode TEXT NOT NULL DEFAULT 'review' CHECK (publish_mode IN ('review', 'auto')),
+  schedule_day INTEGER NOT NULL DEFAULT 0 CHECK (schedule_day BETWEEN 0 AND 6), schedule_time TEXT NOT NULL DEFAULT '08:00',
+  timezone TEXT NOT NULL DEFAULT 'Australia/Sydney', next_run_at TIMESTAMPTZ, owns_blog_schedule BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, url), UNIQUE (id, user_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS marketing_one_builtin_blog_idx ON marketing_sites(url) WHERE publisher = 'owtomate';
+CREATE INDEX IF NOT EXISTS marketing_sites_due_idx ON marketing_sites(next_run_at) WHERE schedule_enabled;
+CREATE TABLE IF NOT EXISTS marketing_topics (
+  id UUID PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  topic_key TEXT NOT NULL, title TEXT NOT NULL, keyword TEXT NOT NULL, angle TEXT NOT NULL,
+  intent TEXT NOT NULL CHECK (intent IN ('learn','compare','buy')), priority TEXT NOT NULL CHECK (priority IN ('high','medium')),
+  rationale TEXT NOT NULL, product_url TEXT NOT NULL, evidence_urls JSONB NOT NULL DEFAULT '[]',
+  basis TEXT NOT NULL CHECK (basis IN ('search-suggestion','website-topic','custom')),
+  status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','writing','drafted','published','dismissed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (site_id, topic_key), UNIQUE (id, site_id),
+  FOREIGN KEY (site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS marketing_posts (
+  id UUID PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  topic_id UUID NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'writing' CHECK (status IN ('writing','draft','published','failed')),
+  article JSONB, brief JSONB, quality JSONB NOT NULL DEFAULT '{"approved":false,"issues":[],"reviewedAt":null}',
+  model TEXT NOT NULL DEFAULT '', article_hash TEXT, blog_post_id BIGINT UNIQUE REFERENCES blog_posts(id) ON DELETE SET NULL,
+  published_url TEXT, metrics JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (id,site_id),
+  FOREIGN KEY (site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE,
+  FOREIGN KEY (topic_id,site_id) REFERENCES marketing_topics(id,site_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS marketing_jobs (
+  id UUID PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('research','write','review','publish','cycle')),
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed')),
+  topic_id UUID, post_id UUID, idempotency_key TEXT NOT NULL UNIQUE,
+  progress TEXT NOT NULL DEFAULT 'Waiting to start', error TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+  available_at TIMESTAMPTZ NOT NULL DEFAULT now(), heartbeat_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ,
+  FOREIGN KEY (site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE,
+  FOREIGN KEY (topic_id,site_id) REFERENCES marketing_topics(id,site_id) ON DELETE CASCADE,
+  FOREIGN KEY (post_id,site_id) REFERENCES marketing_posts(id,site_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS marketing_jobs_queue_idx ON marketing_jobs(available_at,created_at) WHERE status='queued';
+CREATE INDEX IF NOT EXISTS marketing_jobs_user_idx ON marketing_jobs(user_id,created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS marketing_one_site_job_idx ON marketing_jobs(site_id) WHERE status IN ('queued','running');

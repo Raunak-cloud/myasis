@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { assertPublicUrl, publicFetch } from './public-url.js';
 
 /**
  * How the scout behaves as a guest on other people's servers.
@@ -133,9 +134,10 @@ export function useBrowserFetch(fetcher: TextFetch): void {
 
 /** GET a text resource; when the server refuses a non-browser client, ask the browser instead. */
 export async function fetchText(url: string): Promise<{ status: number; body: string }> {
+  if (config.publicOnly) await assertPublicUrl(url);
   let status = 0;
   try {
-    const response = await fetch(url, { headers: { 'user-agent': botUserAgent() }, signal: AbortSignal.timeout(15_000), redirect: 'follow' });
+    const response = config.publicOnly ? await publicFetch(url,{headers:{'user-agent':botUserAgent()}}) : await fetch(url, { headers: { 'user-agent': botUserAgent() }, signal: AbortSignal.timeout(15_000), redirect: 'follow' });
     status = response.status;
     if (response.ok) return { status, body: await response.text() };
   } catch {
@@ -265,15 +267,17 @@ export interface HttpOptions {
 
 /** A polite GET/POST: robots-checked (unless an API), host-paced, stops on refusal. */
 export async function http(url: string, options: HttpOptions = {}): Promise<Response> {
+  if (config.publicOnly) await assertPublicUrl(url);
   if (!options.api && !(await robotsAllows(url))) throw new BlockedError(new URL(url).host, await disallowReason(url));
   return politely(url, async () => {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await fetch(url, {
+      const fetchOptions = {
         method: options.method ?? 'GET',
         body: options.body,
         headers: { 'user-agent': botUserAgent(), 'accept-language': `${config.browser.locale},en;q=0.8`, ...options.headers },
         signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
-      });
+      };
+      const response = config.publicOnly ? await publicFetch(url,{method:fetchOptions.method,body:fetchOptions.body,headers:fetchOptions.headers,timeoutMs:options.timeoutMs}) : await fetch(url,fetchOptions);
       if (response.status === 429 || response.status === 503) {
         // One wait for an explicit Retry-After; a second refusal is a block.
         const retryAfter = Number(response.headers.get('retry-after'));

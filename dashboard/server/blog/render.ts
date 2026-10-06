@@ -30,8 +30,8 @@ export interface PostSummary {
 }
 
 const SITE_NAME = 'Owtomate';
-const BLOG_TITLE = 'Australian Job Market Brief';
-const BLOG_DESCRIPTION = 'A weekly brief on Australian job trends: what people are searching for, what the latest labour-market figures say, and what job seekers can do about it.';
+const BLOG_TITLE = 'Owtomate Job Search Guides';
+const BLOG_DESCRIPTION = 'Practical job search guides and Australian job-market research, with sources you can check.';
 
 /** Content pages outside the blog, for the sitemap. Update lastmod when a page changes. */
 const STATIC_PAGES: Array<{ path: string; lastmod: string; changefreq: string; priority: string }> = [
@@ -122,7 +122,7 @@ export function renderPost(post: StoredPost, origin: string): { head: string; bo
 
   const sourceList = brief.sources.filter((s) => cited.has(s.ref)).map((s) => {
     const n = s.ref.slice(1);
-    const date = s.published ? `, ${longDate(new Date(`${s.published}T00:00:00Z`))}` : '';
+    const date = s.published ? `, ${longDate(new Date(`${s.published}T00:00:00Z`))}` : s.collectedAt ? `, checked ${longDate(new Date(s.collectedAt))}` : '';
     return `<li id="source-${n}" value="${n}">${escapeHtml(s.publisher)}, <a href="${escapeHtml(s.url)}" rel="noopener">${escapeHtml(s.title)}</a>${escapeHtml(date)}</li>`;
   }).join('');
 
@@ -137,10 +137,10 @@ export function renderPost(post: StoredPost, origin: string): { head: string; bo
       <ul>${article.takeaways.map((t) => `<li>${prose(t, sources)}</li>`).join('')}</ul>
       <h2 id="sources">Sources</h2>
       <ol class="blog-sources">${sourceList}</ol>
-      <section class="legal-lead blog-cta" aria-label="Try Owtomate">
+      ${brief.marketing ? `<section class="legal-lead blog-cta" aria-label="Explore Owtomate"><p><a href="${escapeHtml(brief.marketing.ctaUrl)}"><strong>${escapeHtml(brief.marketing.ctaLabel)}</strong></a></p></section>` : `<section class="legal-lead blog-cta" aria-label="Try Owtomate">
         <p><strong>Spending your evenings on applications?</strong> Owtomate applies to jobs that match your resume on SEEK and Indeed, from your own account, and asks you whenever it cannot answer honestly.</p>
         <p><a href="/api/auth/google" rel="nofollow"><strong>Start free — five applications, no card</strong></a></p>
-      </section>
+      </section>`}
     </article>`;
 
   const structured = {
@@ -194,7 +194,7 @@ export function renderIndex(posts: PostSummary[], origin: string): { head: strin
       </li>`).join('\n');
 
   const body = `<h1>${BLOG_TITLE}</h1>
-      <p class="legal-lead">${escapeHtml(BLOG_DESCRIPTION)} New every Monday. <a href="/blog/rss.xml">RSS feed</a>.</p>
+      <p class="legal-lead">${escapeHtml(BLOG_DESCRIPTION)} <a href="/blog/rss.xml">RSS feed</a>.</p>
       ${posts.length ? `<ol class="blog-list">${items}</ol>` : '<p>The first brief is on its way.</p>'}`;
 
   return {

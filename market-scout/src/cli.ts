@@ -10,6 +10,8 @@ import type { Brief, SourceId } from './core/types.js';
 import { CostMeter } from './llm/celeris.js';
 import { runResearch } from './research.js';
 import { SOURCES, sourceById } from './sources/index.js';
+import { scanSite } from './scan-site.js';
+import { writeFileSync } from 'node:fs';
 
 const HELP = `market-scout — public marketing research with a Celeris browser agent
 
@@ -26,6 +28,7 @@ const HELP = `market-scout — public marketing research with a Celeris browser 
   agent <url> "<goal>"            Let the browser agent research one goal
   sources                         List sources and whether each can run
   ui                              Open the local web interface (http://127.0.0.1:5190)
+  scan-site <https://website>      Read product pages; --output <file.json>
 
 Every model call is Celeris: celeris-1 for extraction and tagging,
 celeris-1-magnus for planning, browsing, analysis and writing.`;
@@ -40,6 +43,7 @@ process.on('message', (message: { type?: string }) => {
 });
 // The channel must not keep a finished run alive.
 process.channel?.unref();
+process.once('SIGTERM',()=>void closeBrowser().finally(()=>process.exit(130)));
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
@@ -65,12 +69,19 @@ async function main() {
       resume: { type: 'string' },
       limit: { type: 'string' },
       headed: { type: 'boolean' },
+      output: { type: 'string' },
     },
   });
   if (values.budget) config.budget.usd = Number(values.budget);
   if (values.headed) config.browser.headless = false;
 
   switch (command) {
+    case 'scan-site': {
+      if (!positionals[0] || !values.output) throw new Error('Usage: scan-site <public HTTPS website> --output <file.json>');
+      try { writeFileSync(values.output, JSON.stringify(await scanSite(positionals[0]), null, 2)); }
+      finally { await closeBrowser(); }
+      return;
+    }
     case 'sources': {
       for (const source of SOURCES) {
         const why = source.unavailable();
