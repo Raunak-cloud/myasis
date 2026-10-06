@@ -26,6 +26,7 @@ export interface MarketingSite {
   publisher: 'owtomate' | 'export'; scheduleEnabled: boolean; publishMode: 'review' | 'auto';
   scheduleDay: number; scheduleTime: string; timezone: string; nextRunAt: string | null; ownsBlogSchedule: boolean;
   createdAt: string; updatedAt: string;
+  health?: WebsiteHealth | null;
 }
 export interface MarketingTopic {
   id: string; title: string; keyword: string; angle: string; intent: 'learn' | 'compare' | 'buy';
@@ -39,5 +40,43 @@ export interface MarketingPost {
   model: string; publishedUrl: string | null; createdAt: string; updatedAt: string;
   metrics: { periodStart: string; periodEnd: string; visits: number | null; leads: number | null; orders: number | null; revenue: number | null; currency: string; notes: string; recordedAt: string } | null;
 }
-export interface MarketingJob { id: string; kind: 'research' | 'write' | 'review' | 'publish' | 'cycle'; status: 'queued' | 'running' | 'done' | 'failed'; progress: string; error: string | null; createdAt: string }
-export interface MarketingWorkspace { site: MarketingSite; topics: MarketingTopic[]; posts: MarketingPost[]; jobs: MarketingJob[]; canPublish: boolean }
+export interface MarketingJob { id: string; kind: 'research' | 'write' | 'review' | 'publish' | 'cycle' | 'health' | 'visibility' | 'results'; status: 'queued' | 'running' | 'done' | 'failed'; progress: string; error: string | null; createdAt: string }
+export interface HealthPage {
+  url: string; requestedUrl: string; status: number | null; title: string; description: string; canonical: string;
+  robotsMeta: string; xRobotsTag: string; h1: string[]; wordCount: number; text: string; links: Array<{text:string;href:string}>;
+  jsonLdTypes: string[]; invalidJsonLd: number; imagesWithoutAlt: number; lang: string; error: string | null;
+}
+export interface HealthFinding { id: string; severity: 'urgent' | 'improvement'; title: string; url: string; evidence: string; action: string }
+export interface WebsiteHealth {
+  checkedAt: string; pages: HealthPage[]; findings: HealthFinding[]; gaps: string[];
+  robots: { url: string; status: number | null; body: string | null };
+  sitemaps: Array<{url:string;status:number|null;urls:string[];error:string|null}>;
+  crawlerAccess: Array<{bot:string;allowed:number;blocked:number;unknown:number}>;
+}
+export interface ContentAction {
+  id: string; kind: 'fix' | 'refresh' | 'link' | 'new'; title: string; reason: string; url: string; targetUrl?: string;
+  evidenceUrls: string[]; priority: 'high' | 'medium'; status: 'open' | 'done' | 'dismissed'; topicId?: string;
+}
+export interface OrganicStrategy { generatedAt:string; actions:ContentAction[]; clusters:Array<{name:string;topics:string[]}>; limits:string[] }
+export interface AIObservation {
+  id:string; provider:'ChatGPT'|'Perplexity'|'Gemini'|'Claude'|'Copilot'; prompt:string; country:string; observedAt:string;
+  status:'complete'|'blocked'|'unavailable'; method:'browser'|'recorded'; answer:string; citations:string[];
+  responseUrl:string|null; mentioned:boolean|null; cited:boolean|null; recommendationQuote:string|null;
+  model:string; note:string; fingerprint:string;
+}
+export interface ResultsSnapshot {
+  id:string; source:'search-console'|'ga4'|'manual'; method:'api'|'import'|'recorded'; sourceLabel:string;
+  periodStart:string; periodEnd:string; timezone:string; recordedAt:string;
+  clicks:number|null; impressions:number|null; ctr:number|null; position:number|null;
+  sessions:number|null; organicSessions:number|null; aiSessions:number|null; keyEvents:number|null;
+  leads:number|null; orders:number|null; revenue:number|null; currency:string|null;
+  pages:Array<{url:string;clicks:number;impressions:number;ctr:number;position:number|null}>;
+  queries:Array<{query:string;clicks:number;impressions:number}>;
+  channels:Array<{name:string;sessions:number}>; aiSources:Array<{name:string;sessions:number}>;
+  notes:string[]; previous:{clicks?:number;sessions?:number;organicSessions?:number}|null;
+}
+export interface MarketingGrowth {
+  strategy:OrganicStrategy; observations:AIObservation[]; prompts:string[]; results:ResultsSnapshot[];
+  connection:{connected:boolean;configured:boolean;searchProperty:string|null;gaProperty:string|null;dailySync:boolean;lastSyncAt:string|null;error:string|null;redirectUri:string};
+}
+export interface MarketingWorkspace { site: MarketingSite; topics: MarketingTopic[]; posts: MarketingPost[]; jobs: MarketingJob[]; canPublish: boolean; growth?:MarketingGrowth }

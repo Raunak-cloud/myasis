@@ -6,6 +6,7 @@ import { isAdmin } from '../billing.js';
 import type { MarketingJob, MarketingPost, MarketingSite, MarketingTopic, MarketingWorkspace } from '../../src/marketingTypes.js';
 import { COUNTRIES, nextWeeklyRun, ownedLink, publicationProblem, topicKey, validateArticle, validateTimezone } from './policy.js';
 import { assertPublicUrl, publicWebsiteUrl } from '../../../market-scout/src/core/public-url.js';
+import { growthWorkspace } from './growth-store.js';
 
 export function marketingOrigin(): string { try { return new URL(process.env.APP_BASE_URL ?? readEnv().APP_BASE_URL ?? 'https://owtomate.com').origin; } catch { return 'https://owtomate.com'; } }
 export class MarketingError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
@@ -18,7 +19,7 @@ export function siteView(row: SiteRow): MarketingSite {
     voice: row.voice, audience: row.audience, ctaLabel: row.cta_label, ctaUrl: row.cta_url, profileConfirmed: row.profile_confirmed,
     publisher: row.publisher, scheduleEnabled: row.schedule_enabled, publishMode: row.publish_mode, scheduleDay: row.schedule_day,
     scheduleTime: row.schedule_time, timezone: row.timezone, nextRunAt: iso(row.next_run_at), ownsBlogSchedule: row.owns_blog_schedule,
-    createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)! };
+    createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, health:row.health || null };
 }
 export function topicView(row: Record<string, any>): MarketingTopic { return { id: row.id, title: row.title, keyword: row.keyword, angle: row.angle, intent: row.intent, priority: row.priority, rationale: row.rationale, productUrl: row.product_url, evidenceUrls: row.evidence_urls, basis: row.basis, status: row.status, createdAt: iso(row.created_at)! }; }
 export function postView(row: Record<string, any>): MarketingPost { return { id: row.id, topicId: row.topic_id, status: row.status, article: row.article, sources: row.brief?.sources ?? [], quality: row.quality, model: row.model, publishedUrl: row.published_url, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, metrics: row.metrics }; }
@@ -42,7 +43,8 @@ export async function workspace(userId: string, siteId: string, admin: boolean):
     query('SELECT * FROM marketing_posts WHERE site_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 100', [siteId,userId]),
     query('SELECT * FROM marketing_jobs WHERE site_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 20', [siteId,userId]),
   ]);
-  return { site: siteView(row), topics: topics.map(topicView), posts: posts.map(postView), jobs: jobs.map(jobView), canPublish: admin && row.publisher === 'owtomate' };
+  const site=siteView(row);
+  return { site, topics: topics.map(topicView), posts: posts.map(postView), jobs: jobs.map(jobView), canPublish: admin && row.publisher === 'owtomate',growth:await growthWorkspace(userId,siteId,site) };
 }
 
 export async function createSite(userId: string, admin: boolean, value: Record<string, unknown>): Promise<MarketingSite> {
@@ -99,7 +101,7 @@ export async function enqueue(userId: string, siteId: string, admin: boolean, ki
     await client.query('SELECT pg_advisory_xact_lock($1::bigint)',[userId]);
     const row = (await client.query('SELECT * FROM marketing_sites WHERE id=$1 AND user_id=$2 FOR UPDATE',[siteId,userId])).rows[0];
     if (!row) throw new MarketingError('Website not found.',404);
-    if (kind !== 'research' && !row.profile_confirmed) throw new MarketingError('Review and confirm the website profile first.');
+    if (!['research','health','visibility','results'].includes(kind) && !row.profile_confirmed) throw new MarketingError('Review and confirm the website profile first.');
     if ((await client.query("SELECT 1 FROM marketing_jobs WHERE site_id=$1 AND status IN ('queued','running')",[siteId])).rowCount) throw new MarketingError('This website already has work in progress.',409);
     if (!admin) {
       const count = (await client.query("SELECT count(*)::int n FROM marketing_jobs WHERE user_id=$1 AND created_at>now()-interval '24 hours' AND kind=$2",[userId,kind])).rows[0].n;

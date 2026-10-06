@@ -6,6 +6,9 @@ import { writerConfig } from '../blog/models.js';
 import { exportArticle } from './content.js';
 import { isId } from './policy.js';
 import { addTopic, createSite, enqueue, MarketingError, ownedSite, saveDraft, saveMetrics, setTopicStatus, siteView, updateSite, workspace } from './store.js';
+import { beginReportingConnection, configureReporting, disconnectReporting, finishReportingConnection, availableProperties } from './google-results.js';
+import { confirmRecommendation, queueVisibility, saveObservation, saveResultsSnapshot, updateAction } from './growth-store.js';
+import { importResults, recordedResults } from './results.js';
 
 export async function handleMarketing(req: IncomingMessage,res: ServerResponse,url: URL,user: {id:string;email:string},send:(body:unknown,status?:number)=>void,readBody:()=>Promise<unknown>) {
   res.setHeader('Cache-Control','no-store');
@@ -15,6 +18,11 @@ export async function handleMarketing(req: IncomingMessage,res: ServerResponse,u
   const body=async()=>{const value=await readBody();if(!value || typeof value!=='object' || Array.isArray(value)) throw new MarketingError('Enter valid form details.');return value as Record<string,unknown>;};
   const configured=()=>{if(!writerConfig()) throw new MarketingError('Gemini is not configured. Ask an admin to add its API key under Config → Weekly blog.',503);if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);};
   try {
+    if(parts.join('/')==='google/callback' && method==='GET') {
+      const result=await finishReportingConnection(user.id,url,req.headers.cookie);
+      res.setHeader('Set-Cookie',result.cookie);res.statusCode=303;
+      res.setHeader('Location',`/?tab=marketing&marketingConnection=${result.ok?'connected':'denied'}&marketingSite=${result.siteId}`);res.end();return;
+    }
     if(parts[0]!=='sites') throw new MarketingError('Route not found.',404);
     if(parts.length===1) {
       if(method==='GET') return send({sites:(await query('SELECT * FROM marketing_sites WHERE user_id=$1 ORDER BY created_at DESC',[user.id])).map(r=>siteView(r as Parameters<typeof siteView>[0])),writerConfigured:Boolean(writerConfig()),websiteLimit:admin?20:3});
@@ -28,9 +36,30 @@ export async function handleMarketing(req: IncomingMessage,res: ServerResponse,u
       if(method==='PATCH') return send({site:await updateSite(user.id,siteId,admin,await body())});
     }
     if(parts.length===3 && method==='POST') {
+      if(parts[2]==='health') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);return send({job:await enqueue(user.id,siteId,admin,'health')},202);}
+      if(parts[2]==='visibility') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);return send({job:await queueVisibility(user.id,siteId,await body())},202);}
       if(parts[2]==='research') {configured();return send({job:await enqueue(user.id,siteId,admin,'research')},202);}
       if(parts[2]==='drafts') {configured();const b=await body();if(typeof b.topicId!=='string'||!isId(b.topicId)) throw new MarketingError('Choose a topic.');return send({job:await enqueue(user.id,siteId,admin,'write',b.topicId)},202);}
       if(parts[2]==='topics') {await addTopic(user.id,siteId,await body());return send({ok:true},201);}
+    }
+    if(parts[2]==='actions' && parts.length===4 && method==='PATCH') {await updateAction(user.id,siteId,parts[3],(await body()).status);return send({ok:true});}
+    if(parts[2]==='observations') {
+      if(parts.length===3 && method==='POST') return send(await saveObservation(user.id,siteId,await body()),201);
+      if(parts.length===4 && isId(parts[3]) && method==='PATCH') {await confirmRecommendation(user.id,siteId,parts[3],(await body()).recommendationQuote);return send({ok:true});}
+    }
+    if(parts[2]==='google') {
+      if(parts.length===4 && parts[3]==='connect' && method==='POST') {const result=await beginReportingConnection(user.id,siteId);res.setHeader('Set-Cookie',result.cookie);return send({url:result.url});}
+      if(parts.length===4 && parts[3]==='properties' && method==='GET') return send(await availableProperties(user.id,siteId));
+      if(parts.length===3 && method==='PATCH') {await configureReporting(user.id,siteId,await body());return send({ok:true});}
+      if(parts.length===3 && method==='DELETE') {await disconnectReporting(user.id,siteId);return send({ok:true});}
+    }
+    if(parts[2]==='results' && parts.length===4 && method==='POST') {
+      if(parts[3]==='sync') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);return send({job:await enqueue(user.id,siteId,admin,'results')},202);}
+      if(parts[3]==='import' || parts[3]==='record') {
+        const b=await body(),site=await ownedSite(user.id,siteId);
+        let snapshot;try {snapshot=parts[3]==='import'?importResults(b,site.url):recordedResults(b);} catch(e) {throw new MarketingError((e as Error).message);}
+        await saveResultsSnapshot(user.id,siteId,snapshot);return send({ok:true},201);
+      }
     }
     const id=parts[3];if(!id || !isId(id)) throw new MarketingError('Item not found.',404);
     if(parts[2]==='topics' && parts.length===4 && method==='PATCH') {await setTopicStatus(user.id,siteId,id,(await body()).status);return send({ok:true});}

@@ -19,7 +19,7 @@ active_runs() {
   for pid in $(pgrep -f 'node dist/(main|queue)\.js' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/seek-bot" ] && n=$((n + 1))
   done
-  for pid in $(pgrep -f 'node .*cli\.js (research|scan-site)' || true); do
+  for pid in $(pgrep -f 'node .*cli\.js (research|scan-site|audit-site|ai-visibility)' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/market-scout" ] && n=$((n + 1))
   done
   local marketing

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { getPool, one, query } from '../db/index.js';
 import { deploying } from '../runner.js';
-import { readWebsite, researchWebsite, stopMarketingBrowsers } from './scout.js';
+import { auditWebsite, observeAI, readWebsite, researchWebsite, stopMarketingBrowsers } from './scout.js';
+import { saveObservation, saveResultsSnapshot } from './growth-store.js';
+import { fetchReportingSnapshots } from './google-results.js';
 import { planContent, reviewContent, writeContent } from './content.js';
 import { articleHash, nextWeeklyRun, productsRemainVerified, publicationProblem, topicKey, validateArticle } from './policy.js';
 import { MarketingError, marketingOrigin, ownedSite, ownerIsAdmin, siteView, topicView, transaction, type JobRow } from './store.js';
@@ -20,6 +22,8 @@ async function research(job: JobRow) {
   const before=siteView(await ownedSite(job.user_id,job.site_id));
   await progress(job,'Reading public product and service pages…');
   const profile=await readWebsite(before,job.user_id);
+  await progress(job,'Checking website health and crawl access…');
+  await health(job);
   await progress(job,'Finding competitors and buyer questions in the browser…');
   const snapshot=await researchWebsite(before,job.user_id,profile);
   // Model wording can change on a refresh; changed confirmed source facts need another review.
@@ -109,6 +113,16 @@ async function publish(job: JobRow, scheduled=false) {
 }
 
 async function execute(job: JobRow) {
+  if(!await ownerIsAdmin(job.user_id)) throw new MarketingError('Marketing is available to admins only.',403);
+  if(job.kind==='health') return health(job);
+  if(job.kind==='visibility') {
+    await progress(job,'Checking actual AI answers in a public browser…');
+    const site=siteView(await ownedSite(job.user_id,job.site_id));
+    const observations=await observeAI(site,job.user_id,job.payload);
+    for(const observation of observations) await saveObservation(job.user_id,job.site_id,observation,'browser');
+    return;
+  }
+  if(job.kind==='results') return syncResults(job);
   if(job.kind==='research') return research(job);
   if(job.kind==='write') return write(job);
   if(job.kind==='review') {await review(job);return;}
@@ -130,10 +144,42 @@ export async function queueDueSchedules(now=new Date()) {
   await transaction(async client=>{
     const sites=(await client.query("SELECT * FROM marketing_sites WHERE schedule_enabled AND next_run_at<=$1 ORDER BY next_run_at FOR UPDATE SKIP LOCKED LIMIT 30",[now])).rows;
     for(const row of sites) {
+      if(!await ownerIsAdmin(row.user_id)) {await client.query('UPDATE marketing_sites SET schedule_enabled=false,next_run_at=NULL WHERE id=$1',[row.id]);continue;}
       if((await client.query("SELECT 1 FROM marketing_jobs WHERE site_id=$1 AND status IN ('queued','running')",[row.id])).rowCount) continue;
       const key=`weekly:${row.id}:${new Date(row.next_run_at).toISOString()}`;
       await client.query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,idempotency_key) VALUES($1,$2,$3,'cycle',$4) ON CONFLICT(idempotency_key) DO NOTHING",[randomUUID(),row.id,row.user_id,key]);
       await client.query('UPDATE marketing_sites SET next_run_at=$2 WHERE id=$1',[row.id,nextWeeklyRun(now,row.schedule_day,row.schedule_time,row.timezone)]);
+    }
+  });
+}
+
+async function health(job:JobRow) {
+  await progress(job,'Auditing a bounded sample of public pages…');
+  const site=siteView(await ownedSite(job.user_id,job.site_id));
+  const report=await auditWebsite(site,job.user_id);
+  await query('UPDATE marketing_sites SET health=$3,updated_at=now() WHERE id=$1 AND user_id=$2',[job.site_id,job.user_id,report]);
+}
+async function syncResults(job:JobRow) {
+  await progress(job,'Reading measured Search Console and Analytics results…');
+  try {
+    const report=await fetchReportingSnapshots(job.user_id,job.site_id);
+    for(const snapshot of report.snapshots) await saveResultsSnapshot(job.user_id,job.site_id,snapshot);
+    await query("UPDATE marketing_google_connections SET last_sync_at=now(),next_sync_at=CASE WHEN daily_sync THEN now()+interval '24 hours' ELSE NULL END,error=$3 WHERE site_id=$1 AND user_id=$2",[job.site_id,job.user_id,report.errors.length?report.errors.join(' ').slice(0,1000):null]);
+    if(report.errors.length) throw new MarketingError(`Reporting needs attention: ${report.errors.join(' ').slice(0,800)}`,409);
+  } catch(e) {
+    await query("UPDATE marketing_google_connections SET next_sync_at=CASE WHEN daily_sync THEN now()+interval '24 hours' ELSE NULL END,error=$3 WHERE site_id=$1 AND user_id=$2",[job.site_id,job.user_id,e instanceof MarketingError?e.message:'Reporting could not finish. Retry or reconnect Google.']);throw e;
+  }
+}
+export async function queueDueReporting() {
+  await transaction(async client=>{
+    const rows=(await client.query('SELECT * FROM marketing_google_connections WHERE daily_sync AND next_sync_at<=now() ORDER BY next_sync_at FOR UPDATE SKIP LOCKED LIMIT 20')).rows;
+    for(const row of rows) {
+      await client.query('SELECT id FROM marketing_sites WHERE id=$1 FOR UPDATE',[row.site_id]);
+      if(!await ownerIsAdmin(row.user_id)) {await client.query('UPDATE marketing_google_connections SET daily_sync=false,next_sync_at=NULL WHERE site_id=$1',[row.site_id]);continue;}
+      if((await client.query("SELECT 1 FROM marketing_jobs WHERE site_id=$1 AND status IN ('queued','running')",[row.site_id])).rowCount) continue;
+      const id=randomUUID();
+      await client.query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,idempotency_key) VALUES($1,$2,$3,'results',$4)",[id,row.site_id,row.user_id,`results:${row.site_id}:${new Date(row.next_sync_at).toISOString()}`]);
+      await client.query("UPDATE marketing_google_connections SET next_sync_at=now()+interval '24 hours' WHERE site_id=$1",[row.site_id]);
     }
   });
 }
@@ -146,6 +192,7 @@ export async function marketingTick() {
     if(!(await client.query('SELECT pg_try_advisory_lock(781240936) locked')).rows[0].locked) return;
     await query("UPDATE marketing_jobs SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,error='Previous worker stopped; recovering saved progress.',available_at=now() WHERE status='running' AND heartbeat_at<now()-interval '90 seconds'");
     await queueDueSchedules();
+    await queueDueReporting();
     const job=await one<JobRow>(`UPDATE marketing_jobs SET status='running',attempts=attempts+1,heartbeat_at=now(),error=NULL WHERE id=(SELECT id FROM marketing_jobs WHERE status='queued' AND available_at<=now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`);
     if(!job) return;
     const heartbeat=setInterval(()=>void query("UPDATE marketing_jobs SET heartbeat_at=now() WHERE id=$1 AND status='running'",[job.id]).catch(()=>{}),20_000);

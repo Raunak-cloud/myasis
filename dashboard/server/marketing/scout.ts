@@ -8,6 +8,8 @@ import type { MarketingResearch, MarketingSite, MarketingSource, WebsitePage, We
 import { createBlogModel, writerConfig } from '../blog/models.js';
 import { assertPublicUrl } from '../../../market-scout/src/core/public-url.js';
 import { sameWebsite } from '../../../market-scout/src/core/quality.js';
+import { healthReport } from './growth.js';
+import type { HealthPage, WebsiteHealth } from '../../src/marketingTypes.js';
 
 const SCOUT_DIR = resolve(import.meta.dirname, '..', '..', '..', 'market-scout');
 const children = new Set<ChildProcess>();
@@ -36,6 +38,19 @@ async function runScout(args: string[], dir: string, timeoutMs: number): Promise
 
 export function privateRunDir(userId: string, siteId: string): string {
   const dir = resolve(userDir(userId),'marketing',siteId,randomUUID()); mkdirSync(dir,{recursive:true}); return dir;
+}
+
+export async function auditWebsite(site:MarketingSite,userId:string):Promise<WebsiteHealth> {
+  const dir=privateRunDir(userId,site.id),output=join(dir,'health.json');
+  await runScout(['audit-site',site.url,'--output',output],dir,240_000);
+  const raw=JSON.parse(readFileSync(output,'utf8')) as {checkedAt:string;pages:HealthPage[];robots:WebsiteHealth['robots'];sitemaps:WebsiteHealth['sitemaps'];gaps:string[]};
+  return healthReport(raw,site.url);
+}
+export async function observeAI(site:MarketingSite,userId:string,payload:{provider:string;prompts:string[]}) {
+  const dir=privateRunDir(userId,site.id),input=join(dir,'visibility-input.json'),output=join(dir,'visibility.json');
+  writeFileSync(input,JSON.stringify({...payload,country:site.country}));
+  await runScout(['ai-visibility','--brief',input,'--output',output],dir,270_000);
+  return JSON.parse(readFileSync(output,'utf8')) as Array<Record<string,unknown>>;
 }
 
 export async function readWebsite(site: MarketingSite, userId: string): Promise<WebsiteProfile> {

@@ -634,3 +634,38 @@ CREATE TABLE IF NOT EXISTS marketing_jobs (
 CREATE INDEX IF NOT EXISTS marketing_jobs_queue_idx ON marketing_jobs(available_at,created_at) WHERE status='queued';
 CREATE INDEX IF NOT EXISTS marketing_jobs_user_idx ON marketing_jobs(user_id,created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS marketing_one_site_job_idx ON marketing_jobs(site_id) WHERE status IN ('queued','running');
+
+-- Evidence and read-only growth reporting. Old workspaces remain valid.
+ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS health JSONB;
+ALTER TABLE marketing_jobs ADD COLUMN IF NOT EXISTS payload JSONB;
+ALTER TABLE marketing_jobs DROP CONSTRAINT IF EXISTS marketing_jobs_kind_check;
+ALTER TABLE marketing_jobs ADD CONSTRAINT marketing_jobs_kind_check CHECK (kind IN ('research','write','review','publish','cycle','health','visibility','results'));
+CREATE TABLE IF NOT EXISTS marketing_action_states (
+  site_id UUID NOT NULL, user_id BIGINT NOT NULL, action_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open','done','dismissed')), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY(site_id,action_id), FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS marketing_ai_observations (
+  id UUID PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL,
+  observation JSONB NOT NULL, fingerprint TEXT NOT NULL, observed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(site_id,fingerprint),
+  FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS marketing_ai_recent_idx ON marketing_ai_observations(site_id,observed_at DESC);
+CREATE TABLE IF NOT EXISTS marketing_result_snapshots (
+  id UUID PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL, source TEXT NOT NULL,
+  period_start DATE NOT NULL, period_end DATE NOT NULL CHECK (period_end>=period_start),
+  snapshot JSONB NOT NULL, fingerprint TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(site_id,fingerprint), FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS marketing_results_recent_idx ON marketing_result_snapshots(site_id,period_end DESC,created_at DESC);
+CREATE TABLE IF NOT EXISTS marketing_google_connections (
+  site_id UUID PRIMARY KEY, user_id BIGINT NOT NULL, encrypted_token TEXT NOT NULL, scope TEXT NOT NULL,
+  search_property TEXT, ga_property TEXT, daily_sync BOOLEAN NOT NULL DEFAULT false,
+  last_sync_at TIMESTAMPTZ, next_sync_at TIMESTAMPTZ, error TEXT, connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS marketing_oauth_states (
+  state_hash TEXT PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL, verifier TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL, FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);

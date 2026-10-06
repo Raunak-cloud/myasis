@@ -11,6 +11,8 @@ import { CostMeter } from './llm/celeris.js';
 import { runResearch } from './research.js';
 import { SOURCES, sourceById } from './sources/index.js';
 import { scanSite } from './scan-site.js';
+import { auditSite } from './audit-site.js';
+import { checkAIVisibility } from './ai-visibility.js';
 import { writeFileSync } from 'node:fs';
 
 const HELP = `market-scout — public marketing research with a Celeris browser agent
@@ -76,6 +78,16 @@ async function main() {
   if (values.headed) config.browser.headless = false;
 
   switch (command) {
+    case 'audit-site': {
+      if(!positionals[0] || !values.output) throw new Error('Usage: audit-site <public HTTPS website> --output <file.json>');
+      try {writeFileSync(values.output,JSON.stringify(await auditSite(positionals[0]),null,2));} finally {await closeBrowser();}
+      return;
+    }
+    case 'ai-visibility': {
+      if(!values.brief || !values.output) throw new Error('Usage: ai-visibility --brief <input.json> --output <file.json>');
+      try {writeFileSync(values.output,JSON.stringify(await checkAIVisibility(JSON.parse(readFileSync(values.brief,'utf8'))),null,2));} finally {await closeBrowser();}
+      return;
+    }
     case 'scan-site': {
       if (!positionals[0] || !values.output) throw new Error('Usage: scan-site <public HTTPS website> --output <file.json>');
       try { writeFileSync(values.output, JSON.stringify(await scanSite(positionals[0]), null, 2)); }

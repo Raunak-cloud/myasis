@@ -3,6 +3,11 @@ import { isIP } from 'node:net';
 import { request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
 
+/** Campaign ownership permits the www alias, never arbitrary subdomains or parent domains. */
+export function samePublicSite(actual:string,expected:string):boolean {
+  try {const a=new URL(actual),b=new URL(expected);return ['http:','https:'].includes(a.protocol) && ['http:','https:'].includes(b.protocol) && a.hostname.replace(/^www\./,'')===b.hostname.replace(/^www\./,'');} catch{return false;}
+}
+
 /** Public-address boundary for customer-supplied sites and every browser request. */
 export function isPublicAddress(raw: string): boolean {
   const address = raw.toLowerCase().replace(/^::ffff:/, '');

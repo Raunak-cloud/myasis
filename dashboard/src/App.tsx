@@ -44,7 +44,7 @@ interface TodayStats {
 }
 
 const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
-  marketing: { title: 'Marketing agent', description: 'Turn your website into an evidence-based blog plan.' },
+  marketing: { title: 'Marketing agent', description: 'Improve website health, organic content, AI visibility and measured results.' },
   run: {
     title: 'Apply for jobs',
     description: '',

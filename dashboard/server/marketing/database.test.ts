@@ -5,13 +5,17 @@ import { readFileSync } from 'node:fs';
 import { getPool, one, query } from '../db/index.js';
 import { enqueue, iso, ownedSite, saveDraft, saveMetrics, updateSite, workspace } from './store.js';
 import { marketingTick, queueDueSchedules } from './worker.js';
+import { growthWorkspace, queueVisibility, saveObservation, saveResultsSnapshot, updateAction } from './growth-store.js';
+import { beginReportingConnection, configureReporting, decryptReportingToken, fetchReportingSnapshots, finishReportingConnection, disconnectReporting } from './google-results.js';
+import { healthReport } from './growth.js';
+import { recordedResults } from './results.js';
 
 test('real PostgreSQL migration, ownership, queue uniqueness, edits and weekly idempotency',{skip:process.env.RUN_MARKETING_DB_TESTS!=='1'},async()=>{
   const schema=`marketing_qa_${randomUUID().replace(/-/g,'')}`;
   process.env.PGOPTIONS=`-c search_path=${schema}`;
   const pool=getPool();
   const oldFetch=globalThis.fetch;
-  const keys=['ADMIN_EMAILS','APP_BASE_URL','GEMINI_API_KEY','BLOG_GEMINI_MODEL'] as const;
+  const keys=['ADMIN_EMAILS','APP_BASE_URL','GEMINI_API_KEY','BLOG_GEMINI_MODEL','GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET'] as const;
   const oldEnv=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
   try {
     await pool.query(`CREATE SCHEMA ${schema}`);
@@ -40,6 +44,7 @@ test('real PostgreSQL migration, ownership, queue uniqueness, edits and weekly i
     await assert.rejects(saveMetrics(user,site,post,{periodStart:'2026-02-30',periodEnd:'2026-03-01'}),/completed measurement/);
     await updateSite(user,site,false,{scheduleEnabled:true,scheduleDay:0,scheduleTime:'08:00',timezone:'Australia/Sydney'});
     await query('UPDATE marketing_sites SET next_run_at=$2 WHERE id=$1',[site,new Date(Date.now()-60000)]);
+    process.env.ADMIN_EMAILS='owner@marketing-qa.invalid';
     const now=new Date();await queueDueSchedules(now);await queueDueSchedules(now);
     assert.equal((await one<{n:number}>("SELECT count(*)::int n FROM marketing_jobs WHERE site_id=$1 AND kind='cycle'",[site]))?.n,1);
     await updateSite(user,site,false,{scheduleEnabled:false});
@@ -60,5 +65,46 @@ test('real PostgreSQL migration, ownership, queue uniqueness, edits and weekly i
     assert.equal(published?.status,'published');assert.ok(published?.blog_post_id);assert.match(published?.published_url,/^https:\/\/example.com\/blog\//);
     assert.equal((await one('SELECT count(*)::int n FROM blog_posts'))?.n,1);
     await assert.rejects(enqueue(user,site,true,'publish',undefined,post),/unpublished draft/);
+    // New growth records stay scoped to their site owner and duplicate evidence is idempotent.
+    const observation={provider:'ChatGPT',prompt:'Which software should customers consider?',observedAt:stamp,answer:'Example has a product available on its website. Compare the available software options and decide whether their features are suitable for your needs before making a purchase.',citations:['https://example.com/']};
+    await assert.rejects(saveObservation(other,site,observation),/not found/);
+    await saveObservation(user,site,observation);await saveObservation(user,site,observation);
+    assert.equal((await one('SELECT count(*)::int n FROM marketing_ai_observations'))?.n,1);
+    const snapshot=recordedResults({periodStart:'2026-01-01',periodEnd:'2026-01-31',sourceLabel:'QA ledger',sessions:0});
+    await saveResultsSnapshot(user,site,snapshot);await saveResultsSnapshot(user,site,{...snapshot,id:randomUUID()});
+    assert.equal((await one('SELECT count(*)::int n FROM marketing_result_snapshots'))?.n,1);
+    await assert.rejects(saveResultsSnapshot(other,site,snapshot),/not found/);
+    const health=healthReport({checkedAt:stamp,pages:[],robots:{url:'https://example.com/robots.txt',status:null,body:null},sitemaps:[],gaps:[]},'https://example.com/');
+    await query('UPDATE marketing_sites SET health=$2 WHERE id=$1',[site,health]);
+    const growth=await growthWorkspace(user,site);assert.equal(growth.observations.length,1);assert.equal(growth.results[0].sessions,0);
+    const action=growth.strategy.actions[0];await updateAction(user,site,action.id,'done');assert.equal((await growthWorkspace(user,site)).strategy.actions.find(a=>a.id===action.id)?.status,'done');
+    await assert.rejects(updateAction(other,site,action.id,'done'),/not found/);
+    const queued=await queueVisibility(user,site,{provider:'ChatGPT',prompts:['Which software should customers consider?']});
+    await assert.rejects(queueVisibility(user,site,{provider:'ChatGPT',prompts:['Which software should customers consider?']}),/in progress/);
+    assert.equal((await one('SELECT payload FROM marketing_jobs WHERE id=$1',[queued.id]))?.payload.provider,'ChatGPT');await query("UPDATE marketing_jobs SET status='done' WHERE id=$1",[queued.id]);
+    // OAuth state is bound to the session user/browser, one-use, and tokens never enter workspace responses.
+    process.env.GOOGLE_CLIENT_ID='qa-client';process.env.GOOGLE_CLIENT_SECRET='qa-client-secret';
+    const connection=await beginReportingConnection(user,site),callback=new URL('https://example.com/api/marketing/google/callback');
+    callback.searchParams.set('state',new URL(connection.url).searchParams.get('state')!);callback.searchParams.set('code','qa-code');
+    const cookie=connection.cookie.split(';')[0];
+    await assert.rejects(finishReportingConnection(other,callback,cookie),/expired/);
+    await assert.rejects(finishReportingConnection(user,callback,'marketing_oauth=wrong'),/match/);
+    globalThis.fetch=(async(input,init)=>{
+      const url=String(input);
+      if(url.includes('/token')) return new Response(JSON.stringify({access_token:'qa-access',refresh_token:'qa-refresh',scope:'https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly'}));
+      if(url.endsWith('/webmasters/v3/sites')) return new Response(JSON.stringify({siteEntry:[{siteUrl:'sc-domain:example.com',permissionLevel:'siteOwner'}]}));
+      if(url.includes('accountSummaries')) return new Response(JSON.stringify({accountSummaries:[{propertySummaries:[{property:'properties/123',displayName:'QA site'}]}]}));
+      if(url.includes('/dataStreams')) return new Response(JSON.stringify({dataStreams:[{webStreamData:{defaultUri:'https://example.com/'}}]}));
+      if(url.includes('/searchAnalytics/query')) return new Response(JSON.stringify({rows:[]}));
+      if(url.endsWith(':runReport')) {const request=JSON.parse(String(init?.body));assert.ok(JSON.stringify(request.dimensionFilter).includes('example.com'));return new Response(JSON.stringify({metricHeaders:request.metrics,rows:[],metadata:{currencyCode:'AUD',timeZone:'Australia/Sydney'}}));}
+      throw new Error('Unexpected provider URL');
+    }) as typeof fetch;
+    assert.equal((await finishReportingConnection(user,callback,cookie)).ok,true);await assert.rejects(finishReportingConnection(user,callback,cookie),/expired/);
+    const stored=await one('SELECT encrypted_token FROM marketing_google_connections WHERE site_id=$1',[site]);assert.notEqual(stored?.encrypted_token,'qa-refresh');assert.equal(decryptReportingToken(stored!.encrypted_token),'qa-refresh');
+    assert.ok(!JSON.stringify(await workspace(user,site,true)).includes('qa-refresh'));
+    await configureReporting(user,site,{searchProperty:'sc-domain:example.com',gaProperty:'123',dailySync:false});
+    await assert.rejects(configureReporting(user,site,{searchProperty:'sc-domain:other.com',gaProperty:null,dailySync:false}),/this website/);
+    const report=await fetchReportingSnapshots(user,site);assert.equal(report.errors.length,0);assert.equal(report.snapshots.length,2);assert.equal(report.snapshots[0].clicks,0);assert.equal(report.snapshots[1].sessions,0);assert.equal(report.snapshots[1].leads,null);
+    await disconnectReporting(user,site);assert.equal((await growthWorkspace(user,site)).connection.connected,false);assert.equal((await growthWorkspace(user,site)).results.length,1);
   } finally {globalThis.fetch=oldFetch;for(const key of keys) if(oldEnv[key]===undefined) delete process.env[key];else process.env[key]=oldEnv[key];await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();}
 });
