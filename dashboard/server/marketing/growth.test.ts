@@ -56,6 +56,7 @@ test('CSV imports reject mixed ownership, malformed rows, impossible counts and 
 test('recorded metrics keep unknown separate from zero and reject inconsistent periods and channels',()=>{
   const body={sourceLabel:'Sales ledger',periodStart:'2026-01-01',periodEnd:'2026-01-31',sessions:'0',leads:''};
   const result=recordedResults(body);assert.equal(result.sessions,0);assert.equal(result.leads,null);
+  assert.equal(recordedResults({...body,revenue:'-25.50',currency:'AUD'}).revenue,-25.5);
   assert.throws(()=>recordedResults({...body,sessions:'12',aiSessions:'13'}),/exceed/);
   assert.throws(()=>measurementPeriod({...body,periodStart:'2026-02-30'}),/completed/);
   assert.throws(()=>recordedResults({...body,sessions:'NaN'}),/finite/);
@@ -79,4 +80,5 @@ test('API reports retain independent source totals and do not reinterpret key ev
   const ai={metricHeaders:[{name:'sessions'}],rows:[{dimensionValues:[{value:'chatgpt.com'}],metricValues:[{value:'3'}]}]};
   const ga=parseAnalyticsReport(total,channels,ai,period,'123');assert.equal(ga.sessions,20);assert.equal(ga.organicSessions,12);assert.equal(ga.aiSessions,3);assert.equal(ga.keyEvents,2);assert.equal(ga.leads,null);assert.equal(ga.revenue,30.5);
   assert.throws(()=>parseAnalyticsReport(total,{},ai,period,'123'),/invalid/);
+  assert.equal(parseAnalyticsReport({...total,rows:[{metricValues:[{value:'20'},{value:'2'},{value:'1'},{value:'-3.50'}]}]},channels,ai,period,'123').revenue,-3.5);
 });
