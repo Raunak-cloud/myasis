@@ -135,10 +135,10 @@ export default function App() {
   useEffect(() => {
     if (entitlements && !canRewrite && tab === 'humanizer') setTab('run');
   }, [entitlements, canRewrite, tab]);
-  /** The admin dashboard is only offered to admins; the server refuses everyone else regardless. */
+  /** Operator pages are only offered to admins; their APIs enforce the same restriction. */
   const isAdmin = entitlements?.tier === 'admin';
   useEffect(() => {
-    if (entitlements && !isAdmin && tab === 'admin') setTab('run');
+    if (entitlements && !isAdmin && (tab === 'admin' || tab === 'marketing')) setTab('run');
   }, [entitlements, isAdmin, tab]);
   /** What is in front of the visitor: the landing page while signed out, otherwise the tab. */
   useEffect(() => {
@@ -226,8 +226,8 @@ export default function App() {
     { id: 'run', label: 'Apply' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
     { id: 'applications', label: 'Applications', badge: apps.length },
-    { id: 'marketing', label: 'Marketing' },
   ];
+  if (isAdmin) primaryNav.push({ id: 'marketing', label: 'Marketing' });
 
   /**
    * On a narrow screen the destinations live behind a menu button rather
@@ -547,7 +547,7 @@ export default function App() {
             />
           )}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
-          {tab === 'marketing' && <MarketingAgent />}
+          {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
             <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} />
           )}

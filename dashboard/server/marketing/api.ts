@@ -10,6 +10,7 @@ import { addTopic, createSite, enqueue, MarketingError, ownedSite, saveDraft, sa
 export async function handleMarketing(req: IncomingMessage,res: ServerResponse,url: URL,user: {id:string;email:string},send:(body:unknown,status?:number)=>void,readBody:()=>Promise<unknown>) {
   res.setHeader('Cache-Control','no-store');
   const admin=isAdmin(user.email), method=req.method;
+  if (!admin) return send({error:'Admins only.'},403);
   const parts=url.pathname.slice('/api/marketing/'.length).split('/').filter(Boolean);
   const body=async()=>{const value=await readBody();if(!value || typeof value!=='object' || Array.isArray(value)) throw new MarketingError('Enter valid form details.');return value as Record<string,unknown>;};
   const configured=()=>{if(!writerConfig()) throw new MarketingError('Gemini is not configured. Ask an admin to add its API key under Config → Weekly blog.',503);if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);};
