@@ -115,7 +115,7 @@ export async function enqueue(userId: string, siteId: string, admin: boolean, ki
       if (!post || post.status !== 'draft') throw new MarketingError('Choose an unpublished draft.',409);
       if (kind === 'publish') { const problem = publicationProblem(siteView(row),admin,marketingOrigin()); if (problem) throw new MarketingError(problem); if (!post.quality?.approved) throw new MarketingError('Run the draft quality review before publishing.'); }
     }
-    const job = (await client.query('INSERT INTO marketing_jobs(id,site_id,user_id,kind,topic_id,post_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$1::text) RETURNING *',[randomUUID(),siteId,userId,kind,topicId || null,postId || null])).rows[0];
+    const job = (await client.query('INSERT INTO marketing_jobs(id,site_id,user_id,kind,topic_id,post_id,idempotency_key) VALUES($1::uuid,$2,$3,$4,$5,$6,$1::uuid::text) RETURNING *',[randomUUID(),siteId,userId,kind,topicId || null,postId || null])).rows[0];
     return jobView(job);
   });
 }

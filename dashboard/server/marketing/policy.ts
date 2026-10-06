@@ -4,7 +4,12 @@ import type { MarketingArticle, MarketingSite } from '../../src/marketingTypes.j
 export const COUNTRIES = ['AU', 'US', 'GB', 'CA', 'NZ', 'IN', 'SG', 'DE', 'FR'];
 export const isId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 export const topicKey = (text: string) => text.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-export const articleHash = (article: MarketingArticle) => createHash('sha256').update(JSON.stringify(article)).digest('hex');
+function canonical(value:unknown):unknown {
+  if(Array.isArray(value)) return value.map(canonical);
+  if(value && typeof value==='object') return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,v])=>[key,canonical(v)]));
+  return value;
+}
+export const articleHash = (article: MarketingArticle) => createHash('sha256').update(JSON.stringify(canonical(article))).digest('hex');
 
 export function sameTopic(a: string, b: string): boolean {
   const left = new Set(topicKey(a).split(' ').filter((w) => w.length > 2 && !/^(the|and|for|how|your|with|guide)$/.test(w)));

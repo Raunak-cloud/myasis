@@ -70,7 +70,8 @@ async function review(job: JobRow) {
   if(!post || post.status!=='draft') throw new MarketingError('Unpublished draft not found.');
   await progress(job,'Checking every factual claim against the saved sources…');
   const quality=await reviewContent(post.article,post.brief);
-  await query('UPDATE marketing_posts SET quality=$4,article_hash=$5,updated_at=now() WHERE id=$1 AND site_id=$2 AND user_id=$3 AND updated_at=$6',[post.id,job.site_id,job.user_id,quality,articleHash(post.article),post.updated_at]);
+  const saved=await query("UPDATE marketing_posts SET quality=$4,article_hash=$5,updated_at=now() WHERE id=$1 AND site_id=$2 AND user_id=$3 AND status='draft' AND article=$6::jsonb RETURNING id",[post.id,job.site_id,job.user_id,quality,articleHash(post.article),post.article]);
+  if(!saved.length) throw new MarketingError('The draft changed during review. Review it again.');
   return quality;
 }
 

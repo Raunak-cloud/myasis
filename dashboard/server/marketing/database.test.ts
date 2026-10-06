@@ -27,7 +27,7 @@ test('real PostgreSQL migration, ownership, queue uniqueness, edits and weekly i
     await query("INSERT INTO marketing_topics(id,site_id,user_id,topic_key,title,keyword,angle,intent,priority,rationale,product_url,basis) VALUES($1,$2,$3,'topic','Topic','topic','Help','learn','medium','Advice','https://example.com/','custom')",[topic,site,user]);
     const job=await enqueue(user,site,false,'write',topic);
     await assert.rejects(enqueue(user,site,false,'write',topic),/in progress/);
-    await assert.rejects(query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,idempotency_key) VALUES($1,$2,$3,'research','bad-owner')",[randomUUID(),site,other]),e=>(e as {code:string}).code==='23503');
+    await assert.rejects(query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,idempotency_key,status) VALUES($1,$2,$3,'research','bad-owner','done')",[randomUUID(),site,other]),e=>(e as {code:string}).code==='23503');
     await query("UPDATE marketing_jobs SET status='done' WHERE id=$1",[job.id]);
     const article={title:'Helpful article',slug:'helpful',metaDescription:'A guide',focusKeyword:'topic',targetSearches:[],lead:'Product information [S1]',sections:[{heading:'One',paragraphs:[Array(80).fill('Useful practical guidance.').join(' ')],bullets:[]},{heading:'Two',paragraphs:[Array(80).fill('Choose what fits.').join(' ')],bullets:[]}],takeaways:['Check your needs.']};
     await query("INSERT INTO marketing_posts(id,site_id,user_id,topic_id,status,article,brief,quality) VALUES($1,$2,$3,$4,'draft',$5,$6,$7)",[post,site,user,topic,article,{sources:[{ref:'S1'}]},{approved:true,issues:[],reviewedAt:new Date().toISOString()}]);
