@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { nextWeeklyRun, ownedLink, productsRemainVerified, publicationProblem, sameTopic, validateArticle } from './policy.js';
-import { contentBrief, curateTopics, exportArticle } from './content.js';
+import { contentBrief, curateTopics, exportArticle, marketScopeIssues } from './content.js';
 import { publicationSourceProblem } from './worker.js';
 import type { MarketingArticle, MarketingResearch, MarketingSite, WebsiteProfile } from '../../src/marketingTypes.js';
 
@@ -45,6 +45,8 @@ test('forged citations, truncated articles and performance guarantees fail valid
   assert.throws(()=>validateArticle({...article,lead:'Wrong citation [S99]'},['S1']));
   assert.throws(()=>validateArticle({...article,sections:[]},['S1']));
   assert.throws(()=>validateArticle({...article,lead:'Guaranteed conversions [S1]'},['S1']));
+  assert.ok(marketScopeIssues({...article,lead:'Many platforms let you use a match score of 75%. [S1]'}).length);
+  assert.equal(marketScopeIssues({...article,lead:'Example lets you configure a match score. [S1]'}).length,0);
 });
 test('planner rejects invented evidence, repeated topics and external product URLs',()=>{
   const raw={title:'Organise a useful workflow',keyword:'organise my work',angle:'Practical planning',intent:'buy',productUrl:'https://other.com/',evidenceUrls:[source.url]};
