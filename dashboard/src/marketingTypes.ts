@@ -27,6 +27,8 @@ export interface MarketingSite {
   scheduleDay: number; scheduleTime: string; timezone: string; nextRunAt: string | null; ownsBlogSchedule: boolean;
   createdAt: string; updatedAt: string;
   health?: WebsiteHealth | null;
+  growthGoal?: 'traffic' | 'leads' | 'sales';
+  growthAIProvider?: 'off' | 'ChatGPT' | 'Perplexity';
 }
 export interface MarketingTopic {
   id: string; title: string; keyword: string; angle: string; intent: 'learn' | 'compare' | 'buy';
@@ -35,12 +37,18 @@ export interface MarketingTopic {
   status: 'planned' | 'writing' | 'drafted' | 'published' | 'dismissed'; createdAt: string;
 }
 export interface MarketingPost {
+  handledAt?: string | null;
   id: string; topicId: string; status: 'writing' | 'draft' | 'published' | 'failed'; article: MarketingArticle | null;
   sources: MarketingSource[]; quality: { approved: boolean; issues: string[]; reviewedAt: string | null };
   model: string; publishedUrl: string | null; createdAt: string; updatedAt: string;
   metrics: { periodStart: string; periodEnd: string; visits: number | null; leads: number | null; orders: number | null; revenue: number | null; currency: string; notes: string; recordedAt: string } | null;
 }
-export interface MarketingJob { id: string; kind: 'research' | 'write' | 'review' | 'publish' | 'cycle' | 'health' | 'visibility' | 'results'; status: 'queued' | 'running' | 'done' | 'failed'; progress: string; error: string | null; createdAt: string }
+export interface MarketingJob { id: string; kind: 'research' | 'write' | 'review' | 'publish' | 'cycle' | 'growth' | 'health' | 'visibility' | 'results'; status: 'queued' | 'running' | 'done' | 'failed'; progress: string; error: string | null; createdAt: string; growthRun?: GrowthRun }
+export interface GrowthStep {
+  key: 'results' | 'health' | 'research' | 'visibility' | 'strategy' | 'content';
+  title: string; status: 'pending' | 'running' | 'done' | 'attention' | 'skipped'; summary: string; finishedAt: string | null;
+}
+export interface GrowthRun { startedAt:string; completedAt:string|null; steps:GrowthStep[] }
 export interface HealthPage {
   url: string; requestedUrl: string; status: number | null; title: string; description: string; canonical: string;
   robotsMeta: string; xRobotsTag: string; h1: string[]; wordCount: number; text: string; links: Array<{text:string;href:string}>;

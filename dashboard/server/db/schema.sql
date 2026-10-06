@@ -639,7 +639,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS marketing_one_site_job_idx ON marketing_jobs(s
 ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS health JSONB;
 ALTER TABLE marketing_jobs ADD COLUMN IF NOT EXISTS payload JSONB;
 ALTER TABLE marketing_jobs DROP CONSTRAINT IF EXISTS marketing_jobs_kind_check;
-ALTER TABLE marketing_jobs ADD CONSTRAINT marketing_jobs_kind_check CHECK (kind IN ('research','write','review','publish','cycle','health','visibility','results'));
+ALTER TABLE marketing_jobs ADD CONSTRAINT marketing_jobs_kind_check CHECK (kind IN ('research','write','review','publish','cycle','growth','health','visibility','results'));
+ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS growth_goal TEXT NOT NULL DEFAULT 'traffic' CHECK (growth_goal IN ('traffic','leads','sales'));
+ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS growth_ai_provider TEXT NOT NULL DEFAULT 'off' CHECK (growth_ai_provider IN ('off','ChatGPT','Perplexity'));
+ALTER TABLE marketing_posts ADD COLUMN IF NOT EXISTS handled_at TIMESTAMPTZ;
 CREATE TABLE IF NOT EXISTS marketing_action_states (
   site_id UUID NOT NULL, user_id BIGINT NOT NULL, action_id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('open','done','dismissed')), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

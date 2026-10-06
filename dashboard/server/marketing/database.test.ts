@@ -9,6 +9,7 @@ import { growthWorkspace, queueVisibility, saveObservation, saveResultsSnapshot,
 import { beginReportingConnection, configureReporting, decryptReportingToken, fetchReportingSnapshots, finishReportingConnection, disconnectReporting } from './google-results.js';
 import { healthReport } from './growth.js';
 import { recordedResults } from './results.js';
+import { newGrowthRun } from './autopilot.js';
 
 test('real PostgreSQL migration, ownership, queue uniqueness, edits and weekly idempotency',{skip:process.env.RUN_MARKETING_DB_TESTS!=='1'},async()=>{
   const schema=`marketing_qa_${randomUUID().replace(/-/g,'')}`;
@@ -106,5 +107,22 @@ test('real PostgreSQL migration, ownership, queue uniqueness, edits and weekly i
     await assert.rejects(configureReporting(user,site,{searchProperty:'sc-domain:other.com',gaProperty:null,dailySync:false}),/this website/);
     const report=await fetchReportingSnapshots(user,site);assert.equal(report.errors.length,0);assert.equal(report.snapshots.length,2);assert.equal(report.snapshots[0].clicks,0);assert.equal(report.snapshots[1].sessions,0);assert.equal(report.snapshots[1].leads,null);
     await disconnectReporting(user,site);assert.equal((await growthWorkspace(user,site)).connection.connected,false);assert.equal((await growthWorkspace(user,site)).results.length,1);
+    // Growth jobs resume saved steps without external work, retain attention states and never duplicate publication.
+    await assert.rejects(updateSite(user,site,true,{growthGoal:'made-up'}),/Choose traffic/);
+    const settings=await updateSite(user,site,true,{growthGoal:'leads',growthAIProvider:'Perplexity',profileConfirmed:false});
+    assert.equal(settings.growthGoal,'leads');assert.equal(settings.growthAIProvider,'Perplexity');
+    const growthJob=await enqueue(user,site,true,'growth');
+    await assert.rejects(enqueue(user,site,true,'growth'),/in progress/);
+    const checkpoint=newGrowthRun();for(const step of checkpoint.steps.slice(0,5)) {step.status='done';step.summary='Previously completed';}
+    await query('UPDATE marketing_jobs SET payload=$2 WHERE id=$1',[growthJob.id,{growthRun:checkpoint}]);
+    await marketingTick();
+    const finished=(await workspace(user,site,true)).jobs.find(j=>j.id===growthJob.id)!;
+    assert.equal(finished.status,'done');assert.equal(finished.growthRun?.steps[5].status,'attention');assert.match(finished.growthRun!.steps[5].summary,/Confirm/);assert.ok(finished.growthRun?.completedAt);
+    await updateSite(user,site,true,{profileConfirmed:true});
+    const resumed=await enqueue(user,site,true,'growth');
+    await query('UPDATE marketing_jobs SET payload=$2,topic_id=$3,post_id=$4 WHERE id=$1',[resumed.id,{growthRun:checkpoint},topic,post]);
+    await marketingTick();await marketingTick();
+    assert.equal((await one('SELECT count(*)::int n FROM blog_posts'))?.n,1);
+    assert.equal((await workspace(user,site,true)).jobs.find(j=>j.id===resumed.id)?.growthRun?.steps[5].status,'done');
   } finally {globalThis.fetch=oldFetch;for(const key of keys) if(oldEnv[key]===undefined) delete process.env[key];else process.env[key]=oldEnv[key];await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();}
 });

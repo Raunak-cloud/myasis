@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { getPool, one, query } from '../db/index.js';
 import { deploying } from '../runner.js';
 import { auditWebsite, observeAI, readWebsite, researchWebsite, stopMarketingBrowsers } from './scout.js';
-import { saveObservation, saveResultsSnapshot } from './growth-store.js';
+import { growthWorkspace, saveObservation, saveResultsSnapshot } from './growth-store.js';
+import { automaticPublicationHold, newGrowthRun, nextGrowthTopic, resultsBrief, runGrowthSteps } from './autopilot.js';
+import type { GrowthRun, GrowthStep } from '../../src/marketingTypes.js';
 import { fetchReportingSnapshots } from './google-results.js';
 import { planContent, reviewContent, writeContent } from './content.js';
 import { articleHash, nextWeeklyRun, productsRemainVerified, publicationProblem, topicKey, validateArticle } from './policy.js';
@@ -18,12 +20,11 @@ async function titles(siteId: string, internal: boolean) {
   return rows.map(r=>r.title);
 }
 
-async function research(job: JobRow) {
+async function research(job: JobRow,includeHealth=true) {
   const before=siteView(await ownedSite(job.user_id,job.site_id));
   await progress(job,'Reading public product and service pages…');
   const profile=await readWebsite(before,job.user_id);
-  await progress(job,'Checking website health and crawl access…');
-  await health(job);
+  if(includeHealth) {await progress(job,'Checking website health and crawl access…');await health(job);}
   await progress(job,'Finding competitors and buyer questions in the browser…');
   const snapshot=await researchWebsite(before,job.user_id,profile);
   // Model wording can change on a refresh; changed confirmed source facts need another review.
@@ -35,7 +36,7 @@ async function research(job: JobRow) {
   const topics=await planContent(site,profile,snapshot,await titles(site.id,site.publisher==='owtomate'));
   await transaction(async client=>{
     await client.query('SELECT id FROM marketing_sites WHERE id=$1 FOR UPDATE',[site.id]);
-    const count=Number((await client.query('SELECT count(*) n FROM marketing_topics WHERE site_id=$1',[site.id])).rows[0].n);
+    const count=Number((await client.query("SELECT count(*) n FROM marketing_topics WHERE site_id=$1 AND status IN ('planned','writing')",[site.id])).rows[0].n);
     for(const t of topics.slice(0,Math.max(0,100-count))) await client.query(`INSERT INTO marketing_topics(id,site_id,user_id,topic_key,title,keyword,angle,intent,priority,rationale,product_url,evidence_urls,basis)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(site_id,topic_key) DO NOTHING`,[t.id,site.id,job.user_id,topicKey(t.keyword),t.title,t.keyword,t.angle,t.intent,t.priority,t.rationale,t.productUrl,JSON.stringify(t.evidenceUrls),t.basis]);
   });
@@ -114,6 +115,7 @@ async function publish(job: JobRow, scheduled=false) {
 
 async function execute(job: JobRow) {
   if(!await ownerIsAdmin(job.user_id)) throw new MarketingError('Marketing is available to admins only.',403);
+  if(job.kind==='cycle' || job.kind==='growth') return growthCycle(job);
   if(job.kind==='health') return health(job);
   if(job.kind==='visibility') {
     await progress(job,'Checking actual AI answers in a public browser…');
@@ -127,17 +129,79 @@ async function execute(job: JobRow) {
   if(job.kind==='write') return write(job);
   if(job.kind==='review') {await review(job);return;}
   if(job.kind==='publish') return publish(job);
-  let site=siteView(await ownedSite(job.user_id,job.site_id));
-  if(!site.scheduleEnabled) throw new MarketingError('Weekly schedule paused.');
-  if(!job.topic_id) {
-    if(!site.research || Date.now()-Date.parse(site.research.researchedAt)>6*86400_000) {await research(job);site=siteView(await ownedSite(job.user_id,job.site_id));}
-    const topic=await one<{id:string}>("SELECT id FROM marketing_topics WHERE site_id=$1 AND status='planned' ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END,created_at,id LIMIT 1",[site.id]);
-    if(!topic) throw new MarketingError('No planned topics remain. Refresh research or add a topic.');
-    job.topic_id=topic.id;await query('UPDATE marketing_jobs SET topic_id=$2 WHERE id=$1',[job.id,topic.id]);
-  }
-  await write(job);
-  site=siteView(await ownedSite(job.user_id,job.site_id));
-  if(site.scheduleEnabled && site.publishMode==='auto') await publish(job,true);
+  throw new MarketingError('Unknown marketing task.');
+}
+
+async function growthCycle(job:JobRow) {
+  const report:GrowthRun=job.payload?.growthRun || newGrowthRun();
+  const load=async()=>siteView(await ownedSite(job.user_id,job.site_id));
+  const outcome=(status:'done'|'attention'|'skipped',summary:string)=>({status,summary});
+  const perform=async(key:GrowthStep['key'])=>{
+    let site=await load();
+    if(key==='results') {
+      const data=await growthWorkspace(job.user_id,site.id,site);
+      if(!data.connection.connected || (!data.connection.searchProperty && !data.connection.gaProperty)) return outcome('attention','Connect Google reporting and select this website’s properties to measure traffic automatically. Existing imports remain available under Results.');
+      await syncResults(job);
+      return outcome('done',resultsBrief((await growthWorkspace(job.user_id,site.id)).results));
+    }
+    if(key==='health') {
+      await health(job);site=await load();
+      const report=site.health!;
+      return outcome(report.pages.some(p=>!p.error && p.status!==null && p.status<400)?'done':'attention',`${report.pages.length} pages sampled; ${report.findings.filter(f=>f.severity==='urgent').length} urgent findings; ${report.pages.filter(p=>p.error || p.status===null).length} unreadable pages. See Website health for evidence. Findings require website changes; they have not been automatically fixed.`);
+    }
+    if(key==='research') {
+      const planned=await one<{n:number}>("SELECT count(*)::int n FROM marketing_topics WHERE site_id=$1 AND user_id=$2 AND status='planned'",[site.id,job.user_id]);
+      if(!site.research || !Number.isFinite(Date.parse(site.research.researchedAt)) || Date.now()-Date.parse(site.research.researchedAt)>6*86400_000 || !planned?.n) await research(job,false);
+      site=await load();
+      return outcome(site.research?.sources.some(s=>s.role==='own')?'done':'attention',`Research checked ${site.research?.researchedAt || 'at an unknown time'}. ${site.research?.competitors.length || 0} verified competitor leads; ${site.research?.gaps.length || 0} reported research gaps. Topics are proposals, not measured search demand.`);
+    }
+    if(key==='visibility') {
+      if(!site.growthAIProvider || site.growthAIProvider==='off') return outcome('skipped','Weekly AI checks are off. Choose a browser provider in Growth autopilot to include them.');
+      const count=await one<{n:number}>("SELECT count(*)::int n FROM marketing_ai_observations WHERE user_id=$1 AND created_at>now()-interval '24 hours'",[job.user_id]);
+      if((count?.n || 0)>=10) return outcome('attention','Daily browser AI sample limit reached. Try another day.');
+      const data=await growthWorkspace(job.user_id,site.id,site);
+      if(!data.prompts.length) return outcome('attention','Website products must be identified before an AI discovery prompt can be created.');
+      const observations=await observeAI(site,job.user_id,{provider:site.growthAIProvider,prompts:data.prompts.slice(0,1)});
+      for(const observation of observations) await saveObservation(job.user_id,site.id,observation,'browser');
+      const completed=observations.filter(o=>o.status==='complete');
+      return outcome(completed.length?'done':'attention',completed.length?`${completed.length} real answer captured from ${site.growthAIProvider}. Review the answer and actual citations under AI visibility; a sample is not a universal ranking.`:'The provider could not be checked. AI visibility remains unknown for this run.');
+    }
+    if(key==='strategy') {
+      const data=await growthWorkspace(job.user_id,site.id,site);
+      const actions=data.strategy.actions.filter(a=>a.status==='open');
+      const priorities=[...actions].sort((a,b)=>Number(b.kind==='fix' && b.priority==='high')-Number(a.kind==='fix' && a.priority==='high') || Number(b.kind==='refresh')-Number(a.kind==='refresh')).slice(0,3);
+      return outcome(actions.length?'done':'attention',`${actions.length} open actions. ${priorities.map((a,i)=>`${i+1}. ${a.title}`).join(' ')} Existing-content overlap and dismissed actions are excluded from automatic new-blog selection. Review website fixes and content updates under Content strategy.`);
+    }
+    if(!site.profileConfirmed) return outcome('attention','Confirm the product description and audience before the agent writes or publishes. Research and audits are saved.');
+    if(report.steps.find(s=>s.key==='research')?.status!=='done' || !site.research || Date.now()-Date.parse(site.research.researchedAt)>6*86400_000) return outcome('attention','Fresh usable research is required before creating content. Fix the research issue and run another growth review.');
+    if(!job.topic_id) {
+      const waiting=await one<{n:number}>("SELECT count(*)::int n FROM marketing_posts WHERE site_id=$1 AND user_id=$2 AND status='draft' AND handled_at IS NULL",[site.id,job.user_id]);
+      if((waiting?.n || 0)>=3) return outcome('attention','Three or more drafts are awaiting review. Publish them or mark finished exports as handled in Blogs before another automated draft is created.');
+      const data=await growthWorkspace(job.user_id,site.id,site);
+      const topics=(await query('SELECT * FROM marketing_topics WHERE site_id=$1 AND user_id=$2 ORDER BY created_at,id',[site.id,job.user_id])).map(topicView);
+      const topic=nextGrowthTopic(topics,data.strategy,site.growthGoal);
+      if(!topic) return outcome('attention','No suitable new topic remains. Review existing-page improvements or refresh the topic plan; the agent will not create an overlapping or dismissed topic.');
+      job.topic_id=topic.id;await query('UPDATE marketing_jobs SET topic_id=$2 WHERE id=$1',[job.id,topic.id]);
+    }
+    // A recovered job keeps the same topic and post; write() returns an existing draft instead of duplicating it.
+    await write(job);site=await load();
+    const post=await one('SELECT status,quality FROM marketing_posts WHERE id=$1 AND site_id=$2 AND user_id=$3',[job.post_id,site.id,job.user_id]);
+    if(post?.status==='published') return outcome('done','The selected blog was published. Its URL is saved under Blogs.');
+    if(!post?.quality?.approved) return outcome('attention','The draft is saved, but its source review needs attention. It has not been published. Open Blogs to review the issues.');
+    if(job.kind==='cycle' && site.scheduleEnabled && site.publishMode==='auto') {
+      const hold=automaticPublicationHold(site);
+      if(hold || report.steps.find(s=>s.key==='health')?.status!=='done') return outcome('attention',hold || 'The current audit could not finish. The draft is saved for review.');
+      await publish(job,true);
+      const current=await one('SELECT status FROM marketing_posts WHERE id=$1',[job.post_id]);
+      return outcome(current?.status==='published'?'done':'attention',current?.status==='published'?'A source-reviewed blog was published. See Blogs for its live URL. Traffic impact is not yet measured.':'Publication was paused. The reviewed draft remains available under Blogs.');
+    }
+    return outcome('done',site.publisher==='export'?'A source-reviewed draft is ready to export. This website has no publishing connector yet; upload it through your CMS.':'A source-reviewed draft is ready in Blogs. This review did not publish; weekly automatic publishing follows your saved settings.');
+  };
+  await runGrowthSteps(report,{
+    allowed:async()=>await ownerIsAdmin(job.user_id) && (job.kind!=='cycle' || (await load()).scheduleEnabled),
+    save:async growthRun=>{job.payload={...job.payload,growthRun};await query('UPDATE marketing_jobs SET payload=$2,heartbeat_at=now() WHERE id=$1',[job.id,job.payload]);const active=growthRun.steps.find(s=>s.status==='running');if(active) await progress(job,active.title);},
+    perform,error:(e,key)=>{console.warn('[marketing] growth step failed',job.id,key,(e as Error).message?.slice(0,160));return e instanceof MarketingError?e.message:`${key} could not finish. Other completed work is saved. Retry with a new growth review.`;},
+  });
 }
 
 export async function queueDueSchedules(now=new Date()) {
@@ -196,7 +260,7 @@ export async function marketingTick() {
     const job=await one<JobRow>(`UPDATE marketing_jobs SET status='running',attempts=attempts+1,heartbeat_at=now(),error=NULL WHERE id=(SELECT id FROM marketing_jobs WHERE status='queued' AND available_at<=now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`);
     if(!job) return;
     const heartbeat=setInterval(()=>void query("UPDATE marketing_jobs SET heartbeat_at=now() WHERE id=$1 AND status='running'",[job.id]).catch(()=>{}),20_000);
-    try {await execute(job);await query("UPDATE marketing_jobs SET status='done',progress='Complete',finished_at=now() WHERE id=$1",[job.id]);}
+    try {await execute(job);const attention=job.payload?.growthRun?.steps.filter((s:GrowthStep)=>s.status==='attention').length || 0;await query("UPDATE marketing_jobs SET status='done',progress=$2,finished_at=now() WHERE id=$1",[job.id,attention?`Growth review finished · ${attention} steps need attention`:'Complete']);}
     catch(error) {
       const permanent=error instanceof MarketingError || Number(job.attempts)>=3;
       const message=error instanceof MarketingError?error.message:'Research or writing could not finish. Check your public website and Admin model configuration, then retry.';

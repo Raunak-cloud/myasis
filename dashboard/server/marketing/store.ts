@@ -19,11 +19,12 @@ export function siteView(row: SiteRow): MarketingSite {
     voice: row.voice, audience: row.audience, ctaLabel: row.cta_label, ctaUrl: row.cta_url, profileConfirmed: row.profile_confirmed,
     publisher: row.publisher, scheduleEnabled: row.schedule_enabled, publishMode: row.publish_mode, scheduleDay: row.schedule_day,
     scheduleTime: row.schedule_time, timezone: row.timezone, nextRunAt: iso(row.next_run_at), ownsBlogSchedule: row.owns_blog_schedule,
-    createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, health:row.health || null };
+    createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, health:row.health || null,
+    growthGoal:row.growth_goal || 'traffic',growthAIProvider:row.growth_ai_provider || 'off' };
 }
 export function topicView(row: Record<string, any>): MarketingTopic { return { id: row.id, title: row.title, keyword: row.keyword, angle: row.angle, intent: row.intent, priority: row.priority, rationale: row.rationale, productUrl: row.product_url, evidenceUrls: row.evidence_urls, basis: row.basis, status: row.status, createdAt: iso(row.created_at)! }; }
-export function postView(row: Record<string, any>): MarketingPost { return { id: row.id, topicId: row.topic_id, status: row.status, article: row.article, sources: row.brief?.sources ?? [], quality: row.quality, model: row.model, publishedUrl: row.published_url, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, metrics: row.metrics }; }
-export function jobView(row: Record<string, any>): MarketingJob { return { id: row.id, kind: row.kind, status: row.status, progress: row.progress, error: row.error, createdAt: iso(row.created_at)! }; }
+export function postView(row: Record<string, any>): MarketingPost { return { id: row.id, topicId: row.topic_id, status: row.status, article: row.article, sources: row.brief?.sources ?? [], quality: row.quality, model: row.model, publishedUrl: row.published_url, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, metrics: row.metrics, handledAt:iso(row.handled_at) }; }
+export function jobView(row: Record<string, any>): MarketingJob { return { id: row.id, kind: row.kind, status: row.status, progress: row.progress, error: row.error, createdAt: iso(row.created_at)!,growthRun:row.payload?.growthRun }; }
 
 export async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await getPool().connect();
@@ -63,7 +64,7 @@ export async function createSite(userId: string, admin: boolean, value: Record<s
     if (publisher === 'owtomate' && (await client.query("SELECT 1 FROM marketing_sites WHERE publisher='owtomate' AND url=$1",[url])).rowCount) throw new MarketingError('Owtomate publishing is already managed by another admin workspace.',409);
     const id = randomUUID();
     const row = (await client.query('INSERT INTO marketing_sites(id,user_id,url,country,cta_url,publisher) VALUES($1,$2,$3,$4,$3,$5) RETURNING *',[id,userId,url,country,publisher])).rows[0];
-    await client.query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,idempotency_key) VALUES($1,$2,$3,'research',$4)",[randomUUID(),id,userId,`initial:${id}`]);
+    await client.query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,idempotency_key) VALUES($1,$2,$3,'growth',$4)",[randomUUID(),id,userId,`initial:${id}`]);
     return siteView(row);
   });
 }
@@ -77,6 +78,8 @@ export async function updateSite(userId: string, siteId: string, admin: boolean,
     }
     if (body.ctaUrl !== undefined) { if (typeof body.ctaUrl !== 'string') throw new MarketingError('Enter your product link.'); row.cta_url = ownedLink(body.ctaUrl,row.url); }
     if (body.profileConfirmed !== undefined) { if (typeof body.profileConfirmed !== 'boolean') throw new MarketingError('Check profile confirmation.'); if (body.profileConfirmed && !row.profile?.pages?.length) throw new MarketingError('Complete the website scan first.'); row.profile_confirmed = body.profileConfirmed; }
+    if(body.growthGoal!==undefined) {if(typeof body.growthGoal!=='string' || !['traffic','leads','sales'].includes(body.growthGoal)) throw new MarketingError('Choose traffic, leads or sales as your goal.');row.growth_goal=body.growthGoal;}
+    if(body.growthAIProvider!==undefined) {if(typeof body.growthAIProvider!=='string' || !['off','ChatGPT','Perplexity'].includes(body.growthAIProvider)) throw new MarketingError('Choose a supported browser AI check.');row.growth_ai_provider=body.growthAIProvider;}
     const fields:Record<string,string>={scheduleEnabled:'schedule_enabled',publishMode:'publish_mode',scheduleDay:'schedule_day',scheduleTime:'schedule_time',timezone:'timezone'};
     const scheduleChanged = Object.entries(fields).some(([input,field]) => body[input] !== undefined && body[input]!==row[field]);
     if (body.scheduleEnabled !== undefined) { if (typeof body.scheduleEnabled !== 'boolean') throw new MarketingError('Check the weekly schedule.'); row.schedule_enabled = body.scheduleEnabled; }
@@ -89,8 +92,8 @@ export async function updateSite(userId: string, siteId: string, admin: boolean,
     if (row.schedule_enabled && row.publisher === 'owtomate') row.owns_blog_schedule = true;
     if (scheduleChanged) row.next_run_at = row.schedule_enabled ? nextWeeklyRun(new Date(),row.schedule_day,row.schedule_time,row.timezone) : null;
     const updated = (await client.query(`UPDATE marketing_sites SET name=$3,voice=$4,audience=$5,cta_label=$6,cta_url=$7,profile_confirmed=$8,
-      schedule_enabled=$9,publish_mode=$10,schedule_day=$11,schedule_time=$12,timezone=$13,next_run_at=$14,owns_blog_schedule=$15,updated_at=now()
-      WHERE id=$1 AND user_id=$2 RETURNING *`, [siteId,userId,row.name,row.voice,row.audience,row.cta_label,row.cta_url,row.profile_confirmed,row.schedule_enabled,row.publish_mode,row.schedule_day,row.schedule_time,row.timezone,row.next_run_at,row.owns_blog_schedule])).rows[0];
+      schedule_enabled=$9,publish_mode=$10,schedule_day=$11,schedule_time=$12,timezone=$13,next_run_at=$14,owns_blog_schedule=$15,growth_goal=$16,growth_ai_provider=$17,updated_at=now()
+      WHERE id=$1 AND user_id=$2 RETURNING *`, [siteId,userId,row.name,row.voice,row.audience,row.cta_label,row.cta_url,row.profile_confirmed,row.schedule_enabled,row.publish_mode,row.schedule_day,row.schedule_time,row.timezone,row.next_run_at,row.owns_blog_schedule,row.growth_goal || 'traffic',row.growth_ai_provider || 'off'])).rows[0];
     if (!row.schedule_enabled) await client.query("UPDATE marketing_jobs SET status='failed',error='Weekly schedule paused.',finished_at=now() WHERE site_id=$1 AND user_id=$2 AND kind='cycle' AND status='queued'",[siteId,userId]);
     return siteView(updated);
   });
@@ -101,7 +104,8 @@ export async function enqueue(userId: string, siteId: string, admin: boolean, ki
     await client.query('SELECT pg_advisory_xact_lock($1::bigint)',[userId]);
     const row = (await client.query('SELECT * FROM marketing_sites WHERE id=$1 AND user_id=$2 FOR UPDATE',[siteId,userId])).rows[0];
     if (!row) throw new MarketingError('Website not found.',404);
-    if (!['research','health','visibility','results'].includes(kind) && !row.profile_confirmed) throw new MarketingError('Review and confirm the website profile first.');
+    if (!['research','growth','health','visibility','results'].includes(kind) && !row.profile_confirmed) throw new MarketingError('Review and confirm the website profile first.');
+    if(kind==='growth' && (await client.query("SELECT count(*)::int n FROM marketing_jobs WHERE user_id=$1 AND kind='growth' AND created_at>now()-interval '24 hours'",[userId])).rows[0].n>=5) throw new MarketingError('Daily growth review limit reached. Try again tomorrow.',429);
     if ((await client.query("SELECT 1 FROM marketing_jobs WHERE site_id=$1 AND status IN ('queued','running')",[siteId])).rowCount) throw new MarketingError('This website already has work in progress.',409);
     if (!admin) {
       const count = (await client.query("SELECT count(*)::int n FROM marketing_jobs WHERE user_id=$1 AND created_at>now()-interval '24 hours' AND kind=$2",[userId,kind])).rows[0].n;
@@ -130,7 +134,7 @@ export async function saveDraft(userId: string, siteId: string, postId: string, 
     if (!row || row.status !== 'draft') throw new MarketingError('Unpublished draft not found.',404);
     if (body.updatedAt !== iso(row.updated_at)) throw new MarketingError('This draft changed. Reload before saving.',409);
     const article = validateArticle(body.article,(row.brief?.sources ?? []).map((s: {ref:string}) => s.ref));
-    const updated = (await client.query("UPDATE marketing_posts SET article=$4,quality=$5,article_hash=NULL,updated_at=now() WHERE id=$1 AND site_id=$2 AND user_id=$3 RETURNING *",[postId,siteId,userId,article,{approved:false,issues:['Edited draft needs a new source review.'],reviewedAt:null}])).rows[0];
+    const updated = (await client.query("UPDATE marketing_posts SET article=$4,quality=$5,article_hash=NULL,handled_at=NULL,updated_at=now() WHERE id=$1 AND site_id=$2 AND user_id=$3 RETURNING *",[postId,siteId,userId,article,{approved:false,issues:['Edited draft needs a new source review.'],reviewedAt:null}])).rows[0];
     return postView(updated);
   });
 }

@@ -36,6 +36,7 @@ export async function handleMarketing(req: IncomingMessage,res: ServerResponse,u
       if(method==='PATCH') return send({site:await updateSite(user.id,siteId,admin,await body())});
     }
     if(parts.length===3 && method==='POST') {
+      if(parts[2]==='growth') {configured();return send({job:await enqueue(user.id,siteId,admin,'growth')},202);}
       if(parts[2]==='health') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);return send({job:await enqueue(user.id,siteId,admin,'health')},202);}
       if(parts[2]==='visibility') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);return send({job:await queueVisibility(user.id,siteId,await body())},202);}
       if(parts[2]==='research') {configured();return send({job:await enqueue(user.id,siteId,admin,'research')},202);}
@@ -64,6 +65,11 @@ export async function handleMarketing(req: IncomingMessage,res: ServerResponse,u
     const id=parts[3];if(!id || !isId(id)) throw new MarketingError('Item not found.',404);
     if(parts[2]==='topics' && parts.length===4 && method==='PATCH') {await setTopicStatus(user.id,siteId,id,(await body()).status);return send({ok:true});}
     if(parts[2]==='posts') {
+      if(parts.length===5 && parts[4]==='handled' && method==='PATCH') {
+        const b=await body();if(typeof b.handled!=='boolean') throw new MarketingError('Choose whether this draft is handled.');
+        const saved=await query("UPDATE marketing_posts SET handled_at=CASE WHEN $4::boolean THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND site_id=$2 AND user_id=$3 AND status='draft' RETURNING id",[id,siteId,user.id,b.handled]);
+        if(!saved.length) throw new MarketingError('Unpublished draft not found.',404);return send({ok:true});
+      }
       if(parts.length===4 && method==='PATCH') return send({post:await saveDraft(user.id,siteId,id,await body())});
       if(parts.length===5 && method==='POST' && (parts[4]==='review'||parts[4]==='publish')) {configured();return send({job:await enqueue(user.id,siteId,admin,parts[4],undefined,id)},202);}
       if(parts.length===5 && parts[4]==='metrics' && method==='PATCH') {await saveMetrics(user.id,siteId,id,await body());return send({ok:true});}
