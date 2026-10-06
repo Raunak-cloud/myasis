@@ -7,6 +7,7 @@ import { userDir } from '../userdata.js';
 import type { MarketingResearch, MarketingSite, MarketingSource, WebsitePage, WebsiteProfile } from '../../src/marketingTypes.js';
 import { createBlogModel, writerConfig } from '../blog/models.js';
 import { assertPublicUrl } from '../../../market-scout/src/core/public-url.js';
+import { sameWebsite } from '../../../market-scout/src/core/quality.js';
 
 const SCOUT_DIR = resolve(import.meta.dirname, '..', '..', '..', 'market-scout');
 const children = new Set<ChildProcess>();
@@ -63,13 +64,13 @@ export async function researchWebsite(site: MarketingSite, userId: string, profi
   const byId = new Map(items.map((item)=>[item.id,item]));
   const discovered = report.brief?.discovery?.competitors || [];
   const allowed = new Set([new URL(site.url).hostname,...discovered.map((c:{website:string})=>new URL(c.website).hostname)]);
-  const candidates = items.filter((p)=>p.source==='website' && included.has(p.id) && p.attributes?.pageType!=='sitemap' && allowed.has(new URL(p.url).hostname));
-  const ownFirst = candidates.sort((a,b)=>Number(new URL(b.url).origin===new URL(site.url).origin)-Number(new URL(a.url).origin===new URL(site.url).origin));
+  const candidates = items.filter((p)=>p.source==='website' && included.has(p.id) && p.attributes?.pageType!=='sitemap' && (sameWebsite(p.url,site.url)||allowed.has(new URL(p.url).hostname)));
+  const ownFirst = candidates.sort((a,b)=>Number(sameWebsite(b.url,site.url))-Number(sameWebsite(a.url,site.url)));
   const sources: MarketingSource[] = [];
   for (const page of [...profile.pages.map(p=>({url:p.url,title:p.title,text:p.text,collectedAt:profile.scannedAt})),...ownFirst]) {
     if (sources.some(s=>s.url===page.url)) continue;
     const quotes=profile.productQuotes.filter(q=>q.url===page.url).map(q=>q.quote).join('\n');
-    sources.push({ref:`S${sources.length+1}`,publisher:new URL(page.url).hostname,title:page.title,url:page.url,published:null,excerpt:`${page.text.slice(0,4000)}${quotes?`\nVerified product excerpts from this page:\n${quotes}`:''}`.slice(0,7000),collectedAt:page.collectedAt,role:new URL(page.url).origin===new URL(site.url).origin?'own':'competitor'});
+    sources.push({ref:`S${sources.length+1}`,publisher:new URL(page.url).hostname,title:page.title,url:page.url,published:null,excerpt:`${page.text.slice(0,4000)}${quotes?`\nVerified product excerpts from this page:\n${quotes}`:''}`.slice(0,7000),collectedAt:page.collectedAt,role:sameWebsite(page.url,site.url)?'own':'competitor'});
     if (sources.length>=12) break;
   }
   const keywords = (report.insights?.keywords?.topKeywords || []).slice(0,60).map((k:{phrase:string;engines:string[];evidenceIds:string[]})=>({phrase:k.phrase,engines:k.engines,evidenceUrls:k.evidenceIds.map(id=>byId.get(id)?.url).filter((u):u is string=>typeof u==='string')}));

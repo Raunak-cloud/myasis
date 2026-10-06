@@ -57,4 +57,6 @@ test('exports escape model markup and preserve the real configured CTA',()=>{
   const html=exportArticle({...article,title:'<script>alert(1)</script>'},brief,'html');
   assert.ok(!html.includes('<script>'));assert.ok(html.includes('&lt;script&gt;'));assert.ok(html.includes('https://example.com/signup'));
   assert.throws(()=>ownedLink('https://other.com/buy',site.url));assert.throws(()=>ownedLink('/logout',site.url));
+  assert.equal(ownedLink('https://www.example.com/products',site.url),'https://www.example.com/products');
+  assert.throws(()=>ownedLink('https://example.com.evil.com/products',site.url));
 });

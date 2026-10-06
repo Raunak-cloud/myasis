@@ -20,7 +20,9 @@ export function sameTopic(a: string, b: string): boolean {
 
 export function ownedLink(raw: string, website: string): string {
   const url = new URL(raw, website);
-  if (url.protocol !== 'https:' || url.origin !== new URL(website).origin || url.username || url.password || /logout|delete|checkout/i.test(url.pathname)) throw new Error('Choose a public product or landing-page link on your website.');
+  const expected=new URL(website);
+  const sameHost=url.hostname.replace(/^www\./,'')===expected.hostname.replace(/^www\./,'');
+  if (url.protocol !== 'https:' || !sameHost || url.port!==expected.port || url.username || url.password || /logout|delete|checkout/i.test(url.pathname)) throw new Error('Choose a public product or landing-page link on your website.');
   url.hash = ''; return url.href;
 }
 
