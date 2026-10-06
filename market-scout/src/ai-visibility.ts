@@ -11,8 +11,9 @@ export async function checkAIVisibility(input:VisibilityInput) {
         const response=await page.goto(input.provider==='ChatGPT'?'https://chatgpt.com/':'https://www.perplexity.ai/',{waitUntil:'domcontentloaded',timeout:25_000});
         await dismissConsent(page);
         const wall=await detectWall(page);if(wall || (response?.status() || 200)>=400) throw new Error('blocked');
-        const editor=page.locator(input.provider==='ChatGPT'?'#prompt-textarea':'textarea, [contenteditable="true"][role="textbox"]').first();
-        if(!await editor.isVisible().catch(()=>false)) {observations.push({...base,status:'unavailable',note:'The public browser interface did not offer an accessible prompt input.'});break;}
+        const editor=page.locator(input.provider==='ChatGPT'?'#prompt-textarea':'textarea:visible, [contenteditable="true"][role="textbox"]:visible').first();
+        const ready=await editor.waitFor({state:'visible',timeout:15_000}).then(()=>true,()=>false);
+        if(!ready) {const wall=await detectWall(page);observations.push({...base,status:wall?'blocked':'unavailable',note:wall?'Provider access requires a login or challenge; no restriction was bypassed.':'The public browser interface did not offer an accessible prompt input after loading.'});break;}
         await editor.fill(prompt);await editor.press('Enter');
         const answerSelector=input.provider==='ChatGPT'?'[data-message-author-role="assistant"]':'.prose';
         let previous='',stable=0,answer='',citations:string[]=[];

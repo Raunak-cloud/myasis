@@ -61,7 +61,9 @@ export async function auditSite(raw:string) {
         const response=await politely(target,()=>page.goto(target,{waitUntil:'domcontentloaded',timeout:15_000}));
         if(!sameWebsite(page.url(),url)) throw new Error('Page redirected outside this website.');
         const wall=await detectWall(page);if(wall) throw new Error(wall);
+        await page.waitForLoadState('networkidle',{timeout:3000}).catch(()=>{});
         const facts=await distill(page,4000);
+        if((response?.status() || 200)<400 && facts.wordCount<15) {pages.push({...emptyPage(target),status:response?.status() || null,error:'Not enough rendered page text was available. Content health is unknown.'});continue;}
         const invalidJsonLd=await page.evaluate(()=>Array.from(document.querySelectorAll('script[type="application/ld+json"]')).filter(s=>{try {JSON.parse(s.textContent || '');return false;} catch{return true;}}).length);
         pages.push({url:facts.url,requestedUrl:target,status:response?.status() || null,title:facts.title,description:facts.metaDescription,canonical:facts.canonical,robotsMeta:facts.robotsMeta,xRobotsTag:response?.headers()['x-robots-tag'] || '',h1:facts.h1,wordCount:facts.wordCount,text:facts.markdown.slice(0,4000),links:facts.links.filter(l=>safe(l.href)).slice(0,80),jsonLdTypes:facts.jsonLdTypes,invalidJsonLd,imagesWithoutAlt:facts.imagesWithoutAlt,lang:facts.lang,error:null});
         if(cursor===0) targets.splice(1,0,...facts.links.filter(l=>safe(l.href)).sort((a,b)=>Number(/product|service|pricing|blog|guide/i.test(b.href))-Number(/product|service|pricing|blog|guide/i.test(a.href))).slice(0,8).map(l=>l.href));
