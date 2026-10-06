@@ -52,7 +52,7 @@ export async function queueVisibility(userId:string,siteId:string,body:Record<st
     const count=(await client.query("SELECT count(*)::int n FROM marketing_jobs WHERE user_id=$1 AND kind='visibility' AND created_at>now()-interval '24 hours'",[userId])).rows[0];
     if(count.n>=10) throw new MarketingError('Daily browser AI check limit reached. You can still record an answer manually.',429);
     const id=randomUUID();
-    await client.query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,payload,idempotency_key) VALUES($1,$2,$3,'visibility',$4,$1::text)",[id,siteId,userId,{provider:body.provider,prompts}]);
+    await client.query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,payload,idempotency_key) VALUES($1::uuid,$2,$3,'visibility',$4,$1::uuid::text)",[id,siteId,userId,{provider:body.provider,prompts}]);
     return {id};
   });
 }
