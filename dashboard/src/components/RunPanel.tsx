@@ -1012,7 +1012,14 @@ export function RunPanel({
                   <div className={`activity-event ${event.tone}${event.live && running ? ' live' : ''}`} key={event.id}>
                     <span className="activity-dot" aria-hidden="true" />
                     <div>
-                      <strong>{event.title}</strong>
+                      <div className="activity-event-heading">
+                        <strong>{event.title}</strong>
+                        {isAdmin && event.durationMs !== undefined && (
+                          <span className="activity-duration" title="Time from starting this application to its outcome" aria-label={`Application attempt took ${formatRunDuration(event.durationMs)}`}>
+                            {formatRunDuration(event.durationMs)}
+                          </span>
+                        )}
+                      </div>
                       {event.detail && <span>{event.detail}</span>}
                     </div>
                   </div>

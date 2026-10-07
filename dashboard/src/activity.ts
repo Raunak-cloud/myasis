@@ -15,6 +15,8 @@ interface ActivityEvent {
   detail?: string;
   tone: ActivityTone;
   outcome?: 'already-applied' | 'skipped' | 'needs-human' | 'failed';
+  /** Elapsed application attempt time, included only for admins with valid timestamps. */
+  durationMs?: number;
   /** What the run is doing right now: drawn with a live pulse while the run lasts. */
   live?: boolean;
 }
@@ -149,13 +151,21 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   let reviewed = 0;
   let suitable = 0;
   let latestMatch = '';
-  let application: { event: ActivityEvent; title: string; company: string; steps: string[] } | null = null;
+  let application: { event: ActivityEvent; title: string; company: string; steps: string[]; startedAtMs: number } | null = null;
   let finished = false;
 
   const reviewDetail = () =>
     `${reviewed} checked · ${suitable} profile ${suitable === 1 ? 'match' : 'matches'}` + (latestMatch ? ` · latest match: ${latestMatch}` : '');
   const applicationDetail = (extra?: string) =>
     [application?.company, ...(application?.steps ?? []), extra].filter(Boolean).join(' · ');
+  const finishApplication = (line: LogLine) => {
+    if (!application) return;
+    const finishedAtMs = line.ts ? Date.parse(line.ts) : Number.NaN;
+    if (isAdmin && Number.isFinite(application.startedAtMs) && Number.isFinite(finishedAtMs) && finishedAtMs >= application.startedAtMs) {
+      application.event.durationMs = finishedAtMs - application.startedAtMs;
+    }
+    application = null;
+  };
 
   for (const line of lines) {
     const text = line.text.trim();
@@ -206,7 +216,11 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       else review.detail = reviewDetail();
     } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
       currentJob = `${match[1]} at ${match[2]}`;
-      application = { event: add(line, `Applying to ${match[1]}`, 'neutral', match[2]), title: match[1], company: match[2], steps: [] };
+      application = {
+        event: add(line, `Applying to ${match[1]}`, 'neutral', match[2]),
+        title: match[1], company: match[2], steps: [],
+        startedAtMs: line.ts ? Date.parse(line.ts) : Number.NaN,
+      };
     } else if (application && /cover letter (added|included)|cover letter verified/i.test(text)) {
       if (!application.steps.includes('cover letter written')) application.steps.push('cover letter written');
       application.event.detail = applicationDetail();
@@ -222,7 +236,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         application.event.title = `Applied to ${application.title}`;
         application.event.tone = 'done';
         application.event.detail = applicationDetail(match[1] ? `${match[1].replace('/', ' of ')} this run` : undefined);
-        application = null;
+        finishApplication(line);
       } else {
         add(line, 'Application submitted', 'done', match[1] ? `${match[1]} this run` : undefined);
       }
@@ -233,7 +247,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         application.event.tone = 'warn';
         application.event.outcome = 'needs-human';
         application.event.detail = detail;
-        application = null;
+        finishApplication(line);
       } else {
         add(line, 'Needs your attention', 'warn', detail).outcome = 'needs-human';
       }
@@ -243,7 +257,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         application.event.tone = 'neutral';
         application.event.detail = `${application.company} · it continues on the employer's own website.`;
         application.event.outcome = 'skipped';
-        application = null;
+        finishApplication(line);
       }
     } else if ((match = text.match(/^– skipped \((.+)\):\s*(.+?)\s+@\s+(.+)$/i))) {
       // These decisions precede Applying, so there is no active application event.
@@ -260,7 +274,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         application.event.tone = 'neutral';
         application.event.outcome = 'already-applied';
         application.event.detail = `${application.company} · ${readableError(match[1])} No new application was sent.`;
-        application = null;
+        finishApplication(line);
       } else {
         add(line, 'Already applied', 'neutral', readableError(match[1])).outcome = 'already-applied';
       }
@@ -269,7 +283,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       application.event.tone = 'neutral';
       application.event.outcome = 'skipped';
       application.event.detail = `${application.company} · ${readableError(match[1])}`;
-      application = null;
+      finishApplication(line);
     } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
       add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
       explained = true;
@@ -281,7 +295,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         application.event.tone = 'bad';
         application.event.outcome = 'failed';
         application.event.detail = `${application.company} · ${readableError(match[1])}`;
-        application = null;
+        finishApplication(line);
       } else {
         add(line, 'A step failed', 'bad', readableError(match[1]));
       }

@@ -6,6 +6,55 @@ import { plainReason } from '../src/run-messages.ts';
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 const completion = (lines) => activityEvents(lines).find((event) => event.title === 'Run complete').detail;
 
+const timedLog = (entries) => entries.map(([seconds, text], seq) => ({
+  seq, stream: 'out', text, ts: new Date(Date.UTC(2026, 9, 7) + seconds * 1000).toISOString(),
+}));
+
+test('admins see each application duration without including the wait between jobs', () => {
+  const lines = timedLog([
+    [0, '→ Applying: First role @ Employer'],
+    [30, 'cover letter added'],
+    [83, '✅ submitted (1/20)'],
+    [120, '→ Applying: External role @ Other employer'],
+    [125, '✅ submitted [external] (2/20)'],
+    [130, '– skipped (already applied): Duplicate role @ Employer'],
+  ]);
+  const admin = activityEvents(lines, 14, true);
+  assert.equal(admin[0].durationMs, 83000);
+  assert.equal(admin[1].durationMs, 5000);
+  assert.equal(admin[2].durationMs, undefined);
+  assert.ok(activityEvents(lines).every((event) => !('durationMs' in event)));
+  assert.equal(activityEvents(lines, 2, true)[0].durationMs, 5000);
+});
+
+test('attempt timing stops at its outcome, including failures and duplicates found on a form', () => {
+  for (const outcome of [
+    '↩ already applied — SEEK shows an existing application.',
+    '⏸ needs you: A screening answer is missing',
+    '↪ off-platform',
+    '– skipped: Application unavailable',
+    '✗ error: Connection dropped',
+  ]) {
+    const lines = timedLog([
+      [0, '→ Applying: Role @ Employer'],
+      [15, outcome],
+      [90, '=== Run complete: 0 new application(s) ==='],
+    ]);
+    assert.equal(activityEvents(lines, 14, true)[0].durationMs, 15000, outcome);
+    assert.equal(activityEvents(lines)[0].durationMs, undefined);
+  }
+});
+
+test('unfinished applications and unavailable or invalid timestamps have no duration', () => {
+  const lines = timedLog([[10, '→ Applying: Role @ Employer'], [20, '✅ submitted (1/20)']]);
+  assert.equal(activityEvents(lines.slice(0, 1), 14, true)[0].durationMs, undefined);
+  for (const [start, end] of [[undefined, lines[1].ts], [lines[0].ts, undefined], ['invalid', lines[1].ts], [lines[0].ts, 'invalid'], [lines[1].ts, lines[0].ts]]) {
+    const incomplete = [{ ...lines[0], ts: start }, { ...lines[1], ts: end }];
+    assert.equal(activityEvents(incomplete, 14, true)[0].durationMs, undefined);
+  }
+  assert.equal(activityEvents([{ ...lines[0], ts: lines[1].ts }, lines[1]], 14, true)[0].durationMs, 0);
+});
+
 test('seven matches and five submissions explain both previously hidden duplicates', () => {
   const lines = log([
     '▶ starting live run',

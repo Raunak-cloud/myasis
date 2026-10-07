@@ -1934,6 +1934,9 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 .activity-event strong { font-size: 13px; font-weight: 650; }
 .activity-event span:last-child { color: var(--text-dim); font-size: 12px; line-height: 1.45; }
+.activity-event-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.activity-event-heading strong { min-width: 0; overflow-wrap: anywhere; }
+.activity-duration { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .activity-dot {
   width: 13px;
