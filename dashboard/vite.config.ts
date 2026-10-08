@@ -13,7 +13,7 @@ import { attachScreencast } from './server/screencast.js';
 import { loadQueue, updateQueueItem, answerForm } from './server/assist.js';
 import { loadAttention, dismissAllAttention } from './server/attention.js';
 import { setupStatus } from './server/setup.js';
-import { loadProfile as loadCandidate, saveProfile } from './server/profile.js';
+import { loadProfile as loadCandidate, saveProfile, SalaryValidationError } from './server/profile.js';
 import {
   loadUserSettings, saveUserSettings, runSettingsForUser,
   USER_SETTABLE_SETTINGS_KEYS,
@@ -54,7 +54,7 @@ import { routeStatus } from './server/route.js';
 import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
 import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
 import { setUpFromResume } from './server/quick-setup.js';
-import { startRun } from './server/start-run.js';
+import { startRun, expectedSalaryRefusal } from './server/start-run.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
 import { handleMarketing } from './server/marketing/api.js';
@@ -1091,7 +1091,12 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           if (req.method === 'PATCH') {
             const b = await readBody();
-            return send({ ok: true, profile: await saveProfile(userId, b ?? {}) });
+            try {
+              return send({ ok: true, profile: await saveProfile(userId, b ?? {}) });
+            } catch (error) {
+              if (error instanceof SalaryValidationError) return send({ error: error.message }, 400);
+              throw error;
+            }
           }
           return send(await loadCandidate(userId));
         });
@@ -1247,6 +1252,8 @@ function dataApi(): Plugin {
           if (!entitlements.manualRuns) {
             return send({ error: 'Only administrators can start runs manually.' }, 403);
           }
+          const salaryRefused = expectedSalaryRefusal(await loadCandidate(userId));
+          if (salaryRefused) return send({ error: salaryRefused.error }, salaryRefused.status);
           // Same reasoning as /api/run: without this the scan inherits the
           // shared .env's search settings instead of this account's.
           const settings = applyRunPolicy(await runSettingsForUser(userId, { unlimited: entitlements.tier === 'admin' }), entitlements, 'manual');

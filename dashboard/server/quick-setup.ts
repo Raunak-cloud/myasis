@@ -52,7 +52,7 @@ export async function setUpFromResume(userId: string, resumeId?: string): Promis
   if (!profile.email.trim()) {
     const account = await one<{ email: string }>('SELECT email FROM users WHERE id = $1', [userId]);
     if (account?.email) {
-      await saveProfile(userId, { ...profile, email: account.email });
+      await saveProfile(userId, { email: account.email });
       filled.push('email');
     }
   }

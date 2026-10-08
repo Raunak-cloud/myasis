@@ -4,6 +4,8 @@
  * shared `profile.json`/`profile.txt`), so both agree on one interface and one
  * set of required-field rules instead of drifting apart.
  */
+import { annualSalaryAmount } from '../src/salary.js';
+
 export interface CandidateProfile {
   fullName: string;
   email: string;
@@ -51,5 +53,7 @@ export function profileGaps(p: CandidateProfile): string[] {
     ['workRights', 'Work rights'],
     ['experienceSummary', 'Experience summary'],
   ];
-  return required.filter(([k]) => !String(p[k] ?? '').trim()).map(([, label]) => label);
+  const gaps = required.filter(([k]) => !String(p[k] ?? '').trim()).map(([, label]) => label);
+  if (annualSalaryAmount(p.expectedSalary) === null) gaps.push('Expected annual base salary (a number in AUD)');
+  return gaps;
 }

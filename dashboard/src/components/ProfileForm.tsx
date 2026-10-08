@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AutoGrowTextarea } from './AutoGrowTextarea';
+import { annualSalaryAmount } from '../salary';
 
 interface CandidateProfile {
   fullName: string;
@@ -46,6 +47,7 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/profile').then((r) => r.json()).then(setP).catch(() => {});
@@ -57,21 +59,33 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
     setP({ ...p, [k]: v });
     setDirty(true);
     setSavedAt(null);
+    setError(null);
   };
 
   async function save() {
+    if (annualSalaryAmount(p?.expectedSalary) === null) {
+      setError('Enter one expected annual base salary amount in AUD, excluding superannuation.');
+      return;
+    }
     setSaving(true);
-    const res = await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(p),
-    });
-    const j = await res.json();
-    if (j.profile) setP(j.profile);
-    setDirty(false);
-    setSaving(false);
-    setSavedAt(Date.now());
-    onSaved?.();
+    setError(null);
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(p),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.profile) throw new Error(j.error ?? 'Could not save your details. Please try again.');
+      setP(j.profile);
+      setDirty(false);
+      setSavedAt(Date.now());
+      onSaved?.();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save your details. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const text = (
@@ -95,7 +109,7 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
   );
 
   return (
-    <div className="profile-form">
+    <form className="profile-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <div className="fieldset">
         <h4 className="fieldset-h">About you</h4>
         <div className="grid-2">
@@ -124,6 +138,20 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
             </select>
           </label>
           {text('noticePeriod', 'Notice period', { placeholder: '2 weeks' })}
+          <label className="field">
+            <span className="field-label">Expected annual base salary (AUD) <span className="optional">required</span></span>
+            <input
+              className="input"
+              type="text"
+              inputMode="decimal"
+              required
+              placeholder="e.g. 150000"
+              value={p.expectedSalary}
+              onChange={(event) => set('expectedSalary', event.target.value)}
+              aria-describedby="expected-salary-help"
+            />
+            <span className="job-meta" id="expected-salary-help">One yearly amount, excluding superannuation. Required before any run. This answers employer questions; your minimum salary filter is separate.</span>
+          </label>
         </div>
         <div className="check-row">
           <label className="check">
@@ -177,12 +205,13 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
       </details>
 
       <div className="profile-save">
-        <button className="btn primary" disabled={!dirty || saving} onClick={save}>
+        <button className="btn primary" type="submit" disabled={!dirty || saving}>
           {saving ? 'Saving…' : 'Save'}
         </button>
         {savedAt && <span className="job-meta">Saved</span>}
         {dirty && !saving && <span className="job-meta">Unsaved changes</span>}
+        {error && <span className="job-meta" role="alert">{error}</span>}
       </div>
-    </div>
+    </form>
   );
 }

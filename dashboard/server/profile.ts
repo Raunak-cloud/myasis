@@ -1,6 +1,9 @@
 import { one } from './db/index.js';
 import { upsertProfileRow } from './db/records.js';
 import { EMPTY_PROFILE, profileGaps as computeProfileGaps, type CandidateProfile } from './candidate-profile.js';
+import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
+
+export class SalaryValidationError extends Error {}
 
 /**
  * The candidate's own details — Postgres-backed and scoped to one account.
@@ -70,6 +73,13 @@ export async function loadProfile(userId: string): Promise<CandidateProfile> {
 }
 
 export async function saveProfile(userId: string, patch: Partial<CandidateProfile>): Promise<CandidateProfile> {
+  if (patch.expectedSalary !== undefined) {
+    const amount = annualSalaryAmount(patch.expectedSalary);
+    // Empty values remain valid drafts while a resume is uploaded or setup is incomplete.
+    // They never satisfy the setup checklist or run gate.
+    if (amount === null && patch.expectedSalary !== '') throw new SalaryValidationError(EXPECTED_SALARY_REQUIRED);
+    patch = { ...patch, expectedSalary: amount === null ? '' : String(amount) };
+  }
   const next = { ...(await loadProfile(userId)), ...patch };
   await upsertProfileRow(userId, next);
   return next;

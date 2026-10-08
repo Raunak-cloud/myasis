@@ -26,6 +26,8 @@ import { releaseFreeProxy } from './proxy-pool.js';
 import { query } from './db/index.js';
 import { validateExternalJobUrl } from './external-job-url.js';
 import { mayRunEmployerSiteApplications } from './employer-site-access.js';
+import { loadProfile } from './profile.js';
+import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -80,6 +82,12 @@ interface StartRunRequest {
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
+
+export function expectedSalaryRefusal(profile: { expectedSalary: string }): Refusal | null {
+  return annualSalaryAmount(profile.expectedSalary) === null
+    ? { ok: false, status: 400, error: EXPECTED_SALARY_REQUIRED }
+    : null;
+}
 
 /** Why this account may not start a run by hand, or null for an administrator. */
 export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns' | 'firstRunRequired'>): Refusal | null {
@@ -140,6 +148,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (onboarding && mode !== 'live') {
     return { ok: false, status: 403, error: 'Your first run must be a live run started from the Apply page.' };
   }
+
+  const salaryRefused = expectedSalaryRefusal(await loadProfile(userId));
+  if (salaryRefused) return salaryRefused;
 
   /**
    * Nothing works without one. The agent attaches a resume on nearly every

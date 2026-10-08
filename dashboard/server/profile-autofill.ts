@@ -153,6 +153,7 @@ export async function autofillProfileFromResume(userId: string, resumeId?: strin
   }
 
   if (!filled.length) return { ok: true, filled: [] };
-  await saveProfile(userId, next);
+  const patch = Object.fromEntries(Object.entries(next).filter(([key, value]) => value !== current[key as keyof CandidateProfile]));
+  await saveProfile(userId, patch);
   return { ok: true, filled };
 }

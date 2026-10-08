@@ -169,7 +169,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
         id="details"
         n={2}
         title="Your details"
-        blurb="Check what we filled in."
+        blurb="Check your details and enter your expected annual base salary."
         done={done('profile')}
         open={openStep === 'details'}
         onSelect={selectStep}
