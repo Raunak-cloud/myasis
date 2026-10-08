@@ -32,6 +32,11 @@ function decodeBase64(value?: string): string {
   }
 }
 
+/** Operator-approved answer when the candidate has left expected salary blank. */
+export function expectedSalaryAnswer(value?: string): string {
+  return value?.trim() || 'Negotiable';
+}
+
 /**
  * Parses the existing `profile.txt` (key : value per line) so the bot and any
  * manual workflow share one source of truth. Lines starting with `---` are
@@ -74,7 +79,7 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
     github: find('github', 'portfolio'),
     website: find('personal website'),
     qualification: find('highest qualification'),
-    expectedSalary: find('expected annual salary') ?? '',
+    expectedSalary: expectedSalaryAnswer(find('expected annual salary')),
     noticePeriod: find('notice period') ?? '2 weeks',
     willingToRelocate: relocate.startsWith('y'),
     willingToTravel: find('willing to travel'),
