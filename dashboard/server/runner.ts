@@ -96,6 +96,23 @@ const IDLE_STATE: RunState = {
   ownerUserId: null,
 };
 
+/** A clean run that submitted applications completed its work, even when the
+ * application cap ended it before the search could review every listing.
+ * Review completeness still controls search-term renewal separately. */
+export function runSucceeded(facts: {
+  exitCode: number | null;
+  stoppedByPerson: boolean;
+  kind: 'run' | 'scan';
+  applied: number;
+  qualifyingJobs: number | null;
+  applicationErrors: number;
+}): boolean {
+  return facts.exitCode === 0 && !facts.stoppedByPerson && (
+    facts.kind === 'scan' || facts.applied > 0 ||
+    (facts.qualifyingJobs !== null && facts.applicationErrors === 0)
+  );
+}
+
 function readQualifyingJobs(dataDir: string): number | null {
   const path = resolve(dataDir, 'run-summary.json');
   if (!existsSync(path)) return null;
@@ -469,15 +486,11 @@ class Run {
       // Keep this account out of another run until its next-run settings and
       // result records are durable.
       await Promise.all(postRunTasks);
-      // The summary is written only after discovery and review reached their
-      // normal completion point. A zero exit without it (for example, every
-      // board failed sign-in) is not a successful run and must not spend the
-      // account's daily slot.
+      // A run that reached its application cap may have no complete review
+      // count. Its confirmed submissions still make it a completed run.
       const applicationErrors = kind === 'run' ? applicationErrorCount(dataDir) : 0;
-      const successful = code === 0 && !this.stoppedByPerson && (
-        kind === 'scan' ||
-        (qualifyingJobs !== null && (this.state.applied > 0 || applicationErrors === 0))
-      );
+      const successful = runSucceeded({ exitCode: code, stoppedByPerson: this.stoppedByPerson, kind,
+        applied: this.state.applied, qualifyingJobs, applicationErrors });
       await this.recordFinish(userId, code, successful, kind === 'run' ? readRunHealth(dataDir) : null);
     } catch (error) {
       this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
