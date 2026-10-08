@@ -55,6 +55,7 @@ import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
 import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
 import { setUpFromResume } from './server/quick-setup.js';
 import { startRun, expectedSalaryRefusal } from './server/start-run.js';
+import { runDeviceFromHeaders } from './src/run-device.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
 import { handleMarketing } from './server/marketing/api.js';
@@ -1263,7 +1264,7 @@ function dataApi(): Plugin {
             if (sessionFor(userId)) stopSignin(userId);
             const ready = await waitForSigninChecks(userId);
             if (!ready.ok) return send({ error: ready.error }, 409);
-            const runStartId = await recordRunStart(userId, 'scan', 'manual').catch(() => null);
+            const runStartId = await recordRunStart(userId, 'scan', 'manual', null, runDeviceFromHeaders(req.headers)).catch(() => null);
             const r = await runner.startQueue(userId, settings, runStartId);
             if (!r.ok) await discardRunStart(runStartId).catch(() => {});
             return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
@@ -1302,6 +1303,7 @@ function dataApi(): Plugin {
             email: runUser.email,
             mode,
             trigger: 'manual',
+            initiatorDevice: runDeviceFromHeaders(req.headers),
             clientOverrides: body?.overrides ?? {},
             scope: body?.scope,
           });

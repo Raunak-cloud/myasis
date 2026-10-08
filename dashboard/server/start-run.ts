@@ -28,6 +28,7 @@ import { validateExternalJobUrl } from './external-job-url.js';
 import { mayRunEmployerSiteApplications } from './employer-site-access.js';
 import { loadProfile } from './profile.js';
 import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
+import type { RunDevice } from '../src/run-device.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -68,6 +69,8 @@ interface StartRunRequest {
   trigger: 'manual' | 'auto' | 'admin' | 'onboarding';
   /** The admin who started it, for the record. */
   startedBy?: string | null;
+  /** Browser device that initiated the request; absent for scheduler/CLI starts. */
+  initiatorDevice?: RunDevice | null;
   /**
    * Settings posted with the request: by the account holder, or by an admin
    * narrowing a run for the account (run-account.mjs). Ignored for scheduled runs.
@@ -395,7 +398,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
     }
 
-    const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy).catch(() => null);
+    const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice).catch(() => null);
     const result = await runner.start(
       mode,
       overrides,

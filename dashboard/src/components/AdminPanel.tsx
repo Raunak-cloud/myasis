@@ -9,6 +9,7 @@ import { BlogView } from './BlogView';
 import { AdminEmailDialog } from './AdminEmailDialog';
 import type { RouteStatus } from '../route';
 import { StackedTable } from './StackedTable';
+import { runDeviceLabel, type RunDevice } from '../run-device';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -49,7 +50,7 @@ interface AdminUser {
     status: RouteStatus & { exitProblem: string | null };
   };
   applications: { total: number; week: number; today: number };
-  lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
+  lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string; initiatorDevice: RunDevice | null } | null;
   running: boolean;
   signingIn: boolean;
 }
@@ -62,6 +63,7 @@ interface AdminRun {
   mode: string;
   trigger: string;
   startedBy: string | null;
+  initiatorDevice: RunDevice | null;
   startedAt: string;
   finishedAt: string | null;
   exitCode: number | null;
@@ -138,7 +140,7 @@ function runStatus(run: AdminRun): { label: string; tone: string } {
   return { label: `Failed (exit ${run.exitCode})`, tone: 'bad' };
 }
 
-const TRIGGER_LABEL: Record<string, string> = { manual: 'Manually started', auto: 'Scheduled', admin: 'By an admin' };
+const TRIGGER_LABEL: Record<string, string> = { manual: 'Manually started', onboarding: 'First run', auto: 'Scheduled', admin: 'By an admin' };
 
 
 // ------------------------------------------------------------------ run console
@@ -185,6 +187,7 @@ function RunLog({ run, onClose }: { run: AdminRun; onClose: () => void }) {
             <h2>{run.name || run.email}</h2>
             <p className="job-meta">
               {when(run.startedAt)} · {TRIGGER_LABEL[run.trigger] ?? run.trigger}{run.startedBy ? ` (${run.startedBy})` : ''} · {duration(run)}
+              {' · '}{runDeviceLabel(run.initiatorDevice, run.trigger)}
               {live ? ' · live' : ''}
             </p>
           </div>
@@ -217,6 +220,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
             {showUser && <th>Account</th>}
             <th>Started</th>
             <th>How</th>
+            <th title="Device reported by the browser when Start was pressed">Device</th>
             <th>Took</th>
             <th>Applied</th>
             <th>Result</th>
@@ -239,6 +243,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
                   {run.mode === 'scan' ? 'Queue scan' : TRIGGER_LABEL[run.trigger] ?? run.trigger}
                   {run.startedBy && <div className="job-meta">{run.startedBy}</div>}
                 </td>
+                <td>{runDeviceLabel(run.initiatorDevice, run.trigger)}</td>
                 <td className="nowrap">{duration(run)}</td>
                 <td>{run.applied ?? '-'}</td>
                 <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
@@ -929,6 +934,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                     {last && (
                       <div className="job-meta">
                         {user.running ? 'running' : !last.finishedAt ? '-' : last.exitCode === 0 ? 'finished' : last.exitCode === null ? 'stopped' : 'failed'}
+                        {' · '}{runDeviceLabel(last.initiatorDevice, last.trigger)}
                       </div>
                     )}
                   </td>

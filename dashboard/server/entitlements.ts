@@ -3,6 +3,7 @@ import { upsertSettingRow } from './db/records.js';
 import { billingStatus, isAdmin, type BillingStatus } from './billing.js';
 import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
+import type { RunDevice } from '../src/run-device.js';
 
 export { SCHEDULED_MIN_SCORE };
 
@@ -390,10 +391,11 @@ export async function recordRunStart(
   mode: string,
   trigger: 'manual' | 'auto' | 'admin' | 'onboarding',
   startedBy?: string | null,
+  initiatorDevice?: RunDevice | null,
 ): Promise<string | null> {
   const row = await one<{ id: string }>(
-    `INSERT INTO run_starts (user_id, mode, trigger, started_by) VALUES ($1, $2, $3, $4) RETURNING id::text AS id`,
-    [userId, mode, trigger, startedBy ?? null],
+    `INSERT INTO run_starts (user_id, mode, trigger, started_by, initiator_device) VALUES ($1, $2, $3, $4, $5) RETURNING id::text AS id`,
+    [userId, mode, trigger, startedBy ?? null, trigger === 'auto' ? null : initiatorDevice ?? null],
   );
   return row?.id ?? null;
 }

@@ -22,6 +22,7 @@ import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
 import { userDir } from './userdata.js';
 import { PAID_PLANS, isPassPlanKey } from '../src/pricing.js';
+import { runDeviceFromHeaders, type RunDevice } from '../src/run-device.js';
 import { clientIp, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
 import { redditCapiHealth } from './reddit-capi.js';
 import { blogReport, isBlogWriting, publishWeek, setPostHidden, weekOf } from './blog/index.js';
@@ -83,7 +84,7 @@ interface AdminUserRow {
     status: RouteStatus;
   };
   applications: { total: number; week: number; today: number };
-  lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string } | null;
+  lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string; initiatorDevice: RunDevice | null } | null;
   running: boolean;
   signingIn: boolean;
 }
@@ -103,8 +104,8 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
          (SELECT count(*) FROM applications WHERE user_id = $2 AND submitted_by_myasis AND applied_at >= ${DAY_START})::text AS today`,
       [RUN_TIME_ZONE, user.id],
     ),
-    one<{ started_at: Date; finished_at: Date | null; exit_code: number | null; trigger: string }>(
-      `SELECT started_at, finished_at, exit_code, trigger FROM run_starts WHERE user_id = $1 ORDER BY started_at DESC LIMIT 1`,
+    one<{ started_at: Date; finished_at: Date | null; exit_code: number | null; trigger: string; initiator_device: RunDevice | null }>(
+      `SELECT started_at, finished_at, exit_code, trigger, initiator_device FROM run_starts WHERE user_id = $1 ORDER BY started_at DESC LIMIT 1`,
       [user.id],
     ),
     one<{ sent_at: Date }>('SELECT sent_at FROM admin_emails WHERE user_id = $1 ORDER BY sent_at DESC LIMIT 1', [user.id]),
@@ -150,6 +151,7 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
           finishedAt: lastRun.finished_at ? new Date(lastRun.finished_at).toISOString() : null,
           exitCode: lastRun.exit_code,
           trigger: lastRun.trigger,
+          initiatorDevice: lastRun.initiator_device,
         }
       : null,
     running: runner.stateFor(user.id).running,
@@ -185,6 +187,7 @@ interface AdminRunRow {
   mode: string;
   trigger: string;
   startedBy: string | null;
+  initiatorDevice: RunDevice | null;
   startedAt: string;
   finishedAt: string | null;
   exitCode: number | null;
@@ -198,10 +201,10 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
   const rows = await query<{
     id: string; user_id: string; email: string; name: string | null; mode: string; trigger: string;
     started_by_email: string | null; started_at: Date; finished_at: Date | null; exit_code: number | null;
-    applied: number | null; log_file: string | null;
+    applied: number | null; log_file: string | null; initiator_device: RunDevice | null;
   }>(
     `SELECT r.id::text AS id, r.user_id::text AS user_id, u.email, u.name, r.mode, r.trigger,
-            s.email AS started_by_email, r.started_at, r.finished_at, r.exit_code, r.applied, r.log_file
+            s.email AS started_by_email, r.started_at, r.finished_at, r.exit_code, r.applied, r.log_file, r.initiator_device
        FROM run_starts r
        JOIN users u ON u.id = r.user_id
        LEFT JOIN users s ON s.id = r.started_by
@@ -223,6 +226,7 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
       mode: row.mode,
       trigger: row.trigger,
       startedBy: row.started_by_email,
+      initiatorDevice: row.initiator_device,
       startedAt: new Date(row.started_at).toISOString(),
       finishedAt: row.finished_at ? new Date(row.finished_at).toISOString() : null,
       exitCode: row.exit_code,
@@ -665,6 +669,7 @@ export async function handleAdminRequest(
           mode: 'live',
           trigger: 'admin',
           startedBy: actor.id,
+          initiatorDevice: runDeviceFromHeaders(req.headers ?? {}),
           scope: body?.scope,
           jobIds: body?.jobIds,
           externalUrl: body?.externalUrl,

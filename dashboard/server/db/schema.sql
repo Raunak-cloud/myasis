@@ -421,6 +421,8 @@ ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS exit_code INTEGER;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS applied INTEGER;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS log_file TEXT;
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS started_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+-- Browser device that initiated this run. Old, scheduled and CLI runs have no device.
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS initiator_device TEXT;
 -- A run somebody pressed Stop on ends with the same exit code as one that
 -- crashed. This is what tells them apart, so "your runs keep failing" is never
 -- said about runs the person ended themselves.
