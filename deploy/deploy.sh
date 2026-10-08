@@ -71,6 +71,7 @@ as_app "set -o pipefail; cd $APP/seek-bot && npm ci --no-audit --no-fund 2>&1 | 
 as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
+as_app "cd $APP/seek-bot && node --test dist/profile-salary.test.js"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/salary.test.ts server/run-device.test.ts server/market-scout.test.ts server/blog/*.test.ts server/marketing/*.test.ts"
 as_app "cd $APP/market-scout && npm exec tsc -- -p . && npm test"

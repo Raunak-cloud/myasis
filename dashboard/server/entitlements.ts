@@ -355,7 +355,7 @@ async function automaticRunsStartedToday(userId: string): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
-/** Whether the account has completed the user-confirmed first live run. */
+/** A completed first run, including one an operator completed for the account with real submissions. */
 async function hasCompletedFirstRun(userId: string): Promise<boolean> {
   const row = await one<{ complete: boolean }>(
     `SELECT EXISTS (
@@ -363,7 +363,7 @@ async function hasCompletedFirstRun(userId: string): Promise<boolean> {
         WHERE user_id = $1
           AND mode = 'live'
           AND successful
-          AND trigger IN ('auto', 'onboarding')
+          AND (trigger IN ('auto', 'onboarding') OR (trigger = 'admin' AND applied > 0))
      ) AS complete`,
     [userId],
   );

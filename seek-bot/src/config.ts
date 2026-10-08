@@ -74,7 +74,7 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
     github: find('github', 'portfolio'),
     website: find('personal website'),
     qualification: find('highest qualification'),
-    expectedSalary: find('expected annual salary') ?? 'Negotiable',
+    expectedSalary: find('expected annual salary') ?? '',
     noticePeriod: find('notice period') ?? '2 weeks',
     willingToRelocate: relocate.startsWith('y'),
     willingToTravel: find('willing to travel'),

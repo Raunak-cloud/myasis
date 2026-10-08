@@ -673,6 +673,7 @@ export async function handleAdminRequest(
           scope: body?.scope,
           jobIds: body?.jobIds,
           externalUrl: body?.externalUrl,
+          oneTime: body?.oneTime,
         });
         return result.ok ? send({ ok: true, user: await userRow(target) }) : send({ error: result.error }, result.status);
       }

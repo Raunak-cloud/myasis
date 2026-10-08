@@ -82,6 +82,8 @@ interface StartRunRequest {
   jobIds?: unknown;
   /** One exact employer job page supplied by an administrator. */
   externalUrl?: unknown;
+  /** Explicit operator exception, resolved for this run only; never saved as account settings. */
+  oneTime?: { allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number };
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
@@ -136,6 +138,21 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   /** A search-only run never reaches an employer; a live run submits applications. */
   const consumes = mode === 'live';
 
+  if (request.oneTime !== undefined) {
+    if (trigger !== 'admin' || !consumes || !request.startedBy) {
+      return { ok: false, status: 403, error: 'One-time run exceptions require an administrator starting a live run.' };
+    }
+    const actor = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [request.startedBy]);
+    if (!isAdmin(actor[0]?.email)) return { ok: false, status: 403, error: 'One-time run exceptions require an administrator.' };
+    const oneTime = request.oneTime;
+    if (!oneTime || typeof oneTime !== 'object' || Array.isArray(oneTime)
+      || (oneTime.allowMissingSalary !== undefined && typeof oneTime.allowMissingSalary !== 'boolean')
+      || (oneTime.maxApplications !== undefined && (!Number.isInteger(oneTime.maxApplications) || oneTime.maxApplications < 1 || oneTime.maxApplications > 10))
+      || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > 150))) {
+      return { ok: false, status: 400, error: 'Use 1–10 applications and 1–150 job reviews for a one-time run.' };
+    }
+  }
+
   /**
    * Whether this account drives runs at all, checked before anything else.
    *
@@ -153,7 +170,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   }
 
   const salaryRefused = expectedSalaryRefusal(await loadProfile(userId));
-  if (salaryRefused) return salaryRefused;
+  if (salaryRefused && request.oneTime?.allowMissingSalary !== true) return salaryRefused;
 
   /**
    * Nothing works without one. The agent attaches a resume on nearly every
@@ -195,6 +212,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * had not picked boards itself.
    */
   const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1');
+  if (request.oneTime?.maxApplications !== undefined) overrides.MAX_APPS_PER_RUN = String(request.oneTime.maxApplications);
+  if (request.oneTime?.maxEvaluations !== undefined) overrides.MAX_EVALUATIONS = String(request.oneTime.maxEvaluations);
   /**
    * An admin narrowing a run to boards is a decision, even when it reads like
    * the default: the policy turns a plain "seek" into "seek,indeed" for a pass
