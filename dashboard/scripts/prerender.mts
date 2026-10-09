@@ -34,6 +34,16 @@ try {
   if (!shell.includes(empty)) throw new Error('dist/index.html has no empty root to fill');
   writeFileSync(file, shell.replace(empty, `<div id="root"><!--prerender-->${markup}<!--/prerender--></div>`));
   console.log(`prerendered the landing page into dist/index.html (${Math.round(markup.length / 1024)} KB)`);
+  // Resource pages keep their article HTML and hydrate only the shared navigation.
+  const { SiteHeader } = await vite.ssrLoadModule('/src/components/SiteHeader.tsx');
+  for (const [name, active] of [['automate-job-applications-australia.html', 'guide'], ['blog.html', 'blog']]) {
+    const resourceFile = resolve(root, 'dist', name);
+    const resourceShell = readFileSync(resourceFile, 'utf8');
+    const mount = `<div id="site-header-root" data-active="${active}"></div>`;
+    if (!resourceShell.includes(mount)) throw new Error(`${name} has no shared header mount`);
+    const header = renderToStaticMarkup(createElement(SiteHeader, { active }));
+    writeFileSync(resourceFile, resourceShell.replace(mount, `<div id="site-header-root" data-active="${active}">${header}</div>`));
+  }
 } finally {
   await vite.close();
 }

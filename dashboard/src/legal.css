@@ -47,6 +47,13 @@ body {
 .legal-footer a { color: var(--muted); text-decoration: none; }
 .legal-footer a:hover { color: var(--ink); }
 
+/* Resource articles use the site's full-width header and retain their reading width. */
+body.resource-page { padding-inline: 0; }
+#site-header-root { display: contents; }
+.resource-page .legal, .resource-page .legal-footer {
+  width: calc(100% - 40px);
+}
+
 @media (max-width: 480px) {
   body { font-size: 15px; }
   .legal { padding-block: 26px 44px; }
