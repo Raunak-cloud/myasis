@@ -69,14 +69,14 @@
 
 .home-header {
   position: sticky; top: 0; z-index: 30;
-  background: color-mix(in srgb, var(--paper) 92%, transparent);
-  backdrop-filter: saturate(1.2) blur(8px);
-  -webkit-backdrop-filter: saturate(1.2) blur(8px);
-  border-bottom: var(--edge-thin);
+  background: rgba(255, 255, 255, .97);
+  border-bottom: 1px solid #e4eaf1;
+  box-shadow: 0 4px 24px rgba(22, 56, 95, .04);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .home-header-inner {
-  display: flex; align-items: center; gap: 24px;
-  min-height: 68px; padding-block: 14px;
+  display: flex; align-items: center; gap: 28px;
+  min-height: 88px; padding-block: 16px;
 }
 .home-brand {
   display: inline-flex; flex-direction: column; gap: 2px;
@@ -84,26 +84,51 @@
   font-size: 30px;
 }
 .home-header nav {
-  display: flex; gap: 22px; margin-left: auto;
-  font-size: 13.5px; font-weight: 500;
+  display: flex; align-items: center; gap: 4px; margin-left: auto;
+  font-size: 14px; font-weight: 500;
 }
 .home-header nav a {
-  color: var(--ink-2); text-decoration: none;
-  padding: 4px 0;
+  display: inline-flex; align-items: center; min-height: 44px;
+  color: #43536a; text-decoration: none; white-space: nowrap;
+  padding: 8px 10px; border-radius: 8px;
+  transition: color .15s ease, background .15s ease;
 }
-.home-header nav a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 1.5px; }
-.home-login {
-  font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: .04em;
-  display: inline-flex; align-items: center;
-  min-height: 36px; padding: 0 14px;
-  border: var(--edge); background: var(--paper-2);
-  color: var(--ink); text-decoration: none;
-  text-transform: lowercase;
-  box-shadow: var(--lift-sm);
-  transition: transform .12s ease, box-shadow .12s ease;
+.home-header nav a:hover { color: #16385f; background: #f0f5fa; }
+.home-header nav .home-nav-resource { color: #1f4f8a; }
+.home-header .home-brand { flex-shrink: 0; font-size: 34px; }
+.landing .home-login {
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+  min-height: 44px; padding: 0 20px; flex-shrink: 0;
+  border: 1px solid #16385f; border-radius: 9px;
+  background: #16385f; color: #fff; text-decoration: none;
+  font-size: 14px; font-weight: 600; white-space: nowrap;
+  transition: background .15s ease;
 }
-.home-login:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink); }
-.home-login-off { color: var(--muted); border-color: var(--rule); box-shadow: none; }
+.landing .home-login:hover { background: #245386; color: #fff; }
+.landing .home-login-off { color: #64748b; background: #f1f5f9; border-color: #e4eaf1; white-space: normal; }
+.home-nav-toggle { display: none; }
+.home-header :is(a, button):focus-visible { outline: 3px solid #609ee8; outline-offset: 4px; }
+.landing section[id] { scroll-margin-top: 108px; }
+
+@media (max-width: 1100px) {
+  .home-header-inner { flex-wrap: wrap; gap: 12px; min-height: 76px; }
+  .home-header .home-brand { margin-right: auto; font-size: 30px; }
+  .home-nav-toggle {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; padding: 0 12px; border: 1px solid #dce4ed;
+    border-radius: 9px; color: #33465f; background: #fff;
+    font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+  }
+  .home-nav-toggle:hover { background: #f0f5fa; }
+  .home-header nav { display: none; }
+  .home-header nav.is-open {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    order: 3; width: 100%; margin: 4px 0 0; gap: 6px;
+    padding-top: 12px; border-top: 1px solid #e4eaf1;
+  }
+  .home-header nav a { white-space: normal; padding: 12px; }
+  .home-header nav .home-nav-resource { background: #f0f5fa; }
+}
 
 /* ============================================================ hero */
 
@@ -616,17 +641,10 @@
 
 @media (max-width: 820px) {
   .home-width { width: 100%; padding-inline: 20px; }
-  .home-header { position: static; backdrop-filter: none; }
-  .home-header-inner { flex-wrap: wrap; row-gap: 6px; padding-block: 12px; min-height: 0; }
   .home-brand { font-size: 24px; }
-  .home-header nav {
-    order: 3; width: 100%; margin-left: 0; gap: 16px; font-size: 12px;
-    padding-top: 10px; border-top: 1px solid var(--rule);
-    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
-  }
-  .home-header nav::-webkit-scrollbar { display: none; }
-  .home-header nav a { white-space: nowrap; }
-  .home-login { margin-left: auto; min-height: 32px; font-size: 11px; }
+  .home-header-inner { padding-block: 12px; }
+  .home-header .home-brand { font-size: 28px; }
+  .landing .home-login { padding-inline: 14px; }
 
   .home-hero-title { font-size: 32px; }
   .home-hero-summary { font-size: 15px; }
@@ -702,6 +720,10 @@
 }
 
 @media (max-width: 480px) {
+  .home-header-inner { gap: 8px; padding-inline: 16px; }
+  .home-header .home-brand { font-size: 25px; }
+  .home-nav-toggle { padding-inline: 10px; }
+  .home-login span { display: none; }
   /* The line break stays: hiding it ran "jobs." straight into "Owtomate" with no space. */
   .home-hero-title { font-size: 27px; letter-spacing: -.035em; }
   .home-hero-mark { padding: 0; }

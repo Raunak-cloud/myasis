@@ -101,6 +101,8 @@ function PriceRow({ row, cta }: { row: PriceRowSpec; cta: ReactNode }) {
 export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
   const [error] = useState(() => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('auth_error')));
   const [playError, setPlayError] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const navigationToggle = useRef<HTMLButtonElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const autoPlayed = useRef(false);
 
@@ -135,20 +137,33 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
 
   return (
     <div className="landing" id="top">
-      <header className="home-header">
+      <header className="home-header" onKeyDown={(event) => {
+        if (event.key === 'Escape' && navigationOpen) {
+          setNavigationOpen(false);
+          navigationToggle.current?.focus();
+        }
+      }}>
         <div className="home-width home-header-inner">
           <a href="#top" className="home-brand" aria-label="owtomate home">
             <Wordmark />
           </a>
-          <nav aria-label="Main">
-            <a href="#how-it-works">how it works</a>
-            <a href="#story">the difference</a>
-            <a href="#pricing">pricing</a>
-            <a href="#questions">questions</a>
+          <button ref={navigationToggle} className="home-nav-toggle" type="button" aria-expanded={navigationOpen} aria-controls="home-navigation" onClick={() => setNavigationOpen((open) => !open)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d={navigationOpen ? 'M6 6l12 12M6 18L18 6' : 'M4 6h16M4 12h16M4 18h16'} />
+            </svg>
+            {navigationOpen ? 'Close' : 'Menu'}
+          </button>
+          <nav id="home-navigation" className={navigationOpen ? 'is-open' : undefined} aria-label="Main" onClick={() => setNavigationOpen(false)}>
+            <a href="#how-it-works">How it works</a>
+            <a href="#story">The difference</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#questions">Questions</a>
+            <a className="home-nav-resource" href="/automate-job-applications-australia">Automation guide</a>
+            <a className="home-nav-resource" href="/blog">Job market brief</a>
           </nav>
           {googleConfigured
-            ? <a className="home-login" rel="nofollow" href="/api/auth/google">sign in</a>
-            : <span className="home-login home-login-off">sign-in off</span>}
+            ? <a className="home-login" rel="nofollow" href="/api/auth/google">Sign in <span aria-hidden="true">↗</span></a>
+            : <span className="home-login home-login-off">Sign-in unavailable</span>}
         </div>
       </header>
 
