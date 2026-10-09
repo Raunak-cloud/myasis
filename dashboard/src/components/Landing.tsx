@@ -143,7 +143,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           <div className="home-width home-hero-inner">
             <h1 id="home-heading" className="home-hero-title">
               Stop applying for jobs.<br />
-              <span className="home-hero-mark">Owtomate</span> does it <em>for</em> you.
+              <span className="home-hero-promise"><span className="home-hero-mark">Owtomate</span> does it <em>for</em> you.</span>
             </h1>
             <p className="home-hero-summary">
               It reads SEEK and Indeed against your resume, writes a cover letter for each job, and applies from your own account. If it cannot answer something honestly, it asks you.

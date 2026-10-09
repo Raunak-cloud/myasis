@@ -661,13 +661,47 @@
 }
 
 @media (max-width: 480px) {
-  /* The line break stays: hiding it ran "jobs." straight into "Owtomate" with no space. */
-  .home-hero-title { font-size: 27px; letter-spacing: -.035em; }
-  .home-hero-mark { padding: 0; }
-  .home-hero-summary { font-size: 14.5px; }
   .home-difference-title { font-size: 26px; }
   .home-last-quote blockquote { font-size: 44px; }
   .home-last-quote figcaption { font-size: 15px; }
+}
+
+@media (max-width: 600px) {
+  .home-hero {
+    --display: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 40px 0 36px;
+    font-family: var(--display);
+  }
+  .home-hero-inner { padding-inline: 24px; }
+  .landing .home-hero-title {
+    font-size: clamp(28px, 8.2vw, 38px); font-weight: 650;
+    line-height: 1.18; letter-spacing: -.035em; color: #172b45;
+  }
+  .home-hero-mark { padding: 0; background: none; color: #1f4f8a; }
+  .home-hero-promise { display: inline-block; width: 100%; text-wrap: balance; }
+  .home-hero-title em { font-style: normal; font-weight: inherit; color: inherit; }
+  .home-hero-summary {
+    margin-top: 20px; font-size: 16px; line-height: 1.65;
+    color: #526175; text-wrap: pretty;
+  }
+  .home-hero-actions { margin-top: 28px; gap: 12px; }
+  .landing .home-hero .home-button {
+    min-height: 52px; border: 1px solid #16385f; border-radius: 10px;
+    background: #16385f; box-shadow: none;
+    font-size: 16px; font-weight: 600; letter-spacing: 0;
+  }
+  .landing .home-hero .home-button:hover { background: #245386; transform: none; box-shadow: none; }
+  .landing .home-hero .home-button:active { background: #122f50; transform: none; }
+  .home-hero-actions .home-hero-note {
+    max-width: none; text-align: center; font-size: 13px; color: #526175;
+  }
+  .home-hero-note strong { color: #172b45; }
+  .home-hero .home-consent {
+    max-width: 38ch; margin: 16px auto 0; text-align: center;
+    font-family: inherit; font-size: 11.5px; line-height: 1.6;
+    letter-spacing: 0; color: #68768a;
+  }
+  .home-hero .home-consent a { color: #526175; }
 }
 
 @media (prefers-reduced-motion: reduce) {
