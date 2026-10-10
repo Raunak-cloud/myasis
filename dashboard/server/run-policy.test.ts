@@ -160,7 +160,7 @@ check('a free account is never given Indeed', effectivePlatforms({ PLATFORMS: 's
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
 check('Free says the runs and reviews it gets', said('free').includes(`${automaticRunsPerDay('standard')} automatic live run each day`) && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Active Search says the runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} automatic live runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Intensive says the automatic runs, reviews and employer-site status', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('Employer-site applications — launching soon'));
+check('Intensive says the automatic runs, reviews and employer-site applications', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('Employer-site applications'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 console.log(`\n${failures} failure(s)`);

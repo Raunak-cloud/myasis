@@ -116,7 +116,7 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
           </>
         ) : status.needed === false ? (
           <span className="job-meta">
-            Not needed on your plan. Employer-site applications are launching soon for Intensive Pass customers.
+            Not needed on your plan.
           </span>
         ) : (
           <button className="btn primary" disabled={busy} onClick={openGmailWindow}>

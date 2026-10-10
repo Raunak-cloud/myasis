@@ -280,7 +280,7 @@ export function PricingPanel() {
         </article>
         <article>
           <strong>Higher plans do more</strong>
-          <p>Upgrade for Indeed, Humanizer, more daily runs and advanced controls. Employer-site applications are launching soon.</p>
+          <p>Upgrade for Indeed, Humanizer, more daily runs and advanced controls.</p>
         </article>
       </section>
 

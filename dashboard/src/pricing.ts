@@ -18,7 +18,7 @@ export const PAID_PLANS = {
   'intensive-pass': {
     key: 'intensive-pass', kind: 'pass', name: 'Intensive Pass', priceCents: 5990,
     applications: 400, durationDays: 90, employerSiteApplications: 30,
-    description: 'Maximum capacity and advanced controls, with employer-site applications launching soon.',
+    description: 'Maximum capacity and advanced controls.',
   },
   'application-top-up': {
     key: 'application-top-up', kind: 'application-top-up', name: 'Application Top-up', priceCents: 690,
@@ -95,7 +95,7 @@ export const PLAN_PRESENTATION = {
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',
-      'Employer-site applications — launching soon',
+      'Employer-site applications',
       'Priority processing and support',
       'Humanizer rewrites cover letters in natural words',
     ],
