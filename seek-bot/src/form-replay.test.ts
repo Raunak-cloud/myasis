@@ -35,10 +35,22 @@ try {
   const page = await browser.newPage();
   await page.route('https://acme.wd3.myworkdayjobs-fixture.example/**', (route) => route.fulfill({ contentType: 'text/html', body: form }));
   await page.route('https://cdn.workday-fixture.example/**', (route) => route.fulfill({ contentType: 'text/css', body: css }));
-  await page.goto('https://acme.wd3.myworkdayjobs-fixture.example/job/apply/1');
+  // The step lives after "#", as on ELMO and Cornerstone: it never reaches the network, and the replay must still serve the page.
+  await page.goto('https://acme.wd3.myworkdayjobs-fixture.example/job/apply/1#/step2?jobAdId=1');
   await page.fill('input[name="legalName--firstName"]', 'Raunak');
   await page.selectOption('select', 'New Zealand');
   await page.check('input[name="terms"]');
+  /**
+   * A page caught mid-change is not recorded: a field the observation read is
+   * gone by the time of the snapshot (Workday swapping its dialogs), so the
+   * recording would expect a field its own snapshot does not hold.
+   */
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<div id="leaving"><label for="o">Old password</label><input id="o" name="old"></div>'));
+  const changing = await observe(page);
+  await page.evaluate(() => document.getElementById('leaving')?.remove());
+  await recordFormPage(page, changing);
+  assert.equal(readdirSync(directory).length, 0, 'a page whose fields changed under the snapshot is not recorded');
+
   const observation = await observe(page);
   assert.ok(!observation.fields.some((field) => /internal code/i.test(field.label)), 'the field hidden by the stylesheet is not observed live');
   assert.ok(observation.fields.some((field) => /write a reply/i.test(field.label)), 'the field inside a shadow root is observed live');
@@ -65,7 +77,7 @@ try {
   assert.equal(run.status, 1, 'a field no longer found fails the replay');
   assert.match(run.stdout, /✗ .*fields found: \d+ → \d+/);
 
-  console.log('PASS: real form pages are recorded once, replay offline with their state, styles and shadow roots, and a worse reading fails the replay');
+  console.log('PASS: real form pages are recorded once and only when stable, replay offline with their state, styles, shadow roots and in-page step address, and a worse reading fails the replay');
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });

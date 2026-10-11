@@ -60,7 +60,50 @@ function signatureOf(url: string, observation: Observation): string {
   return createHash('sha256').update(`${hostname}${pathname.replace(/\d{4,}/g, '#')}\n${shape}`).digest('hex').slice(0, 16);
 }
 
-const seen = new Set<string>();
+/** Attempts per distinct page this run; a page caught mid-change is tried again on a later turn, a few times at most. */
+const attempts = new Map<string, number>();
+const MAX_ATTEMPTS = 3;
+
+/**
+ * Whether every field the observation read is still in the page and still
+ * shown, after the snapshot was taken.
+ *
+ * The expectation comes from the observation and the snapshot is taken a
+ * moment later. On a page still changing — Workday swapping its sign-in and
+ * create-account dialogs — the two disagreed: the observation held both
+ * dialogs' fields, the snapshot only one, and every replay of that page then
+ * reported fields "no longer found" that the code had never lost. A page
+ * whose fields went away in between is not recorded this time.
+ *
+ * Shown is judged the way field extraction judges it: the control itself, a
+ * label of it, or the widget box around it has a size and is not hidden.
+ */
+async function fieldsStillShown(page: Page, observation: Observation): Promise<boolean> {
+  const refs = observation.fields.map((field) => field.ref);
+  return page.evaluate((wanted: string[]) => {
+    const shown = (element: Element | null): boolean => {
+      if (!element) return false;
+      const style = getComputedStyle(element);
+      return element.getClientRects().length > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const found = new Map<string, boolean>();
+    const roots: Array<Document | ShadowRoot> = [document];
+    for (let i = 0; i < roots.length; i++) {
+      for (const element of roots[i].querySelectorAll('*')) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+        const stamp = element.getAttribute('data-field-id');
+        if (!stamp) continue;
+        const ref = stamp.split(':')[0];
+        const labels = [...((element as HTMLInputElement).labels ?? [])];
+        let widget: Element | null = element.parentElement;
+        for (let depth = 0; widget && depth < 3 && !shown(widget); depth++) widget = widget.parentElement;
+        const visible = shown(element) || labels.some((label) => shown(label)) || shown(widget);
+        found.set(ref, Boolean(found.get(ref)) || visible);
+      }
+    }
+    return wanted.every((ref) => found.get(ref) === true);
+  }, refs).catch(() => false);
+}
 
 /** Records this page into the corpus, once per distinct page; never fails an application. */
 export async function recordFormPage(page: Page, observation: Observation): Promise<void> {
@@ -68,13 +111,18 @@ export async function recordFormPage(page: Page, observation: Observation): Prom
     if (!observation.fields.length) return;
     const url = page.url();
     const signature = signatureOf(url, observation);
-    if (seen.has(signature)) return;
-    seen.add(signature);
+    const tried = attempts.get(signature) ?? 0;
+    if (tried >= MAX_ATTEMPTS) return;
+    attempts.set(signature, tried + 1);
     const expectation = expectationOf(observation, await hasCaptchaSurface(page).catch(() => false), url);
     const dir = join(CORPUS_DIR(), expectation.platform.replace(/[^\w.-]+/g, '_'));
-    if (existsSync(join(dir, `${signature}.json`))) return;
+    if (existsSync(join(dir, `${signature}.json`))) {
+      attempts.set(signature, MAX_ATTEMPTS);
+      return;
+    }
     const html = await snapshotPage(page);
-    if (!html) return;
+    if (!html || !(await fieldsStillShown(page, observation))) return;
+    attempts.set(signature, MAX_ATTEMPTS);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${signature}.html.gz`), gzipSync(html));
     writeFileSync(join(dir, `${signature}.json`), JSON.stringify(expectation, null, 2));

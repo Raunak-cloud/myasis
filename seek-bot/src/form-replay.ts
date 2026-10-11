@@ -50,6 +50,22 @@ function compare(name: string, before: FormExpectation, now: FormExpectation): F
   return findings;
 }
 
+/**
+ * An address as the browser requests it: without the part after "#". A
+ * single-page form keeps its step there (ELMO's "#/step2", Cornerstone's
+ * "#2"), which never reaches the network, so comparing whole addresses
+ * refused every such page and reported it as unreadable.
+ */
+const requested = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    return parsed.href;
+  } catch {
+    return url;
+  }
+};
+
 const pages = corpusPages(dirs);
 console.log(`Replaying ${pages.length} recorded employer form page(s)…`);
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -61,7 +77,8 @@ try {
     const name = `${recorded.expectation.platform} · ${recorded.expectation.host}${new URL(recorded.expectation.url).pathname.slice(0, 60)}`;
     try {
       await page.unrouteAll({ behavior: 'ignoreErrors' });
-      await page.route('**/*', (route) => (route.request().url() === recorded.expectation.url
+      const address = requested(recorded.expectation.url);
+      await page.route('**/*', (route) => (requested(route.request().url()) === address
         ? route.fulfill({ contentType: 'text/html; charset=utf-8', body: recorded.html })
         : route.abort()));
       await page.goto(recorded.expectation.url, { waitUntil: 'domcontentloaded', timeout: 20_000 });
