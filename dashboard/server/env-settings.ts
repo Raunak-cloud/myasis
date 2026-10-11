@@ -144,6 +144,7 @@ const GROUPS: GroupSpec[] = [
       { key: 'SEARCH_DELAY_MS', label: 'Gap between searches (ms)', help: '', kind: 'number' },
       { key: 'FIT_CONCURRENCY', label: 'Fit checks at once', help: 'Parallel model calls while ranking listings.', kind: 'number' },
       { key: 'FRICTION_ABORT', label: 'Friction abort', help: 'Blocked attempts in a row before the run stops itself.', kind: 'number' },
+      { key: 'RUN_TIMEOUT_MINUTES', label: 'Run time limit (minutes)', help: 'Whole worker run, including queue scans. Defaults to 30; maximum 120. Stop escalates after 10 seconds.', kind: 'number' },
       { key: 'MAX_EXTERNAL_PER_DAY', label: 'Employer-site applications per day', help: 'Across all accounts.', kind: 'number' },
       { key: 'ALLOW_EXTERNAL_APPLY', label: 'Allow employer-site applications', help: 'Off keeps every run on the job boards.', kind: 'boolean' },
     ],

@@ -9,5 +9,6 @@ assert.equal(runSucceeded({...atApplicationCap,applied:0,qualifyingJobs:0}), tru
 assert.equal(runSucceeded({...atApplicationCap,applied:0,qualifyingJobs:2,applicationErrors:1}), false, 'application failures without any submissions remain retryable');
 assert.equal(runSucceeded({...atApplicationCap,exitCode:1}), false, 'a crash remains retryable, even after a submission');
 assert.equal(runSucceeded({...atApplicationCap,stoppedByPerson:true}), false, 'a stopped run must not consume its scheduled slot');
+assert.equal(runSucceeded({...atApplicationCap,timedOut:true}), false, 'a timed-out worker exiting zero must not count as completed');
 assert.equal(runSucceeded({...atApplicationCap,applied:0,kind:'scan'}), true);
 console.log('PASS: application caps complete a clean run; incomplete empty, stopped and failed runs remain retryable');

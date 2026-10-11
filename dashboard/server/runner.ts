@@ -6,7 +6,9 @@ import { resolve } from 'node:path';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { exportUserForRun, syncRunResultsToDb } from './db/run-sync.js';
 import { query } from './db/index.js';
-import { userDir } from './userdata.js';
+import { userDir, userChromeDir } from './userdata.js';
+import { releaseChromeProfile } from './chrome-profile.js';
+import { runTimeoutMs, signalRunTree, superviseRun } from './run-watchdog.js';
 
 /** Saved run consoles kept per account; older ones are removed as new ones are written. */
 const RUN_LOGS_KEPT = 60;
@@ -106,8 +108,9 @@ export function runSucceeded(facts: {
   applied: number;
   qualifyingJobs: number | null;
   applicationErrors: number;
+  timedOut?: boolean;
 }): boolean {
-  return facts.exitCode === 0 && !facts.stoppedByPerson && (
+  return facts.exitCode === 0 && !facts.stoppedByPerson && !facts.timedOut && (
     facts.kind === 'scan' || facts.applied > 0 ||
     (facts.qualifyingJobs !== null && facts.applicationErrors === 0)
   );
@@ -196,6 +199,9 @@ class Run {
   private runStartId: string | null = null;
   /** Somebody pressed Stop. Such a run exits like a crash does, and must not be counted as one. */
   private stoppedByPerson = false;
+  private timedOut = false;
+  private supervisor: ReturnType<typeof superviseRun> | null = null;
+  private completion: Promise<void> = Promise.resolve();
   /** Keeps the account's next run out until result sync and keyword renewal finish. */
   private postProcessing = false;
   private keywordRenewal: KeywordRenewalContext | null = null;
@@ -337,6 +343,7 @@ class Run {
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = keywordRenewal ?? null;
     this.stoppedByPerson = false;
+    this.timedOut = false;
     this.state = {
       running: true,
       mode,
@@ -354,7 +361,7 @@ class Run {
     if (shown) this.push('sys', `  overrides: ${shown}`);
     if (mode === 'live') this.push('sys', '  ⚠ LIVE: applications will be submitted');
 
-    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env }), userId, dataDir, 'run');
+    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, detached: process.platform !== 'win32' }), userId, dataDir, 'run');
     return { ok: true };
   }
 
@@ -417,7 +424,8 @@ class Run {
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = null;
     this.stoppedByPerson = false;
-    this.spawnChild(spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env }), userId, dataDir, 'scan');
+    this.timedOut = false;
+    this.spawnChild(spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env, detached: process.platform !== 'win32' }), userId, dataDir, 'scan');
     return { ok: true };
   }
 
@@ -426,15 +434,28 @@ class Run {
     this.child = child;
     child.stdout?.on('data', (b) => this.push('out', b.toString()));
     child.stderr?.on('data', (b) => this.push('err', b.toString()));
-    child.on('error', (e) => this.push('err', `spawn failed: ${e.message}`));
-    child.on('close', (code) => void this.finishChild(userId, dataDir, kind, code));
+    const timeoutMs = runTimeoutMs(process.env.RUN_TIMEOUT_MINUTES ?? readEnv().RUN_TIMEOUT_MINUTES);
+    this.supervisor = superviseRun(child, {
+      timeoutMs,
+      onTimeout: () => {
+        this.timedOut = true;
+        this.push('err', `Run reached its ${timeoutMs / 60_000}-minute time limit; stopping the worker.`);
+      },
+      onEscalation: () => this.push('err', 'Worker did not stop within 10 seconds; forcing its process tree to exit.'),
+      onError: (error) => this.push('err', `Worker process error: ${error.message}`),
+      onFinish: async (code, signal) => {
+        await this.finishChild(userId, dataDir, kind, code, child, signal);
+      },
+    });
+    this.completion = this.supervisor.finished;
   }
 
-  private async finishChild(userId: string, dataDir: string, kind: 'run' | 'scan', code: number | null): Promise<void> {
+  private async finishChild(userId: string, dataDir: string, kind: 'run' | 'scan', code: number | null, child: ChildProcess, signal: NodeJS.Signals | null): Promise<void> {
     this.state.running = false;
     this.state.exitCode = code;
     this.state.finishedAt = new Date().toISOString();
     this.child = null;
+    this.supervisor = null;
     this.cdpPort = null;
     this.onApplicationSubmitted = null;
     const onFinished = this.onFinished;
@@ -442,7 +463,17 @@ class Run {
     this.postProcessing = true;
     const renewal = this.keywordRenewal;
     this.keywordRenewal = null;
-    this.push('sys', `■ ${kind} finished (exit ${code})`);
+    this.push('sys', `■ ${kind} finished (exit ${code}${signal ? `, ${signal}` : ''})`);
+
+    // Keep this account's slot occupied until its browser and descendants are gone.
+    try {
+      await releaseChromeProfile(userChromeDir(userId), (line) => this.push('sys', line));
+    } catch (error) {
+      this.push('err', `Could not close this account's browser: ${(error as Error).message}`);
+    }
+    try { signalRunTree(child, 'SIGKILL'); } catch (error) {
+      this.push('err', `Could not clean up worker descendants: ${(error as Error).message}`);
+    }
 
     const postRunTasks: Array<Promise<void>> = [
       // Fold what this run actually did — new applications, run events — back
@@ -461,7 +492,7 @@ class Run {
     }
 
     const qualifyingJobs = kind === 'run' && code === 0 ? readQualifyingJobs(dataDir) : null;
-    if (renewal && qualifyingJobs !== null && qualifyingJobs < 2) {
+    if (renewal && !this.timedOut && !this.stoppedByPerson && qualifyingJobs !== null && qualifyingJobs < 2) {
       postRunTasks.push(
         import('./search-terms.js')
           .then(({ renewSearchTermsAfterSparseRun }) => (
@@ -490,7 +521,7 @@ class Run {
       // count. Its confirmed submissions still make it a completed run.
       const applicationErrors = kind === 'run' ? applicationErrorCount(dataDir) : 0;
       const successful = runSucceeded({ exitCode: code, stoppedByPerson: this.stoppedByPerson, kind,
-        applied: this.state.applied, qualifyingJobs, applicationErrors });
+        applied: this.state.applied, qualifyingJobs, applicationErrors, timedOut: this.timedOut });
       await this.recordFinish(userId, code, successful, kind === 'run' ? readRunHealth(dataDir) : null);
     } catch (error) {
       this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
@@ -523,14 +554,11 @@ class Run {
     if (!this.child) return { ok: false, error: 'Nothing is running.' };
     this.stoppedByPerson = true;
     this.push('sys', '⏹ stop requested, terminating');
-    // Windows needs the tree killed; the bot owns a Chrome child process.
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(this.child.pid), '/T', '/F']);
-    } else {
-      this.child.kill('SIGTERM');
-    }
+    this.supervisor?.stop();
     return { ok: true };
   }
+
+  waitForFinish(): Promise<void> { return this.completion; }
 }
 
 /**
@@ -558,14 +586,14 @@ class RunPool {
   }
 
   /**
-   * Every run asked to stop, for a dashboard that is shutting down. The bot
-   * closes its browser on SIGTERM; a run killed outright leaves Chrome
-   * holding the account's profile and every later run failing on it.
+   * Stop every worker and wait through escalation, browser cleanup and result
+   * persistence before dashboard shutdown releases its process.
    */
-  stopAll(): void {
+  stopAll(): Promise<void> {
     for (const run of this.runs.values()) {
       if (run.state.running) run.stop();
     }
+    return Promise.all([...this.runs.values()].map((run) => run.waitForFinish())).then(() => {});
   }
 
   activeCount(): number {

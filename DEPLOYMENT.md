@@ -212,6 +212,15 @@ the way down. Do not pull, build or `pm2 restart` by hand while runs can start:
 a run launched mid-build dies on half-written code, and a restart mid-run
 leaves a Chrome holding that account's profile.
 
+Workers and queue scans have a 30-minute whole-run deadline. Operators can set
+`RUN_TIMEOUT_MINUTES` in Admin → Config → Pacing or `seek-bot/.env` (maximum
+120 minutes; invalid or zero values use the default). Stop and deadline expiry
+send SIGTERM to the worker's isolated process group, escalating to SIGKILL
+after 10 seconds. Completion closes that account's Chrome profile, cleans up
+remaining worker descendants and returns temporary proxy loans before the
+account can start again. Timed-out runs are recorded as unsuccessful. Dashboard
+shutdown waits for this cleanup; PM2 allows 30 seconds before forcing it down.
+
 ## 6. Backups
 
 `/etc/cron.d/myasis` runs `deploy/maintenance.sh` nightly at 03:15 Sydney time: a

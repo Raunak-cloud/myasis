@@ -41,7 +41,7 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: '750M',
-      kill_timeout: 15_000,
+      kill_timeout: 30_000,
       restart_delay: 2_000,
       time: true,
       env: {

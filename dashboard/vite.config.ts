@@ -1415,10 +1415,17 @@ function dataApi(): Plugin {
         if (stopping) return;
         stopping = true;
         console.log(`[shutdown] ${signal}: stopping runs and sign-in browsers`);
-        runner.stopAll();
+        const runsStopped = runner.stopAll();
         stopMarketingWorker();
         stopAllSignins();
-        setTimeout(() => process.exit(0), 3000).unref();
+        // Keep the server alive through the 10-second escalation and browser cleanup.
+        const shutdownDeadline = setTimeout(() => process.exit(1), 25_000);
+        // Preserve the grace period for sign-in and marketing browser shutdown too.
+        const browserGrace = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+        void Promise.all([runsStopped, browserGrace]).finally(() => {
+          clearTimeout(shutdownDeadline);
+          process.exit(0);
+        });
       };
       process.once('SIGINT', shutdown);
       process.once('SIGTERM', shutdown);

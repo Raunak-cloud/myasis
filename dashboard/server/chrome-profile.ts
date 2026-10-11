@@ -15,7 +15,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function pgrep(pattern: string): Promise<number[]> {
   return new Promise((done) => {
-    execFile('pgrep', ['-f', pattern], (error, stdout) => {
+    execFile('pgrep', ['-f', '--', pattern], (error, stdout) => {
       if (error) return done([]);
       done(stdout.split(/\s+/).filter(Boolean).map(Number).filter((pid) => Number.isFinite(pid) && pid !== process.pid));
     });
