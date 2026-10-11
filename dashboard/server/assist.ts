@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { ensureUserDataDir } from './userdata.js';
 import { loadProfile } from './profile.js';
 import { fullContext } from './files.js';
+import { listAnswers } from './answers.js';
 import { humanizerAllowed } from './entitlements.js';
 import type { CandidateProfile } from './candidate-profile.js';
 
@@ -17,7 +18,7 @@ import type { CandidateProfile } from './candidate-profile.js';
  * the single shared `seek-bot/data/` folder and `seek-bot/.env` regardless of
  * who was signed in. The queue now lives in that account's own directory
  * (there is no `queue_items` table — see `userdata.ts` for why that is fine);
- * the profile and knowledge context now come from this account's Postgres
+ * the profile, knowledge context and saved answers come from this account's Postgres
  * rows, never from seek-bot's own process-wide `config`/`loadProfile()`
  * singleton (which this module runs alongside, in the same long-lived
  * dashboard process, and which is only ever correct for ONE account for the
@@ -164,13 +165,16 @@ export async function answerForm(
       description: input.description ?? queued?.fitReason ?? '',
     };
 
-    const context = await fullContext(userId);
+    const [context, savedAnswers] = await Promise.all([
+      fullContext(userId),
+      input.fields.length ? listAnswers(userId) : Promise.resolve([]),
+    ]);
     const knowledge = context.ok ? (context.text ?? '') : '';
 
     const wantsLetter = input.fields.some((f) => /cover letter/i.test(f.label));
     const [answered, letter] = await Promise.all([
       input.fields.length
-        ? llm.answerFields(input.fields, job, profile, knowledge)
+        ? llm.answerFields(input.fields, job, profile, knowledge, { savedAnswers })
         : Promise.resolve({ answers: [], injectionSuspected: false }),
       queued?.coverLetter
         ? Promise.resolve(queued.coverLetter)

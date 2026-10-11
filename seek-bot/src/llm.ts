@@ -3,7 +3,7 @@ import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel } from '.
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
 import { cachedAssessment, relevantEvidence, measured } from './pipeline.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
-import { buildKnowledgeContext, loadSavedAnswers } from './knowledge.js';
+import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
 import { recentReviewFeedback } from './store.js';
 import {
   humanizeCoverLetter,
@@ -378,6 +378,8 @@ export async function answerFields(
    */
   options: {
     deeper?: boolean;
+    /** Account-scoped answer bank supplied by a multi-account caller. */
+    savedAnswers?: readonly SavedAnswer[];
     /**
      * The page the fields sit on, as untrusted text. Given once for the whole
      * batch rather than copied into every field's description, which repeated
@@ -387,7 +389,10 @@ export async function answerFields(
   } = {},
 ): Promise<{ answers: FieldAnswer[]; injectionSuspected: boolean }> {
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
-  const saved = loadSavedAnswers();
+  // A dashboard's account-specific context must never fall back to a shared
+  // answer bank, even if its caller forgot to supply saved answers. Workers
+  // without an override still read their isolated DATA_DIR as before.
+  const saved = (options.savedAnswers ?? (knowledgeOverride === undefined ? loadSavedAnswers() : [])).slice(0, 200);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney' });
   const where = job.platform === 'indeed' ? 'Indeed' : job.platform === 'external' ? "the employer's website" : 'SEEK';
   /**
