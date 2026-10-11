@@ -26,6 +26,9 @@ profile.txt
 *.pdf
 *.rtf
 render_check/
+# Scratch work: drafts, renders and one-off verification scripts
+tmp/
+output/
 
 # Local tool configuration
 .claude/
