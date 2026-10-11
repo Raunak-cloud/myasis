@@ -187,7 +187,7 @@ say "8/8  Nightly backups and housekeeping"
 # configure an rclone remote named "backup" (any S3/R2/B2/Drive):
 #   sudo rclone config
 sudo apt-get install -y -qq rclone
-sudo install -m 755 "$APP_DIR/deploy/maintenance.sh" "$APP_DIR/deploy/maintenance.sh"
+sudo chmod 755 "$APP_DIR/deploy/maintenance.sh"
 sudo install -m 644 "$APP_DIR/deploy/myasis.cron" /etc/cron.d/myasis
 
 say "8/8  PM2 dashboard service"

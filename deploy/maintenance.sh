@@ -17,6 +17,7 @@
 # Chrome profiles themselves are deliberately not backed up: they are
 # hundreds of MB each and hold only a SEEK sign-in the person can redo.
 set -euo pipefail
+umask 077
 
 APP_DIR="${MYASIS_DIR:-/home/myasis/myasis}"
 USERS_DIR="$APP_DIR/seek-bot/data/users"
@@ -26,7 +27,7 @@ REMOTE="${MYASIS_BACKUP_REMOTE:-backup}"
 KEEP_LOCAL_DAYS=14
 KEEP_REMOTE_DAYS=30
 KEEP_TRACE_DAYS=30
-STAMP="$(date +%Y%m%d-%H%M)"
+STAMP="$(date +%Y%m%d-%H%M%S)"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
@@ -35,16 +36,24 @@ mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
 db_file="$BACKUP_DIR/db-$STAMP.dump"
+files_file="$BACKUP_DIR/files-$STAMP.tar.gz"
+db_tmp="$db_file.part-$$"
+files_tmp="$files_file.part-$$"
+trap 'rm -f -- "$db_tmp" "$files_tmp"' EXIT
+trap 'log "ERROR: maintenance failed at line $LINENO"' ERR
 # Custom format: compressed, and pg_restore can pick single tables from it.
-sudo -u postgres pg_dump -Fc "$DB_NAME" > "$db_file"
+sudo -u postgres pg_dump -Fc "$DB_NAME" > "$db_tmp"
+pg_restore --list "$db_tmp" > /dev/null
+mv -- "$db_tmp" "$db_file"
 log "database → $db_file ($(du -h "$db_file" | cut -f1))"
 
-files_file="$BACKUP_DIR/files-$STAMP.tar.gz"
 if [ -d "$USERS_DIR" ]; then
   # Only what userdata.ts calls canonical in the directory; everything else
   # there is re-exported from Postgres before each run.
   (cd "$USERS_DIR" && find . -maxdepth 2 \( -name resumes -o -name knowledge -o -name queue.json \) -print0 \
-    | tar --null -czf "$files_file" --files-from - 2>/dev/null) || : > "$files_file"
+    | tar --null -czf "$files_tmp" --files-from -)
+  tar -tzf "$files_tmp" > /dev/null
+  mv -- "$files_tmp" "$files_file"
   log "account files → $files_file ($(du -h "$files_file" | cut -f1))"
 fi
 
@@ -59,6 +68,11 @@ if command -v rclone >/dev/null && rclone listremotes 2>/dev/null | grep -qx "$R
   log "copied off-box to $REMOTE:myasis/"
 else
   log "WARNING: no rclone remote '$REMOTE' — backups are on this machine only"
+fi
+
+if [ "${MYASIS_BACKUP_ONLY:-0}" = 1 ]; then
+  log "backup-only run completed"
+  exit 0
 fi
 
 # ---- 3. Chrome caches ---------------------------------------------------

@@ -228,12 +228,23 @@ shutdown waits for this cleanup; PM2 allows 30 seconds before forcing it down.
 land in `/var/backups/myasis` (14 days kept), then idle Chrome caches and traces
 older than 30 days are cleared. Log: `/var/log/myasis-maintenance.log`.
 
+Cron calls `/bin/bash` explicitly so backups work even if a checkout resets
+the script's execute permission. Backup files are private and published only
+after archive validation; failures stop the job and are logged as errors.
+Run just the backup portion with
+`sudo MYASIS_BACKUP_ONLY=1 bash /home/myasis/myasis/deploy/maintenance.sh`.
+
 Backups stay on the machine until an rclone remote named `backup` exists — do
 this once on the VPS (`sudo rclone config`, any S3/R2/B2/Drive bucket) and the
 next night's run copies there and keeps 30 days.
 
-Restore: `sudo -u postgres pg_restore -d myasis --clean /var/backups/myasis/db-<stamp>.dump`
-and `tar -xzf files-<stamp>.tar.gz -C ~/myasis/seek-bot/data/users`.
+Test recovery in a separate empty database first, using `pg_restore` with
+`--exit-on-error --no-owner --no-privileges`. Backup files are readable by root
+only, so open the dump as root and pass it on standard input to the postgres
+process. Extract the matching file archive into a private temporary directory
+and check the recovered files. Remove these temporary targets after the test.
+For an actual recovery, stop the application before restoring the database and
+matching account files to their production locations.
 
 ## Coolify
 

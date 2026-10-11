@@ -3,4 +3,4 @@
 # window and after the 9pm digest.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-15 3 * * * root /home/myasis/myasis/deploy/maintenance.sh >> /var/log/myasis-maintenance.log 2>&1
+15 3 * * * root /bin/bash /home/myasis/myasis/deploy/maintenance.sh >> /var/log/myasis-maintenance.log 2>&1

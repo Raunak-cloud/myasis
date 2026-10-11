@@ -78,6 +78,10 @@ as_app "cd $APP/market-scout && npm exec tsc -- -p . && npm test"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"
+# Cron invokes Bash explicitly, so a Git checkout cannot disable backups by
+# resetting maintenance.sh's execute bit. Keep installed scheduling in sync.
+bash "$APP/deploy/maintenance.test.sh"
+install -m 644 "$APP/deploy/myasis.cron" /etc/cron.d/myasis
 # pm2 remembers the environment a process was started with, and --update-env only
 # adds what the calling shell has. So the run limit is changed by giving it to this
 # script (MAX_CONCURRENT_RUNS=3 bash deploy.sh): it is handed to pm2 on the restart
