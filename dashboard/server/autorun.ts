@@ -305,6 +305,47 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
 }
 
 /**
+ * How long an account waits after scheduled runs that failed in a row: 5,
+ * 15 and 45 minutes, then two hours at most.
+ *
+ * Only a successful run counts toward the day's allowance, so a failed one
+ * left the account due again on the very next minute. An account whose board
+ * had walled it was relaunched every tick — a lane, a Chrome and model calls
+ * each time, against a site already refusing it.
+ */
+export function retryDelayMinutes(failures: number): number {
+  if (failures <= 0) return 0;
+  return [5, 15, 45, 120][Math.min(failures, 4) - 1];
+}
+
+/**
+ * Scheduled runs that failed in a row since each account's last successful
+ * run, from the run records themselves, so a restart keeps the backoff. A run
+ * the person stopped is not a failure; the streak only looks back a day.
+ */
+async function failureStreaks(userIds: string[]): Promise<Map<string, { failures: number; lastAt: number }>> {
+  const streaks = new Map<string, { failures: number; lastAt: number }>();
+  if (!userIds.length) return streaks;
+  const rows = await query<{ user_id: string; failures: number; last_at: Date | string }>(
+    `SELECT r.user_id::text AS user_id, count(*)::int AS failures, max(r.finished_at) AS last_at
+       FROM run_starts r
+      WHERE r.user_id = ANY($1::bigint[])
+        AND r.trigger IN ('auto', 'onboarding')
+        AND r.finished_at IS NOT NULL
+        AND NOT r.successful
+        AND NOT r.stopped
+        AND r.started_at > now() - interval '1 day'
+        AND r.started_at > COALESCE(
+          (SELECT max(s.started_at) FROM run_starts s WHERE s.user_id = r.user_id AND s.successful),
+          '-infinity'::timestamptz)
+      GROUP BY r.user_id`,
+    [userIds],
+  );
+  for (const row of rows) streaks.set(String(row.user_id), { failures: row.failures, lastAt: new Date(row.last_at).getTime() });
+  return streaks;
+}
+
+/**
  * One pass. Returns the accounts it started, for the log and for tests.
  */
 async function autoRunTick(now: Date = new Date()): Promise<string[]> {
@@ -331,6 +372,11 @@ async function autoRunTick(now: Date = new Date()): Promise<string[]> {
   const order = timetabled(scheduled);
   const today = localDay(now);
   const free = (userId: string) => !runner.stateFor(userId).running && !sessionFor(userId);
+  const streaks = await failureStreaks(order.map((account) => account.userId));
+  const backingOff = (userId: string) => {
+    const streak = streaks.get(userId);
+    return Boolean(streak && now.getTime() < streak.lastAt + retryDelayMinutes(streak.failures) * 60_000);
+  };
 
   /**
    * Timetabled accounts whose slot has passed, hungriest first.
@@ -348,7 +394,7 @@ async function autoRunTick(now: Date = new Date()): Promise<string[]> {
       done: account.entitlements.autoRunsUsedToday,
       dueAt: dueMinutes(account.userId, today, index, account.entitlements.autoRunsUsedToday, order.length, MAX_CONCURRENT, account.entitlements.autoRunsPerDay),
     }))
-    .filter((a) => a.done < a.entitlements.autoRunsPerDay && elapsed >= a.dueAt && free(a.userId))
+    .filter((a) => a.done < a.entitlements.autoRunsPerDay && elapsed >= a.dueAt && free(a.userId) && !backingOff(a.userId))
     .sort((a, b) => {
       const priority = (account: typeof a) => account.entitlements.tier === 'intensive'
         ? 2

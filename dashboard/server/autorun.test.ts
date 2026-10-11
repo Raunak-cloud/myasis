@@ -1,4 +1,4 @@
-import { dueMinutes, slotMinutes } from './autorun.js';
+import { dueMinutes, retryDelayMinutes, slotMinutes } from './autorun.js';
 
 /**
  * A whole day, minute by minute, against the timetable.
@@ -127,6 +127,12 @@ for (const day of days) {
 check('every varied time stays inside its own part of the day', inBlock);
 check("an account's runs stay in order within a day", ordered);
 check('the same day always gives the same time (restarts agree)', dueMinutes('4', '2026-09-15', 0, 1, 10, LANES, RUNS) === dueMinutes('4', '2026-09-15', 0, 1, 10, LANES, RUNS));
+
+// ---- a failed scheduled run is retried after a growing wait, not on the next tick
+console.log('');
+check('no failures, no wait', retryDelayMinutes(0) === 0);
+check('the waits grow 5, 15, 45 minutes', [1, 2, 3].map(retryDelayMinutes).join(',') === '5,15,45');
+check('and stop growing at two hours', retryDelayMinutes(4) === 120 && retryDelayMinutes(40) === 120);
 
 console.log(`\n${bad} failure(s)`);
 process.exit(bad ? 1 : 0);
