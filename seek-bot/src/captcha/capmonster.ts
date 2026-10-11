@@ -30,6 +30,14 @@ const SOLVE_DEADLINE_MS = 200_000;
 
 /** Errors about the account, not the task. Retrying them only earns an IP ban. */
 const ACCOUNT_ERRORS = new Set(['ERROR_KEY_DOES_NOT_EXIST', 'ERROR_ZERO_BALANCE', 'ERROR_IP_NOT_ALLOWED', 'ERROR_IP_BANNED']);
+/**
+ * ERROR_IP_BANNED is the one that lifts by itself: CapMonster blocks an
+ * address for about ten minutes for too many requests or errors. It used to
+ * disable the solver for the rest of the run like a dead key, after which
+ * every security check — for hours — ended the application as needs-human.
+ */
+const BAN_COOLDOWN_MS = 15 * 60_000;
+let bannedUntil = 0;
 /** CapMonster documents these as temporary and recommends creating a new task. */
 const RETRYABLE_TASK_ERRORS = new Set(['ERROR_CAPTCHA_UNSOLVABLE', 'ERROR_RECAPTCHA_TIMEOUT', 'ERROR_SERVICE_NOT_AVAILABLE']);
 let accountError: string | null = null;
@@ -56,7 +64,8 @@ async function call<T extends ApiReply>(method: string, body: Record<string, unk
   const reply = (await response.json()) as T;
   if (reply.errorId) {
     const code = reply.errorCode || `HTTP_${response.status}`;
-    if (ACCOUNT_ERRORS.has(code)) accountError = code;
+    if (code === 'ERROR_IP_BANNED') bannedUntil = Date.now() + BAN_COOLDOWN_MS;
+    else if (ACCOUNT_ERRORS.has(code)) accountError = code;
     if (code === 'ERROR_ZERO_BALANCE') providerOutOfCredit('CapMonster');
     throw new CapMonsterError(code, reply.errorDescription ?? undefined);
   }
@@ -77,7 +86,20 @@ export async function solveTask(
       const { taskId } = await call<ApiReply & { taskId: number }>('createTask', { task });
       for (let wait = FIRST_POLL_MS; Date.now() + wait < deadline; wait = POLL_MS) {
         await sleep(wait);
-        const reply = await call<ApiReply & { status: string; solution?: Record<string, unknown> }>('getTaskResult', { taskId });
+        let reply: ApiReply & { status: string; solution?: Record<string, unknown> };
+        try {
+          reply = await call('getTaskResult', { taskId });
+        } catch (error) {
+          /**
+           * A poll that did not get through — a dropped connection, a 15 s
+           * hang, an error page — says nothing about the task, which
+           * CapMonster is still solving and will charge for. Asking again is
+           * safe; giving up used to throw the paid solve away mid-deadline.
+           */
+          if (error instanceof CapMonsterError) throw error;
+          console.warn(`[captcha] capmonster: result check for task ${taskId} did not get through (${(error as Error).message}); asking again.`);
+          continue;
+        }
         if (reply.status === 'ready' && reply.solution) return { taskId, solution: reply.solution };
       }
       throw new CapMonsterError('TIMEOUT', `task ${taskId} was not solved before the shared deadline`);
@@ -286,9 +308,10 @@ async function solveCloudflareChallenge(page: Page): Promise<number | null> {
 
 let warnedNoKey = false;
 
-/** A key is set and the account has not failed this run. */
+/** A key is set, the account has not failed this run, and no temporary ban is in force. */
 export function capMonsterReady(): boolean {
   if (accountError) return false;
+  if (Date.now() < bannedUntil) return false;
   if (apiKey()) return true;
   if (!warnedNoKey) console.warn('[captcha] capmonster: CAPMONSTER_API_KEY is not set; solver skipped.');
   warnedNoKey = true;

@@ -182,11 +182,12 @@ export async function signInAutomatically(
 ): Promise<SigninAttempt> {
   const stopAnswering = await answerBrowserSigninPrompts(page, browserGmailAccount(), log);
   try {
+    // The prompt hook has to be in place before the sign-in page asks, so the page is loaded again under it.
+    // Reloaded before any challenge is solved: a token lives in the page, and reloading after the solve threw it away and paid for a second.
+    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
     const captcha = await handleCaptchaWithCapMonster(page);
     if (captcha === 'blocked') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: 0 };
     if (captcha === 'solved') await page.waitForTimeout(1_500).catch(() => {});
-    // The prompt hook has to be in place before the sign-in page asks, so the page is loaded again under it.
-    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
     return await drive(page, site, isSignedIn, log);
   } finally {
     await stopAnswering();
