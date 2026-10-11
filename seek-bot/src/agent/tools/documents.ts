@@ -11,6 +11,7 @@ import { hostOf } from '../../site-auth.js';
 import { locate } from '../raw-tools.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
 import { boardResumeInstead } from './resume-step.js';
+import { assertLive } from '../../tool-run.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -54,6 +55,7 @@ export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, un
     if (field) await fillField(ctx.page, field, letter, 'type');
     else {
       // fill() replaces whatever the box held; read back so a box that rejected it is not reported as written.
+      assertLive();
       await writable!.fill(letter, { timeout: 10_000 });
       const held = embeddedKind === 'editor'
         ? await writable!.innerText({ timeout: 5_000 })
@@ -85,7 +87,7 @@ export async function addCoverLetterFile(ctx: ToolContext, action: Observation['
   const accept = (await input.getAttribute('accept').catch(() => null)) ?? '';
   const document = await coverLetterDocument(ctx, accept);
   if (!document) return ok(`This upload only accepts "${accept}", and the cover letter could not be produced in that format. Look for a text box or another option.`);
-  try { await input.setInputFiles(document.file, { timeout: 10_000 }); }
+  try { assertLive(); await input.setInputFiles(document.file, { timeout: 10_000 }); }
   catch { return ok('The cover-letter upload control changed after the last observation. Re-observe and use the current upload ACTION ref.'); }
   coverLetterSent(ctx, document);
   return ok('Cover letter uploaded as a document. Re-observe: confirm the file appears and resolve any upload error before continuing.');
@@ -168,7 +170,7 @@ export async function doAttachResume(ctx: ToolContext, args: Record<string, unkn
   const format = typeof args.format === 'string' && /^(pdf|docx|doc|rtf|txt)$/.test(args.format) ? `.${args.format}` : '';
   const document = await resumeDocument(ctx, accept, format);
   if ('error' in document) return ok(`${identity} ${document.error} Select a matching existing document or another upload option on the page; otherwise finish with cannot_complete.`);
-  try { await input.setInputFiles(document.file, { timeout: 10_000 }); }
+  try { assertLive(); await input.setInputFiles(document.file, { timeout: 10_000 }); }
   catch {
     return ok(`${identity} The resume upload control changed after the last observation. Re-observe and use the current upload ACTION ref; do not abandon the application.`);
   }

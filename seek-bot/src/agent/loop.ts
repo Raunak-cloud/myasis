@@ -2,7 +2,8 @@ import { hostOf as siteHost } from '../site-auth.js';
 import { recordWall, walledHost } from '../site-walls.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
 import { recordFormPage } from '../form-corpus.js';
-import { changedAnything, describeChanges, readChanges, startRecording, type PageChanges } from './page-changes.js';
+import { changedAnything, describeChanges, movedByAction, readChanges, startRecording, type PageChanges } from './page-changes.js';
+import { NARRATIVE_ARGS } from './tools/schemas.js';
 import { lessonsFor, platformOf, reviewFailure } from './lessons.js';
 import type { ApplicationAction } from '../types.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -131,6 +132,8 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   let needVision = false;
   /** The last turn's actions changed something in the page, as recorded there. */
   let lastChanged = false;
+  /** ...and the change was one an action makes: navigation, a control's state, elements coming or going. */
+  let lastMoved = false;
   /** A tool in the last turn reported a problem. */
   let lastFailed = false;
   /** Where and when verified progress happened, to confirm the sign-ins and sign-ups before it. */
@@ -155,6 +158,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   const hintedHosts = new Set<string>();
   let lastUrl = '';
   let lastFingerprint = '';
+  let lastStructure = '';
   /** The last tool only looked (a snapshot, a scroll): an unchanged page after it is not an action that failed. */
   let lastLookedOnly = false;
 
@@ -410,13 +414,29 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     const pageBudget = guards.onPage(`${pathOf(page.url())}#${headings}`);
     if (!pageBudget.ok) return finish({ status: 'needs-human', reason: pageBudget.reason, detail: pageBudget.detail });
 
-    // A page that has not changed since the last turn means the previous action
-    // did nothing. Say so explicitly rather than letting the model repeat it.
-    const fingerprint = JSON.stringify({
+    /**
+     * A page that has not changed since the last turn means the previous
+     * action did nothing. Say so explicitly rather than letting the model
+     * repeat it.
+     *
+     * The main frame is compared by its structure — controls, fields, their
+     * values and validation messages, headings — not its prose. Its 6,000
+     * characters of text used to be in here, so a countdown or a rotating
+     * banner made every turn look like progress: the stall count never
+     * climbed, and each turn reset the stuck timer and the page's step
+     * allowance and grew the attempt's step, time and cost ceilings.
+     *
+     * An embedded form keeps its text: the main-frame observation cannot see
+     * inside it, and a form that looked unchanged while being filled is why
+     * the embedded surface is compared at all.
+     */
+    const structure = JSON.stringify({
       actions: ctx.observation.actions.map(a => [a.text, a.disabled]),
-      fields: ctx.observation.fields.map(f => [f.label, f.currentValue, f.options]),
-      text: ctx.observation.text,
-      // The observation is the main frame's; work inside an embedded form is progress too.
+      fields: ctx.observation.fields.map(f => [f.label, f.currentValue, f.options, f.validationError ?? '']),
+      headings,
+    });
+    const fingerprint = JSON.stringify({
+      structure,
       embedded: config.celeris.rawTools ? await embeddedSurface(page) : '',
     });
     if (page.url() === lastUrl && fingerprint === lastFingerprint && (lastLookedOnly || lastChanged)) {
@@ -450,10 +470,17 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       }
     } else {
       stalls = 0;
-      guards.recordProgress();
+      /**
+       * Changed is not the same as getting somewhere. The page's own
+       * structure moving, or an action that visibly did something, earns the
+       * attempt more budget; text inside an embedded form changing on its own
+       * only stops the stall count.
+       */
+      if (page.url() !== lastUrl || structure !== lastStructure || lastMoved) guards.recordProgress();
     }
     lastUrl = page.url();
     lastFingerprint = fingerprint;
+    lastStructure = structure;
 
     /**
      * Magnus reasons from every step. Trialled against celeris-1 for routine
@@ -545,7 +572,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * loop, not progress. One form ate 22 identical clicks before the step
      * budget ended it; stopping at the fourth saves the budget and the money.
      */
-    const signature = plan.map((call) => `${call.name}:${JSON.stringify(call.args)}`).join('|');
+    const signature = plan.map((call) => `${call.name}:${JSON.stringify(
+      Object.fromEntries(Object.entries(call.args).filter(([key]) => !NARRATIVE_ARGS.has(key))),
+    )}`).join('|');
     repeats = signature === lastSignature ? repeats + 1 : 0;
     lastSignature = signature;
     if (repeats >= 3 && stalls >= 2) {
@@ -560,6 +589,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     if (plan.length > 1) log(`  ▸ plan: ${plan.map((call) => call.name).join(' → ')}`);
     lastLookedOnly = plan.every((call) => LOOK_ONLY_TOOLS.has(call.name));
     lastChanged = false;
+    lastMoved = false;
     lastFailed = false;
     const replies: Array<{ id: string; content: string }> = [];
     let ended: ToolResult | null = null;
@@ -632,6 +662,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
           result = { kind: 'ok', message: `${result.message}\n${describeChanges(changes)}${check}` };
           if (changedAnything(changes)) lastChanged = true;
           else ctx.wantScreenshot = true;
+          if (movedByAction(changes)) lastMoved = true;
         }
       }
 

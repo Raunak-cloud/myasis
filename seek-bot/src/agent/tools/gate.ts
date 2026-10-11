@@ -12,7 +12,7 @@ import { hostOf } from '../../site-auth.js';
 import { offersCoverLetter } from '../cover-letter-opportunity.js';
 import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resume-sync.js';
 import { boardFullOutcome, settleResume } from './resume-step.js';
-import { ToolResult, ToolContext, ok, noteAction, toolRun } from './context.js';
+import { ToolResult, ToolContext, ok, noteAction, abandoned } from './context.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -122,8 +122,7 @@ export async function gateAdvance(
   options: { role?: string; knownSubmit?: boolean } = {},
 ): Promise<Gate> {
   // A call already abandoned for taking too long may not press anything: the agent has moved on without it.
-  const run = toolRun.getStore();
-  if (run && ctx.retiredGenerations?.includes(run.generation)) {
+  if (abandoned()) {
     ctx.log(`  · held "${label.slice(0, 60)}": it came from a step already abandoned`);
     return { proceed: false, result: ok('This step was abandoned for taking too long; nothing was pressed.') };
   }

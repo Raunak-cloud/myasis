@@ -97,6 +97,13 @@ function withPressJudgement(tool: ToolSchema): ToolSchema {
   };
 }
 
+/**
+ * Arguments that explain an action rather than define it. Two calls that
+ * differ only here are the same action: the repeat check leaves these out, or
+ * a rephrased reason made every retry of a dead click look new.
+ */
+export const NARRATIVE_ARGS: ReadonlySet<string> = new Set(['reason', 'no_cover_letter_place']);
+
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'choose_option',

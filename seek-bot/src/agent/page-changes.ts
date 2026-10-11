@@ -28,6 +28,15 @@ export interface PageChanges {
 export const changedAnything = (changes: PageChanges): boolean =>
   changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length || changes.text.length);
 
+/**
+ * The page moved in a way an action causes: it navigated, a control's state
+ * changed, or elements came or went. Text changing in place is left out — a
+ * countdown or a rotating banner does that on its own, and must not be taken
+ * for the application getting somewhere.
+ */
+export const movedByAction = (changes: PageChanges): boolean =>
+  changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length);
+
 /** Installed in a document; kept tiny and dependency-free because it runs in the page. */
 function install(): void {
   type Store = { added: Element[]; removed: string[]; controls: string[]; text: string[]; observer?: MutationObserver; onInput?: (event: Event) => void };

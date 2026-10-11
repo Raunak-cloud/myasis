@@ -5,6 +5,7 @@ import type { FormField } from '../types.js';
 import { isAustralianGovernmentUrl } from '../site-policy.js';
 import type { ToolSchema } from './celeris.js';
 import { isForbiddenDestination, siteDomain } from './guards.js';
+import { abandoned } from '../tool-run.js';
 import {
   coverLetterDocument,
   coverLetterSent,
@@ -163,6 +164,8 @@ function applicationSites(ctx: ToolContext): Set<string> {
  * for a site the application is not on.
  */
 async function watched(ctx: ToolContext, label: string, run: () => Promise<ToolResult>): Promise<ToolResult> {
+  // Every general tool that changes the page comes through here, after any model call it made: an abandoned one stops now.
+  if (abandoned()) return ok('This step was abandoned for taking too long; nothing was changed.');
   ctx.lastActionLabel = label;
   let held: ToolResult | null = null;
   const refused: string[] = [];
@@ -208,8 +211,11 @@ async function watched(ctx: ToolContext, label: string, run: () => Promise<ToolR
     }
     return result;
   } finally {
-    ctx.submitCleared = false;
-    ctx.pressJudged = false;
+    // These belong to the live call. An abandoned one finishing late used to clear them under it, and its own submit was then held at the wire.
+    if (!abandoned()) {
+      ctx.submitCleared = false;
+      ctx.pressJudged = false;
+    }
     await context.unroute('**/*', handler).catch(() => {});
   }
 }

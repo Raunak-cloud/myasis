@@ -1,5 +1,6 @@
 import type { Locator, Page } from 'patchright';
 import type { FormField } from './types.js';
+import { assertLive } from './tool-run.js';
 
 /**
  * Extracts the interactive fields on the current step as a compact list.
@@ -718,6 +719,8 @@ export async function readPickerOptions(page: Page, ref: string): Promise<string
 
 /** Fill only reports success after the browser accepts and retains the value. */
 export async function fillField(page: Page, field: FormField, value: string, modelDirected: false | 'type' | 'search' = false): Promise<void> {
+  // An agent tool call abandoned for taking too long must not write into a page the agent has moved on from.
+  assertLive();
   await fillFieldUnchecked(page, field, value, modelDirected);
   // A search query is not a committed combobox answer. Its validation can
   // remain invalid until the model clicks an offered option; the caller

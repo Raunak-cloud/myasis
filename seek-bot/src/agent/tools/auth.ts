@@ -7,6 +7,7 @@ import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from
 import { storedCredential } from '../../site-credentials.js';
 import { isAustralianGovernmentUrl } from '../../site-policy.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
+import { assertLive } from '../../tool-run.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -105,6 +106,7 @@ export async function fillEmailedCode(page: Page, fields: Observation['fields'],
     if (capacity >= 0 && capacity < values[i].length) return false;
   }
   for (let i = 0; i < inputs.length; i++) {
+    assertLive();
     await inputs[i].fill(values[i], { timeout: 5_000 });
     // The final digit can auto-advance the page; fresh observation verifies that.
     if (i < inputs.length - 1 && await inputs[i].inputValue() !== values[i]) return false;
