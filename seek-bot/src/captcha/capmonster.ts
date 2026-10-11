@@ -1,5 +1,6 @@
 import type { Frame, Page } from 'patchright';
-import { providerOutOfCredit } from '../run-health.js';
+import { countHealth, providerOutOfCredit } from '../run-health.js';
+import { metric } from '../pipeline.js';
 import { INTERSTITIAL, type Challenge, type Solver } from './detect.js';
 
 /**
@@ -322,18 +323,34 @@ export const capMonsterSolver: Solver = {
   name: 'capmonster',
   supports: capMonsterReady,
   async solve(page, challenge) {
+    /**
+     * Every solve is recorded, not only the failures: a success used to log
+     * nothing, so a check CapMonster cleared looked exactly like one that
+     * cleared by itself, and its success rate and cost could not be read
+     * from any run.
+     */
+    const startedAt = Date.now();
+    let site = '';
+    try { site = new URL(page.url()).host; } catch { /* a page with no address yet */ }
+    const record = (solved: boolean) => {
+      const ms = Date.now() - startedAt;
+      countHealth(solved ? 'captchaSolved' : 'captchaFailed');
+      metric('captcha', ms, { kind: challenge.kind, site, solved });
+      return `${challenge.kind} on ${site || 'this page'} in ${Math.round(ms / 1000)}s`;
+    };
     try {
       const taskId = challenge.kind === 'turnstile' ? await solveTurnstile(challenge)
         : challenge.kind === 'recaptcha-v2' ? await solveRecaptcha(challenge)
         : await solveCloudflareChallenge(page);
       if (!taskId) {
-        console.warn(`[captcha] capmonster: solved ${challenge.kind}, but the page offers nowhere to put the token.`);
+        console.warn(`[captcha] capmonster: solved ${record(false)}, but the page offers nowhere to put the token.`);
         return false;
       }
       applied.set(page, taskId);
+      console.log(`[captcha] capmonster: solved ${record(true)}.`);
       return true;
     } catch (error) {
-      console.warn(`[captcha] capmonster: ${challenge.kind} not solved (${(error as Error).message}).`);
+      console.warn(`[captcha] capmonster: not solved — ${record(false)} (${(error as Error).message}).`);
       if (accountError) console.warn(`[captcha] capmonster: disabled for this run — ${accountError}.`);
       return false;
     }

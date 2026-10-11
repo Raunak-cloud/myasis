@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { signInAutomatically } from './signin-agent.js';
 import { captchaEnabled, handleCaptchaWithCapMonster, watchCaptchas } from './captcha.js';
 import { hasCaptchaSurface } from './captcha/detect.js';
+import { countHealth } from './run-health.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -443,6 +444,9 @@ export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): P
   while (Date.now() < automaticUntil) {
     await sleep(500);
     if (!(await showing())) {
+      // Said out loud, so a check that needed no solver is told apart from one CapMonster cleared.
+      console.log('  ✓ Security verification cleared by itself');
+      countHealth('captchaSelfCleared');
       await page.waitForLoadState('domcontentloaded').catch(() => {});
       return true;
     }

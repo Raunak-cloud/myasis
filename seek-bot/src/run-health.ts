@@ -20,13 +20,22 @@ interface RunHealth {
   draftLetters: number;
   /** Attempts whose submit was pressed but that were not confirmed as sent. */
   unconfirmedSubmits: number;
+  /**
+   * Security checks, by how they ended: solved by CapMonster (a paid task),
+   * not solved by it (also paid, unless it was refused outright), or cleared
+   * by themselves before any solver was asked.
+   */
+  captchaSolved: number;
+  captchaFailed: number;
+  captchaSelfCleared: number;
   /** Providers that refused for lack of credit, by name. */
   providerOutOfCredit: string[];
 }
 
 const FILE = resolve(config.dataDir, 'run-health.json');
 const health: RunHealth = {
-  attempted: 0, applied: 0, needsHuman: 0, humanizedLetters: 0, draftLetters: 0, unconfirmedSubmits: 0, providerOutOfCredit: [],
+  attempted: 0, applied: 0, needsHuman: 0, humanizedLetters: 0, draftLetters: 0, unconfirmedSubmits: 0,
+  captchaSolved: 0, captchaFailed: 0, captchaSelfCleared: 0, providerOutOfCredit: [],
 };
 
 function save(): void {
