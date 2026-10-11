@@ -24,7 +24,8 @@ import { settleReviews } from './agent/lessons.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { AppliedIndex, logOutcome, recentReviewFeedback, roleKey, saveRunSummary, syncFromSeek } from './store.js';
-import { savedAnswersUpdatedAt } from './knowledge.js';
+import { savedAnswerTimes } from './knowledge.js';
+import { waitingForAnswers } from './answer-gate.js';
 import { countHealth } from './run-health.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
@@ -209,6 +210,7 @@ async function main() {
 ⚠ ${adapter.label}: ${(error as Error).message} ${adapter.label} is left out for the rest of this run; the other board(s) carry on.`);
     };
     const feedback = recentReviewFeedback();
+    const answeredAt = savedAnswerTimes();
 
     /** Keep enough backups for unavailable/already-applied listings. */
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
@@ -226,8 +228,7 @@ async function main() {
 
         if (index.has(job.id, job.company, job.title, job.location)) continue;
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
-        const last = feedback.get(JSON.stringify([job.id, job.title, job.company]));
-        if (last?.status === 'needs-human' && savedAnswersUpdatedAt() < Date.parse(last.at)) {
+        if (waitingForAnswers(feedback.get(JSON.stringify([job.id, job.title, job.company])), answeredAt)) {
           bump('waiting for your answer');
           continue;
         }
@@ -403,9 +404,19 @@ async function main() {
       if (!job.applicationMode || job.applicationMode === 'unknown') return 1; // the board's panel will say
       return outsideScope(job.applicationMode) ? 2 : 0;
     };
+    /**
+     * Within scope, the boards' own recommendations are opened before search
+     * results, as the run promises (Run panel, landing page): with the
+     * evaluation cap a recommendation the pre-ranking scored low could
+     * otherwise never be opened at all. Scope stays first — an out-of-scope
+     * recommendation is dropped unopened anyway.
+     */
+    const recommendedFirst = (job: JobListing): number => (job.source === 'recommended' ? 0 : 1);
     const reviewOrder = (a: JobListing, b: JobListing) => {
       const scoped = scopeRank(a) - scopeRank(b);
       if (scoped) return scoped;
+      const recommended = recommendedFirst(a) - recommendedFirst(b);
+      if (recommended) return recommended;
       return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
     };
 
@@ -418,6 +429,11 @@ async function main() {
       const pageNumber = nextPage++;
       const round: Array<{ stream: SearchStream; accepted: JobListing[] }> = [];
       for (const stream of liveStreams()) {
+        // The round's list was taken before it started: a board walled earlier in this round is not asked again.
+        if (blockedPlatforms.has(stream.adapter.id)) {
+          stream.exhausted = true;
+          continue;
+        }
         let results: JobListing[];
         await sitePacer.ready(stream.adapter.id);
         try {
@@ -560,6 +576,8 @@ async function main() {
     /** Per-platform friction streaks — a wall on one board never stops the other. */
     const frictionStreak = new Map<PlatformId, number>();
     const abortedPlatforms = new Set<PlatformId>();
+    /** A board stopped for this run: walled during search or review, or rate-limited while applying. */
+    const stoppedPlatform = (platform: PlatformId) => blockedPlatforms.has(platform) || abortedPlatforms.has(platform);
 
     /** Turns one finished fit check into a candidate, or a logged skip. */
     const settleFit = (item: (typeof pendingFits)[number], { fit, error }: { fit?: Awaited<ReturnType<typeof assessFit>>; error?: string }) => {
@@ -845,7 +863,7 @@ async function main() {
      * find (up to the evaluation cap, half an hour) before its first application.
      */
     const bestCandidate = () => {
-      const best = candidates.filter((c) => !abortedPlatforms.has(c.job.platform ?? 'seek')).sort(preference)[0];
+      const best = candidates.filter((c) => !stoppedPlatform(c.job.platform ?? 'seek')).sort(preference)[0];
       if (!best) return undefined;
       if (hostedFirst(best.job) === 1 && !outsideScope('hosted') && !reviewExhausted()) return undefined;
       return best;
@@ -925,6 +943,18 @@ async function main() {
       const left = until - Date.now();
       if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
     };
+    /**
+     * The pause before the next application. A cooldown only protects the
+     * next interaction, so a run with nothing left to do does not wait it out.
+     */
+    const cooldown = async (full: boolean, prepareNext: boolean) => {
+      if (reviewExhausted() && !bestCandidate()) return;
+      await pauseWhileReviewing(
+        full ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
+        full ? config.limits.maxDelayMs : config.limits.maxNonSubmitDelayMs,
+        prepareNext,
+      );
+    };
     // ---- apply -----------------------------------------------------------
     let applied = 0;
     let rehearsed = 0;
@@ -977,6 +1007,10 @@ async function main() {
         console.log(`  – skipped (${adapter.label} stopped earlier this run after repeated friction): ${job.title} @ ${job.company}`);
         continue;
       }
+      if (blockedPlatforms.has(platformId)) {
+        console.log(`  – skipped (${adapter.label} hit a security check earlier this run): ${job.title} @ ${job.company}`);
+        continue;
+      }
 
       // A rehearsal's cap counts every application that reached its end, so one that somehow went out still stops it.
       const completed = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed + applied : applied;
@@ -1002,6 +1036,8 @@ async function main() {
        */
       let outcome: ApplyOutcome;
       let candidateHitFriction = false;
+      // Applying opens the board's listing again: a search just made there still has its gap to run out.
+      await sitePacer.ready(platformId);
       try {
         outcome = await measured('application', () => adapter.apply(page, job, profile, {
           onFriction: () => {
@@ -1028,6 +1064,8 @@ async function main() {
         }
         console.log(`  ✗ unexpected error: ${msg}`);
         logOutcome({ status: 'error', jobId: job.id, error: msg, title: job.title, company: job.company });
+        // It may have failed halfway through the board's form, so the next request still keeps its distance.
+        await cooldown(candidateHitFriction, !candidateHitFriction);
         continue;
       }
       /**
@@ -1128,18 +1166,13 @@ async function main() {
         console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
         break;
       }
-      // A cooldown only protects the next interaction. Do not make a finished
-      // run wait another 25–70 seconds before reporting its result.
-      if (!reviewExhausted() || bestCandidate()) {
-        // Preserve full pacing after a submission or verification wall. An
-        // attempt that sent nothing only needs a short, polite request gap.
-        const fullCooldown = outcome.status === 'applied' || candidateHitFriction;
-        await pauseWhileReviewing(
-          fullCooldown ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
-          fullCooldown ? config.limits.maxDelayMs : config.limits.maxNonSubmitDelayMs,
-          !candidateHitFriction,
-        );
-      }
+      /**
+       * Full pacing after anything that may have reached the employer: a
+       * confirmed submission, a verification wall, or a submit that was pressed
+       * but never confirmed — that one may well have been sent, and used to get
+       * only the short gap meant for attempts that transmitted nothing.
+       */
+      await cooldown(outcome.status === 'applied' || candidateHitFriction || Boolean(outcome.submitPressed), !candidateHitFriction);
     }
 
     printSummary();

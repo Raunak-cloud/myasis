@@ -255,11 +255,24 @@ export async function searchViaDom(page: Page, keywords: string, pageNum = 1): P
     }));
 }
 
+/**
+ * Named like Indeed's, so the run's wall check recognises it by type. A plain
+ * Error saying "human verification" matched none of its patterns: SEEK was
+ * never dropped for the run, and every remaining keyword paid the challenge
+ * wait, the selector wait and a page judgement to hit the same wall.
+ */
+export class SeekVerificationBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SeekVerificationBlockedError';
+  }
+}
+
 export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
   const jobs = await searchViaDom(page, keywords, pageNum);
   // No cards is the only signal worth a model call: a wall, or simply no more results.
   if (!jobs.length && WALL_STATES.has((await judgePage(page, `SEEK search results for "${keywords}"`, { attemptSolve: false })).state)) {
-    throw new Error('SEEK search requires human verification. Open SEEK login, complete verification, close that Chrome window and retry. No search results were evaluated.');
+    throw new SeekVerificationBlockedError('SEEK search requires human verification. Open SEEK login, complete verification, close that Chrome window and retry. No search results were evaluated.');
   }
   return jobs.map((job) => ({ ...job, source: 'search' as const }));
 }

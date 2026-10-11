@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, extname } from 'node:path';
 import { relevantEvidence } from './pipeline.js';
 import { config } from './config.js';
+import { answerKey } from './answer-gate.js';
 
 export interface KnowledgeItem {
   id: string;
@@ -25,6 +26,8 @@ const ANSWERS = resolve(config.dataDir, 'answers.json');
 export interface SavedAnswer {
   question: string;
   answer: string;
+  /** When the candidate last saved it; the dashboard's export carries it. */
+  createdAt?: string;
 }
 
 /**
@@ -33,13 +36,19 @@ export interface SavedAnswer {
  * out of the relevance filter on purpose: an answer bank is small and every
  * entry may apply to any job.
  */
-/** When the candidate last changed their saved answers; 0 when they have none. */
-export function savedAnswersUpdatedAt(): number {
-  try {
-    return existsSync(ANSWERS) ? statSync(ANSWERS).mtimeMs : 0;
-  } catch {
-    return 0;
+/**
+ * When each saved answer was last given, by answer-bank key. Null when the
+ * bank cannot say (an export without times), so a caller fails open.
+ */
+export function savedAnswerTimes(): Map<string, number> | null {
+  const answers = loadSavedAnswers();
+  const times = new Map<string, number>();
+  for (const item of answers) {
+    const at = Date.parse(item.createdAt ?? '');
+    if (!Number.isFinite(at)) return null;
+    times.set(answerKey(item.question), at);
   }
+  return times;
 }
 
 export function loadSavedAnswers(): SavedAnswer[] {

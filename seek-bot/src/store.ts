@@ -108,9 +108,17 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
   writeFileSync(LOG, line + '\n', { flag: 'a' });
 }
 
+export interface ReviewFeedback {
+  at: string;
+  status: string;
+  reason: string;
+  /** The questions a needs-human stop was waiting on, when it was. */
+  questions?: Array<{ question?: unknown }>;
+}
+
 /** Past outcomes are context for model triage, never a permanent rejection. */
-export function recentReviewFeedback(): Map<string, { at: string; status: string; reason: string }> {
-  const result = new Map<string, { at: string; status: string; reason: string }>();
+export function recentReviewFeedback(): Map<string, ReviewFeedback> {
+  const result = new Map<string, ReviewFeedback>();
   try {
     const paths = [resolve(config.dataDir, 'review-history.jsonl'), LOG];
     const lines = paths.filter(existsSync).flatMap(path => readFileSync(path, 'utf8').trim().split('\n'));
@@ -121,7 +129,10 @@ export function recentReviewFeedback(): Map<string, { at: string; status: string
         if (!Number.isFinite(age) || age < 0 || age > 7 * 86400_000 || !row.jobId || !row.title || !row.company) continue;
         const reason = row.reason || row.error || row.redirectedTo;
         if (typeof reason !== 'string') continue;
-        result.set(JSON.stringify([row.jobId, row.title, row.company]), { at: row.ts, status: row.status, reason: reason.slice(0, 1200) });
+        result.set(JSON.stringify([row.jobId, row.title, row.company]), {
+          at: row.ts, status: row.status, reason: reason.slice(0, 1200),
+          ...(Array.isArray(row.questions) ? { questions: row.questions } : {}),
+        });
       } catch { /* A partial log line must not break discovery. */ }
     }
   } catch { /* A new account has no history. */ }

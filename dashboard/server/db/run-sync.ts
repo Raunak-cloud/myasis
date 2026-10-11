@@ -112,9 +112,10 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const knowledge = await listKnowledge(userId);
   writeFileSync(resolve(dir, 'knowledge.json'), JSON.stringify(knowledge, null, 2));
 
-  // The answer bank, read by seek-bot's knowledge.ts on every form step.
+  // The answer bank, read by seek-bot's knowledge.ts on every form step. When each
+  // answer was given decides whether a job that stopped for it is opened again.
   const answers = await listAnswers(userId);
-  writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer }) => ({ question, answer })), null, 2));
+  writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer, createdAt }) => ({ question, answer, createdAt })), null, 2));
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
@@ -145,14 +146,16 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   writeFileSync(resolve(dir, 'applied.json'), JSON.stringify(appliedJson, null, 2));
 
   // Ranking memory is separate from the current-run log, which is reset below.
-  const reviewHistory = await query<{ job_id: string; title: string; company: string; status: string; reason: string; ts: Date | string }>(
-    `SELECT job_id, title, company, status, reason, ts FROM run_events
+  const reviewHistory = await query<{ job_id: string; title: string; company: string; status: string; reason: string; ts: Date | string; questions: unknown[] | null }>(
+    `SELECT job_id, title, company, status, reason, ts, questions FROM run_events
       WHERE user_id = $1 AND ts > now() - interval '7 days' AND reason IS NOT NULL
       ORDER BY ts DESC LIMIT 2000`, [userId],
   );
   writeFileSync(resolve(dir, 'review-history.jsonl'), reviewHistory.reverse().map(row => JSON.stringify({
     jobId: row.job_id, title: row.title, company: row.company, status: row.status,
     reason: row.reason, ts: new Date(row.ts).toISOString(),
+    // A stop on the candidate's questions waits for their answers (seek-bot answer-gate.ts).
+    ...(Array.isArray(row.questions) && row.questions.length ? { questions: row.questions } : {}),
   })).join('\n'));
 
   const reviewCache = await query<ReviewCacheExportRow>(
