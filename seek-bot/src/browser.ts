@@ -7,6 +7,7 @@ import { captchaEnabled, handleCaptchaWithCapMonster, watchCaptchas } from './ca
 import { hasCaptchaSurface } from './captcha/detect.js';
 import { countHealth } from './run-health.js';
 import { selectRemotePage } from './employer-browser.js';
+import { metric } from './pipeline.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -46,6 +47,7 @@ async function installEsbuildNameShim(ctx: BrowserContext): Promise<void> {
  *  - optional CAPTCHA solving through CapMonster; unresolved challenges hand back to a human.
  */
 export async function launchBrowser(): Promise<BrowserContext> {
+  const started = performance.now();
   let ctx: BrowserContext;
   try {
     // Opt-in local capture for real-run demos. Keep raw applicant footage in
@@ -76,19 +78,17 @@ export async function launchBrowser(): Promise<BrowserContext> {
     }
 
     /**
-     * Three visibility modes, in increasing order of detectability:
+     * Modern Chrome shares its implementation between headed and headless.
      *
      *  visible    — normal window. You can watch it, but verification may still
      *               reject a browser launched under automation. Use the
      *               dashboard's manual-login handoff when that happens.
-     *  background — a real, fully-rendered window parked off-screen. Identical
-     *               fingerprint to visible; it just stays out of your way.
-     *  headless   — no window at all. Fastest, but headless Chrome is what bot
-     *               detection specifically fingerprints, and you cannot see or
-     *               clear a challenge when one appears.
+     *  background — a fully-rendered window parked off-screen.
+     *  headless   — no displayed window. Screenshots/live view still render;
+     *               interactive sign-in uses the separate headed handoff.
      *
-     * `background` is the right default for "leave it running": you get the
-     * full real-browser fingerprint without the window stealing focus.
+     * Neither mode guarantees acceptance by a site's detection system.
+     * The dashboard limits the headless pilot to admin discovery runs.
      */
     /**
      * `--test-type` only suppresses Chrome's "unsupported command-line flag"
@@ -121,11 +121,10 @@ export async function launchBrowser(): Promise<BrowserContext> {
      */
     const proxyServer = process.env.BROWSER_PROXY_SERVER?.trim();
     if (proxyServer) args.push(`--proxy-server=${proxyServer}`, '--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
-    if (!config.headless) {
-      // Size the real window rather than emulating a viewport — see below.
-      args.push('--window-size=1440,960');
-      if (config.background) args.push('--window-position=-32000,-32000');
-    }
+    // Same native window sizing in both modes; avoid conflating headless with
+    // device emulation in comparisons. Modern headless creates hidden windows.
+    args.push('--window-size=1440,960');
+    if (!config.headless && config.background) args.push('--window-position=-32000,-32000');
 
     ctx = await chromium.launchPersistentContext(config.userDataDir, {
       executablePath: config.chromePath,
@@ -147,12 +146,13 @@ export async function launchBrowser(): Promise<BrowserContext> {
        *  - locale → a user-agent override sending Accept-Language "en-AU" with
        *    a one-entry navigator.languages, which no real Chrome produces.
        *  - timezoneId → overriding a value the OS already has right.
-       * Headless keeps a fixed viewport because there is no window to size.
+       * Modern headless also uses native window sizing, without device overrides.
        */
-      viewport: config.headless ? { width: 1440, height: 960 } : null,
+      viewport: null,
       ...(recordingDir ? { recordVideo: { dir: resolve(recordingDir), size: { width: 1440, height: 960 } } } : {}),
       args,
     });
+    metric('browser-launch', performance.now() - started, { browserMode: config.headless ? 'headless' : 'headed', persistent: true });
   } catch (err) {
     const msg = (err as Error).message;
     if (/already in use|existing browser session/i.test(msg)) {

@@ -9,6 +9,13 @@ import { query } from './db/index.js';
 import { userDir, userChromeDir } from './userdata.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { runTimeoutMs, signalRunTree, superviseRun } from './run-watchdog.js';
+import { isAdmin } from './admin-access.js';
+import { browserRunEnvironment } from './browser-run-policy.js';
+
+export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
+  const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
+  return browserRunEnvironment(isAdmin(owners[0]?.email), mode, process.env.ADMIN_HEADLESS ?? readEnv().ADMIN_HEADLESS);
+}
 
 /** Saved run consoles kept per account; older ones are removed as new ones are written. */
 const RUN_LOGS_KEPT = 60;
@@ -310,7 +317,9 @@ class Run {
 
     let dataDir: string;
     let profileOverrides: Record<string, string>;
+    let browserOverrides: Record<string, string>;
     try {
+      browserOverrides = await accountBrowserEnvironment(userId, mode);
       const exported = await exportUserForRun(userId);
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
@@ -329,6 +338,8 @@ class Run {
       // (whose profile.txt, whose experience/skills, whose Chrome profile)
       // and must never be settable by a caller-supplied override.
       ...profileOverrides,
+      // Enforced last, after caller settings and the server's legacy HEADLESS.
+      ...browserOverrides,
       CDP_PORT: String(cdpPort),
       // Only a live run may submit; a search-only run never opens a form.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
@@ -355,6 +366,7 @@ class Run {
     };
 
     this.push('sys', `▶ starting ${mode} run`);
+    this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
     const shown = Object.entries(overrides)
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
@@ -389,7 +401,9 @@ class Run {
 
     let dataDir: string;
     let profileOverrides: Record<string, string>;
+    let browserOverrides: Record<string, string>;
     try {
+      browserOverrides = await accountBrowserEnvironment(userId, 'search');
       const exported = await exportUserForRun(userId);
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
@@ -416,10 +430,12 @@ class Run {
       ...overrides,
       // After `overrides`, deliberately — see the same ordering in start().
       ...profileOverrides,
+      ...browserOverrides,
       CDP_PORT: String(cdpPort),
       // Always last: no override may point a scan at another account's files.
       DATA_DIR: dataDir,
     };
+    this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = null;

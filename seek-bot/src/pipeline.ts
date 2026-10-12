@@ -7,7 +7,7 @@ const runId = randomUUID();
 export function metric(stage: string, ms: number, extra: Record<string, unknown> = {}): void {
   try {
     mkdirSync(config.dataDir, { recursive: true });
-    appendFileSync(resolve(config.dataDir, 'pipeline-metrics.jsonl'), JSON.stringify({ runId, ts: new Date().toISOString(), stage, ms, ...extra }) + '\n');
+    appendFileSync(resolve(config.dataDir, 'pipeline-metrics.jsonl'), JSON.stringify({ runId, ts: new Date().toISOString(), browserMode: config.headless ? 'headless' : 'headed', stage, ms, ...extra }) + '\n');
   } catch { /* Metrics must never interrupt an application. */ }
 }
 export async function measured<T>(stage: string, action: () => Promise<T>, extra: Record<string, unknown> = {}): Promise<T> {

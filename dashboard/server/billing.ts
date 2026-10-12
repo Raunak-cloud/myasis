@@ -10,32 +10,9 @@ import {
   type PaidPlanKey,
 } from '../src/pricing.js';
 import type { SessionUser } from './auth.js';
+import { isAdmin } from './admin-access.js';
+export { isAdmin, adminAddresses } from './admin-access.js';
 import { reportRedditConversion, type RedditMatchKeys } from './reddit-capi.js';
-
-/**
- * Resolved per call rather than at module load — like `billingEnv()` below —
- * so editing ADMIN_EMAILS in seek-bot/.env takes effect immediately, no
- * dashboard restart needed.
- */
-function adminEmails(): Set<string> {
-  const env = readEnv();
-  return new Set(
-    (process.env.ADMIN_EMAILS ?? env.ADMIN_EMAILS ?? '')
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
-/** The operator addresses, for the operator alerts. */
-export function adminAddresses(): string[] {
-  return [...adminEmails()];
-}
-
-/** Admin accounts are exempt from the free/paid application allowance entirely. */
-export function isAdmin(email?: string | null): boolean {
-  return Boolean(email && adminEmails().has(email.toLowerCase()));
-}
 
 /** Large but finite so JSON/arithmetic (e.g. Math.min with a run cap) stays well-behaved — Infinity serialises to null. */
 const ADMIN_UNLIMITED = 1_000_000;
