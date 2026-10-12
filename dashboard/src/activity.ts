@@ -317,7 +317,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if ((match = text.match(/semantic pre-ranking unavailable:\s*(.*)/i))) {
       add(line, 'Jobs were reviewed in search order', 'warn', readableError(match[1]));
     } else if (/🛑 The browser closed mid-run/i.test(text)) {
-      add(line, 'The browser closed during the run', 'bad', `Nothing was sent${currentJob ? ` for ${currentJob}` : ''}. Start the run again.`);
+      add(line, 'The application stopped unexpectedly', 'bad', `Submission could not be confirmed${currentJob ? ` for ${currentJob}` : ''}.`);
       explained = true;
     } else if ((match = text.match(/🛑 \[(SEEK|Indeed)\] (\d+) anti-bot challenges/i))) {
       add(line, `${match[1]} is blocking automated visits`, 'bad', `${match[2]} verification challenges in a row, so ${match[1]} was stopped for this run. Let it rest for a few hours before running again.`);

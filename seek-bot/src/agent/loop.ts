@@ -12,6 +12,7 @@ import { resolve } from 'node:path';
 import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { config } from '../config.js';
+import { captureApplicationFailure } from '../application-diagnostics.js';
 import { jitter, waitForChallengeToClear, workingIn } from '../browser.js';
 import { extractFields, readPickerOptions } from '../dom.js';
 import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
@@ -312,6 +313,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
   watchTab(page, ctx);
   /** Where the latest take_snapshot result sits, so an older one stops being re-sent. */
   let lastSnapshotIndex = -1;
+  try {
   for (;;) {
     const opened = page.context().pages().filter((tab) => !tabsBefore.has(tab) && !tab.isClosed()).at(-1);
     for (const tab of page.context().pages()) tabsBefore.add(tab);
@@ -630,6 +632,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
           progressLog.push({ site: siteDomain(ctx.page.url()), at: new Date().toISOString() });
         }
       } catch (error) {
+        captureApplicationFailure(page, job.id, error, { stage: 'tool-execution', submitPressed: Boolean(ctx.submissionAttempted), lastTool: call.name });
         const message = (error as Error).message.split('\n')[0].slice(0, 300);
         step.result = `Tool failed: ${message}`;
         checkpoint();
@@ -715,5 +718,9 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       page = ctx.page;
     }
     await jitter(400, 1_100);
+  }
+  } catch (error) {
+    captureApplicationFailure(page, job.id, error, { stage: 'agent-loop', submitPressed: Boolean(ctx.submissionAttempted), lastTool: trace.at(-1)?.tool });
+    throw error;
   }
 }

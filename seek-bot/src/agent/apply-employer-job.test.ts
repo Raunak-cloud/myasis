@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { chromium, type Page } from 'patchright';
@@ -118,6 +118,11 @@ try {
   } });
   await assert.rejects(applyToEmployerJob(page, job, profile, deps, { openBrowser, guard: async () => { throw new Error('Fixture guard setup failed'); } }), /Fixture guard setup failed/);
   await assert.rejects(applyToEmployerJob(page, job, profile, deps, { openBrowser, guard, runAgent: async () => { throw new Error('Fixture private session failed'); } }), /Fixture private session failed/);
+  const reports = readFileSync(join(directory, 'traces', `${job.id}.failures.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const failure = reports.find(report => report.error.message === 'Fixture private session failed');
+  assert.equal(failure.pageClosed, false, 'error evidence is captured before owned-browser cleanup');
+  assert.equal(failure.browserConnected, true);
+  assert.equal(failure.stage, 'employer-application');
   assert.equal(closedSessions, 3, 'successful, failed agent and failed guard sessions all close');
   assert.equal((await context.cookies())[0]?.value, 'fixture-private', 'the original browser remains owned and usable');
   console.log('PASS: admin, external scope and dry-run gates; public-feed handoff to application agent; local form only; guard cleanup');

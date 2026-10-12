@@ -1,4 +1,5 @@
 import { measured, metric } from './pipeline.js';
+import { applicationFailureContext } from './application-diagnostics.js';
 import { pickResumeForJob } from './resume.js';
 import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict, type FitAssessment } from './llm.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
@@ -1091,23 +1092,29 @@ async function main() {
         }), { jobId: job.id, platform: platformId });
       } catch (err) {
         const msg = (err as Error).message;
+        const submitPressed = applicationFailureContext(err)?.submitPressed === true;
+        if (submitPressed) {
+          countHealth('unconfirmedSubmits');
+          rememberExistingApplication(job, 'Submit was pressed before an application error; receipt is uncertain and it will not be retried automatically.');
+        }
         if (/Target page, context or browser has been closed|browser has disconnected|Target closed/i.test(msg)) {
           console.log(
-            `\n🛑 The browser closed mid-run — "${job.title} @ ${job.company}" was NOT submitted.\n` +
+            `\n🛑 The browser closed mid-run — "${job.title} @ ${job.company}" submission was not confirmed.\n` +
               `   Usual causes: the Chrome window was closed, another process killed it,\n` +
-              `   or Stop was pressed. Nothing was sent for this job; earlier results below stand.`,
+              `   or a page became unavailable. The original error and browser state were captured before cleanup.`,
           );
           logOutcome({
             status: 'error',
             jobId: job.id,
-            error: 'browser closed mid-run — not submitted',
+            error: 'The application browser became unavailable before submission was confirmed.',
+            submitPressed,
             title: job.title,
             company: job.company,
           });
           break;
         }
         console.log(`  ✗ unexpected error: ${msg}`);
-        logOutcome({ status: 'error', jobId: job.id, error: msg, title: job.title, company: job.company });
+        logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company });
         // It may have failed halfway through the board's form, so the next request still keeps its distance.
         await cooldown(candidateHitFriction, !candidateHitFriction);
         continue;

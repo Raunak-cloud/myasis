@@ -10,6 +10,7 @@ import { runApplicationAgent } from './loop.js';
 import { outcomeFromRun } from './outcome.js';
 import { waitForApplicationSurface } from './observe.js';
 import { openEmployerBrowser, applicationBrowserName } from '../employer-browser.js';
+import { captureApplicationFailure } from '../application-diagnostics.js';
 
 /** Public-feed jobs enter the same application agent and submission gate as employer handoffs. */
 export async function applyToEmployerJob(page: Page, job: JobListing, profile: CandidateProfile, deps: ApplyDeps,
@@ -36,6 +37,7 @@ export async function applyToEmployerJob(page: Page, job: JobListing, profile: C
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
     return outcomeFromRun(run, job.id, page.url(), deps.onFriction);
   } catch (error) {
+    captureApplicationFailure(page, job.id, error, { stage: 'employer-application' });
     if (guard?.blocked()) throw new Error(`Employer navigation was blocked: ${guard.blocked()}`);
     throw error;
   } finally {
