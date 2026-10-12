@@ -64,7 +64,7 @@ try {
       // Do not print provider credentials or raw browser launch command lines from stderr.
       results.push({ mode: headless ? 'headless' : 'headed', ok: false, processExit: child.status, error: child.error?.code ?? 'worker did not produce results' });
     } else results.push(JSON.parse(readFileSync(output)));
-    writeFileSync(resolve(directory, 'results.json'), JSON.stringify({ live, trialCount, preferences, results }, null, 2));
+    writeFileSync(resolve(directory, 'results.json'), JSON.stringify({ live, trialCount, route: process.env.BENCHMARK_ROUTE ?? 'server', liveViewEnabled: true, preferences, results }, null, 2));
     const last = results.at(-1);
     console.log(JSON.stringify({ trial: i + 1, mode: last.mode, ok: last.ok, totalMs: last.totalMs, meanPssMiB: last.meanPssMiB, error: last.error }));
     if (child.error || child.status !== 0 || last.challenges > 0 || (last.httpErrors?.length ?? 0) > 0 || !last.ok) {

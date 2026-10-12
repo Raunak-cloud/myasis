@@ -37,6 +37,10 @@ function sample() {
 }
 const result: Record<string, unknown> = { mode: config.headless ? 'headless' : 'headed', fixture, at: new Date().toISOString(), searches: [], details: [], httpErrors: [], challenges: 0, aiCalls: 0, paidSolves: 0, submissions: 0 };
 const ctx = await launchBrowser();
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => {
+  // A timed-out benchmark must release its own Chrome/profile too.
+  void closeBrowser(ctx).finally(() => process.exit(143));
+});
 result.launchMs = performance.now() - start;
 const sampler = setInterval(sample, 500);
 let controller: Awaited<ReturnType<typeof ctx.newCDPSession>> | undefined;
@@ -95,7 +99,7 @@ try {
   result.networkBytes = bytes;
   result.meanPssMiB = memory.length ? memory.reduce((a, b) => a + b, 0) / memory.length : null;
   result.peakPssMiB = memory.length ? Math.max(...memory) : null;
-  result.browserCpuSeconds = [...cpuTicks.values()].reduce((a, b) => a + b, 0) / clockTicks;
+  result.browserCpuSeconds = process.platform === 'linux' ? [...cpuTicks.values()].reduce((a, b) => a + b, 0) / clockTicks : null;
   result.activeMs = performance.now() - start;
   await controller?.detach().catch(() => {});
   await closeBrowser(ctx);
