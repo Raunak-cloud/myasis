@@ -8,6 +8,7 @@ const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules
 // Serve only the built frontend and fixture APIs: no database, worker or employer is contacted.
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
+let searchStarted = false;
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({ PLATFORMS: admin ? 'smartrecruiters' : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
@@ -18,6 +19,7 @@ const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     if (req.method === 'POST') writes.push({ path, body: JSON.parse(body || '{}') });
+    if (path === '/api/run' && req.method === 'POST' && JSON.parse(body || '{}').mode === 'search') searchStarted = true;
     const payloads: Record<string, unknown> = {
       '/api/auth/me': { user: { id: 'fixture', email: 'fixture@example.test', name: 'Fixture Candidate' }, googleConfigured: true },
       '/api/entitlements': { tier: admin ? 'admin' : 'standard', manualRuns: admin, firstRunRequired: !admin,
@@ -28,7 +30,7 @@ const server = createServer(async (req, res) => {
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: null, hasActivePass: false } },
       '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin }, indeed: { signedIn: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
-      '/api/run/status': { running: false, mode: null, startedAt: null, finishedAt: null, applied: 0, isOwner: true },
+      '/api/run/status': { running: searchStarted, mode: searchStarted ? 'search' : null, startedAt: searchStarted ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
       '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [], '/api/attention': [],
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
@@ -53,6 +55,7 @@ const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
 const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
 try {
   for (admin of [true, false]) {
+    searchStarted = false;
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -94,6 +97,9 @@ try {
       assert.equal(testRun.overrides.MAX_EVALUATIONS, '10');
       assert.equal(testRun.overrides.PAGES_PER_KEYWORD, '1');
       assert.equal(writes.filter(write => write.path === '/api/settings').length, settingsWrites, 'test drafts must not be saved');
+      await page.getByText('Search-only test. No application forms are opened or applications submitted.', { exact: true }).waitFor();
+      assert.equal(await page.getByText('Search test', { exact: true }).count(), 1);
+      assert.equal(await page.getByRole('button', { name: 'View live action', exact: true }).count(), 0);
     }
     assert.deepEqual(errors, []);
     await context.close();

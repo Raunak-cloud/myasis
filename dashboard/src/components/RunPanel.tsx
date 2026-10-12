@@ -930,7 +930,7 @@ export function RunPanel({
             <span className={`badge ${running ? 'bad' : 'muted'}`}>
               {running ? (
                 <span className="in-progress-label">
-                  <strong className="active-mode-label">Applying</strong>
+                  <strong className="active-mode-label">{status?.mode === 'search' ? 'Search test' : 'Applying'}</strong>
                   <span>In progress</span>
                   {elapsedMs !== null && (
                     <time className="run-elapsed" aria-label={`Running for ${formatRunDuration(elapsedMs)}`}>
@@ -950,7 +950,7 @@ export function RunPanel({
             </span>
           </div>
           <div className="console-actions">
-            {running && (
+            {running && status?.mode !== 'search' && (
               <button className="btn primary btn-small" onClick={() => setLiveViewOpen(true)}>
                 View live action
               </button>
@@ -965,6 +965,9 @@ export function RunPanel({
           </div>
         </div>
 
+        {status?.mode === 'search' && <div className="activity-shortfall" role="note">
+          Search-only test. No application forms are opened or applications submitted.
+        </div>}
         {lines.length > 0 && (
           <div className="activity-stats" aria-label="Run progress">
             <div><strong><CountUp value={summary.found} /></strong><span>Found</span></div>
