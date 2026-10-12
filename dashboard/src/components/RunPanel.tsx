@@ -1188,7 +1188,7 @@ export function RunPanel({
                       <option value="local">Existing browser</option>
                       <option value="brightdata">Bright Data (admin pilot)</option>
                     </select>
-                    <span className="field-help">Bright Data receives your resume and application answers through its cloud browser. Usage consumes your Bright Data credits. Each application uses a separate session.</span>
+                    <span className="field-help">Bright Data receives your resume and application answers through its cloud browser. Usage consumes your Bright Data credits. Each application uses a separate session. Public application forms only; choose the existing browser for jobs requiring employer sign-in.</span>
                   </div>
                 )}
                 <p className="job-meta recommended-first-note">

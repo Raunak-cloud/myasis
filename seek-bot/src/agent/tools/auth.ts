@@ -7,10 +7,16 @@ import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from
 import { storedCredential } from '../../site-credentials.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
 import { assertLive } from '../../tool-run.js';
+import { applicationBrowserName } from '../../employer-browser.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
 export async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  // This pilot authorizes public application data, not employer credentials.
+  // Browser API also requires separate provider approval for password entry.
+  if (applicationBrowserName(ctx.page) === 'brightdata') {
+    return { kind: 'terminal', outcome: { status: 'needs-human', reason: 'This employer requires sign-in. The Bright Data pilot supports public application forms; use the existing browser for this application.' } };
+  }
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));
   if (!fields.length) {

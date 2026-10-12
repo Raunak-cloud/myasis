@@ -15,6 +15,7 @@ process.env.BRIGHTDATA_BROWSER_USERNAME = 'brd-customer-fixture-zone-admin';
 process.env.BRIGHTDATA_BROWSER_PASSWORD = 'fixture-only-private-password';
 const { openEmployerBrowser, applicationBrowserName, applicationUpload, selectRemotePage } = await import('./employer-browser.js');
 const { readRemoteBrowserPreview, LIVE_VIEW_REQUEST_FILE, REMOTE_PREVIEW_FILE } = await import('./remote-browser-preview.js');
+const { doCompleteAuthentication } = await import('./agent/tools/auth.js');
 const launch = () => chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
 const localBrowser = await launch();
 const localContext = await localBrowser.newContext();
@@ -50,6 +51,8 @@ try {
     return owned;
   });
   assert.equal(applicationBrowserName(remote.page), 'brightdata');
+  const credentialsRefused = await doCompleteAuthentication({ page: remote.page } as Parameters<typeof doCompleteAuthentication>[0], { refs: ['password'], purpose: 'sign_in' });
+  assert.equal(credentialsRefused.kind, 'terminal', 'cloud pilot stops before accessing any private employer credential');
   assert.equal((await remote.page.context().cookies()).length, 0);
   await remote.page.goto('https://fixture.example.test/apply?candidate=private-token');
   const document = join(directory, 'Fixture resume.txt');
