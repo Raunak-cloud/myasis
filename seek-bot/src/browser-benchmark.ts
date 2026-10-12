@@ -47,8 +47,18 @@ const sampler = setInterval(sample, 500);
 let controller: Awaited<ReturnType<typeof ctx.newCDPSession>> | undefined;
 let bytes = 0;
 let frames = 0;
+let challengeTimer: ReturnType<typeof setInterval> | undefined;
 try {
   const page = await getPage(ctx);
+  let checkingChallenge = false, challengeVisible = false;
+  challengeTimer = setInterval(() => {
+    if (checkingChallenge) return;
+    checkingChallenge = true;
+    void hasCaptchaSurface(page).then(visible => {
+      if (visible && !challengeVisible) result.challenges = Number(result.challenges) + 1;
+      challengeVisible = visible;
+    }).catch(() => {}).finally(() => { checkingChallenge = false; });
+  }, 1000);
   page.setDefaultNavigationTimeout(45_000);
   if (fixture) {
     const cards = Array.from({ length: 32 }, (_, i) => `<article data-automation="normalJob" data-job-id="${100000 + i}"><a data-automation="jobTitle" href="/job/${100000 + i}">Software Engineer ${i}</a><span data-automation="jobCompany">Fixture Employer</span><span data-automation="jobCardLocation">Sydney NSW</span><span data-automation="jobSalary">$100,000 – $120,000</span><span data-automation="jobListingDate">1d ago</span></article>`).join('');
@@ -96,6 +106,7 @@ try {
   if (page && await hasCaptchaSurface(page).catch(() => false)) result.challenges = Number(result.challenges) + 1;
 } finally {
   clearInterval(sampler);
+  clearInterval(challengeTimer);
   sample();
   result.networkBytes = bytes;
   result.meanPssMiB = memory.length ? memory.reduce((a, b) => a + b, 0) / memory.length : null;
