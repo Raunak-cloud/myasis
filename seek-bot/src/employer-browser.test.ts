@@ -13,7 +13,7 @@ process.env.BRIGHTDATA_ADMIN_ENABLED = 'true';
 process.env.BRIGHTDATA_BROWSER_ENABLED = 'true';
 process.env.BRIGHTDATA_BROWSER_USERNAME = 'brd-customer-fixture-zone-admin';
 process.env.BRIGHTDATA_BROWSER_PASSWORD = 'fixture-only-private-password';
-const { openEmployerBrowser, applicationBrowserName, applicationUpload, selectRemotePage } = await import('./employer-browser.js');
+const { openEmployerBrowser, applicationBrowserName, applicationUpload, selectRemotePage, solveRemoteCaptcha } = await import('./employer-browser.js');
 const { readRemoteBrowserPreview, LIVE_VIEW_REQUEST_FILE, REMOTE_PREVIEW_FILE } = await import('./remote-browser-preview.js');
 const { doCompleteAuthentication } = await import('./agent/tools/auth.js');
 const launch = () => chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
@@ -22,6 +22,8 @@ const localContext = await localBrowser.newContext();
 await localContext.addCookies([{ name: 'private-account', value: 'local-only', url: 'https://fixture.example.test' }]);
 const localPage = await localContext.newPage();
 let remote: Awaited<ReturnType<typeof openEmployerBrowser>> | undefined;
+let solverCalls = 0;
+const autoSolveChoices: boolean[] = [];
 try {
   process.env.BRIGHTDATA_ADMIN_ENABLED = 'false';
   await assert.rejects(openEmployerBrowser(localPage, async () => { throw new Error('Unauthorized connection reached provider'); }), /administrator pilot/);
@@ -40,8 +42,15 @@ try {
       const send = session.send.bind(session);
       session.send = (async (method: string, params: unknown) => {
         if (method === 'Captcha.setAutoSolve') {
-          assert.deepEqual(params, { autoSolve: true, options: [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }] });
+          const settings = params as { autoSolve: boolean; options: unknown };
+          autoSolveChoices.push(settings.autoSolve);
+          assert.deepEqual(settings.options, [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }]);
           return {};
+        }
+        if (method === 'Captcha.solve') {
+          assert.deepEqual(params, { detectTimeout: 30_000, options: [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }] });
+          solverCalls++;
+          return { status: solverCalls < 3 ? 'solve_failed' : 'solve_finished' };
         }
         return send(method as never, params as never);
       }) as typeof session.send;
@@ -55,16 +64,24 @@ try {
   assert.equal(credentialsRefused.kind, 'terminal', 'cloud pilot stops before accessing any private employer credential');
   assert.equal((await remote.page.context().cookies()).length, 0);
   await remote.page.goto('https://fixture.example.test/apply?candidate=private-token');
-  const document = join(directory, 'Fixture resume.txt');
-  writeFileSync(document, 'Fixture resume bytes');
-  const payload = await applicationUpload(remote.page, document);
+  const fixtureDocument = join(directory, 'Fixture resume.txt');
+  writeFileSync(fixtureDocument, 'Fixture resume bytes');
+  const payload = await applicationUpload(remote.page, fixtureDocument);
   assert.ok(typeof payload !== 'string');
   assert.equal(payload.name, 'Fixture resume.txt'); assert.equal(payload.mimeType, 'text/plain');
   await remote.page.getByLabel('Resume').setInputFiles(payload);
   assert.equal(await remote.page.getByLabel('Resume').evaluate((el: HTMLInputElement) => el.files?.[0]?.size), 20);
-  assert.equal(await applicationUpload(localPage, document), document);
+  assert.equal(await applicationUpload(localPage, fixtureDocument), fixtureDocument);
   assert.equal(selectRemotePage(localPage), false);
   assert.equal(selectRemotePage(remote.page), true);
+  const address = remote.page.url();
+  await remote.page.evaluate(() => { document.title = 'CAPTCHA fixture'; });
+  assert.equal(await solveRemoteCaptcha(remote.page), true);
+  assert.equal(solverCalls, 3);
+  assert.deepEqual(autoSolveChoices, [true, false], 'the explicit retries take ownership and never re-enable background attempts');
+  assert.equal(remote.page.url(), address, 'no solver retry reloads or navigates the application');
+  assert.equal(await remote.page.getByLabel('Resume').evaluate((el: HTMLInputElement) => el.files?.[0]?.size), 20, 'the same uploaded form survives the retries');
+  await remote.page.evaluate(() => { document.title = 'Cloud browser fixture'; });
   writeFileSync(join(directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }));
   const frame = await new Promise<NonNullable<ReturnType<typeof readRemoteBrowserPreview>>>((done, fail) => {
     const timer = setInterval(() => {

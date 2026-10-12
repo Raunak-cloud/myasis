@@ -8,6 +8,8 @@ import { LIVE_VIEW_REQUEST_FILE, REMOTE_PREVIEW_FILE, type RemoteBrowserPreview 
 import { countHealth } from './run-health.js';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
+import { hasCaptchaSurface } from './captcha/detect.js';
+import { captchaRequestWithin, retryCaptchaSolve } from './captcha/retry.js';
 
 interface RemoteSession {
   browser: Browser;
@@ -108,11 +110,18 @@ export async function solveRemoteCaptcha(page: Page): Promise<boolean> {
   let session: Awaited<ReturnType<BrowserContext['newCDPSession']>> | undefined;
   try {
     session = await page.context().newCDPSession(page);
-    const result = await session.send('Captcha.solve' as never, { detectTimeout: 30_000, options: captchaOptions } as never) as { status?: string };
-    const solved = result?.status === 'solve_finished';
-    countHealth(solved ? 'captchaSolved' : 'captchaFailed');
-    console.log(`[captcha] Bright Data: ${solved ? 'solved' : 'not solved'}.`);
-    return solved;
+    // Own the retry sequence instead of racing the provider's background solver.
+    // Keep it manual afterwards: a failed batch must not start an unbounded auto retry.
+    await captchaRequestWithin(() => session!.send('Captcha.setAutoSolve' as never, { autoSolve: false, options: captchaOptions } as never), 15_000);
+    const address = page.url();
+    const result = await retryCaptchaSolve({
+      solve: async () => session!.send('Captcha.solve' as never, { detectTimeout: 30_000, options: captchaOptions } as never) as Promise<{ status?: string }>,
+      stillChallenged: async () => !page.isClosed() && page.url() === address && await hasCaptchaSurface(page),
+      pause: () => new Promise(done => setTimeout(done, 1_500)),
+      onAttempt: (attempt, status) => console.log(`[captcha] Bright Data attempt ${attempt}/3: ${status}.`),
+    });
+    countHealth(result.status === 'solved' ? 'captchaSolved' : result.status === 'cleared' ? 'captchaSelfCleared' : 'captchaFailed');
+    return result.status !== 'failed';
   } catch {
     countHealth('captchaFailed');
     console.warn('[captcha] Bright Data could not complete the verification.');
