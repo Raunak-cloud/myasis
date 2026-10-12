@@ -8,7 +8,7 @@ export function safeCaptchaDiagnostic(value: unknown, secrets: string[] = []): R
       .replace(/\b(?:https?|wss?):\/\/[^\s<>"']+/gi, '[url]')
       .replace(/\bbrd-customer-[\w-]+/gi, '[account]')
       .replace(/\bBearer\s+[^\s,"'}]+/gi, 'Bearer [redacted]')
-      .replace(/((?:password|passwd|token|api[_-]?key|secret|authorization|cookie)\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi, '$1[redacted]')
+      .replace(/((?:password|passwd|token|api[_-]?key|secret|authorization|cookie)["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi, '$1[redacted]')
       .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[email]')
       .replace(/[\r\n\t]+/g, ' ')
       .slice(0, 800);
@@ -17,7 +17,7 @@ export function safeCaptchaDiagnostic(value: unknown, secrets: string[] = []): R
     if (typeof input === 'string') return { message: clean(input) };
     if (!input || typeof input !== 'object') return {};
     const output: Record<string, unknown> = {};
-    for (const key of ['name', 'code', 'status', 'message', 'reason', 'error']) {
+    for (const key of ['name', 'code', 'status', 'type', 'message', 'reason', 'error']) {
       const field = (input as Record<string, unknown>)[key];
       if (typeof field === 'string') output[key] = clean(field);
       else if (typeof field === 'number' && Number.isFinite(field)) output[key] = field;

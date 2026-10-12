@@ -1,4 +1,12 @@
-export interface CaptchaSolveResult { status?: string }
+export interface CaptchaSolveResult { status?: string; type?: string; error?: string }
+// Bright Data's documented event example waits five minutes for solving.
+// detectTimeout only bounds detection, not solving:
+// https://docs.brightdata.com/products/scraping-browser/cdp-functions/custom
+export const CAPTCHA_RETRY_LIMITS = { attempts: 3, attemptMs: 300_000, totalMs: 300_000 };
+export class CaptchaRequestDeadline extends Error {
+  readonly code = 'CAPTCHA_REQUEST_DEADLINE';
+  constructor() { super('CAPTCHA request deadline'); this.name = 'CaptchaRequestDeadline'; }
+}
 export interface CaptchaRetryOutcome { status: 'solved' | 'cleared' | 'failed'; attempts: number }
 export interface CaptchaAttemptDiagnostic { elapsedMs: number; phase: 'solve' | 'detect'; error?: unknown; response?: CaptchaSolveResult }
 export interface CaptchaRetryDependencies {
@@ -15,14 +23,14 @@ export async function captchaRequestWithin<T>(request: () => Promise<T>, timeout
   try {
     return await Promise.race([
       request(),
-      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('CAPTCHA request deadline')), timeoutMs); }),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new CaptchaRequestDeadline()), timeoutMs); }),
     ]);
   } finally { if (timer) clearTimeout(timer); }
 }
 
 /** Only completed solver failures are retried. A timed-out request is never duplicated. */
 export async function retryCaptchaSolve(deps: CaptchaRetryDependencies,
-  limits = { attempts: 3, attemptMs: 90_000, totalMs: 180_000 },
+  limits = CAPTCHA_RETRY_LIMITS,
 ): Promise<CaptchaRetryOutcome> {
   const now = deps.now ?? Date.now;
   const deadline = now() + limits.totalMs;
@@ -36,7 +44,7 @@ export async function retryCaptchaSolve(deps: CaptchaRetryDependencies,
     try {
       result = await captchaRequestWithin(deps.solve, Math.min(limits.attemptMs, remaining));
     } catch (error) {
-      deps.onAttempt?.(attempts, 'request_failed', { elapsedMs: now() - started, phase: 'solve', error });
+      deps.onAttempt?.(attempts, error instanceof CaptchaRequestDeadline ? 'request_timed_out' : 'request_failed', { elapsedMs: now() - started, phase: 'solve', error });
       // The request may still be running; stop rather than overlap a second solve.
       return { status: 'failed', attempts };
     }

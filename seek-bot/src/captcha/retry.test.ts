@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { retryCaptchaSolve } from './retry.js';
+import { CAPTCHA_RETRY_LIMITS, retryCaptchaSolve } from './retry.js';
 
 test('a failed challenge gets two further solves in the same session and stops on success', async () => {
   const results = ['solve_failed', 'solve_failed', 'solve_finished'];
@@ -49,4 +49,35 @@ test('diagnostics distinguish a completed provider failure from a thrown retry e
   assert.equal(events[1].status, 'request_failed');
   assert.equal((events[1].details as { error: unknown }).error, error);
   assert.equal((events[1].details as { phase: string }).phase, 'solve');
+});
+
+test('a solver still running at ninety seconds can finish within the documented five-minute window', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  assert.equal(CAPTCHA_RETRY_LIMITS.attemptMs, 300_000);
+  assert.equal(CAPTCHA_RETRY_LIMITS.totalMs, 300_000);
+  let finished = false;
+  const pending = retryCaptchaSolve({
+    solve: () => new Promise(resolve => setTimeout(() => resolve({ status: 'solve_finished' }), 120_000)),
+    stillChallenged: async () => true, pause: async () => {},
+  }).then(result => { finished = true; return result; });
+  t.mock.timers.tick(90_001);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(finished, false, 'the previous ninety-second boundary must not abandon this request');
+  t.mock.timers.tick(30_000);
+  assert.deepEqual(await pending, { status: 'solved', attempts: 1 });
+});
+
+test('a five-minute deadline is identified separately and never starts another in-flight request', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let calls = 0;
+  const events: string[] = [];
+  const pending = retryCaptchaSolve({
+    solve: () => { calls++; return new Promise(() => {}); },
+    stillChallenged: async () => true, pause: async () => {},
+    onAttempt: (_attempt, status) => events.push(status),
+  });
+  t.mock.timers.tick(300_001);
+  assert.deepEqual(await pending, { status: 'failed', attempts: 1 });
+  assert.equal(calls, 1);
+  assert.deepEqual(events, ['request_timed_out']);
 });

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { EventEmitter } from 'node:events';
 import { chromium } from 'patchright';
 
 // Local browser and fixture documents only: no service or employer receives data.
@@ -24,6 +25,8 @@ const localPage = await localContext.newPage();
 let remote: Awaited<ReturnType<typeof openEmployerBrowser>> | undefined;
 let solverCalls = 0;
 let solverError: Error | undefined;
+const providerSessionId = '12345678-1234-1234-1234-123456789abc';
+const controls: EventEmitter[] = [];
 const autoSolveChoices: boolean[] = [];
 try {
   process.env.BRIGHTDATA_ADMIN_ENABLED = 'false';
@@ -40,6 +43,8 @@ try {
     const originalSession = context.newCDPSession.bind(context);
     context.newCDPSession = async target => {
       const session = await originalSession(target);
+      const fixtureEvents = session as unknown as EventEmitter;
+      controls.push(fixtureEvents);
       const send = session.send.bind(session);
       session.send = (async (method: string, params: unknown) => {
         if (method === 'Captcha.setAutoSolve') {
@@ -48,10 +53,13 @@ try {
           assert.deepEqual(settings.options, [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }]);
           return {};
         }
+        if (method === 'Browser.getSessionId') return { sessionId: providerSessionId };
         if (method === 'Captcha.solve') {
           assert.deepEqual(params, { detectTimeout: 30_000, options: [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }] });
           solverCalls++;
-          if (solverError) throw solverError;
+          fixtureEvents.emit('Captcha.detected', { type: 'hcaptcha' });
+          if (solverError) { fixtureEvents.emit('Captcha.solveFailed', { error: solverError.message }); throw solverError; }
+          fixtureEvents.emit(solverCalls < 3 ? 'Captcha.solveFailed' : 'Captcha.solveFinished', { type: 'hcaptcha' });
           return { status: solverCalls < 3 ? 'solve_failed' : 'solve_finished' };
         }
         return send(method as never, params as never);
@@ -62,6 +70,7 @@ try {
     return owned;
   });
   assert.equal(applicationBrowserName(remote.page), 'brightdata');
+  assert.deepEqual(autoSolveChoices, [false], 'manual ownership is established before any employer navigation');
   const credentialsRefused = await doCompleteAuthentication({ page: remote.page } as Parameters<typeof doCompleteAuthentication>[0], { refs: ['password'], purpose: 'sign_in' });
   assert.equal(credentialsRefused.kind, 'terminal', 'cloud pilot stops before accessing any private employer credential');
   assert.equal((await remote.page.context().cookies()).length, 0);
@@ -78,9 +87,10 @@ try {
   assert.equal(selectRemotePage(remote.page), true);
   const address = remote.page.url();
   await remote.page.evaluate(() => { document.title = 'CAPTCHA fixture'; });
-  assert.equal(await solveRemoteCaptcha(remote.page), true);
+  assert.deepEqual(await Promise.all([solveRemoteCaptcha(remote.page), solveRemoteCaptcha(remote.page)]), [true, true]);
   assert.equal(solverCalls, 3);
-  assert.deepEqual(autoSolveChoices, [true, false], 'the explicit retries take ownership and never re-enable background attempts');
+  assert.deepEqual(autoSolveChoices, [false], 'concurrent callers share one solver sequence without changing control mode');
+  assert.equal(controls.length, 1, 'events and solving use the retained page controller');
   assert.equal(remote.page.url(), address, 'no solver retry reloads or navigates the application');
   assert.equal(await remote.page.getByLabel('Resume').evaluate((el: HTMLInputElement) => el.files?.[0]?.size), 20, 'the same uploaded form survives the retries');
   solverError = new Error('Protocol error (Captcha.solve): solver unavailable at wss://user:fixture-only-private-password@brd.superproxy.io:9222/; password=fixture-only-private-password');
@@ -91,8 +101,12 @@ try {
   finally { console.log = originalLog; }
   assert.equal(solverCalls, 4, 'a failed request is captured without launching overlapping retries');
   assert.match(diagnostics.join('\n'), /request_failed.*elapsedMs.*Protocol error.*solver unavailable/);
+  assert.match(diagnostics.join('\n'), /event Captcha.solveFailed/);
+  assert.ok(diagnostics.join('\n').includes(providerSessionId), 'provider session ID is available for support lookup');
   assert.ok(!diagnostics.join('\n').includes('fixture-only-private-password'));
   assert.ok(!diagnostics.join('\n').includes('superproxy.io'));
+  assert.equal(await solveRemoteCaptcha(remote.page), false);
+  assert.equal(solverCalls, 4, 'a failed controller cannot start another batch from a later agent callback');
   await remote.page.evaluate(() => { document.title = 'Cloud browser fixture'; });
   writeFileSync(join(directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }));
   const frame = await new Promise<NonNullable<ReturnType<typeof readRemoteBrowserPreview>>>((done, fail) => {
@@ -106,6 +120,7 @@ try {
   assert.ok(!JSON.stringify(frame).includes('private-token'));
   assert.ok(Buffer.from(frame.data!, 'base64').length > 100);
   await remote.close(); remote = undefined;
+  for (const event of ['Captcha.detected', 'Captcha.waitForSolve', 'Captcha.solveFinished', 'Captcha.solveFailed']) assert.equal(controls[0].listenerCount(event), 0, 'closing the cloud browser removes provider listeners');
   assert.equal(existsSync(join(directory, REMOTE_PREVIEW_FILE)), false);
   assert.equal((await localContext.cookies())[0]?.value, 'local-only');
   console.log('PASS: provider diagnostics retain errors and redact credentials; sessions isolate cookies; remote document bytes upload; owned live preview omits URL tokens; close removes preview');

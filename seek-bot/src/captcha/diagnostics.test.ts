@@ -11,4 +11,9 @@ test('provider and protocol explanations survive while secrets, URLs and arbitra
   const json = JSON.stringify(result);
   for (const forbidden of ['private', 'me@example', 'other-secret', 'bearer-secret', 'superproxy', 'stack']) assert.ok(!json.includes(forbidden), forbidden);
   assert.deepEqual(safeCaptchaDiagnostic({ status: 'solve_failed', error: { message: 'unsupported challenge', code: 42, cookies: 'private cookie' }, resume: 'private document' }), { status: 'solve_failed', error: { message: 'unsupported challenge', code: 42 } });
+  const event = safeCaptchaDiagnostic({ type: 'hcaptcha', message: '{"token":"unknown-token", "password":"unknown-password"}', solution: 'private response token' });
+  assert.equal(event.type, 'hcaptcha');
+  assert.ok(!JSON.stringify(event).includes('unknown-token'));
+  assert.ok(!JSON.stringify(event).includes('unknown-password'));
+  assert.ok(!JSON.stringify(event).includes('solution'));
 });

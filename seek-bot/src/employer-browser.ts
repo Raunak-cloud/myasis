@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
+import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'patchright';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -9,7 +9,7 @@ import { countHealth } from './run-health.js';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { hasCaptchaSurface } from './captcha/detect.js';
-import { captchaRequestWithin, retryCaptchaSolve } from './captcha/retry.js';
+import { captchaRequestWithin, retryCaptchaSolve, type CaptchaSolveResult } from './captcha/retry.js';
 import { captchaDiagnosticSecrets, safeCaptchaDiagnostic } from './captcha/diagnostics.js';
 
 interface RemoteSession {
@@ -19,11 +19,57 @@ interface RemoteSession {
   timer: ReturnType<typeof setInterval>;
   publishing: boolean;
   closed: boolean;
+  providerSessionId?: string;
+  captchaControls: Map<Page, Promise<CaptchaControl>>;
 }
+interface CaptchaControl { session: CDPSession; inFlight?: Promise<boolean>; blocked: boolean; removeListeners: () => void }
 const remoteSessions = new WeakMap<BrowserContext, RemoteSession>();
 const previewFile = () => resolve(config.dataDir, REMOTE_PREVIEW_FILE);
 // Bright Data otherwise submits a form after solving. Owtomate owns that decision.
 const captchaOptions = [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }];
+
+function logCaptcha(remote: RemoteSession, page: Page, message: string, details: Record<string, unknown>): void {
+  if (remote.closed) return;
+  let host = 'unknown';
+  try { host = new URL(page.url()).hostname; } catch { /* no URL before navigation */ }
+  console.log(`[captcha] Bright Data ${message}. ${JSON.stringify({ sessionId: remote.sessionId, providerSessionId: remote.providerSessionId, host, ...details })}`);
+}
+
+/** One retained CDP controller per page, configured before the first navigation. */
+function captchaControl(remote: RemoteSession, page: Page): Promise<CaptchaControl> {
+  const existing = remote.captchaControls.get(page);
+  if (existing) return existing;
+  const ready = (async () => {
+    const session = await page.context().newCDPSession(page);
+    const secrets = captchaDiagnosticSecrets(process.env);
+    const listeners = ['Captcha.detected', 'Captcha.waitForSolve', 'Captcha.solveFinished', 'Captcha.solveFailed'].map(event => {
+      const listener = (payload: unknown) => logCaptcha(remote, page, `event ${event}`, { event, details: safeCaptchaDiagnostic(payload, secrets) });
+      session.on(event as never, listener);
+      return { event, listener };
+    });
+    const removeListeners = () => { for (const { event, listener } of listeners) session.removeListener(event as never, listener); };
+    try {
+      // Manual ownership from the start: never interrupt an already-running auto solver.
+      await captchaRequestWithin(() => session.send('Captcha.setAutoSolve' as never, { autoSolve: false, options: captchaOptions } as never), 15_000);
+      if (!remote.providerSessionId) {
+        try {
+          const result = await captchaRequestWithin(() => session.send('Browser.getSessionId' as never) as Promise<{ sessionId?: string }>, 5_000);
+          if (typeof result?.sessionId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(result.sessionId)) remote.providerSessionId = result.sessionId;
+        } catch (error) {
+          // Metadata helps provider support; an unavailable metadata command must not stop an application.
+          logCaptcha(remote, page, 'session metadata unavailable', { error: safeCaptchaDiagnostic(error, secrets) });
+        }
+      }
+      return { session, blocked: false, removeListeners };
+    } catch (error) {
+      removeListeners();
+      await captchaRequestWithin(() => session.detach(), 5_000).catch(() => {});
+      throw error;
+    }
+  })();
+  remote.captchaControls.set(page, ready);
+  return ready;
+}
 
 export const applicationBrowserName = (page: Page) => remoteSessions.has(page.context()) ? 'brightdata' : 'local';
 /** CDP's file-path command addresses the browser's filesystem, not the worker's. */
@@ -79,13 +125,10 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
     if (!context) throw new Error('Missing private browser context');
     context.setDefaultTimeout(30_000);
     const page = await context.newPage();
-    const control = await context.newCDPSession(page);
-    try {
-      await control.send('Captcha.setAutoSolve' as never, { autoSolve: true, options: captchaOptions } as never);
-    } finally { await control.detach().catch(() => {}); }
     // Only the provider's solver handles this context. CapMonster never receives it.
-    const remote: RemoteSession = { browser, page, sessionId: randomUUID(), timer: undefined!, publishing: false, closed: false };
+    const remote: RemoteSession = { browser, page, sessionId: randomUUID(), timer: undefined!, publishing: false, closed: false, captchaControls: new Map() };
     remoteSessions.set(context, remote);
+    await captchaControl(remote, page);
     remote.timer = setInterval(() => void publish(remote), 2_000);
     remote.timer.unref();
     await publish(remote);
@@ -97,6 +140,11 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
       try {
         if (existsSync(previewFile()) && JSON.parse(readFileSync(previewFile(), 'utf8')).sessionId === remote.sessionId) unlinkSync(previewFile());
       } catch { /* A later session owns its own picture. */ }
+      await Promise.allSettled([...remote.captchaControls.values()].map(async ready => {
+        const control = await ready;
+        control.removeListeners();
+        await captchaRequestWithin(() => control.session.detach(), 5_000).catch(() => {});
+      }));
       await remote.browser.close().catch(() => {});
     } };
   } catch {
@@ -108,33 +156,39 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
 
 /** Called at the shared CAPTCHA boundary, before any AI-selected interaction. */
 export async function solveRemoteCaptcha(page: Page): Promise<boolean> {
-  let session: Awaited<ReturnType<BrowserContext['newCDPSession']>> | undefined;
-  let phase = 'open-control';
+  const remote = remoteSessions.get(page.context());
+  if (!remote || remote.closed) return false;
   const secrets = captchaDiagnosticSecrets(process.env);
-  const context = { sessionId: remoteSessions.get(page.context())?.sessionId, host: (() => { try { return new URL(page.url()).hostname; } catch { return 'unknown'; } })() };
+  let control: CaptchaControl;
   try {
-    session = await page.context().newCDPSession(page);
-    // Own the retry sequence instead of racing the provider's background solver.
-    // Keep it manual afterwards: a failed batch must not start an unbounded auto retry.
-    phase = 'disable-auto-solve';
-    await captchaRequestWithin(() => session!.send('Captcha.setAutoSolve' as never, { autoSolve: false, options: captchaOptions } as never), 15_000);
-    const address = page.url();
-    phase = 'solve';
-    const result = await retryCaptchaSolve({
-      solve: async () => session!.send('Captcha.solve' as never, { detectTimeout: 30_000, options: captchaOptions } as never) as Promise<{ status?: string }>,
-      stillChallenged: async () => !page.isClosed() && page.url() === address && await hasCaptchaSurface(page),
-      pause: () => new Promise(done => setTimeout(done, 1_500)),
-      onAttempt: (attempt, status, details) => console.log(`[captcha] Bright Data attempt ${attempt}/3: ${status}. ${JSON.stringify({
-        ...context, phase: details.phase, elapsedMs: details.elapsedMs,
-        ...(details.error !== undefined ? { error: safeCaptchaDiagnostic(details.error, secrets) } : {}),
-        ...(details.response !== undefined ? { response: safeCaptchaDiagnostic(details.response, secrets) } : {}),
-      })}`),
-    });
-    countHealth(result.status === 'solved' ? 'captchaSolved' : result.status === 'cleared' ? 'captchaSelfCleared' : 'captchaFailed');
-    return result.status !== 'failed';
+    control = await captchaControl(remote, page);
   } catch (error) {
     countHealth('captchaFailed');
-    console.warn(`[captcha] Bright Data could not complete the verification. ${JSON.stringify({ ...context, phase, error: safeCaptchaDiagnostic(error, secrets) })}`);
+    logCaptcha(remote, page, 'control unavailable', { error: safeCaptchaDiagnostic(error, secrets) });
     return false;
-  } finally { await session?.detach().catch(() => {}); }
+  }
+  if (control.blocked) return false;
+  if (control.inFlight) return control.inFlight;
+  control.inFlight = (async () => {
+    const address = page.url();
+    const result = await retryCaptchaSolve({
+      solve: async () => control.session.send('Captcha.solve' as never, { detectTimeout: 30_000, options: captchaOptions } as never) as Promise<CaptchaSolveResult>,
+      stillChallenged: async () => !page.isClosed() && page.url() === address && await hasCaptchaSurface(page),
+      pause: () => new Promise(done => setTimeout(done, 1_500)),
+      onAttempt: (attempt, status, details) => logCaptcha(remote, page, `attempt ${attempt}/3: ${status}`, {
+        phase: details.phase, elapsedMs: details.elapsedMs,
+        ...(details.error !== undefined ? { error: safeCaptchaDiagnostic(details.error, secrets) } : {}),
+        ...(details.response !== undefined ? { response: safeCaptchaDiagnostic(details.response, secrets) } : {}),
+      }),
+    });
+    control.blocked = result.status === 'failed';
+    countHealth(result.status === 'solved' ? 'captchaSolved' : result.status === 'cleared' ? 'captchaSelfCleared' : 'captchaFailed');
+    return result.status !== 'failed';
+  })().catch(error => {
+    control.blocked = true;
+    countHealth('captchaFailed');
+    logCaptcha(remote, page, 'could not complete verification', { error: safeCaptchaDiagnostic(error, secrets) });
+    return false;
+  }).finally(() => { control.inFlight = undefined; });
+  return control.inFlight;
 }
