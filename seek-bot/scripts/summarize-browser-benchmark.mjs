@@ -4,7 +4,7 @@ const median = values => {
   const sorted = values.filter(Number.isFinite).sort((a, b) => a - b), n = sorted.length;
   return n ? n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : null;
 };
-const summary = { live: input.live, route: input.route, liveViewEnabled: input.liveViewEnabled, requestedTrials: input.trialCount, completedTrials: input.results.length, modes: {}, listingOverlap: [] };
+const summary = { live: input.live, route: input.route, liveViewEnabled: input.liveViewEnabled, requestedTrials: input.trialCount, completedTrials: input.results.length, modes: {}, listingOverlap: [], detailConsistency: [] };
 for (const mode of ['headed', 'headless']) {
   const rows = input.results.filter(row => row.mode === mode), passed = rows.filter(row => row.ok);
   const searches = rows.flatMap(row => row.searches ?? []), details = rows.flatMap(row => row.details ?? []);
@@ -26,5 +26,10 @@ for (const keyword of [...new Set(input.results.flatMap(row => row.searches ?? [
   const headed = ids('headed'), headless = ids('headless'), union = new Set([...headed, ...headless]);
   const shared = [...headed].filter(id => headless.has(id)).length;
   summary.listingOverlap.push({ keyword, headed: headed.size, headless: headless.size, shared, union: union.size, jaccard: union.size ? shared / union.size : null });
+}
+for (const id of [...new Set(input.results.flatMap(row => row.details ?? []).map(row => row.id))]) {
+  const hashes = mode => new Set(input.results.filter(row => row.mode === mode).flatMap(row => row.details ?? []).filter(row => row.id === id).map(row => row.descriptionHash));
+  const headed = hashes('headed'), headless = hashes('headless');
+  if (headed.size && headless.size) summary.detailConsistency.push({ id, identical: headed.size === 1 && headless.size === 1 && [...headed][0] === [...headless][0] });
 }
 console.log(JSON.stringify(summary, null, 2));

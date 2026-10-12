@@ -44,7 +44,7 @@ try {
     const leasePath = resolve(root, 'data/users', ownerId, 'browser-benchmark.lock');
     if (existsSync(leasePath)) {
       let alive = false;
-      try { process.kill(JSON.parse(readFileSync(leasePath)).pid, 0); alive = true; } catch { /* Previous diagnostic exited. */ }
+      try { const pid = JSON.parse(readFileSync(leasePath)).pid; if (Number.isInteger(pid) && pid > 0) { process.kill(pid, 0); alive = true; } } catch { /* Previous diagnostic exited. */ }
       if (alive) throw new Error('This account already has a diagnostic running');
       unlinkSync(leasePath);
     }

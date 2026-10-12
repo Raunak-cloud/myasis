@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { launchBrowser, closeBrowser, getPage, assertSignedIn } from './browser.js';
 import { config } from './config.js';
 import { search, fetchJobDetail } from './discovery.js';
@@ -80,7 +81,7 @@ try {
       if (!fixture) await new Promise(done => setTimeout(done, config.limits.searchDelayMs * 1.4));
       const beforeDetail = performance.now();
       const detail = await fetchJobDetail(page, job);
-      (result.details as unknown[]).push({ id: job.id, ms: performance.now() - beforeDetail, descriptionChars: detail.description?.length ?? 0, mode: detail.applicationMode });
+      (result.details as unknown[]).push({ id: job.id, ms: performance.now() - beforeDetail, descriptionChars: detail.description?.length ?? 0, descriptionHash: createHash('sha256').update(detail.description ?? '').digest('hex'), mode: detail.applicationMode });
       if (await hasCaptchaSurface(page)) { result.challenges = Number(result.challenges) + 1; throw new Error('Challenge observed; benchmark stopped'); }
     }
   }
