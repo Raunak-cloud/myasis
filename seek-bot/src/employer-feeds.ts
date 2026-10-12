@@ -176,10 +176,11 @@ export class EmployerFeedDiscovery {
       try {
         let rows: any[];
         if (this.source === 'lever' || this.source === 'greenhouse') {
-          // These APIs have no full-text query. AI ranks the actual listings, without a keyword/synonym filter.
-          const all = await this.board(target);
-          rows = this.normalise(target, all);
-          rows = rows.slice((page - 1) * EMPLOYER_FEED_PAGE_SIZE, page * EMPLOYER_FEED_PAGE_SIZE);
+          // A board is a bounded snapshot, not a keyword result page. Artificial
+          // paging let adaptive discovery stop before later vacancies were even
+          // ranked. Give AI the whole snapshot once; normal review/apply limits
+          // still govern what it does with it. No relevance filter belongs here.
+          rows = page === 1 ? this.normalise(target, await this.board(target)) : [];
         } else if (this.source === 'workday') {
           const { url } = careerTarget('workday', target); const site = url.pathname.split('/')[2]; const tenant = url.hostname.split('.')[0];
           const endpoint = `${url.origin}/wday/cxs/${tenant}/${site}/jobs`;

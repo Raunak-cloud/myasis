@@ -31,6 +31,27 @@ test('Lever retrieves published Australian listings once, leaving relevance to A
   const before = requests.length; await assert.rejects(api.detail({ ...jobs[0], url: jobs[0].url.replace('/fixture/', '/other/') }), /watchlist/); assert.equal(requests.length, before);
 });
 
+test('complete board snapshots reach AI even when a vacancy follows the old discovery page limit', async () => {
+  for (const source of ['lever', 'greenhouse'] as const) {
+    let requests = 0;
+    const entries = Array.from({ length: 176 }, (_, i) => source === 'lever'
+      ? { ...lever, id: `${String(i).padStart(8, '0')}-2222-4333-8444-555555555555`, text: `Vacancy ${i}` }
+      : { ...greenhouse, id: i + 1, title: `Vacancy ${i}` });
+    const api = new EmployerFeedDiscovery(source, 'fixture', { now, gapMs: 0, fetch: async url => {
+      requests++;
+      const offset = Number(new URL(String(url)).searchParams.get('skip') ?? 0);
+      return response(source === 'lever' ? entries.slice(offset, offset + 100) : { jobs: entries });
+    } });
+    const jobs = await api.search('any candidate direction', 1);
+    assert.equal(jobs.length, 176);
+    assert.equal(jobs[145].title, 'Vacancy 145', 'later postings must not be hidden by adaptive discovery');
+    const fetched = requests;
+    assert.deepEqual(await api.search('same snapshot', 2), []);
+    assert.equal((await api.search('another keyword', 1)).length, 176);
+    assert.equal(requests, fetched, 'neither later pages nor another keyword refetch the board');
+  }
+});
+
 test('Greenhouse preserves actual publication dates and ignores edit dates; closed/mismatched jobs fail', async () => {
   let closed = false;
   const api = new EmployerFeedDiscovery('greenhouse', 'fixture', { now, gapMs: 0, fetch: async url => response(String(url).includes('/jobs/123') ? { ...greenhouse, ...(closed ? { application_deadline: '2026-10-11' } : {}) } : { jobs: [greenhouse] }) });

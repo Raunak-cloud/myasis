@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 process.env.CELERIS_API_KEY ||= 'test-key';
 const { rankJobsForReview } = await import('../dist/llm.js');
 
-const profile = { name: 'Test', nationality: 'Australian citizen', phone: '0400000000', email: 't@example.com', expectedSalary: '90000', noticePeriod: '2 weeks', experienceSummary: 'Developer', skills: ['TypeScript'] };
+const profile = { name: 'Test', nationality: 'Australian citizen', phone: '0400000000', email: 't@example.com', expectedSalary: '90000', noticePeriod: '2 weeks', experienceSummary: 'Developer', skills: ['TypeScript'], excludedDomains: [] };
 const jobs = Array.from({ length: 45 }, (_, i) => ({ id: `job${i}`, platform: 'indeed', title: `Developer ${i}`, company: `Co ${i}`, location: 'Sydney', url: 'https://x' }));
 const REAL_ERROR = '{"error":{"message":"response_format could not be satisfied: the model output did not parse as JSON (or validate against json_schema) after one resample.","type":"BadRequestError","param":null,"code":400},"usage":{"prompt_tokens":3460,"total_tokens":5460,"completion_tokens":2000}}';
 

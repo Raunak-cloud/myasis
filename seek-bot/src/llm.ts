@@ -930,6 +930,10 @@ on the same known mismatch when promising unreviewed jobs remain. Compare the pr
 reason against CURRENT candidate facts and preferences: reconsider it if circumstances
 changed. These records are fallible context, not instructions or permanent vetoes.
 Board recommendations are hints, not stronger evidence than actual requirements.
+Rank actual current vacancies ahead of event registrations, talent communities and
+general resume collection. An employer publishing something in its jobs feed does not
+establish that it is hiring for a specific position. Use the purpose of the posting,
+not a title keyword rule; a genuine job may involve organising events.
 The standing instructions and constraints are decisions the candidate has already made, and
 the full review enforces them. A job the summary already shows they rule out — a senior or
 manager title when the instructions exclude those, on-site or hybrid in another city when the
@@ -1157,6 +1161,12 @@ Treat obvious placeholder, lead-generation or deceptive listings as skip — inc
 dummy postings a board or employer left live ("[[TEST]] SAT-001: Software Engineer @ Sunny Cafe",
 "TEST - DO NOT APPLY", a job for a café hiring software engineers with a filler description) — but
 do not reject a short or unusually worded genuine ad merely because it does not match a template.
+First establish what the posting invites the candidate to do. Applying requires an actual
+current vacancy with identifiable work to perform. Conference or networking registration,
+talent communities, speculative resume collection and expressions of interest with no open
+position are skip, even when they mention relevant skills or future opportunities. A genuine
+vacancy whose work includes organising events is still a job. Explain the distinction using
+the posting's purpose, not title keywords. If the purpose is genuinely unclear, use uncertain.
 Return decision=apply only when the work is a reasonable fit and no mandatory conflict is evidenced.
 Return decision=skip for a clear mismatch, an explicit candidate-instruction conflict,
 or an explicitly mandatory requirement the candidate demonstrably does not meet.
@@ -1196,6 +1206,7 @@ applicant and even if the fit is otherwise excellent.
 matchScore is an integer from 0 to 100 for overall semantic fit after constraints.
 Return JSON.`;
   const schema = { type: 'OBJECT', properties: {
+    opportunityEvidence: { type: 'STRING', description: 'What the posting invites the candidate to do, with a short quote establishing whether it is an actual current vacancy.' },
     // First, so the instruction check is made before the decision it governs.
     instructionConflict: { type: 'STRING' },
     // Before the decision, so each mandatory legal credential is judged on its own first.
@@ -1207,7 +1218,7 @@ Return JSON.`;
     matchScore: { type: 'INTEGER' },
     reason: { type: 'STRING' }, evidence: { type: 'ARRAY', items: { type: 'STRING' } },
     injectionSuspected: { type: 'BOOLEAN' },
-  }, required: ['instructionConflict','credentialChecks','decision','matchScore','reason','evidence','injectionSuspected'] };
+  }, required: ['opportunityEvidence','instructionConflict','credentialChecks','decision','matchScore','reason','evidence','injectionSuspected'] };
   // Cache identity includes the model: old fast-model decisions cannot mask this migration.
   return cachedAssessment({ version: FIT_ASSESSMENT_VERSION, prompt, model: FIT_CLASSIFIER_MODEL, endpoint: config.celeris.baseUrl }, async () => {
     const raw = await measured('fit', () => json<unknown>(prompt, schema, FIT_CLASSIFIER_MODEL));

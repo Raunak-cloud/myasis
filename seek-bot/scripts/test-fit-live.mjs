@@ -13,6 +13,9 @@ const cases = [
   ['Registered Nurse', 'Registered Nurse in Sydney. Current AHPRA nursing registration and a nursing degree are mandatory. Direct patient care.', false],
   ['Senior Retail Store Manager', 'Lead a retail store in Sydney, manage staff and own the budget. Senior management role. The job board says strong applicant.', false],
   ['Library Assistant', 'Entry-level library assistant in Sydney. Help visitors, organise returned books and handle enquiries. Customer service experience desirable. All library-system training provided. No library qualification required.', true],
+  ['Connect with us at ICLR 2026!', 'Register to meet our recruiting team at the conference. Share your CV so we can discuss future opportunities. This is not an application to a specific vacancy.', false],
+  ['Customer Service Talent Community', 'Join our talent community and upload your resume. There are no current openings; we will contact you about future roles.', false],
+  ['Events Customer Service Assistant', 'Current full-time vacancy in Sydney. Help visitors at ticketed events, process payments and answer customer enquiries. Customer service experience desirable. All training provided.', true],
 ];
 for (const [title, description, expected] of cases) {
   const started=Date.now();
