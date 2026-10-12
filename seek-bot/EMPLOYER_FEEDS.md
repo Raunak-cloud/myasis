@@ -12,7 +12,7 @@ Every source enters the existing AI ranking, candidate-fit, resume selection, ac
 
 ## Watchlists
 
-- `LEVER_COMPANIES`: identifiers from `jobs.lever.co`, such as `objective,palantir,kasada`.
+- `LEVER_COMPANIES`: identifiers from `jobs.lever.co`, such as `objective,palantir,kasada`. Optional `Employer name|identifier|exact location;another location` applies the documented provider-side location filter before reading the bounded snapshot. Use actual case-sensitive location values from that employer?s career board, not inferred city aliases. For example, `Jobgether|jobgether|Australia`. Filters do not change job identity, eligibility review or the Australian country check; unfiltered configurations keep their existing behaviour.
 - `GREENHOUSE_BOARDS`: board identifiers, such as `theiconic,firmus,futuresecureai`.
 - `PAGEUP_SITES`: comma-separated `Employer name|https://careers.pageuppeople.com/841/cw/en` entries.
 - `WORKDAY_SITES`: comma-separated `Employer name|https://nine.wd105.myworkdayjobs.com/en-US/Nine_External_Career_Site` entries.

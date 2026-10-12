@@ -159,8 +159,11 @@ export class EmployerFeedDiscovery {
         return data.jobs.slice(0, 2000);
       }
       const jobs: any[] = [];
+      const board = identifierTarget(target);
       for (let offset = 0; offset < 2000; offset += 100) {
-        const data = await this.reader.json(`https://api.lever.co/v0/postings/${identifierTarget(target).identifier}?mode=json&limit=100&skip=${offset}`);
+        const query = new URLSearchParams({ mode: 'json', limit: '100', skip: String(offset) });
+        for (const location of board.locations) query.append('location', location);
+        const data = await this.reader.json(`https://api.lever.co/v0/postings/${board.identifier}?${query}`);
         if (!Array.isArray(data)) throw new Error('Invalid Lever board response.');
         jobs.push(...data.slice(0, 100)); if (data.length < 100) break;
       }

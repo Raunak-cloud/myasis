@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EmployerFeedDiscovery, employerJobIdentity, feedText, workdayCountryFilter } from './employer-feeds.js';
-import { employerTargets, EMPLOYER_SOURCES } from './employer-source-config.js';
+import { employerTargets, identifierTarget, EMPLOYER_SOURCES } from './employer-source-config.js';
 
 const id = '11111111-2222-4333-8444-555555555555';
 const lever = { id, text: 'Product Engineer', country: 'au', categories: { location: 'Sydney' }, descriptionPlain: 'Build reliable products', lists: [{ text: 'Skills', content: '<p>React and Node</p>' }], workplaceType: 'hybrid' };
@@ -29,6 +29,28 @@ test('Lever retrieves published Australian listings once, leaving relevance to A
   await api.search('different words', 1); assert.equal(requests.length, 1, 'board fetched once per run');
   const detail = await api.detail(jobs[0]); assert.match(detail.description!, /React and Node/);
   const before = requests.length; await assert.rejects(api.detail({ ...jobs[0], url: jobs[0].url.replace('/fixture/', '/other/') }), /watchlist/); assert.equal(requests.length, before);
+});
+
+test('Lever optional native locations narrow the provider snapshot without changing identity or candidate fit', async () => {
+  assert.deepEqual(identifierTarget('Fixture Company|fixture|Australia;Remote (AU)'), { name: 'Fixture Company', identifier: 'fixture', locations: ['Australia', 'Remote (AU)'] });
+  assert.deepEqual(employerTargets('lever', ' Fixture Company | fixture | Australia ; Australia '), ['Fixture Company|fixture|Australia']);
+  assert.deepEqual(identifierTarget(employerTargets('lever', 'Fixture Company|fixture|Sydney%2C Australia;Remote (AU)')[0]).locations, ['Sydney, Australia', 'Remote (AU)']);
+  for (const invalid of ['Name|fixture|', 'Name|fixture|A;B;C;D;E;F', 'Name|fixture|Australia|extra']) assert.throws(() => employerTargets('lever', invalid));
+  let requests = 0;
+  const api = new EmployerFeedDiscovery('lever', 'Fixture Company|fixture|Australia;Remote (AU)', { now, gapMs: 0, fetch: async url => {
+    requests++;
+    const parsed = new URL(String(url));
+    assert.equal(parsed.origin, 'https://api.lever.co');
+    if (parsed.pathname.endsWith(`/${id}`)) return response(lever);
+    assert.deepEqual(parsed.searchParams.getAll('location'), ['Australia', 'Remote (AU)']);
+    return response([lever]);
+  } });
+  const [job] = await api.search('unrelated words', 1);
+  assert.equal(job.company, 'Fixture Company');
+  assert.equal(job.title, 'Product Engineer', 'native location is not a role filter');
+  assert.equal(job.id, (await new EmployerFeedDiscovery('lever', 'fixture', { gapMs: 0, fetch: async () => response([lever]) }).search('any', 1))[0].id);
+  assert.equal((await api.detail(job)).id, job.id);
+  assert.equal(requests, 2);
 });
 
 test('complete board snapshots reach AI even when a vacancy follows the old discovery page limit', async () => {

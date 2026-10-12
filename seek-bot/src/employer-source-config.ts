@@ -3,7 +3,7 @@ export const EMPLOYER_SOURCES = [
   { id: 'smartrecruiters', label: 'SmartRecruiters', key: 'SMARTRECRUITERS_COMPANIES', baseUrl: 'https://jobs.smartrecruiters.com',
     defaults: 'Canva,KPMGAustralia1,Colliers', kind: 'identifiers', help: 'Employer identifiers from SmartRecruiters careers URLs.' },
   { id: 'lever', label: 'Lever', key: 'LEVER_COMPANIES', baseUrl: 'https://jobs.lever.co',
-    defaults: 'Objective Corporation|objective,Palantir Technologies|palantir,Kasada|kasada', kind: 'identifiers', help: 'Identifiers from jobs.lever.co. Optionally use Employer name|identifier to match the employer name used on other job boards.' },
+    defaults: 'Objective Corporation|objective,Palantir Technologies|palantir,Kasada|kasada', kind: 'identifiers', help: 'Identifiers from jobs.lever.co. Optionally use Employer name|identifier to match other boards, or Employer name|identifier|Location for the provider’s exact location filter. Separate several locations with semicolons; write location commas as %2C.' },
   { id: 'greenhouse', label: 'Greenhouse', key: 'GREENHOUSE_BOARDS', baseUrl: 'https://job-boards.greenhouse.io',
     defaults: 'theiconic,firmus,futuresecureai', kind: 'identifiers', help: 'Board identifiers from job-boards.greenhouse.io careers URLs.' },
   { id: 'pageup', label: 'PageUp', key: 'PAGEUP_SITES', baseUrl: 'https://careers.pageuppeople.com',
@@ -39,16 +39,19 @@ export function employerTargets(id: EmployerSourceId, raw: string): string[] {
       const target = careerTarget(id as 'pageup' | 'workday', value);
       return `${target.name ? `${target.name}|` : ''}${target.url.href}`;
     }
-    if (id === 'lever') { const target = identifierTarget(value); return `${target.name ? `${target.name}|` : ''}${target.identifier}`; }
+    if (id === 'lever') { const target = identifierTarget(value); return `${target.name ? `${target.name}|` : ''}${target.identifier}${target.locations.length ? `|${target.locations.map(location => encodeURIComponent(location).replace(/%20/g, ' ')).join(';')}` : ''}`; }
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/.test(value)) throw new Error(`Use ${source.label} employer identifiers, not URLs.`);
     return value;
   });
 }
 
-export function identifierTarget(raw: string): { name: string; identifier: string } {
-  const parts = raw.split('|'); const identifier = parts.at(-1)!.trim();
-  if (parts.length > 2 || (parts.length === 2 && (!parts[0].trim() || parts[0].length > 100)) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/.test(identifier)) throw new Error('Use an employer identifier, optionally Employer name|identifier, not a URL.');
-  return { name: parts.length === 2 ? parts[0].trim() : '', identifier };
+export function identifierTarget(raw: string): { name: string; identifier: string; locations: string[] } {
+  const parts = raw.split('|'); const identifier = parts[parts.length === 1 ? 0 : 1].trim();
+  const locations = parts.length === 3 ? [...new Set(parts[2].split(';').map(value => decodeURIComponent(value.trim())))] : [];
+  if (parts.length > 3 || (parts.length >= 2 && (!parts[0].trim() || parts[0].length > 100)) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/.test(identifier)
+    || locations.length > 5 || locations.some(value => !value || value.length > 150 || /[\u0000-\u001f\u007f]/.test(value)))
+    throw new Error('Use an employer identifier, Employer name|identifier, or Employer name|identifier|exact location values separated by semicolons.');
+  return { name: parts.length >= 2 ? parts[0].trim() : '', identifier, locations };
 }
 
 export function careerTarget(id: 'pageup' | 'workday', raw: string): { name: string; url: URL } {
