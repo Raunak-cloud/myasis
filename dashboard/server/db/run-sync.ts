@@ -9,6 +9,7 @@ import { loadProfile } from '../profile.js';
 import { listResumes, listKnowledge } from '../files.js';
 import { listAnswers } from '../answers.js';
 import type { CandidateProfile } from '../candidate-profile.js';
+import { verdictsForRun } from '../skipped.js';
 
 /**
  * Bridges Postgres (authoritative) and the per-user directory seek-bot
@@ -164,6 +165,8 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
        FROM run_events
       WHERE user_id = $1 AND job_id IS NOT NULL
         AND review_disposition IS NOT NULL AND review_expires_at > now()
+        -- A skip the candidate overruled is reviewed again, as their choice.
+        AND job_id NOT IN (SELECT job_id FROM review_verdicts WHERE user_id = $1 AND verdict = 'apply')
       ORDER BY ts DESC LIMIT 2000`,
     [userId],
   );
@@ -190,6 +193,9 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     ...(row.review_context_fingerprint ? { contextFingerprint: row.review_context_fingerprint } : {}),
     expiresAt: new Date(row.review_expires_at).toISOString(),
   })).join('\n'));
+
+  // The candidate's calls on skipped jobs (skipped.ts, seek-bot review-verdicts.ts).
+  writeFileSync(resolve(dir, 'review-verdicts.json'), JSON.stringify(await verdictsForRun(userId), null, 2));
 
   // Fresh log for this run only, so `syncRunResultsToDb` reads exactly what
   // THIS run wrote — never re-syncs an earlier run's already-migrated lines.

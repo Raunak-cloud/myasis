@@ -1,6 +1,7 @@
 import { measured, metric } from './pipeline.js';
 import { pickResumeForJob } from './resume.js';
-import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict } from './llm.js';
+import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict, type FitAssessment } from './llm.js';
+import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
 import {
   launchBrowser,
@@ -278,7 +279,8 @@ async function main() {
     let cardWorkers = 0;
     const checkCards = (jobs: JobListing[]) => {
       if (!config.celeris.apiKey || !config.aiInstructions.trim()) return;
-      cardQueue.push(...jobs);
+      // A job the candidate chose has had its fit decided by them.
+      cardQueue.push(...jobs.filter((job) => job.source !== 'chosen'));
       while (cardWorkers < config.limits.fitConcurrency && cardQueue.length) {
         cardWorkers++;
         void (async () => {
@@ -371,6 +373,20 @@ async function main() {
       console.log('No enabled platform has a working session this run. Nothing to do — sign in and try again.');
       return;
     }
+    /**
+     * Skipped jobs the candidate said they would have applied to (the
+     * dashboard's Skipped view), opened again this run as their choice.
+     * Everything but the fit check still applies on the way in and at the
+     * form: already applied, scope, age, a security check, the board's form.
+     */
+    const chosen = chosenListings(loadReviewVerdicts());
+    for (const adapter of active) {
+      const mine = chosen.filter((job) => job.platform === adapter.id);
+      if (!mine.length || targetedAdapters.has(adapter.id)) continue;
+      const accepted = ingest(mine, adapter);
+      recommendedAccepted.push(...accepted);
+      if (accepted.length) console.log(`  ${adapter.label}: ${accepted.length} skipped job(s) you chose to apply to after all`);
+    }
     await rankNew(recommendedAccepted);
 
     type SearchStream = {
@@ -401,7 +417,7 @@ async function main() {
      * otherwise never be opened at all. Scope stays first — an out-of-scope
      * recommendation is dropped unopened anyway.
      */
-    const recommendedFirst = (job: JobListing): number => (job.source === 'recommended' ? 0 : 1);
+    const recommendedFirst = (job: JobListing): number => (job.source === 'recommended' || job.source === 'chosen' ? 0 : 1);
     const reviewOrder = (a: JobListing, b: JobListing) => {
       const scoped = scopeRank(a) - scopeRank(b);
       if (scoped) return scoped;
@@ -600,6 +616,8 @@ async function main() {
             reason: `Fit check (${fit.decision}): ${fit.reason}`,
             title: job.title,
             company: job.company,
+            // The Skipped view links each one, so the candidate can read the listing the check read.
+            url: job.url,
             ...(fit.decision === 'skip' ? { reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) } : {}),
           });
           return;
@@ -608,7 +626,7 @@ async function main() {
           const reason = `Model match score ${fit.matchScore} below minimum ${config.rules.minScore}`;
           console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${reason}`);
           bump('below minimum match score');
-          logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company,
+          logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company, url: job.url,
             reviewCache: reviewCacheMetadata(job, 'below-score', reviewContext, REVIEW_TTL.fit) });
           return;
         }
@@ -684,7 +702,7 @@ async function main() {
         metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
         bump('fit mismatch');
         logOutcome({
-          status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company,
+          status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company, url: stub.url,
           reviewCache: reviewCacheMetadata(stub, 'fit-mismatch', reviewContext, REVIEW_TTL.fit),
         });
         return;
@@ -793,7 +811,20 @@ async function main() {
       const priority = reviewPriorities.get(reviewKey(job));
       const score = heuristic?.total ?? priority?.priority ?? 0;
       const scoreReasons = heuristic?.reasons ?? (priority?.reason ? [priority.reason] : []);
-      const fitPromise = config.celeris.apiKey
+      /** The candidate's own call on a job the fit check skipped before; nothing to judge again. */
+      const chosenFit: FitAssessment | null = stub.source === 'chosen'
+        ? {
+            decision: 'apply',
+            shouldApply: true,
+            matchScore: 100,
+            reason: 'You chose to apply to this one after it was skipped.',
+            evidence: ['Your call in the Skipped view'],
+            injectionSuspected: false,
+          }
+        : null;
+      const fitPromise = chosenFit
+        ? Promise.resolve({ fit: chosenFit })
+        : config.celeris.apiKey
         ? assessFit(job, profile).then(
             (fit) => ({ fit }),
             (error) => ({ error: (error as Error).message }),

@@ -40,7 +40,7 @@ interface QueueItem {
   scoreReasons: string[];
   fitReason: string;
   coverLetter: string;
-  source?: 'recommended' | 'search';
+  source?: JobListing['source'];
   /** Set when the extension reports a completed submission. */
   status: QueueStatus;
   addedAt: string;

@@ -43,7 +43,8 @@ export interface JobListing {
   url: string;
   teaser?: string;
   /** Where this candidate came from. Recommended jobs are evaluated first. */
-  source?: 'recommended' | 'search';
+  /** Where review found it; 'chosen' is a skipped job the candidate said they would have applied to. */
+  source?: 'recommended' | 'search' | 'chosen';
   /**
    * Which job board this listing came from. Optional so existing SEEK-only
    * code (fixtures, older records) still type-checks; every discovery module

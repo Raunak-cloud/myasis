@@ -12,6 +12,7 @@ import {
 import { attachScreencast } from './server/screencast.js';
 import { loadQueue, updateQueueItem, answerForm } from './server/assist.js';
 import { loadAttention, dismissAllAttention } from './server/attention.js';
+import { loadSkipped, setVerdict } from './server/skipped.js';
 import { setupStatus } from './server/setup.js';
 import { loadProfile as loadCandidate, saveProfile, SalaryValidationError } from './server/profile.js';
 import {
@@ -1138,6 +1139,21 @@ function dataApi(): Plugin {
 
       case '/api/attention':
         return withUser(async (userId) => send(await loadAttention(userId)));
+
+      // Skipped jobs and the candidate's call on each (server/skipped.ts). Administrators only while it is tried out.
+      case '/api/skipped':
+        return withUser(async (userId) => {
+          const user = await currentUser(req.headers?.cookie);
+          if (!isAdmin(user?.email)) return send({ error: 'Not available on this account yet.' }, 403);
+          if (req.method === 'POST') {
+            const b = await readBody();
+            const verdict = b?.verdict === null ? null : b?.verdict === 'apply' || b?.verdict === 'skip' ? b.verdict : undefined;
+            if (verdict === undefined) return send({ error: 'Unknown verdict.' }, 400);
+            const result = await setVerdict(userId, String(b?.jobId ?? ''), verdict, typeof b?.note === 'string' ? b.note : undefined);
+            if (!result.ok) return send({ error: result.error }, 400);
+          }
+          return send({ items: await loadSkipped(userId) });
+        });
 
       case '/api/gmail/status':
         return withUser(async (userId) => {

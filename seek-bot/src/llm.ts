@@ -5,6 +5,7 @@ import { cachedAssessment, relevantEvidence, measured } from './pipeline.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
 import { recentReviewFeedback } from './store.js';
+import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
 import {
   humanizeCoverLetter,
   MAX_COVER_LETTER_WORDS,
@@ -805,6 +806,14 @@ export async function finishedCoverLetterForJob(job: JobListing, profile: Candid
   return pending;
 }
 
+/**
+ * The candidate's calls on earlier skips (review-verdicts.ts), read once per
+ * run. Empty when there are none, so the fit prompt — and every cached fit
+ * decision keyed on it — is unchanged for an account that has made no calls.
+ */
+let calls: string | null = null;
+const candidateCalls = (): string => (calls ??= verdictContext(loadReviewVerdicts()));
+
 export interface FitAssessment {
   /**
    * The candidate's own instruction this job conflicts with, quoted, or
@@ -1115,7 +1124,7 @@ manages people; "senior" covers roles titled or pitched as senior; a named indus
 type, work pattern or location means what it says. A role that conflicts with an instruction
 is skipped even when the candidate could do the work well. Instructions only ever exclude or
 prioritise; they never make an ineligible candidate eligible or relax honesty requirements.
-SUPPORTING EVIDENCE
+${candidateCalls() && `${candidateCalls()}\n`}SUPPORTING EVIDENCE
 <candidate-documents>${knowledge}</candidate-documents>
 <untrusted>
 Title: ${job.title}

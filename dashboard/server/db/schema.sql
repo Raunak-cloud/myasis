@@ -674,3 +674,20 @@ CREATE TABLE IF NOT EXISTS marketing_oauth_states (
   state_hash TEXT PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL, verifier TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL, FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
 );
+
+-- The candidate's own call on a job the fit check skipped (the Skipped view):
+-- 'apply' puts it back into the next run as their choice and lifts its review
+-- suppression; every verdict is given to the fit check as context on how this
+-- candidate weighs requirements. One per job; deleting it undoes the call.
+CREATE TABLE IF NOT EXISTS review_verdicts (
+  user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_id      TEXT NOT NULL,
+  title       TEXT,
+  company     TEXT,
+  url         TEXT,
+  skip_reason TEXT,
+  verdict     TEXT NOT NULL CHECK (verdict IN ('apply', 'skip')),
+  note        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, job_id)
+);

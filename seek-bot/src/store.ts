@@ -102,7 +102,7 @@ export class AppliedIndex {
   }
 }
 
-export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; reviewCache?: ReviewCacheMetadata }) {
+export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; url?: string; reviewCache?: ReviewCacheMetadata }) {
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });
   writeFileSync(LOG, line + '\n', { flag: 'a' });

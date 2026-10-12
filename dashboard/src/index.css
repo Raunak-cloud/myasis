@@ -796,6 +796,10 @@ tbody tr.clickable { cursor: pointer; }
 .attention-col-when { width: 9%; }
 .attention-col-action { width: 9%; }
 .attention-table td { padding-block: 15px; }
+.skipped-call { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.skipped-note { margin-top: 6px; font-style: italic; }
+.skipped-note-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.skipped-note-edit .input { flex: 1 1 220px; min-width: 0; }
 .attention-table .job-title,
 .attention-table .job-meta { overflow-wrap: anywhere; }
 .attention-reason {
