@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 
@@ -6,7 +6,11 @@ interface Props {
   apps: Application[];
   onChange: (a: Application[]) => void;
   followUpDays: number;
+  /** Offer the Skipped view beside what was sent (administrators, while it is tried out). */
+  showSkipped?: boolean;
 }
+
+const SkippedPanel = lazy(() => import('./SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
 
 /** The job board an application went through, named the way the board names itself. */
 const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
@@ -81,7 +85,8 @@ const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
  * unanswered for a fortnight is the single most actionable thing a job seeker
  * has, and nothing else in the product surfaces it.
  */
-export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
+export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false }: Props) {
+  const [view, setView] = useState<'sent' | 'skipped'>('sent');
   const [filter, setFilter] = useState<'all' | 'awaiting' | 'interview' | 'rejected'>('all');
   const [open, setOpen] = useState<Application | null>(null);
   const [query, setQuery] = useState('');
@@ -135,7 +140,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
     [apps, followUpDays],
   );
 
-  return (
+  const sent = (
     <div className="applications-panel">
       <div className="queue-bar">
         <div className="chips">
@@ -363,5 +368,29 @@ export function ApplicationsPanel({ apps, onChange, followUpDays }: Props) {
         </div>
       )}
     </div>
+  );
+
+  if (!showSkipped) return sent;
+  /**
+   * What was sent and what was passed over, side by side: the second is the
+   * fit check's half of the same decision. Administrators only while it is
+   * tried out; /api/skipped enforces the same.
+   */
+  return (
+    <>
+      <div className="view-tabs" role="tablist" aria-label="Applications">
+        <button type="button" role="tab" aria-selected={view === 'sent'} className={`view-tab ${view === 'sent' ? 'on' : ''}`} onClick={() => setView('sent')}>
+          Sent<span className="chip-hint">{apps.length}</span>
+        </button>
+        <button type="button" role="tab" aria-selected={view === 'skipped'} className={`view-tab ${view === 'skipped' ? 'on' : ''}`} onClick={() => setView('skipped')}>
+          Skipped
+        </button>
+      </div>
+      {view === 'sent' ? sent : (
+        <Suspense fallback={<div className="card empty"><p>Loading skipped jobs…</p></div>}>
+          <SkippedPanel />
+        </Suspense>
+      )}
+    </>
   );
 }

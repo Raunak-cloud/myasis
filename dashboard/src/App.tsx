@@ -9,7 +9,6 @@ import type { AttentionItem } from './components/AttentionPanel';
 const RunPanel = lazy(() => import('./components/RunPanel').then((m) => ({ default: m.RunPanel })));
 const AttentionPanel = lazy(() => import('./components/AttentionPanel').then((m) => ({ default: m.AttentionPanel })));
 const ApplicationsPanel = lazy(() => import('./components/ApplicationsPanel').then((m) => ({ default: m.ApplicationsPanel })));
-const SkippedPanel = lazy(() => import('./components/SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
 const SetupPanel = lazy(() => import('./components/SetupPanel').then((m) => ({ default: m.SetupPanel })));
 const HumanizerPanel = lazy(() => import('./components/HumanizerPanel').then((m) => ({ default: m.HumanizerPanel })));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
@@ -32,7 +31,7 @@ import { captureRedditClickId, initRedditPixel, trackRedditEvent } from './reddi
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
-type Tab = 'run' | 'attention' | 'applications' | 'skipped' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
+type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -57,10 +56,6 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   applications: {
     title: 'Applications',
     description: 'Track what was sent and record employer responses.',
-  },
-  skipped: {
-    title: 'Skipped jobs',
-    description: 'What the fit check passed over, and your call on it.',
   },
   admin: {
     title: 'Admin',
@@ -143,7 +138,7 @@ export default function App() {
   /** Operator pages are only offered to admins; their APIs enforce the same restriction. */
   const isAdmin = entitlements?.tier === 'admin';
   useEffect(() => {
-    if (entitlements && !isAdmin && (tab === 'admin' || tab === 'marketing' || tab === 'skipped')) setTab('run');
+    if (entitlements && !isAdmin && (tab === 'admin' || tab === 'marketing')) setTab('run');
   }, [entitlements, isAdmin, tab]);
   /** What is in front of the visitor: the landing page while signed out, otherwise the tab. */
   useEffect(() => {
@@ -232,8 +227,6 @@ export default function App() {
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
     { id: 'applications', label: 'Applications', badge: apps.length },
   ];
-  // Administrators only while it is tried out; /api/skipped enforces the same.
-  if (isAdmin) primaryNav.push({ id: 'skipped', label: 'Skipped jobs' });
   if (isAdmin) primaryNav.push({ id: 'marketing', label: 'Marketing' });
 
   /**
@@ -556,9 +549,8 @@ export default function App() {
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
-            <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} />
+            <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} />
           )}
-          {tab === 'skipped' && isAdmin && <SkippedPanel />}
           {tab === 'humanizer' && canRewrite && <HumanizerPanel />}
           {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'pricing' && <PricingPanel />}

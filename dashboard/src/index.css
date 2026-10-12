@@ -796,6 +796,11 @@ tbody tr.clickable { cursor: pointer; }
 .attention-col-when { width: 9%; }
 .attention-col-action { width: 9%; }
 .attention-table td { padding-block: 15px; }
+.view-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.view-tab { background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 12px; font: inherit; font-size: 14px; color: var(--text-dim); cursor: pointer; white-space: nowrap; display: inline-flex; gap: 6px; align-items: baseline; }
+.view-tab:hover { color: var(--text); }
+.view-tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.view-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .skipped-call { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .skipped-note { margin-top: 6px; font-style: italic; }
 .skipped-note-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
