@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EmployerFeedDiscovery, employerJobIdentity, feedText } from './employer-feeds.js';
+import { EmployerFeedDiscovery, employerJobIdentity, feedText, workdayCountryFilter } from './employer-feeds.js';
 import { employerTargets, EMPLOYER_SOURCES } from './employer-source-config.js';
 
 const id = '11111111-2222-4333-8444-555555555555';
@@ -88,4 +88,20 @@ test('malformed Workday rows cannot choose another host and do not hide valid li
     { title: 'Valid', locationsText: 'Sydney', externalPath: '/job/Sydney/Valid_JR123' },
   ] }) });
   const jobs = await api.search('software', 1); assert.equal(jobs.length, 1); assert.equal(jobs[0].title, 'Valid'); assert.equal(warnings.length, 1);
+});
+
+test('Workday uses nested provider-supplied country facets before paging instead of losing Australian jobs behind global results', async () => {
+  const calls: any[] = [];
+  const facets = [{ facetParameter: 'locationGroup', values: [{ descriptor: 'Country', facetParameter: 'employerSpecificCountryField', values: [{ descriptor: 'Australia', id: 'dynamic-au-id' }] }] }];
+  const api = new EmployerFeedDiscovery('workday', wdRoot, { gapMs: 0, fetch: async (_url, init) => {
+    const request = JSON.parse(init!.body as string); calls.push(request);
+    return response(Object.keys(request.appliedFacets).length ? { jobPostings: [{ title: 'Australian Developer', locationsText: 'Sydney', externalPath: '/job/Sydney/Developer_JR42' }] } : { jobPostings: [{ title: 'Global first page', locationsText: 'New York', externalPath: '/job/New-York/Developer_JR41' }], facets });
+  } });
+  const jobs = await api.search('software', 1); assert.equal(jobs[0].title, 'Australian Developer');
+  assert.deepEqual(calls[1].appliedFacets, { employerSpecificCountryField: ['dynamic-au-id'] });
+  await api.search('AI', 2); assert.equal(calls.length, 3, 'discovered country IDs are reused across queries');
+  assert.equal(calls[2].offset, 20); assert.equal(calls[2].searchText, 'AI');
+  assert.deepEqual(workdayCountryFilter(facets), { employerSpecificCountryField: ['dynamic-au-id'] });
+  assert.equal(workdayCountryFilter([{ descriptor: 'Country', facetParameter: 'country', values: [{ descriptor: 'Canada', id: 'ca' }] }]), null);
+  assert.equal(workdayCountryFilter([{ descriptor: 'Location', facetParameter: 'locations', values: [{ descriptor: 'Sydney', id: 'syd' }] }]), undefined);
 });

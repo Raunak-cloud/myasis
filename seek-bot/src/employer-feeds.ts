@@ -25,6 +25,23 @@ const dates = (value: unknown, now: number) => {
 };
 const expired = (value: unknown, now: number) => typeof value === 'string' && Number.isFinite(Date.parse(value)) && Date.parse(value) < now;
 
+/** Workday publishes each employer's facet parameter and opaque option IDs. */
+export function workdayCountryFilter(facets: unknown, country = 'Australia'): Record<string, string[]> | null | undefined {
+  if (!Array.isArray(facets)) return undefined;
+  for (const facet of facets) {
+    if (!facet || !Array.isArray(facet.values)) continue;
+    if (typeof facet.facetParameter === 'string' && String(facet.descriptor).trim().toLowerCase() === 'country') {
+      const value = facet.values.find((item: any) => typeof item?.descriptor === 'string' && item.descriptor.trim().toLowerCase() === country.toLowerCase());
+      if (!value) return null; // The provider's current query has no postings in this country.
+      if (typeof value.id !== 'string' || !value.id || value.id.length > 200 || facet.facetParameter.length > 200) return undefined;
+      return { [facet.facetParameter]: [value.id] };
+    }
+    const nested = workdayCountryFilter(facet.values, country);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
 /** Identity comes from a provider-owned URL; content cannot choose a network destination. */
 export function employerJobIdentity(source: EmployerSourceId, raw: string): { namespace: string; posting: string } {
   if (source === 'smartrecruiters') { const id = smartRecruitersIdentity(raw); return { namespace: id.company, posting: id.posting }; }
@@ -78,6 +95,7 @@ export class EmployerFeedDiscovery {
   private readonly targets: string[];
   private readonly reader: PublicReader;
   private readonly boardCache = new Map<string, Promise<any[]>>();
+  private readonly countryFilters = new Map<string, Record<string, string[]>>();
   private readonly now: () => number;
   constructor(readonly source: NewSource, raw?: string, private options: FeedOptions = {}) {
     const spec = EMPLOYER_SOURCES.find(item => item.id === source)!;
@@ -164,7 +182,17 @@ export class EmployerFeedDiscovery {
           rows = rows.slice((page - 1) * EMPLOYER_FEED_PAGE_SIZE, page * EMPLOYER_FEED_PAGE_SIZE);
         } else if (this.source === 'workday') {
           const { url } = careerTarget('workday', target); const site = url.pathname.split('/')[2]; const tenant = url.hostname.split('.')[0];
-          const data = await this.reader.json(`${url.origin}/wday/cxs/${tenant}/${site}/jobs`, { limit: 20, offset: (page - 1) * 20, searchText: keyword.slice(0, 150), appliedFacets: {} });
+          const endpoint = `${url.origin}/wday/cxs/${tenant}/${site}/jobs`;
+          const request = { limit: 20, offset: (page - 1) * 20, searchText: keyword.slice(0, 150), appliedFacets: this.countryFilters.get(target) ?? {} };
+          let data = await this.reader.json(endpoint, request);
+          if (!this.countryFilters.has(target)) {
+            const filter = workdayCountryFilter(data.facets);
+            if (filter === null) { successful++; continue; }
+            if (filter) {
+              this.countryFilters.set(target, filter);
+              data = await this.reader.json(endpoint, { ...request, appliedFacets: filter });
+            }
+          }
           if (!Array.isArray(data.jobPostings)) throw new Error('Invalid Workday career-site response.');
           rows = this.normalise(target, data.jobPostings.slice(0, 20));
         } else {
