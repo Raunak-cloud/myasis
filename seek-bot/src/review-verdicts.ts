@@ -55,6 +55,7 @@ function boardOf(url: string): PlatformId | null {
     const host = new URL(url).hostname;
     if (/(^|\.)seek\.com\.au$/i.test(host)) return 'seek';
     if (/(^|\.)indeed\.com$/i.test(host)) return 'indeed';
+    if (host === 'jobs.smartrecruiters.com') return 'smartrecruiters';
   } catch { /* not an address */ }
   return null;
 }

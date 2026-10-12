@@ -6,6 +6,16 @@ import { plainReason } from '../src/run-messages.ts';
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 const completion = (lines) => activityEvents(lines).find((event) => event.title === 'Run complete').detail;
 
+test('public employer feeds report connection and partial failures without claiming a sign-in', () => {
+  const events = activityEvents(log([
+    'SmartRecruiters public job feed ready (admin only).',
+    '! SmartRecruiters employer Canva could not be searched: HTTP 429',
+  ]));
+  assert.equal(events[0].title, 'SmartRecruiters employer feeds connected');
+  assert.equal(events[1].tone, 'warn');
+  assert.ok(events.every(event => !event.title.startsWith('Signed in')));
+});
+
 const timedLog = (entries) => entries.map(([seconds, text], seq) => ({
   seq, stream: 'out', text, ts: new Date(Date.UTC(2026, 9, 7) + seconds * 1000).toISOString(),
 }));

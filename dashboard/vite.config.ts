@@ -26,6 +26,7 @@ const BOARD_RESUMES_NOTE_DISMISSED = 'BOARD_RESUMES_NOTE_DISMISSED';
 import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
 import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
+import { jobSourceSettingsError } from './server/job-sources.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { matchKeysFromRequest, reportRedditConversion } from './server/reddit-capi.js';
@@ -506,6 +507,8 @@ function dataApi(): Plugin {
              * actually withholds them.
              */
             const settingsUser = await currentUser(req.headers?.cookie);
+            const sourceError = jobSourceSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email));
+            if (sourceError) return send({ error: sourceError.error }, sourceError.status);
             const entitlements = await entitlementsFor(userId, settingsUser?.email);
             const updates: Record<string, string> = {};
             for (const [key, value] of Object.entries(body?.updates ?? {})) {

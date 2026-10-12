@@ -36,6 +36,8 @@ import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scop
 import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { runDirectExternalApplication } from './direct-external.js';
+import { SmartRecruitersDiscovery, SMARTRECRUITERS_PAGE_SIZE } from './smartrecruiters.js';
+import { applyToEmployerJob } from './agent/apply-employer-job.js';
 import {
   DISCOVERY_PRIORITY_FLOOR,
   discoveryTarget as calculateDiscoveryTarget,
@@ -57,6 +59,8 @@ interface PlatformAdapter {
   id: PlatformId;
   label: string;
   pageSize: number;
+  /** Public API discovery needs no sign-in or browser reading pause. */
+  apiDiscovery?: boolean;
   assertSignedIn: (page: Page) => Promise<void>;
   recommended: (page: Page) => Promise<JobListing[]>;
   search: (page: Page, keywords: string, pageNum: number) => Promise<JobListing[]>;
@@ -92,6 +96,19 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
     },
   ],
 ]);
+
+if (process.env.SMARTRECRUITERS_ADMIN_ENABLED === 'true') {
+  const discovery = new SmartRecruitersDiscovery(process.env.SMARTRECRUITERS_COMPANIES || undefined, {
+    warn: message => console.warn(`  ! ${message}`),
+  });
+  ADAPTERS.set('smartrecruiters', {
+    id: 'smartrecruiters', label: 'SmartRecruiters', pageSize: SMARTRECRUITERS_PAGE_SIZE, apiDiscovery: true,
+    assertSignedIn: async () => {}, recommended: async () => [],
+    search: (_page, keyword, page) => discovery.search(keyword, page),
+    fetchJobDetail: (_page, job) => discovery.detail(job),
+    apply: async (page, job, profile, deps) => applyToEmployerJob(page, await discovery.detail(job), profile, deps),
+  });
+}
 
 async function main() {
   const startedAt = performance.now();
@@ -330,7 +347,7 @@ async function main() {
       }
       try {
         await adapter.assertSignedIn(page);
-        console.log(`${adapter.label} session OK.`);
+        console.log(adapter.apiDiscovery ? `${adapter.label} public job feed ready (admin only).` : `${adapter.label} session OK.`);
       } catch (error) {
         console.log(`\n⚠ ${adapter.label}: ${(error as Error).message}`);
         console.log(`  Skipping ${adapter.label} for this run.${platforms.length > 1 ? ' Continuing with the other platform(s).' : ''}`);
@@ -765,7 +782,7 @@ async function main() {
        * fifteen minutes, and Cloudflare challenges are partly rate-based — the
        * one that blocked a run appeared on a plain search page.
        */
-      await jitter(5000, 8000);
+      if (!adapter.apiDiscovery) await jitter(5000, 8000);
 
       /**
        * The page verdict is for a listing whose description did not come
@@ -775,6 +792,11 @@ async function main() {
        * already applied for — which the application step detects on its own.
        */
       if (!job.description) {
+        if (adapter.apiDiscovery) {
+          bump('listing unavailable');
+          logOutcome({ status: 'skipped', jobId: job.id, reason: 'The public job feed did not provide a description.', title: job.title, company: job.company, url: job.url });
+          return;
+        }
         const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
         let verdict = await judgePage(page, expected);
         if (verdict.state === 'loading') {
@@ -871,7 +893,7 @@ async function main() {
     const bestCandidate = () => {
       const best = candidates.filter((c) => !stoppedPlatform(c.job.platform ?? 'seek')).sort(preference)[0];
       if (!best) return undefined;
-      if (hostedFirst(best.job) === 1 && !outsideScope('hosted') && !reviewExhausted()) return undefined;
+      if (hostedFirst(best.job) === 1 && active.some(adapter => !adapter.apiDiscovery) && !outsideScope('hosted') && !reviewExhausted()) return undefined;
       return best;
     };
     const takeCandidate = () => {

@@ -9,6 +9,7 @@ import { sendAccountAlerts } from './alerts.js';
 import { sendOperatorAlerts } from './operator-alerts.js';
 import { accountSetupComplete } from './setup.js';
 import { readSiteState } from './seek-state.js';
+import { loadUserSettings } from './settings.js';
 
 /**
  * Applications for the accounts that do not drive runs themselves.
@@ -152,7 +153,9 @@ async function scheduledAccounts(): Promise<Scheduled[]> {
       const entitlements = await entitlementsFor(user.id, user.email);
       if (entitlements.autoRunsPerDay === 0 || entitlements.autoApplyPaused) continue;
       const setupComplete = await accountSetupComplete(user.id).catch(() => false);
-      const boardConnected = boardAvailable(user.id);
+      const adminFeeds = entitlements.tier === 'admin'
+        && (await loadUserSettings(user.id)).PLATFORMS?.split(',').map(value => value.trim()).includes('smartrecruiters');
+      const boardConnected = Boolean(adminFeeds) || boardAvailable(user.id);
       const ready = setupComplete && boardConnected && !entitlements.firstRunRequired;
       scheduled.push({ userId: user.id, email: user.email, entitlements, setupComplete, boardConnected, ready });
     } catch {

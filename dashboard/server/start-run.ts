@@ -26,6 +26,7 @@ import { releaseFreeProxy } from './proxy-pool.js';
 import { query } from './db/index.js';
 import { validateExternalJobUrl } from './external-job-url.js';
 import { mayRunEmployerSiteApplications } from './employer-site-access.js';
+import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } from './job-sources.js';
 import { loadProfile } from './profile.js';
 import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
 import type { RunDevice } from '../src/run-device.js';
@@ -131,6 +132,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
   const admin = isAdmin(email);
+  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin);
+  if (sourceError) return { ok: false, ...sourceError };
   let borrowFreeProxy = false;
   const entitlements = await entitlementsFor(userId, email);
   const onboarding = trigger === 'manual' && !admin && entitlements.firstRunRequired;
@@ -220,9 +223,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * that includes Indeed, so "SEEK only" searched and applied on Indeed too.
    */
   const narrowedBoards = trigger === 'admin' ? String(request.clientOverrides?.PLATFORMS ?? '').trim() : '';
-  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed'].includes(board.trim()))) {
+  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', ...(admin ? ['smartrecruiters'] : [])].includes(board.trim()))) {
     overrides.PLATFORMS = narrowedBoards;
   }
+  try { applyJobSourceAccess(overrides, admin); }
+  catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;
   if (request.externalUrl !== undefined) {
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can start a direct website application.' };
@@ -385,9 +390,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     // of stays out until they sign in again.
     if (!state || (state.signedIn === false && !state.signedOutByPerson)) await checkSignin(userId, board);
   }
-  const supportedBoards = boards.filter((board) => board === 'seek' || board === 'indeed');
-  const unavailable = supportedBoards.filter((board) => readSiteState(userId, board)?.signedIn !== true);
-  const usable = supportedBoards.filter((board) => readSiteState(userId, board)?.signedIn === true);
+  const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, admin, board => readSiteState(userId, board)?.signedIn === true);
+  if (!directExternalUrl && usable.length && usable.every(board => board === 'smartrecruiters') && overrides.APPLY_ONLY === 'hosted') {
+    return { ok: false, status: 400, error: 'SmartRecruiters uses employer-site applications. Choose a normal or employer-sites run.' };
+  }
   if (consumes && !directExternalUrl && !usable.length) {
     return {
       ok: false,

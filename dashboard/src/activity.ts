@@ -191,10 +191,14 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       const title = `Signed in to ${boards.join(' and ')}`;
       if (boardsEvent) boardsEvent.title = title;
       else boardsEvent = add(line, title, 'done');
+    } else if (/SmartRecruiters public job feed ready/i.test(text)) {
+      add(line, 'SmartRecruiters employer feeds connected', 'done', 'Searching Australian vacancies from the selected employers.');
+    } else if (/! SmartRecruiters employer .+ could not be searched:/i.test(text)) {
+      add(line, 'A SmartRecruiters employer could not be searched', 'warn', 'The other employer feeds continue. An admin can check the run console for details.');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
       // A feed with nothing in it is not news.
       if (Number(match[2]) > 0) add(line, `${match[1]} recommended ${match[2]} jobs for you`, 'done', 'These are reviewed first.');
-    } else if ((match = text.match(/⚠ (SEEK|Indeed):\s*(.*)/i))) {
+    } else if ((match = text.match(/⚠ (SEEK|Indeed|SmartRecruiters):\s*(.*)/i))) {
       const accountActionNeeded = /sign(?:ed)? in|verification|cloudflare|captcha/i.test(text);
       const leftOut = /left out for the rest of this run/i.test(text);
       add(

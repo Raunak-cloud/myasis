@@ -7,7 +7,7 @@
  * has a real adapter, and the UI says so rather than offering a switch that
  * silently does nothing.
  */
-export type PlatformId = 'seek' | 'indeed' | 'jora' | 'external';
+export type PlatformId = 'seek' | 'indeed' | 'jora' | 'external' | 'smartrecruiters';
 
 interface Platform {
   id: PlatformId;
@@ -39,17 +39,18 @@ const PLATFORMS: Platform[] = [
     available: false,
     note: 'Aggregator — its listings mirror SEEK and Indeed and almost always hand off to the original site, so there is little here to automate.',
   },
+  { id: 'smartrecruiters', label: 'SmartRecruiters', baseUrl: 'https://jobs.smartrecruiters.com', available: true },
 ];
 
 /**
  * Resolves the configured list, dropping anything without an adapter so a
  * stale setting can never point a run at a board it cannot drive.
  */
-export function enabledPlatforms(configured: string): Platform[] {
+export function enabledPlatforms(configured: string, smartRecruitersAdminEnabled = process.env.SMARTRECRUITERS_ADMIN_ENABLED === 'true'): Platform[] {
   const wanted = configured
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  const chosen = PLATFORMS.filter((p) => p.available && wanted.includes(p.id));
+  const chosen = PLATFORMS.filter((p) => p.available && wanted.includes(p.id) && (p.id !== 'smartrecruiters' || smartRecruitersAdminEnabled));
   return chosen.length ? chosen : PLATFORMS.filter((p) => p.id === 'seek');
 }

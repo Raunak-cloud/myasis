@@ -49,9 +49,9 @@ export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOn
  * the ATS. This keeps a public URL from redirecting the production browser to
  * localhost, cloud metadata, a private network, or payment pages.
  */
-export async function guardExternalNavigations(context: BrowserContext): Promise<{ blocked: () => string | null }> {
+export async function guardExternalNavigations(context: BrowserContext): Promise<{ blocked: () => string | null; stop: () => Promise<void> }> {
   let blocked: string | null = null;
-  await context.route('**/*', async (route) => {
+  const handler: Parameters<BrowserContext['route']>[1] = async (route) => {
     const request = route.request();
     if (request.resourceType() !== 'document') return route.continue();
     try {
@@ -61,6 +61,7 @@ export async function guardExternalNavigations(context: BrowserContext): Promise
       blocked = (error as Error).message;
       return route.abort('blockedbyclient');
     }
-  });
-  return { blocked: () => blocked };
+  };
+  await context.route('**/*', handler);
+  return { blocked: () => blocked, stop: () => context.unroute('**/*', handler) };
 }

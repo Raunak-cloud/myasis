@@ -38,6 +38,7 @@ interface AutoScheduleStatus {
 const RUN_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
   PLATFORMS: 'seek',
+  SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',
   SEARCH_RADIUS_KM: '0',
@@ -66,6 +67,7 @@ const JOB_BOARDS = [
   { id: 'seek', label: 'SEEK' },
   { id: 'indeed', label: 'Indeed' },
 ];
+const ADMIN_JOB_BOARDS = [...JOB_BOARDS, { id: 'smartrecruiters', label: 'SmartRecruiters' }];
 
 /**
  * A number that climbs to its new value instead of jumping, so a count going
@@ -187,6 +189,7 @@ export function RunPanel({
   const driving = Boolean(entitlements?.manualRuns || firstRun);
   /** Admin runs have no limits: the limit fields are hidden and nothing is capped in the form. */
   const isAdmin = entitlements?.tier === 'admin';
+  const jobBoards = isAdmin ? ADMIN_JOB_BOARDS : JOB_BOARDS;
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -464,8 +467,8 @@ export function RunPanel({
   };
   const platforms = val('PLATFORMS').split(',').map((item) => item.trim()).filter(Boolean);
   /** Unknown until read; then only a board confirmed signed in can be used. */
-  const boardUsable = (id: string) => boardSignedIn === null || boardSignedIn[id] === true;
-  const unusableBoards = JOB_BOARDS.filter((board) => !boardUsable(board.id));
+  const boardUsable = (id: string) => id === 'smartrecruiters' ? isAdmin : boardSignedIn === null || boardSignedIn[id] === true;
+  const unusableBoards = jobBoards.filter((board) => !boardUsable(board.id));
   const togglePlatform = (id: string) => {
     const next = new Set(platforms);
     if (next.has(id)) next.delete(id);
@@ -544,7 +547,7 @@ export function RunPanel({
     if (starting) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || key !== 'SMARTRECRUITERS_COMPANIES').map((key) => [key, val(key)]));
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -567,7 +570,7 @@ export function RunPanel({
       return;
     }
     if (!platforms.some(boardUsable)) {
-      const chosen = JOB_BOARDS.filter((board) => platforms.includes(board.id)).map((board) => board.label);
+      const chosen = jobBoards.filter((board) => platforms.includes(board.id)).map((board) => board.label);
       fail(`${chosen.join(' and ')} ${chosen.length === 1 ? 'is' : 'are'} not signed in. Sign in on the Apply page, or choose a board that is.`, 'PLATFORMS');
       return;
     }
@@ -712,8 +715,8 @@ export function RunPanel({
               <ResumeSourceNote />
               <button
                 className="btn primary lg"
-                disabled={accountSetupIncomplete || verifyingSignIn || boards === null || signedOutEverywhere || outOfAllowance}
-                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || boards === null ? 'Checking your job-board sign-ins first.' : signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
+                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
                 onClick={() => { setScope('all'); setConfirming(true); }}
               >
                 {firstRun ? 'Start first run' : 'Start auto apply'}
@@ -744,7 +747,7 @@ export function RunPanel({
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
               )}
               {!accountSetupIncomplete && signedOutEverywhere && (
-                <span className="job-meta">Sign in to SEEK below before starting your first run.</span>
+                <span className="job-meta">{isAdmin ? 'Choose SmartRecruiters in run settings, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
               )}
               {firstRun && !accountSetupIncomplete && !signedOutEverywhere && (
                 <span className="job-meta">Automatic runs begin only after this run completes successfully.</span>
@@ -1124,9 +1127,9 @@ export function RunPanel({
               <section className="run-review-section run-review-search">
                 <h3>What to find</h3>
                 <div className="field run-review-wide">
-                  <FieldLabel label="Job boards" help="Which job boards to search and apply on this run. Both are searched, scored and deduplicated together as one combined pool." />
+                  <FieldLabel label="Job sources" help={isAdmin ? 'Selected sources are searched, scored and deduplicated together. SmartRecruiters reads public employer feeds and applies on employer websites.' : 'Selected job boards are searched, scored and deduplicated together.'} />
                   <div className="chips" data-field="PLATFORMS">
-                    {JOB_BOARDS.map((board) => {
+                    {jobBoards.map((board) => {
                       const usable = boardUsable(board.id);
                       // A saved choice is kept for when the board is signed in again; it just is not used meanwhile.
                       const on = usable && platforms.includes(board.id);
@@ -1152,6 +1155,14 @@ export function RunPanel({
                   )}
                   {fieldError('PLATFORMS')}
                 </div>
+                {isAdmin && platforms.includes('smartrecruiters') && (
+                  <div className="field run-review-wide" data-field="SMARTRECRUITERS_COMPANIES">
+                    <FieldLabel label="SmartRecruiters employers" help="Use the employer name from its SmartRecruiters careers URL. Up to 20 identifiers, separated by commas." />
+                    <input aria-label="SmartRecruiters employer identifiers" value={val('SMARTRECRUITERS_COMPANIES')} onChange={event => setEdit('SMARTRECRUITERS_COMPANIES', event.target.value)} />
+                    <p className="job-meta">Admin pilot · Australian vacancies only · no job-board sign-in required. Starts with Canva, KPMG Australia and Colliers. Employer-site applications use the normal fit checks and limits.</p>
+                    {fieldError('SMARTRECRUITERS_COMPANIES')}
+                  </div>
+                )}
                 <p className="job-meta recommended-first-note">
                   Recommended jobs from each selected board are analysed first. Search terms expand the pool after those jobs.
                 </p>
