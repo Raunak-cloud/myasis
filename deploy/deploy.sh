@@ -73,7 +73,7 @@ as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "cd $APP/seek-bot && node --test dist/profile-salary.test.js"
 as_app "cd $APP/seek-bot && node --test dist/employer-browser-config.test.js dist/remote-browser-preview.test.js"
-as_app "cd $APP/seek-bot && node --test dist/captcha/retry.test.js"
+as_app "cd $APP/seek-bot && node --test dist/captcha/retry.test.js dist/captcha/diagnostics.test.js"
 as_app "cd $APP/seek-bot && node dist/employer-browser.test.js"
 as_app "cd $APP/seek-bot && node --test dist/smartrecruiters.test.js dist/employer-feeds.test.js dist/agent/apply-employer-job.test.js dist/agent/choose-option.test.js"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"

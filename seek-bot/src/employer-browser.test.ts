@@ -23,6 +23,7 @@ await localContext.addCookies([{ name: 'private-account', value: 'local-only', u
 const localPage = await localContext.newPage();
 let remote: Awaited<ReturnType<typeof openEmployerBrowser>> | undefined;
 let solverCalls = 0;
+let solverError: Error | undefined;
 const autoSolveChoices: boolean[] = [];
 try {
   process.env.BRIGHTDATA_ADMIN_ENABLED = 'false';
@@ -50,6 +51,7 @@ try {
         if (method === 'Captcha.solve') {
           assert.deepEqual(params, { detectTimeout: 30_000, options: [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }] });
           solverCalls++;
+          if (solverError) throw solverError;
           return { status: solverCalls < 3 ? 'solve_failed' : 'solve_finished' };
         }
         return send(method as never, params as never);
@@ -81,6 +83,16 @@ try {
   assert.deepEqual(autoSolveChoices, [true, false], 'the explicit retries take ownership and never re-enable background attempts');
   assert.equal(remote.page.url(), address, 'no solver retry reloads or navigates the application');
   assert.equal(await remote.page.getByLabel('Resume').evaluate((el: HTMLInputElement) => el.files?.[0]?.size), 20, 'the same uploaded form survives the retries');
+  solverError = new Error('Protocol error (Captcha.solve): solver unavailable at wss://user:fixture-only-private-password@brd.superproxy.io:9222/; password=fixture-only-private-password');
+  const diagnostics: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values: unknown[]) => { diagnostics.push(values.join(' ')); };
+  try { assert.equal(await solveRemoteCaptcha(remote.page), false); }
+  finally { console.log = originalLog; }
+  assert.equal(solverCalls, 4, 'a failed request is captured without launching overlapping retries');
+  assert.match(diagnostics.join('\n'), /request_failed.*elapsedMs.*Protocol error.*solver unavailable/);
+  assert.ok(!diagnostics.join('\n').includes('fixture-only-private-password'));
+  assert.ok(!diagnostics.join('\n').includes('superproxy.io'));
   await remote.page.evaluate(() => { document.title = 'Cloud browser fixture'; });
   writeFileSync(join(directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }));
   const frame = await new Promise<NonNullable<ReturnType<typeof readRemoteBrowserPreview>>>((done, fail) => {
@@ -96,7 +108,7 @@ try {
   await remote.close(); remote = undefined;
   assert.equal(existsSync(join(directory, REMOTE_PREVIEW_FILE)), false);
   assert.equal((await localContext.cookies())[0]?.value, 'local-only');
-  console.log('PASS: provider errors redact credentials; sessions isolate cookies; remote document bytes upload; owned live preview omits URL tokens; close removes preview');
+  console.log('PASS: provider diagnostics retain errors and redact credentials; sessions isolate cookies; remote document bytes upload; owned live preview omits URL tokens; close removes preview');
 } finally {
   await remote?.close(); await localBrowser.close();
   rmSync(directory, { recursive: true });

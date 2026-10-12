@@ -34,3 +34,19 @@ test('timeouts never overlap solver requests and the total deadline cannot exten
   const budget = await retryCaptchaSolve({ solve: async () => ({ status: 'solve_failed' }), stillChallenged: async () => true, pause: async () => { time = 101; }, now: () => time }, { attempts: 3, attemptMs: 90, totalMs: 100 });
   assert.deepEqual(budget, { status: 'failed', attempts: 1 });
 });
+
+test('diagnostics distinguish a completed provider failure from a thrown retry error', async () => {
+  const error = Object.assign(new Error('Protocol error (Captcha.solve): unavailable'), { code: -32000 });
+  const events: Array<{ attempt: number; status: string; details: unknown }> = [];
+  let calls = 0;
+  const result = await retryCaptchaSolve({
+    solve: async () => { if (++calls === 1) return { status: 'solve_failed', message: 'challenge rejected' }; throw error; },
+    stillChallenged: async () => true, pause: async () => {},
+    onAttempt: (attempt, status, details) => events.push({ attempt, status, details }),
+  });
+  assert.deepEqual(result, { status: 'failed', attempts: 2 });
+  assert.equal(events[0].status, 'solve_failed');
+  assert.equal(events[1].status, 'request_failed');
+  assert.equal((events[1].details as { error: unknown }).error, error);
+  assert.equal((events[1].details as { phase: string }).phase, 'solve');
+});

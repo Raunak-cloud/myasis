@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { hasCaptchaSurface } from './captcha/detect.js';
 import { captchaRequestWithin, retryCaptchaSolve } from './captcha/retry.js';
+import { captchaDiagnosticSecrets, safeCaptchaDiagnostic } from './captcha/diagnostics.js';
 
 interface RemoteSession {
   browser: Browser;
@@ -108,23 +109,32 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
 /** Called at the shared CAPTCHA boundary, before any AI-selected interaction. */
 export async function solveRemoteCaptcha(page: Page): Promise<boolean> {
   let session: Awaited<ReturnType<BrowserContext['newCDPSession']>> | undefined;
+  let phase = 'open-control';
+  const secrets = captchaDiagnosticSecrets(process.env);
+  const context = { sessionId: remoteSessions.get(page.context())?.sessionId, host: (() => { try { return new URL(page.url()).hostname; } catch { return 'unknown'; } })() };
   try {
     session = await page.context().newCDPSession(page);
     // Own the retry sequence instead of racing the provider's background solver.
     // Keep it manual afterwards: a failed batch must not start an unbounded auto retry.
+    phase = 'disable-auto-solve';
     await captchaRequestWithin(() => session!.send('Captcha.setAutoSolve' as never, { autoSolve: false, options: captchaOptions } as never), 15_000);
     const address = page.url();
+    phase = 'solve';
     const result = await retryCaptchaSolve({
       solve: async () => session!.send('Captcha.solve' as never, { detectTimeout: 30_000, options: captchaOptions } as never) as Promise<{ status?: string }>,
       stillChallenged: async () => !page.isClosed() && page.url() === address && await hasCaptchaSurface(page),
       pause: () => new Promise(done => setTimeout(done, 1_500)),
-      onAttempt: (attempt, status) => console.log(`[captcha] Bright Data attempt ${attempt}/3: ${status}.`),
+      onAttempt: (attempt, status, details) => console.log(`[captcha] Bright Data attempt ${attempt}/3: ${status}. ${JSON.stringify({
+        ...context, phase: details.phase, elapsedMs: details.elapsedMs,
+        ...(details.error !== undefined ? { error: safeCaptchaDiagnostic(details.error, secrets) } : {}),
+        ...(details.response !== undefined ? { response: safeCaptchaDiagnostic(details.response, secrets) } : {}),
+      })}`),
     });
     countHealth(result.status === 'solved' ? 'captchaSolved' : result.status === 'cleared' ? 'captchaSelfCleared' : 'captchaFailed');
     return result.status !== 'failed';
-  } catch {
+  } catch (error) {
     countHealth('captchaFailed');
-    console.warn('[captcha] Bright Data could not complete the verification.');
+    console.warn(`[captcha] Bright Data could not complete the verification. ${JSON.stringify({ ...context, phase, error: safeCaptchaDiagnostic(error, secrets) })}`);
     return false;
   } finally { await session?.detach().catch(() => {}); }
 }
