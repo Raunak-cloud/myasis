@@ -8,6 +8,7 @@ import { userChromeDir, userDir } from './userdata.js';
 import { browserRoute } from './route.js';
 import { chromeGoogleAccounts } from './chrome-accounts.js';
 import { releaseChromeProfile } from './chrome-profile.js';
+import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 
 /**
  * Finds out whether an account is really signed in to SEEK.
@@ -136,7 +137,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
   const known = () => readSiteState(userId, site);
 
   const task = (async () => {
-    if (runner.stateFor(userId).running || sessionFor(userId)) return known();
+    if (runner.stateFor(userId).running || browserBenchmarkInProgress(userId) || sessionFor(userId)) return known();
     // This account's own checks run one after another on one profile, so they are one browser, not several.
     const othersChecking = new Set([...inFlight.keys()].map((entry) => entry.split(':')[0]));
     othersChecking.delete(userId);

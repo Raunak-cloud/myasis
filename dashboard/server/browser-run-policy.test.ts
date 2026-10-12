@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { browserRunEnvironment } from './browser-run-policy.js';
-import { accountBrowserEnvironment } from './runner.js';
+import { accountBrowserEnvironment, runner } from './runner.js';
 import { getPool } from './db/index.js';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { userDir } from './userdata.js';
 
 test('pilot is limited to admin-owned searches, including when operators run customer accounts', () => {
   for (const enabled of [undefined, 'false', 'true', '1']) {
@@ -14,6 +18,20 @@ test('pilot is limited to admin-owned searches, including when operators run cus
       }
     }
   }
+});
+
+test('a diagnostic reserves its account profile against runs and sign-in; a dead lease does not', () => {
+  const id = `benchmark-test-${randomUUID()}`, directory = userDir(id);
+  mkdirSync(directory, { recursive: true });
+  try {
+    writeFileSync(resolve(directory, 'browser-benchmark.lock'), JSON.stringify({ pid: process.pid }));
+    assert.equal(runner.inUse(id), true);
+    assert.equal(runner.claimStart(id), false);
+    writeFileSync(resolve(directory, 'browser-benchmark.lock'), JSON.stringify({ pid: -1 }));
+    assert.equal(runner.inUse(id), false);
+    assert.equal(runner.claimStart(id), true);
+    runner.releaseStart(id);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('worker policy resolves the owner from the database and fails closed for missing/blocked owners', async () => {

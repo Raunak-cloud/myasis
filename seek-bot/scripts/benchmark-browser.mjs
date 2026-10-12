@@ -17,6 +17,7 @@ let preferences = { KEYWORDS: 'Software Engineer', SEARCH_RADIUS_KM: '0', SEARCH
 let chrome;
 const lock = resolve(root, '../.deploying');
 let locked = false;
+let accountLock;
 function activeBrowserOrRun() {
   if (process.platform !== 'linux') return false;
   return readdirSync('/proc').filter(name => /^\d+$/.test(name)).some(pid => {
@@ -40,6 +41,15 @@ try {
     } finally { await pool.end(); }
     chrome = resolve(root, 'data/users', ownerId, 'chrome');
     if (!existsSync(chrome)) throw new Error('Administrator Chrome profile not found');
+    const leasePath = resolve(root, 'data/users', ownerId, 'browser-benchmark.lock');
+    if (existsSync(leasePath)) {
+      let alive = false;
+      try { process.kill(JSON.parse(readFileSync(leasePath)).pid, 0); alive = true; } catch { /* Previous diagnostic exited. */ }
+      if (alive) throw new Error('This account already has a diagnostic running');
+      unlinkSync(leasePath);
+    }
+    writeFileSync(leasePath, JSON.stringify({ pid: process.pid }), { flag: 'wx' });
+    accountLock = leasePath;
     // The existing deployment lock prevents dashboard starts. Never close an active browser.
     writeFileSync(lock, `read-only browser benchmark ${directory}\n`, { flag: 'wx' });
     locked = true;
@@ -75,4 +85,5 @@ try {
   console.log(`RESULTS=${resolve(directory, 'results.json')}`);
 } finally {
   if (locked) unlinkSync(lock);
+  if (accountLock) unlinkSync(accountLock);
 }

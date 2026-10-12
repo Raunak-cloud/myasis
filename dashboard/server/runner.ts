@@ -11,6 +11,7 @@ import { releaseChromeProfile } from './chrome-profile.js';
 import { runTimeoutMs, signalRunTree, superviseRun } from './run-watchdog.js';
 import { isAdmin } from './admin-access.js';
 import { browserRunEnvironment } from './browser-run-policy.js';
+import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -641,7 +642,7 @@ class RunPool {
   private starting = new Set<string>();
 
   claimStart(userId: string): boolean {
-    if (this.starting.has(userId) || this.runs.get(userId)?.occupiesSlot) return false;
+    if (this.inUse(userId)) return false;
     this.starting.add(userId);
     return true;
   }
@@ -652,7 +653,7 @@ class RunPool {
 
   /** A run is starting or holds this account's browser; nothing else may open it. */
   inUse(userId: string): boolean {
-    return this.starting.has(userId) || Boolean(this.runs.get(userId)?.occupiesSlot);
+    return this.starting.has(userId) || Boolean(this.runs.get(userId)?.occupiesSlot) || browserBenchmarkInProgress(userId);
   }
 
   browserPortFor(userId: string): number | null {
