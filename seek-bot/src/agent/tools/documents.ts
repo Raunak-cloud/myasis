@@ -79,7 +79,7 @@ export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, un
  * PageUp forms). Written as text, then converted to what the input accepts,
  * PDF when it does not say.
  */
-export async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions'][number]): Promise<ToolResult> {
+async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions'][number]): Promise<ToolResult> {
   if (/image/i.test(action.text) && !/letter|document|cv|resume/i.test(action.text)) {
     return ok('That upload is for an image, not a cover letter. Choose the cover-letter upload from a fresh observation.');
   }

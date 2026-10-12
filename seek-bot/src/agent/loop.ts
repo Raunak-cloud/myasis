@@ -19,7 +19,6 @@ import { RunGuards, detectConfirmation, isExternal, listingIdIn, siteDomain } fr
 import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
 import { checkGeneralToolAnswers, executeTool, pageConfirmsSubmission, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
 import { embeddedSurface, watchTab } from './raw-tools.js';
-import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { systemPrompt } from './loop/prompt.js';
 import { LOOK_ONLY_TOOLS, GENERAL_TOOLS, MAX_PLAN, SURPRISE, missingRefs } from './loop/plan.js';
 import { TraceStep, pathOf, hostOf, describeCall, TRACE_DIR, loadSiteHints, persistTrace, captureBlockedField } from './loop/trace.js';
@@ -354,9 +353,6 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       return finish({ status: 'skipped', reason: `${siteHost(page.url())} is not attempted today: ${wall.reason}` });
     }
 
-    if (isAustralianGovernmentUrl(page.url())) {
-      return finish({ status: 'skipped', reason: 'Australian government application sites are excluded.' });
-    }
     if (isExternal(page.url()) && !config.allowExternalApply) {
       return finish({ status: 'off-platform', redirectedTo: page.url() });
     }

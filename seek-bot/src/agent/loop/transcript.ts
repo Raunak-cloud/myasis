@@ -5,7 +5,7 @@ import { renderObservation, type Observation } from '../observe.js';
 // Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
 
 /** Rough token proxy; good enough to decide when to trim, and free. */
-export const estimateTokens = (messages: ChatMessage[]): number =>
+const estimateTokens = (messages: ChatMessage[]): number =>
   Math.ceil(JSON.stringify(messages).length / 4);
 
 /**

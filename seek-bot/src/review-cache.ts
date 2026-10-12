@@ -5,7 +5,7 @@ import { config } from './config.js';
 import type { CandidateProfile, JobListing } from './types.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 
-export type ReviewDisposition = 'external' | 'fit-mismatch' | 'below-score' | 'policy';
+export type ReviewDisposition = 'external' | 'fit-mismatch' | 'below-score';
 
 export interface ReviewCacheMetadata {
   disposition: ReviewDisposition;
@@ -26,7 +26,7 @@ const CACHE = resolve(config.dataDir, 'review-cache.jsonl');
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fileDigest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const normalise = (value: string | undefined) => (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-const DISPOSITIONS = new Set<ReviewDisposition>(['external', 'fit-mismatch', 'below-score', 'policy']);
+const DISPOSITIONS = new Set<ReviewDisposition>(['external', 'fit-mismatch', 'below-score']);
 
 /** Stable discovery facts available before opening the detail page. */
 export function listingFingerprint(job: JobListing): string {
@@ -147,5 +147,4 @@ export class ReviewCache {
 export const REVIEW_TTL = {
   external: 7 * 86_400_000,
   fit: 7 * 86_400_000,
-  policy: 7 * 86_400_000,
 } as const;

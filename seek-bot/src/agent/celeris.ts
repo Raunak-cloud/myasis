@@ -17,7 +17,7 @@ export interface ToolSchema {
   parameters: Record<string, unknown>;
 }
 
-export interface ToolCall {
+interface ToolCall {
   id: string;
   name: string;
   /** Already JSON-parsed. Malformed arguments surface as a parse error instead. */
@@ -29,7 +29,7 @@ export type ChatMessage =
   | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };
 
-export type ContentPart =
+type ContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } };
 
@@ -163,7 +163,7 @@ export class ReplyUnusableError extends Error {}
  * The second used to read as "Celeris is down": one batch of job rankings
  * that ran out of room threw away the ranking of every job in the run.
  */
-export class ReplyTruncatedError extends ReplyUnusableError {}
+class ReplyTruncatedError extends ReplyUnusableError {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
   if (!config.celeris.apiKey) {

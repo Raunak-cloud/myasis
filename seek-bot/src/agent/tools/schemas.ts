@@ -6,7 +6,7 @@ import { ANSWER_BATCH } from './context.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
-export const EMAILED_CODE_TOOL: ToolSchema = {
+const EMAILED_CODE_TOOL: ToolSchema = {
   name: 'enter_emailed_code',
   description:
     'When the page asks for a code that was emailed to the candidate (verification code, one-time passcode, sign-in code), ' +
@@ -23,7 +23,7 @@ export const EMAILED_CODE_TOOL: ToolSchema = {
   },
 };
 
-export const EMAILED_LINK_TOOL: ToolSchema = {
+const EMAILED_LINK_TOOL: ToolSchema = {
   name: 'open_emailed_link',
   description:
     'When the page says a verification, activation, confirmation or password-reset LINK was emailed to the candidate ' +
@@ -36,7 +36,7 @@ export const EMAILED_LINK_TOOL: ToolSchema = {
   },
 };
 
-export const CLICK_POINT_TOOL: ToolSchema = {
+const CLICK_POINT_TOOL: ToolSchema = {
   name: 'click_point',
   description:
     'Last resort, only when the screenshot shows something you need to click that has no ref: click at a point. ' +
@@ -104,7 +104,7 @@ function withPressJudgement(tool: ToolSchema): ToolSchema {
  */
 export const NARRATIVE_ARGS: ReadonlySet<string> = new Set(['reason', 'no_cover_letter_place']);
 
-export const TOOL_SCHEMAS: ToolSchema[] = [
+const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'choose_option',
     description: 'Choose from the currently open custom dropdown. Pass any current option ACTION ref; if its label lacks the dropdown question, also pass the originating FIELD ref. The grounded answer model selects and clicks the supported option. Never click option ACTIONS directly.',

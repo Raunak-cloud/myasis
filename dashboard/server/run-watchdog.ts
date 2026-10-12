@@ -1,6 +1,6 @@
 import { execFile, type ChildProcess } from 'node:child_process';
 
-export const RUN_STOP_GRACE_MS = 10_000;
+const RUN_STOP_GRACE_MS = 10_000;
 export const RUN_OUTPUT_DRAIN_MS = 1_000;
 const DEFAULT_RUN_MINUTES = 30;
 

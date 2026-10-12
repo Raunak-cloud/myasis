@@ -109,7 +109,7 @@ export interface ToolContext {
   diagnostics?: WeakMap<Page, string[]>;
 }
 
-export { toolRun, abandoned } from '../../tool-run.js';
+export { abandoned } from '../../tool-run.js';
 
 export const ok = (message: string): ToolResult => ({ kind: 'ok', message });
 

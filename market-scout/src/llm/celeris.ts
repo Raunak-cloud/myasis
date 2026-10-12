@@ -152,7 +152,7 @@ class Gate {
 const inFlight = new Gate(Math.max(1, Number(process.env.CELERIS_CONCURRENCY) || 4));
 
 /** The reply exists but cannot be used; asking again the same way fails the same way. */
-export class ReplyUnusableError extends Error {}
+class ReplyUnusableError extends Error {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
   if (!config.celeris.apiKey) throw new Error('CELERIS_API_KEY is not set.');
@@ -309,7 +309,7 @@ export function strictSchema(node: unknown): Record<string, unknown> {
 }
 
 /** Tolerates a reply wrapped in a code fence or prose around the object. */
-export function parseJsonObject(text: string): unknown {
+function parseJsonObject(text: string): unknown {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim();
   try {
     return JSON.parse(trimmed);

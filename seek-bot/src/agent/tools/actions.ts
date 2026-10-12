@@ -1,7 +1,6 @@
 import type { Page } from 'patchright';
 import { captureInteractivePageState, jitter, waitForInteractivePageChange, waitForInteractiveSurface } from '../../browser.js';
 import { isForbiddenDestination } from '../guards.js';
-import { isAustralianGovernmentUrl } from '../../site-policy.js';
 import { locate, pressWatched } from '../raw-tools.js';
 import { ToolResult, ToolContext, ok } from './context.js';
 import { gateAdvance } from './gate.js';
@@ -93,12 +92,6 @@ export async function doClick(ctx: ToolContext, args: Record<string, unknown>): 
       .catch(() => null);
     if (href) {
       const destination = new URL(href, ctx.page.url()).href;
-      if (isAustralianGovernmentUrl(destination)) {
-        return {
-          kind: 'terminal',
-          outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' },
-        };
-      }
       if (isForbiddenDestination(destination)) {
         return ok(`Refused: "${action.text}" leads to ${destination}, which this tool never navigates to.`);
       }
@@ -171,12 +164,6 @@ export async function doClickPoint(ctx: ToolContext, args: Record<string, unknow
   const pointedField = under.fieldRef ? ctx.observation.fields.find((field) => field.ref === under.fieldRef) : undefined;
   const siteControl = Boolean(pointedField && ctx.guards.siteControls.has(pointedField.label));
   if ((under.fieldRef || under.formControl) && !siteControl) return ok(`That point targets ${under.fieldRef ? `FIELD ${under.fieldRef}` : 'a form control'}. Use its grounded field tool; for a required terms checkbox use accept_terms (with its ref, or the same screenshot x/y). Coordinates cannot bypass answer verification.`);
-  if (under.href && isAustralianGovernmentUrl(under.href)) {
-    return {
-      kind: 'terminal',
-      outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' },
-    };
-  }
   if (under.href && isForbiddenDestination(under.href)) {
     return ok(`Refused: that point is a link to ${under.href}, which this tool never navigates to.`);
   }

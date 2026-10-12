@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { resolve } from 'node:path';
 import { config } from './config.js';
 
-export const runId = randomUUID();
+const runId = randomUUID();
 export function metric(stage: string, ms: number, extra: Record<string, unknown> = {}): void {
   try {
     mkdirSync(config.dataDir, { recursive: true });

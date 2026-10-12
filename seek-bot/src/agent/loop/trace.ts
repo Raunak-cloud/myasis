@@ -54,7 +54,7 @@ export function describeCall(ctx: ToolContext, tool: string, args: Record<string
   return tool.replace(/_/g, ' ');
 }
 
-export const SITE_HINTS = () => resolve(config.dataDir, 'site-hints.json');
+const SITE_HINTS = () => resolve(config.dataDir, 'site-hints.json');
 export const TRACE_DIR = () => resolve(config.dataDir, 'traces');
 
 export interface SiteHint {

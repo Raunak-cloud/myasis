@@ -105,14 +105,14 @@ try {
 
   // An answer a general tool sets is checked against the record the moment it lands.
   const scripted = '<!doctype html><main><h1>Apply</h1><form><label>Degree <select name="degree"><option></option><option>PhD</option><option>Bachelor</option></select></label><button type="button">Next</button></form></main>';
-  await page.route('https://careers.script-employer.example/**', (route) => route.fulfill({ contentType: 'text/html', body: scripted }));
-  await page.goto('https://careers.script-employer.example/apply');
+  await page.route('https://jobs.nsw.gov.au/**', (route) => route.fulfill({ contentType: 'text/html', body: scripted }));
+  await page.goto('https://jobs.nsw.gov.au/apply');
   agentTurns.length = 0;
   auditProblems = [{ field: 'Degree', value: 'PhD', problem: 'The candidate holds a bachelor degree, not a PhD.' }];
   script = [() => [{ name: 'evaluate_script', args: { function: "() => { const s = document.querySelector('select'); s.value = 'PhD'; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; }" } }]];
   await runApplicationAgent({
     page,
-    job: { id: 'fixture-3', title: 'Junior Developer', company: 'Script Employer', location: 'Sydney', url: 'https://careers.script-employer.example/apply', applicationMode: 'external' } as never,
+    job: { id: 'fixture-3', title: 'Junior Developer', company: 'Script Employer', location: 'Sydney', url: 'https://jobs.nsw.gov.au/apply', applicationMode: 'external' } as never,
     profile: { name: 'Raunak Shrestha', phone: '0400000000', email: 'raunak@example.com', nationality: 'Nepali', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' } as never,
     log: (line) => lines.push(line),
   });
@@ -123,11 +123,11 @@ try {
   // A failure is reviewed, and its lesson is kept for every employer on the same platform.
   lessonReply = { cause: 'The Reset Password button is a Workday click filter, not the button.', within_agent_control: true, lesson: 'On Workday, press buttons through their data-automation-id="click_filter" overlay; clicking the label does nothing.' };
   reviewFailure({ host: 'nib.wd105.myworkdayjobs.com', company: 'nib', title: 'Analyst', reason: 'The page did not change in response to anything the agent tried.', steps: Array.from({ length: 5 }, (_, i) => ({ tool: 'click', args: { ref: `a${i}` }, result: 'Clicked "Reset Password".' })) });
-  reviewFailure({ host: 'careers.gov.example', company: 'Gov', title: 'Analyst', reason: 'Australian government application sites are excluded.', steps: Array.from({ length: 5 }, () => ({ tool: 'click' })) });
+  reviewFailure({ host: 'careers.blocked.example', company: 'Blocked', title: 'Analyst', reason: 'The site security verification could not be cleared.', steps: Array.from({ length: 5 }, () => ({ tool: 'click' })) });
   await settleReviews();
   assert.equal(platformOf('dtn.wd1.myworkdayjobs.com'), 'Workday');
   assert.match(lessonsFor('dtn.wd1.myworkdayjobs.com')[0] ?? '', /click_filter/, 'a lesson learnt at nib reaches DTN, both Workday');
-  assert.equal(lessonsFor('careers.gov.example').length, 0, 'a policy skip teaches nothing');
+  assert.equal(lessonsFor('careers.blocked.example').length, 0, 'a security verification wall teaches nothing');
 
   console.log('PASS: a plan runs in one model turn, stops at the first surprise, every action reports what it really did, a stuck turn thinks at length, a scripted answer is checked as it lands, and failures leave lessons per platform');
 } finally {

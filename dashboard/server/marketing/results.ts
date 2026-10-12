@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ResultsSnapshot } from '../../src/marketingTypes.js';
 import { samePublicSite as sameWebsite } from '../../../market-scout/src/core/public-url.js';
 
-export function validDate(raw:unknown):string|null {return typeof raw==='string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) && Number.isFinite(Date.parse(raw)) && new Date(raw).toISOString().slice(0,10)===raw?raw:null;}
+function validDate(raw:unknown):string|null {return typeof raw==='string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) && Number.isFinite(Date.parse(raw)) && new Date(raw).toISOString().slice(0,10)===raw?raw:null;}
 export function measurementPeriod(body:Record<string,unknown>,now=Date.now()) {
   const start=validDate(body.periodStart),end=validDate(body.periodEnd);
   if(!start || !end || end<start || end>=new Date(now).toISOString().slice(0,10) || Date.parse(end)-Date.parse(start)>366*86400_000) throw new Error('Choose a completed measurement period of at most one year.');
@@ -17,7 +17,7 @@ export function numberMetric(value:unknown,integer=false,signed=false):number|nu
 export function emptySnapshot(source:ResultsSnapshot['source'],method:ResultsSnapshot['method'],period:{periodStart:string;periodEnd:string}):ResultsSnapshot {
   return {id:randomUUID(),source,method,...period,sourceLabel:'',timezone:'Unknown',recordedAt:new Date().toISOString(),clicks:null,impressions:null,ctr:null,position:null,sessions:null,organicSessions:null,aiSessions:null,keyEvents:null,leads:null,orders:null,revenue:null,currency:null,pages:[],queries:[],channels:[],aiSources:[],notes:[],previous:null};
 }
-export const AI_HOSTS=['chatgpt.com','chat.openai.com','perplexity.ai','gemini.google.com','copilot.microsoft.com','claude.ai'];
+const AI_HOSTS=['chatgpt.com','chat.openai.com','perplexity.ai','gemini.google.com','copilot.microsoft.com','claude.ai'];
 export const isAIReferrer=(source:string)=>AI_HOSTS.includes(source.toLowerCase().replace(/^www\./,''));
 export function changePercent(current:number|null,previous:number|undefined):number|null {return current===null || previous===undefined || previous===0?null:(current-previous)/previous*100;}
 

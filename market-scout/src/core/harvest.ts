@@ -8,7 +8,6 @@
  * across those renames. Fields are then read by path, with fallbacks.
  */
 
-export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 /** Every object in `root` (depth-first) for which `isRecord` is true. Matched objects are not searched inside. */
 export function findRecords(root: unknown, isRecord: (node: Record<string, unknown>) => boolean, limit = 5_000): Array<Record<string, unknown>> {

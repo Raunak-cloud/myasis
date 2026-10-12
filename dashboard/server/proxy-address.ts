@@ -35,12 +35,16 @@ export function parseProxy(raw: string): ProxyDetails | string {
     return 'Paste the proxy as socks5://username:password@host:port, or host:port:username:password.';
   }
   if (url.protocol !== 'socks5:' && url.protocol !== 'socks5h:') return 'Use the proxy\'s SOCKS5 address (socks5://…): the connection switch speaks SOCKS5, not HTTP.';
-  return checked({
-    host: url.hostname.replace(/^\[|\]$/g, ''),
-    port: Number(url.port),
-    username: decodeURIComponent(url.username),
-    password: decodeURIComponent(url.password),
-  });
+  try {
+    return checked({
+      host: url.hostname.replace(/^\[|\]$/g, ''),
+      port: Number(url.port),
+      username: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+    });
+  } catch {
+    return 'The proxy username or password contains invalid URL encoding.';
+  }
 }
 
 function checked(proxy: ProxyDetails): ProxyDetails | string {

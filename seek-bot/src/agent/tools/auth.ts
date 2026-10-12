@@ -5,20 +5,12 @@ import { isForbiddenDestination } from '../guards.js';
 import { browserGmailAvailable, findVerificationInBrowser } from '../../browser-gmail.js';
 import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../../site-auth.js';
 import { storedCredential } from '../../site-credentials.js';
-import { isAustralianGovernmentUrl } from '../../site-policy.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
 import { assertLive } from '../../tool-run.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
 export async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  if (isAustralianGovernmentUrl(ctx.page.url())) {
-    return {
-      kind: 'terminal',
-      outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' },
-    };
-  }
-
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));
   if (!fields.length) {
@@ -171,9 +163,6 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
     return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".`);
   }
   if (found.kind !== 'link') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a code, not a link. Call enter_emailed_code with the code field(s) instead.`);
-  if (isAustralianGovernmentUrl(found.value)) {
-    return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' } };
-  }
   if (isForbiddenDestination(found.value)) return ok('The emailed link points somewhere this agent never navigates. Try another authentication option.');
   // A new tab keeps the form behind it intact; the loop follows the new tab.
   const tab = await ctx.page.context().newPage();

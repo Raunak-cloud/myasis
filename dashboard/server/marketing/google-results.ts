@@ -7,7 +7,7 @@ import type { ResultsSnapshot } from '../../src/marketingTypes.js';
 import { samePublicSite as sameWebsite } from '../../../market-scout/src/core/public-url.js';
 
 const SCOPES=['https://www.googleapis.com/auth/webmasters.readonly','https://www.googleapis.com/auth/analytics.readonly'];
-export function reportingConfig() {
+function reportingConfig() {
   const env=readEnv();const clientId=process.env.GOOGLE_CLIENT_ID ?? env.GOOGLE_CLIENT_ID ?? '',clientSecret=process.env.GOOGLE_CLIENT_SECRET ?? env.GOOGLE_CLIENT_SECRET ?? '';
   const redirectUri=`${marketingOrigin()}/api/marketing/google/callback`;
   return {clientId,clientSecret,redirectUri,configured:Boolean(clientId && clientSecret)};

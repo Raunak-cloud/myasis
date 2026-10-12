@@ -275,7 +275,7 @@ export function resolvePassageCorrections(article: Article, value: Record<string
 }
 
 /** Deterministic final gate: humanizing cannot alter a passage's figures or dates. */
-export function numericPublicationProblems(original: Article, candidate: Article): string[] {
+function numericPublicationProblems(original: Article, candidate: Article): string[] {
   const before = bodyProse(original);
   const after = bodyProse(candidate);
   if (before.length !== after.length) return ['Restore the original paragraph, bullet and takeaway structure.'];

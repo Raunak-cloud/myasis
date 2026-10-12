@@ -1,6 +1,6 @@
 import type { Brief, Evidence, TaskResult } from './types.js';
 
-export interface EvidenceReview {
+interface EvidenceReview {
   id: string;
   status: 'included' | 'excluded' | 'unverified';
   region: 'target' | 'unknown' | 'foreign';

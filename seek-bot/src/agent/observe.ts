@@ -13,7 +13,7 @@ import type { FormField } from '../types.js';
  * offer it", which is what keeps the deterministic rails meaningful.
  */
 
-export interface AgentAction {
+interface AgentAction {
   ref: string;
   /** Button/link text, or the aria-label when the control is icon-only. */
   text: string;

@@ -1,6 +1,6 @@
 import { measured, metric } from './pipeline.js';
 import { pickResumeForJob } from './resume.js';
-import { appliesThroughGovernmentSite, assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict } from './llm.js';
+import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict } from './llm.js';
 import { config, loadProfile } from './config.js';
 import {
   launchBrowser,
@@ -31,7 +31,6 @@ import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import type { Page } from 'patchright';
-import { australianGovernmentDestination, governmentApplicationRoute } from './site-policy.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
@@ -235,15 +234,6 @@ async function main() {
         const prior = reviewCache.suppression(job, reviewContext);
         if (prior) {
           bump(`recent ${prior.disposition}`);
-          continue;
-        }
-        if (australianGovernmentDestination(job)) {
-          bump('Australian government application site');
-          logOutcome({
-            status: 'skipped', jobId: job.id, title: job.title, company: job.company,
-            reason: 'Australian government application site excluded.',
-            reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy),
-          });
           continue;
         }
         if (job.applicationMode === 'external' && !config.allowExternalApply) {
@@ -759,21 +749,6 @@ async function main() {
        */
       await jitter(5000, 8000);
 
-      const governmentDestination = await governmentApplicationRoute(job, appliesThroughGovernmentSite);
-      if (governmentDestination) {
-        console.log(`  – ${job.title} @ ${job.company} — Australian government application site excluded before AI review`);
-        bump('Australian government application site');
-        logOutcome({
-          status: 'skipped',
-          jobId: job.id,
-          reason: 'Australian government application site excluded.',
-          title: job.title,
-          company: job.company,
-          reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy),
-        });
-        return;
-      }
-
       /**
        * The page verdict is for a listing whose description did not come
        * through: it tells a wall from a slow page from a job that has gone.
@@ -1068,18 +1043,7 @@ async function main() {
         await cooldown(candidateHitFriction, !candidateHitFriction);
         continue;
       }
-      /**
-       * A listing the agent found leads to a government site is a policy
-       * decision about the listing, like one made before review, and is
-       * cached as one; it used to qualify again on every run (GoTech's
-       * "Developer Programmer", three runs on 3 Oct) and take a candidate
-       * slot each time.
-       */
-      const policySkip = outcome.status === 'skipped' && /government application sites are excluded/i.test(outcome.reason ?? '');
-      logOutcome({
-        ...outcome, title: job.title, company: job.company,
-        ...(policySkip ? { reviewCache: reviewCacheMetadata(job, 'policy', reviewContext, REVIEW_TTL.policy) } : {}),
-      });
+      logOutcome({ ...outcome, title: job.title, company: job.company });
       // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
       for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
       if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');

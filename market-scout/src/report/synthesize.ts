@@ -32,7 +32,7 @@ export function canPublish(finding: Finding): boolean {
   return finding.check === 'supported' && finding.evidence.length > 0 && !unsupportedClaim(`${finding.finding} ${finding.soWhat}`);
 }
 
-export interface Recommendation {
+interface Recommendation {
   action: string;
   channel: string;
   hypothesis: string;
@@ -145,7 +145,7 @@ export async function synthesize(brief: Brief, insights: Insights, coverage: Tas
 }
 
 /** Concrete experiments, consistently framed as hypotheses rather than promises. */
-export function buildRecommendations(insights: Insights): Recommendation[] {
+function buildRecommendations(insights: Insights): Recommendation[] {
   const out: Recommendation[] = [];
   const add = (action: string, channel: string, hypothesis: string, evidence: string[]) => out.push({ action, channel, hypothesis, evidence });
   for (const keyword of insights.keywords.topKeywords.filter((c) => c.intent === 'transactional' || c.intent === 'commercial').slice(0, 3)) {

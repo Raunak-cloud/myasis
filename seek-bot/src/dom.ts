@@ -674,7 +674,7 @@ async function pickFromCombobox(page: Page, el: Locator, value: string): Promise
  * A combobox's choices are only known once it opens. When the answer given
  * blind matches none of them, the caller re-asks with the real list.
  */
-export class ComboboxOptionsError extends Error {
+class ComboboxOptionsError extends Error {
   constructor(value: string, readonly options: string[]) {
     super(
       options.length
@@ -899,7 +899,7 @@ async function readValidationMessage(page: Page, field: FormField): Promise<stri
  * A value the form refused, carrying the form's own reason so the retry can
  * be told what to change rather than guessing a second time.
  */
-export class FieldRejectedError extends Error {
+class FieldRejectedError extends Error {
   constructor(readonly label: string, readonly value: string, readonly complaint: string) {
     super(
       complaint

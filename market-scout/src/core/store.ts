@@ -65,7 +65,7 @@ export class EvidenceStore {
   }
 }
 
-export function evidenceId(source: SourceId, key: string): string {
+function evidenceId(source: SourceId, key: string): string {
   return `${source}:${createHash('sha1').update(key).digest('hex').slice(0, 12)}`;
 }
 

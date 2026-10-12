@@ -4,7 +4,7 @@ import { relevantEvidence } from './pipeline.js';
 import { config } from './config.js';
 import { answerKey } from './answer-gate.js';
 
-export interface KnowledgeItem {
+interface KnowledgeItem {
   id: string;
   /** Short title shown in the dashboard, e.g. "Full CV" or "Visa details". */
   label: string;
@@ -64,9 +64,9 @@ export function loadSavedAnswers(): SavedAnswer[] {
     return [];
   }
 }
-export const KNOWLEDGE_DIR = resolve(config.dataDir, 'knowledge');
+const KNOWLEDGE_DIR = resolve(config.dataDir, 'knowledge');
 
-export function loadKnowledge(): KnowledgeItem[] {
+function loadKnowledge(): KnowledgeItem[] {
   if (!existsSync(MANIFEST)) return [];
   try {
     return JSON.parse(readFileSync(MANIFEST, 'utf8')) as KnowledgeItem[];

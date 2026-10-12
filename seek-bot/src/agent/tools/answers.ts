@@ -164,7 +164,7 @@ export async function doAcceptTerms(ctx: ToolContext, args: Record<string, unkno
 }
 
 /** How many answerable controls the page shows; a change after a fill means the form rebuilt itself. */
-export async function formShape(page: Page): Promise<number> {
+async function formShape(page: Page): Promise<number> {
   /**
    * The form's own controls only. A suggestion list or menu that a fill opens
    * (Oracle's salary combobox, a suburb picker) brings controls of its own

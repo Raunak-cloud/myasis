@@ -1,14 +1,17 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignoreBinaries": ["pgrep", "Xvfb", "x11vnc"],
   "entry": [
     "src/novnc.d.ts",
     "server/**/*.test.ts",
+    "test/*.test.mjs",
     "scripts/*.mts",
     "run-account.mjs"
   ],
   "project": [
     "src/**/*.{ts,tsx}",
     "server/**/*.ts",
+    "test/*.test.mjs",
     "scripts/*.mts",
     "*.{ts,mjs}"
   ]

@@ -8,15 +8,14 @@ import { resolve } from 'node:path';
 import type { FormField } from '../../types.js';
 import { isEntryAction } from '../guards.js';
 import { wasHumanized } from '../../humanizer.js';
-import { hostOf } from '../../site-auth.js';
 import { offersCoverLetter } from '../cover-letter-opportunity.js';
 import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resume-sync.js';
 import { boardFullOutcome, settleResume } from './resume-step.js';
-import { ToolResult, ToolContext, ok, noteAction, abandoned } from './context.js';
+import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
-export const advancesApplication = (text: string): boolean =>
+const advancesApplication = (text: string): boolean =>
   /^(continue|next|review(?: your)? application|preview application|save and continue)$/i.test(text.trim());
 
 /**
@@ -26,7 +25,7 @@ export const advancesApplication = (text: string): boolean =>
  * costs a check; wrongly missed, an unchecked application goes out (Nestlé,
  * 4 Oct). Every other submit decision is the agent's own.
  */
-export function submitWorded(ctx: ToolContext, label: string): boolean {
+function submitWorded(ctx: ToolContext, label: string): boolean {
   return Boolean(ctx.captured.length || ctx.resumeUsed || ctx.coverLetter)
     // "Review and submit" is SEEK's terminal action on some one-page applications.
     && /^(apply|apply now|submit|send|send application|finish|complete|complete application|confirm|confirm and submit|review and submit)\b/i.test(label.trim());
@@ -51,7 +50,7 @@ export async function submissionEvidence(ctx: ToolContext): Promise<{ url: strin
   return { url: ctx.page.url(), text, actions: ctx.observation.actions, fields: ctx.observation.fields };
 }
 
-export const submitVerdicts = new Map<string, boolean>();
+const submitVerdicts = new Map<string, boolean>();
 
 /**
  * Whether pressing a control sends the application — the question every
@@ -60,7 +59,7 @@ export const submitVerdicts = new Map<string, boolean>();
  * page and label. A failed check counts as a submit: it can only hold a click
  * back for the gates, never let one through unguarded.
  */
-export async function transmits(ctx: ToolContext, label: string, context?: string): Promise<boolean> {
+async function transmits(ctx: ToolContext, label: string, context?: string): Promise<boolean> {
   if (isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length })) return false;
   if (!label.trim() || /\(opens a list\)$/.test(label)) return false;
   if (submitWorded(ctx, label)) return true;
@@ -323,7 +322,7 @@ export async function pageOffersDocuments(page: Page): Promise<boolean> {
 }
 
 /** A form element's accessibility tree without the per-element bookkeeping, for a reader rather than a clicker. */
-export const readableSnapshot = (snapshot: string) => snapshot.replace(/ \[(?:ref|cursor)=[^\]]*\]/g, '');
+const readableSnapshot = (snapshot: string) => snapshot.replace(/ \[(?:ref|cursor)=[^\]]*\]/g, '');
 
 /**
  * Before a form the agent filled with its own browser tools is sent, every
@@ -335,7 +334,7 @@ export const readableSnapshot = (snapshot: string) => snapshot.replace(/ \[(?:re
  * agent has had its chance to correct it and the form must not go out wrong.
  * An audit that cannot run holds the submit rather than waving it through.
  */
-export async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
+async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
   if (!ctx.rawUsed) return null;
   const snapshot = await ctx.page.ariaSnapshot({ mode: 'ai', timeout: 15_000 }).catch(() => '');
   let problems: Awaited<ReturnType<typeof auditFormBeforeSubmit>>;
@@ -373,7 +372,7 @@ export async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | 
  * filled". Checked once per distinct set of values, on the page that shows
  * them, since a later page (or a review step) may never show them again.
  */
-export async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
+async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
   const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
   const entered = new Set(ctx.captured.map((item) => normal(item.question)));
   // The letter add_cover_letter wrote is the agent's own, grounded as it was written — not something the page held.
@@ -442,7 +441,7 @@ export async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | nul
 }
 
 /** Writes a grounded answer over a value the page held that was not the candidate's; null when there is none to write. */
-export async function repairPrefilled(ctx: ToolContext, field: FormField, problem: string): Promise<string | null> {
+async function repairPrefilled(ctx: ToolContext, field: FormField, problem: string): Promise<string | null> {
   const question: FormField = {
     ...field,
     currentValue: '',
@@ -456,7 +455,7 @@ export async function repairPrefilled(ctx: ToolContext, field: FormField, proble
   return answer.value;
 }
 
-export const sameLabel = (a: string, b: string) => {
+const sameLabel = (a: string, b: string) => {
   const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase().replace(/[\s*:]+$/, '');
   return normal(a) === normal(b);
 };
@@ -468,7 +467,7 @@ export const sameLabel = (a: string, b: string) => {
  * answer model writes the specific question, as it does for any field it
  * cannot answer; the fallback still names the job, the employer and the reason.
  */
-export async function candidateQuestion(
+async function candidateQuestion(
   ctx: ToolContext,
   field: FormField | undefined,
   problem: { field: string; value: string; problem: string },
@@ -488,7 +487,7 @@ export async function candidateQuestion(
 }
 
 /** What the agent is told when answers on the form are not the candidate's; a field flagged twice goes to the candidate. */
-export async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; value: string; problem: string }>): Promise<ToolResult | null> {
+async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; value: string; problem: string }>): Promise<ToolResult | null> {
   if (!problems.length) return null;
   const strikes = (ctx.auditStrikes ??= new Map<string, number>());
   for (const problem of problems) {

@@ -14,7 +14,7 @@ Think like a senior software developer. Prioritize holistic, architectural solut
 - The dashboard runs `seek-bot/dist`, so build seek-bot after changing it.
 - Deploy: push to `main`, then on the VPS
   `git pull && npm run build` (both packages as needed) `&& pm2 restart myasis-dashboard --update-env`.
-- Employer-site login and account creation are automated with per-site credentials; Australian government sites are excluded before AI review.
+- Employer-site login and account creation are automated with per-site credentials; government jobs are reviewed and applied for under the same candidate-fit rules as other jobs.
 - x11vnc binds `127.0.0.1` only, behind the authenticated dashboard WebSocket. Never publish a VNC port.
 - Never route the bot's outbound traffic through Cloudflare WARP.
 - `market-scout/` is a standalone marketing-research browser agent (Celeris only). Run it from the compiled build (`npm run dev -- …`), never tsx (page-evaluate code breaks under `__name`). It is logged-out only: a block, wall or CAPTCHA stops that host and is never worked around. Reddit is official-API only. No Google SERP scraping. Checks: `npm test` and `npx tsc --noEmit -p .` in that folder.

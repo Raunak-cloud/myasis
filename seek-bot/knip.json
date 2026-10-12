@@ -8,6 +8,7 @@
     "src/external-e2e.ts",
     "src/external-real-rehearsal.ts",
     "src/agent-e2e.ts",
+    "src/form-replay.ts",
     "src/bench-*.ts",
     "src/**/*.test.ts",
     "src/humanizer-endpoint.ts",

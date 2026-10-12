@@ -10,7 +10,7 @@ const MAX_URL_LENGTH = 2_048;
  * network by accident. The bot repeats these checks at the browser boundary;
  * this first pass gives the operator an immediate, useful error.
  */
-export async function validateExternalJobUrl(value: unknown): Promise<string | { error: string }> {
+export async function validateExternalJobUrl(value: unknown, resolveHost = resolvesPublic): Promise<string | { error: string }> {
   if (typeof value !== 'string' || !value.trim()) return { error: 'Paste the external job URL.' };
   const raw = value.trim();
   if (raw.length > MAX_URL_LENGTH) return { error: 'The external job URL is too long.' };
@@ -29,16 +29,13 @@ export async function validateExternalJobUrl(value: unknown): Promise<string | {
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
     return { error: 'The external job URL must be a public website.' };
   }
-  if (host === 'gov.au' || host.endsWith('.gov.au')) {
-    return { error: 'Australian government application sites are excluded.' };
-  }
   if (/(^|\.)(seek\.com\.au|seek\.com|indeed\.com)$/.test(host)) {
     return { error: 'Use this field for an employer website, not a SEEK or Indeed listing.' };
   }
   if (/\/(?:checkout|payment|billing)(?:\/|$)/i.test(url.pathname)) {
     return { error: 'Use the job page, not a payment page.' };
   }
-  if (!(await resolvesPublic(host))) return { error: 'The external job URL must resolve only to public internet addresses.' };
+  if (!(await resolveHost(host))) return { error: 'The external job URL must resolve only to public internet addresses.' };
 
   return url.href;
 }

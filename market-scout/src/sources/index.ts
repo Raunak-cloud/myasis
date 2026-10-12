@@ -79,4 +79,4 @@ export function sourceById(id: SourceId): Source | undefined {
   return SOURCES.find((source) => source.id === id);
 }
 
-export type { Source, SourceContext } from './source.js';
+export type { Source } from './source.js';

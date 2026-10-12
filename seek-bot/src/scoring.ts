@@ -72,7 +72,7 @@ export function parseMinSalary(text?: string): number | null {
   return parseSalaryRate(text)?.annualEquivalent ?? null;
 }
 
-export interface SalaryFloorComparison {
+interface SalaryFloorComparison {
   period: 'hourly' | 'annual';
   amount: number;
   floor: number;
@@ -80,7 +80,7 @@ export interface SalaryFloorComparison {
 }
 
 /** Selects the matching user preference for the period advertised by the job. */
-export function salaryFloorForJob(job: JobListing): SalaryFloorComparison | null {
+function salaryFloorForJob(job: JobListing): SalaryFloorComparison | null {
   const stated = parseSalaryRate(job.salary);
   if (stated?.period === 'hourly') {
     return {
@@ -100,17 +100,17 @@ export function salaryFloorForJob(job: JobListing): SalaryFloorComparison | null
   };
 }
 
-export function isRemoteOrHybrid(job: JobListing): boolean {
+function isRemoteOrHybrid(job: JobListing): boolean {
   const hay = `${job.workArrangement ?? ''} ${job.location} ${job.title} ${job.teaser ?? ''} ${job.description ?? ''}`.toLowerCase();
   return /\bremote\b|\bhybrid\b|work from home|wfh|flexible location/.test(hay);
 }
 
-export function isInOnsiteCity(job: JobListing): boolean {
+function isInOnsiteCity(job: JobListing): boolean {
   return job.location.toLowerCase().includes(config.rules.onsiteCity.toLowerCase());
 }
 
 /** Templated / lead-gen listing smells. Flag rather than apply. */
-export function looksTemplated(job: JobListing): string | null {
+function looksTemplated(job: JobListing): string | null {
   const d = (job.description ?? job.teaser ?? '').toLowerCase();
   if (!d) return null;
   // Narrow on purpose: "testing" alone appears in perfectly normal software ads.
@@ -186,7 +186,7 @@ function targetOverlap(text: string, targets: string[]): number {
  * structurally unreachable. Scoring against the candidate's own
  * KEYWORDS/TARGET_ROLE keeps the rubric meaningful in any field.
  */
-export function titleFit(title: string, targets: string[] = searchTargets()): number {
+function titleFit(title: string, targets: string[] = searchTargets()): number {
   // Nothing configured to match against: stay neutral rather than punish.
   if (!targets.length) return 9;
   const best = targetOverlap(title, targets);

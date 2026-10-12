@@ -86,7 +86,7 @@ function remember(host: string, entry: Lesson): void {
 interface StepRecord { tool: string; args?: unknown; result?: string; url?: string }
 
 /** Failures with nothing for a form-filling agent to learn: policy, a person's answer, a wall no skill passes. */
-const NOTHING_TO_LEARN = /government|not attempted today|security verification|captcha|already applied|your answer is needed|outside this run|duplicate|daily limit/i;
+const NOTHING_TO_LEARN = /not attempted today|security verification|captcha|already applied|your answer is needed|outside this run|duplicate|daily limit/i;
 
 const pending = new Set<Promise<void>>();
 

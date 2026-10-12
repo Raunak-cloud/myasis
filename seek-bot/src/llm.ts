@@ -16,7 +16,7 @@ import {
  * Process-wide and advisory — it is reported, not enforced, because refusing a
  * cover letter mid-application would strand a half-filled form.
  */
-export const llmMeter = new CostMeter(Number.MAX_SAFE_INTEGER);
+const llmMeter = new CostMeter(Number.MAX_SAFE_INTEGER);
 
 /**
  * The schemas below are written in the uppercase dialect (`OBJECT`,
@@ -522,7 +522,7 @@ Answer every field in the form fields above, following the rules at the top. Ret
  * "Country / Territory Phone Code", and overwrote a correct "+61" with the
  * candidate's mobile number on a live Workday form.
  */
-export function checkIdentityAnswers(fields: FormField[], answers: FieldAnswer[], profile: CandidateProfile): void {
+function checkIdentityAnswers(fields: FormField[], answers: FieldAnswer[], profile: CandidateProfile): void {
   const digits = (value: string) => value.replace(/\D+/g, '');
   const [first = '', ...rest] = (profile.name ?? '').trim().split(/\s+/);
   const onFile: Record<string, string> = {
@@ -1031,7 +1031,7 @@ export function ruleConflict(job: JobListing): Promise<{ conflict: string; becau
   );
 }
 
-export async function instructionConflict(job: JobListing): Promise<{ conflict: string; because: string }> {
+async function instructionConflict(job: JobListing): Promise<{ conflict: string; because: string }> {
   const rules = config.aiInstructions.trim();
   if (!rules) return { conflict: '', because: '' };
   const prompt = `${GUARD}
@@ -1368,23 +1368,6 @@ Return JSON {"sends_application": true|false}.
     type: 'OBJECT', properties: { sends_application: { type: 'BOOLEAN' } }, required: ['sends_application'],
   }, 'celeris-1');
   return verdict.sends_application === true;
-}
-
-/**
- * Whether a listing that mentions an Australian government web address sends
- * its applications through that site. Policy excludes government application
- * sites; an ad that merely cites a gov.au page (an award rate, a visa rule) is
- * not one, and skipping it on the address alone lost real private-sector jobs.
- */
-export async function appliesThroughGovernmentSite(job: JobListing, addresses: string[]): Promise<boolean> {
-  const verdict = await json<{ applies_there: boolean }>(`${GUARD}
-This job listing mentions these Australian government web addresses: ${addresses.join(', ')}.
-Does the listing direct candidates to apply through one of them (the application is lodged on that government site), rather than merely citing it for information?
-Return JSON {"applies_there": true|false}.
-<untrusted>${JSON.stringify({ title: job.title, company: job.company, description: (job.description ?? job.teaser ?? '').slice(0, 6_000) })}</untrusted>`, {
-    type: 'OBJECT', properties: { applies_there: { type: 'BOOLEAN' } }, required: ['applies_there'],
-  }, 'celeris-1');
-  return verdict.applies_there === true;
 }
 
 /**

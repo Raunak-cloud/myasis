@@ -1,13 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Evidence } from '../core/types.js';
-import { type CostMeter } from '../llm/celeris.js';
 
 /** Rank observed ad date spans, variants and placements. These signals do not
  * establish spend, continuous activity, conversions or profitability. */
-
-/** Brand advertisers mostly open with slogans, product shots and launches; without those the tagger filed two ads in three under "other". */
-export const HOOKS = ['question', 'bold claim', 'problem callout', 'testimonial', 'demo', 'us vs them', 'statistic', 'founder story', 'offer first', 'curiosity', 'social proof', 'how-to', 'identity statement', 'product showcase', 'new launch', 'seasonal or event', 'other'] as const;
-export const AWARENESS = ['unaware', 'problem-aware', 'solution-aware', 'product-aware', 'most-aware'] as const;
 
 export interface ScoredAd {
   id: string;
@@ -26,7 +21,7 @@ export interface ScoredAd {
   tags?: AdTags;
 }
 
-export interface AdTags {
+interface AdTags {
   hook: string;
   angle: string;
   awareness: string;
@@ -101,7 +96,7 @@ function median(values: number[]): number {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-export async function analyzeAds(all: Evidence[], meter: CostMeter): Promise<AdInsights> {
+export async function analyzeAds(all: Evidence[]): Promise<AdInsights> {
   const scored = scoreAds(all);
   const byAdvertiser = new Map<string, ScoredAd[]>();
   for (const ad of scored) byAdvertiser.set(ad.advertiser, [...(byAdvertiser.get(ad.advertiser) ?? []), ad]);

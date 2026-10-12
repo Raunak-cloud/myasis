@@ -76,7 +76,7 @@ async function viaApi(query: string, limit: number, country: string): Promise<Ev
 }
 
 /** "3 weeks ago" → an approximate ISO date. */
-export function relativeAge(text: string): string {
+function relativeAge(text: string): string {
   const match = /(\d+)\s*(second|minute|hour|day|week|month|year)/i.exec(text);
   if (!match) return '';
   const unit = { second: 1, minute: 60, hour: 3_600, day: 86_400, week: 604_800, month: 2_592_000, year: 31_536_000 }[match[2].toLowerCase() as 'day'];

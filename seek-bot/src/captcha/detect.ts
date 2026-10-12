@@ -149,7 +149,7 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
  * and puzzle inside a hidden outer frame, and only the outer one says whether
  * any of it is showing.
  */
-export async function hcaptchaShowing(page: Page): Promise<boolean> {
+async function hcaptchaShowing(page: Page): Promise<boolean> {
   const hosts = page.frames().filter((frame) => !/hcaptcha\.com/i.test(frame.url()));
   for (const host of hosts) {
     const showing = await host

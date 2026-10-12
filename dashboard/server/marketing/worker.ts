@@ -234,7 +234,7 @@ async function syncResults(job:JobRow) {
     await query("UPDATE marketing_google_connections SET next_sync_at=CASE WHEN daily_sync THEN now()+interval '24 hours' ELSE NULL END,error=$3 WHERE site_id=$1 AND user_id=$2",[job.site_id,job.user_id,e instanceof MarketingError?e.message:'Reporting could not finish. Retry or reconnect Google.']);throw e;
   }
 }
-export async function queueDueReporting() {
+async function queueDueReporting() {
   await transaction(async client=>{
     const rows=(await client.query('SELECT * FROM marketing_google_connections WHERE daily_sync AND next_sync_at<=now() ORDER BY next_sync_at FOR UPDATE SKIP LOCKED LIMIT 20')).rows;
     for(const row of rows) {

@@ -36,7 +36,7 @@ async function runScout(args: string[], dir: string, timeoutMs: number): Promise
   });
 }
 
-export function privateRunDir(userId: string, siteId: string): string {
+function privateRunDir(userId: string, siteId: string): string {
   const dir = resolve(userDir(userId),'marketing',siteId,randomUUID()); mkdirSync(dir,{recursive:true}); return dir;
 }
 

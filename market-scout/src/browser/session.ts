@@ -17,7 +17,7 @@ import { assertPublicUrl } from '../core/public-url.js';
 
 let shared: Promise<BrowserContext> | undefined;
 
-export function browser(): Promise<BrowserContext> {
+function browser(): Promise<BrowserContext> {
   if (shared) return shared;
   const pending = (async () => {
     const dir = resolve(config.browser.profileDir);

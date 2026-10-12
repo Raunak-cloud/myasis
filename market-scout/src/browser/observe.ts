@@ -10,7 +10,7 @@ import { distill } from './distill.js';
  * re-stamped every observation, so a stale one simply fails to resolve.
  */
 
-export interface Control {
+interface Control {
   ref: number;
   tag: string;
   role: string;

@@ -20,9 +20,9 @@ import { extractRecords, UNTRUSTED } from '../llm/extract.js';
  * stop: step cap, spend cap, repeated no-op actions, and any wall.
  */
 
-export type AgentStatus = 'done' | 'blocked' | 'budget' | 'stuck' | 'max-steps' | 'error';
+type AgentStatus = 'done' | 'blocked' | 'budget' | 'stuck' | 'max-steps' | 'error';
 
-export interface AgentRecord extends Record<string, unknown> {
+interface AgentRecord extends Record<string, unknown> {
   sourceUrl: string;
 }
 

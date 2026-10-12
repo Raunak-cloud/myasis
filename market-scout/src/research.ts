@@ -116,8 +116,8 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
   store.writeJson('quality.json', quality);
   log(`Evidence review: ${quality.included} usable, ${quality.excluded} irrelevant, ${quality.unverified} awaiting verification.`);
   const [keywords, ads, social, competitors] = await Promise.all([
-    analyzeKeywords(all, brief, meter),
-    analyzeAds(all, meter),
+    analyzeKeywords(all, brief),
+    analyzeAds(all),
     analyzeSocial(all, meter),
     analyzeCompetitors(all, meter),
   ]);

@@ -1,6 +1,6 @@
 import type { GrowthRun, GrowthStep, MarketingSite, MarketingTopic, OrganicStrategy, ResultsSnapshot } from '../../src/marketingTypes.js';
 
-export const growthSteps = [
+const growthSteps = [
   ['results','Read measured results'], ['health','Check website health'], ['research','Refresh market research'],
   ['visibility','Check AI visibility'], ['strategy','Choose the next priorities'], ['content','Prepare useful content'],
 ] as const;

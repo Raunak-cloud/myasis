@@ -84,5 +84,3 @@ export const config = {
 
   dataDir: str('SCOUT_DATA_DIR', '.scout'),
 };
-
-export type Config = typeof config;

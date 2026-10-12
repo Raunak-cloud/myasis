@@ -16,8 +16,8 @@ import type { Source } from './source.js';
 
 type Engine = 'google' | 'youtube' | 'bing' | 'amazon';
 
-export const QUESTION_PREFIXES = ['how', 'what', 'why', 'which', 'where', 'when', 'who', 'can', 'is', 'are', 'does', 'should'];
-export const SUFFIXES = ['for', 'vs', 'versus', 'alternative', 'best', 'near me', 'price', 'cost', 'review', 'reviews', 'cheap', 'free', 'without', 'with', 'like', 'or', 'and', 'to', 'not working', 'ideas', 'tips', 'examples', 'reddit'];
+const QUESTION_PREFIXES = ['how', 'what', 'why', 'which', 'where', 'when', 'who', 'can', 'is', 'are', 'does', 'should'];
+const SUFFIXES = ['for', 'vs', 'versus', 'alternative', 'best', 'near me', 'price', 'cost', 'review', 'reviews', 'cheap', 'free', 'without', 'with', 'like', 'or', 'and', 'to', 'not working', 'ideas', 'tips', 'examples', 'reddit'];
 const PREFIXES = ['best', 'top', 'cheap', 'buy', ...QUESTION_PREFIXES];
 
 /** Amazon marketplace ids by country; others fall back to the US store. */

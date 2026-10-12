@@ -5,11 +5,11 @@ import dotenv from 'dotenv';
 import type { CandidateProfile } from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-export const ROOT = resolve(__dirname, '..');
+const ROOT = resolve(__dirname, '..');
 dotenv.config({ path: resolve(ROOT, '.env') });
 
 /** True for a run started by an operator of this installation. Set only by the dashboard. */
-export const adminUnlimited = process.env.ADMIN_UNLIMITED === 'true';
+const adminUnlimited = process.env.ADMIN_UNLIMITED === 'true';
 
 /**
  * A configured value, floored at 1 and capped at `max` — except for an
@@ -101,7 +101,7 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
 }
 
 /** Search terms honoured per run — see the note on `keywords` below. */
-export const MAX_SEARCH_TERMS = 4;
+const MAX_SEARCH_TERMS = 4;
 
 export const config = {
   /**

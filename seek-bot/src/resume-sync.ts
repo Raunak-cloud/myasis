@@ -42,7 +42,7 @@ export function boardOf(url: string): Board | null {
 const DOCUMENT_NAME = /([^\n\\/:*?"<>|]{1,140}?\.(?:pdf|docx?|rtf|txt))(?![a-z])/i;
 
 /** Names compared without extension, case or punctuation: "Resume (2).pdf" is "resume 2.docx". */
-export const sameDocument = (a: string, b: string) => {
+const sameDocument = (a: string, b: string) => {
   const key = (name: string) => name.toLowerCase().replace(/\.(pdf|docx?|rtf|txt)$/i, '').replace(/[^a-z0-9]+/g, '');
   return key(a).length > 0 && key(a) === key(b);
 };
@@ -296,7 +296,7 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
 }
 
 /** Indeed's own route to the resume choice inside an application already under way. */
-export const INDEED_RESUME_STEP = 'https://smartapply.indeed.com/beta/indeedapply/form/resume-selection-module/resume-selection';
+const INDEED_RESUME_STEP = 'https://smartapply.indeed.com/beta/indeedapply/form/resume-selection-module/resume-selection';
 
 /**
  * An Indeed application that opened on its review page: Indeed skipped the

@@ -24,9 +24,9 @@ import { judgePage } from './blocker.js';
 import type { JobListing } from './types.js';
 import { ReviewCache, reviewContextFingerprint } from './review-cache.js';
 
-export type QueueStatus = 'pending' | 'applied' | 'skipped';
+type QueueStatus = 'pending' | 'applied' | 'skipped';
 
-export interface QueueItem {
+interface QueueItem {
   jobId: string;
   title: string;
   company: string;
@@ -50,7 +50,7 @@ export interface QueueItem {
 
 const QUEUE_PATH = resolve(config.dataDir, 'queue.json');
 
-export function loadQueue(): QueueItem[] {
+function loadQueue(): QueueItem[] {
   if (!existsSync(QUEUE_PATH)) return [];
   try {
     return JSON.parse(readFileSync(QUEUE_PATH, 'utf8')) as QueueItem[];
@@ -59,7 +59,7 @@ export function loadQueue(): QueueItem[] {
   }
 }
 
-export function saveQueue(items: QueueItem[]) {
+function saveQueue(items: QueueItem[]) {
   writeFileSync(QUEUE_PATH, JSON.stringify(items, null, 2));
 }
 

@@ -16,7 +16,7 @@ const job: JobListing = {
   platform: 'seek',
 };
 
-function withCache(entries: ReviewCacheEntry[], fn: (path: string) => void) {
+function withCache(entries: unknown[], fn: (path: string) => void) {
   const directory = mkdtempSync(join(tmpdir(), 'review-cache-'));
   const path = join(directory, 'review-cache.jsonl');
   writeFileSync(path, entries.map(entry => JSON.stringify(entry)).join('\n'));
@@ -39,6 +39,13 @@ function entry(overrides: Partial<ReviewCacheEntry> = {}): ReviewCacheEntry {
 test('suppresses an unchanged job before another model review', () => withCache([entry()], path => {
   const cache = new ReviewCache({ now: NOW, cachePath: path });
   assert.equal(cache.suppression(job, 'candidate-v1')?.disposition, 'fit-mismatch');
+}));
+
+test('old government-policy rejections no longer suppress a listing', () => withCache([
+  { ...entry(), disposition: 'policy', reason: 'Australian government application site excluded.' },
+], path => {
+  const cache = new ReviewCache({ now: NOW, cachePath: path });
+  assert.equal(cache.suppression(job, 'candidate-v1'), null);
 }));
 
 test('candidate or search context changes invalidate fit decisions', () => withCache([entry()], path => {

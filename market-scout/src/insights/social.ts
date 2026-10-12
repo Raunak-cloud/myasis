@@ -29,7 +29,7 @@ export interface ScoredPost {
   baseline: 'creator sample' | 'search sample';
 }
 
-export interface VocQuote {
+interface VocQuote {
   evidenceId: string;
   url: string;
   type: 'pain' | 'desire' | 'objection' | 'alternative' | 'praise' | 'question';
@@ -38,7 +38,7 @@ export interface VocQuote {
   weight: number;
 }
 
-export interface VocTheme {
+interface VocTheme {
   theme: string;
   type: VocQuote['type'];
   mentions: number;

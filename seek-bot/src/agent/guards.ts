@@ -1,6 +1,5 @@
 import type { Page } from 'patchright';
 import { config } from '../config.js';
-import { isAustralianGovernmentUrl } from '../site-policy.js';
 import { hostOf } from '../site-auth.js';
 import { CostMeter } from './celeris.js';
 
@@ -70,8 +69,8 @@ export function listingIdIn(url: string): string | null {
 /**
  * Destinations the agent is never allowed to drive, whatever it decides.
  *
- * Authentication is handled by a dedicated tool. Payment flows and Australian
- * government domains remain outside the application agent.
+ * Authentication is handled by a dedicated tool. Payment flows remain outside
+ * the application agent.
  */
 const FORBIDDEN_URL = /\/(checkout|payment|billing)\b/i;
 
@@ -88,7 +87,7 @@ export function siteDomain(url: string): string {
 }
 
 export function isForbiddenDestination(url: string): boolean {
-  return isAustralianGovernmentUrl(url) || FORBIDDEN_URL.test(url);
+  return FORBIDDEN_URL.test(url);
 }
 
 /**

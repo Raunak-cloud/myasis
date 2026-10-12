@@ -23,8 +23,8 @@ export function siteView(row: SiteRow): MarketingSite {
     growthGoal:row.growth_goal || 'traffic',growthAIProvider:row.growth_ai_provider || 'off' };
 }
 export function topicView(row: Record<string, any>): MarketingTopic { return { id: row.id, title: row.title, keyword: row.keyword, angle: row.angle, intent: row.intent, priority: row.priority, rationale: row.rationale, productUrl: row.product_url, evidenceUrls: row.evidence_urls, basis: row.basis, status: row.status, createdAt: iso(row.created_at)! }; }
-export function postView(row: Record<string, any>): MarketingPost { return { id: row.id, topicId: row.topic_id, status: row.status, article: row.article, sources: row.brief?.sources ?? [], quality: row.quality, model: row.model, publishedUrl: row.published_url, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, metrics: row.metrics, handledAt:iso(row.handled_at) }; }
-export function jobView(row: Record<string, any>): MarketingJob { return { id: row.id, kind: row.kind, status: row.status, progress: row.progress, error: row.error, createdAt: iso(row.created_at)!,growthRun:row.payload?.growthRun }; }
+function postView(row: Record<string, any>): MarketingPost { return { id: row.id, topicId: row.topic_id, status: row.status, article: row.article, sources: row.brief?.sources ?? [], quality: row.quality, model: row.model, publishedUrl: row.published_url, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, metrics: row.metrics, handledAt:iso(row.handled_at) }; }
+function jobView(row: Record<string, any>): MarketingJob { return { id: row.id, kind: row.kind, status: row.status, progress: row.progress, error: row.error, createdAt: iso(row.created_at)!,growthRun:row.payload?.growthRun }; }
 
 export async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await getPool().connect();

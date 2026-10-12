@@ -24,7 +24,7 @@ export function storedCredential(url: string, email: string): SiteCredential | n
   return readAll()[key(url, email)] ?? null;
 }
 
-export function rememberCredential(url: string, email: string, credential: SiteCredential): void {
+function rememberCredential(url: string, email: string, credential: SiteCredential): void {
   const all = readAll();
   all[key(url, email)] = { ...credential, at: new Date().toISOString() };
   writeFileSync(FILE(), JSON.stringify(all, null, 2));

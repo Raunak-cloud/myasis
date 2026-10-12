@@ -25,7 +25,7 @@ import { platformOf } from './agent/lessons.js';
  * document), and anything the page's scripts would do on interaction. Replay
  * checks how a page is read, not how its widgets behave.
  */
-export const CORPUS_DIR = (): string => process.env.FORM_CORPUS_DIR ?? resolve(config.dataDir, 'form-corpus');
+const CORPUS_DIR = (): string => process.env.FORM_CORPUS_DIR ?? resolve(config.dataDir, 'form-corpus');
 const PER_PLATFORM = 25;
 
 export interface FormExpectation {
@@ -131,7 +131,7 @@ export async function recordFormPage(page: Page, observation: Observation): Prom
 }
 
 /** The page as rendered, self-contained: form state written into the markup, stylesheets inlined, scripts gone. */
-export async function snapshotPage(page: Page): Promise<string | null> {
+async function snapshotPage(page: Page): Promise<string | null> {
   const captured = await page.evaluate(() => {
     const clone = document.documentElement.cloneNode(true) as HTMLElement;
     /**

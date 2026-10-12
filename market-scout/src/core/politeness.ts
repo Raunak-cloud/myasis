@@ -134,10 +134,6 @@ export function markBlocked(url: string, reason: string): never {
   throw new BlockedError(host, reason);
 }
 
-export function isBlocked(url: string): boolean {
-  return blockedHosts.has(new URL(url).host);
-}
-
 /**
  * Recognize search pages. Only the bounded browser-discovery collector opens
  * them; generic crawler/agent tasks still open specific sites. A challenge
@@ -166,7 +162,7 @@ export function searchEngineOf(url: string): string {
 
 export class OffLimitsError extends Error {}
 
-export function botUserAgent(): string {
+function botUserAgent(): string {
   return `Mozilla/5.0 (compatible; ${config.politeness.userAgentToken}/1.0; marketing research)`;
 }
 

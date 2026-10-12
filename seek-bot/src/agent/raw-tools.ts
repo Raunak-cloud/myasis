@@ -2,7 +2,6 @@ import type { Dialog, Frame, Locator, Page, Request, Route } from 'patchright';
 import { answerFields, acceptBrowserDialog, reviewBrowserScript } from '../llm.js';
 import { boardResumeInstead } from './tools/resume-step.js';
 import type { FormField } from '../types.js';
-import { isAustralianGovernmentUrl } from '../site-policy.js';
 import type { ToolSchema } from './celeris.js';
 import { isForbiddenDestination, siteDomain } from './guards.js';
 import { abandoned } from '../tool-run.js';
@@ -251,9 +250,6 @@ async function clickElement(ctx: ToolContext, args: Record<string, unknown>): Pr
   // Where the grounded tools reach the control, they answer it.
   const listed = facts.actionRef ? ctx.observation.actions.find((action) => action.ref === facts.actionRef) : undefined;
   if (listed?.role === 'option') return ok('That option is in the observation: use choose_option so the choice is grounded in the candidate profile.');
-  if (facts.href && isAustralianGovernmentUrl(facts.href)) {
-    return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' } };
-  }
   if (facts.href && isForbiddenDestination(facts.href)) return ok(`Refused: that link leads to ${facts.href}, which this agent never opens.`);
   const answers = /^(option|radio|checkbox|switch|menuitemradio|menuitemcheckbox|gridcell|treeitem)$/.test(facts.role) || ['radio', 'checkbox'].includes(facts.type);
   return watched(ctx, `click "${facts.name}"`, async () => {
@@ -520,12 +516,11 @@ async function navigatePage(ctx: ToolContext, args: Record<string, unknown>): Pr
   let url: URL;
   try { url = new URL(String(args.url ?? ''), ctx.page.url()); } catch { return ok('Give a full http(s) URL.'); }
   if (!/^https?:$/.test(url.protocol)) return ok('Only http(s) pages can be opened.');
-  if (isAustralianGovernmentUrl(url.href)) {
-    return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Australian government application sites are excluded.' } };
-  }
   if (isForbiddenDestination(url.href)) return ok(`Refused: ${url.href} is somewhere this agent never goes.`);
+  let decoded: string;
+  try { decoded = decodeURIComponent(url.href); } catch { return ok('The address contains invalid URL encoding. Use a valid application URL.'); }
   const email = ctx.profile.email?.toLowerCase();
-  if (email && decodeURIComponent(url.href).toLowerCase().includes(email)) return ok('Refused: the address carries the candidate\'s email.');
+  if (email && decoded.toLowerCase().includes(email)) return ok('Refused: the address carries the candidate\'s email.');
   return watched(ctx, `open ${url.host}`, async () => {
     await ctx.page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
     return ok(`Opened ${ctx.page.url()}.`);

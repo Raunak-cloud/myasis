@@ -1,5 +1,4 @@
 import type { Brief, Evidence } from '../core/types.js';
-import { type CostMeter } from '../llm/celeris.js';
 
 /**
  * SEO keywords from autocomplete (and trend) evidence.
@@ -27,7 +26,7 @@ export interface Keyword {
   evidenceIds: string[];
 }
 
-export interface KeywordCluster {
+interface KeywordCluster {
   name: string;
   intent: Intent;
   pageIdea: string;
@@ -93,7 +92,7 @@ export function mergeKeywords(items: Evidence[], brandNames: string[]): Keyword[
   return [...byPhrase.values()].sort((a, b) => b.demand - a.demand || a.words - b.words);
 }
 
-export async function analyzeKeywords(all: Evidence[], brief: Brief, meter: CostMeter): Promise<KeywordInsights> {
+export async function analyzeKeywords(all: Evidence[], brief: Brief): Promise<KeywordInsights> {
   const keywords = mergeKeywords(all, [brief.brand, ...brief.competitors]);
   const trends = all
     .filter((item) => item.kind === 'trend')
