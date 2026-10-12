@@ -13,6 +13,10 @@ responses over 1 MB, and do not retry HTTP errors. Failed employers are reported
 while other feeds continue. No API key or application API is used.
 
 This is an employer watchlist, not a search of every SmartRecruiters customer.
+The admin review dialog includes **Test without applying**. This uses only the
+SmartRecruiters draft employer list for a search-only run, without saving draft
+settings. It checks one page per search term and reviews at most 10 jobs. The
+server enforces search-only mode; application forms are never opened.
 Existing title, age, employer exclusion, profile fit, application history and
 run limits apply. Listings and full descriptions are read through the API;
 only application attempts use the browser. Active/public/Australian status is

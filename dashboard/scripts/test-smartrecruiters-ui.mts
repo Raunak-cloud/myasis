@@ -69,16 +69,36 @@ try {
     } else {
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES]').count(), 0);
+      assert.equal(await dialog.getByRole('button', { name: 'Test without applying', exact: true }).count(), 0);
     }
     await dialog.getByRole('button', { name: admin ? 'Save and apply' : 'Start first run', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
+    assert.equal(submitted.mode, 'live');
+    assert.equal(submitted.confirm, true);
+    if (admin) {
+      const settingsWrites = writes.filter(write => write.path === '/api/settings').length;
+      await page.getByRole('button', { name: 'Start auto apply', exact: true }).click();
+      await dialog.waitFor();
+      await dialog.getByLabel('SmartRecruiters employer identifiers').fill('ALDIStores,MedHealth3');
+      await dialog.getByRole('button', { name: 'Test without applying', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      const testRun = writes.filter(write => write.path === '/api/run').at(-1)!.body;
+      assert.equal(testRun.mode, 'search');
+      assert.equal('confirm' in testRun, false);
+      assert.equal(testRun.scope, 'external');
+      assert.equal(testRun.overrides.PLATFORMS, 'smartrecruiters');
+      assert.equal(testRun.overrides.SMARTRECRUITERS_COMPANIES, 'ALDIStores,MedHealth3');
+      assert.equal(testRun.overrides.MAX_EVALUATIONS, '10');
+      assert.equal(testRun.overrides.PAGES_PER_KEYWORD, '1');
+      assert.equal(writes.filter(write => write.path === '/api/settings').length, settingsWrites, 'test drafts must not be saved');
+    }
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log('PASS: built UI shows admin-only SmartRecruiters, supports feed-only runs without board sign-in, and omits pilot settings from customer requests; fixture APIs only');
+  console.log('PASS: admin-only SmartRecruiters live and bounded search-only test controls; tests do not save drafts or request live submissions; customer requests omit pilot settings; fixture APIs only');
 } finally {
   await browser.close();
   await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));

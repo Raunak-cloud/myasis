@@ -454,10 +454,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
           }
         : undefined,
       runStartId,
-      {
+      // Diagnostic searches must not rewrite the account's next-run keywords.
+      mode === 'live' ? {
         termsUsed: overrides.KEYWORDS ?? '',
         expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
-      },
+      } : undefined,
     );
     if (!result.ok) {
       await discardRunStart(runStartId).catch(() => {});

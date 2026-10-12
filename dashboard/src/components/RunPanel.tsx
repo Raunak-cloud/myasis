@@ -543,8 +543,9 @@ export function RunPanel({
     el.focus?.({ preventScroll: true });
   }, [attempt, errorField]);
 
-  async function saveAndStart() {
+  async function saveAndStart(mode: 'live' | 'search' = 'live') {
     if (starting) return;
+    if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
     const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || key !== 'SMARTRECRUITERS_COMPANIES').map((key) => [key, val(key)]));
@@ -610,20 +611,29 @@ export function RunPanel({
 
     setStarting(true);
     try {
-      const saveResponse = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
-      });
-      const saved = await saveResponse.json();
-      if (!saveResponse.ok) throw new Error(saved.error ?? 'Could not save settings.');
-      if (saved.settings) setSettings(saved.settings);
-      setEdits({});
+      if (mode === 'live') {
+        const saveResponse = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates }),
+        });
+        const saved = await saveResponse.json();
+        if (!saveResponse.ok) throw new Error(saved.error ?? 'Could not save settings.');
+        if (saved.settings) setSettings(saved.settings);
+        setEdits({});
+      }
+
+      // The pilot test uses this draft once, with bounded discovery and review.
+      // Search mode is enforced by the server and never opens an application form.
+      const runUpdates = mode === 'search' ? {
+        ...updates, PLATFORMS: 'smartrecruiters', PAGES_PER_KEYWORD: '1',
+        MAX_EVALUATIONS: String(Math.min(Number(updates.MAX_EVALUATIONS) || 10, 10)),
+      } : updates;
 
       const runResponse = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'live', confirm: true, overrides: updates, scope }),
+        body: JSON.stringify({ mode, ...(mode === 'live' ? { confirm: true } : {}), overrides: runUpdates, scope: mode === 'search' ? 'external' : scope }),
       });
       if (runResponse.status === 402) {
         setConfirming(false);
@@ -1112,7 +1122,7 @@ export function RunPanel({
             <div className="run-review-head">
               <div>
                 <h2 id="run-review-title">{firstRun ? 'Review your first run' : 'Review run settings'}</h2>
-                <p className="job-meta">Changes made here are saved before the run starts.</p>
+                <p className="job-meta">Changes made here are saved before a live run starts.</p>
               </div>
               <span className="badge bad">
                 Live run{scope === 'external' ? ' · employer sites only' : scope === 'hosted' ? ' · job boards only' : ''}
@@ -1121,7 +1131,9 @@ export function RunPanel({
 
             <div className="run-review-body">
               <div className="banner banner-bad run-review-warning">
-                This run submits applications to employers. Submitted applications cannot be withdrawn here.
+                {isAdmin && platforms.includes('smartrecruiters')
+                  ? 'Save and apply submits applications to employers. Test without applying only searches and reviews jobs. Submitted applications cannot be withdrawn here.'
+                  : 'This run submits applications to employers. Submitted applications cannot be withdrawn here.'}
               </div>
 
               <section className="run-review-section run-review-search">
@@ -1159,6 +1171,7 @@ export function RunPanel({
                   <div className="field run-review-wide" data-field="SMARTRECRUITERS_COMPANIES">
                     <FieldLabel label="SmartRecruiters employers" help="Use the employer name from its SmartRecruiters careers URL. Up to 20 identifiers, separated by commas." />
                     <input aria-label="SmartRecruiters employer identifiers" value={val('SMARTRECRUITERS_COMPANIES')} onChange={event => setEdit('SMARTRECRUITERS_COMPANIES', event.target.value)} />
+                    <span className="field-help">Test without applying checks only these employer feeds: one page per search term and up to 10 job reviews. It does not save these draft settings or submit applications.</span>
                     <p className="job-meta">Admin pilot · Australian vacancies only · no job-board sign-in required. Starts with Canva, KPMG Australia and Colliers. Employer-site applications use the normal fit checks and limits.</p>
                     {fieldError('SMARTRECRUITERS_COMPANIES')}
                   </div>
@@ -1424,10 +1437,13 @@ export function RunPanel({
               <button className="btn" disabled={starting} onClick={() => setConfirming(false)}>
                 Cancel
               </button>
+              {isAdmin && platforms.includes('smartrecruiters') && <button className="btn" disabled={starting} onClick={() => void saveAndStart('search')}>
+                Test without applying
+              </button>}
               <button
                 className="btn btn-danger-solid"
                 disabled={starting}
-                onClick={saveAndStart}
+                onClick={() => void saveAndStart('live')}
               >
                 {starting ? 'Saving and starting…' : firstRun ? 'Start first run' : 'Save and apply'}
               </button>
