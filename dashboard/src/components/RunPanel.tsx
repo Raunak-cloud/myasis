@@ -1052,7 +1052,7 @@ export function RunPanel({
         </div>
       </div>
 
-      {liveViewOpen && running && <LiveActionViewer onClose={() => setLiveViewOpen(false)} />}
+      {liveViewOpen && running && <LiveActionViewer onClose={() => setLiveViewOpen(false)} activity={liveEvent ? [liveEvent.title, liveEvent.detail].filter(Boolean).join(' · ') : events.at(-1)?.title} />}
 
       {stopConfirming && running && (
         <div className="overlay center" onClick={() => !stopping && setStopConfirming(false)}>

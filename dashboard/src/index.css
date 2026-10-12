@@ -2001,6 +2001,8 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .live-action-overlay { padding: 16px; z-index: 80; }
 
 .live-action-window {
+  display: flex;
+  flex-direction: column;
   /* The run browser is 1440px wide. Show it at native size when the viewer has
      room, but never enlarge it past that and soften its text. */
   width: min(1440px, calc(100vw - 32px));
@@ -2021,34 +2023,43 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .live-action-bar h2 { margin: 0 0 2px; font-size: 16px; }
 
 .live-action-screen {
+  position: relative;
   display: grid;
   min-height: min(68vh, 720px);
   place-items: center;
-  overflow: hidden;
-  background: #e9edf3;
+  overflow: auto;
+  flex-shrink: 1;
+  background: var(--surface-2);
 }
 
 .live-action-screen img {
   display: block;
   width: 100%;
-  max-height: calc(100vh - 130px);
+  max-height: calc(100vh - 220px);
   object-fit: contain;
   pointer-events: none;
   user-select: none;
 }
 
 .live-action-waiting {
+  grid-area: 1 / 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 10px;
-  /* The dot keeps its size and the sentence wraps. */
-  max-width: min(46ch, 100%);
-  padding-inline: 16px;
-  color: #45556d;
+  max-width: min(52ch, 100%);
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--text-dim);
   font-size: 13px;
 }
-.live-action-waiting > .activity-pulse { flex: none; }
-.live-action-waiting > span:last-child { min-width: 0; }
+.live-action-screen img { grid-area: 1 / 1; }
+.live-action-waiting h3 { margin: 8px 0 0; font-size: 18px; color: var(--text); }
+.live-action-waiting p { margin: 0; line-height: 1.65; }
+.live-action-progress { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--surface); flex: none; }
+.live-action-progress > .activity-pulse { flex: none; }
+.live-action-progress > div { display: grid; gap: 4px; min-width: 0; }
+.live-action-progress strong { font-size: 13px; overflow-wrap: anywhere; }
 
 @media (max-width: 640px) {
   .live-action-overlay { padding: 10px; }
