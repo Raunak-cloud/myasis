@@ -30,6 +30,8 @@ interface AgentAction {
   /** Grounded context for a currently open custom dropdown option. */
   question?: string;
   value?: string;
+  /** Originating observed field identity, independent of the popup's label text. */
+  fieldRef?: string;
 }
 
 export interface Observation {
@@ -80,7 +82,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
     }
 
     for (const element of all) element.removeAttribute('data-ref-id');
-    const results: Array<{ ref: string; text: string; role: string; disabled: boolean; question?: string; value?: string; context?: string }> = [];
+    const results: Array<{ ref: string; text: string; role: string; disabled: boolean; question?: string; value?: string; fieldRef?: string; context?: string }> = [];
     let n = 0;
     const composedText = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
@@ -198,6 +200,12 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         fileLabel;
       const value = label;
       const question = isOption ? openQuestion : isOpener ? questionFor(element) : '';
+      const owners = isOption ? expanded.filter(control =>
+        `${control.getAttribute('aria-controls') ?? ''} ${control.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean)
+          .some(id => (control.getRootNode() as Document | ShadowRoot).querySelector(`#${CSS.escape(id)}`)?.contains(element))) : [];
+      const origin = owners.length === 1 ? owners[0] : isOption && expanded.length === 1 ? expanded[0] : null;
+      const originFields = origin ? [origin, ...origin.querySelectorAll('[data-field-id]')].filter(node => node.hasAttribute('data-field-id')) : [];
+      const fieldRef = originFields.length === 1 ? originFields[0].getAttribute('data-field-id') : null;
       if (question && !label.toLowerCase().includes(question.toLowerCase())) label = `${question}: ${label}`;
       // Icon-only controls often sit beside their labelled input (for
       // example a custom dropdown arrow). Expose that observed association
@@ -276,6 +284,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         role: isFile ? 'file' : isOption ? 'option' : isToggle ? 'toggle' : isButton ? 'button' : 'link',
         ...(question ? { question } : {}),
         ...(isOption ? { value } : {}),
+        ...(isOption && fieldRef ? { fieldRef } : {}),
         ...(context && context !== label ? { context } : {}),
         disabled:
           (element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true',
@@ -402,7 +411,10 @@ export async function observe(page: Page, options: ObserveOptions = {}): Promise
 }
 
 async function observeOnce(page: Page, options: ObserveOptions): Promise<Observation> {
-  const [actions, fields] = await Promise.all([collectActions(page), extractFields(page)]);
+  // Stamp current field identities before associating popup actions with them.
+  // These observations are dependent; parallel stamping could read stale refs.
+  const fields = await extractFields(page);
+  const actions = await collectActions(page);
   const errors = await page.evaluate(() => {
     const errors: Record<string, string> = {};
     const roots: Array<Document | ShadowRoot> = [document];
@@ -457,7 +469,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
  */
 export function renderObservation(observation: Observation): string {
   const actions = observation.actions
-    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}  ${a.text}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
+    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}${a.fieldRef ? ` field=${a.fieldRef}` : ''}  ${a.text}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
     .join('\n');
   const fields = observation.fields
     .map((f) => {

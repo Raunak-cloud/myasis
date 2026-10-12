@@ -12,15 +12,21 @@ import { clickRef } from './actions.js';
 export async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const ref = String(args.ref ?? '');
   const requested = ctx.observation.actions.find(action => action.ref === ref && action.role === 'option');
-  const source = ctx.observation.fields.find(field => field.ref === String(args.field_ref ?? ''));
+  const suppliedFieldRef = String(args.field_ref ?? '');
+  if (requested?.fieldRef && suppliedFieldRef && requested.fieldRef !== suppliedFieldRef) {
+    return ok('The observed option belongs to a different FIELD ref. Re-observe and use its originating field.');
+  }
+  const source = ctx.observation.fields.find(field => field.ref === (requested?.fieldRef ?? suppliedFieldRef));
   // The question may also come from the ACTION that opened the list, named in field_ref or clicked last.
   const opener = ctx.observation.actions.find(action => action.ref === String(args.field_ref ?? '') && action.role !== 'option');
   const openerQuestion = opener ? opener.text.replace(/\s*\(opens a list\)$/, '').replace(/^(Open|Select)\s+/i, '').trim() : ctx.lastListQuestion;
   if (!requested?.value || (!requested.question && !source && !openerQuestion)) return ok('Choose a current option ACTION; when its question is not included, also pass the originating FIELD ref (or the ACTION that opened the list) as field_ref.');
-  const question = requested.question ?? source?.label ?? openerQuestion!;
+  // The option retains the identity of the input that opened it. Its caption
+  // is display context, not the submission ledger key or the candidate question.
+  const question = source?.label ?? requested.question ?? openerQuestion!;
   const group = ctx.observation.actions.filter(action => action.role === 'option' && action.value
     && !/^(select|choose)( one)?$/i.test(action.value.trim())
-    && (requested.question ? action.question === requested.question : !action.question));
+    && (requested.fieldRef ? action.fieldRef === requested.fieldRef : requested.question ? action.question === requested.question : !action.question));
   if (!group.length) return ok('No current options are available for that dropdown. Re-open it and inspect the fresh page.');
   const field: FormField = {
     ref,
