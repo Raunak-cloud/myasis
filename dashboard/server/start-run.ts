@@ -1,5 +1,6 @@
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
-import { runner, type RunMode } from './runner.js';
+import { readEnv, runner, type RunMode } from './runner.js';
+import { brightDataBrowserEndpoint, employerBrowserProvider } from '../../seek-bot/src/employer-browser-config.js';
 import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 import {
   billingStatus,
@@ -227,7 +228,13 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', ...(admin ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
     overrides.PLATFORMS = narrowedBoards;
   }
-  try { applyJobSourceAccess(overrides, admin); }
+  try {
+    applyJobSourceAccess(overrides, admin);
+    if (mode === 'live') {
+      const browserEnv = { ...readEnv(), ...process.env, ...overrides };
+      if (employerBrowserProvider(browserEnv) === 'brightdata') brightDataBrowserEndpoint(browserEnv);
+    }
+  }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;
   if (request.externalUrl !== undefined) {

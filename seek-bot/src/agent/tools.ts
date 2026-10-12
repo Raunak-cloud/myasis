@@ -6,6 +6,7 @@ import { isExternal } from './guards.js';
 import { handleCaptchaWithCapMonster } from '../captcha.js';
 import { hostOf } from '../site-auth.js';
 import { recordWall } from '../site-walls.js';
+import { applicationBrowserName } from '../employer-browser.js';
 import { runRawTool } from './raw-tools.js';
 import { ToolResult, ToolContext, ok } from './tools/context.js';
 import { submissionEvidence } from './tools/gate.js';
@@ -58,11 +59,11 @@ export async function executeTool(
     if (captcha === 'solved') {
       // A clearing that took minutes is progress, not a stuck page.
       ctx.guards.recordProgress();
-      return ok('CapMonster cleared the security verification. Re-observe the page and continue.');
+      return ok('The CAPTCHA solver cleared the security verification. Re-observe the page and continue.');
     }
     if (captcha === 'blocked') {
-      const reason = 'CapMonster could not clear the site security verification.';
-      if (isExternal(ctx.page.url())) recordWall(hostOf(ctx.page.url()), reason);
+      const reason = 'The CAPTCHA solver could not clear the site security verification.';
+      if (isExternal(ctx.page.url())) recordWall(hostOf(ctx.page.url()), reason, undefined, applicationBrowserName(ctx.page));
       return { kind: 'terminal', outcome: { status: 'needs-human', reason } };
     }
   }

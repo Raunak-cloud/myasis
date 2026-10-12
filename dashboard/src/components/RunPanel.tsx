@@ -40,6 +40,7 @@ const RUN_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
+  EMPLOYER_BROWSER_PROVIDER: 'local',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',
   SEARCH_RADIUS_KM: '0',
@@ -549,7 +550,7 @@ export function RunPanel({
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || !EMPLOYER_SOURCES.some(source => source.key === key)).map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -1180,6 +1181,16 @@ export function RunPanel({
                   </div>
                 ))}
                 {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">Admin pilot. No job-board sign-in required. The selected employer feeds share your normal fit checks and application limits. Test without applying checks one page per search term and up to 10 jobs, without saving drafts or opening application forms.</p>}
+                {isAdmin && platforms.some(isEmployerSource) && (
+                  <div className="field run-review-wide">
+                    <FieldLabel label="Employer browser" help="Choose the browser used for employer application forms." />
+                    <select aria-label="Employer browser" value={val('EMPLOYER_BROWSER_PROVIDER')} onChange={event => setEdit('EMPLOYER_BROWSER_PROVIDER', event.target.value)}>
+                      <option value="local">Existing browser</option>
+                      <option value="brightdata">Bright Data (admin pilot)</option>
+                    </select>
+                    <span className="field-help">Bright Data receives your resume and application answers through its cloud browser. Usage consumes your Bright Data credits. Each application uses a separate session.</span>
+                  </div>
+                )}
                 <p className="job-meta recommended-first-note">
                   Recommended jobs from each selected board are analysed first. Search terms expand the pool after those jobs.
                 </p>

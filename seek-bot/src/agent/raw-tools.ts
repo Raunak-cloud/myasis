@@ -5,6 +5,7 @@ import type { FormField } from '../types.js';
 import type { ToolSchema } from './celeris.js';
 import { isForbiddenDestination, siteDomain } from './guards.js';
 import { abandoned } from '../tool-run.js';
+import { applicationUpload } from '../employer-browser.js';
 import {
   coverLetterDocument,
   coverLetterSent,
@@ -400,14 +401,15 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
     sent = () => coverLetterSent(ctx, document);
   }
   try {
+    const upload = await applicationUpload(ctx.page, file);
     if (facts.type === 'file') {
-      await target.setInputFiles(file, { timeout: 10_000 });
+      await target.setInputFiles(upload, { timeout: 10_000 });
     } else {
       const chooser = await Promise.all([
         ctx.page.waitForEvent('filechooser', { timeout: 8_000 }),
         target.click({ timeout: 6_000 }),
       ]).then(([opened]) => opened).catch(() => null);
-      if (chooser) await chooser.setFiles(file, { timeout: 10_000 });
+      if (chooser) await chooser.setFiles(upload, { timeout: 10_000 });
       else {
         /**
          * Upload widgets often keep the real input hidden beside their button
@@ -418,7 +420,7 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
         // Only when that container holds exactly one: with a resume and a cover-letter input side by side, guessing could send the wrong document.
         const inputs = target.locator('xpath=ancestor-or-self::*[.//input[@type="file"]][1]//input[@type="file"]');
         if ((await inputs.count().catch(() => 0)) !== 1) throw new Error('no file picker opened and the control has no single file input of its own');
-        await inputs.setInputFiles(file, { timeout: 10_000 });
+        await inputs.setInputFiles(upload, { timeout: 10_000 });
       }
     }
   } catch (error) {

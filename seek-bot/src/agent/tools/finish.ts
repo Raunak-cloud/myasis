@@ -19,7 +19,7 @@ export async function doFinish(ctx: ToolContext, args: Record<string, unknown>):
     await ctx.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
     await ctx.page.waitForTimeout(2_500).catch(() => {});
     const captcha = await handleCaptchaWithCapMonster(ctx.page);
-    if (captcha === 'solved') return ok('CapMonster cleared the verification. Re-observe the page and continue the application.');
+    if (captcha === 'solved') return ok('The CAPTCHA solver cleared the verification. Re-observe the page and continue the application.');
     if (captcha === 'none') ctx.log('  · the agent reported a CAPTCHA, but none is on the page');
   }
   switch (String(args.status)) {

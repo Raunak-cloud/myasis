@@ -6,6 +6,7 @@ import { signInAutomatically } from './signin-agent.js';
 import { captchaEnabled, handleCaptchaWithCapMonster, watchCaptchas } from './captcha.js';
 import { hasCaptchaSurface } from './captcha/detect.js';
 import { countHealth } from './run-health.js';
+import { selectRemotePage } from './employer-browser.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -215,6 +216,7 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
  * are looking at.
  */
 export async function workingIn(page: Page): Promise<void> {
+  if (selectRemotePage(page)) return;
   try {
     await page.bringToFront();
     const session = await page.context().newCDPSession(page);

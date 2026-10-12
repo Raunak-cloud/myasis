@@ -99,6 +99,27 @@ try {
     process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'true';
   }
   assert.equal(released, 6, 'every provider releases its navigation guard');
+  // A separate browser session reaches the same agent and always closes,
+  // including failures before the agent starts. No existing account cookie follows it.
+  await context.addCookies([{ name: 'account-session', value: 'fixture-private', url: job.url }]);
+  let closedSessions = 0;
+  const openBrowser = async () => {
+    const owned = await browser!.newContext();
+    assert.equal((await owned.cookies()).length, 0);
+    const remotePage = await owned.newPage();
+    await remotePage.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<main><form><input type=file aria-label=Resume><button>Submit application</button></form></main>' }));
+    return { page: remotePage, close: async () => { closedSessions++; await owned.close(); } };
+  };
+  await applyToEmployerJob(page, job, profile, deps, { guard, openBrowser, runAgent: async options => {
+    assert.notEqual(options.page.context(), context);
+    await options.page.getByLabel('Resume').setInputFiles({ name: 'fixture.txt', mimeType: 'text/plain', buffer: Buffer.from('Fixture resume') });
+    assert.equal(await options.page.getByLabel('Resume').evaluate((el: HTMLInputElement) => el.files?.[0]?.name), 'fixture.txt');
+    return { outcome: { status: 'needs-human', reason: 'Fixture only' }, captured: [], actions: [], submitPressed: false, site: 'fixture', steps: 1, usage: 'no employer transmission' };
+  } });
+  await assert.rejects(applyToEmployerJob(page, job, profile, deps, { openBrowser, guard: async () => { throw new Error('Fixture guard setup failed'); } }), /Fixture guard setup failed/);
+  await assert.rejects(applyToEmployerJob(page, job, profile, deps, { openBrowser, guard, runAgent: async () => { throw new Error('Fixture private session failed'); } }), /Fixture private session failed/);
+  assert.equal(closedSessions, 3, 'successful, failed agent and failed guard sessions all close');
+  assert.equal((await context.cookies())[0]?.value, 'fixture-private', 'the original browser remains owned and usable');
   console.log('PASS: admin, external scope and dry-run gates; public-feed handoff to application agent; local form only; guard cleanup');
 } finally {
   await browser?.close();

@@ -1,10 +1,11 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { upgradeOriginAllowed } from './http-guards.js';
 import { currentUser } from './auth.js';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readEnv, runner } from './runner.js';
 import { userDir } from './userdata.js';
+import { LIVE_VIEW_REQUEST_FILE, REMOTE_PREVIEW_FILE, readRemoteBrowserPreview } from '../../seek-bot/src/remote-browser-preview.js';
 
 
 /**
@@ -74,7 +75,8 @@ class Session {
     return new Promise((resolve) => {
       if (!this.cdp || this.cdp.readyState !== WebSocket.OPEN) return resolve(null);
       const id = this.nextId++;
-      this.pending.set(id, resolve);
+      const deadline = setTimeout(() => { this.pending.delete(id); resolve(null); }, 5_000);
+      this.pending.set(id, result => { clearTimeout(deadline); resolve(result); });
       this.cdp.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -213,6 +215,48 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
 
     let session: Session | null = null;
     let current: CdpTarget | null = null;
+    const directory = userDir(String(req.runUserId));
+    let remoteId: string | null = null;
+    let remoteAt = 0;
+    let remoteUrl = '';
+    let remoteUnavailable = false;
+    const send = (message: unknown) => {
+      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
+    };
+    const followRemote = async (): Promise<boolean> => {
+      // Only this authenticated account's worker sees the request and supplies frames.
+      try { writeFileSync(resolve(directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }), { mode: 0o600 }); }
+      catch { /* The worker may still be preparing its account directory. */ }
+      const frame = readRemoteBrowserPreview(directory);
+      if (!frame) {
+        if (!existsSync(resolve(directory, REMOTE_PREVIEW_FILE))) {
+          remoteId = null; remoteAt = 0; remoteUrl = ''; remoteUnavailable = false;
+          return false;
+        }
+        if (!remoteUnavailable) {
+          await session?.stop(); session = null; current = null;
+          send({ type: 'error', message: 'The cloud browser picture is temporarily unavailable.' });
+          remoteUnavailable = true;
+        }
+        return true;
+      }
+      if (session) { await session.stop(); session = null; current = null; }
+      if (frame.sessionId !== remoteId || frame.url !== remoteUrl || remoteUnavailable) {
+        send({ type: 'attached', target: { id: frame.sessionId, url: frame.url, title: 'Employer application' } });
+        send({ type: 'ready' });
+        remoteAt = 0;
+      }
+      remoteId = frame.sessionId; remoteUrl = frame.url; remoteUnavailable = false;
+      if (frame.at !== remoteAt) {
+        if (frame.data) send({ type: 'frame', data: frame.data });
+        else {
+          send({ type: 'attached', target: { id: frame.sessionId, url: 'about:blank', title: 'Waiting for cloud browser picture' } });
+          remoteUrl = '';
+        }
+        remoteAt = frame.at;
+      }
+      return true;
+    };
     /**
      * The tab the run says it is working in (seek-bot writes it every time that
      * changes). Guessing was tried first — "the newest tab" — and measured wrong:
@@ -244,13 +288,15 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
     };
 
     try {
-      const target = workingIn((await listTargets(port)).filter(viewable));
-      if (!target) {
-        client.send(JSON.stringify({ type: 'error', message: 'The live view is still getting ready.' }));
-        client.close();
-        return;
+      if (!await followRemote()) {
+        const target = workingIn((await listTargets(port)).filter(viewable));
+        if (!target) {
+          client.send(JSON.stringify({ type: 'error', message: 'The live view is still getting ready.' }));
+          client.close();
+          return;
+        }
+        await attach(target);
       }
-      await attach(target);
     } catch {
       client.send(
         JSON.stringify({
@@ -274,6 +320,7 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
       if (switching || client.readyState !== WebSocket.OPEN) return;
       switching = true;
       try {
+        if (await followRemote()) return;
         const active = workingIn((await listTargets(port)).filter(viewable));
         if (active && active.id !== current?.id) await attach(active);
       } catch {

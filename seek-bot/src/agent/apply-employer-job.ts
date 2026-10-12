@@ -9,10 +9,11 @@ import { isEmployerSource, employerFeedsEnabled } from '../employer-source-confi
 import { runApplicationAgent } from './loop.js';
 import { outcomeFromRun } from './outcome.js';
 import { waitForApplicationSurface } from './observe.js';
+import { openEmployerBrowser, applicationBrowserName } from '../employer-browser.js';
 
 /** Public-feed jobs enter the same application agent and submission gate as employer handoffs. */
 export async function applyToEmployerJob(page: Page, job: JobListing, profile: CandidateProfile, deps: ApplyDeps,
-  options: { runAgent?: typeof runApplicationAgent; guard?: typeof guardExternalNavigations } = {},
+  options: { runAgent?: typeof runApplicationAgent; guard?: typeof guardExternalNavigations; openBrowser?: typeof openEmployerBrowser } = {},
 ): Promise<ApplyOutcome> {
   if (!job.platform || !isEmployerSource(job.platform) || !employerFeedsEnabled(process.env) || !config.allowExternalApply) {
     return { status: 'skipped', jobId: job.id, reason: 'Employer-feed applications are currently restricted to administrator accounts.' };
@@ -22,21 +23,29 @@ export async function applyToEmployerJob(page: Page, job: JobListing, profile: C
   const listing = employerJobIdentity(job.platform, job.url);
   const destination = employerJobIdentity(job.platform, job.applicationUrl ?? job.url);
   if (listing.namespace !== destination.namespace || listing.posting !== destination.posting) throw new Error('The application address is for a different employer job.');
-  const before = new Set(page.context().pages());
-  const guard = await (options.guard ?? guardExternalNavigations)(page.context());
+  const browser = await (options.openBrowser ?? openEmployerBrowser)(page);
+  page = browser.page;
+  const before = new Set<Page>();
+  let guard: Awaited<ReturnType<typeof guardExternalNavigations>> | undefined;
   try {
-    await page.goto(job.applicationUrl ?? job.url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    for (const tab of page.context().pages()) before.add(tab);
+    guard = await (options.guard ?? guardExternalNavigations)(page.context());
+    await page.goto(job.applicationUrl ?? job.url, { waitUntil: 'domcontentloaded', timeout: applicationBrowserName(page) === 'brightdata' ? 120_000 : 45_000 });
     await waitForApplicationSurface(page, 5_000).catch(() => false);
     const run = await (options.runAgent ?? runApplicationAgent)({ page, job, profile, log: line => console.log(line) });
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
     return outcomeFromRun(run, job.id, page.url(), deps.onFriction);
   } catch (error) {
-    if (guard.blocked()) throw new Error(`Employer navigation was blocked: ${guard.blocked()}`);
+    if (guard?.blocked()) throw new Error(`Employer navigation was blocked: ${guard.blocked()}`);
     throw error;
   } finally {
-    for (const tab of page.context().pages()) {
-      if (!before.has(tab) && tab !== page) await tab.close().catch(() => {});
+    try {
+      for (const tab of page.context().pages()) {
+        if (!before.has(tab) && tab !== page) await tab.close().catch(() => {});
+      }
+    } finally {
+      try { await guard?.stop(); }
+      finally { await browser.close(); }
     }
-    await guard.stop();
   }
 }

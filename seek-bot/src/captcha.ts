@@ -2,6 +2,7 @@ import type { BrowserContext, Page } from 'patchright';
 import { capMonsterSolver } from './captcha/capmonster.js';
 import { detectChallenge, hasCaptchaSurface, type Solver } from './captcha/detect.js';
 import { watchRecaptchaV3 } from './captcha/recaptcha-v3.js';
+import { applicationBrowserName, solveRemoteCaptcha } from './employer-browser.js';
 
 export { reportRejectedToken } from './captcha/capmonster.js';
 
@@ -16,7 +17,7 @@ const attempts = new WeakMap<Page, { instance: string; time: number }>();
 const chain = (): Solver[] =>
   (process.env.CAPTCHA_SOLVER ?? '').split(',').flatMap(name => SOLVERS[name.trim().toLowerCase()] ?? []);
 
-export const captchaEnabled = () => chain().length > 0;
+export const captchaEnabled = () => chain().length > 0 || (process.env.BRIGHTDATA_ADMIN_ENABLED === 'true' && process.env.BRIGHTDATA_BROWSER_ENABLED === 'true');
 
 export type CaptchaHandling = 'none' | 'solved' | 'blocked';
 
@@ -41,6 +42,7 @@ export function watchCaptchas(context: BrowserContext): void {
 
 /** Returns true only when a solver applied a solution; callers must re-check the page. */
 export async function trySolveCaptcha(page: Page): Promise<boolean> {
+  if (applicationBrowserName(page) === 'brightdata') return solveRemoteCaptcha(page);
   const solvers = chain();
   if (!solvers.length) return false;
   try {

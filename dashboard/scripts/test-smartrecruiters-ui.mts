@@ -67,6 +67,10 @@ try {
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
     if (admin) {
+      const browserChoice = dialog.getByRole('combobox', { name: 'Employer browser', exact: true });
+      assert.equal(await browserChoice.inputValue(), 'local');
+      await browserChoice.selectOption('brightdata');
+      assert.match(await dialog.textContent() ?? '', /Bright Data receives your resume/);
       await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).waitFor();
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES] input').inputValue(), 'Canva,KPMGAustralia1,Colliers');
       assert.match(await dialog.textContent() ?? '', /no job-board sign-in required/i);
@@ -76,6 +80,7 @@ try {
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       }
     } else {
+      assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0);
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES]').count(), 0);
       for (const source of EMPLOYER_SOURCES) {
@@ -89,6 +94,8 @@ try {
     const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
+    assert.equal('EMPLOYER_BROWSER_PROVIDER' in submitted.overrides, admin);
+    if (admin) assert.equal(submitted.overrides.EMPLOYER_BROWSER_PROVIDER, 'brightdata');
     for (const source of EMPLOYER_SOURCES) assert.equal(source.key in submitted.overrides, admin);
     assert.equal(submitted.mode, 'live');
     assert.equal(submitted.confirm, true);

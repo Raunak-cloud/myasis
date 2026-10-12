@@ -92,6 +92,11 @@ try {
   assert.match(walledHost('career2.successfactors.example', 'Nestlé')?.reason ?? '', /could not sign in/);
   assert.equal(walledHost('career2.successfactors.example', 'Coca-Cola'), null, 'another employer on the shared host is still attempted');
   assert.match(walledHost('jobs.lever.co', 'Any employer')?.reason ?? '', /security verification/, 'a host-wide wall applies to every employer');
+  assert.equal(walledHost('jobs.lever.co', 'Any employer', 'brightdata'), null, 'a changed browser does not inherit a local security failure');
+  recordWall('jobs.lever.co', 'Cloud verification failed', undefined, 'brightdata');
+  assert.match(walledHost('jobs.lever.co', 'Other employer', 'brightdata')?.reason ?? '', /Cloud verification failed/);
+  assert.match(walledHost('jobs.lever.co')?.reason ?? '', /security verification/, 'local failures remain intact');
+  assert.match(walledHost('career2.successfactors.example', 'Nestlé', 'brightdata')?.reason ?? '', /could not sign in/, 'failed account credentials are shared across browser choices');
 
   console.log("PASS: declined site controls are operable, a letter mention does not hold a step, the agent's no-letter statement is questioned once against the page, and a walled site is remembered");
 } finally {

@@ -1,5 +1,6 @@
 import { hostOf as siteHost } from '../site-auth.js';
 import { recordWall, walledHost } from '../site-walls.js';
+import { applicationBrowserName } from '../employer-browser.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
 import { recordFormPage } from '../form-corpus.js';
 import { changedAnything, describeChanges, movedByAction, readChanges, startRecording, type PageChanges } from './page-changes.js';
@@ -348,7 +349,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     }
 
     // A site whose check stopped an application within the day stops this one before any work on it.
-    const wall = isExternal(page.url()) ? walledHost(siteHost(page.url()), job.company) : null;
+    const wall = isExternal(page.url()) ? walledHost(siteHost(page.url()), job.company, applicationBrowserName(page)) : null;
     if (wall) {
       return finish({ status: 'skipped', reason: `${siteHost(page.url())} is not attempted today: ${wall.reason}` });
     }
@@ -364,7 +365,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      */
     if (!(await waitForChallengeToClear(page, 60_000))) {
       const reason = 'The site security verification could not be cleared automatically.';
-      if (isExternal(page.url())) recordWall(siteHost(page.url()), reason);
+      if (isExternal(page.url())) recordWall(siteHost(page.url()), reason, undefined, applicationBrowserName(page));
       return finish({ status: 'needs-human', reason, detail: 'CAPTCHA remained after the automatic solver attempt' });
     }
 
