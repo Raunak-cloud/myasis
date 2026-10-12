@@ -11,6 +11,7 @@ test('a job the candidate would have applied to comes back as their choice, on i
     { ...base, jobId: '94000002', url: 'https://www.seek.com.au/job/94000002', verdict: 'skip' },
     { ...base, jobId: '94000003', verdict: 'apply' },
     { ...base, jobId: 'x', url: 'https://careers.example.com/job/1', verdict: 'apply' },
+    { ...base, jobId: '94000004', url: 'https://www.seek.com.au/job/94000004', verdict: 'apply', closed: true },
   ];
   const chosen = chosenListings(verdicts);
   assert.deepEqual(chosen.map((job) => [job.id, job.platform, job.source]), [

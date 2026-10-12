@@ -26,6 +26,8 @@ export interface ReviewVerdict {
   verdict: 'apply' | 'skip';
   /** The candidate's own words, when they gave any. */
   note?: string;
+  /** A run found the listing gone, or tried it enough times: still context, no longer reopened. */
+  closed?: boolean;
   at: string;
 }
 
@@ -64,7 +66,7 @@ function boardOf(url: string): PlatformId | null {
  */
 export function chosenListings(verdicts: ReviewVerdict[]): JobListing[] {
   return verdicts.flatMap((verdict) => {
-    const platform = verdict.verdict === 'apply' && verdict.url ? boardOf(verdict.url) : null;
+    const platform = verdict.verdict === 'apply' && !verdict.closed && verdict.url ? boardOf(verdict.url) : null;
     if (!platform || !verdict.url) return [];
     return [{
       id: verdict.jobId,

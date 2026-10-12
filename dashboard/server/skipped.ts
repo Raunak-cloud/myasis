@@ -118,15 +118,38 @@ export async function setVerdict(userId: string, jobId: string, verdict: Verdict
 }
 
 /**
+ * What a run's own record says about a job it reopened as the candidate's
+ * choice: that the listing is gone or was already dealt with — closed, too
+ * old, from an employer the candidate excludes, applied for before. Only
+ * outcomes the bot writes in fixed words count; the model's free text never
+ * decides it.
+ */
+const GONE = `(e.status = 'already-applied' OR (e.status = 'skipped' AND (
+  e.reason LIKE 'Listing unavailable%' OR e.reason LIKE 'posted %d ago%' OR e.reason LIKE 'excluded company:%'
+  OR e.reason LIKE 'No apply button on the listing%' OR e.reason = 'already applied to this role')))`;
+/** Attempts after the call, other than a passing error, before a choice stops being reopened. */
+const MAX_REOPENED = 3;
+
+/**
  * The verdicts a run takes with it (seek-bot review-verdicts.ts): the last
  * month's, newest first, leaving out jobs since applied to.
+ *
+ * A job the candidate chose is reopened run after run only while it can still
+ * be applied for. Once a run finds the listing gone, or after three attempts
+ * that came to nothing, it is marked closed: no longer reopened, though the
+ * call itself still tells the fit check how the candidate reads requirements.
  */
 export async function verdictsForRun(userId: string): Promise<Array<Record<string, unknown>>> {
   const rows = await query<{
     job_id: string; title: string | null; company: string | null; url: string | null;
-    skip_reason: string | null; verdict: Verdict; note: string | null; created_at: Date | string;
+    skip_reason: string | null; verdict: Verdict; note: string | null; created_at: Date | string; closed: boolean;
   }>(
-    `SELECT v.job_id, v.title, v.company, v.url, v.skip_reason, v.verdict, v.note, v.created_at
+    `SELECT v.job_id, v.title, v.company, v.url, v.skip_reason, v.verdict, v.note, v.created_at,
+            (EXISTS (SELECT 1 FROM run_events e
+                      WHERE e.user_id = v.user_id AND e.job_id = v.job_id AND e.ts > v.created_at AND ${GONE})
+             OR (SELECT count(*) FROM run_events e
+                  WHERE e.user_id = v.user_id AND e.job_id = v.job_id AND e.ts > v.created_at AND e.status <> 'error') >= ${MAX_REOPENED}
+            ) AS closed
        FROM review_verdicts v
       WHERE v.user_id = $1 AND v.created_at > now() - interval '30 days'
         AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.user_id = $1 AND a.job_id = v.job_id)
@@ -142,6 +165,7 @@ export async function verdictsForRun(userId: string): Promise<Array<Record<strin
     skipReason: row.skip_reason ?? '',
     verdict: row.verdict,
     ...(row.note ? { note: row.note } : {}),
+    ...(row.closed ? { closed: true } : {}),
     at: new Date(row.created_at).toISOString(),
   }));
 }
