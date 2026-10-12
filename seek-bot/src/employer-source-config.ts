@@ -23,7 +23,7 @@ export function careerSite(source: 'pageup' | 'workday', raw: string): URL {
   const url = new URL(raw);
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash) throw new Error('Use a public HTTPS career-site URL without credentials, query parameters or fragments.');
   const valid = source === 'pageup'
-    ? url.hostname === 'careers.pageuppeople.com' && /^\/\d{1,8}\/[a-z]{2}\/en\/?$/.test(url.pathname)
+    ? url.hostname === 'careers.pageuppeople.com' && /^\/\d{1,8}\/[a-z][a-z0-9_-]{0,31}\/en\/?$/.test(url.pathname)
     : /^[a-z0-9-]+\.wd\d{1,3}\.myworkdayjobs\.com$/.test(url.hostname) && /^\/[a-z]{2}-[A-Z]{2}\/[A-Za-z0-9_-]{1,100}\/?$/.test(url.pathname);
   if (!valid) throw new Error(`Use the ${source === 'pageup' ? 'PageUp' : 'Workday'} career-site root shown in the example, rather than an individual job or a custom website.`);
   url.pathname = url.pathname.replace(/\/$/, '');

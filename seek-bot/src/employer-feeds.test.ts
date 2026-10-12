@@ -16,6 +16,9 @@ test('all source target contracts refuse local, credentialed, cross-provider and
   for (const source of ['lever', 'greenhouse'] as const) assert.throws(() => employerTargets(source, 'https://localhost'));
   for (const [source, bad] of [['workday', 'https://localhost/en-US/External'], ['workday', 'https://fixture.wd105.myworkdayjobs.com.evil.test/en-US/External'], ['pageup', 'https://careers.pageuppeople.com/999/cw/en/job/123'], ['pageup', 'https://user:password@careers.pageuppeople.com/999/cw/en']] as const) assert.throws(() => employerTargets(source, bad));
   assert.throws(() => employerJobIdentity('lever', 'https://jobs.lever.co/fixture/not-a-posting'));
+  assert.deepEqual(employerTargets('pageup', 'Fixture Company|https://careers.pageuppeople.com/547/eon/en'), ['Fixture Company|https://careers.pageuppeople.com/547/eon/en']);
+  assert.deepEqual(employerJobIdentity('pageup', 'https://careers.pageuppeople.com/547/eon/en/job/123/software-engineer'), { namespace: 'https://careers.pageuppeople.com/547/eon/en', posting: '123' });
+  assert.throws(() => employerTargets('pageup', 'https://careers.pageuppeople.com/547/../en'));
 });
 
 test('Lever retrieves published Australian listings once, leaving relevance to AI and dates unknown', async () => {
