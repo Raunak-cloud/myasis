@@ -2,6 +2,7 @@
 import { accountBrowserEnvironment } from '../server/runner.js';
 import { browserRoute } from '../server/route.js';
 import { getPool } from '../server/db/index.js';
+import { fileURLToPath } from 'node:url';
 
 const userId = process.argv.find(arg => arg.startsWith('--user='))?.slice(7);
 try {
@@ -13,8 +14,8 @@ try {
     process.env.BROWSER_PROXY_SERVER = route.proxyServer ?? '';
     process.env.BENCHMARK_ROUTE = route.status.using;
   }
-  process.chdir(new URL('../../seek-bot', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-  await import('../../seek-bot/scripts/benchmark-browser.mjs');
+  process.chdir(fileURLToPath(new URL('../../seek-bot', import.meta.url)));
+  await import(new URL('../../seek-bot/scripts/benchmark-browser.mjs', import.meta.url).href);
   await getPool().end();
   process.exit(0);
 } catch (error) {
