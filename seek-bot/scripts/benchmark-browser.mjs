@@ -2,8 +2,9 @@
 import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import dotenv from 'dotenv';
+import { superviseRun } from '../../dashboard/server/run-watchdog.ts';
 const require = createRequire(import.meta.url);
 const root = process.cwd();
 const live = process.argv.includes('--live');
@@ -18,6 +19,10 @@ let chrome;
 const lock = resolve(root, '../.deploying');
 let locked = false;
 let accountLock;
+let currentSupervisor, interrupted = false;
+const interrupt = () => { interrupted = true; currentSupervisor?.stop(); };
+process.once('SIGTERM', interrupt);
+process.once('SIGINT', interrupt);
 function activeBrowserOrRun() {
   if (process.platform !== 'linux') return false;
   return readdirSync('/proc').filter(name => /^\d+$/.test(name)).some(pid => {
@@ -58,6 +63,7 @@ try {
   }
   const results = [];
   for (let i = 0; i < trialCount; i++) {
+    if (interrupted) break;
     // ABBA alternation controls some order/cache effects. Same profile, never concurrent.
     const headless = [false, true, true, false][i % 4];
     const data = resolve(directory, `trial-${i + 1}`);
@@ -66,24 +72,38 @@ try {
     const profile = live ? chrome : resolve(directory, headless ? 'headless-profile' : 'headed-profile');
     const profilePath = live ? resolve(root, 'data/users', ownerId, 'profile.txt') : resolve(data, 'profile.txt');
     if (!live) writeFileSync(profilePath, 'Full name: Benchmark Fixture\nExpected annual salary: 100000\n');
-    const child = spawnSync(process.execPath, ['dist/browser-benchmark.js', ...(live ? [] : ['--fixture'])], {
-      cwd: root, encoding: 'utf8', timeout: live ? 300_000 : 60_000,
+    const child = spawn(process.execPath, ['dist/browser-benchmark.js', ...(live ? [] : ['--fixture'])], {
+      cwd: root, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...env, ...preferences, DISPLAY: env.DISPLAY ?? ':99', HEADLESS: String(headless), BROWSER_CONNECT_CDP: 'false', CHROME_PROFILE_DIR: profile, PROFILE_PATH: profilePath, DATA_DIR: data, BENCHMARK_OUTPUT: output, CDP_PORT: '19444', DRY_RUN: 'true', CAPTCHA_SOLVER: 'off', BRIGHTDATA_ADMIN_ENABLED: 'false', BRIGHTDATA_BROWSER_ENABLED: 'false', SEEK_BASE: live ? (env.SEEK_BASE ?? 'https://www.seek.com.au') : 'https://benchmark.invalid' },
     });
+    // Do not log raw launch output; Chrome/provider command lines can contain credentials.
+    child.stdout.resume(); child.stderr.resume();
+    let status = null, processError;
+    currentSupervisor = superviseRun(child, {
+      timeoutMs: live ? 300_000 : 60_000,
+      onTimeout: () => { processError = 'benchmark deadline exceeded'; },
+      onEscalation: () => { processError = 'benchmark forced to stop after deadline'; },
+      onError: () => { processError = 'benchmark worker process error'; },
+      onFinish: async code => { status = code; },
+    });
+    await currentSupervisor.finished;
+    currentSupervisor = undefined;
     if (!existsSync(output)) {
       // Do not print provider credentials or raw browser launch command lines from stderr.
-      results.push({ mode: headless ? 'headless' : 'headed', ok: false, processExit: child.status, error: child.error?.code ?? 'worker did not produce results' });
+      results.push({ mode: headless ? 'headless' : 'headed', ok: false, processExit: status, error: processError ?? 'worker did not produce results' });
     } else results.push(JSON.parse(readFileSync(output)));
     writeFileSync(resolve(directory, 'results.json'), JSON.stringify({ live, trialCount, route: process.env.BENCHMARK_ROUTE ?? 'server', liveViewEnabled: true, preferences, results }, null, 2));
     const last = results.at(-1);
     console.log(JSON.stringify({ trial: i + 1, mode: last.mode, ok: last.ok, totalMs: last.totalMs, meanPssMiB: last.meanPssMiB, error: last.error }));
-    if (child.error || child.status !== 0 || last.challenges > 0 || (last.httpErrors?.length ?? 0) > 0 || !last.ok) {
+    if (processError || status !== 0 || last.challenges > 0 || (last.httpErrors?.length ?? 0) > 0 || !last.ok) {
       console.log('Benchmark stopped after a failure/block; no automated retries.');
       break;
     }
   }
   console.log(`RESULTS=${resolve(directory, 'results.json')}`);
 } finally {
+  process.removeListener('SIGTERM', interrupt);
+  process.removeListener('SIGINT', interrupt);
   if (locked) unlinkSync(lock);
   if (accountLock) unlinkSync(accountLock);
 }
