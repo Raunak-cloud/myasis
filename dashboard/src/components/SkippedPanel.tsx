@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { relative } from '../format';
 
 type SkipKind = 'rules' | 'fit' | 'uncertain' | 'score';
 type Verdict = 'apply' | 'skip';
 
-interface SkippedJob {
+export interface SkippedJob {
   jobId: string;
   title: string;
   company: string;
@@ -140,28 +140,12 @@ function SkippedRow({ job, onChange }: { job: SkippedJob; onChange: (items: Skip
  * the check how this candidate weighs that kind of requirement; "Right call"
  * confirms a reading. Administrators only while it is tried out.
  */
-export function SkippedPanel() {
-  const [items, setItems] = useState<SkippedJob[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function SkippedPanel({ items, error, onItems }: {
+  items: SkippedJob[] | null;
+  error: string | null;
+  onItems: (items: SkippedJob[]) => void;
+}) {
   const [filter, setFilter] = useState<Filter>('all');
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch('/api/skipped');
-        const body = await response.json();
-        if (cancelled) return;
-        if (!response.ok) throw new Error(body.error ?? 'Could not load skipped jobs.');
-        setItems(body.items ?? []);
-      } catch (reason) {
-        if (!cancelled) setError((reason as Error).message);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: items?.length ?? 0, called: 0 };
@@ -189,10 +173,6 @@ export function SkippedPanel() {
   const kinds = (Object.keys(KIND) as SkipKind[]).filter((kind) => counts[kind]);
   return (
     <div className="attention-panel">
-      <p className="job-meta attention-what">
-        What the fit check passed over in the last two weeks, and why. If it got one wrong, say so: the job goes back
-        into your next run, and the check sees how you read that kind of requirement.
-      </p>
       <div className="queue-bar">
         <div className="chips">
           <button className={`chip ${filter === 'all' ? 'on' : ''}`} onClick={() => setFilter('all')}>
@@ -210,7 +190,11 @@ export function SkippedPanel() {
           )}
         </div>
       </div>
-      {filter !== 'all' && filter !== 'called' && <p className="job-meta attention-what">{KIND[filter].what}</p>}
+      <p className="job-meta attention-what">
+        {filter !== 'all' && filter !== 'called'
+          ? KIND[filter].what
+          : 'Jobs the fit check passed over in the last two weeks. If it got one wrong, choose “I’d have applied” and it goes into your next run.'}
+      </p>
       <div className="card table-wrap attention-list">
         <table className="attention-table">
           <colgroup>
@@ -230,7 +214,7 @@ export function SkippedPanel() {
             </tr>
           </thead>
           <tbody>
-            {shown.map((job) => <SkippedRow key={job.jobId} job={job} onChange={setItems} />)}
+            {shown.map((job) => <SkippedRow key={job.jobId} job={job} onChange={onItems} />)}
           </tbody>
         </table>
       </div>

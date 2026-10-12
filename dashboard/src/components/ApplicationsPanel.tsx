@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
+import type { SkippedJob } from './SkippedPanel';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 
 interface Props {
@@ -87,6 +88,22 @@ const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
  */
 export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false }: Props) {
   const [view, setView] = useState<'sent' | 'skipped'>('sent');
+  const [skipped, setSkipped] = useState<SkippedJob[] | null>(null);
+  const [skippedError, setSkippedError] = useState<string | null>(null);
+
+  // Loaded up front, so the switch can say how many there are before it is opened.
+  useEffect(() => {
+    if (!showSkipped) return;
+    let cancelled = false;
+    fetch('/api/skipped')
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? 'Could not load skipped jobs.');
+        if (!cancelled) setSkipped(body.items ?? []);
+      })
+      .catch((reason) => { if (!cancelled) setSkippedError((reason as Error).message); });
+    return () => { cancelled = true; };
+  }, [showSkipped]);
   const [filter, setFilter] = useState<'all' | 'awaiting' | 'interview' | 'rejected'>('all');
   const [open, setOpen] = useState<Application | null>(null);
   const [query, setQuery] = useState('');
@@ -378,17 +395,17 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
    */
   return (
     <>
-      <div className="view-tabs" role="tablist" aria-label="Applications">
-        <button type="button" role="tab" aria-selected={view === 'sent'} className={`view-tab ${view === 'sent' ? 'on' : ''}`} onClick={() => setView('sent')}>
-          Sent<span className="chip-hint">{apps.length}</span>
+      <div className="view-switch" role="tablist" aria-label="Which jobs">
+        <button type="button" role="tab" aria-selected={view === 'sent'} className={view === 'sent' ? 'on' : ''} onClick={() => setView('sent')}>
+          Applied<span className="view-count">{apps.length}</span>
         </button>
-        <button type="button" role="tab" aria-selected={view === 'skipped'} className={`view-tab ${view === 'skipped' ? 'on' : ''}`} onClick={() => setView('skipped')}>
-          Skipped
+        <button type="button" role="tab" aria-selected={view === 'skipped'} className={view === 'skipped' ? 'on' : ''} onClick={() => setView('skipped')}>
+          Skipped{skipped ? <span className="view-count">{skipped.length}</span> : null}
         </button>
       </div>
       {view === 'sent' ? sent : (
         <Suspense fallback={<div className="card empty"><p>Loading skipped jobs…</p></div>}>
-          <SkippedPanel />
+          <SkippedPanel items={skipped} error={skippedError} onItems={setSkipped} />
         </Suspense>
       )}
     </>

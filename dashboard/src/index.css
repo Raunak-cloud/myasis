@@ -796,11 +796,13 @@ tbody tr.clickable { cursor: pointer; }
 .attention-col-when { width: 9%; }
 .attention-col-action { width: 9%; }
 .attention-table td { padding-block: 15px; }
-.view-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
-.view-tab { background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 12px; font: inherit; font-size: 14px; color: var(--text-dim); cursor: pointer; white-space: nowrap; display: inline-flex; gap: 6px; align-items: baseline; }
-.view-tab:hover { color: var(--text); }
-.view-tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.view-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Which list the Applications page shows: a two-way switch, set apart from the list's own filter chips. */
+.view-switch { display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 18px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.view-switch button { display: inline-flex; align-items: baseline; gap: 7px; padding: 7px 16px; border: 0; border-radius: calc(var(--radius) - 3px); background: transparent; font: inherit; font-size: 14px; font-weight: 500; color: var(--text-dim); cursor: pointer; }
+.view-switch button:hover { color: var(--text); }
+.view-switch button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px var(--border); }
+.view-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.view-count { font-size: 12px; font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .skipped-call { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .skipped-note { margin-top: 6px; font-style: italic; }
 .skipped-note-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
