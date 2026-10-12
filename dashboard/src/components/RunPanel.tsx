@@ -628,14 +628,14 @@ export function RunPanel({
       // The pilot test uses this draft once, with bounded discovery and review.
       // Search mode is enforced by the server and never opens an application form.
       const runUpdates = mode === 'search' ? {
-        ...updates, PLATFORMS: platforms.filter(isEmployerSource).join(','), PAGES_PER_KEYWORD: '1',
+        ...updates, PLATFORMS: platforms.join(','), PAGES_PER_KEYWORD: '1',
         MAX_EVALUATIONS: String(Math.min(Number(updates.MAX_EVALUATIONS) || 10, 10)),
       } : updates;
 
       const runResponse = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, ...(mode === 'live' ? { confirm: true } : {}), overrides: runUpdates, scope: mode === 'search' ? 'external' : scope }),
+        body: JSON.stringify({ mode, ...(mode === 'live' ? { confirm: true } : {}), overrides: runUpdates, scope: mode === 'search' && platforms.every(isEmployerSource) ? 'external' : scope }),
       });
       if (runResponse.status === 402) {
         setConfirming(false);
@@ -952,7 +952,7 @@ export function RunPanel({
             </span>
           </div>
           <div className="console-actions">
-            {running && status?.mode !== 'search' && (
+            {running && (status?.mode !== 'search' || platforms.some(platform => !isEmployerSource(platform))) && (
               <button className="btn primary btn-small" onClick={() => setLiveViewOpen(true)}>
                 View live action
               </button>
@@ -1452,7 +1452,7 @@ export function RunPanel({
               <button className="btn" disabled={starting} onClick={() => setConfirming(false)}>
                 Cancel
               </button>
-              {isAdmin && platforms.some(isEmployerSource) && <button className="btn" disabled={starting} onClick={() => void saveAndStart('search')}>
+              {isAdmin && <button className="btn" disabled={starting} onClick={() => void saveAndStart('search')}>
                 Test without applying
               </button>}
               <button

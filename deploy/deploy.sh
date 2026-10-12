@@ -16,8 +16,14 @@ as_app() { sudo -u myasis -H bash -lc "$1"; }
 # directory, so its command line never contains "seek-bot/": match the script and check where it runs.
 active_runs() {
   local n=0 pid
-  for pid in $(pgrep -f 'node dist/(main|queue)\.js' || true); do
+  for pid in $(pgrep -f 'node dist/(main|queue|browser-benchmark)\.js' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/seek-bot" ] && n=$((n + 1))
+  done
+  # The diagnostic coordinator owns a profile between its child trials too.
+  for pid in $(pgrep -f 'scripts/benchmark-browser\.(mjs|mts)' || true); do
+    case "$(readlink "/proc/$pid/cwd" 2>/dev/null)" in
+      "$APP/seek-bot"|"$APP/dashboard") n=$((n + 1));;
+    esac
   done
   for pid in $(pgrep -f 'node .*cli\.js (research|scan-site|audit-site|ai-visibility)' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/market-scout" ] && n=$((n + 1))

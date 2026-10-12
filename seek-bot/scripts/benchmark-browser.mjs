@@ -10,7 +10,9 @@ const root = process.cwd();
 const live = process.argv.includes('--live');
 const ownerId = process.argv.find(arg => arg.startsWith('--user='))?.slice(7);
 const trialCount = Number(process.argv.find(arg => arg.startsWith('--trials='))?.slice(9) ?? (live ? 8 : 24));
-if (!Number.isInteger(trialCount) || trialCount < 4 || trialCount > 40) throw new Error('Use 4–40 trials');
+const singleMode = process.argv.find(arg => arg.startsWith('--mode='))?.slice(7);
+if (singleMode && !['headed', 'headless'].includes(singleMode)) throw new Error('Use headed or headless mode');
+if (!Number.isInteger(trialCount) || trialCount < 1 || trialCount > 40) throw new Error('Use 1–40 trials');
 const env = { ...dotenv.parse(readFileSync(resolve(root, '.env'))), ...process.env };
 const directory = resolve(root, 'data/browser-benchmarks', `${Date.now()}-${live ? 'live' : 'fixture'}`);
 mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -65,7 +67,7 @@ try {
   for (let i = 0; i < trialCount; i++) {
     if (interrupted) break;
     // ABBA alternation controls some order/cache effects. Same profile, never concurrent.
-    const headless = [false, true, true, false][i % 4];
+    const headless = singleMode ? singleMode === 'headless' : [false, true, true, false][i % 4];
     const data = resolve(directory, `trial-${i + 1}`);
     mkdirSync(data, { mode: 0o700 });
     const output = resolve(data, 'result.json');

@@ -9,7 +9,7 @@ try {
   if (process.argv.includes('--live')) {
     if (!userId || !/^\d+$/.test(userId)) throw new Error('--user=<admin account id> required');
     const policy = await accountBrowserEnvironment(userId, 'search');
-    if (policy.HEADLESS !== 'true') throw new Error('Enable the admin headless discovery pilot before benchmarking this account');
+    if (policy.HEADLESS !== 'true' && !process.argv.includes('--mode=headed')) throw new Error('Enable the admin headless discovery pilot before benchmarking this account');
     const route = await browserRoute(userId);
     process.env.BROWSER_PROXY_SERVER = route.proxyServer ?? '';
     process.env.BENCHMARK_ROUTE = route.status.using;

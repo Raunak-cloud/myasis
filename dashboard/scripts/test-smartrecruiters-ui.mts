@@ -10,8 +10,10 @@ const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
 let searchStarted = false;
+let adminBoards = 'smartrecruiters';
+let adminSeekSignedIn = false;
 const writes: Array<{ path: string; body: any }> = [];
-const settings = () => ({ PLATFORMS: admin ? 'smartrecruiters' : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
+const settings = () => ({ PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40', PAGES_PER_KEYWORD: '1' });
 const server = createServer(async (req, res) => {
@@ -29,7 +31,7 @@ const server = createServer(async (req, res) => {
         fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin, humanizer: admin },
       '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 },
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: null, hasActivePass: false } },
-      '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin }, indeed: { signedIn: false } },
+      '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: searchStarted, mode: searchStarted ? 'search' : null, startedAt: searchStarted ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
@@ -120,6 +122,25 @@ try {
       await page.getByText('Search-only test. No application forms are opened or applications submitted.', { exact: true }).waitFor();
       assert.equal(await page.getByText('Search test', { exact: true }).count(), 1);
       assert.equal(await page.getByRole('button', { name: 'View live action', exact: true }).count(), 0);
+      // The same bounded, non-submitting control must also cover job-board discovery.
+      searchStarted = false;
+      adminBoards = 'seek';
+      adminSeekSignedIn = true;
+      await page.reload();
+      await page.getByRole('button', { name: 'Start auto apply', exact: true }).click();
+      await dialog.waitFor();
+      await dialog.locator('[data-field=MAX_EVALUATIONS]').fill('2');
+      await dialog.getByRole('button', { name: 'Test without applying', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      const boardRun = writes.filter(write => write.path === '/api/run').at(-1)!.body;
+      assert.equal(boardRun.mode, 'search');
+      assert.equal('confirm' in boardRun, false);
+      assert.equal(boardRun.scope, 'all');
+      assert.equal(boardRun.overrides.PLATFORMS, 'seek');
+      assert.equal(boardRun.overrides.MAX_EVALUATIONS, '2');
+      assert.equal(boardRun.overrides.PAGES_PER_KEYWORD, '1');
+      assert.equal(writes.filter(write => write.path === '/api/settings').length, settingsWrites);
+      await page.getByRole('button', { name: 'View live action', exact: true }).waitFor();
     }
     assert.deepEqual(errors, []);
     await context.close();
