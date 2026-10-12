@@ -82,6 +82,17 @@ try {
         ? route.fulfill({ contentType: 'text/html; charset=utf-8', body: recorded.html })
         : route.abort()));
       await page.goto(recorded.expectation.url, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+      // A recorded static page must not replay its entrance animation from
+      // frame zero. Match snapshot-test rendering: finish finite animations
+      // and cancel infinite ones before observing, without changing baselines.
+      await page.evaluate(() => {
+        for (const animation of document.getAnimations()) {
+          try {
+            if (animation.effect?.getComputedTiming().endTime === Infinity) animation.cancel();
+            else animation.finish();
+          } catch { animation.cancel(); }
+        }
+      });
       const observation = await observe(page);
       const now = expectationOf(observation, await hasCaptchaSurface(page).catch(() => false), recorded.expectation.url, recorded.expectation.capturedAt);
       findings.push(...compare(name, recorded.expectation, now));

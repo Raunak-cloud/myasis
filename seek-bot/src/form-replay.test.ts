@@ -18,7 +18,7 @@ const { recordFormPage } = await import('./form-corpus.js');
 const { observe } = await import('./agent/observe.js');
 
 const form = `<!doctype html><html><head><link rel="stylesheet" href="https://cdn.workday-fixture.example/app.css">
-  <script>window.tracking = true;</script></head><body><main><h1>My Information</h1><form>
+  <script>window.tracking = true;</script></head><body><main><h1>My Information</h1><form class="entrance">
   <label for="g">Given Name *</label><input id="g" name="legalName--firstName" required>
   <label for="c">Country</label><select id="c" name="country"><option>Australia</option><option>New Zealand</option></select>
   <div class="hidden-by-css"><label>Internal code <input name="internal"></label></div>
@@ -28,7 +28,7 @@ const form = `<!doctype html><html><head><link rel="stylesheet" href="https://cd
   <chat-widget></chat-widget>
   <script>customElements.define('chat-widget', class extends HTMLElement { connectedCallback() { this.attachShadow({ mode: 'open' }).innerHTML = '<div><label>Write a reply <textarea name="reply"></textarea></label></div>'; } });</script>
   </body></html>`;
-const css = '.hidden-by-css { display: none; }';
+const css = '.hidden-by-css { display: none; } .entrance { animation: fade 1s 10s both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }';
 
 const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
@@ -37,6 +37,9 @@ try {
   await page.route('https://cdn.workday-fixture.example/**', (route) => route.fulfill({ contentType: 'text/css', body: css }));
   // The step lives after "#", as on ELMO and Cornerstone: it never reaches the network, and the replay must still serve the page.
   await page.goto('https://acme.wd3.myworkdayjobs-fixture.example/job/apply/1#/step2?jobAdId=1');
+  // The live snapshot is taken after the entrance; offline rendering must
+  // reach the same state without waiting for a site's arbitrary animation delay.
+  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
   await page.fill('input[name="legalName--firstName"]', 'Raunak');
   await page.selectOption('select', 'New Zealand');
   await page.check('input[name="terms"]');
