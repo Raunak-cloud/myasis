@@ -37,6 +37,8 @@ import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint 
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { runDirectExternalApplication } from './direct-external.js';
 import { SmartRecruitersDiscovery, SMARTRECRUITERS_PAGE_SIZE } from './smartrecruiters.js';
+import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
+import { EmployerFeedDiscovery, EMPLOYER_FEED_PAGE_SIZE } from './employer-feeds.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
 import {
   DISCOVERY_PRIORITY_FLOOR,
@@ -97,7 +99,7 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
   ],
 ]);
 
-if (process.env.SMARTRECRUITERS_ADMIN_ENABLED === 'true') {
+if (employerFeedsEnabled(process.env)) {
   const discovery = new SmartRecruitersDiscovery(process.env.SMARTRECRUITERS_COMPANIES || undefined, {
     warn: message => console.warn(`  ! ${message}`),
   });
@@ -108,6 +110,20 @@ if (process.env.SMARTRECRUITERS_ADMIN_ENABLED === 'true') {
     fetchJobDetail: (_page, job) => discovery.detail(job),
     apply: async (page, job, profile, deps) => applyToEmployerJob(page, await discovery.detail(job), profile, deps),
   });
+}
+
+if (employerFeedsEnabled(process.env)) {
+  for (const source of EMPLOYER_SOURCES) {
+    if (source.id === 'smartrecruiters' || !config.platforms.includes(source.id)) continue;
+    const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, { warn: message => console.warn(`  ! ${message}`) });
+    ADAPTERS.set(source.id, {
+      id: source.id, label: source.label, pageSize: EMPLOYER_FEED_PAGE_SIZE, apiDiscovery: true,
+      assertSignedIn: async () => {}, recommended: async () => [],
+      search: (_page, keyword, page) => discovery.search(keyword, page),
+      fetchJobDetail: (_page, job) => discovery.detail(job),
+      apply: async (page, job, profile, deps) => applyToEmployerJob(page, await discovery.detail(job), profile, deps),
+    });
+  }
 }
 
 async function main() {

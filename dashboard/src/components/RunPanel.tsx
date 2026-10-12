@@ -1,3 +1,4 @@
+import { EMPLOYER_SOURCES, EMPLOYER_SOURCE_DEFAULTS, isEmployerSource } from '../../../seek-bot/src/employer-source-config';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
@@ -38,7 +39,7 @@ interface AutoScheduleStatus {
 const RUN_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
   PLATFORMS: 'seek',
-  SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
+  ...EMPLOYER_SOURCE_DEFAULTS,
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',
   SEARCH_RADIUS_KM: '0',
@@ -67,7 +68,7 @@ const JOB_BOARDS = [
   { id: 'seek', label: 'SEEK' },
   { id: 'indeed', label: 'Indeed' },
 ];
-const ADMIN_JOB_BOARDS = [...JOB_BOARDS, { id: 'smartrecruiters', label: 'SmartRecruiters' }];
+const ADMIN_JOB_BOARDS = [...JOB_BOARDS, ...EMPLOYER_SOURCES.map(source => ({ id: source.id, label: source.label }))];
 
 /**
  * A number that climbs to its new value instead of jumping, so a count going
@@ -467,7 +468,7 @@ export function RunPanel({
   };
   const platforms = val('PLATFORMS').split(',').map((item) => item.trim()).filter(Boolean);
   /** Unknown until read; then only a board confirmed signed in can be used. */
-  const boardUsable = (id: string) => id === 'smartrecruiters' ? isAdmin : boardSignedIn === null || boardSignedIn[id] === true;
+  const boardUsable = (id: string) => isEmployerSource(id) ? isAdmin : boardSignedIn === null || boardSignedIn[id] === true;
   const unusableBoards = jobBoards.filter((board) => !boardUsable(board.id));
   const togglePlatform = (id: string) => {
     const next = new Set(platforms);
@@ -548,7 +549,7 @@ export function RunPanel({
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || key !== 'SMARTRECRUITERS_COMPANIES').map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || !EMPLOYER_SOURCES.some(source => source.key === key)).map((key) => [key, val(key)]));
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -626,7 +627,7 @@ export function RunPanel({
       // The pilot test uses this draft once, with bounded discovery and review.
       // Search mode is enforced by the server and never opens an application form.
       const runUpdates = mode === 'search' ? {
-        ...updates, PLATFORMS: 'smartrecruiters', PAGES_PER_KEYWORD: '1',
+        ...updates, PLATFORMS: platforms.filter(isEmployerSource).join(','), PAGES_PER_KEYWORD: '1',
         MAX_EVALUATIONS: String(Math.min(Number(updates.MAX_EVALUATIONS) || 10, 10)),
       } : updates;
 
@@ -757,7 +758,7 @@ export function RunPanel({
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
               )}
               {!accountSetupIncomplete && signedOutEverywhere && (
-                <span className="job-meta">{isAdmin ? 'Choose SmartRecruiters in run settings, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
+                <span className="job-meta">{isAdmin ? 'Choose employer feeds in run settings, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
               )}
               {firstRun && !accountSetupIncomplete && !signedOutEverywhere && (
                 <span className="job-meta">Automatic runs begin only after this run completes successfully.</span>
@@ -1134,7 +1135,7 @@ export function RunPanel({
 
             <div className="run-review-body">
               <div className="banner banner-bad run-review-warning">
-                {isAdmin && platforms.includes('smartrecruiters')
+                {isAdmin && platforms.some(isEmployerSource)
                   ? 'Save and apply submits applications to employers. Test without applying only searches and reviews jobs. Submitted applications cannot be withdrawn here.'
                   : 'This run submits applications to employers. Submitted applications cannot be withdrawn here.'}
               </div>
@@ -1142,7 +1143,7 @@ export function RunPanel({
               <section className="run-review-section run-review-search">
                 <h3>What to find</h3>
                 <div className="field run-review-wide">
-                  <FieldLabel label="Job sources" help={isAdmin ? 'Selected sources are searched, scored and deduplicated together. SmartRecruiters reads public employer feeds and applies on employer websites.' : 'Selected job boards are searched, scored and deduplicated together.'} />
+                  <FieldLabel label="Job sources" help={isAdmin ? 'Selected sources are searched, scored and deduplicated together. Employer feeds read public vacancies and apply on employer websites.' : 'Selected job boards are searched, scored and deduplicated together.'} />
                   <div className="chips" data-field="PLATFORMS">
                     {jobBoards.map((board) => {
                       const usable = boardUsable(board.id);
@@ -1170,15 +1171,15 @@ export function RunPanel({
                   )}
                   {fieldError('PLATFORMS')}
                 </div>
-                {isAdmin && platforms.includes('smartrecruiters') && (
-                  <div className="field run-review-wide" data-field="SMARTRECRUITERS_COMPANIES">
-                    <FieldLabel label="SmartRecruiters employers" help="Use the employer name from its SmartRecruiters careers URL. Up to 20 identifiers, separated by commas." />
-                    <input aria-label="SmartRecruiters employer identifiers" value={val('SMARTRECRUITERS_COMPANIES')} onChange={event => setEdit('SMARTRECRUITERS_COMPANIES', event.target.value)} />
-                    <span className="field-help">Test without applying checks only these employer feeds: one page per search term and up to 10 job reviews. It does not save these draft settings or submit applications.</span>
-                    <p className="job-meta">Admin pilot · Australian vacancies only · no job-board sign-in required. Starts with Canva, KPMG Australia and Colliers. Employer-site applications use the normal fit checks and limits.</p>
-                    {fieldError('SMARTRECRUITERS_COMPANIES')}
+                {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (
+                  <div key={source.id} className="field run-review-wide" data-field={source.key}>
+                    <FieldLabel label={`${source.label} employers`} help={`${source.help} Up to 20 employers per source.`} />
+                    <input aria-label={source.id === 'smartrecruiters' ? 'SmartRecruiters employer identifiers' : `${source.label} employers`} value={val(source.key)} onChange={event => setEdit(source.key, event.target.value)} />
+                    <span className="field-help">{source.help}</span>
+                    {fieldError(source.key)}
                   </div>
-                )}
+                ))}
+                {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">Admin pilot. No job-board sign-in required. The selected employer feeds share your normal fit checks and application limits. Test without applying checks one page per search term and up to 10 jobs, without saving drafts or opening application forms.</p>}
                 <p className="job-meta recommended-first-note">
                   Recommended jobs from each selected board are analysed first. Search terms expand the pool after those jobs.
                 </p>
@@ -1440,7 +1441,7 @@ export function RunPanel({
               <button className="btn" disabled={starting} onClick={() => setConfirming(false)}>
                 Cancel
               </button>
-              {isAdmin && platforms.includes('smartrecruiters') && <button className="btn" disabled={starting} onClick={() => void saveAndStart('search')}>
+              {isAdmin && platforms.some(isEmployerSource) && <button className="btn" disabled={starting} onClick={() => void saveAndStart('search')}>
                 Test without applying
               </button>}
               <button

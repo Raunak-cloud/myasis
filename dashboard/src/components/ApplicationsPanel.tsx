@@ -1,3 +1,4 @@
+import { EMPLOYER_SOURCES } from '../../../seek-bot/src/employer-source-config';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
@@ -14,7 +15,7 @@ interface Props {
 const SkippedPanel = lazy(() => import('./SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
 
 /** The job board an application went through, named the way the board names itself. */
-const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', smartrecruiters: 'SmartRecruiters' };
+const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', ...Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.id, source.label])) };
 const boardLabel = (platform: string | undefined): string =>
   BOARD_LABELS[(platform ?? 'seek').toLowerCase()] ?? (platform ? platform[0].toUpperCase() + platform.slice(1) : 'SEEK');
 

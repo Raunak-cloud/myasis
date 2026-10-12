@@ -1,3 +1,4 @@
+import { isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { createHash } from 'node:crypto';
 import { query } from './db/index.js';
 import { runner, MAX_CONCURRENT } from './runner.js';
@@ -154,7 +155,7 @@ async function scheduledAccounts(): Promise<Scheduled[]> {
       if (entitlements.autoRunsPerDay === 0 || entitlements.autoApplyPaused) continue;
       const setupComplete = await accountSetupComplete(user.id).catch(() => false);
       const adminFeeds = entitlements.tier === 'admin'
-        && (await loadUserSettings(user.id)).PLATFORMS?.split(',').map(value => value.trim()).includes('smartrecruiters');
+        && (await loadUserSettings(user.id)).PLATFORMS?.split(',').map(value => value.trim()).some(isEmployerSource);
       const boardConnected = Boolean(adminFeeds) || boardAvailable(user.id);
       const ready = setupComplete && boardConnected && !entitlements.firstRunRequired;
       scheduled.push({ userId: user.id, email: user.email, entitlements, setupComplete, boardConnected, ready });

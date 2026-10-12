@@ -18,6 +18,13 @@ const job = smartRecruitersListing({
   id: '123456789', name: 'Fixture Developer', company: { identifier: 'FixtureEmployer', name: 'Fixture Employer' },
   location: { city: 'Sydney', country: 'au' }, visibility: 'PUBLIC',
 }, 'FixtureEmployer')!;
+const sourceJobs = [
+  { platform: 'lever', url: 'https://jobs.lever.co/FixtureEmployer/11111111-2222-4333-8444-555555555555' },
+  { platform: 'greenhouse', url: 'https://job-boards.greenhouse.io/FixtureEmployer/jobs/123' },
+  { platform: 'pageup', url: 'https://careers.pageuppeople.com/999/cw/en/job/123/fixture-developer' },
+  { platform: 'workday', url: 'https://fixture.wd105.myworkdayjobs.com/en-US/External/job/Sydney/Fixture-Developer_JR123' },
+] as const;
+const fixtureUrls = new Set([job.url, ...sourceJobs.map(source => source.url)]);
 const profile = { name: 'Fixture Candidate', email: 'fixture@example.test' } as import('../types.js').CandidateProfile;
 const deps = { onFriction: () => {} };
 const noBrowser = new Proxy({} as Page, { get: () => { throw new Error('Refused request reached browser'); } });
@@ -45,7 +52,7 @@ try {
   // Every browser request is fulfilled locally or refused; no employer receives an application.
   await page.route('**/*', route => {
     networkRequests++;
-    if (route.request().url() !== job.url) return route.abort();
+    if (!fixtureUrls.has(route.request().url())) return route.abort();
     return route.fulfill({ contentType: 'text/html', body: `<!doctype html><main><h1>Fixture Developer</h1>
       <form onsubmit="event.preventDefault();document.title='Fixture submitted'">
       <label>Email<input type="email" name="email" required></label><button type="submit">Submit application</button></form></main>` });
@@ -76,6 +83,22 @@ try {
     runAgent: async () => { throw new Error('Fixture agent failed'); },
   }), /Fixture agent failed/);
   assert.equal(released, 2, 'navigation guard is removed even when the agent fails');
+  for (const source of sourceJobs) {
+    const target = { ...job, id: `${source.platform}-fixture`, platform: source.platform, url: source.url, applicationUrl: source.url };
+    const outcome = await applyToEmployerJob(page, target, profile, deps, { guard, runAgent: async options => {
+      assert.equal(options.job.platform, source.platform);
+      await options.page.locator('input[name=email]').fill(profile.email);
+      await options.page.getByRole('button', { name: 'Submit application' }).click();
+      assert.equal(await options.page.title(), 'Fixture submitted');
+      return { outcome: { status: 'applied' }, captured: [], actions: [], submitPressed: true, site: new URL(source.url).host, steps: 1, usage: 'local fixture; no employer transmission' };
+    } });
+    assert.equal(outcome.status, 'applied'); assert.equal(outcome.jobId, target.id);
+    await assert.rejects(applyToEmployerJob(noBrowser, { ...target, applicationUrl: 'https://localhost/private' }, profile, deps));
+    process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'false';
+    assert.equal((await applyToEmployerJob(noBrowser, target, profile, deps)).status, 'skipped');
+    process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'true';
+  }
+  assert.equal(released, 6, 'every provider releases its navigation guard');
   console.log('PASS: admin, external scope and dry-run gates; public-feed handoff to application agent; local form only; guard cleanup');
 } finally {
   await browser?.close();

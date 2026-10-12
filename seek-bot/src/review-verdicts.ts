@@ -1,3 +1,5 @@
+import { EMPLOYER_SOURCES } from './employer-source-config.js';
+import { employerJobIdentity } from './employer-feeds.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
@@ -55,7 +57,9 @@ function boardOf(url: string): PlatformId | null {
     const host = new URL(url).hostname;
     if (/(^|\.)seek\.com\.au$/i.test(host)) return 'seek';
     if (/(^|\.)indeed\.com$/i.test(host)) return 'indeed';
-    if (host === 'jobs.smartrecruiters.com') return 'smartrecruiters';
+    for (const source of EMPLOYER_SOURCES) {
+      try { employerJobIdentity(source.id, url); return source.id; } catch { /* different source */ }
+    }
   } catch { /* not an address */ }
   return null;
 }

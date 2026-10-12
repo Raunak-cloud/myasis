@@ -1,3 +1,4 @@
+import { isEmployerSource } from './employer-source-config.js';
 import { config, expectedSalaryAnswer } from './config.js';
 import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
@@ -395,7 +396,7 @@ export async function answerFields(
   // without an override still read their isolated DATA_DIR as before.
   const saved = (options.savedAnswers ?? (knowledgeOverride === undefined ? loadSavedAnswers() : [])).slice(0, 200);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney' });
-  const where = job.platform === 'indeed' ? 'Indeed' : job.platform === 'external' || job.platform === 'smartrecruiters' ? "the employer's website" : 'SEEK';
+  const where = job.platform === 'indeed' ? 'Indeed' : job.platform === 'external' || (job.platform && isEmployerSource(job.platform)) ? "the employer's website" : 'SEEK';
   /**
    * Fixed text first, then what changes least to most: the day, the
    * candidate, their saved answers, the documents chosen for this job, the

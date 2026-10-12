@@ -1,3 +1,4 @@
+import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
@@ -68,10 +69,19 @@ try {
     if (admin) {
       await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).waitFor();
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES] input').inputValue(), 'Canva,KPMGAustralia1,Colliers');
-      assert.match(await dialog.textContent() ?? '', /no job-board sign-in required/);
+      assert.match(await dialog.textContent() ?? '', /no job-board sign-in required/i);
+      for (const source of EMPLOYER_SOURCES.filter(source => source.id !== 'smartrecruiters')) {
+        await dialog.locator('button.chip').filter({ hasText: source.label }).click();
+        assert.equal(await dialog.locator(`[data-field=${source.key}] input`).inputValue(), source.defaults);
+        await dialog.locator('button.chip').filter({ hasText: source.label }).click();
+      }
     } else {
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES]').count(), 0);
+      for (const source of EMPLOYER_SOURCES) {
+        assert.equal(await dialog.locator('button.chip').filter({ hasText: source.label }).count(), 0);
+        assert.equal(await dialog.locator(`[data-field=${source.key}]`).count(), 0);
+      }
       assert.equal(await dialog.getByRole('button', { name: 'Test without applying', exact: true }).count(), 0);
     }
     await dialog.getByRole('button', { name: admin ? 'Save and apply' : 'Start first run', exact: true }).click();
@@ -79,6 +89,7 @@ try {
     const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
+    for (const source of EMPLOYER_SOURCES) assert.equal(source.key in submitted.overrides, admin);
     assert.equal(submitted.mode, 'live');
     assert.equal(submitted.confirm, true);
     if (admin) {
@@ -86,14 +97,16 @@ try {
       await page.getByRole('button', { name: 'Start auto apply', exact: true }).click();
       await dialog.waitFor();
       await dialog.getByLabel('SmartRecruiters employer identifiers').fill('ALDIStores,MedHealth3');
+      for (const source of EMPLOYER_SOURCES.filter(source => source.id !== 'smartrecruiters')) await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       await dialog.getByRole('button', { name: 'Test without applying', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
       const testRun = writes.filter(write => write.path === '/api/run').at(-1)!.body;
       assert.equal(testRun.mode, 'search');
       assert.equal('confirm' in testRun, false);
       assert.equal(testRun.scope, 'external');
-      assert.equal(testRun.overrides.PLATFORMS, 'smartrecruiters');
+      assert.equal(testRun.overrides.PLATFORMS, EMPLOYER_SOURCES.map(source => source.id).join(','));
       assert.equal(testRun.overrides.SMARTRECRUITERS_COMPANIES, 'ALDIStores,MedHealth3');
+      for (const source of EMPLOYER_SOURCES.filter(source => source.id !== 'smartrecruiters')) assert.equal(testRun.overrides[source.key], source.defaults);
       assert.equal(testRun.overrides.MAX_EVALUATIONS, '10');
       assert.equal(testRun.overrides.PAGES_PER_KEYWORD, '1');
       assert.equal(writes.filter(write => write.path === '/api/settings').length, settingsWrites, 'test drafts must not be saved');

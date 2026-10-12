@@ -1,3 +1,4 @@
+import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { runner, type RunMode } from './runner.js';
 import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 import {
@@ -223,7 +224,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * that includes Indeed, so "SEEK only" searched and applied on Indeed too.
    */
   const narrowedBoards = trigger === 'admin' ? String(request.clientOverrides?.PLATFORMS ?? '').trim() : '';
-  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', ...(admin ? ['smartrecruiters'] : [])].includes(board.trim()))) {
+  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', ...(admin ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
     overrides.PLATFORMS = narrowedBoards;
   }
   try { applyJobSourceAccess(overrides, admin); }
@@ -391,8 +392,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (!state || (state.signedIn === false && !state.signedOutByPerson)) await checkSignin(userId, board);
   }
   const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, admin, board => readSiteState(userId, board)?.signedIn === true);
-  if (!directExternalUrl && usable.length && usable.every(board => board === 'smartrecruiters') && overrides.APPLY_ONLY === 'hosted') {
-    return { ok: false, status: 400, error: 'SmartRecruiters uses employer-site applications. Choose a normal or employer-sites run.' };
+  if (!directExternalUrl && usable.length && usable.every(isEmployerSource) && overrides.APPLY_ONLY === 'hosted') {
+    return { ok: false, status: 400, error: 'Employer feeds use employer-site applications. Choose a normal or employer-sites run.' };
   }
   if (consumes && !directExternalUrl && !usable.length) {
     return {

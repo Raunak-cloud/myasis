@@ -1,32 +1,30 @@
-import { smartRecruitersCompanies, SMARTRECRUITERS_DEFAULT_COMPANIES } from '../../seek-bot/src/smartrecruiters.js';
+import { EMPLOYER_SOURCES, employerTargets, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 
 export function jobSourceSettingsError(updates: Record<string, unknown>, targetIsAdmin: boolean): { status: number; error: string } | null {
   const selected = String(updates.PLATFORMS ?? '').split(',').map(value => value.trim().toLowerCase());
-  if (!targetIsAdmin && (selected.includes('smartrecruiters') || updates.SMARTRECRUITERS_COMPANIES !== undefined)) {
-    return { status: 403, error: 'SmartRecruiters is currently available only to administrator accounts.' };
+  if (!targetIsAdmin && (selected.some(isEmployerSource) || EMPLOYER_SOURCES.some(source => updates[source.key] !== undefined))) {
+    return { status: 403, error: 'Employer feeds are currently available only to administrator accounts.' };
   }
-  if (updates.SMARTRECRUITERS_COMPANIES !== undefined) {
-    try { smartRecruitersCompanies(String(updates.SMARTRECRUITERS_COMPANIES)); }
+  for (const source of EMPLOYER_SOURCES) {
+    if (updates[source.key] === undefined) continue;
+    try { employerTargets(source.id, String(updates[source.key])); }
     catch (error) { return { status: 400, error: (error as Error).message }; }
   }
   return null;
 }
 
-/** Enforced again at execution, including old settings and scheduled/admin-triggered runs. */
+/** Account access wins over saved choices, client overrides and shared process environment. */
 export function applyJobSourceAccess(settings: Record<string, string>, targetIsAdmin: boolean): void {
-  const allowed = targetIsAdmin ? ['seek', 'indeed', 'smartrecruiters'] : ['seek', 'indeed'];
-  const platforms = [...new Set((settings.PLATFORMS || 'seek').split(',').map(value => value.trim().toLowerCase()))]
-    .filter(value => allowed.includes(value));
+  const allowed: string[] = ['seek', 'indeed', ...(targetIsAdmin ? EMPLOYER_SOURCES.map(source => source.id) : [])];
+  const platforms = [...new Set((settings.PLATFORMS || 'seek').split(',').map(value => value.trim().toLowerCase()))].filter(value => allowed.includes(value));
   settings.PLATFORMS = platforms.join(',') || 'seek';
-  // This flag is server-owned and explicitly overrides the shared environment for every account.
+  settings.EMPLOYER_FEEDS_ADMIN_ENABLED = targetIsAdmin ? 'true' : 'false';
   settings.SMARTRECRUITERS_ADMIN_ENABLED = targetIsAdmin ? 'true' : 'false';
-  settings.SMARTRECRUITERS_COMPANIES = targetIsAdmin
-    ? smartRecruitersCompanies(settings.SMARTRECRUITERS_COMPANIES || SMARTRECRUITERS_DEFAULT_COMPANIES).join(',') : '';
+  for (const source of EMPLOYER_SOURCES) settings[source.key] = targetIsAdmin ? employerTargets(source.id, settings[source.key] || source.defaults).join(',') : '';
 }
 
-/** Public feeds require admin access, while browser job boards require a confirmed sign-in. */
 export function availableJobSources(boards: string[], targetIsAdmin: boolean, signedIn: (board: 'seek' | 'indeed') => boolean) {
-  const supported = boards.filter(board => board === 'seek' || board === 'indeed' || (board === 'smartrecruiters' && targetIsAdmin));
-  const usable = supported.filter(board => board === 'smartrecruiters' || signedIn(board as 'seek' | 'indeed'));
+  const supported = boards.filter(board => board === 'seek' || board === 'indeed' || (isEmployerSource(board) && targetIsAdmin));
+  const usable = supported.filter(board => isEmployerSource(board) || signedIn(board as 'seek' | 'indeed'));
   return { supported, usable, unavailable: supported.filter(board => !usable.includes(board)) };
 }

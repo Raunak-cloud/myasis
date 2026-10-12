@@ -1,3 +1,4 @@
+import { EMPLOYER_SOURCE_DEFAULTS } from '../../seek-bot/src/employer-source-config.js';
 import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
@@ -20,7 +21,7 @@ import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
  * oversight.
  */
 export const KEEP_SETTINGS_KEYS = [
-  'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'SMARTRECRUITERS_COMPANIES', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
+  'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'SMARTRECRUITERS_COMPANIES', 'LEVER_COMPANIES', 'GREENHOUSE_BOARDS', 'PAGEUP_SITES', 'WORKDAY_SITES', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
   'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
@@ -84,7 +85,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   TARGET_ROLE: '',
   EXCLUDED_COMPANIES: '',
   PLATFORMS: 'seek',
-  SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
+  ...EMPLOYER_SOURCE_DEFAULTS,
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   JOB_TYPES: '',
   ONSITE_CITY: 'Sydney',
