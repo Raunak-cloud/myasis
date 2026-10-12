@@ -8,13 +8,15 @@ export interface LogLine {
 }
 
 type ActivityTone = 'done' | 'neutral' | 'warn' | 'bad';
+type ActivityOutcome = 'already-applied' | 'skipped' | 'needs-human' | 'failed';
+type OutcomeCounts = Record<ActivityOutcome, number>;
 
 interface ActivityEvent {
   id: string;
   title: string;
   detail?: string;
   tone: ActivityTone;
-  outcome?: 'already-applied' | 'skipped' | 'needs-human' | 'failed';
+  outcome?: ActivityOutcome;
   /** Elapsed application attempt time, included only for admins with valid timestamps. */
   durationMs?: number;
   /** What the run is doing right now: drawn with a live pulse while the run lasts. */
@@ -128,6 +130,13 @@ export function formatActivityReason(raw: string, isAdmin = false): string {
 export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): ActivityEvent[] {
   const readableError = (raw: string) => formatActivityReason(raw, isAdmin);
   const events: ActivityEvent[] = [];
+  // Several listings can share one visible entry. Count each logged outcome
+  // independently so merging entries cannot create an unexplained remainder.
+  const outcomes: OutcomeCounts = { 'already-applied': 0, skipped: 0, 'needs-human': 0, failed: 0 };
+  const recordOutcome = (event: ActivityEvent, outcome: ActivityOutcome) => {
+    outcomes[outcome]++;
+    event.outcome = outcome;
+  };
   const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string): ActivityEvent => {
     const previous = events.at(-1);
     if (previous?.title === title && previous.detail === detail) return previous;
@@ -245,43 +254,43 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       if (application) {
         application.event.title = `${application.title} needs your answer`;
         application.event.tone = 'warn';
-        application.event.outcome = 'needs-human';
+        recordOutcome(application.event, 'needs-human');
         application.event.detail = detail;
         finishApplication(line);
       } else {
-        add(line, 'Needs your attention', 'warn', detail).outcome = 'needs-human';
+        recordOutcome(add(line, 'Needs your attention', 'warn', detail), 'needs-human');
       }
     } else if (/↪ off-platform/i.test(text)) {
       if (application) {
         application.event.title = `Skipped ${application.title}`;
         application.event.tone = 'neutral';
         application.event.detail = `${application.company} · it continues on the employer's own website.`;
-        application.event.outcome = 'skipped';
+        recordOutcome(application.event, 'skipped');
         finishApplication(line);
       }
     } else if ((match = text.match(/^– skipped \((.+)\):\s*(.+?)\s+@\s+(.+)$/i))) {
       // These decisions precede Applying, so there is no active application event.
       const alreadyApplied = /already applied/i.test(match[1]);
-      add(
+      recordOutcome(add(
         line,
         `${alreadyApplied ? 'Already applied to' : 'Skipped'} ${match[2]}`,
         'neutral',
         `${match[3]} · ${alreadyApplied ? 'An application to this role is already recorded. No new application was sent.' : readableError(match[1])}`,
-      ).outcome = alreadyApplied ? 'already-applied' : 'skipped';
+      ), alreadyApplied ? 'already-applied' : 'skipped');
     } else if ((match = text.match(/^↩ already applied\s*—\s*(.*)/i))) {
       if (application) {
         application.event.title = `Already applied to ${application.title}`;
         application.event.tone = 'neutral';
-        application.event.outcome = 'already-applied';
+        recordOutcome(application.event, 'already-applied');
         application.event.detail = `${application.company} · ${readableError(match[1])} No new application was sent.`;
         finishApplication(line);
       } else {
-        add(line, 'Already applied', 'neutral', readableError(match[1])).outcome = 'already-applied';
+        recordOutcome(add(line, 'Already applied', 'neutral', readableError(match[1])), 'already-applied');
       }
     } else if ((match = text.match(/^– skipped(?: \([^)]*\))?:\s*(.*)/i)) && application) {
       application.event.title = `Skipped ${application.title}`;
       application.event.tone = 'neutral';
-      application.event.outcome = 'skipped';
+      recordOutcome(application.event, 'skipped');
       application.event.detail = `${application.company} · ${readableError(match[1])}`;
       finishApplication(line);
     } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
@@ -293,7 +302,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       if (application) {
         application.event.title = `Could not apply to ${application.title}`;
         application.event.tone = 'bad';
-        application.event.outcome = 'failed';
+        recordOutcome(application.event, 'failed');
         application.event.detail = `${application.company} · ${readableError(match[1])}`;
         finishApplication(line);
       } else {
@@ -325,7 +334,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         line,
         'Run complete',
         'done',
-        completionDetail(lines, suitable, Number(match[1]), events),
+        completionDetail(lines, suitable, Number(match[1]), outcomes),
       );
     } else if ((match = text.match(/run finished \(exit ([^)]*)\)/i))) {
       finished = true;
@@ -355,13 +364,12 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   return events.slice(-limit);
 }
 
-/** Reconcile matches with outcomes before the visible feed is shortened. */
-function completionDetail(lines: LogLine[], suitable: number, submitted: number, events: ActivityEvent[]): string {
-  const count = (outcome: ActivityEvent['outcome']) => events.filter((event) => event.outcome === outcome).length;
-  const alreadyApplied = count('already-applied');
-  const skipped = count('skipped');
-  const needsHuman = count('needs-human');
-  const failed = count('failed');
+/** Reconcile matches with every logged outcome, independently of the visible feed. */
+function completionDetail(lines: LogLine[], suitable: number, submitted: number, outcomes: OutcomeCounts): string {
+  const alreadyApplied = outcomes['already-applied'];
+  const skipped = outcomes.skipped;
+  const needsHuman = outcomes['needs-human'];
+  const failed = outcomes.failed;
   const parts = [
     ...(suitable > 0 ? [`${suitable} profile ${suitable === 1 ? 'match' : 'matches'}`] : []),
     `${submitted} ${submitted === 1 ? 'application' : 'applications'} submitted`,

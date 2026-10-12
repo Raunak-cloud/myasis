@@ -102,6 +102,44 @@ test('duplicates detected on a form, other skips, human input and errors remain 
   assert.equal(events.some((event) => event.title.startsWith('Applying to')), false);
 });
 
+test('identical skip entries still count each matched listing in the completion summary', () => {
+  const lines = log([
+    '✓ 80 · AV & Automation Programmer @ Kayder (Sydney NSW) [SEEK]',
+    '→ Applying: AV & Automation Programmer @ Kayder',
+    '✅ submitted (1/20)',
+    ...[
+      ['Applications Specialist', 'Ambition', 'Sydney NSW'],
+      ['Technical Consultant', 'Sensei', 'Brisbane QLD (Hybrid)'],
+      ['Technical Consultant', 'Sensei', 'Melbourne VIC (Hybrid)'],
+      ['Product Engineer', 'eQ8', 'Sydney NSW'],
+      ['Cyber Security and/or Software Development Course Coach', 'Equinim College of Technology', 'Sydney NSW'],
+    ].flatMap(([title, company, location]) => [
+      `✓ 80 · ${title} @ ${company} (${location}) [SEEK]`,
+      `– skipped (already applied): ${title} @ ${company}`,
+    ]),
+    '=== Run complete: 1 new application(s) ===',
+  ]);
+  const expected = '6 profile matches · 1 application submitted · 5 skipped: already applied.';
+  assert.equal(activityEvents(lines).filter((event) => event.title === 'Already applied to Technical Consultant').length, 1);
+  assert.equal(completion(lines), expected);
+  assert.equal(activitySummary(lines).outcomeSummary, expected);
+  assert.equal(activityEvents(lines, 1).at(-1).detail, expected);
+});
+
+test('merged skips and attention entries keep their full outcome totals', () => {
+  const lines = log([
+    ...Array.from({ length: 4 }, () => '✓ 80 · Role @ Employer (Sydney NSW) [SEEK]'),
+    '– skipped (same role already attempted this run): Role @ Employer',
+    '– skipped (same role already attempted this run): Role @ Employer',
+    '⏸ needs you: A screening answer is missing',
+    '⏸ needs you: A screening answer is missing',
+    '=== Run complete: 0 new application(s) ===',
+  ]);
+  assert.equal(activityEvents(lines).filter((event) => event.outcome === 'skipped').length, 1);
+  assert.equal(activityEvents(lines).filter((event) => event.outcome === 'needs-human').length, 1);
+  assert.equal(completion(lines), '4 profile matches · 0 applications submitted · 2 skipped for other reasons · 2 need your attention.');
+});
+
 test('a cap explains suitable jobs remaining without implying duplicate applications', () => {
   const lines = log([
     '✓ 80 · One @ Employer (Sydney NSW) [SEEK]',
