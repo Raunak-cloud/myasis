@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { RUN_OUTPUT_DRAIN_MS, runTimeoutMs, signalRunTree, superviseRun } from './run-watchdog.js';
 
@@ -149,11 +150,21 @@ test('Linux forced stop kills its real worker and descendant while another run s
     await supervisor.finished;
     assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
     assert.doesNotThrow(() => process.kill(other.pid!, 0), 'another run must remain alive');
-    try {
-      assert.equal(readFileSync(`/proc/${descendantPid}/stat`, 'utf8').split(') ')[1].split(' ')[0], 'Z', 'descendant must have exited');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
+    // Signal delivery and each group member's exit are asynchronous. The
+    // parent's close event does not promise the descendant has exited yet.
+    const exitDeadline = performance.now() + 1_000;
+    let descendantState: string | undefined;
+    do {
+      try {
+        descendantState = readFileSync(`/proc/${descendantPid}/stat`, 'utf8').split(') ')[1].split(' ')[0];
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        descendantState = undefined;
+      }
+      if (descendantState === undefined || descendantState === 'Z') break;
+      await delay(10);
+    } while (performance.now() < exitDeadline);
+    assert(descendantState === undefined || descendantState === 'Z', `descendant must have exited; observed ${descendantState}`);
   } finally {
     signalRunTree(worker, 'SIGKILL');
     signalRunTree(other, 'SIGKILL');
