@@ -307,8 +307,9 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
             {canFineTune && <label className="field">
               <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. The model checks these instructions for every job before applying." />
               <textarea
-                className="input"
-                rows={4}
+                className="input run-instructions-input"
+                rows={6}
+                wrap="soft"
                 maxLength={4_000}
                 value={decodeSettingText(val('AI_INSTRUCTIONS_B64'))}
                 onChange={(event) => set('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}

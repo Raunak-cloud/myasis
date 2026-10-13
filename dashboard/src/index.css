@@ -1061,7 +1061,7 @@ button.metric-tile:hover strong { color: var(--accent); }
 .run-dashboard { background: var(--bg); }
 
 .run-dashboard .run-layout {
-  grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
   grid-template-areas:
     "readiness readiness"
     "controls activity";
@@ -2121,6 +2121,11 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* Textareas read in the interface font, not the browser's monospace default. */
 textarea.input { font-family: inherit; font-size: 13.5px; line-height: 1.5; }
+textarea.run-instructions-input {
+  width: 100%; min-width: 0; min-height: 140px;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden;
+  resize: vertical;
+}
 
 /* Apply page: the search every future run uses, in its own card. */
 .saved-search-card { padding: 0; display: flex; flex-direction: column; }

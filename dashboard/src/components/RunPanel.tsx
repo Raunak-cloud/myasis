@@ -888,8 +888,9 @@ export function RunPanel({
               />
               <textarea
                 id="saved-search-instructions"
-                className="input"
-                rows={2}
+                className="input run-instructions-input"
+                rows={6}
+                wrap="soft"
                 maxLength={4_000}
                 value={runInstructions}
                 placeholder="e.g. Don't apply for senior or manager positions."
@@ -1230,8 +1231,9 @@ export function RunPanel({
                 {entitlements?.fineTune && <label className="field run-review-wide">
                   <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. These saved instructions are checked for every job before applying." />
                   <textarea
-                    className="input"
-                    rows={3}
+                    className="input run-instructions-input"
+                    rows={6}
+                    wrap="soft"
                     maxLength={4_000}
                     value={runInstructions}
                     onChange={(event) => setEdit('AI_INSTRUCTIONS_B64', encodeSettingText(event.target.value))}
