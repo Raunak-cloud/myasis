@@ -4,7 +4,7 @@ import type { FormField } from '../types.js';
 
 /** A fresh read, never a tool's claim that its fill succeeded. Frame-scoped
  * identities keep equal captions on different forms from sharing a verdict. */
-export interface SavedFormField extends FormField {
+interface SavedFormField extends FormField {
   localRef: string;
   frame: number;
   expanded?: string | null;

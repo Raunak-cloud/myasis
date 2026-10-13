@@ -568,7 +568,6 @@
 .landing .home-button-white:hover { background: #fff; border-color: #fff; box-shadow: 6px 6px 0 rgba(243, 234, 217, .35); color: var(--ink); }
 
 .home-unavailable { color: var(--muted); font-size: 14px; }
-.home-small { margin: 0; color: var(--muted); font-size: 13.5px; }
 
 /* ============================================================ responsive */
 

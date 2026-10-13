@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { JobListing } from './types.js';
 
-export const SMARTRECRUITERS_DEFAULT_COMPANIES = 'Canva,KPMGAustralia1,Colliers';
+const SMARTRECRUITERS_DEFAULT_COMPANIES = 'Canva,KPMGAustralia1,Colliers';
 export const SMARTRECRUITERS_PAGE_SIZE = 50;
 
 /** Employer identifiers, never URLs; all API requests use the fixed public host. */

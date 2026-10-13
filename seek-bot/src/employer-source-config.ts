@@ -15,11 +15,12 @@ export const EMPLOYER_SOURCES = [
 ] as const;
 
 export type EmployerSourceId = typeof EMPLOYER_SOURCES[number]['id'];
+/** @public Shared with the dashboard settings and run controls. */
 export const EMPLOYER_SOURCE_DEFAULTS = Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.key, source.defaults]));
 export const isEmployerSource = (id: string): id is EmployerSourceId => EMPLOYER_SOURCES.some(source => source.id === id);
 export const employerFeedsEnabled = (environment: Record<string, string | undefined>) => environment.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' || environment.SMARTRECRUITERS_ADMIN_ENABLED === 'true';
 
-export function careerSite(source: 'pageup' | 'workday', raw: string): URL {
+function careerSite(source: 'pageup' | 'workday', raw: string): URL {
   const url = new URL(raw);
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash) throw new Error('Use a public HTTPS career-site URL without credentials, query parameters or fragments.');
   const valid = source === 'pageup'

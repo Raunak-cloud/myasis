@@ -14,6 +14,10 @@ const API = 'http://localhost:5180';
 /** SEEK pads button and label text with invisible formatting characters. */
 const clean = (s) => (s || '').replace(/[​-‍⁠﻿ ]/g, '').trim();
 
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+})[character]);
+
 const jobIdFromUrl = () => (location.pathname.match(/\/job\/(\d+)/) || [])[1] || null;
 const onApplyPage = () => /\/job\/\d+\/apply/.test(location.pathname);
 
@@ -33,7 +37,7 @@ function ui() {
     <div class="myasis-body"></div>
     <div class="myasis-foot">You review and submit — Owtomate never clicks Submit.</div>`;
   document.body.appendChild(panel);
-  panel.querySelector('.myasis-x').onclick = () => panel.remove();
+  panel.querySelector('.myasis-x').onclick = () => { panel.remove(); panel = null; };
   return panel;
 }
 
@@ -214,14 +218,14 @@ async function assist() {
 
   if (!reply?.ok) {
     say(
-      `Cannot reach Owtomate at <code>${API}</code>.<br><small>${reply?.error ?? 'Is the dashboard running?'}</small>`,
+      `Cannot reach Owtomate at <code>${API}</code>.<br><small>${escapeHtml(reply?.error ?? 'Is the dashboard running?')}</small>`,
       'bad',
     );
     return;
   }
   const data = reply.data;
   if (!data.ok) {
-    say(`Owtomate error: ${data.error}`, 'bad');
+    say(`Owtomate error: ${escapeHtml(data.error)}`, 'bad');
     return;
   }
 
@@ -261,7 +265,7 @@ async function assist() {
     parts.push('<div class="myasis-warn">⚠ This listing contains text trying to manipulate the AI. It was ignored.</div>');
   if (needsYou.length) {
     parts.push(`<div class="myasis-warn">${needsYou.length} left for you:<ul>` +
-      needsYou.map((n) => `<li>${n.label}${n.why ? ` <small>— ${n.why}</small>` : ''}</li>`).join('') +
+      needsYou.map((n) => `<li>${escapeHtml(n.label)}${n.why ? ` <small>— ${escapeHtml(n.why)}</small>` : ''}</li>`).join('') +
       '</ul></div>');
   }
   parts.push('<div class="myasis-ok">Review everything, then click SEEK\'s Submit button yourself.</div>');
@@ -284,7 +288,6 @@ async function reportSuccess() {
   if (!jobId) return;
   const key = `myasis-reported-${jobId}`;
   if (sessionStorage.getItem(key)) return; // don't double-report on re-render
-  sessionStorage.setItem(key, '1');
 
   const reply = await chrome.runtime
     .sendMessage({
@@ -295,11 +298,14 @@ async function reportSuccess() {
     })
     .catch(() => null);
 
+  const recorded = reply?.ok && reply.data?.ok === true;
+  if (recorded) sessionStorage.setItem(key, '1');
+
   say(
-    reply?.ok
+    recorded
       ? '<div class="myasis-ok"><strong>Application sent.</strong><br>Marked as applied — it won\'t appear in your queue again.</div>'
       : '<div class="myasis-warn">Application sent, but Owtomate could not record it.<br><small>Mark it applied in the dashboard so it is not re-queued.</small></div>',
-    reply?.ok ? 'ok' : 'warn',
+    recorded ? 'ok' : 'warn',
   );
 }
 

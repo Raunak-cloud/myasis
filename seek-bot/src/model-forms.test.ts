@@ -40,6 +40,7 @@ const reply =(content: unknown) =>
 globalThis.fetch = async (_input, init) => {
   const body = String(init?.body);
   // Judgment calls that are not answers get their own fixture replies and are not counted as answer calls.
+  if (body.includes('current-saved-form')) return reply({ problems: [] });
   if (body.includes('required agreement to submit')) return reply({ required_consent: !/marketing/i.test(body.split('<untrusted>').pop() ?? '') });
   if (body.includes('sends_application')) return reply({ sends_application: sendsApplication });
   calls++;

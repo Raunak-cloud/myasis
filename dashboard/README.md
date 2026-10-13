@@ -336,4 +336,4 @@ applications, so it is not something to leave open.
 ### Bandwidth
 
 Roughly 8 KB/s idle, spiking during page loads. Tune with the `quality` and
-`width` query params on the WebSocket URL in `LiveBrowser.tsx`.
+`width` query params on the WebSocket URL in `src/components/LiveActionViewer.tsx`.

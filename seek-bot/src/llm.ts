@@ -696,12 +696,14 @@ export async function fitCoverLetterToLimit(letter: string, maxLength: number, j
   throw new Error(`Could not draft a supported cover note within the form's ${maxLength}-character limit.`);
 }
 
+/** @public Loaded from dist by dashboard/server/assist.ts. */
 export async function polishCoverLetter(draft: string, job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
   return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge), true, [job.company, ...profile.skills]);
 }
 
-/** A grounded draft: written from the profile and documents, checked against them, not yet rewritten. */
+/** A grounded draft: written from the profile and documents, checked against them, not yet rewritten.
+ * @public Loaded from dist by dashboard/server/assist.ts. */
 export async function draftCoverLetter(
   job: JobListing,
   profile: CandidateProfile,

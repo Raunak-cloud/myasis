@@ -9,7 +9,7 @@
     "src/external-real-rehearsal.ts",
     "src/agent-e2e.ts",
     "src/form-replay.ts",
-    "src/bench-*.ts",
+    "src/browser-benchmark.ts",
     "src/**/*.test.ts",
     "src/humanizer-endpoint.ts",
     "src/knowledge.ts",
@@ -25,9 +25,7 @@
     "src/llm.ts",
     "src/pipeline.ts",
     "src/scoring.ts",
-    "scripts/*.mjs",
-    "src/probe.ts",
-    "src/probe-gmail.ts"
+    "scripts/*.mjs"
   ],
   "project": [
     "src/**/*.ts",

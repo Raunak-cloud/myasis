@@ -483,45 +483,52 @@ interface InteractivePageState {
   fingerprint: string;
 }
 
+/** Self-contained so both browser evaluations use the same step fingerprint. */
+function interactivePageState(previous?: InteractivePageState): InteractivePageState | false {
+  if (previous && location.href !== previous.url) {
+    return document.readyState !== 'loading' && { url: location.href, fingerprint: '' };
+  }
+  const compact = (value: string) => value.replace(/\s+/g, ' ').trim();
+  const region = document.querySelector('main, [role="main"], form') ?? document.body;
+  const text = compact((region as HTMLElement | null)?.innerText ?? '').slice(0, 8_000);
+  const roots: Array<Document | ShadowRoot> = [document];
+  const elements: Element[] = [];
+  for (let i = 0; i < roots.length; i++) for (const element of roots[i].querySelectorAll('*')) {
+    if (element.shadowRoot) roots.push(element.shadowRoot);
+    if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"], [role="radio"], [role="checkbox"]')) elements.push(element);
+  }
+  // Long forms (Oracle's ~20 Yes/No pairs on one page) put later questions past a 100-control cap.
+  const controls = elements
+    .slice(0, 400)
+    .map((element) => {
+      const input = element as HTMLInputElement;
+      return [
+        element.tagName,
+        input.type ?? '',
+        input.type === 'password' ? Boolean(input.value) : input.value ?? '',
+        Boolean(input.checked), element.getAttribute('aria-expanded'), element.getAttribute('aria-selected'), element.getAttribute('aria-invalid'),
+        // A pressed toggle button or a checked custom radio is an answer given, not "nothing changed".
+        element.getAttribute('aria-pressed'), element.getAttribute('aria-checked'),
+        input.name ?? '',
+        element.getAttribute('data-automation') ?? '',
+        element.getAttribute('data-field-id') ?? '',
+        element.getAttribute('aria-label') ?? '',
+        compact((element as HTMLElement).innerText ?? '').slice(0, 120),
+      ].join(':');
+    })
+    .join('|');
+  const state = { url: location.href, fingerprint: `${text}\n${controls}` };
+  return previous && state.fingerprint === previous.fingerprint ? false : state;
+}
+
 /** Capture the URL, visible copy and controls that identify a wizard step. */
 export async function captureInteractivePageState(page: Page): Promise<InteractivePageState> {
   return page
-    .evaluate(() => {
-      const compact = (value: string) => value.replace(/\s+/g, ' ').trim();
-      const region = document.querySelector('main, [role="main"], form') ?? document.body;
-      const text = compact((region as HTMLElement | null)?.innerText ?? '').slice(0, 8_000);
-      const roots: Array<Document | ShadowRoot> = [document];
-      const elements: Element[] = [];
-      for (let i = 0; i < roots.length; i++) for (const element of roots[i].querySelectorAll('*')) {
-        if (element.shadowRoot) roots.push(element.shadowRoot);
-        if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"], [role="radio"], [role="checkbox"]')) elements.push(element);
-      }
-      // Long forms (Oracle's ~20 Yes/No pairs on one page) put later questions past a 100-control cap.
-      const controls = elements
-        .slice(0, 400)
-        .map((element) => {
-          const input = element as HTMLInputElement;
-          return [
-            element.tagName,
-            input.type ?? '',
-            input.type === 'password' ? Boolean(input.value) : input.value ?? '',
-            Boolean(input.checked), element.getAttribute('aria-expanded'), element.getAttribute('aria-selected'), element.getAttribute('aria-invalid'),
-            // A pressed toggle button or a checked custom radio is an answer given, not "nothing changed".
-            element.getAttribute('aria-pressed'), element.getAttribute('aria-checked'),
-            input.name ?? '',
-            element.getAttribute('data-automation') ?? '',
-            element.getAttribute('data-field-id') ?? '',
-            element.getAttribute('aria-label') ?? '',
-            compact((element as HTMLElement).innerText ?? '').slice(0, 120),
-          ].join(':');
-        })
-        .join('|');
-      return { url: location.href, fingerprint: `${text}\n${controls}` };
-    })
+    .evaluate(interactivePageState, undefined)
+    .then((state) => state || { url: page.url(), fingerprint: '' })
     .catch(() => ({ url: page.url(), fingerprint: '' }));
 }
 
-/** Wait only as long as the site needs to move to its next wizard step. */
 /**
  * Resolves once a page has stopped doing anything: no network traffic, then
  * no change to the document for a second. A person looking at a page that
@@ -554,38 +561,7 @@ export async function waitForInteractivePageChange(
 ): Promise<boolean> {
   return page
     .waitForFunction(
-      (before) => {
-        if (location.href !== before.url) return document.readyState !== 'loading';
-        const compact = (value: string) => value.replace(/\s+/g, ' ').trim();
-        const region = document.querySelector('main, [role="main"], form') ?? document.body;
-        const text = compact((region as HTMLElement | null)?.innerText ?? '').slice(0, 8_000);
-        const roots: Array<Document | ShadowRoot> = [document];
-        const elements: Element[] = [];
-        for (let i = 0; i < roots.length; i++) for (const element of roots[i].querySelectorAll('*')) {
-          if (element.shadowRoot) roots.push(element.shadowRoot);
-          if (element.matches('input, textarea, select, button, [role="button"], [role="option"], [role="combobox"], [role="radio"], [role="checkbox"]')) elements.push(element);
-        }
-        const controls = elements
-          .slice(0, 400)
-          .map((element) => {
-            const input = element as HTMLInputElement;
-            return [
-              element.tagName,
-              input.type ?? '',
-              input.type === 'password' ? Boolean(input.value) : input.value ?? '',
-              Boolean(input.checked), element.getAttribute('aria-expanded'), element.getAttribute('aria-selected'), element.getAttribute('aria-invalid'),
-            // A pressed toggle button or a checked custom radio is an answer given, not "nothing changed".
-            element.getAttribute('aria-pressed'), element.getAttribute('aria-checked'),
-              input.name ?? '',
-              element.getAttribute('data-automation') ?? '',
-              element.getAttribute('data-field-id') ?? '',
-              element.getAttribute('aria-label') ?? '',
-              compact((element as HTMLElement).innerText ?? '').slice(0, 120),
-            ].join(':');
-          })
-          .join('|');
-        return `${text}\n${controls}` !== before.fingerprint;
-      },
+      interactivePageState,
       previous,
       { polling: 100, timeout },
     )

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
+import { useCallback, useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
 
 /**
  * A textarea as tall as its text, so a filled-in field reads at a glance
@@ -12,7 +12,7 @@ import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react';
 export function AutoGrowTextarea({ maxVh = 60, style, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { maxVh?: number }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  const fit = () => {
+  const fit = useCallback(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
@@ -21,9 +21,9 @@ export function AutoGrowTextarea({ maxVh = 60, style, ...props }: TextareaHTMLAt
     const wanted = el.scrollHeight + border;
     el.style.height = `${Math.min(wanted, cap)}px`;
     el.style.overflowY = wanted > cap ? 'auto' : 'hidden';
-  };
+  }, [maxVh]);
 
-  useLayoutEffect(fit, [props.value, maxVh]);
+  useLayoutEffect(fit, [props.value, fit]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -35,7 +35,7 @@ export function AutoGrowTextarea({ maxVh = 60, style, ...props }: TextareaHTMLAt
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [fit]);
 
   return <textarea ref={ref} {...props} style={{ resize: 'none', ...style }} />;
 }

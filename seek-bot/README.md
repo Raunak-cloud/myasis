@@ -34,7 +34,8 @@ cp .env.example .env      # add CELERIS_API_KEY
 Sign in to SEEK manually in the Chrome profile at `CHROME_PROFILE_DIR` once.
 Employer-site authentication is completed in the candidate's isolated browser.
 The bot uses their email, a private site-specific password and connected Gmail
-for emailed codes. Australian government and payment destinations stay blocked.
+for emailed codes. Government jobs follow the same candidate-fit rules as other
+jobs. Payment destinations stay blocked.
 
 ## Use
 
@@ -44,7 +45,6 @@ npm run build
 node dist/main.js --search-only   # score and shortlist, submit nothing
 node dist/main.js --sync          # seed dedupe store from your SEEK history
 node dist/main.js                 # search and apply
-node dist/probe.js                # diagnose when selectors/schema break
 ```
 
 Run `--sync` first on a fresh install, or it will re-apply to jobs you already
@@ -98,7 +98,7 @@ turn, and take no model output as input:
 | Grounding | Answers come from the grounded answer path. Anything it cannot support is recorded and blocks submission |
 | CAPTCHA / SEEK Pass | Attempts automated recovery; an unresolved technical wall skips the job without creating user attention |
 | Off-platform | Leaving SEEK with external apply disabled halts before anything is entered |
-| Employer authentication | Uses the candidate email, a unique site-specific credential and connected Gmail OTPs; payment and Australian government destinations remain blocked |
+| Employer authentication | Uses the candidate email, a unique site-specific credential and connected Gmail OTPs; payment destinations remain blocked |
 | Budgets | Step, wall-clock and per-application USD ceilings. An agent loop has no natural stopping point |
 | Success | Only `detectConfirmation()` can report `applied`. The agent is explicitly forbidden from declaring success, and an unconfirmed claim is skipped |
 
@@ -201,7 +201,7 @@ By design, not limitation:
 |---|---|
 | CAPTCHA | optionally tries CapMonster Cloud, then skips the job if still blocked |
 | Employer sign-in or sign-up | completes the form, uses connected Gmail for emailed codes, then skips if authentication still cannot complete |
-| Australian government destination | skips before AI review or application |
+| Australian government destination | reviewed and applied under the same candidate-fit rules as other jobs |
 | SEEK Pass / work-rights wall | skips the job without creating a user task |
 | External application while external apply is disabled | logs `off-platform` before AI review, **enters nothing** |
 | A required question not answerable from the verified profile | stops before submitting and asks the candidate |

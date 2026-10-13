@@ -27,12 +27,18 @@ export function FilePreview({ kind, id, label, fileName, onClose }: Props) {
   }, [onClose]);
 
   useEffect(() => {
+    const controller = new AbortController();
     setText(null);
     setError(null);
-    fetch(`/api/preview?kind=${kind}&id=${encodeURIComponent(id)}`)
+    fetch(`/api/preview?kind=${kind}&id=${encodeURIComponent(id)}`, { signal: controller.signal })
       .then((r) => r.json())
-      .then((r) => (r.ok ? setText(r.text ?? '') : setError(r.error ?? 'Could not load.')))
-      .catch((e) => setError(e.message));
+      .then((r) => {
+        if (controller.signal.aborted) return;
+        if (r.ok) setText(r.text ?? '');
+        else setError(r.error ?? 'Could not load.');
+      })
+      .catch((e) => { if (!controller.signal.aborted) setError(e.message); });
+    return () => controller.abort();
   }, [kind, id]);
 
   const chars = text?.length ?? 0;

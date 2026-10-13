@@ -13,6 +13,7 @@ const API = 'http://localhost:5180';
 
 async function callApi(path, body, method) {
   const res = await fetch(`${API}${path}`, {
+    credentials: 'include',
     method: method ?? (body ? 'POST' : 'GET'),
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,

@@ -1,9 +1,10 @@
-const API = 'http://localhost:5180';
 const $ = (id) => document.getElementById(id);
 
 (async () => {
   try {
-    const q = await fetch(`${API}/api/queue`).then((r) => r.json());
+    const response = await chrome.runtime.sendMessage({ type: 'api', path: '/api/queue' });
+    if (!response?.ok || !Array.isArray(response.data)) throw new Error('Queue unavailable');
+    const q = response.data;
     $('server').textContent = 'connected';
     $('server').style.color = '#34d399';
     $('queue').textContent = `${q.filter((i) => i.status === 'pending').length} pending`;

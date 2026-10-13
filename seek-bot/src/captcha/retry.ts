@@ -3,12 +3,12 @@ export interface CaptchaSolveResult { status?: string; type?: string; error?: st
 // detectTimeout only bounds detection, not solving:
 // https://docs.brightdata.com/products/scraping-browser/cdp-functions/custom
 export const CAPTCHA_RETRY_LIMITS = { attempts: 3, attemptMs: 300_000, totalMs: 300_000 };
-export class CaptchaRequestDeadline extends Error {
+class CaptchaRequestDeadline extends Error {
   readonly code = 'CAPTCHA_REQUEST_DEADLINE';
   constructor() { super('CAPTCHA request deadline'); this.name = 'CaptchaRequestDeadline'; }
 }
 export interface CaptchaRetryOutcome { status: 'solved' | 'cleared' | 'failed'; attempts: number }
-export interface CaptchaAttemptDiagnostic { elapsedMs: number; phase: 'solve' | 'detect'; error?: unknown; response?: CaptchaSolveResult }
+interface CaptchaAttemptDiagnostic { elapsedMs: number; phase: 'solve' | 'detect'; error?: unknown; response?: CaptchaSolveResult }
 export interface CaptchaRetryDependencies {
   solve: () => Promise<CaptchaSolveResult>;
   /** Read-only: false when the original page changed or its challenge disappeared. */

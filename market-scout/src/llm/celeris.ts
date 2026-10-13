@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { Semaphore } from '../core/semaphore.js';
 
 /**
  * Client for Celeris' OpenAI-compatible chat API — the only model provider.
@@ -133,23 +134,7 @@ class RateLimitedError extends Error {
  * browser tasks all call at once; the workspace's output-tokens-per-minute
  * quota is shared, so concurrency is bounded here, once.
  */
-class Gate {
-  private waiting: Array<() => void> = [];
-  constructor(private free: number) {}
-  async acquire() {
-    if (this.free > 0) {
-      this.free -= 1;
-      return;
-    }
-    await new Promise<void>((resolve) => this.waiting.push(resolve));
-  }
-  release() {
-    const next = this.waiting.shift();
-    if (next) next();
-    else this.free += 1;
-  }
-}
-const inFlight = new Gate(Math.max(1, Number(process.env.CELERIS_CONCURRENCY) || 4));
+const inFlight = new Semaphore(Math.max(1, Number(process.env.CELERIS_CONCURRENCY) || 4));
 
 /** The reply exists but cannot be used; asking again the same way fails the same way. */
 class ReplyUnusableError extends Error {}

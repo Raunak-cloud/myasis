@@ -4,14 +4,14 @@
   "entry": [
     "src/novnc.d.ts",
     "server/**/*.test.ts",
-    "test/*.test.mjs",
+    "test/*.test.{mjs,ts}",
     "scripts/*.mts",
     "run-account.mjs"
   ],
   "project": [
     "src/**/*.{ts,tsx}",
     "server/**/*.ts",
-    "test/*.test.mjs",
+    "test/*.test.{mjs,ts}",
     "scripts/*.mts",
     "*.{ts,mjs}"
   ]

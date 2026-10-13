@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { parseLooseJson } from '../core/harvest.js';
 import { markBlocked, OffLimitsError, politely, searchEngineOf, useBrowserFetch } from '../core/politeness.js';
 import { assertPublicUrl } from '../core/public-url.js';
+import { Semaphore } from '../core/semaphore.js';
 
 /**
  * The scout's one browser: a persistent, logged-out profile.
@@ -94,22 +95,6 @@ export async function withPage<T>(work: (page: Page) => Promise<T>): Promise<T> 
   }
 }
 
-class Semaphore {
-  private waiting: Array<() => void> = [];
-  constructor(private free: number) {}
-  async acquire() {
-    if (this.free > 0) {
-      this.free -= 1;
-      return;
-    }
-    await new Promise<void>((resolve) => this.waiting.push(resolve));
-  }
-  release() {
-    const next = this.waiting.shift();
-    if (next) next();
-    else this.free += 1;
-  }
-}
 const pageSlots = new Semaphore(Math.max(1, config.budget.concurrency));
 
 /** Navigates at the host's pace, then checks the page is content and not a wall. */
