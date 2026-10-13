@@ -47,7 +47,8 @@ const server = createServer((req, res) => {
       '101': '<a data-automation="job-detail-apply" href="https://employer.invalid/apply/101">Apply</a><p>You applied on 1 October 2026</p>',
       '102': '<a data-automation="job-detail-apply" href="/apply/102">Quick&nbsp; Apply</a><p>You are a strong applicant for this role</p>',
     };
-    const detail = `<div data-automation="jobAdDetails">Build reliable software — accessibility &amp; internationalisation.</div>${variants[id] ?? ''}`;
+    const advert = id === '103' ? 'If you already applied to another role, you can still apply here.' : 'Build reliable software — accessibility &amp; internationalisation.';
+    const detail = `<div data-automation="jobAdDetails">${advert}</div>${variants[id] ?? ''}`;
     res.end(id === '300' ? html(`<div id="target"></div><script>setTimeout(()=>document.querySelector('#target').innerHTML=${JSON.stringify(detail)},250)</script>`) : html(detail)); return;
   }
   if (url.pathname === '/animate') { res.end(html('<main style="font-size:40px">LIVE FIXTURE <span id="tick"></span></main><script>setInterval(()=>{document.querySelector("#tick").textContent=Date.now();document.body.style.background=Date.now()%2?"#ddd":"#fff"},50)</script>')); return; }
@@ -165,6 +166,11 @@ try {
   await check('strong applicant and whitespace in hosted CTA', async () => {
     const detail = await fetchJobDetail(page, { ...job, id: '102', url: `${base}/job/102` });
     assert(detail.strongApplicant); assert.equal(detail.applicationMode, 'hosted');
+  });
+  await check('employer advert copy cannot impersonate the board applied marker', async () => {
+    const detail = await fetchJobDetail(page, { ...job, id: '103', url: `${base}/job/103` });
+    assert.match(detail.description!, /already applied/);
+    assert.equal(detail.alreadyApplied, false);
   });
   await check('delayed detail rendering and absent CTA', async () => {
     const detail = await fetchJobDetail(page, { ...job, id: '300', url: `${base}/job/300` });

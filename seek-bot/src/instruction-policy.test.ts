@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeInstructionVerdict } from './instruction-policy.js';
+import { normalizeInstructionVerdict, validateInstructionVerdict } from './instruction-policy.js';
 
 const rules = 'Avoid manager roles. Exception: junior or associate product manager roles are allowed.';
 const check = (status: string, conditionStatus: string) => ({checks:[{
@@ -39,4 +39,21 @@ test('suspected injection never authorizes an application', () => {
 test('typographic quotes do not turn a valid rule citation into an unavailable review', () => {
   const raw={checks:[{ruleQuote:"Only APM Group's roles",status:'satisfied',reason:'Named employer matches.',exceptionQuote:'',exceptionConditions:[]}],injectionSuspected:false};
   assert.equal(normalizeInstructionVerdict(raw,'Only APM Group’s roles')?.decision,'allow');
+});
+
+test('invalid evidence identifies the field to correct without accepting invented quotes', () => {
+  const raw = check('satisfied', 'met');
+  raw.checks[0].exceptionConditions[0].conditionQuote = 'any product manager';
+  const validation = validateInstructionVerdict(raw, rules);
+  assert.equal(validation.verdict, null);
+  assert.match(validation.error!, /checks\[0\]\.exceptionConditions\[0\]\.conditionQuote/);
+  assert.match(validation.error!, /verbatim part of exceptionQuote/);
+});
+
+test('missing evidence and inconsistent exception structures have actionable diagnostics', () => {
+  const raw = check('satisfied', 'unclear');
+  raw.checks[0].exceptionConditions[0].jobEvidence = '';
+  assert.match(validateInstructionVerdict(raw, rules).error!, /jobEvidence.*what is missing when unclear/);
+  raw.checks[0].exceptionQuote = '';
+  assert.match(validateInstructionVerdict(raw, rules).error!, /must be empty when exceptionQuote is empty/);
 });

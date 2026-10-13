@@ -4,6 +4,30 @@ import { activityEvents, activitySummary, formatActivityReason } from '../src/ac
 import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
+
+test('late duplicates restore review and match counts without becoming submissions', () => {
+  const lines = log([
+    '  ✓ 90 · Course Coach @ Fixture College (Sydney) [SEEK]',
+    '→ Applying: Course Coach @ Fixture College',
+    '  Review slot restored: Course Coach @ Fixture College',
+    '  ↩ already applied — An application to this role is already recorded.',
+    '  ✓ 88 · New Developer @ New Employer (Sydney) [SEEK]',
+  ]);
+  assert.equal(activitySummary(lines).reviewed, 1);
+  assert.equal(activitySummary(lines).suitable, 1);
+  assert.equal(activitySummary(lines).submitted, 0);
+  const events = activityEvents(lines, Infinity);
+  assert.match(events.find(event => event.title === 'Reviewing jobs').detail, /^1 checked · 1 profile match · latest match: New Developer at New Employer$/);
+  assert.ok(events.some(event => event.title === 'Already applied to Course Coach'));
+});
+
+test('instruction evidence failures show a useful explanation without schema internals', () => {
+  const events = activityEvents(log([
+    '! fit check failed for Professional Search Group: Instruction exception review violated its evidence schema: checks[0].ruleQuote must quote the rules',
+  ]));
+  assert.equal(events[0].title, 'Could not review a job at Professional Search Group');
+  assert.equal(events[0].detail, 'The job could not be checked reliably against your instructions. Please try again later.');
+});
 const completion = (lines) => activityEvents(lines).find((event) => event.title === 'Run complete').detail;
 
 test('public employer feeds report connection and partial failures without claiming a sign-in', () => {

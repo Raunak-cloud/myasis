@@ -189,6 +189,11 @@ async function main() {
       submittedByMyasis: false,
     });
   };
+  const previousApplication = (job: JobListing): string | null => job.alreadyApplied
+    ? job.appliedNote || 'The job board confirms an earlier application to this role.'
+    : index.has(job.id, job.company, job.title, job.location) || index.hasRole(job.company, job.title)
+      ? 'An application to this role is already recorded.'
+      : null;
   const already = index.appliedToday();
   console.log(`Known applications: ${index.all.length} (${already} today)`);
 
@@ -261,7 +266,12 @@ async function main() {
         if (seen.has(key)) continue;
         seen.set(key, job);
 
-        if (index.has(job.id, job.company, job.title, job.location)) continue;
+        const appliedReason = previousApplication(job);
+        if (appliedReason) {
+          bump('already applied');
+          if (job.alreadyApplied) rememberExistingApplication(job, appliedReason);
+          continue;
+        }
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
         if (waitingForAnswers(feedback.get(JSON.stringify([job.id, job.title, job.company])), answeredAt)) {
           bump('waiting for your answer');
@@ -626,6 +636,7 @@ async function main() {
       if (qualified >= candidateCap) return;
       const { job, score, scoreReasons, adapter } = item;
       if (error) {
+        restoreReviewSlot(job, false);
         console.warn(`  ! fit check failed for ${job.company}: ${error}`);
         logOutcome({
           status: 'error',
@@ -701,12 +712,33 @@ async function main() {
     let reviewIndex = 0;
     let evaluated = 0;
     let reviewStopped = false;
+    const reviewReservations = new Set<string>();
+    const reviewReservationKey = (job: JobListing) => `${job.platform ?? 'seek'}:${job.id}`;
+    /** Unusable reviews and late duplicate discoveries must leave room for another new job. */
+    const restoreReviewSlot = (job: JobListing, completed: boolean) => {
+      if (!reviewReservations.delete(reviewReservationKey(job))) return;
+      evaluated--;
+      if (completed) {
+        qualified--;
+        console.log(`  Review slot restored: ${job.title} @ ${job.company}`);
+      }
+      if (qualified < candidateCap && evaluated < config.limits.maxEvaluations) reviewStopped = false;
+    };
     const reviewDone = () => reviewStopped || (reviewIndex >= shortlist.length && !searchesLeft());
     /** Nothing left to review and no fit check still out. */
     const reviewExhausted = () => reviewDone() && !pendingFits.length;
 
     /** Reviews the next listing in the pre-ranked queue. */
     const jobLabel = (job: JobListing) => `${job.title} @ ${job.company}`;
+    const skipPreviousApplication = (job: JobListing): boolean => {
+      const reason = previousApplication(job);
+      if (!reason) return false;
+      rememberExistingApplication(job, reason);
+      bump('already applied');
+      console.log(`  – skipped (already applied): ${jobLabel(job)}`);
+      logOutcome({ status: 'already-applied', jobId: job.id, reason, title: job.title, company: job.company });
+      return true;
+    };
     const reviewNext = async (): Promise<void> => {
       if (reviewDone()) return;
       if (qualified >= candidateCap) {
@@ -726,6 +758,8 @@ async function main() {
       const stub = shortlist[reviewIndex++];
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id) || abortedPlatforms.has(adapter.id)) return;
+      // History may have changed since discovery while another application was sent.
+      if (skipPreviousApplication(stub)) return;
       if (stub.applicationMode && stub.applicationMode !== 'unknown' && outsideScope(stub.applicationMode)) {
         bump('outside run scope');
         return;
@@ -752,6 +786,10 @@ async function main() {
         else console.warn(`  ! ${jobLabel(stub)}: the listing could not be opened (${(error as Error).message})`);
         return;
       }
+
+      // Board history includes applications made by hand or on another device.
+      // Check it before reading pauses, fit/model calls and the evaluation reservation.
+      if (skipPreviousApplication(job)) return;
 
       // Resolve run scope as soon as the listing CTA is known. In particular,
       // do not make a page-judgement model call or simulate reading time for an
@@ -845,7 +883,10 @@ async function main() {
         }
       }
 
+      // A loading retry can be the first read to reveal the board's applied marker.
+      if (skipPreviousApplication(job)) return;
       evaluated++;
+      reviewReservations.add(reviewReservationKey(job));
 
       const heuristic = searchOnly ? scoreJob(job, profile) : null;
       const priority = reviewPriorities.get(reviewKey(job));
@@ -1029,13 +1070,15 @@ async function main() {
       }
 
       // Checked again here, not only at discovery: another board's listing of this job may have gone through minutes ago.
-      if (index.has(job.id, job.company, job.title, job.location) || index.hasRole(job.company, job.title)) {
+      if (previousApplication(job)) {
+        restoreReviewSlot(job, true);
         console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
         logOutcome({ status: 'skipped', jobId: job.id, reason: 'already applied to this role', title: job.title, company: job.company });
         continue;
       }
       const role = roleKey(job.company, job.title);
       if (attemptedRoles.has(role)) {
+        restoreReviewSlot(job, true);
         console.log(`  – skipped (same role already attempted this run): ${job.title} @ ${job.company}`);
         logOutcome({ status: 'skipped', jobId: job.id, reason: 'duplicate listing of a role already attempted this run', title: job.title, company: job.company });
         continue;
@@ -1075,6 +1118,7 @@ async function main() {
         const identity = await measured('application-identity', () => checkApplicationIdentity(job, index.all, judgeApplicationIdentity), { jobId: job.id });
         metric('application-identity-decision', 0, { jobId: job.id, state: identity.state, matchedJobId: identity.matchedJobId });
         if (identity.state !== 'distinct') {
+          if (identity.state === 'duplicate') restoreReviewSlot(job, true);
           const reason = identity.state === 'duplicate' ? `Already applied to this vacancy: ${identity.reason}` : `Possible duplicate withheld: ${identity.reason}`;
           console.log(`  – skipped: ${job.title} @ ${job.company} — ${reason}`);
           logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, reason });
@@ -1189,6 +1233,7 @@ async function main() {
           console.log(`  ↪ off-platform (${outcome.redirectedTo}) — skipped, nothing entered`);
           break;
         case 'already-applied':
+          restoreReviewSlot(job, true);
           rememberExistingApplication(job, outcome.reason);
           console.log(`  ↩ already applied — ${outcome.reason}`);
           break;

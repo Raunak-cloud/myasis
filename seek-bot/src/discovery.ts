@@ -329,7 +329,11 @@ export async function fetchJobDetail(page: Page, job: JobListing): Promise<JobLi
    */
   const applied = await page
     .evaluate(() => {
-      const m = document.body.innerText.match(/[^\n]*\b(you applied|already applied)\b[^\n]*/i);
+      const description = document.querySelector('[data-automation="jobAdDetails"]') as HTMLElement | null;
+      // Employer instructions inside the advert are not the board's application history.
+      if (!description) return null;
+      const boardText = document.body.innerText.replace(description.innerText, '');
+      const m = boardText.match(/[^\n]*\b(you applied|already applied)\b[^\n]*/i);
       return m ? m[0].trim().slice(0, 80) : null;
     })
     .catch(() => null);

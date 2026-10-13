@@ -9,6 +9,8 @@
  * reach the page whatever the wording around it.
  */
 const PLAIN: Array<[RegExp, string]> = [
+  [/Instruction (?:exception review|assessment) violated its evidence schema/i,
+    'The job could not be checked reliably against your instructions. Please try again later.'],
   [/capmonster|captcha|cloudflare|security (?:check|verification)|anti-bot/i,
     "The site's security check could not be completed."],
   [/CELERIS_API_KEY|matching service is not configured|\bAPI[ _-]?key\b/i,

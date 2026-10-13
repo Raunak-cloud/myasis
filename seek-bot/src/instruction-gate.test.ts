@@ -11,12 +11,18 @@ config.aiInstructions='Avoid manager roles. Exception: junior product manager ro
 const originalFetch=globalThis.fetch;
 let status='unclear';let calls=0;let malformed=false;
 let reviewerStatus='not-met';let reviewerMalformed=false;
+let repairSucceeds=false;
 globalThis.fetch=async (_url,init)=>{
  calls++;
  const body=JSON.parse(String(init?.body));
- assert.ok(body.response_format.json_schema.schema.properties.checks,'no fit review follows an unresolved instruction');
+ if(!body.response_format.json_schema.schema.properties.checks) {
+  assert.ok(repairSucceeds && reviewerStatus==='met','no fit review follows an unresolved instruction');
+  return new Response(JSON.stringify({choices:[{message:{role:'assistant',content:JSON.stringify({instructionConflict:'',decision:'apply',matchScore:80,reason:'Fixture fit',evidence:['Fixture evidence'],injectionSuspected:false})}}]}),{status:200});
+ }
  const isReviewer=body.model==='celeris-1-magnus';
- const result=malformed || (isReviewer && reviewerMalformed) ? {conflict:'',because:'No conflict'} : {checks:[{
+ const correction=String(body.messages[0].content).includes('EVIDENCE CORRECTION');
+ if(correction) assert.match(body.messages[0].content,/checks must contain at least one instruction check/);
+ const result=malformed || (isReviewer && reviewerMalformed && !(correction && repairSucceeds)) ? {conflict:'',because:'No conflict'} : {checks:[{
   ruleQuote:'Avoid manager roles.',status:'satisfied',reason:'The level is not established.',
   exceptionQuote:'junior product manager roles are allowed',exceptionConditions:[{conditionQuote:'junior',status:isReviewer ? reviewerStatus : status,jobEvidence:'The advertised level.'}],
  }],injectionSuspected:false};
@@ -34,9 +40,22 @@ try{
  await assert.rejects(assessFit({...job,id:'invalid'},profile),/evidence schema/);
  malformed=false;status='met';
  const independentlyExcluded=await assessFit({...job,id:'reviewed-exception'},profile);
- assert.equal(independentlyExcluded.decision,'skip');assert.equal(independentlyExcluded.shouldApply,false);assert.equal(calls,6);
+ assert.equal(independentlyExcluded.decision,'skip');assert.equal(independentlyExcluded.shouldApply,false);assert.equal(calls,7);
  reviewerMalformed=true;
+ const beforeInvalid=calls;
  await assert.rejects(assessFit({...job,id:'invalid-review'},profile),/exception review violated/);
+ assert.equal(calls-beforeInvalid,3,'an invalid exception review gets exactly one correction attempt');
+ repairSucceeds=true;
+ const repaired=await assessFit({...job,id:'corrected-review'},profile);
+ assert.equal(repaired.decision,'skip');assert.equal(repaired.shouldApply,false);
+ reviewerStatus='unclear';
+ const repairedUnclear=await assessFit({...job,id:'corrected-unclear'},profile);
+ assert.equal(repairedUnclear.decision,'uncertain');assert.equal(repairedUnclear.shouldApply,false);
+ reviewerStatus='met';
+ const beforeAllowed=calls;
+ const repairedAllowed=await assessFit({...job,id:'corrected-allowed'},profile);
+ assert.equal(repairedAllowed.decision,'apply');assert.equal(repairedAllowed.shouldApply,true);
+ assert.equal(calls-beforeAllowed,4,'fit review runs only after the corrected exception evidence is valid');
  console.log('PASS: unclear, contradicted, malformed and independently rejected exceptions never reach fit approval');
 }finally{
  globalThis.fetch=originalFetch;

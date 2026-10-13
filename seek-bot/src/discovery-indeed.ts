@@ -383,7 +383,8 @@ async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobL
         document.querySelector('[data-testid="inlineHeader-companyLocation"]')?.textContent?.trim() ||
         document.querySelector('[data-testid="job-location"]')?.textContent?.trim() ||
         '';
-      const appliedMatch = text.match(/(?:you applied|application (?:was )?(?:submitted|sent))[^\n.]*/i);
+      const boardText = descriptionNode ? text.replace((descriptionNode as HTMLElement).innerText, '') : '';
+      const appliedMatch = boardText.match(/(?:you applied|application (?:was )?(?:submitted|sent))[^\n.]*/i);
       return {
         description: (descriptionNode as HTMLElement | null)?.innerText?.trim() || text.trim(),
         location,

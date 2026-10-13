@@ -33,10 +33,11 @@ function lastMatch(lines: LogLine[], pattern: RegExp): RegExpMatchArray | null {
 
 export function activitySummary(lines: LogLine[]) {
   const found = Number(lastMatch(lines, /(\d+) unique listings discovered/i)?.[1] ?? 0);
-  const reviewed = lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length;
+  const restored = lines.filter((line) => /^\s*Review slot restored:/.test(line.text)).length;
+  const reviewed = Math.max(0, lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length - restored);
   // Matches are counted as they are found; the end-of-run total wins once it is printed.
   const suitable = Math.max(
-    lines.filter((line) => /^\s*✓\s+\d+\s+·/.test(line.text)).length,
+    lines.filter((line) => /^\s*✓\s+\d+\s+·/.test(line.text)).length - restored,
     Number(lastMatch(lines, /(\d+) qualifying jobs/i)?.[1] ?? 0),
   );
   /**
@@ -160,6 +161,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   let reviewed = 0;
   let suitable = 0;
   let latestMatch = '';
+  const matchedJobs: string[] = [];
   let application: { event: ActivityEvent; title: string; company: string; steps: string[]; startedAtMs: number } | null = null;
   let finished = false;
 
@@ -224,9 +226,19 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         suitable++;
         const job = listing(match[3]);
         latestMatch = job.company ? `${job.title} at ${job.company}` : job.title;
+        matchedJobs.push(latestMatch);
       }
       if (!review) review = add(line, 'Reviewing jobs', 'neutral', reviewDetail());
       else review.detail = reviewDetail();
+    } else if ((match = text.match(/^Review slot restored:\s*(.+)$/))) {
+      reviewed = Math.max(0, reviewed - 1);
+      suitable = Math.max(0, suitable - 1);
+      const job = listing(match[1]);
+      const restoredJob = job.company ? `${job.title} at ${job.company}` : job.title;
+      const index = matchedJobs.lastIndexOf(restoredJob);
+      if (index >= 0) matchedJobs.splice(index, 1);
+      latestMatch = matchedJobs.at(-1) ?? '';
+      if (review) review.detail = reviewDetail();
     } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
       currentJob = `${match[1]} at ${match[2]}`;
       application = {
