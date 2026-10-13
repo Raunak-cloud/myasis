@@ -9,7 +9,7 @@ import type { CandidateProfile, FormField } from './types.js';
 import type { ToolContext } from './agent/tools.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-form-speed-'));
-Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_SPEED_PILOT: 'true', DRY_RUN: 'false', CAPTCHA_SOLVER: 'off' });
+Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_SPEED_PILOT: 'true', DRY_RUN: 'false', CAPTCHA_SOLVER: 'off', RESUME_ALLOW_UPLOAD: 'true', RESUME_SELECT: '', EMPLOYER_BROWSER_PROVIDER: 'local' });
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'fixture.txt'), 'Approved synthetic resume');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'fixture', label: 'Fixture CV', fileName: 'fixture.txt', isDefault: true }]));
@@ -76,6 +76,15 @@ try {
     await page.evaluate(() => document.querySelector('#host')!.shadowRoot!.innerHTML = '<input name="after">');
     assert.notEqual(await currentFormStructure(page), before);
   });
+  await check('changed ARIA and slotted questions invalidate unchanged controls', async () => {
+    await page.setContent('<main><span id="question">Original question</span><input aria-labelledby="question"><div id="host"><span slot="question">Original slotted question</span></div></main>');
+    await page.evaluate(() => document.querySelector('#host')!.attachShadow({ mode: 'open' }).innerHTML = '<label for="answer"><slot name="question"></slot></label><input id="answer">');
+    const before = await currentFormStructure(page);
+    await page.locator('#question').evaluate(el => el.textContent = 'Different question');
+    const ariaChanged = await currentFormStructure(page); assert.notEqual(ariaChanged, before);
+    await page.locator('[slot=question]').evaluate(el => el.textContent = 'Different slotted question');
+    assert.notEqual(await currentFormStructure(page), ariaChanged);
+  });
   await check('exact validated answer reuse survives ref changes and mixed new fields', async () => {
     const before = calls;
     await answerFields([field], job, profile);
@@ -128,7 +137,9 @@ try {
     const result = await executeTool(ctx, 'attach_resume', { ref: action.ref });
     timing.uploadReplacementMs = performance.now() - start;
     assert(performance.now() - start < 2500);
+    assert.match(JSON.stringify(result), /Resume file sent to the selected control/);
     assert.match(JSON.stringify(result), /fixture.txt/);
+    await page.getByText('Upload rejected by server', { exact: true }).waitFor({ timeout: 3000 });
     assert.match(await page.locator('body').innerText(), /Upload rejected/);
     assert.equal(result.kind, 'ok'); assert.match(JSON.stringify(result), /not application success/);
   });

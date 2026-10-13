@@ -48,6 +48,10 @@ export async function currentFormStructure(page: Page): Promise<string> {
   for (const frame of page.frames()) {
     structures.push(await frame.evaluate(() => {
       const roots: Array<Document | ShadowRoot> = [document], controls: unknown[] = [];
+      const wording = (node: Node): string => {
+        if (node instanceof HTMLSlotElement) return (node.assignedNodes({ flatten: true }).length ? node.assignedNodes({ flatten: true }) : [...node.childNodes]).map(wording).join('');
+        return node.nodeType === Node.TEXT_NODE ? node.textContent ?? '' : [...node.childNodes].map(wording).join('');
+      };
       for (let i = 0; i < roots.length; i++) for (const el of roots[i].querySelectorAll('*')) {
         if (el.shadowRoot) roots.push(el.shadowRoot);
         if (!el.matches('input:not([type=hidden]), select, textarea, [role=combobox], [role=radio], [role=checkbox], [contenteditable=true]')) continue;
@@ -55,9 +59,12 @@ export async function currentFormStructure(page: Page): Promise<string> {
         const box = el.getBoundingClientRect();
         if (box.width <= 0 || box.height <= 0) continue;
         const input = el as HTMLInputElement;
+        const root = el.getRootNode() as Document | ShadowRoot;
+        const labelled = (el.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean)
+          .map(id => root.getElementById(id) ?? document.getElementById(id)).map(node => node ? wording(node) : '');
         controls.push([el.tagName, el.getAttribute('data-field-id'), el.id, input.name, input.type,
-          el.getAttribute('role'), el.getAttribute('aria-label'), el.getAttribute('aria-labelledby'),
-          [...(input.labels ?? [])].map(label => label.textContent), input.required, input.disabled, input.readOnly,
+          el.getAttribute('role'), el.getAttribute('aria-label'), el.getAttribute('aria-labelledby'), labelled,
+          [...(input.labels ?? [])].map(wording), input.required, input.disabled, input.readOnly,
           el instanceof HTMLSelectElement ? [...el.options].map(option => [option.value, option.textContent]) : null]);
       }
       return controls;
