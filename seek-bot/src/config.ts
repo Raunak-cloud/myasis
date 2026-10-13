@@ -110,6 +110,8 @@ export const config = {
   userDataDir: process.env.CHROME_PROFILE_DIR ?? 'C:\\Users\\PC\\ChromeDebugProfile',
   chromePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   headless: process.env.HEADLESS === 'true',
+  /** Owner-authorized admin pilot, enforced by the dashboard after overrides. */
+  formSpeed: process.env.FORM_SPEED_PILOT === 'true',
   /** Real window, parked off-screen: same fingerprint as visible, out of the way. */
   background: process.env.BACKGROUND === 'true',
 

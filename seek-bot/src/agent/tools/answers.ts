@@ -6,6 +6,8 @@ import type { FormField } from '../../types.js';
 import { locate } from '../raw-tools.js';
 import { ANSWER_BATCH, ToolResult, ToolContext, ok } from './context.js';
 import { clickRef } from './actions.js';
+import { config } from '../../config.js';
+import { boundedAnswerBatch, currentFormStructure } from '../../form-speed.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -236,10 +238,10 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
    */
   const credentials = asked.filter((field) => field.sensitive && !alreadyComplete.includes(field));
   // In page order, whatever order the refs came in: filling follows the form as a person would.
-  const wanted = ctx.observation.fields
+  const unanswered = ctx.observation.fields
     .map((field) => asked.find((candidate) => candidate.ref === field.ref))
-    .filter((field): field is (typeof asked)[number] => Boolean(field) && !field!.sensitive && !alreadyComplete.includes(field!))
-    .slice(0, ANSWER_BATCH);
+    .filter((field): field is (typeof asked)[number] => Boolean(field) && !field!.sensitive && !alreadyComplete.includes(field!));
+  const wanted = config.formSpeed ? boundedAnswerBatch(unanswered, config.celeris.maxOutputTokens) : unanswered.slice(0, ANSWER_BATCH);
   if (credentials.length) return ok('Use complete_authentication for credential fields.');
   if (!wanted.length) return ok('No unanswered fields in those refs. Re-observe and choose the next field; use repair_refs to correct a prefilled value.');
 
@@ -297,6 +299,7 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
   };
 
   /** Fields of this batch not reached because the form changed shape first. */
+  const budgetDeferred = unanswered.filter(field => !wanted.includes(field)).map(field => field.label);
   const deferred: string[] = [];
   const deferRest = (from: number) => {
     for (const later of ordered.slice(from)) {
@@ -304,13 +307,15 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
       if (label && !deferred.includes(label)) deferred.push(label);
     }
   };
-  let shape = wanted.length > 1 ? await formShape(ctx.page) : -1;
+  const readShape = () => config.formSpeed ? currentFormStructure(ctx.page) : formShape(ctx.page);
+  let shape = wanted.length > 1 ? await readShape() : -1;
   let fills = 0;
   // Answers are applied in page order, not the order the model listed them.
   const ordered = wanted
     .map((field) => answers.find((answer) => answer.ref === field.ref))
     .filter((answer): answer is (typeof answers)[number] => Boolean(answer));
   for (const [index, answer] of ordered.entries()) {
+    if (config.formSpeed && index > 0 && await readShape() !== shape) { deferRest(index); break; }
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
 
@@ -347,7 +352,7 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
 
     const value = answer.value;
     // A person's pause between one question and the next, as the separate turns used to give.
-    if (fills++) await jitter(350, 900);
+    if (fills++ && !config.formSpeed) await jitter(350, 900);
     try {
       const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
       const selected = field.autocomplete && !field.validationError && field.currentValue?.trim() === value.trim()
@@ -385,8 +390,8 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
     if (prior >= 0) ctx.captured.splice(prior, 1);
     ctx.captured.push({ question: field.label, answer: value });
     filled.push(`${field.label} → ${value.slice(0, 60)}${answer.rationale ? ` (${answer.rationale.slice(0, 500)})` : ''}`);
-    if (shape >= 0 && index < ordered.length - 1) {
-      const now = await formShape(ctx.page);
+    if (shape !== -1 && index < ordered.length - 1) {
+      const now = await readShape();
       if (now !== shape) {
         // The form rebuilt itself: the answers still to go were chosen for the form as it was.
         deferRest(index + 1);
@@ -407,6 +412,7 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
       : '') +
     `Verified ${filled.length} field(s):\n${filled.map((line) => `  - ${line}`).join('\n')}` +
       (deferred.length ? `\nNot filled yet, because the form changed after an answer: ${deferred.join('; ')}. Re-observe and answer them with their fresh refs.` : '') +
+      (budgetDeferred.length ? `\nNot filled yet, because this batch reached its answer budget: ${budgetDeferred.join('; ')}. Re-observe and answer them with their fresh refs.` : '') +
       (searched.length ? `\nSearch text entered, not yet selected: ${searched.join('; ')}. Its suggestions now show as [option] actions: call choose_option with the matching option ref and this field as field_ref. If no options appear, open the list with click or press_key ArrowDown first.` : '') +
       (skipped.length ? `\nLeft blank (optional, nothing in the profile supports an answer): ${skipped.join('; ')}` : '') +
       (unrelated.length ? `\nNot application questions, so left to you as site controls: ${unrelated.join('; ')}. Operate them with fill_element (give the value, e.g. the candidate's suburb for a location search), type_text or click, then pick the observed option.` : '') +

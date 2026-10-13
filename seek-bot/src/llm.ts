@@ -2,7 +2,9 @@ import { isEmployerSource } from './employer-source-config.js';
 import { config, expectedSalaryAnswer } from './config.js';
 import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
-import { cachedAssessment, relevantEvidence, measured } from './pipeline.js';
+import { cachedAssessment, relevantEvidence, measured, metric } from './pipeline.js';
+import { FormAnswerCache } from './form-speed.js';
+import { reviewContextFingerprint } from './review-cache.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
 import { recentReviewFeedback } from './store.js';
@@ -19,6 +21,7 @@ import {
  * cover letter mid-application would strand a half-filled form.
  */
 const llmMeter = new CostMeter(Number.MAX_SAFE_INTEGER);
+const formAnswers = new FormAnswerCache();
 
 /**
  * The schemas below are written in the uppercase dialect (`OBJECT`,
@@ -397,6 +400,21 @@ export async function answerFields(
   const saved = (options.savedAnswers ?? (knowledgeOverride === undefined ? loadSavedAnswers() : [])).slice(0, 200);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney' });
   const where = job.platform === 'indeed' ? 'Indeed' : job.platform === 'external' || (job.platform && isEmployerSource(job.platform)) ? "the employer's website" : 'SEEK';
+  // Overrides are multi-account dashboard calls: without a worker-owned
+  // DATA_DIR we deliberately do not cache. No ref, selector or guessed label
+  // can substitute for the candidate/job/evidence/form context in this scope.
+  const answerScope = config.formSpeed && knowledgeOverride === undefined
+    ? JSON.stringify(['answer-fields-v1', config.dataDir, reviewContextFingerprint(profile), profile, job, knowledge, saved, today,
+        config.aiInstructions, config.celeris.baseUrl, options.deeper, options.formContext])
+    : null;
+  const reused = new Map<string, FieldAnswer>();
+  if (answerScope) for (const field of fields) {
+    const found = formAnswers.get(answerScope, field);
+    if (found) reused.set(field.ref, found);
+  }
+  if (reused.size) metric('answer-cache-hit', 0, { fields: reused.size });
+  const toAnswer = fields.filter(field => !reused.has(field.ref));
+  if (!toAnswer.length) return { answers: fields.map(field => reused.get(field.ref)!), injectionSuspected: false };
   /**
    * Fixed text first, then what changes least to most: the day, the
    * candidate, their saved answers, the documents chosen for this job, the
@@ -455,7 +473,7 @@ Description: ${relevantEvidence(job.description ?? job.teaser ?? '', job.title +
 </untrusted>
 
 ${options.formContext ? `<untrusted role="form-context">\n${options.formContext}\n</untrusted>\n\n` : ''}<untrusted role="form-fields">
-${JSON.stringify(fields, null, 2)}
+${JSON.stringify(toAnswer, null, 2)}
 </untrusted>
 
 Answer every field in the form fields above, following the rules at the top. Return JSON.`;
@@ -497,6 +515,8 @@ Answer every field in the form fields above, following the rules at the top. Ret
   }, 'celeris-1-magnus', undefined, options.deeper ? 'medium' : undefined);
   if (!Array.isArray(result.answers)) throw new Error('Answer response was not an array');
   const answers = fields.map(field => {
+    const cached = reused.get(field.ref);
+    if (cached) return cached;
     const matches = result.answers.filter(a => a.ref === field.ref);
     const answer = matches[0];
     const valid = matches.length === 1 && typeof answer?.value === 'string'
@@ -509,6 +529,10 @@ Answer every field in the form fields above, following the rules at the top. Ret
       : { ref: field.ref, value: '', applicationQuestion: true, grounded: false, basis: 'none' as const, rationale: 'Missing or invalid answer; re-observe the field and available options.' };
   });
   checkIdentityAnswers(fields, answers, profile);
+  if (answerScope && result.injectionSuspected !== true) for (const field of toAnswer) {
+    const answer = answers.find(answer => answer.ref === field.ref);
+    if (answer) formAnswers.put(answerScope, field, answer);
+  }
   return { answers, injectionSuspected: result.injectionSuspected === true };
 }
 

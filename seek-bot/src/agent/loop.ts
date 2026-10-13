@@ -700,7 +700,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
         }
         break;
       }
-      if (index < plan.length - 1) await jitter(250, 600);
+      if (index < plan.length - 1 && !config.formSpeed) await jitter(250, 600);
     }
 
     for (const entry of replies) messages.push({ role: 'tool', tool_call_id: entry.id, content: entry.content });
@@ -717,7 +717,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       tabsLeft.push(page);
       page = ctx.page;
     }
-    await jitter(400, 1_100);
+    if (!config.formSpeed) await jitter(400, 1_100);
   }
   } catch (error) {
     captureApplicationFailure(page, job.id, error, { stage: 'agent-loop', submitPressed: Boolean(ctx.submissionAttempted), lastTool: trace.at(-1)?.tool });

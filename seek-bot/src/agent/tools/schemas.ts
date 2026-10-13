@@ -3,6 +3,7 @@ import type { ToolSchema } from '../celeris.js';
 import { browserGmailAvailable } from '../../browser-gmail.js';
 import { RAW_TOOL_SCHEMAS } from '../raw-tools.js';
 import { ANSWER_BATCH } from './context.js';
+import { MAX_ANSWER_BATCH } from '../../form-speed.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -191,7 +192,7 @@ const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'answer_questions',
     description:
-      `Answer the unanswered applicant FIELDs on this page in one turn: pass their refs in page order (up to ${ANSWER_BATCH}). ` +
+      `Answer the unanswered applicant FIELDs on this page in one turn: pass their refs in page order (up to ${config.formSpeed ? MAX_ANSWER_BATCH : ANSWER_BATCH}). The tool bounds the batch by answer size and stops on a form change. ` +
       'They are answered together and filled in that order; the tool stops by itself when a fill rebuilds the form ' +
       '(a checkbox reveals new fields, a choice changes the next options) and names the fields left, so re-observe and continue. ' +
       'You do NOT write the answers — they are generated from the verified candidate profile and filled in for you. ' +
@@ -203,7 +204,7 @@ const TOOL_SCHEMAS: ToolSchema[] = [
           type: 'array',
           items: { type: 'string' },
           minItems: 1,
-          maxItems: ANSWER_BATCH,
+          maxItems: config.formSpeed ? MAX_ANSWER_BATCH : ANSWER_BATCH,
           description: 'Field refs from the current FIELDS list, in page order, e.g. ["f0", "f1", "f2"].',
         },
         reason: { type: 'string', description: 'What this step is asking for.' },

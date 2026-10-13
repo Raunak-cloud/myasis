@@ -103,7 +103,10 @@ export function reviewFailure(input: { host: string; company: string; title: str
 /** Lets reviews still running finish before the process exits. */
 export async function settleReviews(timeoutMs = 90_000): Promise<void> {
   if (!pending.size) return;
-  await Promise.race([Promise.all([...pending]), new Promise((done) => setTimeout(done, timeoutMs))]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([Promise.all([...pending]), new Promise<void>(done => { timer = setTimeout(done, timeoutMs); })]);
+  } finally { clearTimeout(timer); }
 }
 
 async function review(input: { host: string; company: string; title: string; reason: string; steps: StepRecord[] }): Promise<void> {

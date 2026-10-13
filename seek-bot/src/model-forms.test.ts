@@ -341,6 +341,9 @@ try {
   const bridgedOption = await executeTool(ctx, 'choose_option', { ref: detachedOption.ref, field_ref: sourceField.ref });
   assert.ok(bridgedOption.kind === 'ok' && bridgedOption.message.includes('Selected the grounded option'), 'detached dropdown options can be grounded through their originating field');
   answerValue = 'Select One';
+  // Force fresh grounding for this invalid-response fixture. Otherwise the
+  // speed pilot correctly reuses the earlier verified "Job Sites" answer.
+  ctx.profile = { ...ctx.profile, referralSource: 'Changed fixture source' };
   const placeholderChoice = await executeTool(ctx, 'choose_option', { ref: detachedOption.ref, field_ref: sourceField.ref });
   assert.ok(placeholderChoice.kind === 'ok' && /not among the currently observed options|No verified candidate fact/.test(placeholderChoice.message), placeholderChoice.kind === 'ok' ? placeholderChoice.message : 'placeholder terminal');
   answerValue = '0412345678';

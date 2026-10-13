@@ -1,4 +1,5 @@
 import { config } from '../../config.js';
+import { uploadObservedFile } from '../../form-speed.js';
 import { fillField } from '../../dom.js';
 import { finishedCoverLetterForJob, fitCoverLetterToLimit } from '../../llm.js';
 import { acceptsFormat, pickResumeForJob, RESUME_DIR, documentFor } from '../../resume.js';
@@ -88,7 +89,12 @@ async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions
   const accept = (await input.getAttribute('accept').catch(() => null)) ?? '';
   const document = await coverLetterDocument(ctx, accept);
   if (!document) return ok(`This upload only accepts "${accept}", and the cover letter could not be produced in that format. Look for a text box or another option.`);
-  try { assertLive(); await input.setInputFiles(await applicationUpload(ctx.page, document.file), { timeout: 10_000 }); }
+  try {
+    assertLive();
+    const file = await applicationUpload(ctx.page, document.file);
+    if (config.formSpeed) await uploadObservedFile(input, file);
+    else await input.setInputFiles(file, { timeout: 10_000 });
+  }
   catch { return ok('The cover-letter upload control changed after the last observation. Re-observe and use the current upload ACTION ref.'); }
   coverLetterSent(ctx, document);
   return ok('Cover letter uploaded as a document. Re-observe: confirm the file appears and resolve any upload error before continuing.');
@@ -171,11 +177,17 @@ export async function doAttachResume(ctx: ToolContext, args: Record<string, unkn
   const format = typeof args.format === 'string' && /^(pdf|docx|doc|rtf|txt)$/.test(args.format) ? `.${args.format}` : '';
   const document = await resumeDocument(ctx, accept, format);
   if ('error' in document) return ok(`${identity} ${document.error} Select a matching existing document or another upload option on the page; otherwise finish with cannot_complete.`);
-  try { assertLive(); await input.setInputFiles(await applicationUpload(ctx.page, document.file), { timeout: 10_000 }); }
+  let retained = '';
+  try {
+    assertLive();
+    const file = await applicationUpload(ctx.page, document.file);
+    if (config.formSpeed) retained = await uploadObservedFile(input, file);
+    else await input.setInputFiles(file, { timeout: 10_000 });
+  }
   catch {
     return ok(`${identity} The resume upload control changed after the last observation. Re-observe and use the current upload ACTION ref; do not abandon the application.`);
   }
-  const retained = await input.evaluate((element) => (element as HTMLInputElement).files?.[0]?.name ?? '').catch(() => '');
+  if (!config.formSpeed) retained = await input.evaluate((element) => (element as HTMLInputElement).files?.[0]?.name ?? '').catch(() => '');
   if (retained) resumeSent(ctx, wanted.label);
   // File transport is not proof of server acceptance. Let the model read the next
   // observation, choose the uploaded document, and recover from any site error.

@@ -15,7 +15,10 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
-  return browserRunEnvironment(isAdmin(owners[0]?.email), mode, process.env.ADMIN_HEADLESS ?? readEnv().ADMIN_HEADLESS);
+  const admin = isAdmin(owners[0]?.email);
+  const env = readEnv();
+  return { ...browserRunEnvironment(admin, mode, process.env.ADMIN_HEADLESS ?? env.ADMIN_HEADLESS),
+    FORM_SPEED_PILOT: String(admin && (process.env.ADMIN_FORM_SPEED ?? env.ADMIN_FORM_SPEED) === 'true') };
 }
 
 /** Saved run consoles kept per account; older ones are removed as new ones are written. */
