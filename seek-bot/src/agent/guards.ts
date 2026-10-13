@@ -437,30 +437,11 @@ export class RunGuards {
   }
 
   /**
-   * The final gate. Every path to transmitting an application goes through
-   * here, and it consults only configuration and recorded facts.
+   * Transmission policy only. Answer readiness is decided by the fresh
+   * saved-form review in gateAdvance. Fill history remains useful for recovery
+   * and candidate questions, but cannot veto an independently verified repair.
    */
   canSubmit(currentUrl: string): SubmitVerdict {
-    if (this.pendingFields.size) {
-      return { allowed: false, kind: 'ungrounded', reason: `Required answers could not be confirmed: ${[...this.pendingFields].join('; ')}` };
-    }
-    if (this.ungrounded.length) {
-      return {
-        allowed: false,
-        kind: 'ungrounded',
-        reason: `These questions could not be answered from the profile: ${this.ungrounded
-          .slice(0, 3)
-          .join('; ')}`,
-      };
-    }
-    if (this.unfillable.size) {
-      return {
-        allowed: false,
-        kind: 'ungrounded',
-        reason: this.unfillableReason()!,
-        detail: [...this.unfillable.entries()].map(([label, why]) => `${label}: ${why}`).join('; '),
-      };
-    }
     if (isExternal(currentUrl) && !config.allowExternalApply) {
       return {
         allowed: false,

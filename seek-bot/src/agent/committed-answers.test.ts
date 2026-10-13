@@ -15,7 +15,11 @@ globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
   if (unavailable) throw new Error('fixture unavailable');
   const body = JSON.parse(String(init?.body ?? '{}'));
   prompts.push(JSON.stringify(body.messages));
-  return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ problems, answers: [{ ref: 'f0', grounded: false, value: '', candidatePrompt: 'What month did you start your degree?' }] }) } }], usage: {} }), { headers: { 'content-type': 'application/json' } });
+  const current = String(body.messages[0].content).match(/<untrusted role="current-saved-form">([\s\S]*)<\/untrusted>/);
+  const form = current ? JSON.parse(current[1]) : null;
+  const reviewedProblems = form ? problems.map(problem => ({ ...problem,
+    ref: form.fields.find((field: { label: string }) => field.label === problem.field)?.ref ?? 'page', kind: 'unsupported' })) : problems;
+  return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ problems: reviewedProblems, answers: [{ ref: 'f0', grounded: false, value: '', candidatePrompt: 'What month did you start your degree?' }] }) } }], usage: {} }), { headers: { 'content-type': 'application/json' } });
 }) as typeof fetch;
 const { startRecording, readChanges, changedAnything } = await import('./page-changes.js');
 const { checkGeneralToolAnswers, gateAdvance } = await import('./tools/gate.js');

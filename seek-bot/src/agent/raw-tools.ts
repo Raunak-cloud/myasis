@@ -33,7 +33,7 @@ import {
  * - While a general tool runs, a request that would carry the candidate's
  *   email or phone to a site the application is not on is refused.
  * - A form these tools changed is audited against the candidate's record
- *   before it is sent (see `auditBeforeSubmit`), so a typed or scripted value
+ *   before it advances or sends (see `checkSavedForm`), so a typed or scripted value
  *   cannot slip an unsupported claim past grounding.
  * - Scripts are read by a model before they run; one that would send data
  *   elsewhere or act on the page's own instructions is refused.
@@ -291,7 +291,6 @@ async function clickElement(ctx: ToolContext, args: Record<string, unknown>): Pr
   return watched(ctx, `click "${facts.name}"`, async () => {
     const gate = await gateAdvance(ctx, facts.name, undefined, { role: answers ? 'toggle' : facts.role });
     if (!gate.proceed) return gate.result;
-    if (answers) ctx.rawUsed = true;
     const before = await surface(ctx.page);
     const clicked = await target.click({ timeout: 6_000, ...(args.double_click ? { clickCount: 2 } : {}) }).then(() => true)
       .catch(() => target.dispatchEvent('click', undefined, { timeout: 3_000 }).then(() => true).catch(() => false));
@@ -352,8 +351,6 @@ async function fillElement(ctx: ToolContext, args: Record<string, unknown>): Pro
       return ok(`No verified candidate fact supports "${label}". Complete the other fields, then finish needs_human.`);
     }
     value = answer.value;
-  } else {
-    ctx.rawUsed = true;
   }
 
   return watched(ctx, `fill "${label}"`, async () => {
@@ -379,7 +376,6 @@ async function fillElement(ctx: ToolContext, args: Record<string, unknown>): Pro
 async function typeText(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const text = String(args.text ?? '');
   if (!text) return ok('Give the text to type.');
-  ctx.rawUsed = true;
   return watched(ctx, `type "${text.slice(0, 40)}"`, async () => {
     const before = await surface(ctx.page);
     await ctx.page.keyboard.type(text, { delay: 25 });
@@ -400,7 +396,6 @@ async function drag(ctx: ToolContext, args: Record<string, unknown>): Promise<To
   const from = locate(ctx.page, String(args.from_ref ?? ''));
   const to = locate(ctx.page, String(args.to_ref ?? ''));
   if (!from || !to) return ok('Give from_ref and to_ref from the observation or from take_snapshot.');
-  ctx.rawUsed = true;
   return watched(ctx, 'drag', async () => {
     const dragged = await from.dragTo(to, { timeout: 8_000 }).then(() => true).catch(() => false);
     return ok(dragged ? 'Dragged. Check the result.' : NEED_SNAPSHOT);
@@ -492,7 +487,6 @@ async function evaluateScript(ctx: ToolContext, args: Record<string, unknown>): 
     return ok(`Script refused: ${review.reason} Scripts may only read the page and operate its controls for this application.`);
   }
   ctx.log(`  ⌘ script: ${source.replace(/\s+/g, ' ').slice(0, 160)}`);
-  ctx.rawUsed = true;
   return watched(ctx, `script: ${review.reason}`, async () => {
     if (review.sendsApplication) {
       const gate = await gateAdvance(ctx, review.reason || 'script submit', undefined, { knownSubmit: true });

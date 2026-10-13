@@ -51,7 +51,7 @@ try {
     } as unknown as Parameters<typeof doChooseOption>[0];
   };
   let ctx = await fixture();
-  assert.equal(ctx.guards.canSubmit(url).allowed, false);
+  assert.equal(ctx.guards.pendingFields.size, 1, 'the unfinished option remains recovery history');
   const cityLabel = ctx.observation.fields.find(field => field.ref === ctx.observation.actions.find(action => action.ref === optionRef)!.fieldRef)!.label;
   // Popup display wording can change independently; field identity is retained.
   ctx.observation.actions.find(action => action.ref === optionRef)!.question = 'Ville';
@@ -68,7 +68,7 @@ try {
   await doChooseOption(ctx, { ref: optionRef, field_ref: country.ref });
   assert.equal(modelCalls, before, 'a mismatched field is refused before answering or clicking');
   assert.equal(await page.locator('#city').inputValue(), '');
-  assert.equal(ctx.guards.canSubmit(url).allowed, false);
+  assert.equal(ctx.guards.pendingFields.size, 2);
   assert.equal(ctx.guards.pendingFields.size, 2, 'neither originating nor unrelated pending field is cleared');
 
   grounded = false;
@@ -80,7 +80,7 @@ try {
   await doChooseOption(ctx, { ref: optionRef });
   assert.ok(modelCalls > unsupportedBefore, 'changed profile evidence invalidates the previous grounded answer');
   assert.equal(await page.locator('#city').inputValue(), '', 'an unsupported answer is never selected');
-  assert.equal(ctx.guards.canSubmit(url).allowed, false);
+  assert.ok(ctx.guards.ungrounded.length, 'missing candidate evidence is retained for the agent; live-form readiness is checked by gateAdvance');
   console.log('PASS: observed popup field identity survives display-label changes; AI-grounded selection resolves that input; unrelated fields and ungrounded answers stay blocked; local form and model fixture only');
 } finally {
   await browser.close();

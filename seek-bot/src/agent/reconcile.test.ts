@@ -24,7 +24,8 @@ let g = guards();
 g.pendingFields.add(heard);
 g.recordFillFailure(heard, 'The form did not accept "SEEK"');
 g.recordFillFailure(heard, 'The form did not accept "SEEK"');
-assert.equal(g.canSubmit(url).allowed, false, 'blocked while the field is unfilled');
+assert.equal(g.unfillable.has(heard), true, 'the failed fill remains recovery history');
+assert.equal(g.canSubmit(url).allowed, true, 'transmission policy does not use old fill history; the saved-form gate checks readiness');
 assert.deepEqual(g.reconcileWithForm([{ label: heard, kind: 'text', currentValue: 'Online Recruitment Channel' }]), [heard]);
 assert.equal(g.unfillable.size + g.pendingFields.size, 0, 'the refusal record is gone once the form holds an answer');
 
@@ -42,7 +43,7 @@ g.recordFillFailure(heard, 'not accepted');
 assert.deepEqual(g.reconcileWithForm([{ label: heard, kind: 'text', currentValue: '' }]), []);
 assert.deepEqual(g.reconcileWithForm([{ label: heard, kind: 'text', currentValue: 'x', validationError: 'Choose from the list' }]), []);
 assert.deepEqual(g.reconcileWithForm([{ label: 'Something else', kind: 'text', currentValue: 'x' }]), []);
-assert.equal(g.canSubmit(url).allowed, false, 'an unfilled control still blocks');
+assert.equal(g.unfillable.has(heard), true, 'an unfilled control remains in recovery history');
 
 // A question only the candidate can answer is never cleared by what the page holds.
 g = guards();
@@ -51,7 +52,7 @@ g.recordUngrounded(convictions);
 g.pendingFields.add(convictions);
 g.recordFillFailure(convictions, 'not accepted');
 assert.deepEqual(g.reconcileWithForm([{ label: convictions, kind: 'select', currentValue: 'No' }]), []);
-assert.equal(g.canSubmit(url).allowed, false, 'an unanswerable question still blocks');
+assert.ok(g.ungrounded.includes(convictions), 'an unanswerable question remains available for candidate escalation');
 
 // A pending field nobody has failed to fill is not this method's business.
 g = guards();

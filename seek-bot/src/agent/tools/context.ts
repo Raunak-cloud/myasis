@@ -88,8 +88,6 @@ export interface ToolContext {
   reloads?: number;
   /** Caption of the list-opening control clicked last, for options that do not name their question. */
   lastListQuestion?: string;
-  /** The browser tools changed the form outside the grounded answer tools, so it is audited before sending. */
-  rawUsed?: boolean;
   /** This tool call already passed the submit gate; the network backstop lets its form post through. */
   submitCleared?: boolean;
   /** This tool call's press was judged by the gate (submit or not), so its form post needs no second judgment. */
@@ -97,8 +95,6 @@ export interface ToolContext {
   auditFailures?: number;
   /** Times the pre-submit audit flagged each field. */
   auditStrikes?: Map<string, number>;
-  /** Sets of values the page already held that were checked and found to be the candidate's. */
-  prefilledAudited?: Set<string>;
   /** What the last tool call did, for judging a dialog it raised. */
   lastActionLabel?: string;
   /** Browser dialogs answered since the last turn, reported to the agent. */

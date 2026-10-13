@@ -1,8 +1,8 @@
 import type { Frame, Page } from 'patchright';
 import { config } from '../../config.js';
 import { waitForPageToSettle } from '../../browser.js';
-import { extractFields, fillField } from '../../dom.js';
-import { answerFields, auditFormBeforeSubmit, isSubmitControl, verifySubmissionEvidence } from '../../llm.js';
+import { extractFields } from '../../dom.js';
+import { answerFields, auditFormBeforeSubmit, isSubmitControl, reviewSavedApplicationForm, verifySubmissionEvidence } from '../../llm.js';
 import { pickResumeForJob } from '../../resume.js';
 import { resolve } from 'node:path';
 import type { FormField } from '../../types.js';
@@ -13,6 +13,7 @@ import { offersCoverLetter } from '../cover-letter-opportunity.js';
 import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resume-sync.js';
 import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
+import { readSavedForm, savedFormSignature } from '../saved-form.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -108,8 +109,8 @@ export type Gate = { proceed: true; submit: boolean } | { proceed: false; result
  * act cannot become a new way around the rules:
  *
  * - a cover letter the employer offers is written before the form advances;
- * - a control that sends the application passes `canSubmit`, which reads
- *   configuration and recorded facts only (dry run, unanswered questions);
+ * - a forward/submit control checks the current saved form once;
+ * - a submit passes configuration policy (dry run and external scope);
  * - a second submit is pressed only once the first is known not to have gone
  *   through, since some forms confirm in place and pressing again sends the
  *   employer another copy;
@@ -161,14 +162,6 @@ export async function gateAdvance(
   }
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${label}"`);
-  if (!entry && (options.knownSubmit || movesForward(ctx, label))) {
-    if (ctx.rawAnswerProblems?.size) {
-      const held = await withheldFor(ctx, [...ctx.rawAnswerProblems.values()]);
-      if (held) return { proceed: false, result: held };
-    }
-    const held = await auditPrefilled(ctx);
-    if (held) return { proceed: false, result: held };
-  }
   const submit = options.knownSubmit === true
     || (!entry && options.role !== 'toggle' && options.role !== 'file' && await transmits(ctx, label, context));
   ctx.pressJudged = true;
@@ -179,10 +172,12 @@ export async function gateAdvance(
     const letter = await coverLetterCheck(ctx, label, final);
     if (letter) return { proceed: false, result: letter };
   }
-  if (!submit) return { proceed: true, submit: false };
-  if (ctx.rawAnswerProblems?.size) {
-    const held = await withheldFor(ctx, [...ctx.rawAnswerProblems.values()]);
-    if (held) return { proceed: false, result: held };
+  if (!submit) {
+    if (!entry && movesForward(ctx, label)) {
+      const held = await checkSavedForm(ctx);
+      if (held) return { proceed: false, result: held };
+    }
+    return { proceed: true, submit: false };
   }
 
   /**
@@ -229,12 +224,9 @@ export async function gateAdvance(
     if (verdict.kind === 'off-platform') {
       return { proceed: false, result: { kind: 'terminal', outcome: { status: 'off-platform', redirectedTo: ctx.page.url() } } };
     }
-    if (!ctx.guards.ungrounded.length) {
-      return { proceed: false, result: ok(`Submission withheld: ${verdict.reason}. Re-observe and repair the unconfirmed fields; this is a recoverable form issue, not a missing candidate answer.`) };
-    }
-    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'needs-human', reason: verdict.reason, detail: verdict.detail } } };
+    return { proceed: false, result: ok(`Submission withheld: ${verdict.reason}`) };
   }
-  const audit = await auditBeforeSubmit(ctx);
+  const audit = await checkSavedForm(ctx);
   if (audit) return { proceed: false, result: audit };
   // What goes out is what is recorded, for a rehearsal as for a real submission.
   await recordWhatWasSent(ctx);
@@ -330,138 +322,56 @@ export async function pageOffersDocuments(page: Page): Promise<boolean> {
   return false;
 }
 
-/** A form element's accessibility tree without the per-element bookkeeping, for a reader rather than a clicker. */
-const readableSnapshot = (snapshot: string) => snapshot.replace(/ \[(?:ref|cursor)=[^\]]*\]/g, '');
-
-/**
- * Before a form the agent filled with its own browser tools is sent, every
- * answer on it is checked against the candidate's record — the result, not
- * the route, since a script or a raw keystroke leaves no grounded trail.
- * Returns what to tell the agent instead of sending, or null to go ahead.
- *
- * An answer flagged a second time becomes a question for the candidate: the
- * agent has had its chance to correct it and the form must not go out wrong.
- * An audit that cannot run holds the submit rather than waving it through.
- */
-async function auditBeforeSubmit(ctx: ToolContext): Promise<ToolResult | null> {
-  if (!ctx.rawUsed) return null;
-  const snapshot = await ctx.page.ariaSnapshot({ mode: 'ai', timeout: 15_000 }).catch(() => '');
-  let problems: Awaited<ReturnType<typeof auditFormBeforeSubmit>>;
+/** All tools advance through this same current-state review. No cached fill
+ * outcome, pending label or raw-tool rejection can overrule its result. */
+export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | null> {
   try {
-    if (!snapshot) throw new Error('the page could not be read');
-    problems = await auditFormBeforeSubmit(readableSnapshot(snapshot), ctx.job, ctx.profile, ctx.captured);
+    const form = await readSavedForm(ctx.page);
+    const problems = await reviewSavedApplicationForm(form, ctx.job, ctx.profile);
+    if (abandoned()) return ok('This review was abandoned; nothing was advanced.');
+    const now = await readSavedForm(ctx.page);
+    if (savedFormSignature(form) !== savedFormSignature(now)) {
+      return ok('The saved form changed during verification. Re-observe before advancing; the earlier verdict is no longer valid.');
+    }
+    ctx.auditFailures = 0;
+    const missingFacts = problems.filter(problem => problem.kind === 'needs_candidate');
+    if (missingFacts.length) {
+      for (const problem of missingFacts) {
+        const field = form.fields.find(field => field.ref === problem.ref);
+        ctx.guards.rememberField(field ? { ...field, ref: field.localRef } : { label: problem.field }, problem.problem);
+        ctx.guards.recordUngrounded(problem.field);
+      }
+      return { kind: 'terminal', outcome: { status: 'needs-human', reason: `Your answer is needed for: ${missingFacts.map(problem => problem.field).join('; ')}` } };
+    }
+    const unsupported = problems.filter(problem => problem.kind === 'unsupported');
+    if (unsupported.length) return withheldFor(ctx, unsupported);
+    if (problems.length) return ok('The CURRENT saved form is not ready:\n' +
+      problems.map(problem => `- ${problem.ref} ${problem.field}: ${problem.problem}`).join('\n') +
+      '\nRepair these observed fields and check again. A missing or unaccepted selection is not a missing personal fact.');
+    for (const field of form.fields) {
+      // Clear only records for questions actually checked on this page.
+      const labels = new Set([field.label, ...[...ctx.guards.pendingFields, ...ctx.guards.ungrounded,
+        ...ctx.guards.unfillable.keys(), ...(ctx.rawAnswerProblems?.keys() ?? [])].filter(label => sameLabel(label, field.label))]);
+      for (const label of labels) {
+        ctx.guards.recordFillSuccess(label);
+        ctx.rawAnswerProblems?.delete(label);
+        ctx.auditStrikes?.delete(label);
+      }
+      const value = field.currentValue?.trim();
+      if (value && !ctx.guards.siteControls.has(field.label)) {
+        const prior = ctx.captured.findIndex(item => sameLabel(item.question, field.label));
+        if (prior >= 0) ctx.captured.splice(prior, 1);
+        ctx.captured.push({ question: field.label, answer: value });
+      }
+    }
+    ctx.log('  · the current saved form passed Magnus verification');
+    return null;
   } catch (error) {
     ctx.auditFailures = (ctx.auditFailures ?? 0) + 1;
-    ctx.log(`  · pre-submit check unavailable: ${(error as Error).message.slice(0, 120)}`);
-    if (ctx.auditFailures >= 2) {
-      return { kind: 'terminal', outcome: { status: 'skipped', reason: 'The answers could not be checked before sending.' } };
-    }
-    return ok('The pre-submit answer check could not run. Wait a moment, re-observe, and press the submit control again.');
+    ctx.log(`  · saved-form review unavailable: ${String((error as Error).message).slice(0, 120)}`);
+    if (ctx.auditFailures >= 2) return { kind: 'terminal', outcome: { status: 'skipped', reason: 'The saved form could not be verified before continuing.' } };
+    return ok('The saved-form check could not run. Nothing was advanced or submitted. Wait, re-observe and try the same advance control again.');
   }
-  // As with the pre-filled check: a problem is about this form only if the form shows the value it quotes.
-  // Letters and digits only, so the snapshot's quoting and escaping cannot hide a real match.
-  const onForm = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-  const form = onForm(readableSnapshot(snapshot));
-  const real = problems.filter((problem) => {
-    const quoted = onForm(problem.value).slice(0, 40);
-    const present = !quoted || form.includes(quoted);
-    if (!present) ctx.log(`  · pre-submit check quoted "${problem.value.slice(0, 60)}" for "${problem.field.slice(0, 60)}", which is not on this form; ignored`);
-    return present;
-  });
-  return await withheldFor(ctx, real);
-}
-
-/**
- * Answers the page already held when the agent arrived — an employer's saved
- * draft, an account's autofill — are checked before the page is left.
- *
- * The agent's own answers are grounded as it gives them; these were never
- * grounded by anyone. Tabcorp's PageUp draft kept "Base salary: $350k+" from
- * an earlier attempt, and the agent moved on because the field was "already
- * filled". Checked once per distinct set of values, on the page that shows
- * them, since a later page (or a review step) may never show them again.
- */
-async function auditPrefilled(ctx: ToolContext): Promise<ToolResult | null> {
-  const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
-  const entered = new Set(ctx.captured.map((item) => normal(item.question)));
-  // The letter add_cover_letter wrote is the agent's own, grounded as it was written — not something the page held.
-  const letter = ctx.coverLetter ? normal(ctx.coverLetter) : '';
-  const prefilled = ctx.observation.fields.filter((field) =>
-    field.kind !== 'checkbox' && !field.sensitive && field.currentValue?.trim() && !entered.has(normal(field.label))
-    && !(letter && normal(field.currentValue!) === letter));
-  if (!prefilled.length) return null;
-  const signature = prefilled.map((field) => `${field.label}=${field.currentValue}`).join('\n');
-  const audited = (ctx.prefilledAudited ??= new Set<string>());
-  if (audited.has(signature)) return null;
-  let problems: Awaited<ReturnType<typeof auditFormBeforeSubmit>>;
-  try {
-    problems = await auditFormBeforeSubmit(
-      `Fields on this page that already held these answers before the agent touched them:\n${prefilled.map((field) => `- ${field.label}: ${field.currentValue}`).join('\n')}`,
-      ctx.job, ctx.profile, ctx.captured,
-    );
-  } catch (error) {
-    // Not a reason to stop: the agent's own answers were grounded, and the submit audit still runs.
-    ctx.log(`  · pre-filled answer check unavailable: ${(error as Error).message.slice(0, 120)}`);
-    return null;
-  }
-  const normalLabel = (text: string) => normal(text).replace(/[\s*:]+$/, '');
-  const remaining: typeof problems = [];
-  for (const problem of problems) {
-    const field = prefilled.find((candidate) => normalLabel(candidate.label) === normalLabel(problem.field));
-    /**
-     * The check reviews only the fields listed to it, so a problem naming any
-     * other field is not about this page. Data Processors' SEEK form had no
-     * "Tell us more" at all: the checker reported the candidate's saved
-     * Fetch Pet answer, which it had been shown as evidence, as if the form
-     * held it. The agent searched for a box that did not exist, rewrote the
-     * wrong field, and the candidate was asked about a question nobody asked.
-     */
-    if (!field) {
-      ctx.log(`  · pre-filled check named "${problem.field.slice(0, 60)}", which is not on this page; ignored`);
-      continue;
-    }
-    /**
-     * A wrong answer the page held is answered afresh, grounded like any
-     * other, before anything else: a pitch written for this job beats both an
-     * empty box and another employer's letter. SEEK and PageUp pre-filled
-     * "Tell us more" with a note written for "Front Engineer at Fetch Pet".
-     * With no grounded answer, an optional box is emptied (blank is safer than
-     * the wrong letter) and only a required one goes back to the agent.
-     */
-    const repaired = await repairPrefilled(ctx, field, problem.problem).catch(() => null);
-    if (repaired) {
-      ctx.log(`  · re-answered "${field.label}": the page held an answer that was not the candidate's`);
-      continue;
-    }
-    const clearable = !field.required && (field.kind === 'text' || field.kind === 'textarea');
-    const cleared = clearable && await ctx.page.locator(`[data-field-id="${field.ref}"]`).first()
-      .fill('', { timeout: 5_000 }).then(() => true).catch(() => false);
-    if (cleared) {
-      ctx.log(`  · cleared "${field.label}": it held an answer that was not the candidate's (${problem.problem.slice(0, 120)})`);
-      continue;
-    }
-    remaining.push(problem);
-  }
-  if (!remaining.length) {
-    audited.add(signature);
-    return null;
-  }
-  return await withheldFor(ctx, remaining);
-}
-
-/** Writes a grounded answer over a value the page held that was not the candidate's; null when there is none to write. */
-async function repairPrefilled(ctx: ToolContext, field: FormField, problem: string): Promise<string | null> {
-  const question: FormField = {
-    ...field,
-    currentValue: '',
-    description: `${field.description ? `${field.description}\n` : ''}The form had pre-filled an answer here that is not this candidate's for this application (${problem.slice(0, 200)}). Write the answer afresh for this job.`,
-  };
-  const answer = (await answerFields([question], ctx.job, ctx.profile)).answers.find((candidate) => candidate.ref === field.ref);
-  if (!answer?.grounded || !answer.value?.trim()) return null;
-  await fillField(ctx.page, field, answer.value, field.kind === 'textarea' || field.kind === 'text' ? 'type' : undefined);
-  ctx.captured.push({ question: field.label, answer: answer.value });
-  ctx.guards.recordFillSuccess(field.label);
-  return answer.value;
 }
 
 const sameLabel = (a: string, b: string) => {
@@ -499,6 +409,7 @@ async function candidateQuestion(
 async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; value: string; problem: string }>): Promise<ToolResult | null> {
   if (!problems.length) return null;
   const strikes = (ctx.auditStrikes ??= new Map<string, number>());
+  const candidateFields: string[] = [];
   for (const problem of problems) {
     const count = (strikes.get(problem.field) ?? 0) + 1;
     strikes.set(problem.field, count);
@@ -506,13 +417,14 @@ async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; va
       const field = ctx.observation.fields.find((candidate) => sameLabel(candidate.label, problem.field));
       ctx.guards.rememberField(field ?? { label: problem.field }, await candidateQuestion(ctx, field, problem));
       ctx.guards.recordUngrounded(problem.field);
+      candidateFields.push(problem.field);
     }
   }
   ctx.log(`  ✋ pre-submit check: ${problems.length} unsupported answer(s): ${problems.map((p) => p.field).join('; ').slice(0, 200)}`);
-  if (ctx.guards.ungrounded.length) {
+  if (candidateFields.length) {
     return { kind: 'terminal', outcome: {
       status: 'needs-human',
-      reason: `These answers are not supported by your profile: ${ctx.guards.ungrounded.slice(0, 3).join('; ')}`,
+      reason: `These answers are not supported by your profile: ${candidateFields.slice(0, 3).join('; ')}`,
       detail: problems.map((p) => `${p.field}: ${p.problem}`).join('; '),
     } };
   }

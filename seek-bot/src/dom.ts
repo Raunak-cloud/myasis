@@ -1,4 +1,4 @@
-import type { Locator, Page } from 'patchright';
+import type { Frame, Locator, Page } from 'patchright';
 import type { FormField } from './types.js';
 import { assertLive } from './tool-run.js';
 
@@ -7,7 +7,7 @@ import { assertLive } from './tool-run.js';
  * Raw HTML would be both enormous and mostly noise; this keeps the model's
  * input small and stable, and gives us a `ref` we can act on afterwards.
  */
-export async function extractFields(page: Page): Promise<FormField[]> {
+export async function extractFields(page: Page | Frame): Promise<FormField[]> {
   return page.evaluate(() => {
     const fields: any[] = [];
     let n = 0;

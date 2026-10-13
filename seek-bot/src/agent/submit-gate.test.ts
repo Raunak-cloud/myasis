@@ -62,7 +62,7 @@ try {
   result = await executeTool(ctx, 'click', { ref: proceed, reason: 'send it', sends_application: true, no_cover_letter_place: 'the form has no letter box or upload' });
   assert.notEqual(await page.title(), 'SENT', 'what the agent says is the submit is gated as one');
   assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed');
-  assert.equal(modelCalls - before, 0, 'no separate model call was needed to judge it');
+  assert.equal(modelCalls - before, 1, 'the declared submit needs one saved-form review, with no extra submit-classifier call');
   console.log("PASS: a control that opened a form is still gated as the submit once the form is filled, the agent's own submit judgement is used without another model call, and a rehearsal never sends");
 } finally {
   await browser.close();
