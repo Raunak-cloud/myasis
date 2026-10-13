@@ -495,7 +495,10 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      * front of it and an explicit request to step back and form a theory
      * before acting. Paid only on the steps that are stuck.
      */
-    const stuck = stalls >= config.celeris.escalateAfterStalls || lastFailed;
+    const recovery = ctx.interactionRecovery;
+    ctx.interactionRecovery = undefined;
+    const stuck = stalls >= config.celeris.escalateAfterStalls || lastFailed || Boolean(recovery);
+    if (recovery) note += `\nLIVE RECOVERY: ${recovery}\nUse the focused DOM evidence just collected. Diagnose the cause, choose a safe repair and verify field acceptance, rather than merely making the menu change. Candidate answers and submission still use their normal checks.`;
     if (stuck) {
       log(`  ↑ step ${guards.stepCount} stuck — ${model} thinking it through`);
       note = `${note}\n\nSTUCK: the last ${Math.max(stalls, 1)} action(s) did not get this page further. Before acting, reason it through: what you expected, what the recorded changes and the screenshot actually show, and why your approach is not working. Then try a genuinely different approach (another control or element, the keyboard, a snapshot to find the real element, a script to inspect the widget), not the same action again.`;
@@ -620,6 +623,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
           : undefined,
       };
       trace.push(step);
+      if (recovery && typeof call.args.reason === 'string') log(`  ↳ recovery: ${call.args.reason.slice(0, 400)}`);
       checkpoint();
 
       const progressBefore = guards.progressCount;
@@ -683,7 +687,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
         guards.recordProgress();
       }
 
-      if (call.name === 'take_snapshot') {
+      if (call.name === 'take_snapshot' || call.name === 'inspect_interaction') {
         // Only the newest snapshot is worth its weight; an older one is re-sent every turn for nothing.
         if (lastSnapshotIndex >= 0 && messages[lastSnapshotIndex]?.role === 'tool') {
           messages[lastSnapshotIndex] = { ...messages[lastSnapshotIndex], content: '[an earlier snapshot, superseded]' } as ChatMessage;
@@ -692,7 +696,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
       }
       replies.push({ id: call.id, content: result.message });
 
-      const surprise = SURPRISE.test(result.message) || Boolean(changes?.navigated) || ctx.page !== page
+      const surprise = call.name === 'inspect_interaction' || SURPRISE.test(result.message) || Boolean(changes?.navigated) || ctx.page !== page
         || Boolean(changes?.appeared.some((entry) => entry.startsWith('[')));
       if (SURPRISE.test(result.message)) lastFailed = true;
       if (surprise && index < plan.length - 1) {

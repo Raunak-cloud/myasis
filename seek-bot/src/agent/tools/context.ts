@@ -105,6 +105,9 @@ export interface ToolContext {
   dialogs?: string[];
   /** The agent asked to see the page; the next observation carries a screenshot. */
   wantScreenshot?: boolean;
+  /** Focused evidence requests deeper Magnus reasoning without treating menu animation as completion. */
+  interactionRecovery?: string;
+  recoveryInspectionSequence?: number;
   /** Recent failed requests and console errors, per tab, for get_diagnostics. */
   diagnostics?: WeakMap<Page, string[]>;
 }

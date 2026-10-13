@@ -6,6 +6,8 @@ import type { ToolSchema } from './celeris.js';
 import { isForbiddenDestination, siteDomain } from './guards.js';
 import { abandoned } from '../tool-run.js';
 import { applicationUpload } from '../employer-browser.js';
+import { config } from '../config.js';
+import { inspectInteractionElement } from './interaction-inspection.js';
 import {
   coverLetterDocument,
   coverLetterSent,
@@ -44,6 +46,8 @@ const SNAPSHOT_REF = /^(?:f\d+)?e\d+$/;
 
 /** Finds the element a ref names, whichever listing it came from. */
 export function locate(page: Page, ref: string): Locator | null {
+  const recovery = ref.match(/^r\d+f(\d+)e\d+$/);
+  if (recovery) return page.frames()[Number(recovery[1])]?.locator(`[data-owt-recovery-ref="${ref}"]`).first() ?? null;
   if (/^a\d+$/.test(ref)) return page.locator(`[data-ref-id="${ref}"]`).first();
   if (/^f\d+$/.test(ref)) return page.locator(`[data-field-id="${ref}"]`).first();
   if (SNAPSHOT_REF.test(ref)) return page.locator(`aria-ref=${ref}`);
@@ -223,6 +227,37 @@ async function watched(ctx: ToolContext, label: string, run: () => Promise<ToolR
 const NEED_SNAPSHOT = 'That ref is not on the page any more. Call take_snapshot for current refs.';
 
 const SNAPSHOT_LIMIT = 24_000;
+
+async function inspectInteraction(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (!config.formSpeed) return ok('Live interaction inspection is available only in the admin form pilot.');
+  const ref = String(args.ref ?? '');
+  const target = locate(ctx.page, ref);
+  if (!target) return ok('Give the affected field or control ref from the current observation or snapshot.');
+  if (ctx.observation.fields.some(field => field.ref === ref && field.sensitive)) return ok('Credentials use complete_authentication; do not inspect or expose their values.');
+  const handle = await target.elementHandle({ timeout: 5000 }).catch(() => null);
+  if (!handle) return ok(NEED_SNAPSHOT);
+  try {
+    const owner = await handle.ownerFrame();
+    const frameIndex = owner ? ctx.page.frames().indexOf(owner) : -1;
+    if (frameIndex < 0) return ok(NEED_SNAPSHOT);
+    const sequence = ctx.recoveryInspectionSequence = (ctx.recoveryInspectionSequence ?? 0) + 1;
+    await handle.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+    const evidence = await inspectInteractionElement(handle, `r${sequence}f${frameIndex}`, String(args.contains ?? ''));
+    if ((evidence as { credentials?: boolean }).credentials) return ok('Credentials use complete_authentication; their values were not read.');
+    if ((evidence as { unavailable?: boolean }).unavailable) return ok(NEED_SNAPSHOT);
+    const symptom = String(args.symptom ?? 'The interaction has not been accepted.').slice(0, 500);
+    ctx.interactionRecovery = symptom;
+    ctx.wantScreenshot = true;
+    ctx.log('  ↳ inspecting the unresolved form interaction for Magnus');
+    const json = JSON.stringify(evidence).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+    return ok(`LIVE INTERACTION EVIDENCE. Inspection is read-only; no answer or selection was changed.\n` +
+      `Refs r${sequence}f${frameIndex}e… work with click_element, fill_element, press_key and evaluate_script. ` +
+      'They include visible items omitted by the accessibility tree. Re-inspect after changing the widget.\n' +
+      'Magnus: give a brief evidence-based diagnosis and expected acceptance signal in the next action reason. ' +
+      'Use verified candidate facts, try a different approach and check the result; opening/typing is not a committed selection.\n' +
+      `<untrusted>${json}</untrusted>`);
+  } finally { await handle.dispose(); }
+}
 
 async function takeSnapshot(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const scope = typeof args.ref === 'string' && args.ref ? locate(ctx.page, args.ref) : null;
@@ -613,6 +648,11 @@ async function answerDialog(dialog: Dialog, ctx: ToolContext): Promise<void> {
 
 export const RAW_TOOL_SCHEMAS: ToolSchema[] = [
   {
+    name: 'inspect_interaction',
+    description: 'Read the affected field/control, its visible DOM items and linked popup to diagnose a failed selection, fill or upload. Includes non-ARIA options and validation state. No values are changed. Use when typing/opening a widget has not committed the answer, or listed options are missing. Magnus reasons more deeply on the next turn.',
+    parameters: { type: 'object', properties: { ref: { type: 'string' }, symptom: { type: 'string', description: 'What did not get accepted, based on the last result.' }, contains: { type: 'string', description: 'Optional text filter when a popup has many entries; read-only.' } }, required: ['ref','symptom'] },
+  },
+  {
     name: 'take_snapshot',
     description:
       'The whole tab as an accessibility tree, iframes included, with refs (e12; f1e3 inside an iframe) usable by the browser tools. ' +
@@ -727,6 +767,7 @@ export const RAW_TOOL_SCHEMAS: ToolSchema[] = [
 /** Runs a general browser tool, or returns null when the name is not one. */
 export async function runRawTool(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<ToolResult | null> {
   switch (name) {
+    case 'inspect_interaction': return inspectInteraction(ctx, args);
     case 'take_snapshot': return takeSnapshot(ctx, args);
     case 'click_element': return clickElement(ctx, args);
     case 'fill_element': return fillElement(ctx, args);

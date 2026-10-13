@@ -62,7 +62,7 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
   return [
     ...TOOL_SCHEMAS,
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
-    ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS : []),
+    ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
   ].map(withPressJudgement);
 }
@@ -77,14 +77,17 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
  */
 const PRESSING_TOOLS = new Set(['click', 'click_element', 'click_point', 'press_key']);
 function withPressJudgement(tool: ToolSchema): ToolSchema {
-  if (!PRESSING_TOOLS.has(tool.name)) return tool;
   const parameters = tool.parameters as { properties?: Record<string, unknown> };
+  const properties = { ...(parameters.properties ?? {}), ...(config.formSpeed ? { reason: parameters.properties?.reason ?? {
+    type: 'string', description: 'Optional brief purpose. During live recovery: the evidence-based diagnosis and expected acceptance signal.',
+  } } : {}) };
+  if (!PRESSING_TOOLS.has(tool.name)) return { ...tool, parameters: { ...tool.parameters, properties } };
   return {
     ...tool,
     parameters: {
       ...tool.parameters,
       properties: {
-        ...(parameters.properties ?? {}),
+        ...properties,
         sends_application: {
           type: 'boolean',
           description: 'Your judgement: true when this press sends the finished application to the employer (the final submit), false for anything else (opening the form, Next, Continue, Save, a menu).',
