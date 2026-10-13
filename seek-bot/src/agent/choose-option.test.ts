@@ -73,7 +73,12 @@ try {
 
   grounded = false;
   ctx = await fixture();
+  // This case removes the evidence used by the earlier grounded answer.
+  // The pilot must ask again rather than reuse that profile's cached answer.
+  ctx.profile.suburb = '';
+  const unsupportedBefore = modelCalls;
   await doChooseOption(ctx, { ref: optionRef });
+  assert.ok(modelCalls > unsupportedBefore, 'changed profile evidence invalidates the previous grounded answer');
   assert.equal(await page.locator('#city').inputValue(), '', 'an unsupported answer is never selected');
   assert.equal(ctx.guards.canSubmit(url).allowed, false);
   console.log('PASS: observed popup field identity survives display-label changes; AI-grounded selection resolves that input; unrelated fields and ungrounded answers stay blocked; local form and model fixture only');

@@ -56,7 +56,7 @@ const form = `<!doctype html><html><body>
     <button type="button" onclick="document.querySelector('h1').textContent = 'Step 2'">Next</button>
   </form></main></body></html>`;
 
-const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   const page = await browser.newPage();
   await page.route('https://careers.fixture-employer.example/**', (route) => route.fulfill({ contentType: 'text/html', body: form }));

@@ -52,7 +52,7 @@ const seekStep = (saved: Array<{ name: string; checked?: boolean; added?: string
     });
   </script></main>`;
 
-const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 let html = '';
 const open = async (page: Page, url: string, body: string) => {
   html = body;

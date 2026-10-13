@@ -13,7 +13,7 @@ process.env.DATA_DIR = directory;
 const { observe } = await import('./agent/observe.js');
 const { fillField } = await import('./dom.js');
 
-const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 const accepts = async (html: string, value: string) => {
   await page.setContent(html);
   const [field] = (await observe(page)).fields;

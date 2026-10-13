@@ -1,8 +1,9 @@
 import { writeFileSync } from 'node:fs';
 import { chromium } from 'patchright';
-import { corpusPages, expectationOf, type FormExpectation } from './form-corpus.js';
+import { corpusPages, expectationOf } from './form-corpus.js';
 import { observe } from './agent/observe.js';
 import { hasCaptchaSurface } from './captcha/detect.js';
+import { compareFormExpectations as compare, type Finding } from './form-replay-compare.js';
 
 /**
  * Replays the recorded real employer form pages against the current code and
@@ -24,30 +25,6 @@ const dirs = args.filter((arg) => !arg.startsWith('--'));
 if (!dirs.length) {
   console.error('usage: node dist/form-replay.js <corpus dir>... [--accept]');
   process.exit(2);
-}
-
-const meaningless = (label: string) =>
-  !label.trim() || label === 'unlabelled field' || /^[\s\-–—.*]*(?:none|n\/a|select|choose|please (?:select|choose)|select an option|select one|--)[\s\-–—.*]*$/i.test(label);
-
-interface Finding { page: string; kind: 'regression' | 'change'; detail: string }
-
-function compare(name: string, before: FormExpectation, now: FormExpectation): Finding[] {
-  const findings: Finding[] = [];
-  const regression = (detail: string) => findings.push({ page: name, kind: 'regression', detail });
-  const change = (detail: string) => findings.push({ page: name, kind: 'change', detail });
-  if (now.fields.length < before.fields.length) regression(`fields found: ${before.fields.length} → ${now.fields.length}`);
-  else if (now.fields.length > before.fields.length) change(`fields found: ${before.fields.length} → ${now.fields.length}`);
-  for (const [index, was] of before.fields.entries()) {
-    const is = now.fields[index];
-    if (!is) continue;
-    if (!meaningless(was.label) && meaningless(is.label)) regression(`field ${index + 1} lost its label: "${was.label}" → "${is.label}"`);
-    else if (was.label !== is.label) change(`field ${index + 1} label: "${was.label}" → "${is.label}"`);
-    if (was.kind !== is.kind) regression(`field ${index + 1} ("${is.label}") kind: ${was.kind} → ${is.kind}`);
-  }
-  if (before.captcha !== now.captcha) regression(`security check ${before.captcha ? 'no longer seen' : 'now seen'}`);
-  if (before.coverLetterOffered && !now.coverLetterOffered) regression('place for a cover letter no longer seen');
-  else if (!before.coverLetterOffered && now.coverLetterOffered) change('place for a cover letter now seen');
-  return findings;
 }
 
 /**

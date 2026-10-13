@@ -24,7 +24,7 @@ const { executeTool } = await import('./tools.js');
 const { RunGuards } = await import('./guards.js');
 const { CostMeter } = await import('./celeris.js');
 
-const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   const page = await browser.newPage();
   let html = '<!doctype html><main><h1>Job</h1><button type="button" onclick="document.title=\'opened\'">Apply</button></main>';

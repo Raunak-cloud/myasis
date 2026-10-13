@@ -30,7 +30,7 @@ const form = `<!doctype html><html><head><link rel="stylesheet" href="https://cd
   </body></html>`;
 const css = '.hidden-by-css { display: none; } .entrance { animation: fade 1s 10s both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }';
 
-const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   const page = await browser.newPage();
   await page.route('https://acme.wd3.myworkdayjobs-fixture.example/**', (route) => route.fulfill({ contentType: 'text/html', body: form }));
@@ -74,6 +74,10 @@ try {
 
   // A reading that has got worse is a regression: a field that is no longer found.
   const jsonPath = join(platformDir, files.find((name) => name.endsWith('.json'))!);
+  writeFileSync(jsonPath, JSON.stringify({ ...expectation, fields: [...expectation.fields].reverse() }));
+  run = replay();
+  assert.equal(run.status, 0, `the same questions in a different order still replay clean:\n${run.stdout}`);
+
   const worse = { ...expectation, fields: [...expectation.fields, { label: 'Middle Name', kind: 'text', required: false, options: 0 }] };
   writeFileSync(jsonPath, JSON.stringify(worse));
   run = replay();
