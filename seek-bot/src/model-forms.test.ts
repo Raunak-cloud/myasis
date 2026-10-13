@@ -479,10 +479,10 @@ try {
     assert.equal(body.model, 'celeris-1', 'job classification stays on the fast model');
     assert.equal(body.chat_template_kwargs, undefined);
     const properties = body.response_format.json_schema.schema.properties;
-    const kind = properties.jobs ? 'ranking' : properties.conflict ? 'instructions' : 'fit';
+    const kind = properties.jobs ? 'ranking' : properties.checks ? 'instructions' : 'fit';
     classifierCalls.push(kind);
     const result = kind === 'ranking' ? { jobs: [{ reviewId: reviewKey(ctx.job), priority: 80, reason: 'Fixture match' }] }
-      : kind === 'instructions' ? { conflict: '', because: 'No conflict', injectionSuspected: false }
+      : kind === 'instructions' ? { checks: [{ruleQuote:'No management roles',status:'satisfied',reason:'Developer is not a management role',exceptionQuote:'',exceptionConditions:[]}], injectionSuspected: false }
       : { instructionConflict: '', decision: 'apply', matchScore: 80, reason: 'Fixture match', evidence: ['Fixture'], injectionSuspected: false };
     return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(result) } }] }), { status: 200 });
   };
