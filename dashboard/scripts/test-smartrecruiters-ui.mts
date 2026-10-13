@@ -12,6 +12,7 @@ let admin = true;
 let searchStarted = false;
 let adminBoards = 'smartrecruiters';
 let adminSeekSignedIn = false;
+let attentionFixture = false;
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({ PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
@@ -35,7 +36,9 @@ const server = createServer(async (req, res) => {
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: searchStarted, mode: searchStarted ? 'search' : null, startedAt: searchStarted ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
-      '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [], '/api/attention': [],
+      '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [],
+      '/api/attention': attentionFixture ? [{ jobId: 'handoff-fixture', title: 'Fixture Developer', company: 'Fixture Employer', kind: 'question', reason: 'Your answer is needed', at: new Date().toISOString(), url: 'https://fixture.invalid', questions: [{ question: 'Country of birth', kind: 'select', options: ['Australia', 'Canada'] }, { question: 'Audit services', kind: 'select', options: ['Unrelated skill'] }] }] : [],
+      '/api/answers': { saved: 2 },
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/settings': req.method === 'POST' ? { ok: true, settings: settings() } : settings(),
       '/api/run': { ok: true, mode: 'live' },
@@ -145,7 +148,25 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log('PASS: admin-only SmartRecruiters live and bounded search-only test controls; tests do not save drafts or request live submissions; customer requests omit pilot settings; fixture APIs only');
+  attentionFixture = true; searchStarted = false;
+  const answerContext = await browser.newContext();
+  const answerPage = await answerContext.newPage();
+  await answerPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  await answerPage.goto(`${origin}/?tab=attention`);
+  await answerPage.getByRole('button', { name: /^Enter a different answer: Country of birth$/ }).click();
+  await answerPage.getByRole('textbox', { name: 'What should Owtomate enter for “Country of birth”?', exact: true }).fill('Nepal');
+  await answerPage.getByRole('button', { name: /^Enter a different answer: Audit services$/ }).click();
+  await answerPage.getByRole('textbox', { name: 'What should Owtomate enter for “Audit services”?', exact: true }).fill('No');
+  const runsBeforeSave = writes.filter(write => write.path === '/api/run').length;
+  await Promise.all([
+    answerPage.waitForResponse(response => new URL(response.url()).pathname === '/api/answers' && response.request().method() === 'POST'),
+    answerPage.getByRole('button', { name: 'Save and retry', exact: true }).click(),
+  ]);
+  const answerWrite = writes.filter(write => write.path === '/api/answers').at(-1)!;
+  assert.deepEqual(answerWrite.body, { jobId: 'handoff-fixture', answers: [{ question: 'Country of birth', answer: 'Nepal' }, { question: 'Audit services', answer: 'No' }] });
+  assert.equal(writes.filter(write => write.path === '/api/run').length, runsBeforeSave, 'saving explicit facts does not submit or start a live job');
+  await answerContext.close();
+  console.log('PASS: admin-only employer feed controls, bounded search-only tests and explicit candidate answers outside incomplete captured choices; fixture APIs only');
 } finally {
   await browser.close();
   await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));

@@ -116,7 +116,6 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
     };
     const expanded = all.filter(element =>
       element.getAttribute('aria-expanded') === 'true' && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
-    const openQuestion = expanded.length === 1 ? questionFor(expanded[0]) : '';
 
     for (const element of all) {
       const tag = element.tagName;
@@ -199,11 +198,16 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         element.getAttribute('placeholder') ||
         fileLabel;
       const value = label;
-      const question = isOption ? openQuestion : isOpener ? questionFor(element) : '';
       const owners = isOption ? expanded.filter(control =>
         `${control.getAttribute('aria-controls') ?? ''} ${control.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean)
-          .some(id => (control.getRootNode() as Document | ShadowRoot).querySelector(`#${CSS.escape(id)}`)?.contains(element))) : [];
-      const origin = owners.length === 1 ? owners[0] : isOption && expanded.length === 1 ? expanded[0] : null;
+          .some(id => (control.getRootNode() as Document | ShadowRoot).querySelector(`#${CSS.escape(id)}`)?.contains(element))
+        || Boolean(control.closest('[role="combobox"]')?.contains(element))) : [];
+      // An expanded picker does not own every option on the page. Persistent
+      // selected chips in another widget must retain their own identity.
+      const grouped = element.closest('[role="listbox"], [role="combobox"]');
+      const origin = owners.length === 1 ? owners[0] : isOption && !grouped && expanded.length === 1 ? expanded[0] : null;
+      if (isOption && grouped && !origin && element.getAttribute('aria-selected') === 'true') continue;
+      const question = isOption ? (origin ? questionFor(origin) : '') : isOpener ? questionFor(element) : '';
       const originFields = origin ? [origin, ...origin.querySelectorAll('[data-field-id]')].filter(node => node.hasAttribute('data-field-id')) : [];
       const fieldRef = originFields.length === 1 ? originFields[0].getAttribute('data-field-id') : null;
       if (question && !label.toLowerCase().includes(question.toLowerCase())) label = `${question}: ${label}`;

@@ -703,12 +703,21 @@ class ComboboxOptionsError extends Error {
 export async function readPickerOptions(page: Page, ref: string): Promise<string[]> {
   const el = page.locator(`[data-field-id="${ref}"]`).first();
   if (!(await el.count().catch(() => 0))) return [];
-  const options = page.locator('[role="option"]:visible');
+  const metadata = await el.evaluate(node => ({
+    native: node instanceof HTMLSelectElement ? [...node.options].map(option => option.text.trim()).filter(Boolean) : null,
+    ids: [...new Set([node, ...(node.closest('[role="combobox"]') ? [node.closest('[role="combobox"]')!] : [])]
+      .flatMap(control => `${control.getAttribute('aria-controls') ?? ''} ${control.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean)))],
+  }));
+  if (metadata.native) return [...new Set(metadata.native)];
+  // Without an observed ownership relation, unrelated selected chips are not
+  // choices for this question. The candidate can supply their answer instead.
+  if (!metadata.ids.length) return [];
+  const options = page.locator(metadata.ids.map(id => `[id=${JSON.stringify(id)}]`).join(', ')).locator('[role="option"]:visible');
   try {
     await openPicker(el, options);
     if (!(await options.count())) return [];
     const labels = await options.allTextContents();
-    return [...new Set(labels.map((text) => text.replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 40);
+    return [...new Set(labels.map((text) => text.replace(/\s+/g, ' ').trim()).filter(Boolean))];
   } catch {
     return [];
   } finally {

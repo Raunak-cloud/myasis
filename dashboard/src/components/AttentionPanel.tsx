@@ -35,6 +35,7 @@ const questionText = (q: BlockedQuestion) => q.prompt?.trim() || `What should Ow
 function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => void }) {
   const questions = item.questions ?? [];
   const [values, setValues] = useState<Record<string, string>>({});
+  const [writtenAnswers, setWrittenAnswers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const answered = questions.filter((q) => (values[q.question] ?? '').trim());
@@ -67,21 +68,36 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
    * Each question gets the control the form used. A dropdown or radio group
    * is offered as the same choice — a free-text box in its place produced
    * answers that matched none of the options on retry. A checkbox is a
-   * yes/no. Only a genuinely open question gets a text box, and only long
-   * ones a multi-line one.
+   * yes/no. Searchable or virtual lists can be incomplete, so the candidate
+   * may also write their known answer. Retry still grounds and validates it
+   * against the employer's fresh form; this is never a direct option click.
    */
   const control = (q: BlockedQuestion) => {
     const value = values[q.question] ?? '';
     if (q.options?.length) {
       return (
-        <select className="input" value={value} onChange={(e) => set(q.question, e.target.value)}>
-          <option value="">Choose…</option>
-          {q.options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+        <div>
+          {writtenAnswers[q.question] ? (
+            <>
+              <input className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(q.question, e.target.value)} />
+              <small>Owtomate will check this against the employer’s choices when retrying.</small>
+            </>
+          ) : (
+            <select className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(q.question, e.target.value)}>
+              <option value="">Choose…</option>
+              {q.options.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          )}
+          <button type="button" className="btn" aria-label={`${writtenAnswers[q.question] ? 'Use captured choices' : 'Enter a different answer'}: ${q.question}`} onClick={(e) => {
+            e.preventDefault();
+            set(q.question, '');
+            setWrittenAnswers(current => ({ ...current, [q.question]: !current[q.question] }));
+          }}>
+            {writtenAnswers[q.question] ? 'Use captured choices' : 'My answer isn’t listed'}
+          </button>
+        </div>
       );
     }
     if (q.kind === 'checkbox') {

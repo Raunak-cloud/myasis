@@ -21,6 +21,7 @@ const { RunGuards } = await import('./agent/guards.js');
 const { CostMeter } = await import('./agent/celeris.js');
 const { boundedAnswerBatch, currentFormStructure, uploadObservedFile } = await import('./form-speed.js');
 const { toolRun } = await import('./tool-run.js');
+const { readPickerOptions } = await import('./dom.js');
 let calls = 0, answerValue = 'Verified fixture value', inject = false, grounded = true, basis = 'profile', lastFields: FormField[] = [];
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
@@ -61,6 +62,19 @@ try {
   await check('response budget reduces long-answer batches and still admits one large field', async () => {
     assert(boundedAnswerBatch(Array.from({ length: 20 }, (_, i) => ({ ...field, ref: `f${i}`, kind: 'textarea' as const })), 8192).length < 20);
     assert.equal(boundedAnswerBatch([{ ...field, options: Array(10_000).fill('Long choice') }], 512).length, 1);
+  });
+  await check('unrelated selected chips cannot become another picker question or answer', async () => {
+    await page.setContent('<main><label>Audit services<input role="combobox" aria-expanded="true" aria-controls="audit-options" required></label><div id="audit-options" role="listbox"><button role="option">Yes</button><button role="option">No</button></div><div role="listbox"><span role="option" aria-selected="true">Unrelated skill</span></div></main>');
+    const ctx = await context();
+    const field = ctx.observation.fields.find(f => f.label.includes('Audit services'))!;
+    assert.equal(ctx.observation.actions.some(a => a.value === 'Unrelated skill'), false, 'another widget’s selected chips must not be offered as choices for the open picker');
+    assert.deepEqual(await readPickerOptions(page, field.ref), ['Yes', 'No']);
+  });
+  await check('native picker handoffs preserve late choices and unknown popup ownership fails closed', async () => {
+    await page.setContent('<main><label for="country">Country</label><select id="country">' + Array.from({ length: 230 }, (_, i) => `<option>Country ${i}</option>`).join('') + '</select><label>Other question<input role="combobox"></label><div role="listbox"><span role="option">Selected skill</span></div></main>');
+    const fields = (await observe(page)).fields;
+    assert.equal((await readPickerOptions(page, fields.find(f => f.label === 'Country')!.ref)).at(-1), 'Country 229');
+    assert.deepEqual(await readPickerOptions(page, fields.find(f => f.label === 'Other question')!.ref), []);
   });
   await check('replacement controls with unchanged field count halt the old batch', async () => {
     await page.setContent('<main><label>First fact<input name="first" oninput="document.querySelector(\'#slot\').innerHTML=\'<label>Different fact<input name=changed></label>\'"></label><div id="slot"><label>Second fact<input name="second"></label></div></main>');

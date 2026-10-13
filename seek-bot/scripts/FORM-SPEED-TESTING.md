@@ -21,6 +21,12 @@ Resume/letter uploads read metadata from the original file-input node even when
 a site replaces it. Transport is not acceptance: the agent still observes upload
 errors and the submission gate still verifies the complete form.
 
+Live testing also found incomplete popup lists and unrelated selected chips
+in blocked-question handoffs. Picker choices now use their observed owner,
+native lists retain all choices, and the candidate can write a known answer
+when captured choices do not include it. Retries still match and verify that
+fact against the current employer form; saving an answer never submits a job.
+
 Artificial pauses between verified fills and agent turns are skipped in the pilot.
 Navigation/actionability, CAPTCHA waits, job-board pacing, final grounding checks
 and independent confirmation remain active. A completed background-review deadline

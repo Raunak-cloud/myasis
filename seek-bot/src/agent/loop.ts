@@ -227,7 +227,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
      */
     if (finalOutcome.status === 'needs-human') {
       for (const blocked of blockedQuestions) {
-        if (blocked.options?.length || !blocked.ref) continue;
+        if (!blocked.ref) continue;
         const field = visibleFields.find((candidate) => candidate.ref === blocked.ref);
         const looksLikePicker =
           field?.autocomplete === true ||
@@ -236,6 +236,7 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
         if (!looksLikePicker) continue;
         const options = await readPickerOptions(page, blocked.ref).catch(() => []);
         if (options.length > 1) blocked.options = options;
+        else delete blocked.options;
       }
     }
     if (finalOutcome.status === 'needs-human') {
