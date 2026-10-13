@@ -38,7 +38,8 @@
     "test:form-replay": "tsc && node dist/form-replay.test.js",
     "replay": "node dist/form-replay.js",
     "test:submit-gate": "tsc && node dist/agent/submit-gate.test.js",
-    "test:email-wait": "tsc && node dist/email-wait.test.js"
+    "test:email-wait": "tsc && node dist/email-wait.test.js",
+    "test:headless-fixtures": "tsc && node scripts/test-headless-fixtures.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

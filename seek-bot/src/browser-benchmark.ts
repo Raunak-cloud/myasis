@@ -1,6 +1,6 @@
 /** Read-only discovery benchmark. No forms, submissions, fit assessments or paid solvers. */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { launchBrowser, closeBrowser, getPage, assertSignedIn } from './browser.js';
@@ -104,6 +104,12 @@ try {
   result.error = (error as Error).message.replace(/https?:\/\/\S+/g, '<url>').slice(0, 500);
   const page = ctx.pages()[0];
   if (page && await hasCaptchaSurface(page).catch(() => false)) result.challenges = Number(result.challenges) + 1;
+  // Capture evidence while the failing page still exists. Keep screenshots in
+  // the private trial directory; never include applicant DOM/cookies in logs.
+  if (page) {
+    result.failureTitle = await page.title().catch(() => 'unavailable');
+    result.failureScreenshot = await page.screenshot({ path: resolve(dirname(output), 'failure.jpg'), type: 'jpeg', quality: 60, timeout: 5000 }).then(() => 'failure.jpg').catch(() => null);
+  }
 } finally {
   clearInterval(sampler);
   clearInterval(challengeTimer);
@@ -113,6 +119,10 @@ try {
   result.peakPssMiB = memory.length ? Math.max(...memory) : null;
   result.browserCpuSeconds = process.platform === 'linux' ? [...cpuTicks.values()].reduce((a, b) => a + b, 0) / clockTicks : null;
   result.activeMs = performance.now() - start;
+  result.liveFrames = frames;
+  const finalPage = ctx.pages()[0];
+  if (finalPage) result.browser = await finalPage.evaluate(() => ({ userAgent: navigator.userAgent, webdriver: navigator.webdriver, inner: [innerWidth, innerHeight], outer: [outerWidth, outerHeight] })).catch(() => null);
+  result.challengeCounting = 'Surface observations, not unique CAPTCHA episodes';
   await controller?.detach().catch(() => {});
   await closeBrowser(ctx);
   result.totalMs = performance.now() - start;
