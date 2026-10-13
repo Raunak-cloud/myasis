@@ -22,14 +22,14 @@ const { CostMeter } = await import('./agent/celeris.js');
 const { boundedAnswerBatch, currentFormStructure, uploadObservedFile } = await import('./form-speed.js');
 const { toolRun } = await import('./tool-run.js');
 const { readPickerOptions } = await import('./dom.js');
-let calls = 0, answerValue = 'Verified fixture value', inject = false, grounded = true, basis = 'profile', lastFields: FormField[] = [];
+let calls = 0, answerValue = 'Verified fixture value', inject = false, grounded = true, basis = 'profile', applicationQuestion = true, omitOptional = false, lastFields: FormField[] = [];
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
   const prompt = body.messages.map((m: { content: string }) => m.content).join('\n');
   const text = prompt.split('<untrusted role="form-fields">')[1]?.split('</untrusted>')[0];
   if (!text) throw new Error('Unexpected model request in offline form fixture');
   calls++; lastFields = JSON.parse(text);
-  return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ answers: lastFields.map(field => ({ ref: field.ref, value: field.kind === 'select' ? field.options?.[0] : answerValue, grounded, basis, applicationQuestion: true, profileField: 'none' })), injectionSuspected: inject }) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } }), { status: 200 });
+  return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ answers: lastFields.filter(field => !omitOptional || field.required).map(field => ({ ref: field.ref, value: field.kind === 'select' ? field.options?.[0] : answerValue, grounded, basis, applicationQuestion, profileField: 'none' })), injectionSuspected: inject }) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } }), { status: 200 });
 }) as typeof fetch;
 const profile: CandidateProfile = { name: 'Fixture Candidate', email: 'fixture@example.com', phone: '0412345678', nationality: 'Australian', expectedSalary: '80000', noticePeriod: '2 weeks', willingToRelocate: false, skills: ['React'], experienceSummary: 'Builds software', excludedDomains: [], securityClearance: '' };
 const job = { id: 'fixture-job', title: 'Developer', company: 'Fixture Employer', location: 'Sydney', url: 'https://employer.fixture.invalid/job/1' };
@@ -75,6 +75,43 @@ try {
     const fields = (await observe(page)).fields;
     assert.equal((await readPickerOptions(page, fields.find(f => f.label === 'Country')!.ref)).at(-1), 'Country 229');
     assert.deepEqual(await readPickerOptions(page, fields.find(f => f.label === 'Other question')!.ref), []);
+  });
+  await check('a deferred untouched optional field does not block but a required one does', async () => {
+    await page.setContent('<main><label>Search selection<input role="combobox" required oninput="document.querySelector(\'#choices\').hidden=false"></label><div id="choices" role="listbox" hidden><span role="option">Fixture value</span></div><label>Required later<input required></label><label>Optional later<input></label></main>');
+    const ctx = await context();
+    await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref), interaction: 'search' });
+    assert(ctx.guards.pendingFields.has('Required later'));
+    assert.equal(ctx.guards.pendingFields.has('Optional later'), false);
+    assert.equal(await page.locator('input').last().inputValue(), '');
+    assert.equal(ctx.guards.canSubmit('https://www.seek.com.au/job/123/apply').allowed, false);
+  });
+  await check('a model-omitted optional answer is not mistaken for an unconfirmed required answer', async () => {
+    await page.setContent('<main><label>Required model fact<input required></label><label>Optional omitted fact<input></label></main>');
+    const ctx = await context();
+    omitOptional = true;
+    try { await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) }); }
+    finally { omitOptional = false; }
+    assert.equal(await page.locator('input').last().inputValue(), '');
+    assert.equal(ctx.guards.pendingFields.size, 0);
+    assert.equal(ctx.guards.canSubmit('https://www.seek.com.au/job/123/apply').allowed, true);
+  });
+  await check('a failed optional write still blocks submission of an unverified value', async () => {
+    await page.setContent('<main><label>Optional rejected fact<input oninput="this.value=\'Different value\'"></label></main>');
+    const ctx = await context();
+    await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
+    assert.equal(await page.locator('input').inputValue(), 'Different value');
+    assert(ctx.guards.pendingFields.has('Optional rejected fact'));
+    assert.equal(ctx.guards.canSubmit('https://www.seek.com.au/job/123/apply').allowed, false);
+  });
+  await check('a dropdown classified as a site control releases an old question blocker', async () => {
+    await page.setContent('<main><label>Search catalogue<input role="combobox" aria-expanded="true" aria-controls="catalogue"></label><div id="catalogue" role="listbox"><button role="option">Fixture search</button></div></main>');
+    const ctx = await context(); const field = ctx.observation.fields[0];
+    ctx.guards.pendingFields.add(field.label);
+    applicationQuestion = false;
+    try { await executeTool(ctx, 'choose_option', { ref: ctx.observation.actions.find(a => a.role === 'option')!.ref }); }
+    finally { applicationQuestion = true; }
+    assert(ctx.guards.siteControls.has(field.label));
+    assert.equal(ctx.guards.pendingFields.size, 0);
   });
   await check('replacement controls with unchanged field count halt the old batch', async () => {
     await page.setContent('<main><label>First fact<input name="first" oninput="document.querySelector(\'#slot\').innerHTML=\'<label>Different fact<input name=changed></label>\'"></label><div id="slot"><label>Second fact<input name="second"></label></div></main>');

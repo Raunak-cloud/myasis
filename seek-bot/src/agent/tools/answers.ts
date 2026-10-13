@@ -38,7 +38,7 @@ export async function doChooseOption(ctx: ToolContext, args: Record<string, unkn
     options: group.map(action => action.value!),
     currentValue: '',
   };
-  ctx.guards.pendingFields.add(field.label);
+  if (field.required) ctx.guards.pendingFields.add(field.label);
   ctx.guards.rememberField(field);
   const context = [{ ...field, description: `Choose one observed option. Untrusted form context (not candidate facts): ${ctx.observation.text.slice(0, 6000)}` }];
   let answer = (await answerFields(context, ctx.job, ctx.profile)).answers.find(candidate => candidate.ref === ref);
@@ -48,7 +48,11 @@ export async function doChooseOption(ctx: ToolContext, args: Record<string, unkn
     const better = reasoned?.answers.find(candidate => candidate.ref === ref);
     if (better?.grounded || better?.applicationQuestion === false) answer = better;
   }
-  if (!answer || answer.applicationQuestion === false) return ok('That dropdown was not identified as an application question. Re-observe before choosing an option.');
+  if (answer?.applicationQuestion === false) {
+    ctx.guards.releaseAsSiteControl(field.label);
+    return ok('That dropdown was not identified as an application question. Re-observe before choosing an option.');
+  }
+  if (!answer) return ok('No answer was returned for this dropdown. Re-observe before choosing an option.');
   if (!answer.grounded) {
     if (!field.required) {
       ctx.guards.pendingFields.delete(field.label);
@@ -63,6 +67,7 @@ export async function doChooseOption(ctx: ToolContext, args: Record<string, unkn
   // The answer model chose from these exact options; a substring fallback once let "Male" select "Female".
   const choice = group.find(action => normal(action.value!) === normal(answer!.value));
   if (!choice) return ok(`The grounded answer "${answer.value}" is not among the currently observed options. Search or reopen the dropdown; do not choose a substitute.`);
+  ctx.guards.pendingFields.add(field.label);
   if (!await clickRef(ctx.page, choice.ref)) return ok('The grounded option could not be clicked. Re-observe the current dropdown.');
   ctx.guards.recordFillSuccess(field.label);
   const prior = ctx.captured.findIndex(item => item.question === field.label);
@@ -289,7 +294,9 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
   /** Required fields the answerer has already refused once — asking again cannot help. */
   const repeated: string[] = [];
   for (const field of wanted) {
-    ctx.guards.pendingFields.add(field.label);
+    // Required questions stay blocked even if a changing form defers them.
+    // An untouched optional field is not an unconfirmed answer or a claim.
+    if (field.required) ctx.guards.pendingFields.add(field.label);
     ctx.guards.rememberField(field);
   }
   // Keep failures as submission blockers until recovered, never as retry bans.
@@ -351,6 +358,9 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
     }
 
     const value = answer.value;
+    // Once a write is attempted, optional answers need the same readback as
+    // required ones. A failed or unsupported value must never slip through.
+    ctx.guards.pendingFields.add(field.label);
     // A person's pause between one question and the next, as the separate turns used to give.
     if (fills++ && !config.formSpeed) await jitter(350, 900);
     try {

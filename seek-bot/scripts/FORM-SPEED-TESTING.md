@@ -27,6 +27,11 @@ native lists retain all choices, and the candidate can write a known answer
 when captured choices do not include it. Retries still match and verify that
 fact against the current employer form; saving an answer never submits a job.
 
+Untouched optional questions deferred by a changing batch, or omitted by an
+answer response, do not become submission blockers. Required questions remain
+blocked until resolved. Every attempted write, including optional values, still
+requires readback; failed or unsupported claims cannot pass the submission gate.
+
 Artificial pauses between verified fills and agent turns are skipped in the pilot.
 Navigation/actionability, CAPTCHA waits, job-board pacing, final grounding checks
 and independent confirmation remain active. A completed background-review deadline
