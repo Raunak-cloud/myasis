@@ -22,10 +22,22 @@ const { CostMeter } = await import('./agent/celeris.js');
 const { boundedAnswerBatch, currentFormStructure, uploadObservedFile } = await import('./form-speed.js');
 const { toolRun } = await import('./tool-run.js');
 const { readPickerOptions } = await import('./dom.js');
+const { checkSavedForm } = await import('./agent/tools/gate.js');
 let calls = 0, answerValue = 'Verified fixture value', inject = false, grounded = true, basis = 'profile', applicationQuestion = true, omitOptional = false, lastFields: FormField[] = [];
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
   const prompt = body.messages.map((m: { content: string }) => m.content).join('\n');
+  const saved = prompt.match(/<untrusted role="current-saved-form">([\s\S]*)<\/untrusted>/);
+  if (saved) {
+    const form = JSON.parse(saved[1]) as import('./agent/saved-form.js').SavedForm;
+    const problems = form.fields.flatMap(field => {
+      const value = field.currentValue ?? '';
+      const kind = field.required && !value.trim() ? 'missing' : field.validationError ? 'invalid'
+        : value === 'Different value' ? 'unsupported' : null;
+      return kind ? [{ ref: field.ref, field: field.label, value, kind, problem: 'Observed unfinished or rejected fixture answer.' }] : [];
+    });
+    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems }) } }] }), { status: 200 });
+  }
   const text = prompt.split('<untrusted role="form-fields">')[1]?.split('</untrusted>')[0];
   if (!text) throw new Error('Unexpected model request in offline form fixture');
   calls++; lastFields = JSON.parse(text);
@@ -83,7 +95,9 @@ try {
     assert(ctx.guards.pendingFields.has('Required later'));
     assert.equal(ctx.guards.pendingFields.has('Optional later'), false);
     assert.equal(await page.locator('input').last().inputValue(), '');
-    assert.equal(ctx.guards.canSubmit('https://www.seek.com.au/job/123/apply').allowed, false);
+    const held = await checkSavedForm(ctx);
+    assert.ok(held?.kind === 'ok');
+    assert.match(held.message, /CURRENT saved form is not ready/, 'the actual saved form still blocks the deferred required blank');
   });
   await check('a model-omitted optional answer is not mistaken for an unconfirmed required answer', async () => {
     await page.setContent('<main><label>Required model fact<input required></label><label>Optional omitted fact<input></label></main>');
@@ -93,7 +107,7 @@ try {
     finally { omitOptional = false; }
     assert.equal(await page.locator('input').last().inputValue(), '');
     assert.equal(ctx.guards.pendingFields.size, 0);
-    assert.equal(ctx.guards.canSubmit('https://www.seek.com.au/job/123/apply').allowed, true);
+    assert.equal(await checkSavedForm(ctx), null, 'an omitted optional answer passes the actual saved-form review');
   });
   await check('a failed optional write still blocks submission of an unverified value', async () => {
     await page.setContent('<main><label>Optional rejected fact<input oninput="this.value=\'Different value\'"></label></main>');
@@ -101,7 +115,9 @@ try {
     await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
     assert.equal(await page.locator('input').inputValue(), 'Different value');
     assert(ctx.guards.pendingFields.has('Optional rejected fact'));
-    assert.equal(ctx.guards.canSubmit('https://www.seek.com.au/job/123/apply').allowed, false);
+    const held = await checkSavedForm(ctx);
+    assert.ok(held?.kind === 'ok');
+    assert.match(held.message, /not supported by the candidate/, 'the actual unsupported saved value still blocks advancement');
   });
   await check('a dropdown classified as a site control releases an old question blocker', async () => {
     await page.setContent('<main><label>Search catalogue<input role="combobox" aria-expanded="true" aria-controls="catalogue"></label><div id="catalogue" role="listbox"><button role="option">Fixture search</button></div></main>');
