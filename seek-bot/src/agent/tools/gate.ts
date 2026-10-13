@@ -591,10 +591,11 @@ export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[
  * Workday form was submitted as the model allowance ran out, and the attempt
  * was reported as not sent because nothing looked at the page afterwards.
  */
-export async function pageConfirmsSubmission(ctx: ToolContext): Promise<boolean> {
+export async function pageConfirmsSubmission(ctx: ToolContext, strict = false): Promise<boolean> {
   if (ctx.page.isClosed()) return false;
   await waitForPageToSettle(ctx.page, 1_500, 8_000).catch(() => false);
-  return verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false);
+  const check = verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job);
+  return strict ? check : check.catch(() => false);
 }
 
 /**

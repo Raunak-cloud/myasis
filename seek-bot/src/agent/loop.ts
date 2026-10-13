@@ -598,6 +598,27 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
     let ended: ToolResult | null = null;
 
     for (const [index, call] of plan.entries()) {
+      // A delayed employer receipt can share a page with other drafts and
+      // their Continue buttons. Verify the current application's receipt
+      // before any next action can navigate away from that evidence.
+      let receiptConfirmed = false;
+      if (ctx.submissionAttempted) {
+        try { receiptConfirmed = await pageConfirmsSubmission(ctx, true); }
+        catch {
+          trace.push({step:guards.stepCount,url:page.url(),tool:'receipt_check_unavailable',args:{},label:'Submission receipt check unavailable',
+            result:'The receipt could not be independently checked; the page was preserved and no further action was performed.',
+            screenshot:await page.screenshot({type:'jpeg',quality:65}).then(b=>`data:image/jpeg;base64,${b.toString('base64')}`).catch(()=>undefined)});
+          return finish({status:'skipped',reason:'Submit was pressed, but the employer receipt could not be checked. No further action was taken.'});
+        }
+      }
+      if (receiptConfirmed) {
+        trace.push({
+          step: guards.stepCount, url: page.url(), tool: 'verified_submission', args: {},
+          label: 'Employer confirmed submission', result: 'The independent verifier confirmed receipt of this application before another action.',
+          screenshot: await page.screenshot({ type: 'jpeg', quality: 65 }).then(b => `data:image/jpeg;base64,${b.toString('base64')}`).catch(() => undefined),
+        });
+        return finish({ status: 'applied' });
+      }
       if (index > 0) {
         // Every later step is checked against the page as it now is.
         const missing = await missingRefs(page, call.args);
