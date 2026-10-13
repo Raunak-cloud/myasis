@@ -1,7 +1,8 @@
 import { measured, metric } from './pipeline.js';
 import { applicationFailureContext } from './application-diagnostics.js';
 import { pickResumeForJob } from './resume.js';
-import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict, type FitAssessment } from './llm.js';
+import { assessFit, finishedCoverLetterForJob, judgeApplicationIdentity, rankJobsForReview, reviewKey, ruleConflict, type FitAssessment } from './llm.js';
+import { checkApplicationIdentity } from './application-identity.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
 import {
@@ -1066,6 +1067,20 @@ async function main() {
       if (index.appliedToday() >= config.limits.maxApplicationsPerDay) {
         console.log(`\nDaily cap of ${config.limits.maxApplicationsPerDay} reached.`);
         break;
+      }
+
+      // Admin pilot: check semantic identity immediately before applying,
+      // using this account's current history, including earlier sends this run.
+      if (config.formSpeed) {
+        const identity = await measured('application-identity', () => checkApplicationIdentity(job, index.all, judgeApplicationIdentity), { jobId: job.id });
+        metric('application-identity-decision', 0, { jobId: job.id, state: identity.state, matchedJobId: identity.matchedJobId });
+        if (identity.state !== 'distinct') {
+          const reason = identity.state === 'duplicate' ? `Already applied to this vacancy: ${identity.reason}` : `Possible duplicate withheld: ${identity.reason}`;
+          console.log(`  – skipped: ${job.title} @ ${job.company} — ${reason}`);
+          logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, reason });
+          bump(identity.state === 'duplicate' ? 'already applied' : 'possible duplicate');
+          continue;
+        }
       }
 
       console.log(`\n→ Applying: ${job.title} @ ${job.company}`);

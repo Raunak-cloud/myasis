@@ -78,6 +78,7 @@ as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 |
 as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "cd $APP/seek-bot && node --test dist/profile-salary.test.js"
+as_app "cd $APP/seek-bot && node --test dist/application-identity.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable FORM_SPEED_PILOT=true node dist/form-speed.test.js"
 as_app "cd $APP/seek-bot && node --test dist/form-replay-compare.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/form-replay.test.js"

@@ -16,9 +16,11 @@ function loadApplied(): AppliedRecord[] {
   ensureDir();
   if (!existsSync(APPLIED)) return [];
   try {
-    return JSON.parse(readFileSync(APPLIED, 'utf8')) as AppliedRecord[];
+    const records: unknown = JSON.parse(readFileSync(APPLIED, 'utf8'));
+    if (!Array.isArray(records)) throw new Error('Invalid application history shape');
+    return records as AppliedRecord[];
   } catch {
-    return [];
+    throw new Error('Saved application history could not be read; new applications are withheld to prevent repeat submissions.');
   }
 }
 
