@@ -23,10 +23,12 @@ export interface PageChanges {
   controls: string[];
   /** Text that changed in place. */
   text: string[];
+  /** Actual committed properties, independent of whether a widget dispatched input/change. */
+  values?: Array<{ ref: string | null; name: string; value: string; frame: number }>;
 }
 
 export const changedAnything = (changes: PageChanges): boolean =>
-  changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length || changes.text.length);
+  changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length || changes.text.length || changes.values?.length);
 
 /**
  * The page moved in a way an action causes: it navigated, a control's state
@@ -35,15 +37,39 @@ export const changedAnything = (changes: PageChanges): boolean =>
  * for the application getting somewhere.
  */
 export const movedByAction = (changes: PageChanges): boolean =>
-  changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length);
+  changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length || changes.values?.length);
 
 /** Installed in a document; kept tiny and dependency-free because it runs in the page. */
 function install(): void {
-  type Store = { added: Element[]; removed: string[]; controls: string[]; text: string[]; observer?: MutationObserver; onInput?: (event: Event) => void };
+  type Store = { added: Element[]; removed: string[]; controls: string[]; text: string[]; observer?: MutationObserver; onInput?: (event: Event) => void;
+    values: Map<Element, string>; inputs: () => Element[]; readValue: (node: Element) => string | null };
   const w = window as unknown as { __owtChanges?: Store };
   if (w.__owtChanges?.observer) w.__owtChanges.observer.disconnect();
   if (w.__owtChanges?.onInput) document.removeEventListener('input', w.__owtChanges.onInput, true);
-  const store: Store = { added: [], removed: [], controls: [], text: [] };
+  const inputs = (): Element[] => {
+    const roots: Array<Document | ShadowRoot> = [document];
+    const found: Element[] = [];
+    for (let i = 0; i < roots.length; i++) {
+      for (const node of roots[i].querySelectorAll('*')) {
+        if (node.shadowRoot) roots.push(node.shadowRoot);
+        if (node.matches('input,select,textarea,[contenteditable="true"],[role="checkbox"],[role="radio"]')) found.push(node);
+      }
+    }
+    return found;
+  };
+  const readValue = (node: Element): string | null => {
+    if (node.matches('input[type="password"],input[type="hidden"],input[type="file"]')
+      || /password|one-time-code/i.test([node.getAttribute('autocomplete'), node.getAttribute('name'), node.id].join(' '))) return null;
+    if (!node.getBoundingClientRect().width || getComputedStyle(node).visibility === 'hidden') return null;
+    if (node.matches('input[type="checkbox"],input[type="radio"]')) return String((node as HTMLInputElement).checked);
+    if (node.matches('[role="checkbox"],[role="radio"]')) return node.getAttribute('aria-checked');
+    if (node instanceof HTMLSelectElement && node.multiple) return JSON.stringify([...node.selectedOptions].map(option => option.value));
+    if ('value' in node && typeof node.value === 'string') return node.value;
+    return (node as HTMLElement).innerText ?? null;
+  };
+  const values = new Map<Element, string>();
+  for (const node of inputs()) { const value = readValue(node); if (value !== null) values.set(node, value); }
+  const store: Store = { added: [], removed: [], controls: [], text: [], values, inputs, readValue };
   w.__owtChanges = store;
   const compact = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
   const name = (element: Element) => compact(
@@ -98,7 +124,8 @@ function install(): void {
 
 /** Read back what the recorder in this document saw; visible additions only, most telling first. */
 function collect(): Omit<PageChanges, 'navigated'> | null {
-  const store = (window as unknown as { __owtChanges?: { added: Element[]; removed: string[]; controls: string[]; text: string[]; observer?: MutationObserver } }).__owtChanges;
+  const store = (window as unknown as { __owtChanges?: { added: Element[]; removed: string[]; controls: string[]; text: string[]; observer?: MutationObserver;
+    values: Map<Element, string>; inputs: () => Element[]; readValue: (node: Element) => string | null } }).__owtChanges;
   if (!store) return null;
   store.observer?.disconnect();
   const compact = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
@@ -117,11 +144,19 @@ function collect(): Omit<PageChanges, 'navigated'> | null {
     .filter((item) => item.text);
   shown.sort((a, b) => Number(telling(b.element)) - Number(telling(a.element)));
   const appeared = [...new Set(shown.map((item) => (telling(item.element) ? `[${item.element.getAttribute('role') ?? 'notice'}] ` : '') + item.text))].slice(0, 12);
+  const values: NonNullable<PageChanges['values']> = [];
+  for (const node of store.inputs()) {
+    const value = store.readValue(node);
+    if (value === null || value === store.values.get(node) || (!store.values.has(node) && !value)) continue;
+    const name = compact(node.getAttribute('aria-label') || node.getAttribute('name') || node.id || node.tagName).slice(0, 120);
+    values.push({ ref: node.getAttribute('data-field-id'), name, value: value.slice(0, 1000), frame: 0 });
+  }
   return {
     appeared,
     disappeared: store.removed.filter(Boolean).slice(0, 8),
     controls: store.controls.slice(0, 15),
     text: store.text.filter((entry) => entry && !appeared.some((shownText) => shownText.includes(entry))).slice(0, 8),
+    values,
   };
 }
 
@@ -138,12 +173,13 @@ export async function readChanges(page: Page, startedAt: string): Promise<PageCh
   if (page.isClosed()) return { ...empty, navigated: true };
   const parts = await Promise.all(page.frames().map((frame) => frame.evaluate(collect).catch(() => null)));
   const mainRecorded = parts[0] !== null;
-  const merged = parts.reduce<PageChanges>((all, part) => part ? {
+  const merged = parts.reduce<PageChanges>((all, part, frame) => part ? {
     navigated: false,
     appeared: [...all.appeared, ...part.appeared],
     disappeared: [...all.disappeared, ...part.disappeared],
     controls: [...all.controls, ...part.controls],
     text: [...all.text, ...part.text],
+    values: [...(all.values ?? []), ...(part.values ?? []).map(value => ({ ...value, frame }))],
   } : all, empty);
   // A document without the recorder is a new one: the action navigated, even when the address did not change.
   merged.navigated = page.url() !== startedAt || !mainRecorded;
@@ -157,6 +193,7 @@ export function describeChanges(changes: PageChanges): string {
     return 'What happened: no change of any kind was recorded in the page (no element appeared, disappeared or changed state, nothing was typed). A screenshot comes with the next observation so you can see it yourself.';
   }
   const lines = [
+    changes.values?.length ? `committed values: ${changes.values.map(value => `${value.ref ?? value.name}: ${JSON.stringify(value.value.slice(0, 120))}`).join('; ')}` : '',
     changes.appeared.length ? `appeared: ${changes.appeared.map((entry) => `«${entry}»`).join('; ')}` : '',
     changes.controls.length ? `controls changed: ${changes.controls.join('; ')}` : '',
     changes.disappeared.length ? `disappeared: ${changes.disappeared.map((entry) => `«${entry}»`).join('; ')}` : '',

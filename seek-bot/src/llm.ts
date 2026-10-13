@@ -1498,6 +1498,7 @@ export async function auditFormBeforeSubmit(
   job: JobListing,
   profile: CandidateProfile,
   entered: Array<{ question: string; answer: string }>,
+  fieldLabels?: string[],
 ): Promise<Array<{ field: string; value: string; problem: string }>> {
   const knowledge = await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ''}`).catch(() => '');
   const saved = loadSavedAnswers();
@@ -1522,10 +1523,14 @@ ${snapshot.slice(0, 24_000)}
     properties: {
       problems: {
         type: 'ARRAY',
-        items: { type: 'OBJECT', properties: { field: { type: 'STRING' }, value: { type: 'STRING' }, problem: { type: 'STRING' } }, required: ['field', 'value', 'problem'] },
+        items: { type: 'OBJECT', properties: { field: { type: 'STRING', ...(fieldLabels ? { enum: fieldLabels } : {}) }, value: { type: 'STRING' }, problem: { type: 'STRING' } }, required: ['field', 'value', 'problem'] },
       },
     },
     required: ['problems'],
   });
+  if (fieldLabels && (!Array.isArray(verdict.problems) || verdict.problems.some(item => !item
+    || !fieldLabels.includes(item.field) || typeof item.value !== 'string' || typeof item.problem !== 'string'))) {
+    throw new Error('The answer check did not identify an observed changed field.');
+  }
   return Array.isArray(verdict.problems) ? verdict.problems.filter((item) => item && typeof item.field === 'string') : [];
 }

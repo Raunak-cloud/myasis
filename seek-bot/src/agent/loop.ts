@@ -662,7 +662,10 @@ export async function runApplicationAgent(options: AgentRunOptions): Promise<Age
         changes = await readChanges(page, startedAt).catch(() => null);
         if (changes) {
           // Answers a general tool set are checked against the record now, not three pages later at submit.
-          const check = GENERAL_TOOLS.has(call.name) ? await checkGeneralToolAnswers(ctx, changes.controls).catch(() => '') : '';
+          const checkAnswers = GENERAL_TOOLS.has(call.name) || Boolean(ctx.rawAnswerProblems?.size && ['answer_questions', 'choose_option'].includes(call.name));
+          const check = checkAnswers ? await checkGeneralToolAnswers(ctx, changes.controls, config.formSpeed ? changes.values : undefined)
+            .catch(() => config.formSpeed ? 'ANSWER CHECK UNAVAILABLE' : '') : '';
+          if (/ANSWER CHECK UNAVAILABLE/.test(check)) return finish({ status: 'skipped', reason: 'The browser changes could not be checked against your saved information.' });
           if (/NOT SUPPORTED/.test(check)) lastFailed = true;
           result = { kind: 'ok', message: `${result.message}\n${describeChanges(changes)}${check}` };
           if (changedAnything(changes)) lastChanged = true;

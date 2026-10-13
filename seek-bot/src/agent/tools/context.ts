@@ -108,6 +108,8 @@ export interface ToolContext {
   /** Focused evidence requests deeper Magnus reasoning without treating menu animation as completion. */
   interactionRecovery?: string;
   recoveryInspectionSequence?: number;
+  /** AI-rejected raw-tool answers stay blocked until a committed replacement is checked. */
+  rawAnswerProblems?: Map<string, { field: string; value: string; problem: string }>;
   /** Recent failed requests and console errors, per tab, for get_diagnostics. */
   diagnostics?: WeakMap<Page, string[]>;
 }

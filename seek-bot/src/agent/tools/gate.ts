@@ -6,6 +6,7 @@ import { answerFields, auditFormBeforeSubmit, isSubmitControl, verifySubmissionE
 import { pickResumeForJob } from '../../resume.js';
 import { resolve } from 'node:path';
 import type { FormField } from '../../types.js';
+import type { PageChanges } from '../page-changes.js';
 import { isEntryAction } from '../guards.js';
 import { wasHumanized } from '../../humanizer.js';
 import { offersCoverLetter } from '../cover-letter-opportunity.js';
@@ -161,6 +162,10 @@ export async function gateAdvance(
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
   if (entry) ctx.log(`  → opening the application: "${label}"`);
   if (!entry && (options.knownSubmit || movesForward(ctx, label))) {
+    if (ctx.rawAnswerProblems?.size) {
+      const held = await withheldFor(ctx, [...ctx.rawAnswerProblems.values()]);
+      if (held) return { proceed: false, result: held };
+    }
     const held = await auditPrefilled(ctx);
     if (held) return { proceed: false, result: held };
   }
@@ -175,6 +180,10 @@ export async function gateAdvance(
     if (letter) return { proceed: false, result: letter };
   }
   if (!submit) return { proceed: true, submit: false };
+  if (ctx.rawAnswerProblems?.size) {
+    const held = await withheldFor(ctx, [...ctx.rawAnswerProblems.values()]);
+    if (held) return { proceed: false, result: held };
+  }
 
   /**
    * Indeed can open an application straight on its review page with the
@@ -528,8 +537,21 @@ async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; va
  * check as the submit audit reads them now, and the agent is told straight
  * away what the record does not support, while it is still on that page.
  */
-export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[]): Promise<string> {
-  const set = changes.filter((change) =>
+export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[], committed?: PageChanges['values']): Promise<string> {
+  const labels: string[] = [];
+  for (const value of committed ?? []) {
+    if (value.value.trim()) continue;
+    const field = value.frame === 0 ? ctx.observation.fields.find(field => field.ref === value.ref) : undefined;
+    const label = field?.label ?? value.name;
+    ctx.rawAnswerProblems?.delete(label);
+    if (field && !field.required) ctx.guards.resolveGrounding(label);
+  }
+  const set = committed ? committed.filter(value => value.value.trim()).map(value => {
+    const field = value.frame === 0 ? ctx.observation.fields.find(field => field.ref === value.ref) : undefined;
+    const label = field?.label ?? value.name;
+    labels.push(label);
+    return JSON.stringify({ field: label, value: value.value, section: field?.section, description: field?.description, required: field?.required });
+  }) : changes.filter((change) =>
     /now holds|aria-checked: \S+ → true|checked: \S+ → |aria-selected: \S+ → true|class \+\S*(?:selected|checked|highlight|active)/i.test(change)
     && !/now holds \(hidden\)|now holds nothing/.test(change));
   if (!set.length) return '';
@@ -538,9 +560,24 @@ export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[
     problems = await auditFormBeforeSubmit(
       `Answers just set on the form with a general browser tool (control: what changed):\n${set.map((change) => `- ${change}`).join('\n')}`,
       ctx.job, ctx.profile, ctx.captured,
+      committed ? [...new Set(labels)] : undefined,
     );
   } catch {
+    if (committed) return '\nANSWER CHECK UNAVAILABLE: the committed browser changes could not be verified. Do not continue this attempt.';
     return '';
+  }
+  if (committed) {
+    const issues = (ctx.rawAnswerProblems ??= new Map());
+    for (const label of labels) if (!problems.some(problem => sameLabel(problem.field, label))) {
+      if (issues.has(label)) ctx.guards.resolveGrounding(label);
+      issues.delete(label);
+      ctx.auditStrikes?.delete(label);
+    }
+    for (const problem of problems) {
+      const label = labels.find(label => sameLabel(label, problem.field));
+      if (!label) continue;
+      issues.set(label, { ...problem, field: label });
+    }
   }
   if (!problems.length) return '\nThe answers this set are supported by the candidate\'s record.';
   ctx.log(`  ✋ ${problems.length} answer(s) set by a general tool not supported: ${problems.map((problem) => problem.field).join('; ').slice(0, 160)}`);
