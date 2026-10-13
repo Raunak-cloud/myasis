@@ -6,7 +6,7 @@ export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platf
 /** A blocked question with the choices the form offered, when it had any. */
 interface BlockedQuestion {
   question: string;
-  /** Complete request for the candidate; the short question remains the retry key. */
+  /** Complete request for the candidate; the short question identifies its form control. */
   prompt?: string;
   kind?: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
   options?: string[];
@@ -51,7 +51,7 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jobId: item.jobId,
-          answers: answered.map((q) => ({ question: q.question, answer: values[q.question].trim() })),
+          answers: answered.map((q) => ({ question: q.question, prompt: q.prompt, answer: values[q.question].trim() })),
         }),
       });
       const body = await response.json();

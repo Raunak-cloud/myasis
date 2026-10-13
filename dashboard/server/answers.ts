@@ -12,6 +12,18 @@ interface SavedAnswer {
   createdAt: string;
 }
 
+/** A form label is an interaction key; the full question is the reusable fact's context. */
+export function normaliseSavedAnswers(
+  answers: ReadonlyArray<{ question?: unknown; prompt?: unknown; answer?: unknown }>,
+): Array<{ question: string; answer: string }> {
+  return answers.flatMap((item) => {
+    const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
+    const question = (prompt || String(item?.question ?? '')).replace(/\s+/g, ' ').trim().slice(0, 500);
+    const answer = String(item?.answer ?? '').trim().slice(0, 4000);
+    return question && answer ? [{ question, answer }] : [];
+  });
+}
+
 export async function listAnswers(userId: string): Promise<SavedAnswer[]> {
   const rows = await query<{ question: string; answer: string; created_at: Date }>(
     `SELECT question, answer, created_at FROM saved_answers WHERE user_id = $1 ORDER BY created_at DESC`,
@@ -27,14 +39,11 @@ export async function listAnswers(userId: string): Promise<SavedAnswer[]> {
  */
 export async function saveAnswers(
   userId: string,
-  answers: Array<{ question: string; answer: string }>,
+  answers: Array<{ question: string; prompt?: string; answer: string }>,
   jobId?: string,
 ): Promise<{ saved: number }> {
   let saved = 0;
-  for (const item of answers) {
-    const question = String(item.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 500);
-    const answer = String(item.answer ?? '').trim().slice(0, 4000);
-    if (!question || !answer) continue;
+  for (const { question, answer } of normaliseSavedAnswers(answers)) {
     await query(
       `INSERT INTO saved_answers (user_id, question, answer)
        VALUES ($1, $2, $3)
