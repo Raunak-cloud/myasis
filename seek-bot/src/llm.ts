@@ -1023,8 +1023,22 @@ priority does not reject the job. Return JSON.`;
       reason: { type: 'STRING', maxLength: 120 },
     }, required: ['reviewId', 'priority', 'reason'],
   } } }, required: ['jobs'] };
-  const result = await measured('review-ranking', () =>
-    json<{ jobs: ReviewPriority[] }>(prompt, schema, 'celeris-1', 200 + batch.length * RANKING_TOKENS_PER_JOB));
+  // Reuse only the exact batch, ordering, candidate facts, instructions,
+  // constraints and recent outcomes the model saw. No per-title/fuzzy reuse:
+  // ranking is comparative and a changed batch needs a new decision.
+  const result = await cachedAssessment(
+    { version: 'review-ranking-v1', prompt, schema, model: 'celeris-1', endpoint: config.celeris.baseUrl },
+    () => measured('review-ranking', () =>
+      json<{ jobs: ReviewPriority[] }>(prompt, schema, 'celeris-1', 200 + batch.length * RANKING_TOKENS_PER_JOB)),
+    value => {
+      const ids = new Set(batch.map(reviewKey));
+      return ids.size === batch.length && Array.isArray(value?.jobs) && value.jobs.length === batch.length
+        && new Set(value.jobs.map(item => item?.reviewId)).size === ids.size
+        && value.jobs.every(item => item && ids.has(item.reviewId) && Number.isInteger(item.priority)
+          && item.priority >= 0 && item.priority <= 100 && typeof item.reason === 'string' && item.reason.length <= 120);
+    },
+    24 * 60 * 60_000,
+  );
   return result.jobs ?? [];
 }
 
@@ -1091,15 +1105,11 @@ export async function rankJobsForReview(
 /**
  * The candidate's rules against this job, cached. Asked of the open listing,
  * and earlier of its search card, so a job the title already rules out is
- * never opened. A card is judged separately: it is cached under its own
- * version and only says what the card itself shows.
+ * never opened. A card is judged and cached separately from the full listing:
+ * its prompt only says what the card itself shows.
  */
 export function ruleConflict(job: JobListing): Promise<InstructionVerdict> {
-  return withJobCost(job.id, () => cachedAssessment(
-    { version: job.description ? 'instruction-check-v2' : 'instruction-check-card-v2', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: FIT_CLASSIFIER_MODEL, exceptionReviewer: 'celeris-1-magnus', endpoint: config.celeris.baseUrl },
-    () => instructionConflict(job),
-    (value) => Boolean(value && ['allow', 'skip'].includes(value.decision) && typeof value.conflict === 'string' && typeof value.because === 'string' && Array.isArray(value.checks)),
-  ));
+  return withJobCost(job.id, () => instructionConflict(job));
 }
 
 async function instructionConflict(job: JobListing): Promise<InstructionVerdict> {
@@ -1162,6 +1172,16 @@ conditionQuote, its jobEvidence and status met, not-met or unclear. Return JSON.
     }, required: ['ruleQuote','status','reason','exceptionQuote','exceptionConditions'] } }, injectionSuspected: { type: 'BOOLEAN' } },
     required: ['checks', 'injectionSuspected'],
   };
+  // The complete model input is the cache identity. Hand-picking listing
+  // properties previously missed salary and work arrangement changes.
+  return cachedAssessment(
+    { version: 'instruction-check-v3', job: reviewKey(job), prompt, schema, model: FIT_CLASSIFIER_MODEL, exceptionReviewer: 'celeris-1-magnus', endpoint: config.celeris.baseUrl },
+    () => evaluateInstructionConflict(job, prompt, schema, rules),
+    value => Boolean(value && ['allow', 'skip'].includes(value.decision) && typeof value.conflict === 'string' && typeof value.because === 'string' && Array.isArray(value.checks)),
+  );
+}
+
+async function evaluateInstructionConflict(job: JobListing, prompt: string, schema: Record<string, unknown>, rules: string): Promise<InstructionVerdict> {
   const result = await measured('instruction-check', () => json<unknown>(prompt, schema, FIT_CLASSIFIER_MODEL, 2400));
   const initial = validateInstructionVerdict(result, rules);
   const normalized = initial.verdict;

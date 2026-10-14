@@ -18,6 +18,7 @@
     "test:cover-letter": "tsc && node dist/agent/cover-letter-opportunity.test.js",
     "test:combobox": "tsc && node scripts/test-combobox.mjs",
     "test:pipeline": "tsc && node scripts/test-pipeline.mjs",
+    "test:assessment-reuse": "tsc && node dist/assessment-reuse.test.js",
     "test:capmonster": "tsc && node scripts/test-capmonster.mjs",
     "test:ranking": "tsc && node scripts/test-ranking.mjs",
     "test:review-cache": "tsc && node --test dist/review-cache.test.js",

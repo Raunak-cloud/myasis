@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, sep } from 'node:path';
 
 /**
  * The job ranking against a stand-in Celeris that fails the way the real one
@@ -6,7 +9,9 @@ import assert from 'node:assert/strict';
  * the output "did not parse as JSON ... after one resample". Nothing real is
  * contacted.
  */
-process.env.CELERIS_API_KEY ||= 'test-key';
+const directory = mkdtempSync(join(tmpdir(), 'owtomate-ranking-test-'));
+process.env.DATA_DIR = directory;
+process.env.CELERIS_API_KEY = 'fixture-only';
 const { rankJobsForReview } = await import('../dist/llm.js');
 
 const profile = { name: 'Test', nationality: 'Australian citizen', phone: '0400000000', email: 't@example.com', expectedSalary: '90000', noticePeriod: '2 weeks', experienceSummary: 'Developer', skills: ['TypeScript'], excludedDomains: [] };
@@ -32,13 +37,15 @@ try {
   console.log(`PASS  the production error splits the batch instead of losing the run's ranking (${ranked.size}/45 ranked, ${calls} calls)`);
 
   mode = 'down-after-first'; calls = 0;
-  const partial = await rankJobsForReview(jobs, profile);
+  const partial = await rankJobsForReview(jobs, { ...profile, name: 'Partial outage fixture' });
   assert.equal(partial.size, 20, 'rankings made before Celeris went down are kept');
   console.log(`PASS  rankings already made survive Celeris going down part-way (${partial.size} kept)`);
 
   mode = 'down'; calls = 0;
-  await assert.rejects(rankJobsForReview(jobs, profile), /fetch failed/);
+  await assert.rejects(rankJobsForReview(jobs, { ...profile, name: 'Full outage fixture' }), /fetch failed/);
   console.log('PASS  with Celeris down from the start, the caller is told (and falls back to search order)');
 } finally {
   globalThis.fetch = realFetch;
+  assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-ranking-test-'));
+  rmSync(directory, { recursive: true, force: true });
 }

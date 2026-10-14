@@ -17,26 +17,43 @@ export async function measured<T>(stage: string, action: () => Promise<T>, extra
   catch (error) { metric(stage, performance.now() - started, { ...extra, ok: false }); throw error; }
 }
 
-export async function cachedAssessment<T>(input: unknown, compute: () => Promise<T>, accept: (value: T) => boolean): Promise<T> {
+// Scope in-flight reuse by the absolute account cache path, just like disk
+// reuse. Identical work racing in the discovery/review pipelines should make
+// one provider request, never share answers between accounts.
+const assessmentsInFlight = new Map<string, Promise<unknown>>();
+export async function cachedAssessment<T>(input: unknown, compute: () => Promise<T>, accept: (value: T) => boolean, ttlMs = 7 * 86400_000): Promise<T> {
+  const version = input && typeof input === 'object' ? (input as { version?: unknown }).version : undefined;
+  const assessment = typeof version === 'string' ? version.slice(0, 80) : 'unspecified';
   const key = createHash('sha256').update(JSON.stringify(input)).digest('hex');
   const dir = resolve(config.dataDir, 'fit-cache');
   const path = resolve(dir, `${key}.json`);
   try {
     if (existsSync(path)) {
       const entry = JSON.parse(readFileSync(path, 'utf8'));
-      if (Date.now() - entry.at < 7 * 86400_000 && accept(entry.value)) { metric('fit-cache-hit', 0); return entry.value; }
+      const age = Date.now() - entry.at;
+      if (Number.isFinite(age) && age >= 0 && age < ttlMs && accept(entry.value)) { metric('fit-cache-hit', 0, { assessment }); return entry.value; }
     }
   } catch { /* Corrupt/stale cache entries are recomputed. */ }
-  const value = await compute();
-  if (accept(value)) {
-    try {
-      mkdirSync(dir, { recursive: true });
-      const temp = `${path}.${randomUUID()}.tmp`;
-      writeFileSync(temp, JSON.stringify({ at: Date.now(), value }));
-      renameSync(temp, path);
-    } catch { /* Cache persistence is optional. */ }
+  const pending = assessmentsInFlight.get(path);
+  if (pending) {
+    const value = await pending as T;
+    if (accept(value)) { metric('assessment-inflight-hit', 0, { assessment }); return value; }
   }
-  return value;
+  const task = (async () => {
+    const value = await compute();
+    if (accept(value)) {
+      try {
+        mkdirSync(dir, { recursive: true });
+        const temp = `${path}.${randomUUID()}.tmp`;
+        writeFileSync(temp, JSON.stringify({ at: Date.now(), value }), { mode: 0o600 });
+        renameSync(temp, path);
+      } catch { /* Cache persistence is optional. */ }
+    }
+    return value;
+  })();
+  assessmentsInFlight.set(path, task);
+  try { return await task; }
+  finally { if (assessmentsInFlight.get(path) === task) assessmentsInFlight.delete(path); }
 }
 
 /** Extractive retrieval: retained passages stay verbatim and in source order. */
