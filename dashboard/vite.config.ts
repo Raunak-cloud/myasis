@@ -66,6 +66,7 @@ import { blogPages } from './server/blog/pages.js';
 import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 import { stopAllSignins } from './server/signin.js';
+import { loadApplicationCosts } from './server/application-costs.js';
 
 type RewriteGuard = { validateRewrite: (original: string, candidate: string, maxWords: number) => string | null };
 
@@ -438,6 +439,14 @@ function dataApi(): Plugin {
         });
       }
 
+      case '/api/applications/costs': {
+        if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
+        return withUser(async (userId) => {
+          const actor = await currentUser(req.headers?.cookie);
+          if (!isAdminEmail(actor?.email)) return send({ error: 'Admins only.' }, 403);
+          return send(await loadApplicationCosts(userId, userDir(userId)));
+        });
+      }
       case '/api/applications': {
         return withUser(async (userId) => {
           if (req.method === 'PATCH') {

@@ -1,6 +1,7 @@
 import { metric } from '../pipeline.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
+import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost } from '../cost-ledger.js';
 
 /**
  * Minimal client for Celeris' OpenAI-compatible chat API.
@@ -56,13 +57,6 @@ export interface CelerisReply {
 function endpointFor(model: CelerisModel): string {
   return `${config.celeris.baseUrl.replace(/\/+$/, '')}/${model}/v1/chat/completions`;
 }
-
-/** Published rates, USD per million tokens. */
-const RATES = {
-  promptUncached: 0.2,
-  promptCached: 0.02,
-  completion: 0.7,
-} as const;
 
 export interface UsageTotals {
   calls: number;
@@ -207,6 +201,8 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   const deadline = Date.now() + 60_000;
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
+    let costRecorded = false;
+    const endCostRequest = beginCostRequest('Celeris', request.model);
     try {
       if (Date.now() >= deadline) throw new Error('Model request deadline exceeded');
       const response = await fetch(endpointFor(request.model), {
@@ -221,6 +217,11 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
 
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
+        let reportedUsage: unknown;
+        try { reportedUsage = JSON.parse(detail).usage; } catch { /* No token accounting in this error. */ }
+        recordCelerisCost(request.model, reportedUsage);
+        costRecorded = true;
+        endCostRequest();
         if (response.status === 400 && /response_format could not be satisfied/i.test(detail)) {
           const used = /"completion_tokens":\s*(\d+)/.exec(detail)?.[1] ?? '?';
           throw new ReplyUnusableError(`Celeris could not produce a reply in the requested format (${used} completion tokens across its attempts)`);
@@ -234,6 +235,9 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         usage?: { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } };
       };
       request.meter?.record(payload.usage);
+      recordCelerisCost(request.model, payload.usage);
+      costRecorded = true;
+      endCostRequest();
 
       const choice = payload.choices?.[0];
       const message = choice?.message;
@@ -269,6 +273,8 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         message: { role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls },
       };
     } catch (error) {
+      if (!costRecorded) recordCelerisCost(request.model, null);
+      endCostRequest();
       lastError = error;
       if (error instanceof ReplyUnusableError) {
         if (attempt !== 0) throw error;
@@ -282,6 +288,8 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       const transient = /\b429\b|\b5\d\d\b|econnreset|etimedout|fetch failed|aborted|timeout/i.test(detail);
       if (!transient || attempt === 2) throw error;
       await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
+    } finally {
+      endCostRequest();
     }
   }
   throw lastError;

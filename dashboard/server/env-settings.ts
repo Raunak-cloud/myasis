@@ -74,6 +74,16 @@ const PER_ACCOUNT = new Set<string>([
 
 const GROUPS: GroupSpec[] = [
   {
+    key: 'application-costs', title: 'Application cost accounting',
+    note: 'Admin-only USD estimates. Rates are saved with new usage; changing them does not rewrite history. Leave unknown rates blank. Credits and taxes are not included.',
+    keys: [
+      { key: 'BRIGHTDATA_API_KEY', label: 'Bright Data management API key', help: 'Read final per-session bandwidth. Separate from Browser API connection credentials.', kind: 'secret' },
+      { key: 'BRIGHTDATA_BROWSER_USD_PER_GB', label: 'Bright Data USD per GB', help: 'Default 8. Use your contracted effective rate; premium domains may differ.', kind: 'number' },
+      { key: 'HUMANIZER_USD_PER_REQUEST', label: 'Humanizer USD per request', help: 'Allocate the subscription fee over expected monthly requests. Set 0 only if included in worker overhead.', kind: 'number' },
+      { key: 'APPLICATION_INFRA_USD_PER_WORKER_HOUR', label: 'Other overhead USD per worker-hour', help: 'Hosting, proxies, storage, email and other fixed service fees divided by expected monthly worker-hours. Exclude separately metered Celeris, Bright Data and CAPTCHA charges, and any humanizer amount above.', kind: 'number' },
+    ],
+  },
+  {
     key: 'payments',
     title: 'Payments',
     banner: paymentsBanner,
@@ -408,6 +418,7 @@ function normalise(key: string, spec: Spec | undefined, raw: unknown): string {
   switch (kind) {
     case 'number':
       if (!/^-?\d+(\.\d+)?$/.test(value)) throw new Error(`${key}: must be a number.`);
+      if (['BRIGHTDATA_BROWSER_USD_PER_GB', 'HUMANIZER_USD_PER_REQUEST', 'APPLICATION_INFRA_USD_PER_WORKER_HOUR'].includes(key) && (!Number.isFinite(Number(value)) || Number(value) < 0)) throw new Error(`${key}: must be a finite, non-negative USD rate.`);
       return value;
     case 'boolean':
       if (value !== 'true' && value !== 'false') throw new Error(`${key}: must be true or false.`);

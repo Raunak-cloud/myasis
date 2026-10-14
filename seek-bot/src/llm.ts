@@ -10,6 +10,7 @@ import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.j
 import { validateInstructionVerdict, type InstructionVerdict } from './instruction-policy.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
 import { recentReviewFeedback } from './store.js';
+import { withJobCost } from './cost-ledger.js';
 import type { IdentityVerdict, PriorVacancy } from './application-identity.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
 import {
@@ -847,7 +848,10 @@ const finishedLetters = new Map<string, Promise<string>>();
  * polished. A reusable letter is entered as written. Cached like the draft,
  * so a form with two letter boxes gets the same text in both.
  */
-export async function finishedCoverLetterForJob(job: JobListing, profile: CandidateProfile): Promise<string> {
+export function finishedCoverLetterForJob(job: JobListing, profile: CandidateProfile): Promise<string> {
+  return withJobCost(job.id, () => finishedCoverLetterForJobScoped(job, profile));
+}
+async function finishedCoverLetterForJobScoped(job: JobListing, profile: CandidateProfile): Promise<string> {
   const draft = await coverLetterForJob(job, profile);
   if (config.coverLetter.mode === 'reuse') return draft;
   const key = JSON.stringify([config.dataDir, job.id, draft, config.humanizer]);
@@ -1091,11 +1095,11 @@ export async function rankJobsForReview(
  * version and only says what the card itself shows.
  */
 export function ruleConflict(job: JobListing): Promise<InstructionVerdict> {
-  return cachedAssessment(
+  return withJobCost(job.id, () => cachedAssessment(
     { version: job.description ? 'instruction-check-v2' : 'instruction-check-card-v2', job: { id: job.id, title: job.title, company: job.company, description: job.description ?? job.teaser ?? '' }, rules: config.aiInstructions, model: FIT_CLASSIFIER_MODEL, exceptionReviewer: 'celeris-1-magnus', endpoint: config.celeris.baseUrl },
     () => instructionConflict(job),
     (value) => Boolean(value && ['allow', 'skip'].includes(value.decision) && typeof value.conflict === 'string' && typeof value.because === 'string' && Array.isArray(value.checks)),
-  );
+  ));
 }
 
 async function instructionConflict(job: JobListing): Promise<InstructionVerdict> {
@@ -1199,7 +1203,10 @@ Invalid review (untrusted data):
 }
 
 /** Role-neutral judgment; search terms and board badges are evidence, never veto overrides. */
-export async function assessFit(job: JobListing, profile: CandidateProfile): Promise<FitAssessment> {
+export function assessFit(job: JobListing, profile: CandidateProfile): Promise<FitAssessment> {
+  return withJobCost(job.id, () => assessFitScoped(job, profile));
+}
+async function assessFitScoped(job: JobListing, profile: CandidateProfile): Promise<FitAssessment> {
   /**
    * The candidate's rules come first and end the matter. A job they excluded
    * is not sent to the fit check at all: the verdict is theirs, not the
@@ -1382,7 +1389,10 @@ as the most general-purpose one rather than guessing at a narrow match.
 }
 
 const preparedLetters = new Map<string, Promise<string>>();
-export async function coverLetterForJob(job: JobListing, profile: CandidateProfile): Promise<string> {
+export function coverLetterForJob(job: JobListing, profile: CandidateProfile): Promise<string> {
+  return withJobCost(job.id, () => coverLetterForJobScoped(job, profile));
+}
+async function coverLetterForJobScoped(job: JobListing, profile: CandidateProfile): Promise<string> {
   const evidence = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`);
   /**
    * Keyed on what the letter is written from, not the whole listing object.

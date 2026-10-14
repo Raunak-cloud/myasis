@@ -349,6 +349,7 @@ class Run {
       DRY_RUN: mode === 'live' ? 'false' : 'true',
       // Always last: no override may point a run at another account's files.
       DATA_DIR: dataDir,
+      COST_TRACKING: 'true',
     };
 
     this.lines = [];
@@ -438,6 +439,7 @@ class Run {
       CDP_PORT: String(cdpPort),
       // Always last: no override may point a scan at another account's files.
       DATA_DIR: dataDir,
+      COST_TRACKING: 'true',
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
+import { withJobCost } from './cost-ledger.js';
 
 const runId = randomUUID();
 export function metric(stage: string, ms: number, extra: Record<string, unknown> = {}): void {
@@ -12,7 +13,7 @@ export function metric(stage: string, ms: number, extra: Record<string, unknown>
 }
 export async function measured<T>(stage: string, action: () => Promise<T>, extra: Record<string, unknown> = {}): Promise<T> {
   const started = performance.now();
-  try { const result = await action(); metric(stage, performance.now() - started, { ...extra, ok: true }); return result; }
+  try { const result = await (typeof extra.jobId === 'string' ? withJobCost(extra.jobId, action) : action()); metric(stage, performance.now() - started, { ...extra, ok: true }); return result; }
   catch (error) { metric(stage, performance.now() - started, { ...extra, ok: false }); throw error; }
 }
 

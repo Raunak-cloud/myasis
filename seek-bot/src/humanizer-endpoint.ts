@@ -1,3 +1,5 @@
+import { beginCostRequest, configuredRate, recordCost } from './cost-ledger.js';
+
 /**
  * Featherless serves the rewriting model through its authenticated chat API.
  * There is one endpoint and no alternate provider: when a rewrite cannot be
@@ -108,12 +110,20 @@ export async function chatCompletion(
 ): Promise<Response> {
   if (!endpoint.apiKey) throw new Error('The Featherless API key is not configured.');
   for (let attempt = 0; ; attempt++) {
+    const rate = configuredRate('HUMANIZER_USD_PER_REQUEST');
+    const endCostRequest = beginCostRequest('Humanizer', endpoint.model);
     const response = await fetch(`${endpoint.base}/v1/chat/completions`, {
       method: 'POST',
       headers: headers(endpoint),
       body: JSON.stringify({ ...SAMPLING_DEFAULTS, ...body, model: endpoint.model, stream: false }),
       signal: AbortSignal.timeout(Math.max(1_000, deadline - Date.now())),
-    });
+    }).catch(error => {
+      recordCost({ provider: 'Humanizer', model: endpoint.model, amountUsd: null, basis: 'unknown', detail: 'Request failed without billing information.' });
+      throw error;
+    }).finally(endCostRequest);
+    recordCost({ provider: 'Humanizer', model: endpoint.model, amountUsd: response.ok ? rate : null,
+      basis: response.ok && rate !== null ? 'estimated' : 'unknown',
+      detail: response.ok && rate !== null ? 'Configured per-request allocation of subscription cost.' : 'Subscription/request cost not allocated; configure HUMANIZER_USD_PER_REQUEST or include it in the worker-hour rate.' });
     const wait = 1_500 * (attempt + 1);
     if (!RETRYABLE.has(response.status) || attempt >= MAX_RETRIES || Date.now() + wait >= deadline) return response;
     await response.arrayBuffer().catch(() => {}); // release the connection before waiting

@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
+import { withJobCost } from '../cost-ledger.js';
 import { config } from '../config.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { jitter, waitForChallengeToClear, workingIn } from '../browser.js';
@@ -56,7 +57,10 @@ interface AgentRunOptions {
   log?: (line: string) => void;
 }
 
-export async function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
+export function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
+  return withJobCost(options.job.id, () => runApplicationAgentScoped(options));
+}
+async function runApplicationAgentScoped(options: AgentRunOptions): Promise<AgentRunResult> {
   const { job, profile } = options;
   const log = options.log ?? ((line: string) => console.log(line));
   /**

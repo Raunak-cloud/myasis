@@ -691,3 +691,11 @@ CREATE TABLE IF NOT EXISTS review_verdicts (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, job_id)
 );
+-- Immutable, account-owned usage ledger. Kept independently of submitted history
+-- so paid retries, failed applications and discovery calls are never lost.
+CREATE TABLE IF NOT EXISTS application_cost_events (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL, run_id UUID NOT NULL, payload JSONB NOT NULL,
+  PRIMARY KEY(user_id,event_id)
+);
+CREATE INDEX IF NOT EXISTS application_cost_run_idx ON application_cost_events(user_id,run_id);

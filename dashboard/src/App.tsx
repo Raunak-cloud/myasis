@@ -549,7 +549,7 @@ export default function App() {
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
-            <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} />
+            <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />
           )}
           {tab === 'humanizer' && canRewrite && <HumanizerPanel />}
           {tab === 'admin' && isAdmin && <AdminPanel />}

@@ -1,6 +1,7 @@
 import type { Frame, Page } from 'patchright';
 import { countHealth, providerOutOfCredit } from '../run-health.js';
 import { metric } from '../pipeline.js';
+import { beginCostRequest, recordCost } from '../cost-ledger.js';
 import { INTERSTITIAL, type Challenge, type Solver } from './detect.js';
 
 /**
@@ -83,11 +84,13 @@ export async function solveTask(
   const deadline = Date.now() + deadlineMs;
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts && Date.now() + FIRST_POLL_MS < deadline; attempt += 1) {
+    let costRecorded = false;
+    const endCostRequest = beginCostRequest('CapMonster');
     try {
       const { taskId } = await call<ApiReply & { taskId: number }>('createTask', { task });
       for (let wait = FIRST_POLL_MS; Date.now() + wait < deadline; wait = POLL_MS) {
         await sleep(wait);
-        let reply: ApiReply & { status: string; solution?: Record<string, unknown> };
+        let reply: ApiReply & { status: string; solution?: Record<string, unknown>; cost?: number | string };
         try {
           reply = await call('getTaskResult', { taskId });
         } catch (error) {
@@ -101,14 +104,26 @@ export async function solveTask(
           console.warn(`[captcha] capmonster: result check for task ${taskId} did not get through (${(error as Error).message}); asking again.`);
           continue;
         }
-        if (reply.status === 'ready' && reply.solution) return { taskId, solution: reply.solution };
+        if (reply.status === 'ready' && reply.solution) {
+          const amount = reply.cost == null || reply.cost === '' ? NaN : Number(reply.cost);
+          const known = Number.isFinite(amount) && amount >= 0;
+          recordCost({ provider: 'CapMonster', amountUsd: known ? amount : null, basis: known ? 'provider' : 'unknown',
+            detail: known ? 'Provider-reported CAPTCHA task charge.' : 'CAPTCHA task completed without a reported charge.' });
+          costRecorded = true;
+          endCostRequest();
+          return { taskId, solution: reply.solution };
+        }
       }
       throw new CapMonsterError('TIMEOUT', `task ${taskId} was not solved before the shared deadline`);
     } catch (error) {
+      if (!costRecorded) recordCost({ provider: 'CapMonster', amountUsd: null, basis: 'unknown', detail: 'CAPTCHA attempt ended without a final task charge; may still be billed.' });
+      endCostRequest();
       lastError = error;
       if (!(error instanceof CapMonsterError) || !RETRYABLE_TASK_ERRORS.has(error.code) || attempt >= maxAttempts) throw error;
       console.warn(`[captcha] capmonster: ${error.code}; retrying once with a fresh task.`);
       await sleep(1_000);
+    } finally {
+      endCostRequest();
     }
   }
   if (lastError) throw lastError;

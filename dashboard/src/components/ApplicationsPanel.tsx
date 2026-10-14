@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
+import { formatApplicationCost, type ApplicationCost } from '../application-cost';
 
 interface Props {
   apps: Application[];
@@ -10,6 +11,7 @@ interface Props {
   followUpDays: number;
   /** Offer the Skipped view beside what was sent (administrators, while it is tried out). */
   showSkipped?: boolean;
+  showCosts?: boolean;
 }
 
 const SkippedPanel = lazy(() => import('./SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
@@ -87,7 +89,22 @@ const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
  * unanswered for a fortnight is the single most actionable thing a job seeker
  * has, and nothing else in the product surfaces it.
  */
-export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false }: Props) {
+export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false, showCosts = false }: Props) {
+  const [costs, setCosts] = useState<Record<string, ApplicationCost>>({});
+  const [costError, setCostError] = useState(false);
+  const [costLoading, setCostLoading] = useState(false);
+  useEffect(() => {
+    if (!showCosts) { setCosts({}); return; }
+    let cancelled = false;
+    setCostLoading(true);
+    fetch('/api/applications/costs').then(async response => {
+      if (!response.ok) throw new Error('Cost data unavailable');
+      const data = await response.json();
+      if (!cancelled) { setCosts(data); setCostError(false); }
+    }).catch(() => { if (!cancelled) setCostError(true); })
+      .finally(() => { if (!cancelled) setCostLoading(false); });
+    return () => { cancelled = true; };
+  }, [showCosts, apps]);
   const [view, setView] = useState<'sent' | 'skipped'>('sent');
   const [skipped, setSkipped] = useState<SkippedJob[] | null>(null);
   const [skippedError, setSkippedError] = useState<string | null>(null);
@@ -216,6 +233,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 <th>Applied</th>
                 <th>Status</th>
                 <th>Score</th>
+                {showCosts && <th>Cost (USD)</th>}
                 <th />
               </tr>
             </thead>
@@ -254,6 +272,10 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                     <td className="application-score">
                       <span className={`score ${scoreClass(a.score)}`} title="Match score">{a.score || '-'}</span>
                     </td>
+                    {showCosts && <td className="application-cost">
+                      <div>{costLoading ? 'Loading…' : costError ? 'Unavailable' : formatApplicationCost(costs[a.jobId])}</div>
+                      {costs[a.jobId] && <div className="job-meta">{costs[a.jobId].incomplete ? 'Partial estimate' : 'Estimated total'}</div>}
+                    </td>}
                     <td className="nowrap application-link">
                       <a
                         href={a.url}
@@ -288,6 +310,18 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
             </div>
 
             <div className="drawer-body">
+              {showCosts && <div className="section application-cost-details">
+                <h3>Application cost (USD)</h3>
+                {costError ? <p>Cost data could not be loaded.</p> : costs[open.jobId] ? <>
+                  <p><strong>{formatApplicationCost(costs[open.jobId])}</strong> · {costs[open.jobId].incomplete ? 'Partial estimate; some charges are unavailable.' : 'Estimated total'}</p>
+                  <ul>{costs[open.jobId].lines.map((line, i) => <li key={i}>
+                    <strong>{line.provider}{line.model ? ` · ${line.model}` : ''}</strong> ({line.allocation}): {line.knownCharges ? `US$${line.amountUsd.toFixed(4)}` : 'Unavailable'}{line.unknownCharges > 0 && line.knownCharges > 0 ? ' + unreported charges' : ''}
+                    <div className="job-meta">{line.calls} {line.provider === 'Infrastructure' ? 'allocation(s)' : 'request(s)'}{line.unknownCharges ? ` · ${line.unknownCharges} without a known cost` : ''}</div>
+                    <details><summary>Cost basis</summary>{line.details.map((detail, j) => <p className="job-meta" key={j}>{detail}</p>)}</details>
+                  </li>)}</ul>
+                  {costs[open.jobId].notes.map(note => <p className="job-meta" key={note}>{note}</p>)}
+                </> : <p>{costLoading ? 'Loading…' : 'Not recorded. Cost tracking starts with new runs; historical charges cannot be reconstructed reliably.'}</p>}
+              </div>}
               <div className="section">
                 <h3>Submitted</h3>
                 <p className="app-submitted">

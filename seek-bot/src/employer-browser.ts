@@ -11,6 +11,7 @@ import { basename, extname } from 'node:path';
 import { hasCaptchaSurface } from './captcha/detect.js';
 import { captchaRequestWithin, retryCaptchaSolve, type CaptchaSolveResult } from './captcha/retry.js';
 import { captchaDiagnosticSecrets, safeCaptchaDiagnostic } from './captcha/diagnostics.js';
+import { beginCostRequest, recordBrightDataCost } from './cost-ledger.js';
 
 interface RemoteSession {
   browser: Browser;
@@ -118,6 +119,7 @@ async function publish(remote: RemoteSession): Promise<void> {
 export async function openEmployerBrowser(localPage: Page, connect: (endpoint: string, options: { timeout: number }) => Promise<Browser> = chromium.connectOverCDP.bind(chromium)): Promise<{ page: Page; close: () => Promise<void> }> {
   if (employerBrowserProvider(process.env) === 'local') return { page: localPage, close: async () => {} };
   const endpoint = brightDataBrowserEndpoint(process.env);
+  const endCostRequest = beginCostRequest('Bright Data');
   let browser: Browser | undefined;
   try {
     browser = await connect(endpoint, { timeout: 45_000 });
@@ -146,9 +148,13 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
         await captchaRequestWithin(() => control.session.detach(), 5_000).catch(() => {});
       }));
       await remote.browser.close().catch(() => {});
+      await recordBrightDataCost(remote.providerSessionId);
+      endCostRequest();
     } };
   } catch {
     await browser?.close().catch(() => {});
+    await recordBrightDataCost();
+    endCostRequest();
     // CDP errors include the connection URL, including its password. Never log that URL.
     throw new Error('Bright Data browser connection failed. Check the Browser API zone credentials and account access.');
   }

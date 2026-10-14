@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { withJobCost } from './cost-ledger.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, basename, dirname, extname } from 'node:path';
@@ -157,6 +158,9 @@ export function resumeFileInputIndex(inputs: FileInputDescription[]): number {
 
 const resumeChoices = new Map<string, Promise<ResumeRecord | null>>();
 export function pickResumeForJob(job: JobListing, profile: CandidateProfile): Promise<ResumeRecord | null> {
+  return withJobCost(job.id, () => pickResumeForJobScoped(job, profile));
+}
+function pickResumeForJobScoped(job: JobListing, profile: CandidateProfile): Promise<ResumeRecord | null> {
   const key = JSON.stringify([config.dataDir, job, profile, config.resume.select, loadResumes()]);
   let pending = resumeChoices.get(key);
   if (!pending) { pending = pickResumeUncached(job, profile); resumeChoices.set(key, pending); }

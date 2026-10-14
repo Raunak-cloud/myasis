@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { config } from './config.js';
 import type { AppliedRecord, ApplyOutcome } from './types.js';
 import type { ReviewCacheMetadata } from './review-cache.js';
+import { recordSubmittedCost } from './cost-ledger.js';
 
 const APPLIED = resolve(config.dataDir, 'applied.json');
 const LOG = resolve(config.dataDir, 'run-log.jsonl');
@@ -105,6 +106,7 @@ export class AppliedIndex {
 }
 
 export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; url?: string; reviewCache?: ReviewCacheMetadata }) {
+  if (outcome.status === 'applied') recordSubmittedCost(outcome.jobId);
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });
   writeFileSync(LOG, line + '\n', { flag: 'a' });

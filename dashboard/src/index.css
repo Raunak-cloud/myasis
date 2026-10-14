@@ -2559,7 +2559,8 @@ textarea.run-instructions-input {
     grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
       "role role status"
-      "when score link";
+      "when score link"
+      "cost cost cost";
     align-items: center;
     gap: 10px 12px;
     padding: 14px 15px;
@@ -2594,6 +2595,9 @@ textarea.run-instructions-input {
     border-top: 1px solid var(--border);
   }
   .applications-table .application-score { grid-area: score; }
+  .applications-table .application-cost { grid-area: cost; border-top: 1px solid var(--border); padding-top: 10px; }
+  .applications-table .application-cost::before { content: 'Cost (USD): '; color: var(--text-faint); }
+  .applications-table .application-cost > div { display: inline; margin-right: 6px; }
   /* The column heading is gone, so the number says what it is. */
   .applications-table .application-score .score::before { content: 'Match '; font-weight: 500; color: var(--text-faint); font-size: 12px; }
   .applications-table .application-link { grid-area: link; justify-self: end; }

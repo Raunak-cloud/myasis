@@ -10,6 +10,7 @@ import { listResumes, listKnowledge } from '../files.js';
 import { listAnswers } from '../answers.js';
 import type { CandidateProfile } from '../candidate-profile.js';
 import { verdictsForRun } from '../skipped.js';
+import { syncCostJournal } from '../application-costs.js';
 
 /**
  * Bridges Postgres (authoritative) and the per-user directory seek-bot
@@ -356,5 +357,6 @@ export async function syncRunResultsToDb(
     }
   }
 
+  await syncCostJournal(userId, dir);
   return { applications, runEvents };
 }
