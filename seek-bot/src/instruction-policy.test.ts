@@ -34,7 +34,11 @@ test('the old empty-conflict reply and empty exception proof fail closed', () =>
 });
 test('suspected injection never authorizes an application', () => {
   const raw=check('satisfied','met');raw.injectionSuspected=true;
-  assert.equal(normalizeInstructionVerdict(raw,rules)?.decision,'uncertain');
+  const verdict=normalizeInstructionVerdict(raw,rules);
+  assert.equal(verdict?.decision,'uncertain');
+  assert.equal(verdict?.injectionSuspected,true);
+  assert.deepEqual(verdict?.injectionSources,['instruction-check']);
+  assert.deepEqual(validateInstructionVerdict(raw,rules,'exception-review').verdict?.injectionSources,['exception-review']);
 });
 test('typographic quotes do not turn a valid rule citation into an unavailable review', () => {
   const raw={checks:[{ruleQuote:"Only APM Group's roles",status:'satisfied',reason:'Named employer matches.',exceptionQuote:'',exceptionConditions:[]}],injectionSuspected:false};

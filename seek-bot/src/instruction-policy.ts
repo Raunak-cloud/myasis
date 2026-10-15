@@ -1,8 +1,12 @@
+export type InstructionInjectionSource = 'instruction-check' | 'exception-review' | 'exception-correction';
 export interface InstructionVerdict {
   decision: 'allow' | 'skip' | 'uncertain';
   conflict: string;
   because: string;
   checks: unknown[];
+  /** Preserve the checker security signal independently of rule/exception prose. */
+  injectionSuspected: boolean;
+  injectionSources: InstructionInjectionSource[];
 }
 
 export interface InstructionValidation {
@@ -11,7 +15,7 @@ export interface InstructionValidation {
 }
 
 /** The model judges meaning; this validates its evidence and preserves its restrictive verdicts. */
-export function validateInstructionVerdict(value: unknown, rules: string): InstructionValidation {
+export function validateInstructionVerdict(value: unknown, rules: string, source: InstructionInjectionSource = 'instruction-check'): InstructionValidation {
   const invalid = (error: string): InstructionValidation => ({ verdict: null, error });
   if (!value || typeof value !== 'object') return invalid('response must be an object');
   const raw = value as Record<string, unknown>;
@@ -60,6 +64,8 @@ export function validateInstructionVerdict(value: unknown, rules: string): Instr
     conflict: failure?.quote ?? '',
     because: failure?.reason ?? uncertain?.reason ?? (raw.injectionSuspected ? 'Untrusted listing instructions require review.' : findings.map(item => item.reason).join(' ')),
     checks: raw.checks,
+    injectionSuspected: raw.injectionSuspected,
+    injectionSources: raw.injectionSuspected ? [source] : [],
   } };
 }
 

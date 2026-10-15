@@ -5,6 +5,8 @@ import { runApplicationAgent } from './agent/loop.js';
 import { outcomeFromRun } from './agent/outcome.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
+import { applicationFailureContext } from './application-diagnostics.js';
+import { config } from './config.js';
 
 interface PageIdentity {
   title: string;
@@ -48,7 +50,11 @@ export async function runDirectExternalApplication(
   url: string,
   profile: CandidateProfile,
   navigationBlocked: () => string | null,
+  test?: { runAgent: typeof runApplicationAgent },
 ): Promise<void> {
+  if (test && (!config.dryRun || !new URL(url).hostname.endsWith('.invalid'))) {
+    throw new Error('Direct application dependency overrides require an isolated dry-run fixture.');
+  }
   const stableUrl = new URL(url);
   stableUrl.hash = '';
   const id = `external-${createHash('sha256').update(stableUrl.href).digest('hex').slice(0, 24)}`;
@@ -85,11 +91,12 @@ export async function runDirectExternalApplication(
   console.log(`Direct website job: ${job.title} @ ${job.company}`);
   let outcome: ApplyOutcome;
   try {
-    const run = await runApplicationAgent({ page, job, profile, log: (line) => console.log(line) });
+    const run = await (test?.runAgent ?? runApplicationAgent)({ page, job, profile, log: (line) => console.log(line) });
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
     outcome = outcomeFromRun(run, job.id, page.url());
   } catch (error) {
-    outcome = { status: 'error', jobId: job.id, error: (error as Error).message };
+    outcome = { status: 'error', jobId: job.id, error: (error as Error).message,
+      submitPressed: applicationFailureContext(error)?.submitPressed === true };
   }
   logOutcome({ ...outcome, title: job.title, company: job.company });
   for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);

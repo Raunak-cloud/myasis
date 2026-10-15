@@ -325,7 +325,7 @@ export async function runHaikuBrowserApplication(options: AgentRunOptions, depen
     if (!isolated) {
       const destinationText = (await Promise.all(ctx.page.frames().map(frame => frame.locator('body').innerText({ timeout: 5000 }).catch(() => '')))).join('\n');
       const fit = await measured('destination-fit', () => (dependencies?.destinationFit ?? assessFit)({ ...ctx.job,
-        description: `${ctx.job.description ?? ctx.job.teaser ?? ''}\nCURRENT APPLICATION DESTINATION:\n${destinationText}\nUse explicit destination requirements with the original listing; omissions do not cancel earlier requirements.` }, ctx.profile, 'celeris-1-magnus'), { jobId: ctx.job.id });
+        description: `ORIGINAL LISTING (${safeUrl(ctx.job.url)}):\n${ctx.job.description ?? ctx.job.teaser ?? ''}\n\nCURRENT APPLICATION DESTINATION (${safeUrl(ctx.page.url())}):\n${destinationText}` }, ctx.profile, 'celeris-1-magnus'), { jobId: ctx.job.id });
       if (!fit.shouldApply) return finish({ status: 'skipped', reason: fit.reason });
     }
     const facts = JSON.stringify({ profile: ctx.profile, documents: await knowledge(ctx.job.title), savedAnswers: loadSavedAnswers() }).replace(/</g,'\\u003c');

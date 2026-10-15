@@ -420,7 +420,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
       const destinationText = (await Promise.all(page.frames().map(frame =>
         frame.locator('body').innerText({ timeout: 5_000 }).catch(() => '')))).join('\n');
       const fit = await measured('destination-fit', () => assessFit({ ...job,
-        description: `${job.description ?? job.teaser ?? ''}\n\nCURRENT APPLICATION DESTINATION (${page.url()}):\n${destinationText || ctx.observation.text}\n\nUse any explicit requirements on this destination together with the listing above. A form or login page need not repeat the advert; omitted information does not cancel an earlier requirement.`,
+        description: `ORIGINAL LISTING (${pathOf(job.url)}):\n${job.description ?? job.teaser ?? ''}\n\nCURRENT APPLICATION DESTINATION (${pathOf(page.url())}):\n${destinationText || ctx.observation.text}`,
       }, profile, 'celeris-1-magnus'), { jobId: job.id });
       if (!fit.shouldApply) {
         log(`  · destination suitability (${fit.decision}): ${fit.reason}`);
