@@ -183,8 +183,65 @@ function strictCompatible(schema: unknown): boolean {
   if ('$ref' in schema) return false;
   return Object.values(schema).every(strictCompatible);
 }
-/** Set when the provider rejects a strict schema; Ajv still checks every input. */
-let strictToolsRefused = false;
+export const HAIKU_SCHEMA_LIMITS = { strictTools: 20, optionalParameters: 24, unionParameters: 16 } as const;
+function schemaChildren(schema: Block): unknown[] {
+  const children = ['properties', '$defs', 'definitions'].flatMap(key => object(schema[key]) ? Object.values(schema[key]) : []);
+  for (const key of ['items', 'additionalProperties', 'not']) if (object(schema[key])) children.push(schema[key]);
+  for (const key of ['anyOf', 'allOf', 'oneOf', 'prefixItems']) if (Array.isArray(schema[key])) children.push(...schema[key]);
+  return children;
+}
+export function haikuSchemaComplexity(schema: unknown): { optionalParameters: number; unionParameters: number } {
+  if (!object(schema)) return { optionalParameters: 0, unionParameters: 0 };
+  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+  const result = { optionalParameters: object(schema.properties) ? Object.keys(schema.properties).filter(key => !required.has(key)).length : 0,
+    unionParameters: Array.isArray(schema.type) || Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf) ? 1 : 0 };
+  for (const child of schemaChildren(schema)) {
+    const nested = haikuSchemaComplexity(child); result.optionalParameters += nested.optionalParameters; result.unionParameters += nested.unionParameters;
+  }
+  return result;
+}
+function schemaBudgetTools(request: CelerisRequest, strict: boolean): Block[] {
+  const total = haikuSchemaComplexity(request.responseSchema);
+  if (total.optionalParameters > HAIKU_SCHEMA_LIMITS.optionalParameters || total.unionParameters > HAIKU_SCHEMA_LIMITS.unionParameters) {
+    throw new HaikuConversationError('haiku-schema-budget', 'Haiku structured output exceeds the native schema budget; simplify the schema without dropping its validation.');
+  }
+  let strictCount = 0;
+  return (request.tools ?? []).map(tool => {
+    const base = { name: tool.name, description: tool.description, input_schema: tool.parameters };
+    const cost = haikuSchemaComplexity(tool.parameters);
+    if (!strict || !strictCompatible(tool.parameters) || strictCount >= HAIKU_SCHEMA_LIMITS.strictTools
+      || total.optionalParameters + cost.optionalParameters > HAIKU_SCHEMA_LIMITS.optionalParameters
+      || total.unionParameters + cost.unionParameters > HAIKU_SCHEMA_LIMITS.unionParameters) return base;
+    strictCount++; total.optionalParameters += cost.optionalParameters; total.unionParameters += cost.unionParameters;
+    return { ...base, input_schema: haikuSchema(tool.parameters), strict: true };
+  });
+}
+function fingerprint(value: unknown): string {
+  const stable = (v: unknown): unknown => Array.isArray(v) ? v.map(stable) : object(v)
+    ? Object.fromEntries(Object.keys(v).sort().filter(key => v[key] !== undefined).map(key => [key, stable(v[key])])) : v;
+  return createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
+}
+type Protocol = { version: 'haiku-native-v1'; sourceTools: string; system: string; thinking: string; output: string; provider: string; model: string; tools: Block[] };
+export class HaikuConversationError extends Error {
+  readonly requiresFreshConversation = true;
+  constructor(readonly code: 'haiku-conversation-changed' | 'haiku-history-metadata-missing' | 'haiku-schema-budget', message: string) { super(message); this.name = 'HaikuConversationError'; }
+}
+function previousProtocol(request: CelerisRequest): Protocol | undefined {
+  const native = request.messages.filter((m): m is Extract<ChatMessage, { role: 'assistant' }> => m.role === 'assistant' && Boolean(m.anthropic_content));
+  if (!native.length) return undefined;
+  for (const message of native) {
+    const p = message.anthropic_protocol;
+    if (!object(p) || p.version !== 'haiku-native-v1' || !Array.isArray(p.tools) || !p.tools.every(object)) {
+      throw new HaikuConversationError('haiku-history-metadata-missing', 'Stored Haiku history has no verified toolset metadata; start a fresh conversation from verified executor state.');
+    }
+  }
+  return native.at(-1)!.anthropic_protocol as Protocol;
+}
+function protocolFor(request: CelerisRequest, route: HaikuRoute, body: Block): Protocol {
+  return { version: 'haiku-native-v1', sourceTools: fingerprint([...(request.tools ?? [])].sort((a, b) => a.name.localeCompare(b.name))),
+    system: fingerprint(body.system), thinking: fingerprint(body.thinking), output: fingerprint(body.output_config), provider: route.provider,
+    model: route.model, tools: structuredClone((body.tools ?? []) as Block[]) };
+}
 
 export function haikuBody(request: CelerisRequest, route: HaikuRoute, options: { strictTools?: boolean } = {}): Record<string, unknown> {
   if (!expectedModels.has(route.model)) throw new Error('Haiku route must select the pinned Claude Haiku 5.5 model');
@@ -205,18 +262,24 @@ export function haikuBody(request: CelerisRequest, route: HaikuRoute, options: {
     ...(conversation ? { cache_control: { type: 'ephemeral' } } : {}), stream: false,
   };
   if (request.tools?.length) {
-    const strict = options.strictTools ?? !strictToolsRefused;
-    // Strict tools constrain sampling to the schema, so a malformed input
-    // cannot cost a turn; Ajv below still checks the original contract.
-    body.tools = request.tools.map(tool => strict && strictCompatible(tool.parameters)
-      ? { name: tool.name, description: tool.description, input_schema: haikuSchema(tool.parameters), strict: true }
-      : { name: tool.name, description: tool.description, input_schema: tool.parameters });
+    // Every tool remains available. Only the subset fitting native limits is strict.
+    body.tools = schemaBudgetTools(request, options.strictTools !== false);
     // Forced calls skip adaptive thinking. The controller handles a plain-text turn.
     body.tool_choice = { type: 'auto' };
   }
   if (route.provider === 'OpenRouter') body.provider = {
     only: ['anthropic'], allow_fallbacks: false, require_parameters: true, data_collection: 'deny',
   };
+  if (!request.tools?.length) schemaBudgetTools(request, false);
+  const previous = previousProtocol(request);
+  if (previous) {
+    const current = protocolFor(request, route, body);
+    if (['sourceTools', 'system', 'thinking', 'output', 'provider', 'model'].some(key => previous[key as keyof Protocol] !== current[key as keyof Protocol]) || options.strictTools === false) {
+      throw new HaikuConversationError('haiku-conversation-changed', 'Haiku conversation definitions changed; start a fresh conversation from verified executor state before changing tools or instructions.');
+    }
+    if (previous.tools.length) body.tools = structuredClone(previous.tools);
+    else delete body.tools;
+  }
   return body;
 }
 
@@ -232,15 +295,61 @@ export function haikuUsage(usage: NativeUsage | undefined) {
   return { prompt_tokens: total, prompt_tokens_details: { cached_tokens: read }, completion_tokens: usage.output_tokens, estimatedUsd };
 }
 
-class HaikuHttpError extends Error { constructor(readonly status: number) { super(`Haiku provider HTTP ${status}`); } }
+export type HaikuProviderCode = 'grammar-compilation-rate-limit' | 'strict-schema-rejected' | 'history-prefix-mismatch'
+  | 'rate-limit' | 'authentication' | 'credit-limit' | 'invalid-request' | 'upstream-error' | 'transport-error' | 'invalid-provider-response';
+/** Only fixed categories and safe metadata escape the provider boundary. */
+export class HaikuProviderError extends Error {
+  readonly name = 'HaikuProviderError';
+  constructor(readonly status: number, readonly code: HaikuProviderCode, readonly providerType: string,
+    readonly retryAfterMs: number | null, readonly requestId: string | null, readonly requiresFreshConversation = false) {
+    const detail = code === 'grammar-compilation-rate-limit' ? 'temporarily limited grammar compilation'
+      : code === 'strict-schema-rejected' ? 'rejected strict tool schemas' : code === 'history-prefix-mismatch' ? 'rejected changed conversation history'
+        : code === 'rate-limit' ? 'is rate limited' : code === 'authentication' ? 'rejected authentication'
+          : code === 'credit-limit' ? 'has reached its credit or spend limit' : code === 'invalid-request' ? 'rejected the request'
+            : code === 'transport-error' ? 'could not complete the connection' : code === 'invalid-provider-response' ? 'returned an invalid response' : 'is temporarily unavailable';
+    super(`Haiku provider ${detail}${status ? ` (HTTP ${status})` : ''}; ${code}.`);
+  }
+}
+function retryAfter(headers: Headers, now: number): number | null {
+  const raw = headers.get('retry-after'); if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  const at = Date.parse(raw); return Number.isFinite(at) ? Math.max(0, at - now) : null;
+}
+function providerFailure(status: number, payload: Block, headers: Headers, now: number, signedHistory: boolean): HaikuProviderError {
+  const error = object(payload.error) ? payload.error : {};
+  // Inspect only to classify. Never retain provider text, raw metadata or payloads.
+  let text = typeof error.message === 'string' ? error.message : '';
+  const metadata = object(error.metadata) ? error.metadata : {};
+  if (typeof metadata.raw === 'string') {
+    try { const raw = JSON.parse(metadata.raw); const nested = raw?.error?.message ?? raw?.message; if (typeof nested === 'string') text += '\n' + nested; } catch { /* No raw text is exported. */ }
+  }
+  const types = new Set(['invalid_request_error', 'rate_limit_error', 'authentication_error', 'permission_error', 'not_found_error', 'overloaded_error', 'api_error']);
+  const providerType = typeof error.type === 'string' && types.has(error.type) ? error.type : 'unknown';
+  let code: HaikuProviderCode;
+  if (/grammar compilation rate limit exceeded|compilation(?:s)? per minute|compilation.{0,50}rate limit/i.test(text)) code = 'grammar-compilation-rate-limit';
+  else if (/(?:thinking|signature|block.binding|prefix).{0,100}(?:mismatch|invalid|changed)|(?:changed|mismatch).{0,100}(?:thinking|signature|prefix)/i.test(text)) code = 'history-prefix-mismatch';
+  else if (status === 400 && (/(?:strict.{0,100}(?:not supported|unsupported|not available|invalid|rejected)|(?:unsupported|invalid).{0,60}strict|too many strict tools|schema is too complex for compilation)/i.test(text)
+    || /tools(?:\.|\[)\d+.{0,100}(?:strict|input_schema)/i.test(text))) code = 'strict-schema-rejected';
+  else if (status === 401 || status === 403) code = 'authentication';
+  else if (status === 402 || /(?:specified|monthly|workspace).{0,60}(?:usage|spend).{0,30}limit|credit balance|insufficient.{0,20}credit/i.test(text)) code = 'credit-limit';
+  else if (status === 429) code = 'rate-limit';
+  else if (status >= 500) code = 'upstream-error'; else code = 'invalid-request';
+  const id = headers.get('request-id') ?? headers.get('x-request-id') ?? payload.request_id;
+  const requestId = typeof id === 'string' && /^req[_-][A-Za-z0-9_-]{1,150}$/.test(id) ? id : null;
+  return new HaikuProviderError(status, code, providerType, retryAfter(headers, now), requestId,
+    code === 'history-prefix-mismatch' || signedHistory && code === 'strict-schema-rejected');
+}
 
-async function reportedCost(payload: Block, route: HaikuRoute, deadline: number): Promise<number | null> {
+interface HaikuTiming { now?: () => number; sleep?: (ms: number) => Promise<void>; random?: () => number }
+
+async function reportedCost(payload: Block, route: HaikuRoute, deadline: number, now = Date.now): Promise<number | null> {
   const usage = object(payload.usage) ? payload.usage : {};
   if (finite(usage.cost)) return usage.cost;
   if (route.provider !== 'OpenRouter') return null;
   const metadata = object(payload.openrouter_metadata) ? payload.openrouter_metadata : {};
   const id = [payload.id, metadata.generation_id].find(v => typeof v === 'string' && /^gen-[A-Za-z0-9_-]+$/.test(v));
-  const left = deadline - Date.now();
+  const left = deadline - now();
   if (!id || left <= 0) return null;
   try {
     const response = await fetch(`https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(String(id))}`, {
@@ -253,19 +362,22 @@ async function reportedCost(payload: Block, route: HaikuRoute, deadline: number)
   } catch { return null; }
 }
 
-export async function haikuChat(request: CelerisRequest, route: HaikuRoute): Promise<CelerisReply> {
+export async function haikuChat(request: CelerisRequest, route: HaikuRoute, timing: HaikuTiming = {}): Promise<CelerisReply> {
   if (!route.apiKey) throw new Error('The selected Haiku provider key is not configured');
   let body = haikuBody(request, route);
   const timeout = route.timeoutMs ?? 120000;
   if (!finite(timeout) || timeout < 1) throw new Error('Invalid Haiku request deadline');
-  const deadline = Date.now() + timeout, started = performance.now();
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const now = timing.now ?? Date.now, sleep = timing.sleep ?? (async (ms: number) => { await new Promise(resolve => setTimeout(resolve, ms)); });
+  const random = timing.random ?? Math.random;
+  const deadline = now() + timeout, started = performance.now(), signedHistory = Boolean(previousProtocol(request));
+  let lastError: unknown, grammarRetried = false, transportRetried = false, strictFallbackUsed = false;
+  for (let attempt = 0; attempt < 4; attempt++) {
     const endCost = beginCostRequest(route.provider, route.model);
-    let costRecorded = false, signal: AbortSignal | undefined;
+    let costRecorded = false, signal: AbortSignal | undefined, delay: number | null = null;
     try {
-      if (Date.now() >= deadline) throw new Error('Haiku request deadline exceeded');
-      signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+      if (now() >= deadline) throw new Error('Haiku request deadline exceeded');
+      if (request.meter?.exhausted) throw new Error('Haiku application model budget exhausted');
+      signal = AbortSignal.timeout(Math.max(1, deadline - now()));
       const response = await fetch(route.endpoint, {
         method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01',
           ...(route.provider === 'Anthropic' ? { 'x-api-key': route.apiKey } : {
@@ -275,7 +387,7 @@ export async function haikuChat(request: CelerisRequest, route: HaikuRoute): Pro
       });
       const payload: Block = await response.json().catch(error => { if (response.ok) throw error; return {}; });
       const usage = haikuUsage(payload.usage as NativeUsage | undefined);
-      const actual = await reportedCost(payload, route, deadline);
+      const actual = await reportedCost(payload, route, deadline, now);
       const amount = route.provider === 'Anthropic' ? actual ?? usage?.estimatedUsd ?? null : actual;
       recordCost({ provider: route.provider, model: route.model, amountUsd: amount,
         basis: actual !== null ? 'provider' : route.provider === 'Anthropic' && usage ? 'estimated' : 'unknown',
@@ -287,17 +399,7 @@ export async function haikuChat(request: CelerisRequest, route: HaikuRoute): Pro
       if (usage) request.meter?.record(usage, actual ?? usage.estimatedUsd);
       if (!response.ok) {
         if (response.status === 402) providerOutOfCredit(route.provider);
-        const strictSent = Array.isArray(body.tools) && (body.tools as Block[]).some(tool => tool.strict === true);
-        if (response.status === 400 && strictSent && !strictToolsRefused && /strict|schema|grammar/i.test(JSON.stringify(payload.error ?? ''))) {
-          // A schema the provider cannot compile must not stop the run: resend
-          // once without strict mode. Nothing was executed; Ajv still applies.
-          strictToolsRefused = true;
-          console.warn('  ! Haiku provider refused strict tool schemas; continuing with validated non-strict tools');
-          body = haikuBody(request, route, { strictTools: false });
-          attempt--;
-          continue;
-        }
-        throw new HaikuHttpError(response.status);
+        throw providerFailure(response.status, payload, response.headers, now(), signedHistory);
       }
       if (!expectedModels.has(String(payload.model))) throw new Error('Haiku model identity could not be verified; no action returned');
       if (payload.provider && String(payload.provider).toLowerCase() !== 'anthropic') throw new Error('Haiku upstream provider identity did not match; no action returned');
@@ -326,17 +428,38 @@ export async function haikuChat(request: CelerisRequest, route: HaikuRoute): Pro
       metric('model', performance.now() - started, { model: route.model, provider: route.provider, attempts: attempt + 1, usage: payload.usage });
       return { text, toolCalls, message: { role: 'assistant', content: text || null,
         ...(toolCalls.length ? { tool_calls: toolCalls.map(t => ({ id: t.id, type: 'function' as const, function: { name: t.name, arguments: JSON.stringify(t.args) } })) } : {}),
-        anthropic_content: structuredClone(blocks) } };
+        anthropic_content: structuredClone(blocks), anthropic_protocol: protocolFor(request, route, body) } };
     } catch (error) {
       if (!costRecorded) recordCost({ provider: route.provider, model: route.model, amountUsd: null, basis: 'unknown', detail: 'Native Messages request did not yield final usage; it may have incurred charges.' });
       lastError = error;
       const e = error as Error & { code?: string; cause?: { code?: string } };
       const timeoutError = Boolean(signal?.aborted && signal.reason?.name === 'TimeoutError') || ['TimeoutError', 'ETIMEDOUT', 'ECONNRESET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'].some(code => [e.name, e.code, e.cause?.code].includes(code));
-      const transient = error instanceof HaikuHttpError ? error.status === 429 || error.status >= 500 : timeoutError || /fetch failed/i.test(e.message ?? '');
-      if (!transient || attempt || deadline - Date.now() <= 1001) throw error;
+      const failure = error instanceof HaikuProviderError ? error : timeoutError || /fetch failed/i.test(e.message ?? '')
+        ? new HaikuProviderError(0, 'transport-error', 'unknown', null, null)
+        : error instanceof SyntaxError ? new HaikuProviderError(0, 'invalid-provider-response', 'unknown', null, null) : undefined;
+      const strictToolCount = Array.isArray(body.tools) ? (body.tools as Block[]).filter(tool => tool.strict === true).length : 0;
+      const strictSent = strictToolCount > 0;
+      let retryKind: string | null = null;
+      if (attempt < 3 && !request.meter?.exhausted) {
+        if (failure?.code === 'grammar-compilation-rate-limit' && !grammarRetried) {
+          delay = failure.retryAfterMs ?? 60000 + Math.floor(Math.max(0, Math.min(1, random())) * 1000);
+          retryKind = 'grammar-cooldown'; grammarRetried = true;
+        } else if (failure?.code === 'strict-schema-rejected' && strictSent && !signedHistory && !strictFallbackUsed) {
+          body = haikuBody(request, route, { strictTools: false }); strictFallbackUsed = true; delay = 0; retryKind = 'initial-non-strict-tools';
+        } else if (failure && !transportRetried && ['rate-limit', 'upstream-error', 'transport-error'].includes(failure.code)) {
+          delay = failure.retryAfterMs ?? 1000; retryKind = 'transport'; transportRetried = true;
+        }
+      }
+      if (delay !== null && deadline - now() <= delay + 1000) { delay = null; retryKind = 'deadline-insufficient'; }
+      metric('model-error', performance.now() - started, { model: route.model, provider: route.provider, attempt: attempt + 1,
+        status: failure?.status ?? null, errorCode: failure?.code ?? (error instanceof HaikuConversationError ? error.code : 'invalid-model-response'),
+        providerType: failure?.providerType ?? 'unknown', requestId: failure?.requestId ?? null, retryAfterMs: failure?.retryAfterMs ?? null,
+        retryKind, retryDelayMs: delay, signedHistory, strictToolCount });
+      if (delay === null) throw failure ?? error;
+      lastError = failure ?? error;
     } finally { endCost(); }
-    // Retry transport only; no browser action has been returned or run.
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Retry model generation only; no browser action has been returned or run.
+    await sleep(delay!);
   }
   throw lastError;
 }

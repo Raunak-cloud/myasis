@@ -364,7 +364,7 @@ export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | nul
         ctx.captured.push({ question: field.label, answer: value });
       }
     }
-    ctx.log('  · the current saved form passed Magnus verification');
+    ctx.log('  · the current saved form passed AI verification');
     return null;
   } catch (error) {
     ctx.auditFailures = (ctx.auditFailures ?? 0) + 1;
@@ -473,6 +473,7 @@ export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[
       `Answers just set on the form with a general browser tool (control: what changed):\n${set.map((change) => `- ${change}`).join('\n')}`,
       ctx.job, ctx.profile, ctx.captured,
       committed ? [...new Set(labels)] : undefined,
+      ctx.page.url(),
     );
   } catch {
     if (committed) return '\nANSWER CHECK UNAVAILABLE: the committed browser changes could not be verified. Do not continue this attempt.';

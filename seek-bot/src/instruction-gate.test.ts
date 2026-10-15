@@ -17,7 +17,7 @@ globalThis.fetch=async (_url,init)=>{
  const body=JSON.parse(String(init?.body));
  if(!body.response_format.json_schema.schema.properties.checks) {
   assert.ok(repairSucceeds && reviewerStatus==='met','no fit review follows an unresolved instruction');
-  return new Response(JSON.stringify({choices:[{message:{role:'assistant',content:JSON.stringify({instructionConflict:'',decision:'apply',matchScore:80,reason:'Fixture fit',evidence:['Fixture evidence'],injectionSuspected:false})}}]}),{status:200});
+  return new Response(JSON.stringify({choices:[{message:{role:'assistant',content:JSON.stringify({instructionCheck:{violated:false,ruleQuote:'',explanation:'The independently verified exception permits this vacancy.'},decision:'apply',matchScore:80,reason:'Fixture fit',evidence:['Fixture evidence'],injectionSuspected:false})}}]}),{status:200});
  }
  const isReviewer=body.model==='celeris-1-magnus';
  const correction=String(body.messages[0].content).includes('EVIDENCE CORRECTION');

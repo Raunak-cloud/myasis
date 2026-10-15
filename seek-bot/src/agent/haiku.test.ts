@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CelerisRequest, ChatMessage, CostMeter } from './celeris.js';
-import { haikuBody, haikuChat, haikuMessages, haikuReasoning, haikuSchema, haikuUsage, type HaikuRoute } from './haiku.js';
+import { haikuBody, haikuChat, haikuMessages, haikuReasoning, haikuSchema, haikuSchemaComplexity, haikuUsage, HaikuConversationError, HaikuProviderError, HAIKU_SCHEMA_LIMITS, type HaikuRoute } from './haiku.js';
+import { toolSchemas } from './tools/schemas.js';
 
 // Every provider response is mocked. These tests never contact an AI or a browser.
 process.env.COST_TRACKING = 'false';
@@ -196,8 +197,7 @@ test('strict tools are sent only for closed schemas', () => {
   assert.equal(schema.additionalProperties, false); assert.equal(schema.properties.values.maxItems, undefined);
 });
 
-// Last: a refusal turns strict tools off for the rest of the process.
-test('a refused strict schema is resent once without strict mode', async t => {
+test('an initial strict refusal is retried once only for that conversation', async t => {
   const bodies: Record<string, unknown>[] = [];
   t.mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)));
@@ -207,4 +207,85 @@ test('a refused strict schema is resent once without strict mode', async t => {
   assert.equal(bodies.length, 2); assert.equal(reply.toolCalls.length, 1);
   assert.equal((bodies[0].tools as Record<string, unknown>[])[0].strict, true);
   assert.equal((bodies[1].tools as Record<string, unknown>[])[0].strict, undefined);
+  assert.equal((haikuBody(request(), route).tools as Record<string, unknown>[])[0].strict, true);
+  const next = request([...request().messages, JSON.parse(JSON.stringify(reply.message)), { role: 'tool', tool_call_id: 'toolu_test', content: 'Saved result.' }, { role: 'user', content: 'Next observation.' }]);
+  assert.deepEqual(haikuBody(next, route).tools, bodies[1].tools);
+});
+
+test('the complete production toolset stays available within the combined strict budget', () => {
+  const production = toolSchemas({ vision: true, compact: true });
+  assert.ok(production.length > HAIKU_SCHEMA_LIMITS.strictTools);
+  const output = { type: 'object', properties: Object.fromEntries(Array.from({ length: 8 }, (_, n) => [`field${n}`, { type: 'string' }])) };
+  const body = haikuBody({ ...request(), tools: production, responseSchema: output }, route);
+  const sent = body.tools as Record<string, unknown>[], strict = sent.filter(t => t.strict === true);
+  assert.deepEqual(sent.map(t => t.name), production.map(t => t.name));
+  assert.ok(strict.length > 0 && strict.length <= HAIKU_SCHEMA_LIMITS.strictTools);
+  const combined = strict.reduce<{ optionalParameters: number; unionParameters: number }>((sum, t) => {
+    const count = haikuSchemaComplexity(t.input_schema);
+    return { optionalParameters: sum.optionalParameters + count.optionalParameters, unionParameters: sum.unionParameters + count.unionParameters };
+  }, haikuSchemaComplexity(output));
+  assert.ok(combined.optionalParameters <= HAIKU_SCHEMA_LIMITS.optionalParameters);
+  assert.ok(combined.unionParameters <= HAIKU_SCHEMA_LIMITS.unionParameters);
+  assert.throws(() => haikuBody({ ...request(), responseSchema: { type: 'object', properties: Object.fromEntries(Array.from({ length: 25 }, (_, n) => [`field${n}`, { type: 'string' }])) } }, route), (e: unknown) => e instanceof HaikuConversationError && e.code === 'haiku-schema-budget');
+});
+
+test('signed native history freezes the exact wire definitions across JSON persistence', async t => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; return Response.json(response()); });
+  const original = request(), reply = await haikuChat(original, route);
+  const next = request([...original.messages, JSON.parse(JSON.stringify(reply.message)), { role: 'tool', tool_call_id: 'toolu_test', content: 'Saved result.' }, { role: 'user', content: 'Next observation.' }]);
+  assert.deepEqual(haikuBody(next, route).tools, haikuBody(original, route).tools);
+  const changed = { ...next, tools: [{ ...tools[0], description: 'Changed definition.' }] };
+  await assert.rejects(() => haikuChat(changed, route), (e: unknown) => e instanceof HaikuConversationError && e.requiresFreshConversation && e.code === 'haiku-conversation-changed');
+  const missing = structuredClone(next);
+  delete (missing.messages.find(m => m.role === 'assistant') as Extract<ChatMessage, { role: 'assistant' }>).anthropic_protocol;
+  assert.throws(() => haikuBody(missing, route), (e: unknown) => e instanceof HaikuConversationError && e.code === 'haiku-history-metadata-missing');
+  assert.equal(calls, 1);
+});
+
+test('signed-history strict rejection is typed and cannot mutate tools or trigger a fallback', async t => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    return calls === 1 ? Response.json(response()) : Response.json({ error: { type: 'invalid_request_error', message: 'tools.0: strict schema not supported' } }, { status: 400 });
+  });
+  const original = request(), reply = await haikuChat(original, route);
+  const next = request([...original.messages, reply.message, { role: 'tool', tool_call_id: 'toolu_test', content: 'Saved result.' }]);
+  await assert.rejects(() => haikuChat(next, route), (e: unknown) => e instanceof HaikuProviderError && e.code === 'strict-schema-rejected' && e.requiresFreshConversation);
+  assert.equal(calls, 2);
+});
+
+test('grammar quota HTTP 400 honors Retry-After without changing signed tools or exposing private error text', async t => {
+  const bodies: Record<string, unknown>[] = [], delays: number[] = [];
+  let clock = 1000;
+  t.mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    if (bodies.length === 2) return Response.json({ error: { type: 'invalid_request_error', message: 'Grammar compilation rate limit exceeded. Organization PRIVATE_ORG test@example.invalid sk-fictional-secret exceeded limit:50 compilations per minute.' } }, { status: 400, headers: { 'retry-after': '2', 'request-id': 'req_fixture' } });
+    return Response.json(response({ content: [{ type: 'thinking', thinking: '', signature: 'opaque' }, { type: 'tool_use', id: `toolu_${bodies.length}`, name: 'read_page', input: {} }] }));
+  });
+  const original = request(), first = await haikuChat(original, route);
+  const next = request([...original.messages, first.message, { role: 'tool', tool_call_id: 'toolu_1', content: 'Saved result.' }]);
+  const reply = await haikuChat(next, route, { now: () => clock, random: () => 0, sleep: async ms => { delays.push(ms); clock += ms; } });
+  assert.equal(reply.toolCalls.length, 1); assert.deepEqual(delays, [2000]);
+  assert.deepEqual(bodies[1], bodies[2]); assert.deepEqual(bodies[0].tools, bodies[2].tools);
+  assert.equal((haikuBody(request(), route).tools as Record<string, unknown>[])[0].strict, true);
+});
+
+test('persistent grammar quota has one cooldown, sanitizes errors, and respects the whole deadline', async t => {
+  let calls = 0, clock = 0; const delays: number[] = [];
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    return Response.json({ error: { type: 'invalid_request_error', message: 'Grammar compilation rate limit exceeded. Organization PRIVATE_ORG test@example.invalid sk-fictional-secret exceeded limit:50 compilations per minute.' } }, { status: 400, headers: { 'request-id': 'req_fixture' } });
+  });
+  const check = (e: unknown) => {
+    assert.ok(e instanceof HaikuProviderError); assert.equal(e.code, 'grammar-compilation-rate-limit'); assert.equal(e.status, 400);
+    assert.equal(e.requestId, 'req_fixture'); assert.equal(e.requiresFreshConversation, false);
+    assert.doesNotMatch(String(e) + JSON.stringify(e), /PRIVATE_ORG|example\.invalid|sk-fictional|compilations per minute/);
+    return true;
+  };
+  await assert.rejects(() => haikuChat(request(), route, { now: () => clock, random: () => 0, sleep: async ms => { delays.push(ms); clock += ms; } }), check);
+  assert.equal(calls, 2); assert.deepEqual(delays, [60000]);
+  calls = 0; clock = 0;
+  await assert.rejects(() => haikuChat(request(), { ...route, timeoutMs: 5000 }, { now: () => clock, sleep: async () => { assert.fail('Cooldown must not overrun the deadline.'); } }), check);
+  assert.equal(calls, 1);
 });

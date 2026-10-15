@@ -18,6 +18,7 @@ await import('./config.js');
 const { cachedAssessment } = await import('./pipeline.js');
 const { ReviewCache, listingFingerprint, reviewContextFingerprint } = await import('./review-cache.js');
 const { applicationModelAvailable, assertApplicationModelConfigured, applicationModelIdentity, withApplicationModel } = await import('./application-model.js');
+const { FIT_ASSESSMENT_VERSION } = await import('./model-versions.js');
 const owner = `model-cache-${randomUUID()}`;
 const bot = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const selectHaiku = () => {
@@ -38,6 +39,18 @@ let computations = 0;
 const compute = async () => ({ ok: true, computation: ++computations });
 
 try {
+  // The previous fit contract could cache an incorrect rejection. A new
+  // contract must recompute once, then keep normal same-version reuse.
+  let versionComputations = 0;
+  const computeVersion = async () => ({ ok: true, computation: ++versionComputations });
+  const priorFit = { version: 'model-owned-fit-v13', prompt: 'Unchanged candidate and listing' };
+  assert.equal((await cachedAssessment(priorFit, computeVersion, accept)).computation, 1);
+  const currentFit = { ...priorFit, version: FIT_ASSESSMENT_VERSION };
+  assert.equal((await cachedAssessment(currentFit, computeVersion, accept)).computation, 2,
+    'The corrected fit contract cannot reuse a pre-fix decision');
+  assert.equal((await cachedAssessment(currentFit, computeVersion, accept)).computation, 2,
+    'The current fit contract retains normal assessment reuse');
+
   const celerisFingerprint = reviewContextFingerprint(profile);
   assert.equal((await cachedAssessment(input, compute, accept)).computation, 1);
   assert.equal((await cachedAssessment(input, compute, accept)).computation, 1);
@@ -91,7 +104,7 @@ try {
   process.env.OPENROUTER_API_KEY = '';
   assert.equal(applicationModelAvailable(), false);
   assert.throws(() => assertApplicationModelConfigured(), /Claude Haiku 5\.5.*not configured/);
-  console.log('PASS: selected-model credential guard, assessment/provider isolation, historical suppression and concurrent in-flight separation; no model calls');
+  console.log('PASS: fit-contract cache invalidation, selected-model credential guard, assessment/provider isolation, historical suppression and concurrent in-flight separation; no model calls');
 } finally {
   for (const name of names) {
     if (previous[name] === undefined) delete process.env[name];

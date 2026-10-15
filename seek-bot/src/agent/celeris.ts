@@ -29,7 +29,7 @@ interface ToolCall {
 
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string | ContentPart[] }
-  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[]; anthropic_content?: unknown[]; reasoning_details?: unknown[]; reasoning_content?: string }
+  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[]; anthropic_content?: unknown[]; anthropic_protocol?: unknown; reasoning_details?: unknown[]; reasoning_content?: string }
   | { role: 'tool'; tool_call_id: string; content: string };
 
 type ContentPart =

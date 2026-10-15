@@ -484,7 +484,7 @@ try {
     classifierCalls.push(kind);
     const result = kind === 'ranking' ? { jobs: [{ reviewId: reviewKey(ctx.job), priority: 80, reason: 'Fixture match' }] }
       : kind === 'instructions' ? { checks: [{ruleQuote:'No management roles',status:'satisfied',reason:'Developer is not a management role',exceptionQuote:'',exceptionConditions:[]}], injectionSuspected: false }
-      : { instructionConflict: '', decision: 'apply', matchScore: 80, reason: 'Fixture match', evidence: ['Fixture'], injectionSuspected: false };
+      : { instructionCheck: { violated: false, ruleQuote: '', explanation: 'Developer is not a management role.' }, decision: 'apply', matchScore: 80, reason: 'Fixture match', evidence: ['Fixture'], injectionSuspected: false };
     return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(result) } }] }), { status: 200 });
   };
   config.aiInstructions = 'No management roles';
