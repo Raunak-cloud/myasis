@@ -28,7 +28,7 @@ import { TraceStep, pathOf, hostOf, describeCall, TRACE_DIR, loadSiteHints, pers
 import { trimTranscript, checkpointTranscript, observationMessage, embeddedForms } from './loop/transcript.js';
 import { confirmAuthentication } from './loop/accounts.js';
 import { haikuController } from './application-controller.js';
-import { applicationModel } from '../application-model.js';
+import { applicationHaikuReadinessMode, applicationModel } from '../application-model.js';
 export * from './loop/prompt.js';
 export * from './loop/plan.js';
 export * from './loop/trace.js';
@@ -64,7 +64,7 @@ export interface AgentRunOptions {
 
 export function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
   return withJobCost(options.job.id, async () => applicationModel() === 'haiku'
-    ? (await import('./haiku-browser-agent.js')).runHaikuBrowserApplication(options)
+    ? (await import('./haiku-browser-agent.js')).runHaikuBrowserApplication({ ...options, readinessMode: applicationHaikuReadinessMode() })
     : runApplicationAgentScoped(options));
 }
 async function runApplicationAgentScoped(options: AgentRunOptions): Promise<AgentRunResult> {

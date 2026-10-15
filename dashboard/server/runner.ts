@@ -12,7 +12,7 @@ import { runTimeoutMs, signalRunTree, superviseRun } from './run-watchdog.js';
 import { isAdmin } from './admin-access.js';
 import { browserRunEnvironment } from './browser-run-policy.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
-import { applicationAiConfigurationError, applicationAiModel } from './application-ai-policy.js';
+import { applicationAiConfigurationError, applicationAiFormReadinessMode, applicationAiModel } from './application-ai-policy.js';
 import type { ApplicationAiModel } from '../src/application-ai-model.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
@@ -40,12 +40,14 @@ export async function accountApplicationAiEnvironment(userId: string, requestedM
   const requested = requestedModel === undefined ? undefined : applicationAiModel(requestedModel);
   if (!admin && requested === 'haiku') throw new Error('Application model selection is available only to administrator accounts.');
   const model = admin ? requested ?? saved : 'celeris';
-  const configurationError = applicationAiConfigurationError(model, { ...readEnv(), ...process.env }, admin);
+  const serverEnv = { ...readEnv(), ...process.env };
+  const configurationError = applicationAiConfigurationError(model, serverEnv, admin);
   if (configurationError) throw new Error(configurationError);
   return {
     APPLICATION_AI_MODEL: model,
     APPLICATION_AI_ADMIN_ENABLED: String(admin),
     APPLICATION_AI_OWNER_ID: userId,
+    APPLICATION_AI_FORM_REVIEW_MODE: applicationAiFormReadinessMode(userId, admin, model, serverEnv),
   };
 }
 

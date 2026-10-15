@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { APPLICATION_AI_MODELS } from '../src/application-ai-model.js';
 import {
-  applicationAiConfigurationError, applicationAiModel, applicationAiSettingsError,
+  applicationAiConfigurationError, applicationAiFormReadinessMode, applicationAiModel, applicationAiSettingsError,
   applicationAiSettingsMetadata,
 } from './application-ai-policy.js';
 import { applyRunPolicy, mayEditRunSetting } from './entitlements.js';
@@ -30,6 +30,17 @@ test('the application selector has exactly two models and rejects explicit unsup
     assert.equal(applicationAiSettingsError({ APPLICATION_AI_MODEL: value }, true)?.status, 400);
   }
   assert.equal(applicationAiSettingsError({ KEYWORDS: 'retail' }, false), null);
+});
+
+test('agent-managed readiness is an exact owner-scoped administrator Haiku pilot', () => {
+  const env = { ADMIN_HAIKU_AGENT_MANAGED_FORM_OWNERS: 'admin-one, admin-two' };
+  assert.equal(applicationAiFormReadinessMode('admin-one', true, 'haiku', env), 'agent-managed');
+  assert.equal(applicationAiFormReadinessMode('admin-two', true, 'haiku', env), 'agent-managed');
+  for (const [owner, admin, model] of [
+    ['admin', true, 'haiku'], ['admin-three', true, 'haiku'], ['admin-one', false, 'haiku'],
+    ['admin-one', true, 'celeris'], ['../admin-one', true, 'haiku'],
+  ] as const) assert.equal(applicationAiFormReadinessMode(owner, admin, model, env), 'standard');
+  assert.equal(applicationAiFormReadinessMode('admin-one', true, 'haiku', { APPLICATION_AI_FORM_REVIEW_MODE: 'agent-managed' }), 'standard');
 });
 
 test('model access stays administrator-only even on plans with fine tuning', () => {
@@ -120,7 +131,7 @@ test('direct saved-setting writes validate owner and enum before any update', as
 
 test('worker model policy rechecks the account owner, saved choice and provider configuration', async () => {
   const originalQuery = pool.query;
-  const keys = ['ADMIN_EMAILS', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'CELERIS_API_KEY', 'APPLICATION_AI_MODEL'] as const;
+  const keys = ['ADMIN_EMAILS', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'CELERIS_API_KEY', 'APPLICATION_AI_MODEL', 'APPLICATION_AI_FORM_REVIEW_MODE', 'ADMIN_HAIKU_AGENT_MANAGED_FORM_OWNERS'] as const;
   const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   process.env.ADMIN_EMAILS = 'admin@example.test';
   process.env.ANTHROPIC_API_KEY = '';
@@ -128,6 +139,8 @@ test('worker model policy rechecks the account owner, saved choice and provider 
   process.env.CELERIS_API_KEY = '';
   // Machine-level experimental choices cannot decide an account's model.
   process.env.APPLICATION_AI_MODEL = 'haiku';
+  process.env.APPLICATION_AI_FORM_REVIEW_MODE = 'agent-managed';
+  process.env.ADMIN_HAIKU_AGENT_MANAGED_FORM_OWNERS = '';
   let owner: { email: string; applicationAiModel: string | null } | undefined;
   pool.query = (async (sql: string, params: unknown[]) => {
     assert.match(sql, /LEFT JOIN settings s ON s.user_id = u.id AND s.key = 'APPLICATION_AI_MODEL'/);
@@ -141,6 +154,7 @@ test('worker model policy rechecks the account owner, saved choice and provider 
     owner = { email: 'customer@example.test', applicationAiModel: null };
     assert.deepEqual(await accountApplicationAiEnvironment('owner-account'), {
       APPLICATION_AI_MODEL: 'celeris', APPLICATION_AI_ADMIN_ENABLED: 'false', APPLICATION_AI_OWNER_ID: 'owner-account',
+      APPLICATION_AI_FORM_REVIEW_MODE: 'standard',
     });
     await assert.rejects(accountApplicationAiEnvironment('owner-account', 'haiku'), /only to administrator/);
     // Removing an administrator's access also removes an already-saved Haiku choice.
@@ -155,7 +169,14 @@ test('worker model policy rechecks the account owner, saved choice and provider 
     process.env.OPENROUTER_API_KEY = 'test-not-a-real-secret';
     assert.deepEqual(await accountApplicationAiEnvironment('owner-account'), {
       APPLICATION_AI_MODEL: 'haiku', APPLICATION_AI_ADMIN_ENABLED: 'true', APPLICATION_AI_OWNER_ID: 'owner-account',
+      APPLICATION_AI_FORM_REVIEW_MODE: 'standard',
     });
+    process.env.ADMIN_HAIKU_AGENT_MANAGED_FORM_OWNERS = 'owner-account';
+    assert.equal((await accountApplicationAiEnvironment('owner-account')).APPLICATION_AI_FORM_REVIEW_MODE, 'agent-managed');
+    assert.equal((await accountApplicationAiEnvironment('owner-account', 'celeris')).APPLICATION_AI_FORM_REVIEW_MODE, 'standard');
+    owner.email = 'customer@example.test';
+    assert.equal((await accountApplicationAiEnvironment('owner-account')).APPLICATION_AI_FORM_REVIEW_MODE, 'standard');
+    owner.email = 'admin@example.test';
     owner.applicationAiModel = 'luna';
     await assert.rejects(accountApplicationAiEnvironment('owner-account', 'celeris'), /Choose Celeris/);
   } finally {

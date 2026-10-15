@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 /** One process-scoped choice for every AI operation in an application run. */
 export type ApplicationModel = 'celeris' | 'haiku';
+export type HaikuReadinessMode = 'standard' | 'agent-managed';
 type Environment = Record<string, string | undefined>;
 const botRoot = fileURLToPath(new URL('../', import.meta.url));
 const contexts = new AsyncLocalStorage<Environment>();
@@ -25,6 +26,15 @@ export function applicationModel(env: Environment = applicationModelEnvironment(
     }
   }
   return selected;
+}
+
+/** This worker-owned value is resolved from the authenticated account, never
+ * from a browser setting. It changes readiness review, not data or send access. */
+export function applicationHaikuReadinessMode(env: Environment = applicationModelEnvironment(), root = botRoot): HaikuReadinessMode {
+  if (applicationModel(env, root) !== 'haiku') return 'standard';
+  const mode = env.APPLICATION_AI_FORM_REVIEW_MODE ?? 'standard';
+  if (mode !== 'standard' && mode !== 'agent-managed') throw new Error('Unsupported Haiku form review mode.');
+  return mode;
 }
 
 export function applicationModelIdentity(env: Environment = applicationModelEnvironment(), root = botRoot) {

@@ -18,6 +18,7 @@ mkdirSync(resolve(directory, 'resumes'));
 writeFileSync(resolve(directory, 'resumes', 'Fixture resume.txt'), 'Alex Taylor: fictional customer service experience.');
 writeFileSync(resolve(directory, 'resumes.json'), JSON.stringify([{ id: 'fixture-cv', label: 'Approved fictional CV', fileName: 'Fixture resume.txt', seekName: 'Fixture resume.txt', uploadedAt: '2026-01-01T00:00:00Z', size: 60, isDefault: true }]));
 Object.assign(process.env, { APPLICATION_AI_MODEL: 'haiku', APPLICATION_AI_ADMIN_ENABLED: 'true', APPLICATION_AI_OWNER_ID: owner,
+  APPLICATION_AI_FORM_REVIEW_MODE: 'standard',
   ANTHROPIC_API_KEY: 'fictional-native-test-key', OPENROUTER_API_KEY: '', CELERIS_API_KEY: '', DATA_DIR: directory,
   COST_TRACKING: 'false', DRY_RUN: 'true', ALLOW_EXTERNAL_APPLY: 'true', FORM_SPEED_PILOT: 'true',
   HUMANIZER_REQUIRED: 'false', HUMANIZER_MODE: 'off', CAPTCHA_SOLVER: 'off', AGENT_MAX_STEPS: '30', AGENT_MAX_STEPS_PER_PAGE: '12' });
@@ -50,7 +51,7 @@ function ref(body: Wire, label: string): string {
   assert.ok(lines.length, `The real native tree must expose ${label}.`);
   return /\[(ref_\d+)\]/.exec(lines.at(-1)!)![1];
 }
-function mockMessages(plan: (turn: number, body: Wire) => Call[], options: { unknownLicence?: boolean } = {}) {
+function mockMessages(plan: (turn: number, body: Wire) => Call[], options: { unknownLicence?: boolean; classifySubmit?: (prompt: string) => boolean; confirmed?: boolean } = {}) {
   const wire: Wire[] = [], reviews: any[] = []; let sequence = 0, turn = 0;
   globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
     assert.equal(String(url), 'https://api.anthropic.com/v1/messages', 'All Node traffic is intercepted; off-provider traffic is forbidden.');
@@ -67,14 +68,14 @@ function mockMessages(plan: (turn: number, body: Wire) => Call[], options: { unk
       const properties = schema.properties ?? {};
       const prompt = body.messages.map(message => typeof message.content === 'string' ? message.content : message.content.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n')).join('\n');
       let answer: unknown;
-      if (properties.sends_application) answer = { sends_application: !/"control":"(?:Save draft|Continue)"/.test(prompt) };
+      if (properties.sends_application) answer = { sends_application: options.classifySubmit ? options.classifySubmit(prompt) : !/"control":"(?:Save draft|Continue)"/.test(prompt) };
       else if (properties.problems) {
         const match = /<untrusted role="current-saved-form">([\s\S]*?)<\/untrusted>/.exec(prompt);
         assert.ok(match, 'The verifier receives a fresh actual saved-form read.');
         const form = JSON.parse(match[1]); reviews.push(form);
         const licence = form.fields.find((field: any) => field.label.includes('Licence number'));
         answer = { problems: options.unknownLicence && licence && !licence.currentValue ? [{ ref: licence.ref, field: licence.label, value: licence.currentValue ?? '', kind: 'needs_candidate', problem: 'The required licence number is not in the fictional candidate evidence.' }] : [] };
-      } else if (properties.confirmed) answer = { confirmed: false, quote: '', reason: 'The fictional page has no employer receipt.' };
+      } else if (properties.confirmed) answer = { confirmed: options.confirmed ?? false, quote: options.confirmed ? 'The fictional application was submitted.' : '', reason: options.confirmed ? 'Fictional job-specific receipt.' : 'The fictional page has no employer receipt.' };
       else throw new Error(`Unexpected paid-check shape in isolated fixture: ${Object.keys(properties).join(',')}`);
       content = [{ type: 'text', text: JSON.stringify(answer) }];
     }
@@ -97,6 +98,96 @@ async function fixture(id: string, markup: string) {
   return { page, context, requests, options, dependencies };
 }
 const form = `<main><h1>Fictional application</h1><label>Full name<input id="name" required></label><label>Approved resume<select id="resume"><option value="fixture-cv">Fixture resume.txt</option></select></label><button id="send" type="button" onclick="this.dataset.sends=String(Number(this.dataset.sends||0)+1)">Submit application</button></main>`;
+
+async function agentManaged<T>(work: () => Promise<T>): Promise<T> {
+  const previous = process.env.APPLICATION_AI_FORM_REVIEW_MODE;
+  process.env.APPLICATION_AI_FORM_REVIEW_MODE = 'agent-managed';
+  try { return await work(); }
+  finally { process.env.APPLICATION_AI_FORM_REVIEW_MODE = previous; }
+}
+
+test('an explicit agent-managed request cannot bypass the configured admin opt-in', async () => {
+  const f = await fixture('unauthorised-readiness-override', form);
+  const mock = mockMessages(() => { throw new Error('No model call is allowed before readiness authorization.'); });
+  try {
+    await assert.rejects(() => runHaikuBrowserApplication({ ...f.options, readinessMode: 'agent-managed' }, f.dependencies), /owner-scoped authenticated Haiku admin experiment/);
+    assert.equal(mock.wire.length, 0); assert.equal(await f.page.locator('#send').getAttribute('data-sends'), null);
+  } finally { await f.context.close(); }
+});
+
+test('agent-managed readiness skips document and saved-answer vetoes while still withholding a dry-run send', async () => agentManaged(async () => {
+  const f = await fixture('agent-managed-dry-run', form.replace('Fixture resume.txt', 'Unconfirmed saved board resume.txt')
+    + '<label>Licence number<input required></label><label>Cover letter<textarea></textarea></label>');
+  const mock = mockMessages((turn, body) => turn === 1 ? [nativeCall('read_page', { filter: 'interactive' })]
+    : turn === 2 ? [nativeCall('left_click', { target: { type: 'ref', ref: ref(body, 'Submit application') } })] : [], { unknownLicence: true });
+  try {
+    const result = await runHaikuBrowserApplication({ ...f.options, readinessMode: 'agent-managed' }, f.dependencies);
+    assert.equal(result.outcome.status, 'rehearsed'); assert.equal(result.submitPressed, false);
+    assert.equal(await f.page.locator('#send').getAttribute('data-sends'), null); assert.equal(mock.reviews.length, 0);
+    assert.equal(mock.wire.filter(body => body.output_config?.format?.schema?.properties?.problems).length, 0);
+    assert.equal(mock.wire.filter(body => body.output_config?.format?.schema?.properties?.sends_application).length, 1);
+    assert.doesNotMatch(JSON.stringify(mock.wire), /Before advancing\/sending, the executor independently checks/);
+    assert.match(JSON.stringify(mock.wire), /no separate Owtomate answer, document or form-readiness reviewer/);
+  } finally { await f.context.close(); }
+}));
+
+test('agent-managed consent Save uses its actual modal context and a required unknown stops without a second review', async t => agentManaged(async () => {
+  const markup = '<main><h1>Fictional application</h1><label>State/Province<input id="state" required></label><label>Resume<select><option>Unconfirmed CV.txt</option></select></label><label>Cover letter<textarea></textarea></label></main>'
+    + `<dialog open aria-modal="true"><h2>Privacy consent</h2><label><input type="checkbox" checked>Agree to privacy notice</label><input type="password" value="FICTIONAL_PRIVATE_PASSWORD"><button id="consent" type="button" onclick="this.dataset.saved='yes';this.closest('dialog').removeAttribute('open')">Save</button></dialog>`;
+  const f = await fixture('agent-managed-consent', markup);
+  t.mock.method(f.page, 'url', () => 'https://www.seek.com.au/job/12345678'); f.options.job.id = '12345678';
+  const contexts: string[] = [];
+  const mock = mockMessages((turn, body) => turn === 1 ? [nativeCall('read_page', { filter: 'interactive' })]
+    : turn === 2 ? [nativeCall('left_click', { target: { type: 'ref', ref: ref(body, 'Save') } })]
+      : [helperCall('application_status', { status: 'needs_candidate', reason: 'The required licence fact is unknown.' })],
+  { unknownLicence: true, classifySubmit: prompt => { contexts.push(prompt); return false; } });
+  try {
+    const result = await runHaikuBrowserApplication({ ...f.options, readinessMode: 'agent-managed' }, f.dependencies);
+    assert.equal(await f.page.locator('#consent').getAttribute('data-saved'), 'yes'); assert.equal(result.submitPressed, false);
+    assert.equal(result.outcome.status, 'skipped'); assert.match(JSON.stringify(result.outcome), /required application answer/);
+    assert.equal(mock.reviews.length, 0); assert.equal(contexts.length, 1);
+    assert.match(contexts[0], /Privacy consent/); assert.match(contexts[0], /dialog/); assert.match(contexts[0], /modal/);
+    assert.doesNotMatch(contexts[0], /FICTIONAL_PRIVATE_PASSWORD/);
+  } finally { await f.context.close(); }
+}));
+
+test('agent-managed checkpoints keep native saved evidence without an independent readiness verdict', async () => agentManaged(async () => {
+  const f = await fixture('agent-managed-checkpoint', form);
+  globalThis.fetch = (async () => { throw new Error('A checkpoint must not call any reviewer.'); }) as typeof fetch;
+  const ctx = { page: f.page, nativeFormReadiness: 'agent-managed', guards: { ungrounded: [] } } as unknown as ToolContext;
+  try {
+    const messages = await nativeApplicationCheckpoint(ctx, [{ role: 'system', content: 'Immutable authorised experiment.' }],
+      { kind: 'ok', message: 'STALE_REVIEW_MUST_NOT_REPLAY' });
+    assert.match(JSON.stringify(messages), /no separate answer, document or form-readiness reviewer/);
+    assert.match(JSON.stringify(messages), /Full name/); assert.doesNotMatch(JSON.stringify(messages), /STALE_REVIEW_MUST_NOT_REPLAY|independently checked before/);
+  } finally { await f.context.close(); }
+}));
+
+test('agent-managed possible-send protection still blocks repeated actions and requires an independent receipt', async () => agentManaged(async () => {
+  for (const confirmed of [false, true]) {
+    const f = await fixture(`agent-managed-receipt-${confirmed}`, form.replace('Submit application', 'Save draft'));
+    let marked = false; const actions: string[] = [];
+    const mock = mockMessages((turn, body) => turn === 1 ? [nativeCall('read_page', { filter: 'interactive' })]
+      : turn === 2 ? [nativeCall('left_click', { target: { type: 'ref', ref: ref(body, 'Save draft') } })]
+        : [nativeCall('left_click', { target: { type: 'ref', ref: ref(body, 'Save draft') } })], { confirmed });
+    try {
+      const result = await runHaikuBrowserApplication({ ...f.options, readinessMode: 'agent-managed' }, { ...f.dependencies, executor: (ctx, settings) => {
+        const real = new HaikuBrowserExecutor(ctx, { ...settings, resolveHost: async () => ['93.184.216.34'] });
+        return { registerDocument: real.registerDocument.bind(real), dispose: real.dispose.bind(real), execute: async (name, input) => {
+          actions.push(name); const value = await real.execute(name, input);
+          if (!marked && name === 'left_click' && !value.is_error) {
+            marked = true; ctx.submissionAttempted = true;
+            if (confirmed) await ctx.page.locator('main').evaluate(el => { const receipt = document.createElement('p'); receipt.innerText = 'The fictional application was submitted.'; el.appendChild(receipt); });
+          }
+          return value;
+        } };
+      } });
+      assert.equal(marked, true); assert.equal(result.submitPressed, true); assert.equal(await f.page.locator('#send').getAttribute('data-sends'), '1');
+      assert.equal(actions.filter(name => name === 'left_click').length, 1); assert.equal(result.outcome.status === 'applied', confirmed);
+      assert.equal(mock.reviews.length, 0); assert.ok(mock.wire.some(body => body.output_config?.format?.schema?.properties?.confirmed));
+    } finally { await f.context.close(); }
+  }
+}));
 
 test('native form_input saves the value; the actual saved-form review runs before dry-run send is withheld', async () => {
   const f = await fixture('dry-run-review', form);

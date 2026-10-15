@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applicationModel, applicationModelIdentity, applicationModelAvailable,
-  assertApplicationModelConfigured, assertApplicationBrowserConfigured, applicationHaikuRoute, withApplicationModel } from './application-model.js';
+  assertApplicationModelConfigured, assertApplicationBrowserConfigured, applicationHaikuRoute, applicationHaikuReadinessMode, withApplicationModel } from './application-model.js';
 
 const root = resolve('fixture-bot');
 const haiku = { APPLICATION_AI_MODEL: 'haiku', APPLICATION_AI_ADMIN_ENABLED: 'true',
@@ -23,6 +23,17 @@ test('Haiku cannot cross the admin or account-directory boundary', () => {
     { APPLICATION_AI_OWNER_ID: '../admin-one' }, { DATA_DIR: resolve(root, 'data/users/someone-else') }]) {
     assert.throws(() => applicationModel({ ...haiku, ...patch }, root), /authenticated admin/);
   }
+});
+
+test('agent-managed form readiness requires the same authenticated Haiku owner and defaults to standard', () => {
+  assert.equal(applicationHaikuReadinessMode(haiku, root), 'standard');
+  const pilot = { ...haiku, APPLICATION_AI_FORM_REVIEW_MODE: 'agent-managed' };
+  assert.equal(applicationHaikuReadinessMode(pilot, root), 'agent-managed');
+  assert.equal(applicationHaikuReadinessMode({ APPLICATION_AI_MODEL: 'celeris', APPLICATION_AI_FORM_REVIEW_MODE: 'agent-managed' }, root), 'standard');
+  for (const patch of [{ APPLICATION_AI_ADMIN_ENABLED: 'false' }, { DATA_DIR: resolve(root, 'data/users/other') }]) {
+    assert.throws(() => applicationHaikuReadinessMode({ ...pilot, ...patch }, root), /authenticated admin/);
+  }
+  assert.throws(() => applicationHaikuReadinessMode({ ...haiku, APPLICATION_AI_FORM_REVIEW_MODE: 'none' }, root), /Unsupported Haiku form review mode/);
 });
 
 test('explicit Celeris ignores retired browser-only model flags', () => {

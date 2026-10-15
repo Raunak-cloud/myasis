@@ -5,6 +5,7 @@ import { extractFields } from '../../dom.js';
 import { answerFields, auditFormBeforeSubmit, isSubmitControl, reviewSavedApplicationForm, verifySubmissionEvidence } from '../../llm.js';
 import { pickResumeForJob } from '../../resume.js';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { FormField } from '../../types.js';
 import type { PageChanges } from '../page-changes.js';
 import { isEntryAction } from '../guards.js';
@@ -14,6 +15,7 @@ import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resum
 import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 import { readSavedForm, savedFormSignature } from '../saved-form.js';
+import { applicationHaikuReadinessMode } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -83,24 +85,36 @@ async function transmits(ctx: ToolContext, label: string, context?: string): Pro
    * the form; the same verdict was reused once the form was complete, and
    * the final submit was pressed with no audit, and during a rehearsal.
    */
-  const entered = ctx.captured.length + (ctx.resumeUsed ? 1 : 0) + (ctx.coverLetter ? 1 : 0);
-  let key = `${label}|${entered}|${ctx.observation.fields.length}`;
-  try {
-    const url = new URL(ctx.page.url());
-    key = `${url.host}${url.pathname}|${key}`;
-  } catch {}
+  const control = { label, context };
+  const page = { url: ctx.page.url(), title: ctx.observation.title, text: ctx.observation.text,
+    fields: ctx.observation.fields.length, entered: ctx.captured.length };
+  // Reuse only the exact classifier input. Equal captions/counts can belong
+  // to a privacy dialog and a later final-review form on the same address.
+  const key = createHash('sha256').update(JSON.stringify({ control, page })).digest('hex');
   const known = submitVerdicts.get(key);
   if (known !== undefined) return known;
-  const verdict = await isSubmitControl(
-    { label, context },
-    { url: ctx.page.url(), title: ctx.observation.title, text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length },
-  ).catch(() => true);
+  const verdict = await isSubmitControl(control, page).catch(() => true);
   submitVerdicts.set(key, verdict);
   if (verdict) ctx.log(`  · "${label.slice(0, 60)}" read as the final submit`);
   return verdict;
 }
 
 export type Gate = { proceed: true; submit: boolean } | { proceed: false; result: ToolResult };
+type PressOptions = { role?: string; knownSubmit?: boolean };
+
+function agentManagedReadiness(ctx: ToolContext): boolean {
+  return ctx.nativeBrowserActionsOnly === true && ctx.nativeFormReadiness === 'agent-managed'
+    && applicationHaikuReadinessMode() === 'agent-managed';
+}
+
+async function classifyPress(ctx: ToolContext, label: string, context: string | undefined, options: PressOptions) {
+  const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
+  if (entry) ctx.log(`  → opening the application: "${label}"`);
+  const submit = options.knownSubmit === true
+    || (!entry && options.role !== 'toggle' && options.role !== 'file' && await transmits(ctx, label, context));
+  ctx.pressJudged = true;
+  return { entry, submit };
+}
 
 /**
  * The checks every press of a control passes, whichever tool presses it — a
@@ -120,7 +134,7 @@ export async function gateAdvance(
   ctx: ToolContext,
   label: string,
   context?: string,
-  options: { role?: string; knownSubmit?: boolean } = {},
+  options: PressOptions = {},
 ): Promise<Gate> {
   // A call already abandoned for taking too long may not press anything: the agent has moved on without it.
   if (abandoned()) {
@@ -148,6 +162,14 @@ export async function gateAdvance(
     ctx.log(`  ⛔ held "${label.slice(0, 60)}": nothing on the person's ${boardOf(ctx.page.url()) === 'seek' ? 'SEEK' : 'Indeed'} account is deleted`);
     return { proceed: false, result: ok('Not allowed: nothing saved on the person\'s job-board account (resumés, cover letters, profile) may be deleted or removed. If the board says its document limit is reached, finish with needs_human and say so.') };
   }
+  // This policy is resolved from the authenticated worker, not from page
+  // copy or a tool argument. Transmission/privacy protections are shared;
+  // readiness belongs exclusively to the native controller in this pilot.
+  if (agentManagedReadiness(ctx)) {
+    if (ctx.submissionAttempted) return authorizeFinalSubmission(ctx, label, true);
+    const { submit } = await classifyPress(ctx, label, context, options);
+    return submit ? authorizeFinalSubmission(ctx, label, true) : { proceed: true, submit: false };
+  }
   if (movesForward(ctx, label) && !ctx.resumeSettled) {
     const chosen = await pickResumeForJob(ctx.job, ctx.profile);
     if (ctx.nativeBrowserActionsOnly && chosen && boardOf(ctx.page.url())
@@ -169,11 +191,7 @@ export async function gateAdvance(
     }
     if (step.action !== 'none') settleResume(ctx, step);
   }
-  const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
-  if (entry) ctx.log(`  → opening the application: "${label}"`);
-  const submit = options.knownSubmit === true
-    || (!entry && options.role !== 'toggle' && options.role !== 'file' && await transmits(ctx, label, context));
-  ctx.pressJudged = true;
+  const { entry, submit } = await classifyPress(ctx, label, context, options);
   if (!entry) {
     // Asked at the press the agent itself calls the final submit; a press a word list calls a submit
     // but the agent does not (Indeed's "Review your application") still runs the submit gates below.
@@ -240,8 +258,17 @@ export async function gateAdvance(
     }
   }
 
-  if (ctx.submissionAttempted && await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
-    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'applied' } } };
+  return authorizeFinalSubmission(ctx, label, false);
+}
+
+/** Shared transmission boundary: readiness policy cannot disable dry run,
+ * external access, actual sent-value recording or independent receipts. */
+async function authorizeFinalSubmission(ctx: ToolContext, label: string, managedReadiness: boolean): Promise<Gate> {
+  if (ctx.submissionAttempted) {
+    if (await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
+      return { proceed: false, result: { kind: 'terminal', outcome: { status: 'applied' } } };
+    }
+    if (managedReadiness) return { proceed: false, result: ok('A possible submission is already recorded. Only inspect the current receipt; no repeat send is permitted.') };
   }
   const verdict = ctx.guards.canSubmit(ctx.page.url());
   if (!verdict.allowed && verdict.kind !== 'dry-run') {
@@ -250,8 +277,10 @@ export async function gateAdvance(
     }
     return { proceed: false, result: ok(`Submission withheld: ${verdict.reason}`) };
   }
-  const audit = await checkSavedForm(ctx);
-  if (audit) return { proceed: false, result: audit };
+  if (!managedReadiness) {
+    const audit = await checkSavedForm(ctx);
+    if (audit) return { proceed: false, result: audit };
+  }
   // What goes out is what is recorded, for a rehearsal as for a real submission.
   await recordWhatWasSent(ctx);
   if (!verdict.allowed) {
@@ -261,6 +290,8 @@ export async function gateAdvance(
   // Every submission says whether a letter went with it: a letter is sent wherever the form has a place for one.
   if (ctx.coverLetter) {
     ctx.log(`  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
+  } else if (managedReadiness) {
+    ctx.log('  · no cover letter is recorded for this send; document readiness was owned by the native agent');
   } else {
     // The evidence, not only the verdict: whether the whole page mentions a place for documents at all.
     // Every frame's and shadow root's text (Indeed's review section renders in on scroll; pageOffersDocuments has scrolled).
@@ -547,6 +578,19 @@ export async function pageConfirmsSubmission(ctx: ToolContext, strict = false): 
  */
 export async function recordWhatWasSent(ctx: ToolContext): Promise<void> {
   const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
+  if (agentManagedReadiness(ctx)) {
+    // Native direct fills do not pass an answer-writing tool or readiness
+    // reviewer. Preserve what was actually present without judging, inventing
+    // or promoting it to the candidate's verified saved-answer bank.
+    const form = await readSavedForm(ctx.page);
+    for (const field of form.fields) {
+      const value = field.currentValue?.trim();
+      if (!value || ctx.guards.siteControls.has(field.label)) continue;
+      const previous = ctx.captured.findIndex(item => sameLabel(item.question, field.label));
+      if (previous >= 0) ctx.captured.splice(previous, 1);
+      ctx.captured.push({ question: field.label, answer: value });
+    }
+  }
   for (const frame of ctx.page.frames()) {
     const held = await frame.evaluate(() => {
       const box = document.querySelector('[data-owt-letter]') as HTMLTextAreaElement | HTMLInputElement | HTMLElement | null;

@@ -3,6 +3,19 @@ import { isApplicationAiModel, type ApplicationAiModel } from '../src/applicatio
 export const APPLICATION_AI_MODEL_KEY = 'APPLICATION_AI_MODEL';
 export const APPLICATION_AI_SELECTION_ERROR = 'Choose Celeris or Claude Haiku 5.5.';
 
+/** An operator pilot is specific to an authenticated admin owner. This is
+ * computed at worker launch and is not an editable per-account setting. */
+export function applicationAiFormReadinessMode(
+  userId: string,
+  admin: boolean,
+  model: ApplicationAiModel,
+  env: Record<string, string | undefined>,
+): 'standard' | 'agent-managed' {
+  const owners = (env.ADMIN_HAIKU_AGENT_MANAGED_FORM_OWNERS ?? '').split(',').map(owner => owner.trim()).filter(Boolean);
+  return admin && model === 'haiku' && /^[A-Za-z0-9_-]+$/.test(userId) && owners.includes(userId)
+    ? 'agent-managed' : 'standard';
+}
+
 export function applicationAiSettingsError(
   updates: Record<string, unknown>,
   targetIsAdmin: boolean,
