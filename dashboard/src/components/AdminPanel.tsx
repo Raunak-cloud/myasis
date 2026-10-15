@@ -351,6 +351,9 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   const [humanizerInput, setHumanizerInput] = useState<'default' | 'enabled' | 'disabled'>('default');
   const [homeRouteInput, setHomeRouteInput] = useState('');
   const [externalJobUrl, setExternalJobUrl] = useState('');
+  const [externalConfirmation, setExternalConfirmation] = useState<{ userId: string; email: string; url: string } | null>(null);
+  const externalDialog = useRef<HTMLDivElement>(null);
+  const externalCancel = useRef<HTMLButtonElement>(null);
   // The saved proxy's password never comes back from the server, so the field shows a stand-in and is only sent when edited.
   const [proxyInput, setProxyInput] = useState('');
   const savedProxy = user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '';
@@ -359,6 +362,20 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
     api<UserDetail>(`/users/${userId}`).then(setUser).catch((reason) => setError((reason as Error).message));
   }, [userId]);
   useEffect(load, [load]);
+  useEffect(() => setExternalConfirmation(null), [userId]);
+  useEffect(() => {
+    if (!externalConfirmation) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    externalCancel.current?.focus();
+    const keepFocus = (event: FocusEvent) => {
+      if (event.target instanceof Node && !externalDialog.current?.contains(event.target)) externalCancel.current?.focus();
+    };
+    document.addEventListener('focusin', keepFocus);
+    return () => {
+      document.removeEventListener('focusin', keepFocus);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [externalConfirmation]);
   // Reflects the server's own numbers, including after a save is clamped to
   // the platform ceiling — not just what was typed.
   useEffect(() => {
@@ -411,11 +428,18 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
       setError('Paste the external job URL.');
       return;
     }
-    if (!window.confirm(`Apply for the job at this website as ${user!.email}? This can submit a real application.\n\n${url}`)) return;
+    if (!user || busy !== null || user.running) return;
+    setExternalConfirmation({ userId: user.id, email: user.email, url });
+  }
+
+  function confirmExternalJob() {
+    if (!externalConfirmation || busy !== null || user?.running || externalConfirmation.userId !== userId) return;
+    const target = externalConfirmation;
+    setExternalConfirmation(null);
     void act(
       'external-run',
-      `/users/${user!.id}/run`,
-      { method: 'POST', json: { externalUrl: url } },
+      `/users/${target.userId}/run`,
+      { method: 'POST', json: { externalUrl: target.url } },
       'Direct website application started.',
     );
   }
@@ -438,7 +462,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
 
   return (
     <div className="overlay" onClick={onClose}>
-      <aside className="drawer admin-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside className="drawer admin-drawer" inert={externalConfirmation !== null} onClick={(event) => event.stopPropagation()}>
         <div className="drawer-head">
           <div className="minw">
             <h2>{user?.name || user?.email || 'Account'}</h2>
@@ -819,6 +843,36 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
           )}
         </div>
       </aside>
+      {externalConfirmation && (
+        <div className="overlay center" onClick={(event) => { event.stopPropagation(); setExternalConfirmation(null); }}>
+          <div
+            ref={externalDialog}
+            className="card confirm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="external-run-title"
+            aria-describedby="external-run-description external-run-target"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setExternalConfirmation(null); }
+              if (event.key === 'Tab') {
+                const buttons = externalDialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
+                const first = buttons?.[0], last = buttons?.[buttons.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+              }
+            }}
+          >
+            <h2 id="external-run-title">Apply to this job?</h2>
+            <p id="external-run-description" className="dim">This can submit a real application as {externalConfirmation.email}.</p>
+            <p id="external-run-target" className="job-meta" style={{ overflowWrap: 'anywhere' }}>{externalConfirmation.url}</p>
+            <div className="confirm-actions">
+              <button ref={externalCancel} type="button" className="btn" onClick={() => setExternalConfirmation(null)}>Cancel</button>
+              <button type="button" className="btn primary" onClick={confirmExternalJob}>Apply to URL</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
