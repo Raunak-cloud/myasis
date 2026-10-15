@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
+import { applicationModelIdentity } from './application-model.js';
 import { withJobCost } from './cost-ledger.js';
 
 const runId = randomUUID();
@@ -24,7 +25,7 @@ const assessmentsInFlight = new Map<string, Promise<unknown>>();
 export async function cachedAssessment<T>(input: unknown, compute: () => Promise<T>, accept: (value: T) => boolean, ttlMs = 7 * 86400_000): Promise<T> {
   const version = input && typeof input === 'object' ? (input as { version?: unknown }).version : undefined;
   const assessment = typeof version === 'string' ? version.slice(0, 80) : 'unspecified';
-  const key = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify({ applicationModel: applicationModelIdentity(), input })).digest('hex');
   const dir = resolve(config.dataDir, 'fit-cache');
   const path = resolve(dir, `${key}.json`);
   try {

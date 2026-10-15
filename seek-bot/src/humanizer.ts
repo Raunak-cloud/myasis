@@ -1,6 +1,8 @@
 import { config } from './config.js';
 import { chatCompletion, humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
 import { validateRewrite, wordCount } from './rewrite-guard.js';
+import { applicationModel, applicationModelEnvironment } from './application-model.js';
+import { celerisChat } from './agent/celeris.js';
 
 export { wordCount };
 
@@ -13,9 +15,13 @@ export const MAX_COVER_LETTER_WORDS = 250;
 
 /** Read per call, so a run started by the dashboard sees the settings it was given. */
 const endpoint = () => humanizerEndpoint(process.env);
+const selectedModelEdits = () => applicationModel() === 'haiku'
+  || (applicationModelEnvironment().APPLICATION_AI_MODEL !== undefined
+    && applicationModelEnvironment().APPLICATION_AI_ADMIN_ENABLED === 'true');
 
 /** Refuse writing runs until the rewriting model can answer. */
 export async function assertHumanizerHealthy(): Promise<void> {
+  if (selectedModelEdits()) return; // The selected application model also performs the style pass.
   if (!config.humanizer.enabled || !config.humanizer.required) return;
   const target = endpoint();
   if (!target) throw new Error('The humanizer is required but HUMANIZER_URL is not configured.');
@@ -77,9 +83,7 @@ async function rewriteText(
    */
   const kept = names.filter((name) => name && text.includes(name));
   const spelling = kept.length ? ` Spell these names exactly as shown: ${kept.join(', ')}.` : '';
-  const target = endpoint();
-  if (!target) throw new Error('Rewriting service is not configured');
-  const response = await chatCompletion(target, {
+  const body = {
     messages: [
       {
         role: 'system',
@@ -104,11 +108,21 @@ async function rewriteText(
     top_k: config.humanizer.topK,
     repetition_penalty: config.humanizer.repetitionPenalty,
     max_tokens: Math.max(256, Math.ceil(maxWords * 2)),
-  }, Math.min(deadline, Date.now() + config.humanizer.timeoutMs));
+  };
+  if (selectedModelEdits()) {
+    const reply = await celerisChat({ model: 'celeris-1-magnus',
+      messages: body.messages as Array<{ role: 'system' | 'user'; content: string }>,
+      temperature, maxTokens: 4096 });
+    if (!reply.text.trim()) throw new Error('The selected application model returned no rewritten text');
+    return reply.text.trim();
+  }
+  const target = endpoint();
+  if (!target) throw new Error('Rewriting service is not configured');
+  const response = await chatCompletion(target, body, Math.min(deadline, Date.now() + config.humanizer.timeoutMs));
 
-  const body = (await response.json()) as ChatCompletionResponse;
-  if (!response.ok) throw new Error(errorMessage(body, response.status));
-  const content = body.choices?.[0]?.message?.content;
+  const payload = (await response.json()) as ChatCompletionResponse;
+  if (!response.ok) throw new Error(errorMessage(payload, response.status));
+  const content = payload.choices?.[0]?.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
     throw new Error('response did not contain rewritten text');
   }
@@ -137,7 +151,7 @@ export async function humanizeCoverLetter(
   if (wordCount(letter) > MAX_COVER_LETTER_WORDS) {
     throw new Error(`Draft exceeds the ${MAX_COVER_LETTER_WORDS}-word cover-letter limit`);
   }
-  if (!endpoint()) {
+  if (!selectedModelEdits() && !endpoint()) {
     const message = 'Rewriting service is not configured';
     if (config.humanizer.required) throw new Error(message);
     console.warn(`  ! ${message}; using the original grounded cover letter`);

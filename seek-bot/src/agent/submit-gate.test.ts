@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
 
 /**
@@ -49,6 +49,10 @@ try {
   await page.goto('https://career2.successfactors-fixture.example/portalcareer');
   ctx.observation = await observe(page);
   ctx.captured.push({ question: 'First name', answer: 'Raunak' });
+  ctx.architecture = 'compact';
+  const prerequisite = await executeTool(ctx, 'click', { ref: applyRef(), sends_application: true });
+  assert.equal(prerequisite.kind === 'ok' && prerequisite.disposition, 'document-prerequisite', 'an unmet document condition is not a broken browser control');
+  assert.notEqual(await page.title(), 'SENT', 'a prerequisite never presses the submit');
   result = await executeTool(ctx, 'click', { ref: applyRef(), reason: 'submit', no_cover_letter_place: 'the form has no letter box or upload' });
   assert.notEqual(await page.title(), 'SENT', 'the filled form was not sent');
   assert.equal(result.kind, 'terminal');
@@ -66,5 +70,6 @@ try {
   console.log("PASS: a control that opened a form is still gated as the submit once the form is filled, the agent's own submit judgement is used without another model call, and a rehearsal never sends");
 } finally {
   await browser.close();
+  assert.ok(resolve(directory).startsWith(resolve(tmpdir())+sep+'owtomate-submit-gate-'));
   rmSync(directory, { recursive: true, force: true });
 }

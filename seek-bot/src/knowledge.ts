@@ -142,10 +142,10 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
    * uploaded. It goes first because it answers more questions than anything
    * else here.
    */
-  const resume = defaultResume();
-  if (!items.length && !resume) return '';
+  const resumes = contextResumes();
+  if (!items.length && !resumes.length) return '';
 
-  const signature = `${contextSignature(items)}|${resume?.fileName ?? ''}`;
+  const signature = knowledgeContextFingerprint();
   if (contextCache?.signature === signature) return relevantEvidence(contextCache.value, query, MAX_CHARS);
 
   // Document extraction is independent per item. Running it concurrently
@@ -164,10 +164,12 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
   const chunks: string[] = [];
   let budget = 300_000;
 
-  if (resume) {
-    const text = (await extractText(resolve(RESUMES, resume.fileName)).catch(() => '')).replace(/\s+\n/g, '\n').trim();
+  const resumeBodies = await Promise.all(resumes.map(resume => extractText(resolve(RESUMES, resume.fileName)).catch(() => '')));
+  for (let index = 0; index < resumes.length && budget > 0; index++) {
+    const resume = resumes[index];
+    const text = resumeBodies[index].replace(/\s+\n/g, '\n').trim();
     if (text) {
-      const slice = text.slice(0, 60_000);
+      const slice = text.slice(0, Math.min(budget, 60_000));
       budget -= slice.length;
       chunks.push(`### Resume — ${resume.label}\n${slice}`);
     }
@@ -197,19 +199,31 @@ interface ResumeEntry {
 }
 
 /**
- * The candidate's canonical resume.
+ * Evidence from the candidate's selected resumes, with the default first
+ * when the run permits automatic selection across the complete collection.
  *
  * Read here rather than imported from resume.ts, which already imports
  * extractText from this module — importing back would close a cycle through
  * llm.ts. Only the manifest shape is duplicated, not any logic.
  */
-function defaultResume(): ResumeEntry | null {
-  if (!existsSync(RESUME_MANIFEST)) return null;
+function contextResumes(): ResumeEntry[] {
+  if (!existsSync(RESUME_MANIFEST)) return [];
   try {
     const all = JSON.parse(readFileSync(RESUME_MANIFEST, 'utf8')) as ResumeEntry[];
-    if (!Array.isArray(all) || !all.length) return null;
-    return all.find((r) => r.isDefault) ?? all[0];
+    if (!Array.isArray(all) || !all.length) return [];
+    const selected = config.resume.select.toLowerCase();
+    return selected ? all.filter(r => [r.id,r.label,r.fileName].some(value => value.toLowerCase() === selected))
+      : [...all].sort((a,b) => Number(Boolean(b.isDefault))-Number(Boolean(a.isDefault)));
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Invalidate extracted context when account-owned documents or selection change. */
+export function knowledgeContextFingerprint(): string {
+  const resumes = contextResumes().map(resume => {
+    try { const stat=statSync(resolve(RESUMES,resume.fileName)); return {...resume,size:stat.size,mtime:stat.mtimeMs}; }
+    catch { return {...resume,missing:true}; }
+  });
+  return `${contextSignature(loadKnowledge().filter(item=>item.enabled))}|${JSON.stringify(resumes)}`;
 }

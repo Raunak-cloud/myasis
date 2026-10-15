@@ -14,6 +14,7 @@
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config, loadProfile } from './config.js';
+import { applicationModelIdentity, assertApplicationModelConfigured } from './application-model.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
@@ -40,6 +41,7 @@ interface QueueItem {
   scoreReasons: string[];
   fitReason: string;
   coverLetter: string;
+  applicationModel?: ReturnType<typeof applicationModelIdentity>;
   source?: JobListing['source'];
   /** Set when the extension reports a completed submission. */
   status: QueueStatus;
@@ -65,12 +67,12 @@ function saveQueue(items: QueueItem[]) {
 
 async function build() {
   const profile = loadProfile();
-  if (!config.celeris.apiKey) throw new Error('The matching service is not configured.');
+  assertApplicationModelConfigured();
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
   }
   await assertHumanizerHealthy();
-  console.log('AuthorMist humanizer OK.');
+  console.log('Cover-letter rewriting service ready.');
 
   const existing = loadQueue();
   const index = new AppliedIndex();
@@ -238,6 +240,7 @@ async function build() {
         scoreReasons: fit.evidence,
         fitReason,
         coverLetter,
+        applicationModel: applicationModelIdentity(),
         source: job.source,
         status: 'pending',
         addedAt: new Date().toISOString(),

@@ -19,6 +19,7 @@ import { useRunStatus } from '../runStatus';
 import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, type LogLine } from '../activity';
+import { APPLICATION_AI_MODELS, isApplicationAiModel } from '../application-ai-model';
 
 
 interface AutoScheduleStatus {
@@ -41,6 +42,7 @@ const RUN_DEFAULTS: Record<string, string> = {
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
   EMPLOYER_BROWSER_PROVIDER: 'local',
+  APPLICATION_AI_MODEL: 'celeris',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',
   SEARCH_RADIUS_KM: '0',
@@ -550,7 +552,19 @@ export function RunPanel({
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
+    if (isAdmin && !isApplicationAiModel(updates.APPLICATION_AI_MODEL)) {
+      fail('Choose Celeris or Claude Haiku 5.5.', 'APPLICATION_AI_MODEL');
+      return;
+    }
+    if (isAdmin && updates.APPLICATION_AI_MODEL === 'haiku' && settings.APPLICATION_AI_HAIKU_CONFIGURED !== 'true') {
+      fail('Claude Haiku 5.5 needs an Anthropic or OpenRouter API key in Admin settings before starting a run.', 'APPLICATION_AI_MODEL');
+      return;
+    }
+    if (isAdmin && updates.APPLICATION_AI_MODEL === 'celeris' && settings.APPLICATION_AI_CELERIS_CONFIGURED !== 'true') {
+      fail('Celeris needs a Celeris API key in Admin settings before starting a run.', 'APPLICATION_AI_MODEL');
+      return;
+    }
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -678,7 +692,7 @@ export function RunPanel({
       <div className="run-side">
       <div className="card run-controls-card">
         <div className="panel-body">
-        {!status?.hasKey && (
+        {!status?.hasKey && !isAdmin && (
           <div className="banner">Matching is not configured, so results will only use keywords.</div>
         )}
         {running && status?.isOwner === false && (
@@ -687,6 +701,15 @@ export function RunPanel({
           </div>
         )}
         {error && <div className="banner banner-bad">{error}</div>}
+        {isAdmin && <label className="field">
+          <FieldLabel label="Application AI model" help="Uses this model throughout your next application run. Your choice is saved when the run starts." />
+          <select className="input" data-field="APPLICATION_AI_MODEL" value={val('APPLICATION_AI_MODEL')} disabled={running || starting} onChange={event => setEdit('APPLICATION_AI_MODEL', event.target.value)}>
+            {APPLICATION_AI_MODELS.map(model => <option key={model.value} value={model.value}>{model.label}</option>)}
+          </select>
+          {val('APPLICATION_AI_MODEL') === 'haiku' && settings.APPLICATION_AI_HAIKU_CONFIGURED !== 'true' && <span className="job-meta">Add an Anthropic or OpenRouter API key in Admin settings before starting a run.</span>}
+          {val('APPLICATION_AI_MODEL') === 'celeris' && settings.APPLICATION_AI_CELERIS_CONFIGURED !== 'true' && <span className="job-meta">Add a Celeris API key in Admin settings before starting a run.</span>}
+          {fieldError('APPLICATION_AI_MODEL')}
+        </label>}
         {/*
           Running out is silent otherwise: the scheduler just stops starting runs
           while the switch still reads "on". Found with the admin simulator.

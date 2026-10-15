@@ -563,7 +563,7 @@ async function coverLetterCheck(ctx: ToolContext, label: string, submit: boolean
   if (stated) {
     if ((shown || elsewhere) && !ctx.letterChallenged) {
       ctx.letterChallenged = true;
-      return ok(`You said the form has no place for a cover letter ("${stated.slice(0, 200)}"), but ${shown ? 'this step lists a cover-letter control in its FIELDS or ACTIONS' : 'the page has a supporting-documents or cover-letter section, possibly below or folded away'}. Add the letter with add_cover_letter (the writing FIELD, or the upload ACTION when it takes a file); if you have checked and it really cannot take one, press again with no_cover_letter_place saying why.`);
+      return ok(`You said the form has no place for a cover letter ("${stated.slice(0, 200)}"), but ${shown ? 'this step lists a cover-letter control in its FIELDS or ACTIONS' : 'the page has a supporting-documents or cover-letter section, possibly below or folded away'}. Add the letter with add_cover_letter (the writing FIELD, or the upload ACTION when it takes a file); if you have checked and it really cannot take one, press again with no_cover_letter_place saying why.`, 'document-prerequisite');
     }
     ctx.letterResolved = true;
     ctx.log(`  · no cover letter: ${stated.slice(0, 160)}`);
@@ -571,5 +571,5 @@ async function coverLetterCheck(ctx: ToolContext, label: string, submit: boolean
   }
   return ok(shown
     ? 'This step has a place for a cover letter and none has been added. Add it with add_cover_letter (the writing FIELD, or the upload ACTION when it takes a file) before moving on; if it is not really a place for a letter, press again with no_cover_letter_place saying why.'
-    : `This sends the application without a cover letter. If the form takes one anywhere (a cover-letter box, supporting documents, attachments; scroll down and open any Add control), add it with add_cover_letter; otherwise press again with no_cover_letter_place saying what you checked.${elsewhere ? ' The page does have a supporting-documents or cover-letter section.' : ''}`);
+    : `This sends the application without a cover letter. If the form takes one anywhere (a cover-letter box, supporting documents, attachments; scroll down and open any Add control), add it with add_cover_letter; otherwise press again with no_cover_letter_place saying what you checked.${elsewhere ? ' The page does have a supporting-documents or cover-letter section.' : ''}`, 'document-prerequisite');
 }

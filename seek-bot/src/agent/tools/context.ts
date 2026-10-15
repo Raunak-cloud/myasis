@@ -49,9 +49,10 @@ export type AgentTermination =
   | { status: 'already-applied'; reason: string }
   | { status: 'skipped'; reason: string };
 
-export type ToolResult = { kind: 'ok'; message: string } | { kind: 'terminal'; outcome: AgentTermination };
+export type ToolResult = { kind: 'ok'; message: string; disposition?: 'document-prerequisite' | 'invalid-arguments' } | { kind: 'terminal'; outcome: AgentTermination };
 
 export interface ToolContext {
+  architecture?: 'legacy' | 'compact';
   /** Counts tool calls; a call past its time limit is retired and can no longer change the page (tool-run.ts). */
   toolGeneration?: number;
   page: Page;
@@ -112,7 +113,7 @@ export interface ToolContext {
 
 export { abandoned } from '../../tool-run.js';
 
-export const ok = (message: string): ToolResult => ({ kind: 'ok', message });
+export const ok = (message: string, disposition?: 'document-prerequisite' | 'invalid-arguments'): ToolResult => ({ kind: 'ok', message, ...(disposition ? { disposition } : {}) });
 
 /** Records a side effect once per kind and site, and says so in the run log. */
 export function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {

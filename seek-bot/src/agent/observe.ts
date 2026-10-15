@@ -32,6 +32,8 @@ interface AgentAction {
   value?: string;
   /** Originating observed field identity, independent of the popup's label text. */
   fieldRef?: string;
+  multiSelect?: boolean;
+  selected?: boolean;
 }
 
 export interface Observation {
@@ -289,6 +291,8 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
         ...(question ? { question } : {}),
         ...(isOption ? { value } : {}),
         ...(isOption && fieldRef ? { fieldRef } : {}),
+        ...(isOption && grouped?.getAttribute('aria-multiselectable') === 'true'
+          ? { multiSelect: true, selected: element.getAttribute('aria-selected') === 'true' || element.getAttribute('aria-checked') === 'true' } : {}),
         ...(context && context !== label ? { context } : {}),
         disabled:
           (element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true',
@@ -473,7 +477,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
  */
 export function renderObservation(observation: Observation): string {
   const actions = observation.actions
-    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}${a.fieldRef ? ` field=${a.fieldRef}` : ''}  ${a.text}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
+    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}${a.fieldRef ? ` field=${a.fieldRef}` : ''}${a.multiSelect ? ` multi-select=true selected=${a.selected}` : ''}  ${a.text}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
     .join('\n');
   const fields = observation.fields
     .map((f) => {

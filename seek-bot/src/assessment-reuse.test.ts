@@ -9,6 +9,7 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-assessment-reuse-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 const { config } = await import('./config.js');
+const { applicationModelIdentity } = await import('./application-model.js');
 const { cachedAssessment } = await import('./pipeline.js');
 const { rankJobsForReview, ruleConflict } = await import('./llm.js');
 const originalFetch = globalThis.fetch;
@@ -76,7 +77,7 @@ try {
   let invalids = 0;
   for (let i = 0; i < 2; i++) await cachedAssessment({ fixture: 'invalid' }, async () => ({ ok: false, count: ++invalids }), accept);
   assert.equal(invalids, 2, 'unvalidated outputs never persist');
-  const fixturePath = (input: unknown) => resolve(directory, 'fit-cache', `${createHash('sha256').update(JSON.stringify(input)).digest('hex')}.json`);
+  const fixturePath = (input: unknown) => resolve(directory, 'fit-cache', `${createHash('sha256').update(JSON.stringify({ applicationModel: applicationModelIdentity(), input })).digest('hex')}.json`);
   for (const [fixture, at] of [['expired', Date.now() - 2000], ['future', Date.now() + 60_000]] as const) {
     writeFileSync(fixturePath({ fixture }), JSON.stringify({ at, value: { ok: true, result: 'stale' } }));
     const value = await cachedAssessment({ fixture }, compute, accept, 1000);

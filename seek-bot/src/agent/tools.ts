@@ -11,10 +11,11 @@ import { runRawTool } from './raw-tools.js';
 import { ToolResult, ToolContext, ok } from './tools/context.js';
 import { submissionEvidence } from './tools/gate.js';
 import { doClick, doScroll, doClickPoint, doPressKey } from './tools/actions.js';
-import { doChooseOption, doAcceptTerms, doAnswerQuestions } from './tools/answers.js';
+import { doChooseOption, doChooseOptions, doAcceptTerms, doAnswerQuestions } from './tools/answers.js';
 import { doCompleteAuthentication, doEnterEmailedCode, EMAIL_WAIT_MS, doOpenEmailedLink } from './tools/auth.js';
 import { doAddCoverLetter, doAttachResume } from './tools/documents.js';
 import { doFinish } from './tools/finish.js';
+import { haikuController } from './application-controller.js';
 export * from './tools/context.js';
 export * from './tools/gate.js';
 export * from './tools/schemas.js';
@@ -47,6 +48,17 @@ export async function executeTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
+  // A malformed declaration must not silently become "no declaration" and
+  // send a press down a different policy path. Ask the model to repair its
+  // call before any page access; never coerce strings such as "True".
+  if ('sends_application' in args && typeof args.sends_application !== 'boolean') {
+    return ok('Invalid tool arguments: sends_application must be a JSON boolean (true or false), not text. No browser action ran. Correct the call using the actual page state.', 'invalid-arguments');
+  }
+  // Enforce the pilot capability at execution too, even if a model invents
+  // an unavailable tool call. All ordinary workers retain their usual tools.
+  if (name === 'evaluate_script' && (haikuController() || ctx.architecture === 'compact')) {
+    return ok('Page scripts are unavailable for this browser controller. Use inspect_interaction, snapshots and the guarded browser controls.');
+  }
   /**
    * Challenge controls never reach an AI-selected action. This also closes
    * the race where a CAPTCHA appears after observation but before the click.
@@ -95,13 +107,15 @@ async function runTool(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
   if ('__parseError' in args) {
-    return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.');
+    return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.', 'invalid-arguments');
   }
   ctx.declaredSubmit = typeof args.sends_application === 'boolean' ? args.sends_application : undefined;
   ctx.declaredNoLetter = typeof args.no_cover_letter_place === 'string' && args.no_cover_letter_place.trim() ? args.no_cover_letter_place.trim() : undefined;
   switch (name) {
     case 'choose_option':
       return doChooseOption(ctx, args);
+    case 'choose_options':
+      return doChooseOptions(ctx, args);
     case 'accept_terms':
       return doAcceptTerms(ctx, args);
     case 'wait_for_page': {

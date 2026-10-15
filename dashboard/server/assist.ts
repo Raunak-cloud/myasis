@@ -1,11 +1,12 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ensureUserDataDir } from './userdata.js';
+import { ensureUserDataDir, userDir } from './userdata.js';
 import { loadProfile } from './profile.js';
 import { fullContext } from './files.js';
 import { listAnswers } from './answers.js';
 import { humanizerAllowed } from './entitlements.js';
 import type { CandidateProfile } from './candidate-profile.js';
+import { accountApplicationAiEnvironment, readEnv } from './runner.js';
 
 /**
  * Backend for the browser extension.
@@ -39,6 +40,7 @@ interface QueueItem {
   scoreReasons: string[];
   fitReason: string;
   coverLetter: string;
+  applicationModel?: unknown;
   status: 'pending' | 'applied' | 'skipped';
   addedAt: string;
   decidedAt?: string;
@@ -74,11 +76,11 @@ export function updateQueueItem(userId: string, jobId: string, patch: Partial<Qu
 /** Loads the bot's compiled modules so answering reuses one implementation. */
 async function bot() {
   const url = (f: string) => new URL(`../../seek-bot/dist/${f}`, import.meta.url).href;
-  const [llm, cfg] = await Promise.all([
+  const [llm, model] = await Promise.all([
     import(/* @vite-ignore */ url('llm.js')),
-    import(/* @vite-ignore */ url('config.js')),
+    import(/* @vite-ignore */ url('application-model.js')),
   ]);
-  return { llm, cfg };
+  return { llm, model };
 }
 
 /**
@@ -150,47 +152,60 @@ export async function answerForm(
   error?: string;
 }> {
   try {
-    const { llm, cfg } = await bot();
-    if (!cfg.config.celeris.apiKey) return { ok: false, error: 'The matching service is not configured.' };
-    const profile = toBotProfile(await loadProfile(userId));
-
-    // Prefer the queue's own record — richer than what the page exposes.
-    const queued = input.jobId ? loadQueue(userId).find((q) => q.jobId === input.jobId) : undefined;
-    const job = {
-      id: input.jobId ?? 'unknown',
-      title: input.title ?? queued?.title ?? 'Role',
-      company: input.company ?? queued?.company ?? 'the company',
-      location: queued?.location ?? '',
-      url: queued?.url ?? '',
-      description: input.description ?? queued?.fitReason ?? '',
+    const { llm, model } = await bot();
+    const applicationEnvironment = {
+      ...readEnv(),
+      ...process.env,
+      ...await accountApplicationAiEnvironment(userId),
+      DATA_DIR: userDir(userId),
     };
+    return await model.withApplicationModel(applicationEnvironment, async () => {
+      model.assertApplicationModelConfigured();
+      const profile = toBotProfile(await loadProfile(userId));
 
-    const [context, savedAnswers] = await Promise.all([
-      fullContext(userId),
-      input.fields.length ? listAnswers(userId) : Promise.resolve([]),
-    ]);
-    const knowledge = context.ok ? (context.text ?? '') : '';
+      // Prefer the queue's own record — richer than what the page exposes.
+      const queued = input.jobId ? loadQueue(userId).find((q) => q.jobId === input.jobId) : undefined;
+      const job = {
+        id: input.jobId ?? 'unknown',
+        title: input.title ?? queued?.title ?? 'Role',
+        company: input.company ?? queued?.company ?? 'the company',
+        location: queued?.location ?? '',
+        url: queued?.url ?? '',
+        description: input.description ?? queued?.fitReason ?? '',
+      };
 
-    const wantsLetter = input.fields.some((f) => /cover letter/i.test(f.label));
-    const [answered, letter] = await Promise.all([
-      input.fields.length
-        ? llm.answerFields(input.fields, job, profile, knowledge, { savedAnswers })
-        : Promise.resolve({ answers: [], injectionSuspected: false }),
-      queued?.coverLetter
-        ? Promise.resolve(queued.coverLetter)
-        : wantsLetter
-          ? (await humanizerAllowed(userId))
-            ? llm.draftCoverLetter(job, profile, knowledge).then((draft: string) => llm.polishCoverLetter(draft, job, profile, knowledge))
-            : llm.draftCoverLetter(job, profile, knowledge)
-          : Promise.resolve(undefined),
-    ]);
+      const [context, savedAnswers] = await Promise.all([
+        fullContext(userId),
+        input.fields.length ? listAnswers(userId) : Promise.resolve([]),
+      ]);
+      const knowledge = context.ok ? (context.text ?? '') : '';
 
-    return {
-      ok: true,
-      answers: answered.answers,
-      coverLetter: letter,
-      injectionSuspected: answered.injectionSuspected,
-    };
+      const wantsLetter = input.fields.some((f) => /cover letter/i.test(f.label));
+      // Untagged queue drafts predate provider selection and came from Celeris.
+      // An explicit Haiku selection must not silently reuse one of those drafts.
+      const queuedLetterMatchesModel = queued?.applicationModel
+        ? JSON.stringify(queued.applicationModel) === JSON.stringify(model.applicationModelIdentity())
+        : model.applicationModel() === 'celeris';
+      const [answered, letter] = await Promise.all([
+        input.fields.length
+          ? llm.answerFields(input.fields, job, profile, knowledge, { savedAnswers })
+          : Promise.resolve({ answers: [], injectionSuspected: false }),
+        queued?.coverLetter && queuedLetterMatchesModel
+          ? Promise.resolve(queued.coverLetter)
+          : wantsLetter
+            ? (await humanizerAllowed(userId))
+              ? llm.draftCoverLetter(job, profile, knowledge).then((draft: string) => llm.polishCoverLetter(draft, job, profile, knowledge))
+              : llm.draftCoverLetter(job, profile, knowledge)
+            : Promise.resolve(undefined),
+      ]);
+
+      return {
+        ok: true,
+        answers: answered.answers,
+        coverLetter: letter,
+        injectionSuspected: answered.injectionSuspected,
+      };
+    });
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

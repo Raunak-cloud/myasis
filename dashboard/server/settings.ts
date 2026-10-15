@@ -2,6 +2,8 @@ import { EMPLOYER_SOURCE_DEFAULTS } from '../../seek-bot/src/employer-source-con
 import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
+import { isAdmin } from './admin-access.js';
+import { applicationAiSettingsError } from './application-ai-policy.js';
 
 /**
  * Per-run search/apply preferences (job titles, work arrangement, run
@@ -23,6 +25,7 @@ import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
 export const KEEP_SETTINGS_KEYS = [
   'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'SMARTRECRUITERS_COMPANIES', 'LEVER_COMPANIES', 'GREENHOUSE_BOARDS', 'PAGEUP_SITES', 'WORKDAY_SITES', 'EMPLOYER_BROWSER_PROVIDER', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
+  'APPLICATION_AI_MODEL',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
   'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
   'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64',
@@ -87,6 +90,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
   EMPLOYER_BROWSER_PROVIDER: 'local',
+  APPLICATION_AI_MODEL: 'celeris',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   JOB_TYPES: '',
   ONSITE_CITY: 'Sydney',
@@ -162,6 +166,11 @@ export async function saveUserSettings(
   userId: string,
   updates: Record<string, string>,
 ): Promise<Record<string, string>> {
+  if (Object.hasOwn(updates, 'APPLICATION_AI_MODEL')) {
+    const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
+    const error = applicationAiSettingsError(updates, isAdmin(owners[0]?.email));
+    if (error) throw new Error(error.error);
+  }
   for (const [key, value] of Object.entries(updates)) {
     if (!KEEP_SET.has(key)) continue;
     const raw = String(value ?? '').slice(0, 20_000);

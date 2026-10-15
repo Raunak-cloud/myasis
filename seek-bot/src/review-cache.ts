@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
+import { applicationModelIdentity } from './application-model.js';
 import type { CandidateProfile, JobListing } from './types.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 
@@ -66,6 +67,7 @@ export function reviewContextFingerprint(profile: CandidateProfile): string {
     version: FIT_ASSESSMENT_VERSION,
     profile,
     evidence: evidenceSignature(),
+    resumeSelection: config.resume.select,
     targetRole: config.targetRole,
     // Search terms decide what is discovered, not whether a discovered job
     // suits the candidate. The sparse-run term renewer changes them after a
@@ -78,6 +80,7 @@ export function reviewContextFingerprint(profile: CandidateProfile): string {
     minScore: config.rules.minScore,
     model: FIT_CLASSIFIER_MODEL,
     endpoint: config.celeris.baseUrl,
+    applicationModel: applicationModelIdentity(),
   });
 }
 

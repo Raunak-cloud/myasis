@@ -58,9 +58,9 @@ const CLICK_POINT_TOOL: ToolSchema = {
  * has connected, the general browser tools unless switched off, and pointing
  * only while a screenshot is in front of it.
  */
-export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
+export function toolSchemas(options: { vision?: boolean; compact?: boolean } = {}): ToolSchema[] {
   return [
-    ...TOOL_SCHEMAS,
+    ...TOOL_SCHEMAS.filter(tool => tool.name !== 'choose_options' || options.compact),
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
@@ -109,6 +109,11 @@ function withPressJudgement(tool: ToolSchema): ToolSchema {
 export const NARRATIVE_ARGS: ReadonlySet<string> = new Set(['reason', 'no_cover_letter_place']);
 
 const TOOL_SCHEMAS: ToolSchema[] = [
+  {
+    name: 'choose_options',
+    description: 'Apply the complete grounded answer SET to a currently open listbox that explicitly allows multiple selections. Pass any current option ref and its originating field_ref. Selected choices are retained; only differences are clicked, and committed state is read after every action. Never type a comma-separated search string as the saved answer.',
+    parameters: { type: 'object', properties: { ref: { type: 'string' }, field_ref: { type: 'string' } }, required: ['ref', 'field_ref'] },
+  },
   {
     name: 'choose_option',
     description: 'Choose from the currently open custom dropdown. Pass any current option ACTION ref; if its label lacks the dropdown question, also pass the originating FIELD ref. The grounded answer model selects and clicks the supported option. Never click option ACTIONS directly.',

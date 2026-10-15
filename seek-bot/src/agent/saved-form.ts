@@ -9,6 +9,7 @@ interface SavedFormField extends FormField {
   frame: number;
   expanded?: string | null;
   invalid?: string | null;
+  selectedValues?: string[];
 }
 export interface SavedForm {
   url: string;
@@ -30,7 +31,7 @@ export async function readSavedForm(page: Page): Promise<SavedForm> {
     const observed = await extractFields(frame);
     const state = await frame.evaluate(() => {
       const roots: Array<Document | ShadowRoot> = [document];
-      const controls: Record<string, { expanded: string | null; invalid: string | null; error: string }> = {};
+      const controls: Record<string, { expanded: string | null; invalid: string | null; error: string; selectedValues?: string[] }> = {};
       for (let i = 0; i < roots.length; i++) {
         for (const el of roots[i].querySelectorAll('*')) {
           if (el.shadowRoot) roots.push(el.shadowRoot);
@@ -43,7 +44,12 @@ export async function readSavedForm(page: Page): Promise<SavedForm> {
             ? ids.map(id => roots[i].querySelector(`#${CSS.escape(id)}`)?.textContent?.trim()).filter(Boolean).join(' ')
               || input.validationMessage || 'The form marks this field invalid.' : '';
           const previous = controls[ref];
-          controls[ref] = { expanded: el.getAttribute('aria-expanded'), invalid, error: previous?.error || error };
+          const linked = `${el.getAttribute('aria-controls') ?? ''} ${el.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean)
+            .map(id => roots[i].getElementById(id)).filter((list): list is HTMLElement => Boolean(list && list.getAttribute('aria-multiselectable') === 'true'));
+          const selectedValues = linked.length === 1 ? [...linked[0].querySelectorAll('[role="option"][aria-selected="true"], [role="option"][aria-checked="true"]')]
+            .map(option => (option.textContent ?? '').trim()) : undefined;
+          controls[ref] = { expanded: el.getAttribute('aria-expanded'), invalid, error: previous?.error || error,
+            ...(selectedValues ? { selectedValues } : {}) };
         }
       }
       return { controls, text: document.body?.innerText ?? '' };
@@ -52,7 +58,8 @@ export async function readSavedForm(page: Page): Promise<SavedForm> {
       if (field.sensitive || /password|one[-_ ]?time[-_ ]?(code|password)|\botp\b|verification[-_ ]?code|security[-_ ]?code/i.test(`${field.inputType ?? ''} ${field.hints ?? ''} ${field.label}`)) continue;
       const control = state.controls[field.ref];
       fields.push({ ...field, localRef: field.ref, ref: `frame${frameIndex}:${field.ref}`, frame: frameIndex,
-        validationError: control?.error || undefined, expanded: control?.expanded, invalid: control?.invalid });
+        validationError: control?.error || undefined, expanded: control?.expanded, invalid: control?.invalid,
+        ...(control?.selectedValues ? { selectedValues: control.selectedValues, currentValue: JSON.stringify(control.selectedValues) } : {}) });
     }
     // Include the end of a review page as well as its beginning. Inputs are
     // represented explicitly above, so truncating surrounding copy loses no

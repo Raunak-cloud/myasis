@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { resolve, basename, dirname, extname } from 'node:path';
 import { promisify } from 'node:util';
 import { config } from './config.js';
+import { applicationModelAvailable, applicationModelIdentity } from './application-model.js';
 import { extractText } from './knowledge.js';
 import { relevantEvidence } from './pipeline.js';
 import { chooseResume } from './llm.js';
@@ -105,7 +106,7 @@ async function pickResumeUncached(
   if (config.resume.select) return resolveResume(config.resume.select);
 
   const all = loadResumes();
-  if (all.length <= 1 || !config.celeris.apiKey) return resolveResume();
+  if (all.length <= 1 || !applicationModelAvailable()) return resolveResume();
 
   try {
     const { resumeId, reason } = await chooseResume(
@@ -161,7 +162,7 @@ export function pickResumeForJob(job: JobListing, profile: CandidateProfile): Pr
   return withJobCost(job.id, () => pickResumeForJobScoped(job, profile));
 }
 function pickResumeForJobScoped(job: JobListing, profile: CandidateProfile): Promise<ResumeRecord | null> {
-  const key = JSON.stringify([config.dataDir, job, profile, config.resume.select, loadResumes()]);
+  const key = JSON.stringify([config.dataDir, applicationModelIdentity(), job, profile, config.resume.select, loadResumes()]);
   let pending = resumeChoices.get(key);
   if (!pending) { pending = pickResumeUncached(job, profile); resumeChoices.set(key, pending); }
   return pending;

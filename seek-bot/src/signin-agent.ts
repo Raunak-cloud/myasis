@@ -4,6 +4,7 @@ import { observe, renderObservation } from './agent/observe.js';
 import { browserGmailAccount, browserGmailAvailable, findCodeInBrowser } from './browser-gmail.js';
 import { handleCaptchaWithCapMonster } from './captcha.js';
 import { fillField } from './dom.js';
+import { applicationModel } from './application-model.js';
 
 /**
  * Signs an account back in to a job board when its session has lapsed.
@@ -245,7 +246,8 @@ async function drive(
     if (step > 1 && now === before && /^Clicked/.test(note)) note += ' The page looks exactly as it did before that click, so it had no effect.';
     before = now;
     // Only the page in front of it is worth its weight; older ones are kept as one line.
-    if (lastObservationIndex >= 0) messages[lastObservationIndex] = { role: 'user', content: '[an earlier page]' };
+    // Haiku's signed thinking requires the complete earlier conversation.
+    if (applicationModel() !== 'haiku' && lastObservationIndex >= 0) messages[lastObservationIndex] = { role: 'user', content: '[an earlier page]' };
     const widgets = embedded.length
       ? `\n\nEMBEDDED BUTTONS (drawn by another site inside this page; click by ref):\n${embedded.map(button => `  ${button.ref}  <untrusted>${button.text}</untrusted>`).join('\n')}`
       : '';

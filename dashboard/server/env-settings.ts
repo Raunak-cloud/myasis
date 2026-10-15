@@ -105,6 +105,8 @@ const GROUPS: GroupSpec[] = [
     title: 'Models',
     keys: [
       { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and job-application model calls.', kind: 'secret' },
+      { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API key', help: 'Enables Claude Haiku 5.5 for administrator application runs. Kept on the server.', kind: 'secret' },
+      { key: 'OPENROUTER_API_KEY', label: 'OpenRouter API key', help: 'Enables Claude Haiku 5.5 when no Anthropic key is configured. Kept on the server.', kind: 'secret' },
       { key: 'CELERIS_BASE_URL', label: 'Celeris base URL', help: 'Root only; the model id is added per request.', kind: 'url' },
       { key: 'CELERIS_TIMEOUT_MS', label: 'Celeris timeout (ms)', help: 'How long one model call may take before it is abandoned.', kind: 'number' },
       { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },

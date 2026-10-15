@@ -1,5 +1,8 @@
 import { config } from '../../config.js';
 import { browserGmailAvailable } from '../../browser-gmail.js';
+import { COMPACT_APPLICATION_PROMPT } from './compact-prompt.js';
+import { HAIKU_APPLICATION_PROMPT } from './haiku-prompt.js';
+import { applicationModel } from '../../application-model.js';
 
 // Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
 
@@ -119,6 +122,10 @@ employers, so read the page rather than assuming an order.
   and pass required_refs when a necessary question lacks required markup.
   A required multi-select QUESTION does not require selecting every option.
   Leave optional promotional, visibility and account-settings toggles unchanged.
+  Do not change an existing account's sign-in email, username or security settings
+  to repair an application. If its contact identity conflicts with the verified
+  candidate record, finish with needs_human and ask which address is authorised.
+  An application task does not authorise changing account login credentials.
   An unchecked skill is a valid negative answer, not an unfinished field.
   While a page is loading after an action, use wait_for_page before assuming failure.
   Do not click unrelated widgets to make a loading form appear.
@@ -213,7 +220,9 @@ STOPPING
  * out of the constant prefix so accounts without them keep the shorter,
  * cache-friendly prompt.
  */
-export function systemPrompt(): string {
+export function systemPrompt(compact = false): string {
+  if (applicationModel() === 'haiku') return HAIKU_APPLICATION_PROMPT;
+  if (compact) return COMPACT_APPLICATION_PROMPT;
   const sections = [SYSTEM_PROMPT];
   if (config.celeris.rawTools) sections.push(BROWSER_TOOLS_PROMPT);
   if (config.formSpeed && config.celeris.rawTools) sections.push(LIVE_RECOVERY_PROMPT);

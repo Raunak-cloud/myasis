@@ -16,6 +16,7 @@ export interface TraceStep {
   /** Human-readable version of the call, e.g. `click "Apply without an account"`. */
   label: string;
   result?: string;
+  disposition?: string;
   screenshot?: string;
 }
 

@@ -1,4 +1,6 @@
 import { metric } from '../pipeline.js';
+import { applicationModel, applicationHaikuRoute } from '../application-model.js';
+import { haikuChat } from './haiku.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost } from '../cost-ledger.js';
@@ -27,7 +29,7 @@ interface ToolCall {
 
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string | ContentPart[] }
-  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] }
+  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[]; anthropic_content?: unknown[]; reasoning_details?: unknown[]; reasoning_content?: string }
   | { role: 'tool'; tool_call_id: string; content: string };
 
 type ContentPart =
@@ -84,7 +86,7 @@ export class CostMeter {
 
   constructor(private readonly budgetUsd: number) {}
 
-  record(usage: unknown): void {
+  record(usage: unknown, billedCostUsd?: number): void {
     const u = (usage ?? {}) as {
       prompt_tokens?: number;
       completion_tokens?: number;
@@ -99,8 +101,8 @@ export class CostMeter {
     this.totals.promptTokens += prompt;
     this.totals.cachedPromptTokens += cached;
     this.totals.completionTokens += completion;
-    this.totals.costUsd +=
-      (uncached * RATES.promptUncached + cached * RATES.promptCached + completion * RATES.completion) / 1_000_000;
+    this.totals.costUsd += typeof billedCostUsd === 'number' && Number.isFinite(billedCostUsd) && billedCostUsd >= 0
+      ? billedCostUsd : (uncached * RATES.promptUncached + cached * RATES.promptCached + completion * RATES.completion) / 1_000_000;
   }
 
   get exhausted(): boolean {
@@ -120,6 +122,7 @@ export class CostMeter {
 }
 
 export interface CelerisRequest {
+  purpose?: 'grounded-answer';
   model: CelerisModel;
   messages: ChatMessage[];
   tools?: ToolSchema[];
@@ -160,6 +163,8 @@ export class ReplyUnusableError extends Error {}
 class ReplyTruncatedError extends ReplyUnusableError {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
+  // One provider choice covers all application calls, including checks and recovery.
+  if (applicationModel() === 'haiku') return haikuChat(request, applicationHaikuRoute());
   if (!config.celeris.apiKey) {
     throw new Error('CELERIS_API_KEY is not set — the browser agent cannot run without it.');
   }
@@ -231,7 +236,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       }
 
       const payload = (await response.json()) as {
-        choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: RawToolCall[] } }>;
+        choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: RawToolCall[]; anthropic_content?: unknown[] } }>;
         usage?: { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } };
       };
       request.meter?.record(payload.usage);

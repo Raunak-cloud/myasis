@@ -46,6 +46,8 @@
     "test:saved-form": "tsc && node dist/agent/saved-form.test.js"
   },
   "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "dotenv": "^16.4.7",
     "linkedom": "^0.18.13",
     "mammoth": "^1.12.3",

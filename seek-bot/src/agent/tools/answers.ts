@@ -1,19 +1,21 @@
 import type { Page } from 'patchright';
 import { jitter } from '../../browser.js';
 import { fillField, setChecked } from '../../dom.js';
-import { answerFields, isRequiredConsent } from '../../llm.js';
+import { answerFields, answerOptionSet, isRequiredConsent } from '../../llm.js';
 import type { FormField } from '../../types.js';
 import { locate } from '../raw-tools.js';
 import { ANSWER_BATCH, ToolResult, ToolContext, ok } from './context.js';
 import { clickRef } from './actions.js';
 import { config } from '../../config.js';
 import { boundedAnswerBatch, currentFormStructure } from '../../form-speed.js';
+import { observe } from '../observe.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
 export async function doChooseOption(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const ref = String(args.ref ?? '');
   const requested = ctx.observation.actions.find(action => action.ref === ref && action.role === 'option');
+  if (requested?.multiSelect && ctx.architecture === 'compact') return doChooseOptions(ctx, args);
   const suppliedFieldRef = String(args.field_ref ?? '');
   if (requested?.fieldRef && suppliedFieldRef && requested.fieldRef !== suppliedFieldRef) {
     return ok('The observed option belongs to a different FIELD ref. Re-observe and use its originating field.');
@@ -75,6 +77,45 @@ export async function doChooseOption(ctx: ToolContext, args: Record<string, unkn
   ctx.captured.push({ question: field.label, answer: choice.value! });
   ctx.guards.recordProgress();
   return ok(`Selected the grounded option for "${field.label}": ${choice.value}. Inspect the page to verify it was retained.`);
+}
+
+export async function doChooseOptions(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (ctx.architecture !== 'compact') return ok('Use the available single-selection tool for this browser controller.');
+  const initial = ctx.observation.actions.find(action => action.ref === args.ref && action.role === 'option');
+  const owner = initial?.fieldRef;
+  if (!initial?.multiSelect || !owner || args.field_ref && args.field_ref !== owner) return ok('Use a current option from an explicitly multi-select listbox, with its matching originating field. No option changed.');
+  const field = ctx.observation.fields.find(field => field.ref === owner);
+  if (!field) return ok('The multi-select owner is not in the current observation. Inspect the actual field first.');
+  const initialOptions = ctx.observation.actions.filter(action => action.multiSelect && action.fieldRef === owner);
+  if (initialOptions.some(option => typeof option.selected !== 'boolean') || !initialOptions.length) return ok('The list does not expose committed selection state. Inspect it; typed search text is not a saved set.');
+  const values = initialOptions.map(option => option.value!);
+  if (values.some(value => !value) || new Set(values).size !== values.length) return ok('The observed options are ambiguous. Inspect the complete list before changing it.');
+  const answer = await answerOptionSet(field.label, values, ctx.job, ctx.profile);
+  if (!answer.grounded || field.required && !answer.values.length) {
+    if (field.required) { ctx.guards.rememberField(field); ctx.guards.recordUngrounded(field.label); }
+    return ok(`No verified candidate evidence supports a complete selection set for "${field.label}". Do not guess; ${field.required ? 'finish needs_human.' : 'leave the optional field unchanged.'}`);
+  }
+  ctx.guards.pendingFields.add(field.label);
+  // Re-read after every change. A rerender, filtered list or unexpected state
+  // ends this batch instead of running a stale second click.
+  for (let step = 0; step <= initialOptions.length; step++) {
+    const current = ctx.observation.actions.filter(action => action.multiSelect && action.fieldRef === owner);
+    if (current.length !== values.length || values.some(value => !current.some(option => option.value === value))) return ok('The multi-select list changed. Re-observe it before completing the grounded set.');
+    const difference = current.find(option => option.selected !== answer.values.includes(option.value!));
+    if (!difference) {
+      ctx.guards.recordFillSuccess(field.label);
+      ctx.captured = ctx.captured.filter(item => item.question !== field.label);
+      ctx.captured.push({ question: field.label, answer: JSON.stringify(answer.values) });
+      ctx.guards.recordProgress();
+      return ok(`Verified committed multi-selection for "${field.label}": ${JSON.stringify(answer.values)}. The actual saved form is still checked before advancing.`);
+    }
+    const expected = !difference.selected;
+    if (!await clickRef(ctx.page, difference.ref)) return ok('The multi-select option could not be clicked. Re-observe the current list.');
+    ctx.observation = await observe(ctx.page);
+    const after = ctx.observation.actions.find(option => option.fieldRef === owner && option.value === difference.value && option.multiSelect);
+    if (!after || after.selected !== expected) return ok('The option did not retain the expected selected state. Inspect the widget before another attempt.');
+  }
+  return ok('The multi-selection did not reach its grounded target set. Inspect the current state; do not claim it is saved.');
 }
 
 export async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -195,6 +236,11 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
   if (!refs.length || refs.some(ref => !ctx.observation.fields.some(field => field.ref === ref))) {
     return ok('Invalid refs: provide exact current FIELD refs, e.g. ["f0", "f1"]. Re-observe rather than guessing.');
   }
+  // The controller names the question; the executor owns the widget protocol.
+  // Route an observed multi-select through the same set contract regardless of
+  // whether the planner used the general answer tool or the explicit set tool.
+  const multiple = ctx.architecture === 'compact' ? ctx.observation.actions.find(action => action.multiSelect && action.fieldRef && refs.includes(action.fieldRef)) : undefined;
+  if (multiple) return doChooseOptions(ctx, { ref: multiple.ref, field_ref: multiple.fieldRef });
   const requiredRefs = Array.isArray(args.required_refs) && typeof args.reason === 'string' && args.reason.trim() ? args.required_refs.map(String) : [];
   /**
    * The question as the agent read it off the page, for a control whose
@@ -370,7 +416,9 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
       const interaction = args.interaction === 'type' ? 'type' : args.interaction === 'search' || field.autocomplete ? 'search' : 'type';
       if (!selected) await fillField(ctx.page, field, value, interaction);
       if (interaction === 'search' && field.autocomplete && !selected) {
-        searched.push(field.label);
+        searched.push(ctx.architecture === 'compact'
+          ? `${field.label}: grounded value ${JSON.stringify(value)}${answer.rationale ? ` (${answer.rationale.slice(0, 500)})` : ''}; the search is supported, but the selection is not committed yet`
+          : field.label);
         // Its suggestions need choosing before anything else on the form is touched.
         deferRest(index + 1);
         break;

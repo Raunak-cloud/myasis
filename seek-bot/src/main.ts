@@ -5,6 +5,7 @@ import { assessFit, finishedCoverLetterForJob, judgeApplicationIdentity, rankJob
 import { checkApplicationIdentity } from './application-identity.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
+import { applicationModelAvailable, applicationModelIdentity, assertApplicationModelConfigured } from './application-model.js';
 import {
   launchBrowser,
   closeBrowser,
@@ -137,29 +138,24 @@ async function main() {
   if (!directExternalUrl && !config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
   console.log(`Profile: ${profile.name} · ${profile.suburb ?? ''} · relocate=${profile.willingToRelocate}`);
 
-  if (!config.celeris.apiKey && !searchOnly) {
-    throw new Error('The matching service is not configured. Check the local environment settings.');
-  }
+  if (!searchOnly) assertApplicationModelConfigured();
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
   }
   if (!searchOnly) {
-    if (!config.celeris.apiKey) {
-      throw new Error('CELERIS_API_KEY is required — the browser agent drives every application.');
-    }
     console.log(
-      `Browser agent: celeris-1-magnus (reasoning: low) ` +
+      `Browser agent: ${applicationModelIdentity().model} ` +
         `(max ${config.celeris.maxSteps} steps, ${config.celeris.maxStepsPerPage} per page, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
     );
   }
   if (!searchOnly) {
     await assertHumanizerHealthy();
-    console.log('AuthorMist humanizer OK.');
+    console.log('Cover-letter rewriting service ready.');
   }
   console.log(
     `Cover letters: ${config.coverLetter.mode === 'reuse' ? 'reuse the provided letter' : 'AI-tailored for every job'}`,
   );
-  if (!config.celeris.apiKey) {
+  if (!applicationModelAvailable()) {
     console.warn(
       '\n⚠  Matching service unavailable — using keyword scoring only, with no stack-fit check.\n' +
         '   Scoring alone is lenient: it rates .NET/Dynamics roles highly off generic\n' +
@@ -255,7 +251,7 @@ async function main() {
     /** Keep enough backups for unavailable/already-applied listings. */
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
     const discoveryTarget = calculateDiscoveryTarget(config.limits.maxEvaluations, candidateCap);
-    let rankingAvailable = Boolean(config.celeris.apiKey);
+    let rankingAvailable = applicationModelAvailable();
 
     /** Cheap checks run as each result page arrives, before more pages load. */
     const ingest = (jobs: JobListing[], adapter: PlatformAdapter): JobListing[] => {
@@ -323,7 +319,7 @@ async function main() {
     const cardQueue: JobListing[] = [];
     let cardWorkers = 0;
     const checkCards = (jobs: JobListing[]) => {
-      if (!config.celeris.apiKey || !config.aiInstructions.trim()) return;
+      if (!applicationModelAvailable() || !config.aiInstructions.trim()) return;
       // A job the candidate chose has had its fit decided by them.
       cardQueue.push(...jobs.filter((job) => job.source !== 'chosen'));
       while (cardWorkers < config.limits.fitConcurrency && cardQueue.length) {
@@ -905,7 +901,7 @@ async function main() {
         : null;
       const fitPromise = chosenFit
         ? Promise.resolve({ fit: chosenFit })
-        : config.celeris.apiKey
+        : applicationModelAvailable()
         ? assessFit(job, profile).then(
             (fit) => ({ fit }),
             (error) => ({ error: (error as Error).message }),
