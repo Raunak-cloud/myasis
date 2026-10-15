@@ -16,7 +16,8 @@ let attentionFixture = false;
 let costReads = 0;
 let costFailure = false;
 const writes: Array<{ path: string; body: any }> = [];
-const settings = () => ({ PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
+const settings = () => ({ APPLICATION_AI_MODEL: 'celeris', APPLICATION_AI_CELERIS_CONFIGURED: String(admin), APPLICATION_AI_HAIKU_CONFIGURED: 'false',
+  PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40', PAGES_PER_KEYWORD: '1' });
 const server = createServer(async (req, res) => {
