@@ -212,17 +212,19 @@ export async function runHaikuBrowserApplication(options: HaikuBrowserRunOptions
     throw new Error('Agent-managed form readiness requires the owner-scoped authenticated Haiku admin experiment.');
   }
   const agentManagedReadiness = readinessMode === 'agent-managed';
+  const budgetMode = agentManagedReadiness ? 'time-and-cost' : 'progress';
   const chat = dependencies?.chat ?? celerisChat, knowledge = dependencies?.knowledge ?? buildKnowledgeContext;
   const meter = new CostMeter(config.celeris.budgetUsdPerApplication);
   const guards = new RunGuards({ maxSteps: config.celeris.maxSteps, maxStepsPerPage: config.celeris.maxStepsPerPage,
-    maxStuckMs: config.celeris.maxStuckMs, maxTotalMs: config.celeris.maxTotalMs, meter });
+    maxStuckMs: config.celeris.maxStuckMs, maxTotalMs: config.celeris.maxTotalMs, meter,
+    budgetMode });
   const ctx: ToolContext = { architecture: 'compact', nativeBrowserActionsOnly: true, nativeFormReadiness: readinessMode, page: options.page, job: options.job, profile: options.profile,
     guards, observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' }, captured: [], actions: [], log: options.log ?? console.log };
   const trace: TraceStep[] = [], progress: Array<{ site: string; at: string }> = [];
   const staged = new Map<string, { kind: 'resume' | 'cover_letter'; path: string; label?: string; letter?: string }>();
   let preparedLetter = '', lastMutation: HaikuBrowserMutation | undefined, postSubmitTurns = 0;
   let activeTabId: string | undefined, receiptTabId: string | undefined, receiptPage: ToolContext['page'] | undefined;
-  const checkpoint = () => { try { mkdirSync(TRACE_DIR(), { recursive: true }); writeFileSync(resolve(TRACE_DIR(), `${ctx.job.id}.live.json`), JSON.stringify({ jobId: ctx.job.id, title: ctx.job.title, company: ctx.job.company, readinessMode, savedAt: new Date().toISOString(), status: 'in-progress', steps: trace })); } catch { /* diagnostics only */ } };
+  const checkpoint = () => { try { mkdirSync(TRACE_DIR(), { recursive: true }); writeFileSync(resolve(TRACE_DIR(), `${ctx.job.id}.live.json`), JSON.stringify({ jobId: ctx.job.id, title: ctx.job.title, company: ctx.job.company, readinessMode, budgetMode, savedAt: new Date().toISOString(), status: 'in-progress', steps: trace })); } catch { /* diagnostics only */ } };
   const refresh = async () => { ctx.observation = await observe(ctx.page); watchTab(ctx.page, ctx); };
   const finish = async (ending: AgentTermination): Promise<AgentRunResult> => {
     let outcome = ending;
@@ -363,7 +365,7 @@ export async function runHaikuBrowserApplication(options: HaikuBrowserRunOptions
   };
 
   try {
-    ctx.log(`  native Haiku form-readiness mode: ${readinessMode}; privacy, job scope, runtime, duplicate and receipt protections retained`);
+    ctx.log(`  native Haiku form-readiness mode: ${readinessMode}; budget mode: ${budgetMode}; privacy, job scope, runtime, duplicate and receipt protections retained`);
     await workingIn(ctx.page); await refresh();
     if (!isolated) {
       const destinationText = (await Promise.all(ctx.page.frames().map(frame => frame.locator('body').innerText({ timeout: 5000 }).catch(() => '')))).join('\n');

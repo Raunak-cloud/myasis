@@ -134,6 +134,9 @@ export type SubmitVerdict =
   | { allowed: false; kind: 'dry-run' | 'ungrounded' | 'off-platform'; reason: string; detail?: string };
 
 export interface RunGuardOptions {
+  /** Native admin experiments can use hard time/cost budgets instead of
+   * assuming one native member call equals one compound legacy action. */
+  budgetMode?: 'progress' | 'time-and-cost';
   maxSteps: number;
   /** Steps the agent may spend on one page of the form before it counts as stuck there. */
   maxStepsPerPage: number;
@@ -157,9 +160,9 @@ export type BudgetVerdict = { ok: true } | { ok: false; reason: string; detail?:
 /**
  * Per-application budget and grounding ledger.
  *
- * An agent loop has no fixed step count, so every one of these ceilings is
- * load-bearing: without them an unrecognised page becomes an unbounded spend
- * and an unbounded number of clicks on a real employer's site.
+ * The default progress policy bounds steps and inactivity. An explicitly
+ * selected time-and-cost policy counts actions without those heuristics;
+ * elapsed time and model spend remain fixed, unearned limits.
  */
 export class RunGuards {
   private steps = 0;
@@ -173,7 +176,8 @@ export class RunGuards {
   /** Called once per agent turn. */
   nextStep(): BudgetVerdict {
     this.steps += 1;
-    if (this.steps > this.stepCeiling) {
+    const fixedBudget = this.options.budgetMode === 'time-and-cost';
+    if (!fixedBudget && this.steps > this.stepCeiling) {
       return {
         ok: false,
         reason: 'The application needed more steps than one attempt allows.',
@@ -181,7 +185,7 @@ export class RunGuards {
       };
     }
     const stuckFor = Date.now() - this.lastProgressAt;
-    if (stuckFor > this.options.maxStuckMs) {
+    if (!fixedBudget && stuckFor > this.options.maxStuckMs) {
       return {
         ok: false,
         reason: 'The page stopped responding to what the agent did.',
@@ -189,13 +193,14 @@ export class RunGuards {
       };
     }
     /**
-     * Time, like steps and money, is earned by verified progress (up to three
+     * Under the default policy, time is earned by verified progress (up to three
      * times the base). A fixed ten minutes ended NASDAQ's and Accenture's
      * Workday forms on 3 Oct while they were still moving, account made and
      * pages filled; a page that stops moving is still ended by the stuck timer.
      */
     const elapsed = Date.now() - this.startedAt;
-    if (elapsed > this.options.maxTotalMs * Math.max(1, this.stepCeiling / this.options.maxSteps)) {
+    const allowanceScale = fixedBudget ? 1 : Math.max(1, this.stepCeiling / this.options.maxSteps);
+    if (fixedBudget ? elapsed >= this.options.maxTotalMs : elapsed > this.options.maxTotalMs * allowanceScale) {
       return {
         ok: false,
         reason: 'The application ran out of time.',
@@ -203,13 +208,13 @@ export class RunGuards {
       };
     }
     /**
-     * The model allowance grows with the step allowance, which verified
+     * Under the default policy, the model allowance grows with the step allowance, which verified
      * progress already earns (up to three times the base). A fixed dollar
      * cap ended a Workday form for nib, still making progress, with the
      * account made, signed in and the letter uploaded: the steps it had
      * earned were refused for want of the money to take them.
      */
-    if (this.options.meter.exceeds(this.stepCeiling / this.options.maxSteps)) {
+    if (this.options.meter.exceeds(allowanceScale)) {
       /**
        * The meter summary — call counts, token counts, dollars — is for the
        * log. It reached the dashboard verbatim once, as the reason a job
@@ -240,7 +245,7 @@ export class RunGuards {
   onPage(key: string): BudgetVerdict {
     const steps = (this.stepsByPage.get(key) ?? 0) + 1;
     this.stepsByPage.set(key, steps);
-    if (steps > this.options.maxStepsPerPage) {
+    if (this.options.budgetMode !== 'time-and-cost' && steps > this.options.maxStepsPerPage) {
       return {
         ok: false,
         reason: 'The application needed more steps than one attempt allows.',

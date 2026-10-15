@@ -163,6 +163,22 @@ test('agent-managed checkpoints keep native saved evidence without an independen
   } finally { await f.context.close(); }
 }));
 
+test('validated agent-managed native actions are not cut off by legacy page or total-step heuristics', async () => agentManaged(async () => {
+  const f = await fixture('agent-managed-fine-actions', form);
+  const previous = { maxSteps: config.celeris.maxSteps, maxStepsPerPage: config.celeris.maxStepsPerPage };
+  config.celeris.maxSteps = 2; config.celeris.maxStepsPerPage = 1;
+  const reads = previous.maxStepsPerPage + 1;
+  const mock = mockMessages(turn => turn <= reads ? [nativeCall('read_page', { filter: 'interactive' })]
+    : [helperCall('application_status', { status: 'cannot_complete', reason: 'The fictional native action sequence is complete.' })]);
+  try {
+    const result = await runHaikuBrowserApplication({ ...f.options, readinessMode: 'agent-managed' }, f.dependencies);
+    assert.equal(result.outcome.status, 'skipped');
+    assert.match(JSON.stringify(result.outcome), /fictional native action sequence is complete/);
+    assert.equal(mock.turns, reads + 1); assert.equal(result.steps, reads + 1); assert.equal(result.submitPressed, false);
+    assert.equal(mock.reviews.length, 0);
+  } finally { Object.assign(config.celeris, previous); await f.context.close(); }
+}));
+
 test('agent-managed possible-send protection still blocks repeated actions and requires an independent receipt', async () => agentManaged(async () => {
   for (const confirmed of [false, true]) {
     const f = await fixture(`agent-managed-receipt-${confirmed}`, form.replace('Submit application', 'Save draft'));
