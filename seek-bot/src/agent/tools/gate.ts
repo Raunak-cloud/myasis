@@ -150,7 +150,16 @@ export async function gateAdvance(
   }
   if (movesForward(ctx, label) && !ctx.resumeSettled) {
     const chosen = await pickResumeForJob(ctx.job, ctx.profile);
-    const step = chosen ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
+    if (ctx.nativeBrowserActionsOnly && chosen && boardOf(ctx.page.url())
+      && (ctx.observation.fields.some(field => /resume|résumé|\bcv\b/i.test(field.label))
+        || options.knownSubmit || ctx.declaredSubmit === true || submitWorded(ctx, label))) {
+      return { proceed: false, result: ok(
+        `Do not advance yet: the board's attached resume has not been confirmed as the approved "${chosen.seekName || chosen.fileName}". ` +
+        'Use the native browser controls to select its exact saved option or upload the registered approved document, then inspect the saved selection before advancing.',
+        'document-prerequisite',
+      ) };
+    }
+    const step = chosen && !ctx.nativeBrowserActionsOnly ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
     if (step.action === 'failed' && step.full) return { proceed: false, result: boardFullOutcome(step) };
     if (step.action === 'failed') {
       return { proceed: false, result: ok(
@@ -180,6 +189,21 @@ export async function gateAdvance(
     return { proceed: true, submit: false };
   }
 
+  // Some boards land directly on review. A control classified as a final
+  // send still requires the approved resume, without an implicit edit/select
+  // action; earlier steps may legitimately precede the documents step.
+  if (ctx.nativeBrowserActionsOnly && boardOf(ctx.page.url()) && !ctx.resumeSettled && !ctx.resumeUsed) {
+    const chosen = await pickResumeForJob(ctx.job, ctx.profile);
+    if (!chosen) return { proceed: false, result: { kind: 'terminal', outcome: {
+      status: 'skipped', reason: 'No approved resume is available for the required board resume selection.',
+    } } };
+    return { proceed: false, result: ok(
+      `Not submitted: the board's attached resume has not been confirmed as the approved "${chosen.seekName || chosen.fileName}". ` +
+      'Use the native browser controls to open the resume step and select its exact saved option or upload the registered approved document, then inspect the saved selection.',
+      'document-prerequisite',
+    ) };
+  }
+
   /**
    * Indeed can open an application straight on its review page with the
    * resume it already holds for the account attached, so no resume step ever
@@ -187,7 +211,7 @@ export async function gateAdvance(
    * resume is known to be Owtomate's: the resume step is reopened and settled,
    * and the agent goes through to the review page again.
    */
-  if (!ctx.resumeSettled && !ctx.resumeUsed && boardOf(ctx.page.url()) === 'indeed') {
+  if (!ctx.nativeBrowserActionsOnly && !ctx.resumeSettled && !ctx.resumeUsed && boardOf(ctx.page.url()) === 'indeed') {
     const chosen = await pickResumeForJob(ctx.job, ctx.profile);
     if (chosen) {
       ctx.resumeReopenTries = (ctx.resumeReopenTries ?? 0) + 1;
@@ -267,7 +291,7 @@ export async function gateAdvance(
  * FTI Group was sent without the letter the form allowed. textContent and the
  * DOM do not depend on rendering.
  */
-export async function pageOffersDocuments(page: Page): Promise<boolean> {
+export async function pageOffersDocuments(page: Page, options: { scroll?: boolean } = {}): Promise<boolean> {
   /**
    * Rendered on scroll, not merely painted on scroll: Indeed's review page
    * does not put the Supporting documents section into the DOM until the
@@ -276,17 +300,19 @@ export async function pageOffersDocuments(page: Page): Promise<boolean> {
    * Load Master went out without the letter. Walk the page to the bottom
    * first, in every frame, and leave it there — the agent re-observes anyway.
    */
-  for (const frame of page.frames()) {
-    await frame.evaluate(async () => {
-      const step = Math.max(400, Math.floor(innerHeight * 0.8));
-      for (let y = 0; y <= (document.body?.scrollHeight ?? 0); y += step) {
-        scrollTo(0, y);
-        await new Promise((done) => setTimeout(done, 120));
-      }
-      scrollTo(0, document.body?.scrollHeight ?? 0);
-    }).catch(() => {});
+  if (options.scroll !== false) {
+    for (const frame of page.frames()) {
+      await frame.evaluate(async () => {
+        const step = Math.max(400, Math.floor(innerHeight * 0.8));
+        for (let y = 0; y <= (document.body?.scrollHeight ?? 0); y += step) {
+          scrollTo(0, y);
+          await new Promise((done) => setTimeout(done, 120));
+        }
+        scrollTo(0, document.body?.scrollHeight ?? 0);
+      }).catch(() => {});
+    }
+    await page.waitForTimeout(600).catch(() => {});
   }
-  await page.waitForTimeout(600).catch(() => {});
   const inFrame = async (frame: Frame) => frame.evaluate(() => {
     const place = /supporting documents?|additional documents?|cover[\s-]?letter/i;
     /*
@@ -559,7 +585,9 @@ async function coverLetterCheck(ctx: ToolContext, label: string, submit: boolean
   if (ctx.coverLetter || ctx.letterResolved || !(submit || movesForward(ctx, label))) return null;
   const shown = offersCoverLetter(ctx.observation);
   if (!shown && !submit) return null;
-  const elsewhere = !shown && submit ? await pageOffersDocuments(ctx.page) : false;
+  // Native runs inspect only the existing DOM here. Haiku must request any
+  // scroll/reveal action itself through the native browser toolset.
+  const elsewhere = !shown && submit ? await pageOffersDocuments(ctx.page, { scroll: !ctx.nativeBrowserActionsOnly }) : false;
   const stated = ctx.declaredNoLetter;
   if (stated) {
     if ((shown || elsewhere) && !ctx.letterChallenged) {

@@ -5,7 +5,7 @@ import { assessFit, finishedCoverLetterForJob, judgeApplicationIdentity, rankJob
 import { checkApplicationIdentity } from './application-identity.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
-import { applicationModelAvailable, applicationModelIdentity, assertApplicationModelConfigured } from './application-model.js';
+import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import {
   launchBrowser,
   closeBrowser,
@@ -138,7 +138,7 @@ async function main() {
   if (!directExternalUrl && !config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
   console.log(`Profile: ${profile.name} · ${profile.suburb ?? ''} · relocate=${profile.willingToRelocate}`);
 
-  if (!searchOnly) assertApplicationModelConfigured();
+  if (!searchOnly) assertApplicationBrowserConfigured();
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
   }

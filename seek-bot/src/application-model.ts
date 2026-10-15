@@ -47,6 +47,17 @@ export function assertApplicationModelConfigured(env: Environment = applicationM
     : 'CELERIS_API_KEY is required for the selected Celeris model.');
 }
 
+/** Application browser runs use Anthropic's dated native browser toolset.
+ * OpenRouter can still serve ordinary Messages calls, but its current route
+ * rejected that declaration in the compatibility preflight. Check before
+ * discovery/AI spending, rather than failing only after jobs are reviewed. */
+export function assertApplicationBrowserConfigured(env: Environment = applicationModelEnvironment(), root = botRoot): void {
+  assertApplicationModelConfigured(env, root);
+  if (applicationModel(env, root) === 'haiku' && !env.ANTHROPIC_API_KEY?.trim()) {
+    throw new Error('Haiku native browser tools require a direct ANTHROPIC_API_KEY. The current OpenRouter connection does not support this browser run. No custom-tool or model fallback will be used.');
+  }
+}
+
 export function applicationHaikuRoute(env: Environment = applicationModelEnvironment(), root = botRoot) {
   if (applicationModel(env, root) !== 'haiku') throw new Error('Haiku is not selected for this run.');
   assertApplicationModelConfigured(env, root);

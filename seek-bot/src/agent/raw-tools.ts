@@ -225,6 +225,9 @@ async function watched(ctx: ToolContext, label: string, run: () => Promise<ToolR
   }
 }
 
+/** Shared wire-level policy for native browser executors as well as legacy tools. */
+export { watched as guardedBrowserAction };
+
 const NEED_SNAPSHOT = 'That ref is not on the page any more. Call take_snapshot for current refs.';
 
 const SNAPSHOT_LIMIT = 24_000;

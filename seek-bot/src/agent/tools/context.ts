@@ -53,6 +53,8 @@ export type ToolResult = { kind: 'ok'; message: string; disposition?: 'document-
 
 export interface ToolContext {
   architecture?: 'legacy' | 'compact';
+  /** Native Claude browser runs must choose every document action through their own browser toolset. */
+  nativeBrowserActionsOnly?: boolean;
   /** Counts tool calls; a call past its time limit is retired and can no longer change the page (tool-run.ts). */
   toolGeneration?: number;
   page: Page;

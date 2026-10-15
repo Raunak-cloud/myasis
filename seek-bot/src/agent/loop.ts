@@ -35,7 +35,7 @@ export * from './loop/trace.js';
 export * from './loop/transcript.js';
 export * from './loop/accounts.js';
 
-interface AgentRunResult {
+export interface AgentRunResult {
   outcome: AgentTermination;
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
@@ -52,7 +52,7 @@ interface AgentRunResult {
   usage: string;
 }
 
-interface AgentRunOptions {
+export interface AgentRunOptions {
   /** Local fixture override; live runs opt in through validated admin routing. */
   architecture?: 'legacy' | 'compact';
   simulation?: 'isolated-form';
@@ -63,7 +63,9 @@ interface AgentRunOptions {
 }
 
 export function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
-  return withJobCost(options.job.id, () => runApplicationAgentScoped(options));
+  return withJobCost(options.job.id, async () => applicationModel() === 'haiku'
+    ? (await import('./haiku-browser-agent.js')).runHaikuBrowserApplication(options)
+    : runApplicationAgentScoped(options));
 }
 async function runApplicationAgentScoped(options: AgentRunOptions): Promise<AgentRunResult> {
   const { job, profile } = options;

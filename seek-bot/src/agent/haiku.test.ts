@@ -289,3 +289,101 @@ test('persistent grammar quota has one cooldown, sanitizes errors, and respects 
   await assert.rejects(() => haikuChat(request(), { ...route, timeoutMs: 5000 }, { now: () => clock, sleep: async () => { assert.fail('Cooldown must not overrun the deadline.'); } }), check);
   assert.equal(calls, 1);
 });
+
+const nativeBrowser = { type: 'browser_toolset_20260801' as const, configs: { javascript_exec: { enabled: false }, file_upload: { enabled: false } } };
+const browserState = { type: 'browser_state', tabs: [{ tab_id: 'fixture-tab', title: 'Fictional application', url: 'https://fixture.invalid/form', active: true }] };
+
+test('native browser declaration accompanies custom grounding helpers without fake member schemas', () => {
+  for (const selected of [route, { ...route, provider: 'Anthropic' as const, model: 'claude-haiku-5-5' }]) {
+    const body = haikuBody({ ...request(), anthropicBrowserToolset: nativeBrowser }, selected);
+    const sent = body.tools as Record<string, unknown>[];
+    assert.equal(sent.length, 2);
+    assert.equal(sent[1].name, undefined); assert.equal(sent[1].strict, undefined); assert.equal(sent[1].input_schema, undefined);
+    assert.deepEqual(sent[1], nativeBrowser);
+    assert.equal(sent[0].name, 'read_page'); assert.equal(sent[0].strict, true);
+    assert.deepEqual(body.tool_choice, { type: 'auto' });
+    assert.deepEqual(body.thinking, { type: 'adaptive' });
+  }
+  const only = haikuBody({ ...request(), tools: undefined, thinking: false, anthropicBrowserToolset: nativeBrowser }, route);
+  assert.deepEqual(only.tools, [nativeBrowser]); assert.deepEqual(only.thinking, { type: 'adaptive' });
+  assert.throws(() => haikuBody({ ...request(), tools: [{ ...tools[0], name: 'browser' }], anthropicBrowserToolset: nativeBrowser }, route), /namespace/);
+  assert.throws(() => haikuBody({ ...request(), anthropicBrowserToolset: { ...nativeBrowser, configs: { invented_member: { enabled: true } } } }, route), /declaration/);
+});
+
+test('native member and identically named custom helper remain distinct through signed replay', async t => {
+  const blocks = [{ type: 'thinking', thinking: '', signature: 'opaque-native-signature', opaque_extra: { untouched: true } },
+    { type: 'tool_use', id: 'native_read', name: 'read_page', toolset_name: 'browser', input: { filter: 'interactive', depth: 5 } },
+    { type: 'tool_use', id: 'custom_read', name: 'read_page', input: {} }];
+  t.mock.method(globalThis, 'fetch', async () => Response.json(response({ content: blocks })));
+  const r = { ...request(), anthropicBrowserToolset: nativeBrowser }, reply = await haikuChat(r, route);
+  assert.deepEqual(reply.toolCalls, [{ id: 'native_read', name: 'read_page', toolset_name: 'browser', args: { filter: 'interactive', depth: 5 } }, { id: 'custom_read', name: 'read_page', args: {} }]);
+  const nativeContent = [{ type: 'text', text: 'textbox "Fictional name" [ref_1]' }, browserState];
+  const next = { ...r, messages: [...r.messages, JSON.parse(JSON.stringify(reply.message)),
+    { role: 'tool' as const, tool_call_id: 'native_read', toolset_name: 'browser' as const, content: '', anthropic_content: nativeContent },
+    { role: 'tool' as const, tool_call_id: 'custom_read', content: 'Custom helper result.' }, { role: 'user' as const, content: 'Fresh observation.' }] };
+  const body = haikuBody(next, route), messages = body.messages as { content: unknown[] }[];
+  assert.deepEqual(messages[1].content, blocks);
+  assert.deepEqual(messages[2].content, [{ type: 'tool_result', tool_use_id: 'native_read', toolset_name: 'browser', content: nativeContent }, { type: 'tool_result', tool_use_id: 'custom_read', content: 'Custom helper result.' }]);
+  assert.deepEqual(body.tools, haikuBody(r, route).tools);
+  assert.throws(() => haikuBody({ ...next, anthropicBrowserToolset: { ...nativeBrowser, configs: { ...nativeBrowser.configs, wait: { enabled: false } } } }, route), (e: unknown) => e instanceof HaikuConversationError && e.requiresFreshConversation);
+});
+
+test('native screenshot images and browser state are replayed as structured blocks', () => {
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } };
+  const start: ChatMessage[] = [{ role: 'user', content: 'Inspect fictional page.' }, { role: 'assistant', content: null,
+    anthropic_content: [{ type: 'tool_use', id: 'shot', name: 'screenshot', toolset_name: 'browser', input: {} }] }];
+  const result: ChatMessage = { role: 'tool', tool_call_id: 'shot', toolset_name: 'browser', content: '', anthropic_content: [image, browserState] };
+  const built = haikuMessages([...start, result]);
+  assert.deepEqual(built.messages[2].content, [{ type: 'tool_result', tool_use_id: 'shot', toolset_name: 'browser', content: [image, browserState] }]);
+  assert.throws(() => haikuMessages([...start, { ...result, toolset_name: undefined }]), /namespace/);
+  assert.throws(() => haikuMessages([...start, { ...result, is_error: true }]), /error/);
+  assert.throws(() => haikuMessages([...start, { ...result, anthropic_content: [{ type: 'text', text: 'Screenshot taken.' }] }]), /image/);
+  assert.throws(() => haikuMessages([...start, { ...result, anthropic_content: [{ ...image, source: { type: 'url', url: 'file:///private' } }] }]), /image/);
+});
+
+test('native tab calls require complete structured inventory and errors preserve their namespace', () => {
+  const start: ChatMessage[] = [{ role: 'user', content: 'List fictional tabs.' }, { role: 'assistant', content: null,
+    anthropic_content: [{ type: 'tool_use', id: 'tabs', name: 'list_tabs', toolset_name: 'browser', input: {} }] }];
+  const result: ChatMessage = { role: 'tool', tool_call_id: 'tabs', toolset_name: 'browser', content: '', anthropic_content: [browserState] };
+  assert.deepEqual(haikuMessages([...start, result]).messages[2].content, [{ type: 'tool_result', tool_use_id: 'tabs', toolset_name: 'browser', content: [browserState] }]);
+  assert.throws(() => haikuMessages([...start, { ...result, anthropic_content: [{ type: 'text', text: 'Tabs:' }, browserState] }]), /exactly one/);
+  assert.throws(() => haikuMessages([...start, { ...result, anthropic_content: [{ ...browserState, tabs: [{ ...browserState.tabs[0], active: false }] }] }]), /inventory/);
+  const halted = 'Not executed: an earlier action in this turn failed.';
+  const failed = haikuMessages([...start, { role: 'tool', tool_call_id: 'tabs', toolset_name: 'browser', content: halted, is_error: true }]);
+  assert.deepEqual(failed.messages[2].content, [{ type: 'tool_result', tool_use_id: 'tabs', toolset_name: 'browser', is_error: true, content: halted }]);
+});
+
+test('native new-tab and download events satisfy the documented state constraints', () => {
+  const start: ChatMessage[] = [{ role: 'user', content: 'Open fictional tab.' }, { role: 'assistant', content: null,
+    anthropic_content: [{ type: 'tool_use', id: 'new', name: 'new_tab', toolset_name: 'browser', input: {} }] }];
+  const state = { ...browserState, state_changes: [{ type: 'tab_opened', tab_id: 'fixture-tab' }] };
+  const result: ChatMessage = { role: 'tool', tool_call_id: 'new', toolset_name: 'browser', content: '', anthropic_content: [state] };
+  assert.deepEqual(haikuMessages([...start, result]).messages[2].content, [{ type: 'tool_result', tool_use_id: 'new', toolset_name: 'browser', content: [state] }]);
+  assert.throws(() => haikuMessages([...start, { ...result, anthropic_content: [{ ...state, state_changes: [{ type: 'tab_opened', tab_id: 'unknown' }] }] }]), /inventory/);
+  assert.throws(() => haikuMessages([...start, { ...result, anthropic_content: [{ ...state, state_changes: [] }] }]), /state changes/);
+  const readStart: ChatMessage[] = [{ role: 'user', content: 'Read fictional tab.' }, { role: 'assistant', content: null,
+    anthropic_content: [{ type: 'tool_use', id: 'read', name: 'read_page', toolset_name: 'browser', input: {} }] }];
+  const downloaded = { ...browserState, state_changes: [{ type: 'download_completed', download_id: 'fixture-download', url: 'https://fixture.invalid/file', size_bytes: 12 }] };
+  const readResult: ChatMessage = { role: 'tool', tool_call_id: 'read', toolset_name: 'browser', content: '', anthropic_content: [{ type: 'text', text: 'Read complete.' }, downloaded] };
+  assert.equal(haikuMessages([...readStart, readResult]).messages.length, 3);
+  assert.throws(() => haikuMessages([...readStart, { ...readResult, anthropic_content: [{ ...downloaded, state_changes: [...downloaded.state_changes, ...downloaded.state_changes] }] }]), /download event/);
+});
+
+test('undeclared, disabled and malformed native browser calls release no executable actions', async t => {
+  const cases = [
+    { type: 'tool_use', id: 'a', name: 'invented', toolset_name: 'browser', input: {} },
+    { type: 'tool_use', id: 'a', name: 'javascript_exec', toolset_name: 'browser', input: { text: '1+1' } },
+    { type: 'tool_use', id: 'a', name: 'left_click', toolset_name: 'browser', input: { target: { type: 'coordinate', x: -1, y: 0 } } },
+    { type: 'tool_use', id: 'a', name: 'wait', toolset_name: 'browser', input: { duration: 31 } },
+    { type: 'tool_use', id: 'a', name: 'navigate', toolset_name: 'computer', input: { url: 'https://fixture.invalid' } },
+  ];
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; return Response.json(response({ content: [cases.shift()] })); });
+  for (let i = 0; i < 5; i++) await assert.rejects(() => haikuChat({ ...request(), anthropicBrowserToolset: nativeBrowser }, route), /no action returned/);
+  assert.equal(calls, 5);
+});
+
+test('custom tools cannot return browser state without a native member call', () => {
+  const start: ChatMessage[] = [{ role: 'user', content: 'Inspect.' }, { role: 'assistant', content: null, anthropic_content: [{ type: 'tool_use', id: 'a', name: 'read_page', input: {} }] }];
+  assert.throws(() => haikuMessages([...start, { role: 'tool', tool_call_id: 'a', content: '', anthropic_content: [browserState] }]), /only on a native/);
+});

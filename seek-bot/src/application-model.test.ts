@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applicationModel, applicationModelIdentity, applicationModelAvailable,
-  assertApplicationModelConfigured, applicationHaikuRoute, withApplicationModel } from './application-model.js';
+  assertApplicationModelConfigured, assertApplicationBrowserConfigured, applicationHaikuRoute, withApplicationModel } from './application-model.js';
 
 const root = resolve('fixture-bot');
 const haiku = { APPLICATION_AI_MODEL: 'haiku', APPLICATION_AI_ADMIN_ENABLED: 'true',
@@ -43,6 +43,13 @@ test('cache identity distinguishes model and protocol without containing credent
   assert.match(identity, /anthropic-messages/);
   assert.doesNotMatch(identity, /fixture-router/);
   assert.notEqual(identity, JSON.stringify(applicationModelIdentity({ APPLICATION_AI_MODEL: 'celeris' }, root)));
+});
+
+test('native browser runs stop before discovery without a direct Anthropic key', () => {
+  assert.throws(() => assertApplicationBrowserConfigured(haiku, root), /native browser tools require a direct ANTHROPIC_API_KEY/);
+  assert.doesNotThrow(() => assertApplicationBrowserConfigured({ ...haiku, ANTHROPIC_API_KEY: 'fixture-direct' }, root));
+  assert.doesNotThrow(() => assertApplicationBrowserConfigured({ APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fixture-celeris' }, root));
+  assert.throws(() => assertApplicationBrowserConfigured({ ...haiku, APPLICATION_AI_OWNER_ID: 'other' }, root), /authenticated admin/);
 });
 
 test('concurrent request-scoped choices do not mutate or leak through process.env', async () => {

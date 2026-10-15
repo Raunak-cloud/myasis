@@ -14,7 +14,7 @@
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config, loadProfile } from './config.js';
-import { applicationModelIdentity, assertApplicationModelConfigured } from './application-model.js';
+import { applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
@@ -67,7 +67,7 @@ function saveQueue(items: QueueItem[]) {
 
 async function build() {
   const profile = loadProfile();
-  assertApplicationModelConfigured();
+  assertApplicationBrowserConfigured();
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
   }

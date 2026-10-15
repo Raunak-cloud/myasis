@@ -23,6 +23,8 @@ export interface ToolSchema {
 interface ToolCall {
   id: string;
   name: string;
+  /** Anthropic client-toolset namespace; absent for ordinary custom tools. */
+  toolset_name?: 'browser';
   /** Already JSON-parsed. Malformed arguments surface as a parse error instead. */
   args: Record<string, unknown>;
 }
@@ -30,7 +32,7 @@ interface ToolCall {
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string | ContentPart[] }
   | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[]; anthropic_content?: unknown[]; anthropic_protocol?: unknown; reasoning_details?: unknown[]; reasoning_content?: string }
-  | { role: 'tool'; tool_call_id: string; content: string };
+  | { role: 'tool'; tool_call_id: string; content: string; toolset_name?: 'browser'; anthropic_content?: unknown[]; is_error?: boolean };
 
 type ContentPart =
   | { type: 'text'; text: string }
@@ -126,6 +128,8 @@ export interface CelerisRequest {
   model: CelerisModel;
   messages: ChatMessage[];
   tools?: ToolSchema[];
+  /** Anthropic-defined browser members, executed by our guarded browser executor. */
+  anthropicBrowserToolset?: { type: 'browser_toolset_20260801'; configs?: Record<string, { enabled?: boolean; defer_loading?: boolean }> };
   /** Force a tool call rather than letting the model reply with prose. */
   requireTool?: boolean;
   temperature?: number;

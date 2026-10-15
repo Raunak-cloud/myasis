@@ -36,6 +36,101 @@ function validator(schema: Record<string, unknown>): ValidateFunction {
   return validate;
 }
 
+// Anthropic defines these members; this registry validates their wire inputs,
+// never advertises custom lookalikes in place of the dated native declaration.
+const str = { type: 'string', minLength: 1 }, number = { type: 'number' }, tab = { tab_id: str };
+const coordinate = { type: 'object', properties: { type: { const: 'coordinate' }, x: { type: 'integer', minimum: 0 }, y: { type: 'integer', minimum: 0 } }, required: ['type', 'x', 'y'], additionalProperties: false };
+const reference = { type: 'object', properties: { type: { const: 'ref' }, ref: str }, required: ['type', 'ref'], additionalProperties: false };
+const target = { anyOf: [coordinate, reference] };
+const schema = (properties: Block = {}, required: string[] = []) => ({ type: 'object', properties: { ...properties, ...tab }, required, additionalProperties: false });
+const BROWSER_MEMBERS: Record<string, Block> = {
+  navigate: schema({ url: str }, ['url']), screenshot: schema(),
+  zoom: schema({ region: { type: 'array', items: { type: 'integer', minimum: 0 }, minItems: 4, maxItems: 4 } }, ['region']),
+  ...Object.fromEntries(['left_click', 'right_click', 'middle_click', 'double_click', 'triple_click', 'hover'].map(name => [name, schema({ target, modifiers: { type: 'string' } }, ['target'])])),
+  left_click_drag: schema({ from: coordinate, target: coordinate }, ['from', 'target']),
+  ...Object.fromEntries(['left_mouse_down', 'left_mouse_up', 'mouse_move'].map(name => [name, schema({ target: coordinate }, ['target'])])),
+  scroll: schema({ target: coordinate, scroll_direction: { enum: ['up', 'down', 'left', 'right'] }, scroll_amount: { type: 'integer', minimum: 1, maximum: 10 } }, ['target', 'scroll_direction']),
+  scroll_to: schema({ target: reference }, ['target']),
+  type: schema({ text: { type: 'string' } }, ['text']), key: schema({ text: str, repeat: { type: 'integer', minimum: 1, maximum: 100 } }, ['text']),
+  hold_key: schema({ text: str, duration: { ...number, minimum: 0, maximum: 30 } }, ['text', 'duration']),
+  wait: schema({ duration: { ...number, minimum: 0, maximum: 30 } }, ['duration']),
+  read_page: schema({ filter: { enum: ['interactive', 'all'] }, depth: { type: 'integer', minimum: 1 }, ref: str }),
+  find: schema({ query: str }, ['query']), get_page_text: schema(),
+  form_input: schema({ target: reference, value: { type: ['string', 'number', 'boolean'] } }, ['target', 'value']),
+  file_upload: { ...schema({ target: reference, paths: { type: 'array', items: str, minItems: 1 }, document_ids: { type: 'array', items: str, minItems: 1 } }, ['target']), anyOf: [{ required: ['paths'] }, { required: ['document_ids'] }] },
+  read_console: schema(), read_network: schema(), javascript_exec: schema({ text: str }, ['text']),
+  new_tab: { type: 'object', properties: {}, additionalProperties: false }, list_tabs: { type: 'object', properties: {}, additionalProperties: false },
+  switch_tab: { type: 'object', properties: tab, required: ['tab_id'], additionalProperties: false },
+  close_tab: { type: 'object', properties: tab, required: ['tab_id'], additionalProperties: false },
+};
+const OPTIONAL_BROWSER_MEMBERS = new Set(['javascript_exec', 'file_upload', 'read_console', 'read_network']);
+const TAB_MEMBERS = new Set(['new_tab', 'list_tabs', 'switch_tab', 'close_tab']);
+function browserToolset(request: CelerisRequest): Block | undefined {
+  const entry = request.anthropicBrowserToolset;
+  if (!entry) return undefined;
+  if (entry.type !== 'browser_toolset_20260801' || Object.keys(entry).some(key => !['type', 'configs'].includes(key))
+    || entry.configs !== undefined && (!object(entry.configs) || Object.entries(entry.configs).some(([name, cfg]) => !Object.hasOwn(BROWSER_MEMBERS, name) || !object(cfg)
+      || Object.entries(cfg).some(([key, value]) => !['enabled', 'defer_loading'].includes(key) || typeof value !== 'boolean')))) throw new Error('Invalid native Haiku browser toolset declaration');
+  if (request.tools?.some(tool => tool.name === 'browser')) throw new Error('A custom tool cannot use the native browser namespace');
+  const enabled = Object.keys(BROWSER_MEMBERS).filter(name => entry.configs?.[name]?.enabled ?? !OPTIONAL_BROWSER_MEMBERS.has(name));
+  if (!enabled.length || new Set(enabled.map(name => entry.configs?.[name]?.defer_loading ?? false)).size > 1) throw new Error('Invalid native Haiku browser member configuration');
+  // Tool-search integration is deliberately absent; silently deferred members would be unusable.
+  if (enabled.some(name => entry.configs?.[name]?.defer_loading)) throw new Error('Deferred native browser members require an explicit tool-search integration');
+  return structuredClone(entry) as unknown as Block;
+}
+function validateBrowserCall(request: CelerisRequest, name: string, input: Block): void {
+  const entry = request.anthropicBrowserToolset;
+  if (!entry || !Object.hasOwn(BROWSER_MEMBERS, name) || !(entry.configs?.[name]?.enabled ?? !OPTIONAL_BROWSER_MEMBERS.has(name))) throw new Error('Haiku called an undeclared or disabled native browser member; no action returned');
+  if (!validator(BROWSER_MEMBERS[name])(input)) throw new Error('Haiku native browser input did not satisfy its contract; no action returned');
+}
+function browserResultContent(content: unknown, name: string, isError: boolean): Block[] | string {
+  if (typeof content === 'string') {
+    if (!isError && (TAB_MEMBERS.has(name) || name === 'screenshot' || name === 'zoom')) throw new Error('Native browser result requires structured image or browser state content');
+    return content;
+  }
+  if (!Array.isArray(content) || !content.length || !content.every(object)
+    || content.some(block => !['text', 'image', 'browser_state'].includes(String(block.type)))) throw new Error('Invalid native browser result content');
+  for (const block of content) {
+    if (block.type === 'text' && typeof block.text !== 'string') throw new Error('Invalid native browser text result');
+    if (block.type === 'image' && (!object(block.source) || !(
+      block.source.type === 'base64' && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(String(block.source.media_type)) && typeof block.source.data === 'string' && /^[A-Za-z0-9+/=\r\n]+$/.test(block.source.data)
+      || block.source.type === 'url' && typeof block.source.url === 'string' && /^https:\/\//.test(block.source.url)))) throw new Error('Invalid native browser image result');
+  }
+  const states = content.filter(block => block.type === 'browser_state');
+  if (states.length > 1 || isError && states.length) throw new Error('Invalid native browser state on an error or duplicate state block');
+  if (isError && content.some(block => block.type !== 'text')) throw new Error('Native browser error results must contain text only');
+  if (!isError && TAB_MEMBERS.has(name) && (content.length !== 1 || states.length !== 1)) throw new Error('Native tab result must contain exactly one browser state block');
+  if (!isError && ['screenshot', 'zoom'].includes(name) && !content.some(block => block.type === 'image')) throw new Error('Native screenshot result requires an image block');
+  for (const state of states) {
+    const cleanString = (v: unknown, empty = true) => typeof v === 'string' && v.length <= 4096 && (empty || v.length > 0) && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(v);
+    if (!Array.isArray(state.tabs) || state.tabs.length > 100 || !state.tabs.every(t => object(t) && cleanString(t.tab_id, false) && cleanString(t.title) && cleanString(t.url) && (t.active === undefined || typeof t.active === 'boolean'))
+      || state.tabs.length > 0 && state.tabs.filter(t => t.active === true).length !== 1
+      || new Set(state.tabs.map(t => t.tab_id)).size !== state.tabs.length) throw new Error('Invalid native browser tab inventory');
+    const tabs = state.tabs as Block[];
+    if (state.state_changes !== undefined) {
+      if (!Array.isArray(state.state_changes) || !state.state_changes.length || state.state_changes.length > 200) throw new Error('Invalid native browser state changes');
+      const downloads = new Set<string>();
+      for (const change of state.state_changes) {
+        if (!object(change)) throw new Error('Invalid native browser state change');
+        const allowed = change.type === 'tab_opened' ? ['type', 'tab_id'] : change.type === 'download_started' ? ['type', 'download_id', 'url']
+          : change.type === 'download_completed' ? ['type', 'download_id', 'url', 'path', 'size_bytes'] : change.type === 'download_failed' ? ['type', 'download_id', 'url', 'error'] : [];
+        if (!allowed.length || Object.keys(change).some(key => !allowed.includes(key))) throw new Error('Invalid native browser state change');
+        if (change.type === 'tab_opened') {
+          if (!cleanString(change.tab_id, false) || !tabs.some(t => t.tab_id === change.tab_id)) throw new Error('Native opened tab must be in the current inventory');
+        } else {
+          if (!cleanString(change.download_id, false) || !cleanString(change.url) || downloads.has(String(change.download_id))
+            || change.path !== undefined && !cleanString(change.path) || change.error !== undefined && !cleanString(change.error)
+            || change.size_bytes !== undefined && (!Number.isSafeInteger(change.size_bytes) || Number(change.size_bytes) < 0)) throw new Error('Invalid native browser download event');
+          downloads.add(String(change.download_id));
+        }
+      }
+    }
+    if (name === 'new_tab' && (!Array.isArray(state.state_changes) || state.state_changes.filter(change => object(change) && change.type === 'tab_opened').length !== 1
+      || !state.state_changes.some(change => object(change) && change.type === 'tab_opened' && tabs.some(t => t.active === true && t.tab_id === change.tab_id)))) throw new Error('Native new-tab result must identify its opened active tab');
+  }
+  return structuredClone(content);
+}
+
 function contentBlocks(content: unknown): Block[] {
   if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : [];
   if (!Array.isArray(content)) throw new Error('Haiku message content must be text or content blocks');
@@ -57,6 +152,7 @@ function contentBlocks(content: unknown): Block[] {
 export function haikuMessages(messages: ChatMessage[]): { system: Block[]; messages: NativeMessage[] } {
   const system: Block[] = [], result: NativeMessage[] = [];
   const allIds = new Set<string>();
+  const uses = new Map<string, { name: string; toolset_name?: 'browser' }>();
   let pending: string[] = [];
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
@@ -72,8 +168,16 @@ export function haikuMessages(messages: ChatMessage[]): { system: Block[]; messa
       while (i < messages.length && messages[i].role === 'tool') {
         const tool = messages[i] as Extract<ChatMessage, { role: 'tool' }>;
         if (!pending.includes(tool.tool_call_id)) throw new Error('Haiku tool result ID is unknown or duplicated');
+        const use = uses.get(tool.tool_call_id)!;
+        if (use.toolset_name !== tool.toolset_name) throw new Error('Haiku native tool result namespace does not match its tool use');
+        if (tool.is_error !== undefined && typeof tool.is_error !== 'boolean') throw new Error('Invalid Haiku tool-result error flag');
         pending = pending.filter(id => id !== tool.tool_call_id);
-        blocks.push({ type: 'tool_result', tool_use_id: tool.tool_call_id, content: tool.content }); i++;
+        const content = tool.anthropic_content ?? tool.content;
+        if (!use.toolset_name && Array.isArray(content) && content.some(block => object(block) && block.type === 'browser_state')) throw new Error('Browser state is allowed only on a native browser member result');
+        blocks.push({ type: 'tool_result', tool_use_id: tool.tool_call_id,
+          ...(use.toolset_name ? { toolset_name: use.toolset_name } : {}),
+          ...(tool.is_error !== undefined ? { is_error: tool.is_error } : {}),
+          content: use.toolset_name === 'browser' ? browserResultContent(content, use.name, tool.is_error === true) : structuredClone(content) }); i++;
       }
       i--;
       if (pending.length) throw new Error('Haiku tool results must answer every tool use before the next turn');
@@ -99,7 +203,9 @@ export function haikuMessages(messages: ChatMessage[]): { system: Block[]; messa
         if (typeof block.id !== 'string' || !block.id || allIds.has(block.id) || typeof block.name !== 'string' || !object(block.input)) {
           throw new Error('Stored Haiku tool use is invalid or its ID was reused');
         }
+        if (block.toolset_name !== undefined && block.toolset_name !== 'browser') throw new Error('Unsupported stored Haiku toolset namespace');
         allIds.add(block.id); pending.push(block.id);
+        uses.set(block.id, { name: block.name, ...(block.toolset_name === 'browser' ? { toolset_name: 'browser' as const } : {}) });
       }
       if (!blocks.length) throw new Error('Empty stored Haiku assistant message');
       result.push({ role: 'assistant', content: blocks }); continue;
@@ -143,7 +249,7 @@ export function haikuSchema(value: unknown): unknown {
  * mid-conversation invalidates its prompt cache.
  */
 export function haikuReasoning(request: CelerisRequest, route: HaikuRoute): { effort: NonNullable<HaikuRoute['effort']>; thinking: Block } {
-  if (request.tools?.length) return { effort: route.effort ?? 'medium', thinking: { type: 'adaptive' } };
+  if (request.tools?.length || request.anthropicBrowserToolset) return { effort: route.effort ?? 'medium', thinking: { type: 'adaptive' } };
   if (!request.thinking) return { effort: 'low', thinking: { type: 'disabled' } };
   return { effort: request.reasoningEffort === 'medium' || request.reasoningEffort === 'xhigh' ? 'high' : 'medium', thinking: { type: 'adaptive' } };
 }
@@ -238,7 +344,7 @@ function previousProtocol(request: CelerisRequest): Protocol | undefined {
   return native.at(-1)!.anthropic_protocol as Protocol;
 }
 function protocolFor(request: CelerisRequest, route: HaikuRoute, body: Block): Protocol {
-  return { version: 'haiku-native-v1', sourceTools: fingerprint([...(request.tools ?? [])].sort((a, b) => a.name.localeCompare(b.name))),
+  return { version: 'haiku-native-v1', sourceTools: fingerprint({ custom: [...(request.tools ?? [])].sort((a, b) => a.name.localeCompare(b.name)), browser: request.anthropicBrowserToolset ?? null }),
     system: fingerprint(body.system), thinking: fingerprint(body.thinking), output: fingerprint(body.output_config), provider: route.provider,
     model: route.model, tools: structuredClone((body.tools ?? []) as Block[]) };
 }
@@ -250,7 +356,8 @@ export function haikuBody(request: CelerisRequest, route: HaikuRoute, options: {
   if (!finite(maxTokens) || maxTokens === 0) throw new Error('Invalid Haiku output token limit');
   if (request.responseSchema) validator(request.responseSchema);
   for (const tool of request.tools ?? []) validator(tool.parameters);
-  const conversation = Boolean(request.tools?.length) || transcript.messages.length > 1;
+  const nativeBrowser = browserToolset(request);
+  const conversation = Boolean(request.tools?.length) || Boolean(nativeBrowser) || transcript.messages.length > 1;
   const { effort, thinking } = haikuReasoning(request, route);
   const body: Record<string, unknown> = {
     model: route.model, system: transcript.system,
@@ -261,16 +368,16 @@ export function haikuBody(request: CelerisRequest, route: HaikuRoute, options: {
     // Native automatic caching moves the breakpoint without rewriting stored thinking blocks.
     ...(conversation ? { cache_control: { type: 'ephemeral' } } : {}), stream: false,
   };
-  if (request.tools?.length) {
+  if (request.tools?.length || nativeBrowser) {
     // Every tool remains available. Only the subset fitting native limits is strict.
-    body.tools = schemaBudgetTools(request, options.strictTools !== false);
+    body.tools = [...schemaBudgetTools(request, options.strictTools !== false), ...(nativeBrowser ? [nativeBrowser] : [])];
     // Forced calls skip adaptive thinking. The controller handles a plain-text turn.
     body.tool_choice = { type: 'auto' };
   }
   if (route.provider === 'OpenRouter') body.provider = {
     only: ['anthropic'], allow_fallbacks: false, require_parameters: true, data_collection: 'deny',
   };
-  if (!request.tools?.length) schemaBudgetTools(request, false);
+  if (!request.tools?.length && !nativeBrowser) schemaBudgetTools(request, false);
   const previous = previousProtocol(request);
   if (previous) {
     const current = protocolFor(request, route, body);
@@ -410,12 +517,17 @@ export async function haikuChat(request: CelerisRequest, route: HaikuRoute, timi
       if (!Array.isArray(payload.content) || !payload.content.every(object)) throw new Error('Haiku returned invalid native content');
       const blocks = payload.content as Block[], names = new Set(request.tools?.map(t => t.name)), ids = new Set<string>();
       const toolCalls = blocks.filter(b => b.type === 'tool_use').map(block => {
-        if (typeof block.id !== 'string' || !block.id || ids.has(block.id) || typeof block.name !== 'string' || !names.has(block.name) || !object(block.input)) {
+        if (typeof block.id !== 'string' || !block.id || ids.has(block.id) || typeof block.name !== 'string' || !object(block.input)
+          || block.toolset_name !== undefined && block.toolset_name !== 'browser' || !block.toolset_name && !names.has(block.name)) {
           throw new Error('Haiku tool use is invalid or names an unavailable tool; no action returned');
         }
-        const definition = request.tools!.find(t => t.name === block.name)!;
-        if (!validator(definition.parameters)(block.input)) throw new Error('Haiku tool input did not satisfy its original schema; no action returned');
-        ids.add(block.id); return { id: block.id, name: block.name, args: block.input };
+        if (block.toolset_name === 'browser') validateBrowserCall(request, block.name, block.input);
+        else {
+          const definition = request.tools!.find(t => t.name === block.name)!;
+          if (!validator(definition.parameters)(block.input)) throw new Error('Haiku tool input did not satisfy its original schema; no action returned');
+        }
+        ids.add(block.id); return { id: block.id, name: block.name, args: block.input,
+          ...(block.toolset_name === 'browser' ? { toolset_name: 'browser' as const } : {}) };
       });
       if ((payload.stop_reason === 'tool_use') !== Boolean(toolCalls.length)) throw new Error('Haiku stop reason and native tool blocks disagree; no action returned');
       const text = blocks.filter(b => b.type === 'text').map(b => typeof b.text === 'string' ? b.text : '').join('\n');
