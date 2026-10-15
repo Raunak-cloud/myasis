@@ -2,6 +2,7 @@ import type { CelerisRequest, CelerisReply, ChatMessage } from './celeris.js';
 import { beginCostRequest, recordCost } from '../cost-ledger.js';
 import { metric } from '../pipeline.js';
 import { providerOutOfCredit } from '../run-health.js';
+import { createHash } from 'node:crypto';
 import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 
@@ -132,22 +133,84 @@ export function haikuSchema(value: unknown): unknown {
   return result;
 }
 
-export function haikuBody(request: CelerisRequest, route: HaikuRoute): Record<string, unknown> {
+/**
+ * Haiku mirrors the reasoning tier each call already asks Celeris for.
+ * Celeris-1 classifications (fit, rules, ranking, yes/no checks) run without
+ * reasoning, so Haiku answers them at low effort with thinking off, which
+ * Anthropic recommends for short, high-volume requests. Calls that ask for
+ * deeper reasoning (exception review, deeper letters) get high. A tool
+ * conversation keeps one level throughout: changing top-level effort
+ * mid-conversation invalidates its prompt cache.
+ */
+export function haikuReasoning(request: CelerisRequest, route: HaikuRoute): { effort: NonNullable<HaikuRoute['effort']>; thinking: Block } {
+  if (request.tools?.length) return { effort: route.effort ?? 'medium', thinking: { type: 'adaptive' } };
+  if (!request.thinking) return { effort: 'low', thinking: { type: 'disabled' } };
+  return { effort: request.reasoningEffort === 'medium' || request.reasoningEffort === 'xhigh' ? 'high' : 'medium', thinking: { type: 'adaptive' } };
+}
+
+/**
+ * Prompt caching only pays when a prefix is read back: a cache write costs
+ * 1.25x ordinary input, a read 0.1x. A tool conversation is append-only, so
+ * its automatic breakpoint is reused every turn. A one-off prompt is not; its
+ * reusable part is the trusted instructions before the first untrusted data
+ * block (rules, profile, guidance), shared by every job in a run. That prefix
+ * gets its own block, and a breakpoint once it has been seen before, so a
+ * prompt that never repeats never pays for a write.
+ */
+const MIN_CACHED_PREFIX_CHARS = 2048; // ~512 tokens, Haiku 5.5's minimum cacheable prompt
+const seenPrefixes = new Map<string, true>();
+function cacheRepeatedPrefix(messages: NativeMessage[], model: string): NativeMessage[] {
+  const only = messages.length === 1 ? messages[0] : null;
+  const text = only?.content.length === 1 && only.content[0].type === 'text' ? String(only.content[0].text) : '';
+  const split = text.indexOf('\n<untrusted');
+  if (split < MIN_CACHED_PREFIX_CHARS) return messages;
+  const prefix = text.slice(0, split);
+  const key = createHash('sha256').update(model).update('\0').update(prefix).digest('hex');
+  const repeated = seenPrefixes.delete(key);
+  seenPrefixes.set(key, true);
+  if (seenPrefixes.size > 2000) seenPrefixes.delete(seenPrefixes.keys().next().value!);
+  return [{ role: 'user', content: [
+    { type: 'text', text: prefix, ...(repeated ? { cache_control: { type: 'ephemeral' } } : {}) },
+    { type: 'text', text: text.slice(split) },
+  ] }];
+}
+
+/** Strict tools need closed objects; an open one would only ever accept {}. */
+function strictCompatible(schema: unknown): boolean {
+  if (Array.isArray(schema)) return schema.every(strictCompatible);
+  if (!object(schema)) return true;
+  if ((schema.type === 'object' || schema.properties) && (!object(schema.properties) || schema.additionalProperties === true || object(schema.additionalProperties))) return false;
+  if ('$ref' in schema) return false;
+  return Object.values(schema).every(strictCompatible);
+}
+/** Set when the provider rejects a strict schema; Ajv still checks every input. */
+let strictToolsRefused = false;
+
+export function haikuBody(request: CelerisRequest, route: HaikuRoute, options: { strictTools?: boolean } = {}): Record<string, unknown> {
   if (!expectedModels.has(route.model)) throw new Error('Haiku route must select the pinned Claude Haiku 5.5 model');
   const transcript = haikuMessages(request.messages);
   const maxTokens = request.maxTokens ?? 8192;
   if (!finite(maxTokens) || maxTokens === 0) throw new Error('Invalid Haiku output token limit');
   if (request.responseSchema) validator(request.responseSchema);
   for (const tool of request.tools ?? []) validator(tool.parameters);
+  const conversation = Boolean(request.tools?.length) || transcript.messages.length > 1;
+  const { effort, thinking } = haikuReasoning(request, route);
   const body: Record<string, unknown> = {
-    model: route.model, ...transcript, max_tokens: Math.min(128000, Math.max(4096, maxTokens)),
-    thinking: { type: 'adaptive' }, output_config: { effort: route.effort ?? 'medium',
+    model: route.model, system: transcript.system,
+    messages: conversation ? transcript.messages : cacheRepeatedPrefix(transcript.messages, route.model),
+    max_tokens: Math.min(128000, Math.max(4096, maxTokens)),
+    thinking, output_config: { effort,
       ...(request.responseSchema ? { format: { type: 'json_schema', schema: haikuSchema(request.responseSchema) } } : {}) },
     // Native automatic caching moves the breakpoint without rewriting stored thinking blocks.
-    cache_control: { type: 'ephemeral' }, stream: false,
+    ...(conversation ? { cache_control: { type: 'ephemeral' } } : {}), stream: false,
   };
   if (request.tools?.length) {
-    body.tools = request.tools.map(tool => ({ name: tool.name, description: tool.description, input_schema: tool.parameters }));
+    const strict = options.strictTools ?? !strictToolsRefused;
+    // Strict tools constrain sampling to the schema, so a malformed input
+    // cannot cost a turn; Ajv below still checks the original contract.
+    body.tools = request.tools.map(tool => strict && strictCompatible(tool.parameters)
+      ? { name: tool.name, description: tool.description, input_schema: haikuSchema(tool.parameters), strict: true }
+      : { name: tool.name, description: tool.description, input_schema: tool.parameters });
     // Forced calls skip adaptive thinking. The controller handles a plain-text turn.
     body.tool_choice = { type: 'auto' };
   }
@@ -192,7 +255,8 @@ async function reportedCost(payload: Block, route: HaikuRoute, deadline: number)
 
 export async function haikuChat(request: CelerisRequest, route: HaikuRoute): Promise<CelerisReply> {
   if (!route.apiKey) throw new Error('The selected Haiku provider key is not configured');
-  const body = haikuBody(request, route), timeout = route.timeoutMs ?? 120000;
+  let body = haikuBody(request, route);
+  const timeout = route.timeoutMs ?? 120000;
   if (!finite(timeout) || timeout < 1) throw new Error('Invalid Haiku request deadline');
   const deadline = Date.now() + timeout, started = performance.now();
   let lastError: unknown;
@@ -223,6 +287,16 @@ export async function haikuChat(request: CelerisRequest, route: HaikuRoute): Pro
       if (usage) request.meter?.record(usage, actual ?? usage.estimatedUsd);
       if (!response.ok) {
         if (response.status === 402) providerOutOfCredit(route.provider);
+        const strictSent = Array.isArray(body.tools) && (body.tools as Block[]).some(tool => tool.strict === true);
+        if (response.status === 400 && strictSent && !strictToolsRefused && /strict|schema|grammar/i.test(JSON.stringify(payload.error ?? ''))) {
+          // A schema the provider cannot compile must not stop the run: resend
+          // once without strict mode. Nothing was executed; Ajv still applies.
+          strictToolsRefused = true;
+          console.warn('  ! Haiku provider refused strict tool schemas; continuing with validated non-strict tools');
+          body = haikuBody(request, route, { strictTools: false });
+          attempt--;
+          continue;
+        }
         throw new HaikuHttpError(response.status);
       }
       if (!expectedModels.has(String(payload.model))) throw new Error('Haiku model identity could not be verified; no action returned');

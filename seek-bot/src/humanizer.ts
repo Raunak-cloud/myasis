@@ -110,9 +110,11 @@ async function rewriteText(
     max_tokens: Math.max(256, Math.ceil(maxWords * 2)),
   };
   if (selectedModelEdits()) {
+    // The letter is read by an employer: Haiku keeps adaptive thinking here,
+    // since with thinking off reasoning-like text can leak into the reply.
     const reply = await celerisChat({ model: 'celeris-1-magnus',
       messages: body.messages as Array<{ role: 'system' | 'user'; content: string }>,
-      temperature, maxTokens: 4096 });
+      temperature, maxTokens: 4096, thinking: true });
     if (!reply.text.trim()) throw new Error('The selected application model returned no rewritten text');
     return reply.text.trim();
   }

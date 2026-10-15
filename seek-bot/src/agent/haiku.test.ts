@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CelerisRequest, ChatMessage, CostMeter } from './celeris.js';
-import { haikuBody, haikuChat, haikuMessages, haikuSchema, haikuUsage, type HaikuRoute } from './haiku.js';
+import { haikuBody, haikuChat, haikuMessages, haikuReasoning, haikuSchema, haikuUsage, type HaikuRoute } from './haiku.js';
 
 // Every provider response is mocked. These tests never contact an AI or a browser.
 process.env.COST_TRACKING = 'false';
@@ -26,7 +26,8 @@ test('native body uses Anthropic contracts and leaves thinking adaptive', () => 
   assert.deepEqual(body.thinking, { type: 'adaptive' });
   assert.deepEqual(body.output_config, { effort: 'medium', format: { type: 'json_schema', schema: { ...r.responseSchema, additionalProperties: false } } });
   assert.deepEqual(body.tool_choice, { type: 'auto' });
-  assert.deepEqual(body.tools, tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters })));
+  assert.deepEqual(body.tools, tools.map(t => ({ name: t.name, description: t.description, input_schema: { ...t.parameters, additionalProperties: false }, strict: true })));
+  assert.deepEqual(body.cache_control, { type: 'ephemeral' });
   assert.equal(body.max_tokens, 4096);
   assert.equal(body.temperature, undefined); assert.equal(body.reasoning, undefined); assert.equal(body.chat_template_kwargs, undefined);
   assert.deepEqual((body.messages as { content: unknown[] }[])[0].content[1], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } });
@@ -157,4 +158,53 @@ test('one bounded transient retry resends model transport only', async t => {
   t.mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => { bodies.push(JSON.parse(String(init?.body))); return bodies.length === 1 ? Response.json({ error: {} }, { status: 520 }) : Response.json(response()); });
   const reply = await haikuChat(request(), route);
   assert.equal(bodies.length, 2); assert.deepEqual(bodies[0], bodies[1]); assert.equal(reply.toolCalls.length, 1);
+});
+
+test('effort follows the reasoning tier each call asks for; a tool conversation keeps one level', () => {
+  const ask = (extra: Partial<CelerisRequest>) => haikuReasoning({ model: 'celeris-1', messages: [{ role: 'user', content: 'Fictional.' }], ...extra }, route);
+  assert.deepEqual(ask({ thinking: false }), { effort: 'low', thinking: { type: 'disabled' } });
+  assert.deepEqual(ask({ model: 'celeris-1-magnus', thinking: true }), { effort: 'medium', thinking: { type: 'adaptive' } });
+  assert.deepEqual(ask({ model: 'celeris-1-magnus', thinking: true, reasoningEffort: 'medium' }), { effort: 'high', thinking: { type: 'adaptive' } });
+  assert.deepEqual(ask({ model: 'celeris-1-magnus', thinking: true, reasoningEffort: 'xhigh' }), { effort: 'high', thinking: { type: 'adaptive' } });
+  assert.deepEqual(haikuReasoning(request(), route), { effort: 'medium', thinking: { type: 'adaptive' } });
+  const body = haikuBody({ model: 'celeris-1', messages: [{ role: 'user', content: 'Is this a final submit? {"sends_application":true|false}' }], thinking: false, responseSchema: { type: 'object', properties: { sends_application: { type: 'boolean' } }, required: ['sends_application'] } }, route);
+  assert.deepEqual(body.thinking, { type: 'disabled' }); assert.equal((body.output_config as { effort: string }).effort, 'low');
+});
+
+test('one-off prompts cache only a trusted prefix that has repeated', () => {
+  const rules = `Fictional screening rules.\n${'Apply the same fictional guidance to every listing. '.repeat(60)}`;
+  const prompt = (job: string) => `${rules}\n<untrusted role="job-listing">\n${job}\n</untrusted>`;
+  const one = (text: string) => haikuBody({ model: 'celeris-1', messages: [{ role: 'user', content: text }], thinking: false }, route);
+  const first = one(prompt('Fictional job A')), second = one(prompt('Fictional job B'));
+  for (const body of [first, second]) assert.equal(body.cache_control, undefined);
+  const blocks = (body: Record<string, unknown>) => (body.messages as { content: Record<string, unknown>[] }[])[0].content;
+  assert.equal(blocks(first).length, 2); assert.equal(blocks(first)[0].cache_control, undefined);
+  assert.equal(blocks(first).map(b => b.text).join(''), prompt('Fictional job A'));
+  assert.deepEqual(blocks(second)[0].cache_control, { type: 'ephemeral' });
+  assert.equal(blocks(second).map(b => b.text).join(''), prompt('Fictional job B'));
+  const short = one('Short fictional question.\n<untrusted>Data</untrusted>');
+  assert.equal(blocks(short).length, 1); assert.equal(short.cache_control, undefined);
+});
+
+test('strict tools are sent only for closed schemas', () => {
+  const open = { name: 'free_form', description: 'Fictional open object.', parameters: { type: 'object', properties: { extra: { type: 'object' } } } };
+  const closed = { name: 'pick', description: 'Fictional closed object.', parameters: { type: 'object', properties: { ref: { type: 'string' }, values: { type: 'array', items: { type: 'string' }, maxItems: 3 } }, required: ['ref'] } };
+  const sent = haikuBody({ ...request(), tools: [open, closed] }, route).tools as Record<string, unknown>[];
+  assert.equal(sent[0].strict, undefined); assert.deepEqual(sent[0].input_schema, open.parameters);
+  assert.equal(sent[1].strict, true);
+  const schema = sent[1].input_schema as { additionalProperties: unknown; properties: { values: Record<string, unknown> } };
+  assert.equal(schema.additionalProperties, false); assert.equal(schema.properties.values.maxItems, undefined);
+});
+
+// Last: a refusal turns strict tools off for the rest of the process.
+test('a refused strict schema is resent once without strict mode', async t => {
+  const bodies: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, 'fetch', async (_url: string | URL | Request, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return bodies.length === 1 ? Response.json({ error: { type: 'invalid_request_error', message: 'tools.0: strict schema not supported' } }, { status: 400 }) : Response.json(response());
+  });
+  const reply = await haikuChat(request(), route);
+  assert.equal(bodies.length, 2); assert.equal(reply.toolCalls.length, 1);
+  assert.equal((bodies[0].tools as Record<string, unknown>[])[0].strict, true);
+  assert.equal((bodies[1].tools as Record<string, unknown>[])[0].strict, undefined);
 });
