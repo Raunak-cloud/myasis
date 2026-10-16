@@ -2,6 +2,11 @@ import { useEffect, useReducer, useState } from 'react';
 import { initialLiveWorkers, liveWorkersState } from '../live-action-state';
 import type { LiveStreamMessage } from '../live-action-state';
 
+const ACTIVITY_LABEL = {
+  starting: 'Getting ready', reviewing: 'Reviewing jobs', applying: 'Applying',
+  waiting: 'Waiting', cooldown: 'Pausing between jobs', finished: 'Finished',
+};
+
 /** Independent, view-only pictures of this account's application workers. */
 export function LiveActionViewer({ onClose, activity }: { onClose: () => void; activity?: string }) {
   const [workers, updateView] = useReducer(liveWorkersState, initialLiveWorkers);
@@ -32,20 +37,26 @@ export function LiveActionViewer({ onClose, activity }: { onClose: () => void; a
             <h2 id="live-action-title">Live action</h2>
             <span className="job-meta">Watch Owtomate work in real time.</span>
           </div>
-          <span className={`badge ${liveCount ? 'ok' : 'muted'}`}>{workers.length > 1 ? `${liveCount} of ${workers.length} workers live` : liveCount ? 'Live' : 'Connecting'} · view only</span>
+          <span className={`badge ${liveCount ? 'ok' : 'muted'}`}>{workers.length > 1 ? `${liveCount} of ${workers.length} pictures live` : liveCount ? 'Picture live' : 'Connecting'} · view only</span>
           <button className="btn btn-small" onClick={onClose}>Close</button>
         </div>
         <div className={`live-action-grid${workers.length > 1 ? ' parallel' : ''}`}>
-          {workers.map(({ id, label, view }) => {
+          {workers.map(({ id, label, view, activity: workerActivity }) => {
             const live = view.phase === 'live';
             const disconnected = view.phase === 'disconnected';
             const finished = view.phase === 'finished';
+            const activityLabel = workerActivity ? ACTIVITY_LABEL[workerActivity.phase] : null;
+            const pageLess = workerActivity && workerActivity.phase !== 'applying' && workerActivity.phase !== 'reviewing';
             return (
               <section className="live-action-worker" key={id} aria-label={label}>
                 <div className="live-action-worker-bar">
                   <strong>{label}</strong>
-                  <span className={`badge ${live ? 'ok' : 'muted'}`}>{live ? 'Live' : finished ? 'Finished' : disconnected ? 'Disconnected' : 'Waiting'}</span>
+                  <div className="live-action-worker-status">
+                    {activityLabel && <span className={`badge ${workerActivity?.phase === 'applying' ? 'ok' : 'info'}`}>{activityLabel}</span>}
+                    <span className={`badge ${live ? 'ok' : 'muted'}`}>{disconnected ? 'Disconnected' : live ? 'Picture live' : pageLess || finished ? 'No browser page' : 'Waiting for picture'}</span>
+                  </div>
                 </div>
+                {workerActivity?.detail && !pageLess && <p className="live-action-worker-detail">{workerActivity.detail}</p>}
                 <div className="live-action-screen">
                   {view.frame && (
                     <img src={view.frame} alt={`${label} live browser activity`} draggable={false}
@@ -59,9 +70,10 @@ export function LiveActionViewer({ onClose, activity }: { onClose: () => void; a
                         <rect x="5" y="7" width="38" height="28" rx="4" /><path d="M5 15h38M17 41h14M24 35v6" />
                         <circle cx="11" cy="11" r="1" fill="currentColor" stroke="none" />
                       </svg>
-                      <h3>{finished ? 'Worker finished' : disconnected ? 'Live view disconnected' : 'Waiting for a browser page'}</h3>
+                      <h3>{finished ? 'Worker finished' : disconnected ? 'Live view disconnected' : pageLess ? activityLabel : 'Waiting for a browser page'}</h3>
                       <p>{finished ? 'This worker has finished its work for this run.' : disconnected
                         ? 'The browser picture is unavailable. Check the run activity below, or reconnect the views.'
+                        : pageLess ? workerActivity?.detail || 'This worker will continue when its next task is ready.'
                         : 'Job searches and AI reviews can happen without a browser page. The picture will appear when a page opens.'}</p>
                       {disconnected && <button className="btn btn-small" onClick={() => setAttempt(value => value + 1)}>Reconnect views</button>}
                     </div>

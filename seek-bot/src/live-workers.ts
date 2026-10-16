@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { LIVE_ACTIVITY_PHASES, type LiveActivity } from './live-activity.js';
+export type { LiveActivity } from './live-activity.js';
 
 export type LiveWorkerId = 'main' | 'seek' | 'indeed';
 export const LIVE_WORKERS_FILE = 'live-workers.json';
@@ -7,7 +9,7 @@ export const LIVE_WORKER_LABELS: Record<LiveWorkerId, string> = {
   main: 'Browser', seek: 'SEEK worker', indeed: 'Indeed / employer feeds worker',
 };
 export interface LiveWorker { id: LiveWorkerId; label: string }
-export interface LiveTarget { targetId?: string; finished?: boolean }
+export interface LiveTarget { targetId?: string; finished?: boolean; activity?: LiveActivity }
 export const liveTargetFile = (id: LiveWorkerId) => id === 'main' ? 'live-target.json' : `live-target-${id}.json`;
 
 function atomicWrite(directory: string, name: string, value: unknown): void {
@@ -32,10 +34,21 @@ export function resetLiveWorkers(directory: string): void {
 export function writeLiveTarget(directory: string, id: LiveWorkerId, target: LiveTarget): void {
   atomicWrite(directory, liveTargetFile(id), target);
 }
+export function updateLiveTarget(directory: string, id: LiveWorkerId, update: LiveTarget): void {
+  writeLiveTarget(directory, id, { ...readLiveTarget(directory, id), ...update });
+}
 export function readLiveTarget(directory: string, id: LiveWorkerId): LiveTarget | null {
   try {
     const target = JSON.parse(readFileSync(resolve(directory, liveTargetFile(id)), 'utf8'));
-    return { ...(typeof target.targetId === 'string' ? { targetId: target.targetId } : {}), ...(target.finished === true ? { finished: true } : {}) };
+    const activity = target.activity;
+    return {
+      ...(typeof target.targetId === 'string' ? { targetId: target.targetId } : {}),
+      ...(target.finished === true ? { finished: true } : {}),
+      ...(activity && LIVE_ACTIVITY_PHASES.includes(activity.phase) ? { activity: {
+        phase: activity.phase,
+        ...(typeof activity.detail === 'string' ? { detail: activity.detail.slice(0, 240) } : {}),
+      } } : {}),
+    };
   } catch { return null; }
 }
 export function readLiveWorkers(directory: string): LiveWorker[] {

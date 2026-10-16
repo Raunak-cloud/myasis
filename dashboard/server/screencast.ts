@@ -233,6 +233,7 @@ interface WorkerStream {
   remoteAt: number;
   remoteUrl: string;
   state: string;
+  activityKey: string;
 }
 
 /** One authenticated socket carries independent, account-owned worker streams.
@@ -274,7 +275,7 @@ export function streamLiveWorkers(client: WebSocket, options: {
       await Promise.all(workers.map(async worker => {
         let stream = streams.get(worker.id);
         if (!stream) {
-          stream = { session: null, current: null, remoteId: null, remoteAt: 0, remoteUrl: '', state: '' };
+          stream = { session: null, current: null, remoteId: null, remoteAt: 0, remoteUrl: '', state: '', activityKey: '' };
           streams.set(worker.id, stream);
         }
         const emit = (message: Record<string, unknown>) => send({ ...message, workerId: worker.id });
@@ -284,11 +285,21 @@ export function streamLiveWorkers(client: WebSocket, options: {
           stream!.state = state;
         };
         const named = readLiveTarget(options.directory, worker.id);
-        if (named?.finished) { await waiting('finished', true); return; }
+        const activity = named?.activity;
+        const activityKey = JSON.stringify(activity ?? null);
+        if (activityKey !== stream.activityKey) {
+          emit({ type: 'activity', activity: activity ?? null });
+          stream.activityKey = activityKey;
+        }
+        if (named?.finished || activity?.phase === 'finished') { await waiting('finished', true); return; }
+        if (activity && activity.phase !== 'applying' && activity.phase !== 'reviewing') {
+          await waiting(activity.phase); return;
+        }
         try {
           writeFileSync(resolve(options.directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }), { mode: 0o600 });
         } catch { /* Preparing account directory: retry on the next tick. */ }
-        const remote = readRemoteBrowserPreview(options.directory, Date.now(), worker.id);
+        // A previous cloud session must not replace the shared review page.
+        const remote = activity?.phase === 'reviewing' ? null : readRemoteBrowserPreview(options.directory, Date.now(), worker.id);
         if (remote) {
           await stop(stream);
           if (remote.sessionId !== stream.remoteId || remote.url !== stream.remoteUrl || stream.state !== 'remote') {
@@ -306,7 +317,7 @@ export function streamLiveWorkers(client: WebSocket, options: {
           }
           return;
         }
-        if (existsSync(resolve(options.directory, remotePreviewFile(worker.id)))) {
+        if (activity?.phase !== 'reviewing' && existsSync(resolve(options.directory, remotePreviewFile(worker.id)))) {
           await waiting('remote-unavailable'); return;
         }
         stream.remoteId = null; stream.remoteAt = 0; stream.remoteUrl = '';

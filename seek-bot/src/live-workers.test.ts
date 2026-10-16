@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configureLiveWorkers, LIVE_WORKERS_FILE, readLiveTarget, readLiveWorkers, resetLiveWorkers, writeLiveTarget } from './live-workers.js';
+import { configureLiveWorkers, LIVE_WORKERS_FILE, readLiveTarget, readLiveWorkers, resetLiveWorkers, updateLiveTarget, writeLiveTarget } from './live-workers.js';
 import { currentApplicationWorker, withApplicationWorker } from './application-workers.js';
 
 test('worker identity survives asynchronous work, targets stay separate and new runs clear old state', async () => {
@@ -23,6 +23,12 @@ test('worker identity survives asynchronous work, targets stay separate and new 
     assert.equal(readLiveTarget(other, 'seek'), null);
     assert.equal(readLiveWorkers(other).length, 1);
     assert.deepEqual(readLiveWorkers(directory).map(worker => worker.id), ['seek', 'indeed']);
+    updateLiveTarget(directory, 'seek', { activity: { phase: 'applying', detail: 'Fixture job' } });
+    updateLiveTarget(directory, 'seek', { targetId: 'employer-popup' });
+    assert.equal(readLiveTarget(directory, 'seek')?.activity?.phase, 'applying');
+    updateLiveTarget(directory, 'seek', { targetId: undefined, activity: { phase: 'waiting' } });
+    assert.equal(readLiveTarget(directory, 'seek')?.targetId, undefined);
+    assert.equal(readLiveTarget(directory, 'indeed')?.targetId, 'page-indeed');
     writeLiveTarget(directory, 'seek', { finished: true });
     assert.equal(readLiveTarget(directory, 'indeed')?.targetId, 'page-indeed');
     resetLiveWorkers(directory);

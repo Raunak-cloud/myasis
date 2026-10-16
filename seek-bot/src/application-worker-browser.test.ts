@@ -9,7 +9,9 @@ import type { ToolContext } from './agent/tools/context.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-worker-browser-'));
 Object.assign(process.env, { DATA_DIR: directory, DRY_RUN: 'false', ALLOW_EXTERNAL_APPLY: 'true', CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems: [] }) } }] }), { status: 200 })) as typeof fetch;
-const { applicationWorkerContexts } = await import('./browser.js');
+const { applicationWorkerContexts, showLiveActivity, workingIn } = await import('./browser.js');
+const { readLiveTarget } = await import('./live-workers.js');
+const { withApplicationWorker } = await import('./application-workers.js');
 const { ApplicationReservations, withApplicationAttempt } = await import('./application-reservations.js');
 const { observe } = await import('./agent/observe.js');
 const { gateAdvance } = await import('./agent/tools/gate.js');
@@ -31,6 +33,20 @@ test('isolated sessions preserve login, separate mutable state/popups, and allow
     for (const context of [seek, indeed]) await context.route('**/*', route => route.fulfill({ contentType: 'text/html', body: markup }));
     const pages = await Promise.all([seek.newPage(), indeed.newPage()]);
     await Promise.all(pages.map(page => page.goto('https://employer.fixture.invalid/jobs/7/apply')));
+    await Promise.all([
+      withApplicationWorker('seek', () => showLiveActivity({ phase: 'reviewing' }, seedPage)),
+      withApplicationWorker('indeed', () => showLiveActivity({ phase: 'applying', detail: 'Fixture application' }, pages[1])),
+    ]);
+    const reviewTarget = readLiveTarget(directory, 'seek')!;
+    const applicationTarget = readLiveTarget(directory, 'indeed')!;
+    assert.equal(reviewTarget.activity?.phase, 'reviewing');
+    assert.equal(applicationTarget.activity?.phase, 'applying');
+    assert.notEqual(reviewTarget.targetId, applicationTarget.targetId);
+    await withApplicationWorker('seek', () => showLiveActivity({ phase: 'waiting', detail: 'Review page released' }));
+    assert.equal(readLiveTarget(directory, 'seek')?.targetId, undefined);
+    assert.deepEqual(readLiveTarget(directory, 'indeed'), applicationTarget);
+    await withApplicationWorker('indeed', () => workingIn(pages[1]));
+    assert.equal(readLiveTarget(directory, 'indeed')?.activity?.phase, 'applying');
     assert.equal(await pages[0].evaluate(() => localStorage.getItem('candidate')), 'Fictional Owner');
     assert.equal((await indeed.cookies())[0].value, 'owner-session');
     await seek.addCookies([{ name: 'fixture_login', value: 'changed-in-seek', domain: 'employer.fixture.invalid', path: '/' }]);

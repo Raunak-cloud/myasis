@@ -5,7 +5,7 @@ import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, rul
 import { applicationKeys } from './application-identity.js';
 import { ApplicationReservations, withApplicationAttempt } from './application-reservations.js';
 import { ApplicationSlots, AsyncMutex, withApplicationWorker } from './application-workers.js';
-import { configureLiveWorkers, resetLiveWorkers, writeLiveTarget } from './live-workers.js';
+import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
 import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
@@ -17,6 +17,7 @@ import {
   ensureSignedIn,
   ensureIndeedSignedIn,
   workingIn,
+  showLiveActivity,
   jitter,
 } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
@@ -925,11 +926,20 @@ async function main() {
 
     /** Moves review on by one step: answered fit checks first, then the next listing, then a check still out. */
     const reviewMutex = new AsyncMutex();
-    const advanceReview = () => reviewMutex.run(async () => {
-      await settleAnswered();
-      if (!reviewDone()) await reviewNext();
-      else if (pendingFits.length) await flushFits();
-    });
+    const advanceReview = async () => {
+      await showLiveActivity({ phase: 'waiting', detail: 'Waiting for the shared job review page.' });
+      return reviewMutex.run(async () => {
+        await showLiveActivity({ phase: 'reviewing', detail: 'Checking job listings and matching your profile.' }, page);
+        try {
+          await settleAnswered();
+          if (!reviewDone()) await reviewNext();
+          else if (pendingFits.length) await flushFits();
+        } finally {
+          // Stop following the shared page before another worker navigates it.
+          await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
+        }
+      });
+    };
 
     /**
      * Jobs the board hosts itself go first; the employer's own site is the
@@ -1072,6 +1082,7 @@ async function main() {
     }
     const runWorker = async (applicationPage: Page, accept: (job: JobListing) => boolean) => {
       for (;;) {
+        await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
         // Only discovery/review touches the persistent discovery page. The mutex
         // keeps both workers from navigating it or consuming a review slot together.
         let next = takeCandidate(accept);
@@ -1082,7 +1093,12 @@ async function main() {
         if (!next) {
           // Another application may restore a review slot or produce new
           // candidates during its cooldown. Stay available until all are idle.
-          if (busyWorkers) { await new Promise<void>(resolve => workWaiters.add(resolve)); continue; }
+          if (busyWorkers) {
+            // Do not yield between checking busyWorkers and registering the
+            // wakeup: an observation update must not lose the last work signal.
+            void showLiveActivity({ phase: 'waiting', detail: 'No matching job ready. Waiting for the other worker to finish or new jobs to become available.' });
+            await new Promise<void>(resolve => workWaiters.add(resolve)); continue;
+          }
           break;
         }
         busyWorkers++;
@@ -1139,6 +1155,7 @@ async function main() {
             break;
           }
 
+          await showLiveActivity({ phase: 'waiting', detail: 'Waiting for an application slot.' });
           const slot = await slots.acquire(job.applicationMode === 'external');
           if (!slot) {
             console.log('Shared application allowance is reached; this worker is finished.');
@@ -1180,7 +1197,9 @@ async function main() {
             let outcome: ApplyOutcome;
             let candidateHitFriction = false;
             // Applying opens the board's listing again: a search just made there still has its gap to run out.
+            await showLiveActivity({ phase: 'waiting', detail: 'Pausing before opening this application.' });
             await sitePacer.ready(platformId);
+            await showLiveActivity({ phase: 'applying', detail: `${job.title} at ${job.company}` }, applicationPage);
             try {
               outcome = await withApplicationAttempt({ journal, id: attemptId, job, beforeSubmit: slot.beforeSubmit }, () => measured('application', () => adapter.apply(applicationPage, job, profile, {
                 onFriction: () => {
@@ -1314,6 +1333,8 @@ async function main() {
              * but never confirmed — that one may well have been sent, and used to get
              * only the short gap meant for attempts that transmitted nothing.
              */
+            await showLiveActivity({ phase: 'cooldown', detail: outcome.status === 'applied'
+              ? 'Application submitted. Pausing before the next job.' : 'Pausing before the next job.' });
             await cooldown(outcome.status === 'applied' || candidateHitFriction || Boolean(outcome.submitPressed), !candidateHitFriction);
           } finally {
             finalize();
@@ -1345,10 +1366,10 @@ async function main() {
         const runVisibleWorker = (id: 'seek' | 'indeed', workerPage: Page, accept: (job: JobListing) => boolean) =>
           withApplicationWorker(id, async () => {
             try {
-              await workingIn(workerPage);
+              await showLiveActivity({ phase: 'starting', detail: 'Getting this worker ready.' });
               await runWorker(workerPage, accept);
             } finally {
-              try { writeLiveTarget(config.dataDir, id, { finished: true }); } catch { /* Viewer metadata cannot fail a run. */ }
+              await showLiveActivity({ phase: 'finished', detail: 'This worker has finished its work for this run.' });
             }
           });
         const results = await Promise.allSettled([

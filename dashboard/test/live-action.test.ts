@@ -47,6 +47,24 @@ test('the picture becomes live only after a real page frame loads; navigation cl
   assert.equal(view.phase, 'waiting');
 });
 
+test('worker activity is separate from picture connectivity and waiting clears the previous form immediately', () => {
+  let workers = liveWorkersState(initialLiveWorkers, { type: 'workers', workers: [{ id: 'seek', label: 'SEEK' }, { id: 'indeed', label: 'Indeed' }] });
+  workers = liveWorkersState(workers, { type: 'activity', workerId: 'seek', activity: { phase: 'applying', detail: 'Fixture job' } });
+  workers = liveWorkersState(workers, { type: 'attached', workerId: 'seek', target: { url: 'https://fixture.invalid/form' } });
+  workers = liveWorkersState(workers, { type: 'frame', workerId: 'seek', data: 'old-form' });
+  workers = liveWorkersState(workers, { type: 'displayed', workerId: 'seek', data: 'data:image/jpeg;base64,old-form' });
+  assert.equal(workers[0].activity?.phase, 'applying');
+  assert.equal(workers[0].view.phase, 'live');
+  const indeed = workers[1];
+  workers = liveWorkersState(workers, { type: 'activity', workerId: 'seek', activity: { phase: 'waiting', detail: 'Waiting for shared review' } });
+  assert.equal(workers[0].view.frame, null);
+  workers = liveWorkersState(workers, { type: 'displayed', workerId: 'seek', data: 'data:image/jpeg;base64,old-form' });
+  assert.equal(workers[0].view.phase, 'waiting');
+  assert.equal(workers[1], indeed);
+  workers = liveWorkersState(workers, { type: 'workers', workers: [{ id: 'seek', label: 'SEEK' }, { id: 'indeed', label: 'Indeed' }] });
+  assert.equal(workers[0].activity?.phase, 'waiting');
+});
+
 test('disconnect and decode errors remove stale pictures; retry starts clean', () => {
   const live = { phase: 'live' as const, hasPage: true, frame: 'last-picture' };
   for (const type of ['error', 'closed', 'detached', 'image-error'] as const) {

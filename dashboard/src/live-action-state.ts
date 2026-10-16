@@ -1,5 +1,8 @@
+import type { LiveActivity } from '../../seek-bot/src/live-activity.js';
+
 export interface LiveMessage {
-  type: 'attached' | 'ready' | 'frame' | 'navigated' | 'detached' | 'error' | 'waiting';
+  type: 'attached' | 'ready' | 'frame' | 'navigated' | 'detached' | 'error' | 'waiting' | 'activity';
+  activity?: LiveActivity | null;
   workerId?: string;
   finished?: boolean;
   data?: string;
@@ -43,7 +46,7 @@ export function liveViewState(state: LiveViewState, event: ViewEvent): LiveViewS
   }
 }
 
-export interface WorkerView { id: string; label: string; view: LiveViewState }
+export interface WorkerView { id: string; label: string; view: LiveViewState; activity?: LiveActivity }
 export type LiveStreamMessage = LiveMessage | { type: 'workers'; workers: Array<{ id: string; label: string }> };
 type StreamEvent = LiveStreamMessage | { type: 'reset' | 'closed' | 'error' }
   | { type: 'displayed'; workerId: string; data: string } | { type: 'image-error'; workerId: string };
@@ -53,10 +56,19 @@ export const initialLiveWorkers: WorkerView[] = [{ id: 'main', label: 'Browser',
 export function liveWorkersState(state: WorkerView[], event: StreamEvent): WorkerView[] {
   if (event.type === 'reset') return initialLiveWorkers;
   if (event.type === 'workers') {
-    return event.workers.map(worker => ({ ...worker, view: state.find(old => old.id === worker.id)?.view ?? initialLiveView }));
+    return event.workers.map(worker => ({ ...state.find(old => old.id === worker.id), ...worker, view: state.find(old => old.id === worker.id)?.view ?? initialLiveView }));
   }
   const id = 'workerId' in event ? event.workerId : undefined;
   const broadcast = !id && (event.type === 'closed' || event.type === 'error');
+  if (event.type === 'activity') {
+    return state.map(worker => {
+      if (worker.id !== (id ?? 'main')) return worker;
+      const activity = event.activity ?? undefined;
+      const pageLess = activity && activity.phase !== 'applying' && activity.phase !== 'reviewing';
+      return { ...worker, activity, view: pageLess
+        ? liveViewState(worker.view, { type: 'waiting', finished: activity.phase === 'finished' }) : worker.view };
+    });
+  }
   return state.map(worker => broadcast || worker.id === (id ?? 'main')
     ? { ...worker, view: liveViewState(worker.view, event) } : worker);
 }

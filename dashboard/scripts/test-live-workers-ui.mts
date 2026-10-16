@@ -19,7 +19,7 @@ const unused = httpServer();
 await new Promise<void>(done => unused.listen(0, '127.0.0.1', done));
 const port = (unused.address() as { port: number }).port;
 await new Promise<void>(done => unused.close(() => done()));
-const browser = await chromium.launch({ headless: true, args: [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'],
+const browser = await chromium.launch({ headless: process.env.LIVE_WORKERS_HEADED !== 'true', args: [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'],
   ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
 const entry = `import React from 'react'; import {createRoot} from 'react-dom/client';
   import {LiveActionViewer} from '/src/components/LiveActionViewer.tsx'; import '/src/index.css';
@@ -85,8 +85,8 @@ try {
   writeLiveTarget(directory, 'indeed', { targetId: ids[1] });
   const seek = viewer.getByRole('region', { name: 'SEEK worker', exact: true });
   const indeed = viewer.getByRole('region', { name: 'Indeed / employer feeds worker', exact: true });
-  await seek.getByText('Live', { exact: true }).waitFor();
-  await indeed.getByText('Live', { exact: true }).waitFor();
+  await seek.getByText('Picture live', { exact: true }).waitFor();
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
   const seekFrame = await seek.getByRole('img').getAttribute('src');
   const indeedFrame = await indeed.getByRole('img').getAttribute('src');
   assert.notEqual(seekFrame, indeedFrame, 'two panes must contain two different browser pages');
@@ -98,34 +98,76 @@ try {
   assert.ok(await viewer.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal overflow');
   await viewer.setViewportSize({ width: 1440, height: 1000 });
 
+  // A shared review page belongs to the worker holding the review mutex.
+  // The other pane must continue its application, then wait without showing
+  // either its previous form or another worker's subsequent review navigation.
+  const reviewContext = await browser.newContext();
+  const reviewPage = await reviewContext.newPage();
+  await reviewPage.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<h1 style="background:pink">Shared job review</h1>' }));
+  await reviewPage.goto('https://review.fixture.invalid/job');
+  const reviewId = await targetId(reviewPage);
+  writeLiveTarget(directory, 'seek', { targetId: reviewId, activity: { phase: 'reviewing', detail: 'Checking listings against your profile.' } });
+  writeLiveTarget(directory, 'indeed', { targetId: ids[1], activity: { phase: 'applying', detail: 'Indeed fixture application' } });
+  await seek.getByText('Reviewing jobs', { exact: true }).waitFor();
+  await indeed.getByText('Applying', { exact: true }).waitFor();
+  await eventually(() => attachedTo('seek') === reviewId);
+  await seek.getByText('Picture live', { exact: true }).waitFor();
+  assert.equal(attachedTo('indeed'), ids[1]);
+  await viewer.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await viewer.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'activity badges and descriptions fit mobile');
+  await viewer.setViewportSize({ width: 1440, height: 1000 });
+  writeLiveTarget(directory, 'seek', { activity: { phase: 'waiting', detail: 'Waiting for shared review.' } });
+  await seek.getByRole('heading', { name: 'Waiting', exact: true }).waitFor();
+  assert.equal(await seek.getByRole('img').count(), 0, 'waiting must remove the previous form');
+  // A lingering cloud preview must not override the newly owned review page.
+  const oldCloudFile = join(directory, remotePreviewFile('indeed'));
+  writeFileSync(oldCloudFile, JSON.stringify({ sessionId: randomUUID(), provider: 'brightdata', at: Date.now(), url: 'https://cloud.fixture.invalid', data: (await pages[1].screenshot({ type: 'jpeg' })).toString('base64') }));
+  writeLiveTarget(directory, 'indeed', { targetId: reviewId, activity: { phase: 'reviewing' } });
+  await indeed.getByText('Reviewing jobs', { exact: true }).waitFor();
+  await eventually(() => attachedTo('indeed') === reviewId);
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
+  assert.equal(await seek.getByRole('img').count(), 0, 'released review page must not appear in the waiting worker');
+  unlinkSync(oldCloudFile);
+  writeLiveTarget(directory, 'seek', { targetId: ids[0], activity: { phase: 'applying', detail: 'SEEK fixture application' } });
+  writeLiveTarget(directory, 'indeed', { targetId: ids[1], activity: { phase: 'applying', detail: 'Indeed fixture application' } });
+  await eventually(() => attachedTo('seek') === ids[0] && attachedTo('indeed') === ids[1]);
+  await seek.getByText('Picture live', { exact: true }).waitFor();
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
+
   const popup = await contexts[0].newPage();
   await popup.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<h1 style="background:yellow">SEEK employer popup</h1>' }));
   await popup.goto('https://popup.fixture.invalid/form');
   const popupId = await targetId(popup);
-  writeLiveTarget(directory, 'seek', { targetId: popupId });
+  writeLiveTarget(directory, 'seek', { targetId: popupId, activity: { phase: 'applying', detail: 'SEEK employer popup' } });
   await eventually(() => attachedTo('seek') === popupId);
   await viewer.waitForFunction(`old => document.querySelector('[aria-label="SEEK worker"] img')?.getAttribute('src') !== old`, seekFrame);
-  await seek.getByText('Live', { exact: true }).waitFor();
+  await seek.getByText('Picture live', { exact: true }).waitFor();
   assert.equal(attachedTo('indeed'), ids[1], 'SEEK popup must not replace Indeed');
+  writeLiveTarget(directory, 'seek', { activity: { phase: 'cooldown', detail: 'Application submitted. Pausing before the next job.' } });
+  await seek.getByRole('heading', { name: 'Pausing between jobs', exact: true }).waitFor();
+  assert.equal(await seek.getByRole('img').count(), 0);
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
+  writeLiveTarget(directory, 'seek', { targetId: popupId, activity: { phase: 'applying' } });
+  await seek.getByText('Picture live', { exact: true }).waitFor();
   const remoteData = (await popup.screenshot({ type: 'jpeg', quality: 82 })).toString('base64');
   const remoteFile = join(directory, remotePreviewFile('indeed'));
   writeFileSync(remoteFile, JSON.stringify({ sessionId: randomUUID(), provider: 'brightdata', at: Date.now(), url: 'https://cloud.fixture.invalid', data: remoteData }));
   await viewer.waitForFunction(`data => document.querySelector('[aria-label="Indeed / employer feeds worker"] img')?.getAttribute('src') === 'data:image/jpeg;base64,' + data`, remoteData);
-  await seek.getByText('Live', { exact: true }).waitFor();
+  await seek.getByText('Picture live', { exact: true }).waitFor();
   unlinkSync(remoteFile);
   await eventually(() => attachedTo('indeed') === ids[1]);
-  await indeed.getByText('Live', { exact: true }).waitFor();
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
   await contexts[0].close();
   await seek.getByText('Waiting for a browser page', { exact: true }).waitFor();
-  await indeed.getByText('Live', { exact: true }).waitFor();
-  writeLiveTarget(directory, 'seek', { finished: true });
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
+  writeLiveTarget(directory, 'seek', { finished: true, activity: { phase: 'finished' } });
   await seek.getByText('Worker finished', { exact: true }).waitFor();
-  await indeed.getByText('Live', { exact: true }).waitFor();
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
   // Late failures from a vanished stream cannot erase the other worker's view.
   assert.equal(attachedTo('indeed'), ids[1]);
   assert.deepEqual(errors, []);
   await viewerContext.close();
-  console.log('PASS: real CDP streams for both workers, single-worker fallback, desktop/mobile layout, popup tracking, cloud isolation, closed page, finished worker and viewer cleanup; synthetic pages only');
+  console.log('PASS: real worker pictures and phases, shared review ownership, waiting/cooldown clearing, application isolation, desktop/mobile layout, popups, cloud switching and cleanup; synthetic pages only');
 } finally {
   for (const client of wss.clients) client.terminate();
   await server.close();

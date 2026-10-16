@@ -9,7 +9,7 @@ import { countHealth } from './run-health.js';
 import { selectRemotePage } from './employer-browser.js';
 import { metric } from './pipeline.js';
 import { currentApplicationWorker } from './application-workers.js';
-import { writeLiveTarget } from './live-workers.js';
+import { updateLiveTarget, type LiveActivity } from './live-workers.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -247,13 +247,31 @@ export async function workingIn(page: Page): Promise<void> {
     const session = await page.context().newCDPSession(page);
     try {
       const { targetInfo } = await session.send('Target.getTargetInfo');
-      writeLiveTarget(config.dataDir, currentApplicationWorker(), { targetId: targetInfo.targetId });
+      updateLiveTarget(config.dataDir, currentApplicationWorker(), { targetId: targetInfo.targetId });
     } finally {
       await session.detach().catch(() => {});
     }
   } catch {
     // A picture for the person watching is never worth failing an application over.
   }
+}
+
+/** Publish actual worker activity without changing browser focus or application
+ * decisions. A page-less phase clears the old form instead of presenting it
+ * as current work. Review callers must hold the shared review mutex first.
+ */
+export async function showLiveActivity(activity: LiveActivity, page?: Page): Promise<void> {
+  try {
+    let targetId: string | undefined;
+    if (page && !selectRemotePage(page)) {
+      const session = await page.context().newCDPSession(page);
+      try { targetId = (await session.send('Target.getTargetInfo')).targetInfo.targetId; }
+      finally { await session.detach().catch(() => {}); }
+    }
+    updateLiveTarget(config.dataDir, currentApplicationWorker(), {
+      activity, targetId, finished: activity.phase === 'finished',
+    });
+  } catch { /* Observability must never interrupt an application. */ }
 }
 
 export type SigninSite = 'seek' | 'indeed';
