@@ -8,7 +8,7 @@ import { chromium } from 'patchright';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-direct-error-'));
 Object.assign(process.env, { DATA_DIR: directory, DRY_RUN: 'true', COST_TRACKING: 'false',
-  APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: '', HUMANIZER_MODE: 'off' });
+  CELERIS_API_KEY: '', HUMANIZER_MODE: 'off' });
 const { runDirectExternalApplication } = await import('./direct-external.js');
 const { captureApplicationFailure } = await import('./application-diagnostics.js');
 const profile = { name: 'Alex Fixture', email: 'alex@example.test', phone: '', suburb: 'Sydney', state: 'NSW',

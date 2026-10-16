@@ -9,41 +9,6 @@ function guard(options: Partial<RunGuardOptions> = {}) {
   return new RunGuards({ ...limits, meter: new CostMeter(0.10), ...options });
 }
 
-test('time-and-cost counts many native actions on one page without step or inactivity vetoes', t => {
-  let now = 0; t.mock.method(Date, 'now', () => now);
-  const g = guard({ budgetMode: 'time-and-cost' });
-  now = limits.maxStuckMs + 1;
-  // More than even the default progress-grown global ceiling, with no
-  // progress and all fine-grained actions on the same application page.
-  const actions = limits.maxSteps * 3 + 1;
-  for (let index = 0; index < actions; index++) {
-    assert.deepEqual(g.nextStep(), { ok: true });
-    assert.deepEqual(g.onPage('same-application-page'), { ok: true });
-  }
-  assert.equal(g.stepCount, actions); assert.equal(g.progressCount, 0);
-});
-
-test('time-and-cost stops at the actual deadline even after repeated progress', t => {
-  let now = 0; t.mock.method(Date, 'now', () => now);
-  const g = guard({ budgetMode: 'time-and-cost' });
-  for (let index = 0; index < limits.maxSteps * 3; index++) g.recordProgress();
-  now = limits.maxTotalMs - 1; g.recordProgress();
-  assert.deepEqual(g.nextStep(), { ok: true });
-  now = limits.maxTotalMs; g.recordProgress();
-  const result = g.nextStep(); assert.equal(result.ok, false);
-  if (!result.ok) assert.match(result.detail ?? '', /overall time limit reached \(600s\)/);
-});
-
-test('time-and-cost never earns additional model spend from progress', t => {
-  t.mock.method(Date, 'now', () => 0);
-  const meter = new CostMeter(0.10), g = guard({ budgetMode: 'time-and-cost', meter });
-  for (let index = 0; index < limits.maxSteps * 3; index++) g.recordProgress();
-  meter.record({}, 0.099); assert.deepEqual(g.nextStep(), { ok: true });
-  meter.record({}, 0.001);
-  const result = g.nextStep(); assert.equal(result.ok, false);
-  if (!result.ok) assert.match(result.detail ?? '', /model budget exhausted/);
-});
-
 test('default policy retains its global and per-page action limits', t => {
   t.mock.method(Date, 'now', () => 0);
   const global = guard(), page = guard();
@@ -63,6 +28,6 @@ test('default policy retains inactivity cutoff and progress-earned time and spen
   if (!result.ok) assert.match(result.detail ?? '', /stuck for 180s/);
   now = limits.maxTotalMs + 1;
   for (let index = 0; index < limits.maxSteps; index++) progressing.recordProgress();
-  meter.record({}, 0.15);
+  meter.record({ prompt_tokens: 750_000 });
   assert.deepEqual(progressing.nextStep(), { ok: true });
 });

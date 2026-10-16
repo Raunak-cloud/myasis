@@ -12,8 +12,6 @@ import { runTimeoutMs, signalRunTree, superviseRun } from './run-watchdog.js';
 import { isAdmin } from './admin-access.js';
 import { browserRunEnvironment } from './browser-run-policy.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
-import { applicationAiConfigurationError, applicationAiFormReadinessMode, applicationAiModel } from './application-ai-policy.js';
-import type { ApplicationAiModel } from '../src/application-ai-model.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -23,32 +21,26 @@ export async function accountBrowserEnvironment(userId: string, mode: RunMode): 
     FORM_SPEED_PILOT: String(admin && (process.env.ADMIN_FORM_SPEED ?? env.ADMIN_FORM_SPEED) === 'true') };
 }
 
-/** Resolve the run owner's model again at the worker boundary, after request policy. */
-export async function accountApplicationAiEnvironment(userId: string, requestedModel?: unknown): Promise<Record<string, string>> {
+/** Recheck the active owner before accessing their private application files. */
+export async function accountApplicationEnvironment(userId: string): Promise<Record<string, string>> {
   if (!/^[A-Za-z0-9_-]+$/.test(userId)) throw new Error('This account is not available for an application run.');
-  const owners = await query<{ email: string; applicationAiModel: string | null }>(
-    `SELECT u.email, s.value AS "applicationAiModel"
-       FROM users u
-       LEFT JOIN settings s ON s.user_id = u.id AND s.key = 'APPLICATION_AI_MODEL'
-      WHERE u.id = $1 AND u.blocked_at IS NULL`,
+  const owners = await query<{ id: string }>(
+    'SELECT id FROM users WHERE id = $1 AND blocked_at IS NULL',
     [userId],
   );
   const owner = owners[0];
   if (!owner) throw new Error('This account is not available for an application run.');
-  const admin = isAdmin(owner.email);
-  const saved = applicationAiModel(owner.applicationAiModel ?? undefined);
-  const requested = requestedModel === undefined ? undefined : applicationAiModel(requestedModel);
-  if (!admin && requested === 'haiku') throw new Error('Application model selection is available only to administrator accounts.');
-  const model = admin ? requested ?? saved : 'celeris';
   const serverEnv = { ...readEnv(), ...process.env };
-  const configurationError = applicationAiConfigurationError(model, serverEnv, admin);
-  if (configurationError) throw new Error(configurationError);
-  return {
-    APPLICATION_AI_MODEL: model,
-    APPLICATION_AI_ADMIN_ENABLED: String(admin),
-    APPLICATION_AI_OWNER_ID: userId,
-    APPLICATION_AI_FORM_REVIEW_MODE: applicationAiFormReadinessMode(userId, admin, model, serverEnv),
-  };
+  if (!serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Celeris is not configured. Add a Celeris API key in Admin settings before starting a run.');
+  return { DATA_DIR: userDir(userId) };
+}
+
+/** Retired experiment settings and credentials never reach a new worker. */
+export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const credentials = new Set(['CELERIS_API_KEY', 'HUMANIZER_API_KEY', 'CAPMONSTER_API_KEY',
+    'BRIGHTDATA_API_KEY', 'BRIGHTDATA_BROWSER_PASSWORD', 'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('APPLICATION_AI_')
+    && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 
 /** Saved run consoles kept per account; older ones are removed as new ones are written. */
@@ -99,8 +91,6 @@ interface KeywordRenewalContext {
   termsUsed: string;
   /** Exact database value at start, used for a conditional post-run save. */
   expectedSavedTerms: string;
-  /** Captured at worker start so later settings edits cannot switch its postprocessing model. */
-  applicationAiModel?: ApplicationAiModel;
 }
 
 const MAX_LINES = 2000;
@@ -344,11 +334,10 @@ class Run {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
     this.cdpPort = cdpPort;
-    let applicationAiOverrides: Record<string, string>;
+    let accountOverrides: Record<string, string>;
     try {
-      applicationAiOverrides = await accountApplicationAiEnvironment(userId, overrides.APPLICATION_AI_MODEL);
-      // Administrator runs rewrite through the selected provider; customer runs retain AuthorMist.
-      if (applicationAiOverrides.APPLICATION_AI_ADMIN_ENABLED !== 'true') await assertHumanizerHealthy(overrides);
+      accountOverrides = await accountApplicationEnvironment(userId);
+      await assertHumanizerHealthy(overrides);
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
@@ -371,15 +360,15 @@ class Run {
     if (mode === 'search') args.push('--search-only');
 
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...overrides,
+      ...applicationRunEnvironment(process.env),
+      ...applicationRunEnvironment(overrides),
       // After `overrides`, deliberately: these carry the account's identity
       // (whose profile.txt, whose experience/skills, whose Chrome profile)
       // and must never be settable by a caller-supplied override.
       ...profileOverrides,
       // Enforced last, after caller settings and the server's legacy HEADLESS.
       ...browserOverrides,
-      ...applicationAiOverrides,
+      ...accountOverrides,
       CDP_PORT: String(cdpPort),
       // Only a live run may submit; a search-only run never opens a form.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
@@ -393,8 +382,7 @@ class Run {
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
     this.onFinished = onFinished ?? null;
     this.runStartId = runStartId ?? null;
-    this.keywordRenewal = keywordRenewal
-      ? { ...keywordRenewal, applicationAiModel: applicationAiModel(applicationAiOverrides.APPLICATION_AI_MODEL) } : null;
+    this.keywordRenewal = keywordRenewal ?? null;
     this.stoppedByPerson = false;
     this.timedOut = false;
     this.state = {
@@ -409,7 +397,7 @@ class Run {
 
     this.push('sys', `▶ starting ${mode} run`);
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', `  application AI: ${env.APPLICATION_AI_MODEL === 'haiku' ? 'Claude Haiku 5.5' : 'Celeris'}`);
+    this.push('sys', '  application AI: Celeris');
     const shown = Object.entries(overrides)
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
@@ -435,10 +423,10 @@ class Run {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
     this.cdpPort = cdpPort;
-    let applicationAiOverrides: Record<string, string>;
+    let accountOverrides: Record<string, string>;
     try {
-      applicationAiOverrides = await accountApplicationAiEnvironment(userId, overrides.APPLICATION_AI_MODEL);
-      if (applicationAiOverrides.APPLICATION_AI_ADMIN_ENABLED !== 'true') await assertHumanizerHealthy(overrides);
+      accountOverrides = await accountApplicationEnvironment(userId);
+      await assertHumanizerHealthy(overrides);
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
@@ -471,19 +459,19 @@ class Run {
     this.push('sys', '▶ scanning SEEK for new matches');
 
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...overrides,
+      ...applicationRunEnvironment(process.env),
+      ...applicationRunEnvironment(overrides),
       // After `overrides`, deliberately — see the same ordering in start().
       ...profileOverrides,
       ...browserOverrides,
-      ...applicationAiOverrides,
+      ...accountOverrides,
       CDP_PORT: String(cdpPort),
       // Always last: no override may point a scan at another account's files.
       DATA_DIR: dataDir,
       COST_TRACKING: 'true',
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', `  application AI: ${env.APPLICATION_AI_MODEL === 'haiku' ? 'Claude Haiku 5.5' : 'Celeris'}`);
+    this.push('sys', '  application AI: Celeris');
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = null;
@@ -560,7 +548,7 @@ class Run {
       postRunTasks.push(
         import('./search-terms.js')
           .then(({ renewSearchTermsAfterSparseRun }) => (
-            renewSearchTermsAfterSparseRun(userId, renewal.termsUsed, renewal.expectedSavedTerms, renewal.applicationAiModel)
+            renewSearchTermsAfterSparseRun(userId, renewal.termsUsed, renewal.expectedSavedTerms)
           ))
           .then((result) => {
             if (result.status === 'renewed') {
@@ -787,8 +775,6 @@ export function readEnv(): Record<string, string> {
 
 const SECRET_KEYS = new Set([
   'GEMINI_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'OPENROUTER_API_KEY',
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
   // Found while fixing the per-account data isolation bug: both were being
@@ -806,7 +792,7 @@ export function readEnvSafe(): Record<string, string> {
   const env = readEnv();
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
-    out[k] = SECRET_KEYS.has(k) ? (v ? `set (${v.length} chars)` : '') : v;
+    out[k] = SECRET_KEYS.has(k) || /(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(k) ? (v ? `set (${v.length} chars)` : '') : v ?? '';
   }
   return out;
 }

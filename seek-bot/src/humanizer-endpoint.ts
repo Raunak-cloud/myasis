@@ -9,7 +9,7 @@ import { beginCostRequest, configuredRate, recordCost } from './cost-ledger.js';
  * humanizer is up. It reads no config of its own: callers pass the endpoint.
  */
 
-export interface HumanizerEndpoint {
+interface HumanizerEndpoint {
   /** Root of the server, without `/v1` or a trailing slash. */
   base: string;
   /** Present for a hosted API. */
@@ -47,7 +47,7 @@ const headers = (endpoint: HumanizerEndpoint): Record<string, string> => ({
   ...(endpoint.apiKey && { Authorization: `Bearer ${endpoint.apiKey}` }),
 });
 
-export interface Readiness {
+interface Readiness {
   ready: boolean;
   /** One phrase an operator can act on. */
   detail: string;

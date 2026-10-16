@@ -7,9 +7,9 @@ class CaptchaRequestDeadline extends Error {
   readonly code = 'CAPTCHA_REQUEST_DEADLINE';
   constructor() { super('CAPTCHA request deadline'); this.name = 'CaptchaRequestDeadline'; }
 }
-export interface CaptchaRetryOutcome { status: 'solved' | 'cleared' | 'failed'; attempts: number }
+interface CaptchaRetryOutcome { status: 'solved' | 'cleared' | 'failed'; attempts: number }
 interface CaptchaAttemptDiagnostic { elapsedMs: number; phase: 'solve' | 'detect'; error?: unknown; response?: CaptchaSolveResult }
-export interface CaptchaRetryDependencies {
+interface CaptchaRetryDependencies {
   solve: () => Promise<CaptchaSolveResult>;
   /** Read-only: false when the original page changed or its challenge disappeared. */
   stillChallenged: () => Promise<boolean>;

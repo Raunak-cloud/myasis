@@ -1,6 +1,5 @@
 import { metric } from '../pipeline.js';
-import { applicationModel, applicationHaikuRoute } from '../application-model.js';
-import { haikuChat } from './haiku.js';
+import { applicationModelEnvironment } from '../application-model.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost } from '../cost-ledger.js';
@@ -23,16 +22,14 @@ export interface ToolSchema {
 interface ToolCall {
   id: string;
   name: string;
-  /** Anthropic client-toolset namespace; absent for ordinary custom tools. */
-  toolset_name?: 'browser';
   /** Already JSON-parsed. Malformed arguments surface as a parse error instead. */
   args: Record<string, unknown>;
 }
 
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string | ContentPart[] }
-  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[]; anthropic_content?: unknown[]; anthropic_protocol?: unknown; reasoning_details?: unknown[]; reasoning_content?: string }
-  | { role: 'tool'; tool_call_id: string; content: string; toolset_name?: 'browser'; anthropic_content?: unknown[]; is_error?: boolean };
+  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string };
 
 type ContentPart =
   | { type: 'text'; text: string }
@@ -44,7 +41,7 @@ interface RawToolCall {
   function: { name: string; arguments: string };
 }
 
-export interface CelerisReply {
+interface CelerisReply {
   text: string;
   toolCalls: ToolCall[];
   /** Kept verbatim so it can be appended to the transcript for the next turn. */
@@ -59,10 +56,11 @@ export interface CelerisReply {
  * configured by hand.
  */
 function endpointFor(model: CelerisModel): string {
-  return `${config.celeris.baseUrl.replace(/\/+$/, '')}/${model}/v1/chat/completions`;
+  const baseUrl = applicationModelEnvironment().CELERIS_BASE_URL ?? 'https://inference.celeris.ai';
+  return `${baseUrl.replace(/\/+$/, '')}/${model}/v1/chat/completions`;
 }
 
-export interface UsageTotals {
+interface UsageTotals {
   calls: number;
   promptTokens: number;
   cachedPromptTokens: number;
@@ -88,7 +86,7 @@ export class CostMeter {
 
   constructor(private readonly budgetUsd: number) {}
 
-  record(usage: unknown, billedCostUsd?: number): void {
+  record(usage: unknown): void {
     const u = (usage ?? {}) as {
       prompt_tokens?: number;
       completion_tokens?: number;
@@ -103,8 +101,7 @@ export class CostMeter {
     this.totals.promptTokens += prompt;
     this.totals.cachedPromptTokens += cached;
     this.totals.completionTokens += completion;
-    this.totals.costUsd += typeof billedCostUsd === 'number' && Number.isFinite(billedCostUsd) && billedCostUsd >= 0
-      ? billedCostUsd : (uncached * RATES.promptUncached + cached * RATES.promptCached + completion * RATES.completion) / 1_000_000;
+    this.totals.costUsd += (uncached * RATES.promptUncached + cached * RATES.promptCached + completion * RATES.completion) / 1_000_000;
   }
 
   get exhausted(): boolean {
@@ -123,13 +120,10 @@ export class CostMeter {
   }
 }
 
-export interface CelerisRequest {
-  purpose?: 'grounded-answer';
+interface CelerisRequest {
   model: CelerisModel;
   messages: ChatMessage[];
   tools?: ToolSchema[];
-  /** Anthropic-defined browser members, executed by our guarded browser executor. */
-  anthropicBrowserToolset?: { type: 'browser_toolset_20260801'; configs?: Record<string, { enabled?: boolean; defer_loading?: boolean }> };
   /** Force a tool call rather than letting the model reply with prose. */
   requireTool?: boolean;
   temperature?: number;
@@ -167,9 +161,8 @@ export class ReplyUnusableError extends Error {}
 class ReplyTruncatedError extends ReplyUnusableError {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
-  // One provider choice covers all application calls, including checks and recovery.
-  if (applicationModel() === 'haiku') return haikuChat(request, applicationHaikuRoute());
-  if (!config.celeris.apiKey) {
+  const apiKey = applicationModelEnvironment().CELERIS_API_KEY?.trim();
+  if (!apiKey) {
     throw new Error('CELERIS_API_KEY is not set — the browser agent cannot run without it.');
   }
 
@@ -218,7 +211,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${config.celeris.apiKey}`,
+          authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(Math.max(1, Math.min(config.celeris.timeoutMs, deadline - Date.now()))),
@@ -240,7 +233,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       }
 
       const payload = (await response.json()) as {
-        choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: RawToolCall[]; anthropic_content?: unknown[] } }>;
+        choices?: Array<{ finish_reason?: string; message?: { content?: string | null; tool_calls?: RawToolCall[] } }>;
         usage?: { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } };
       };
       request.meter?.record(payload.usage);

@@ -9,14 +9,11 @@ import { EMPTY_PROFILE } from './candidate-profile.js';
 
 test('Dashboard answers stay account-scoped, including concurrent requests, empty banks and database failures', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-answer-isolation-'));
-  const names = ['DATA_DIR', 'CELERIS_API_KEY', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'ADMIN_EMAILS', 'APPLICATION_AI_MODEL'] as const;
+  const names = ['DATA_DIR', 'CELERIS_API_KEY', 'ADMIN_EMAILS'] as const;
   const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
   process.env.DATA_DIR = directory;
   process.env.CELERIS_API_KEY = 'fixture-only';
-  process.env.ANTHROPIC_API_KEY = '';
-  process.env.OPENROUTER_API_KEY = 'fixture-only';
   process.env.ADMIN_EMAILS = 'admin-fixture@example.test';
-  process.env.APPLICATION_AI_MODEL = 'celeris';
   const sharedAnswer = 'SHARED_WORKER_ANSWER_MUST_NOT_ENTER_DASHBOARD';
   writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Availability?', answer: sharedAnswer }]));
   const pool = getPool();
@@ -37,10 +34,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
   t.mock.method(pool, 'query', async (sql: string, params: unknown[] = []) => {
     const account = String(params[0]);
     assert.ok(account in banks, 'fixture account required');
-    if (/FROM users u/i.test(sql)) return { rows: [{
-      email: account === 'Bob' ? 'admin-fixture@example.test' : `${account.toLowerCase()}@example.test`,
-      applicationAiModel: account === 'Bob' ? 'haiku' : 'celeris',
-    }] };
+    if (/FROM users/i.test(sql)) return { rows: [{ id: account }] };
     assert.match(sql, /WHERE user_id = \$1/i);
     if (/FROM profiles/i.test(sql)) {
       const profile = { ...EMPTY_PROFILE, fullName: account, skills: 'Fixture skill' };
@@ -68,10 +62,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
       answers: [{ ref: 'availability', value, applicationQuestion: true, grounded: Boolean(value), basis: value ? 'profile' : 'none' }],
       injectionSuspected: false,
     });
-    if (String(url).endsWith('/messages')) return Response.json({
-      model: body.model, stop_reason: 'end_turn', content: [{ type: 'text', text: answer }],
-      usage: { input_tokens: 100, output_tokens: 40, cost: 0.001 },
-    });
+    assert.ok(!String(url).endsWith('/messages'), 'only the established model protocol is used');
     return Response.json({ choices: [{ message: { content: answer } }] });
   });
   const fields = [{ ref: 'availability', label: 'Availability?', kind: 'text' as const, required: true }];
@@ -88,10 +79,10 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
       for (const answer of answers) assert.equal(prompt.includes(answer), owner === account);
     }
   }
-  assert.equal(routedModels.get('Bob'), 'anthropic/claude-haiku-5.5', 'admin account uses its own selected Haiku model');
+  assert.match(routedModels.get('Bob') ?? '', /^celeris-1/);
   assert.match(routedModels.get('Alice') ?? '', /^celeris-1/);
   assert.match(routedModels.get('Empty') ?? '', /^celeris-1/);
-  assert.equal(process.env.APPLICATION_AI_MODEL, 'celeris', 'concurrent dashboard accounts never mutate global selection');
+  assert.equal(process.env.DATA_DIR, directory, 'concurrent dashboard accounts never mutate the global data directory');
 
   banks.Alice = ['ALICE_UPDATED_ANSWER'];
   assert.equal((await answerForm('Alice', input)).answers?.[0].value, 'ALICE_UPDATED_ANSWER', 'use current database answers without a worker export');

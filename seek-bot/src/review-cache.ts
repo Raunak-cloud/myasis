@@ -23,7 +23,6 @@ export interface ReviewCacheEntry extends ReviewCacheMetadata {
   reason: string;
 }
 
-const CACHE = resolve(config.dataDir, 'review-cache.jsonl');
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fileDigest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const normalise = (value: string | undefined) => (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -104,7 +103,7 @@ export class ReviewCache {
 
   constructor(options: { now?: number; cachePath?: string; allowExternalApply?: boolean } = {}) {
     const now = options.now ?? Date.now();
-    const cachePath = options.cachePath ?? CACHE;
+    const cachePath = options.cachePath ?? resolve(config.dataDir, 'review-cache.jsonl');
     this.allowExternalApply = options.allowExternalApply ?? config.allowExternalApply;
     if (!existsSync(cachePath)) return;
     try {

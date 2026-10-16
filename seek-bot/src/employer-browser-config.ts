@@ -1,6 +1,6 @@
 /** @public Shared with dashboard/server/job-sources.ts. */
 export const EMPLOYER_BROWSER_PROVIDERS = ['local', 'brightdata'] as const;
-export type EmployerBrowserProvider = typeof EMPLOYER_BROWSER_PROVIDERS[number];
+type EmployerBrowserProvider = typeof EMPLOYER_BROWSER_PROVIDERS[number];
 type Environment = Record<string, string | undefined>;
 
 /** A private browser provider is an explicit account choice and a server-authorized pilot. */

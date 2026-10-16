@@ -49,7 +49,6 @@ try {
   await page.goto('https://career2.successfactors-fixture.example/portalcareer');
   ctx.observation = await observe(page);
   ctx.captured.push({ question: 'First name', answer: 'Raunak' });
-  ctx.architecture = 'compact';
   const prerequisite = await executeTool(ctx, 'click', { ref: applyRef(), sends_application: true });
   assert.equal(prerequisite.kind === 'ok' && prerequisite.disposition, 'document-prerequisite', 'an unmet document condition is not a broken browser control');
   assert.notEqual(await page.title(), 'SENT', 'a prerequisite never presses the submit');

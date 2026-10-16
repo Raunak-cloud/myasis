@@ -1,8 +1,5 @@
 import { config } from '../../config.js';
 import { browserGmailAvailable } from '../../browser-gmail.js';
-import { COMPACT_APPLICATION_PROMPT } from './compact-prompt.js';
-import { HAIKU_APPLICATION_PROMPT } from './haiku-prompt.js';
-import { applicationModel } from '../../application-model.js';
 
 // Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
 
@@ -220,9 +217,7 @@ STOPPING
  * out of the constant prefix so accounts without them keep the shorter,
  * cache-friendly prompt.
  */
-export function systemPrompt(compact = false): string {
-  if (applicationModel() === 'haiku') return HAIKU_APPLICATION_PROMPT;
-  if (compact) return COMPACT_APPLICATION_PROMPT;
+export function systemPrompt(): string {
   const sections = [SYSTEM_PROMPT];
   if (config.celeris.rawTools) sections.push(BROWSER_TOOLS_PROMPT);
   if (config.formSpeed && config.celeris.rawTools) sections.push(LIVE_RECOVERY_PROMPT);

@@ -2,6 +2,7 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreBinaries": ["pgrep", "Xvfb", "x11vnc"],
   "entry": [
+    "src/site-header.tsx",
     "src/novnc.d.ts",
     "server/**/*.test.ts",
     "test/*.test.{mjs,ts}",

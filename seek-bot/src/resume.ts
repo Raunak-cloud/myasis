@@ -24,13 +24,14 @@ interface ResumeRecord {
   isDefault?: boolean;
 }
 
-const MANIFEST = resolve(config.dataDir, 'resumes.json');
-export const RESUME_DIR = resolve(config.dataDir, 'resumes');
+const manifest = () => resolve(config.dataDir, 'resumes.json');
+export const resumeDirectory = () => resolve(config.dataDir, 'resumes');
 
 export function loadResumes(): ResumeRecord[] {
-  if (!existsSync(MANIFEST)) return [];
+  const path = manifest();
+  if (!existsSync(path)) return [];
   try {
-    return JSON.parse(readFileSync(MANIFEST, 'utf8')) as ResumeRecord[];
+    return JSON.parse(readFileSync(path, 'utf8')) as ResumeRecord[];
   } catch {
     return [];
   }
@@ -112,7 +113,7 @@ async function pickResumeUncached(
     const { resumeId, reason } = await chooseResume(
       job,
       profile,
-      await Promise.all(all.map(async r => ({ id: r.id, label: r.label, notes: r.notes, evidence: relevantEvidence(await extractText(resolve(RESUME_DIR, r.fileName)).catch(() => ''), job.title + ' ' + (job.description ?? ''), 6000) }))),
+      await Promise.all(all.map(async r => ({ id: r.id, label: r.label, notes: r.notes, evidence: relevantEvidence(await extractText(resolve(resumeDirectory(), r.fileName)).catch(() => ''), job.title + ' ' + (job.description ?? ''), 6000) }))),
     );
     const chosen = all.find((r) => r.id === resumeId);
     if (chosen) {

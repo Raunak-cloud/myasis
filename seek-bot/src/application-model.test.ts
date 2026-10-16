@@ -1,80 +1,67 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { applicationModel, applicationModelIdentity, applicationModelAvailable,
-  assertApplicationModelConfigured, assertApplicationBrowserConfigured, applicationHaikuRoute, applicationHaikuReadinessMode, withApplicationModel } from './application-model.js';
+import { applicationModelIdentity, applicationModelAvailable, applicationModelEnvironment,
+  assertApplicationModelConfigured, assertApplicationBrowserConfigured, withApplicationModel } from './application-model.js';
+import { config } from './config.js';
 
-const root = resolve('fixture-bot');
-const haiku = { APPLICATION_AI_MODEL: 'haiku', APPLICATION_AI_ADMIN_ENABLED: 'true',
-  APPLICATION_AI_OWNER_ID: 'admin-one', DATA_DIR: resolve(root, 'data/users/admin-one'),
-  OPENROUTER_API_KEY: 'fixture-router' };
+test('application AI has one credential-free Celeris identity', () => {
+  assert.deepEqual(applicationModelIdentity(), {
+    selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris',
+  });
+});
 
-test('only the two supported run-wide models are accepted', () => {
-  assert.equal(applicationModel({}, root), 'celeris');
-  assert.equal(applicationModel(haiku, root), 'haiku');
-  for (const name of ['mimo', 'seed', 'ling', 'luna', '', 'Haiku']) {
-    assert.throws(() => applicationModel({ ...haiku, APPLICATION_AI_MODEL: name }, root), /Unsupported application AI model/);
+test('application AI requires a nonempty Celeris credential', () => {
+  for (const env of [{}, { CELERIS_API_KEY: '' }, { CELERIS_API_KEY: '  ' }]) {
+    assert.equal(applicationModelAvailable(env), false);
+    assert.throws(() => assertApplicationModelConfigured(env), /CELERIS_API_KEY/);
+    assert.throws(() => assertApplicationBrowserConfigured(env), /CELERIS_API_KEY/);
   }
+  assert.equal(applicationModelAvailable({ CELERIS_API_KEY: 'fictional-key' }), true);
+  assert.doesNotThrow(() => assertApplicationBrowserConfigured({ CELERIS_API_KEY: 'fictional-key' }));
 });
 
-test('Haiku cannot cross the admin or account-directory boundary', () => {
-  for (const patch of [{ APPLICATION_AI_ADMIN_ENABLED: 'false' }, { APPLICATION_AI_OWNER_ID: '' },
-    { APPLICATION_AI_OWNER_ID: '../admin-one' }, { DATA_DIR: resolve(root, 'data/users/someone-else') }]) {
-    assert.throws(() => applicationModel({ ...haiku, ...patch }, root), /authenticated admin/);
-  }
+test('concurrent account scopes isolate credentials and data directories across awaits', async () => {
+  const originalData = process.env.DATA_DIR, originalKey = process.env.CELERIS_API_KEY;
+  const accounts = ['one', 'two'];
+  const results = await Promise.all(accounts.map((owner, index) => withApplicationModel({
+    DATA_DIR: resolve('fixture-accounts', owner), CELERIS_API_KEY: 'fictional-' + owner,
+  }, async () => {
+    const expectedDirectory = resolve('fixture-accounts', owner);
+    assert.equal(config.dataDir, expectedDirectory);
+    await new Promise(done => setTimeout(done, index ? 1 : 10));
+    assert.equal(config.dataDir, expectedDirectory);
+    assert.ok(applicationModelEnvironment().CELERIS_API_KEY === 'fictional-' + owner);
+    return config.dataDir;
+  })));
+  assert.notEqual(results[0], results[1]);
+  assert.ok(process.env.DATA_DIR === originalData && process.env.CELERIS_API_KEY === originalKey);
 });
 
-test('agent-managed form readiness requires the same authenticated Haiku owner and defaults to standard', () => {
-  assert.equal(applicationHaikuReadinessMode(haiku, root), 'standard');
-  const pilot = { ...haiku, APPLICATION_AI_FORM_REVIEW_MODE: 'agent-managed' };
-  assert.equal(applicationHaikuReadinessMode(pilot, root), 'agent-managed');
-  assert.equal(applicationHaikuReadinessMode({ APPLICATION_AI_MODEL: 'celeris', APPLICATION_AI_FORM_REVIEW_MODE: 'agent-managed' }, root), 'standard');
-  for (const patch of [{ APPLICATION_AI_ADMIN_ENABLED: 'false' }, { DATA_DIR: resolve(root, 'data/users/other') }]) {
-    assert.throws(() => applicationHaikuReadinessMode({ ...pilot, ...patch }, root), /authenticated admin/);
-  }
-  assert.throws(() => applicationHaikuReadinessMode({ ...haiku, APPLICATION_AI_FORM_REVIEW_MODE: 'none' }, root), /Unsupported Haiku form review mode/);
-});
-
-test('explicit Celeris ignores retired browser-only model flags', () => {
-  assert.equal(applicationModel({ APPLICATION_AI_MODEL: 'celeris', ADMIN_BROWSER_MODEL_PILOT: 'mimo' }, root), 'celeris');
-});
-
-test('Haiku requires its selected provider key, never a Celeris fallback', () => {
-  const missing = { ...haiku, OPENROUTER_API_KEY: '', CELERIS_API_KEY: 'native-key' };
-  assert.equal(applicationModelAvailable(missing, root), false);
-  assert.throws(() => assertApplicationModelConfigured(missing, root), /No other model will be used/);
-  assert.equal(applicationModelAvailable(haiku, root), true);
-  assert.equal(applicationHaikuRoute(haiku, root).endpoint, 'https://openrouter.ai/api/v1/messages');
-  assert.equal(applicationHaikuRoute({ ...haiku, ANTHROPIC_API_KEY: 'direct' }, root).model, 'claude-haiku-5-5');
-});
-
-test('cache identity distinguishes model and protocol without containing credentials', () => {
-  const identity = JSON.stringify(applicationModelIdentity(haiku, root));
-  assert.match(identity, /anthropic-messages/);
-  assert.doesNotMatch(identity, /fixture-router/);
-  assert.notEqual(identity, JSON.stringify(applicationModelIdentity({ APPLICATION_AI_MODEL: 'celeris' }, root)));
-});
-
-test('native browser runs stop before discovery without a direct Anthropic key', () => {
-  assert.throws(() => assertApplicationBrowserConfigured(haiku, root), /native browser tools require a direct ANTHROPIC_API_KEY/);
-  assert.doesNotThrow(() => assertApplicationBrowserConfigured({ ...haiku, ANTHROPIC_API_KEY: 'fixture-direct' }, root));
-  assert.doesNotThrow(() => assertApplicationBrowserConfigured({ APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fixture-celeris' }, root));
-  assert.throws(() => assertApplicationBrowserConfigured({ ...haiku, APPLICATION_AI_OWNER_ID: 'other' }, root), /authenticated admin/);
-});
-
-test('concurrent request-scoped choices do not mutate or leak through process.env', async () => {
-  const original = process.env.APPLICATION_AI_MODEL;
-  const results = await Promise.all([
-    withApplicationModel({ ...haiku, DATA_DIR: resolve(fileURLToPath(new URL('../', import.meta.url)), 'data/users/admin-one') }, async () => {
-      await new Promise(r => setTimeout(r, 10));
-      return applicationModel();
-    }),
-    withApplicationModel({ APPLICATION_AI_MODEL: 'celeris' }, async () => {
+test('missing scoped credentials never fall back to another process or account credential', async () => {
+  await withApplicationModel({ CELERIS_API_KEY: 'fictional-outer' }, async () => {
+    assert.equal(applicationModelAvailable(), true);
+    await withApplicationModel({}, async () => {
       await Promise.resolve();
-      return applicationModel();
-    }),
-  ]);
-  assert.deepEqual(results, ['haiku', 'celeris']);
-  assert.equal(process.env.APPLICATION_AI_MODEL, original);
+      assert.equal(applicationModelAvailable(), false);
+      assert.throws(() => assertApplicationModelConfigured(), /CELERIS_API_KEY/);
+    });
+    assert.equal(applicationModelAvailable(), true);
+  });
+});
+
+test('request environments are immutable snapshots and nested failures restore their parent', async () => {
+  const environment = { DATA_DIR: resolve('fixture-accounts', 'snapshot'), CELERIS_API_KEY: 'fictional-original' };
+  await withApplicationModel(environment, async () => {
+    environment.CELERIS_API_KEY = 'fictional-later';
+    environment.DATA_DIR = resolve('fixture-accounts', 'changed');
+    await Promise.resolve();
+    assert.ok(applicationModelEnvironment().CELERIS_API_KEY === 'fictional-original');
+    assert.equal(config.dataDir, resolve('fixture-accounts', 'snapshot'));
+    assert.equal(Object.isFrozen(applicationModelEnvironment()), true);
+    assert.throws(() => withApplicationModel({ DATA_DIR: resolve('fixture-accounts', 'nested') }, () => {
+      throw new Error('fictional nested failure');
+    }), /fictional nested failure/);
+    assert.equal(config.dataDir, resolve('fixture-accounts', 'snapshot'));
+  });
 });

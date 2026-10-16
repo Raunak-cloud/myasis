@@ -1,10 +1,7 @@
 import { listResumes, previewText } from './files.js';
-import { accountApplicationAiEnvironment, readEnv } from './runner.js';
+import { accountApplicationEnvironment, readEnv } from './runner.js';
 import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
 import { replaceSearchTermsIfUnchanged } from './settings.js';
-import { userDir } from './userdata.js';
-import type { ApplicationAiModel } from '../src/application-ai-model.js';
-import { applicationAiModel } from './application-ai-policy.js';
 
 const MAX_RESUME_CHARS = 18_000;
 const MAX_COMBINED_RESUME_CHARS = 60_000;
@@ -150,47 +147,6 @@ export async function askModelForJson(
   const apiKey = celerisKey();
   if (!apiKey) return { ok: false, error: 'Celeris is not configured. Add CELERIS_API_KEY first.' };
   return askCelerisForJson(apiKey, systemInstruction, prompt, responseSchema, temperature, limits);
-}
-
-/** Account-selected application requests use Haiku's native protocol when selected. */
-export async function askApplicationModelForJson(
-  applicationEnvironment: Record<string, string | undefined>,
-  systemInstruction: string,
-  prompt: string,
-  responseSchema?: Record<string, unknown>,
-  temperature?: number,
-): Promise<ModelJsonResult> {
-  let model: ApplicationAiModel;
-  try { model = applicationAiModel(applicationEnvironment.APPLICATION_AI_MODEL); }
-  catch (error) { return { ok: false, error: (error as Error).message }; }
-  if (model === 'celeris') {
-    return askModelForJson(systemInstruction, prompt, responseSchema, temperature);
-  }
-  try {
-    const url = (file: string) => new URL(`../../seek-bot/dist/${file}`, import.meta.url).href;
-    const [{ celerisChat }, { withApplicationModel, assertApplicationModelConfigured }] = await Promise.all([
-      import(/* @vite-ignore */ url('agent/celeris.js')),
-      import(/* @vite-ignore */ url('application-model.js')),
-    ]);
-    return await withApplicationModel(applicationEnvironment, async () => {
-      assertApplicationModelConfigured();
-      const reply = await celerisChat({
-        model: 'celeris-1-magnus',
-        messages: [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: `${prompt}\n\nReturn only a JSON object.` },
-        ],
-        temperature: temperature ?? 0,
-        maxTokens: 4_096,
-        ...(responseSchema ? { responseSchema: strictSchema(lowerSchemaTypes(responseSchema)) } : {}),
-        purpose: 'search-terms',
-      });
-      const value = parseJsonObject(reply.text);
-      return value ? { ok: true, value } : { ok: false, error: 'Claude Haiku 5.5 returned invalid JSON.' };
-    });
-  } catch (error) {
-    return { ok: false, error: `Claude Haiku 5.5 request failed: ${(error as Error).message}` };
-  }
 }
 
 /**
@@ -350,16 +306,9 @@ ${resumeBlock}
 export async function generateSearchTerms(
   userId: string,
   input: SearchTermsInput,
-  /** Internal run snapshot, never read from browser input. Ownership is rechecked. */
-  selectedModel?: ApplicationAiModel,
 ): Promise<SearchTermsResult> {
-  let applicationEnvironment: Record<string, string | undefined>;
   try {
-    applicationEnvironment = {
-      ...readEnv(), ...process.env,
-      ...await accountApplicationAiEnvironment(userId, selectedModel),
-      DATA_DIR: userDir(userId),
-    };
+    await accountApplicationEnvironment(userId);
   } catch (error) {
     return { ok: false, status: 503, error: (error as Error).message };
   }
@@ -402,7 +351,7 @@ export async function generateSearchTerms(
     };
   }
 
-  if (applicationEnvironment.APPLICATION_AI_MODEL === 'celeris' && !celerisKey()) {
+  if (!celerisKey()) {
     return { ok: false, status: 503, error: 'Celeris is not configured. Add CELERIS_API_KEY first.' };
   }
 
@@ -423,8 +372,7 @@ export async function generateSearchTerms(
   try {
     let terms: string[] = [];
     for (let attempt = 0; attempt < 2 && !terms.length; attempt++) {
-      const generatedResult = await askApplicationModelForJson(
-        applicationEnvironment,
+      const generatedResult = await askModelForJson(
         SEARCH_TERMS_SYSTEM,
         attempt === 0
           ? searchPrompt
@@ -472,7 +420,6 @@ export async function renewSearchTermsAfterSparseRun(
   userId: string,
   termsUsed: string,
   expectedSavedTerms: string,
-  selectedModel?: ApplicationAiModel,
 ): Promise<SearchTermsRenewalResult> {
   /**
    * Only a run on the account's own saved terms says those terms are spent.
@@ -484,7 +431,7 @@ export async function renewSearchTermsAfterSparseRun(
   const generated = await generateSearchTerms(userId, {
     currentTerms: termsUsed,
     excludeTerms: splitSearchTerms(expectedSavedTerms),
-  }, selectedModel);
+  });
   if (!generated.ok || !generated.terms?.length) {
     return { status: 'failed', error: generated.error ?? 'No resume-matched alternatives were generated.' };
   }

@@ -699,3 +699,8 @@ CREATE TABLE IF NOT EXISTS application_cost_events (
   PRIMARY KEY(user_id,event_id)
 );
 CREATE INDEX IF NOT EXISTS application_cost_run_idx ON application_cost_events(user_id,run_id);
+
+-- Retired application-engine experiments are no longer configurable.
+-- Idempotent and confined to settings; application and usage history remains intact.
+DELETE FROM settings
+WHERE left(key, length('APPLICATION_AI_')) = 'APPLICATION_AI_';

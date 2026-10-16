@@ -18,10 +18,10 @@ interface KnowledgeItem {
   enabled: boolean;
 }
 
-const MANIFEST = resolve(config.dataDir, 'knowledge.json');
-const RESUME_MANIFEST = resolve(config.dataDir, 'resumes.json');
-const RESUMES = resolve(config.dataDir, 'resumes');
-const ANSWERS = resolve(config.dataDir, 'answers.json');
+const manifest = () => resolve(config.dataDir, 'knowledge.json');
+const resumeManifest = () => resolve(config.dataDir, 'resumes.json');
+const resumesDirectory = () => resolve(config.dataDir, 'resumes');
+const answersPath = () => resolve(config.dataDir, 'answers.json');
 
 export interface SavedAnswer {
   question: string;
@@ -52,9 +52,10 @@ export function savedAnswerTimes(): Map<string, number> | null {
 }
 
 export function loadSavedAnswers(): SavedAnswer[] {
-  if (!existsSync(ANSWERS)) return [];
+  const path = answersPath();
+  if (!existsSync(path)) return [];
   try {
-    const raw = JSON.parse(readFileSync(ANSWERS, 'utf8')) as unknown;
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
     if (!Array.isArray(raw)) return [];
     return raw
       .filter((item): item is SavedAnswer => Boolean(item && typeof item === 'object' && typeof (item as SavedAnswer).question === 'string' && typeof (item as SavedAnswer).answer === 'string'))
@@ -64,12 +65,13 @@ export function loadSavedAnswers(): SavedAnswer[] {
     return [];
   }
 }
-const KNOWLEDGE_DIR = resolve(config.dataDir, 'knowledge');
+const knowledgeDirectory = () => resolve(config.dataDir, 'knowledge');
 
 function loadKnowledge(): KnowledgeItem[] {
-  if (!existsSync(MANIFEST)) return [];
+  const path = manifest();
+  if (!existsSync(path)) return [];
   try {
-    return JSON.parse(readFileSync(MANIFEST, 'utf8')) as KnowledgeItem[];
+    return JSON.parse(readFileSync(path, 'utf8')) as KnowledgeItem[];
   } catch {
     return [];
   }
@@ -105,7 +107,7 @@ function contextSignature(items: KnowledgeItem[]): string {
   const files = items
     .filter((item) => item.kind === 'file' && item.fileName)
     .map((item) => {
-      const path = resolve(KNOWLEDGE_DIR, item.fileName!);
+      const path = resolve(knowledgeDirectory(), item.fileName!);
       try {
         const stat = statSync(path);
         return `${item.id}:${stat.size}:${stat.mtimeMs}`;
@@ -114,8 +116,8 @@ function contextSignature(items: KnowledgeItem[]): string {
       }
     });
   try {
-    const manifest = statSync(MANIFEST);
-    return `${manifest.size}:${manifest.mtimeMs}|${files.join('|')}`;
+    const stat = statSync(manifest());
+    return `${stat.size}:${stat.mtimeMs}|${files.join('|')}`;
   } catch {
     return `missing|${files.join('|')}`;
   }
@@ -154,7 +156,7 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
     items.map(async (item) => {
       if (item.kind === 'note') return item.text ?? '';
       if (!item.fileName) return '';
-      const body = await extractText(resolve(KNOWLEDGE_DIR, item.fileName)).catch(() => '');
+      const body = await extractText(resolve(knowledgeDirectory(), item.fileName)).catch(() => '');
       return body.trim()
         ? body
         : `(could not extract text from ${item.fileName} — add a note with the key details instead)`;
@@ -164,7 +166,7 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
   const chunks: string[] = [];
   let budget = 300_000;
 
-  const resumeBodies = await Promise.all(resumes.map(resume => extractText(resolve(RESUMES, resume.fileName)).catch(() => '')));
+  const resumeBodies = await Promise.all(resumes.map(resume => extractText(resolve(resumesDirectory(), resume.fileName)).catch(() => '')));
   for (let index = 0; index < resumes.length && budget > 0; index++) {
     const resume = resumes[index];
     const text = resumeBodies[index].replace(/\s+\n/g, '\n').trim();
@@ -207,9 +209,10 @@ interface ResumeEntry {
  * llm.ts. Only the manifest shape is duplicated, not any logic.
  */
 function contextResumes(): ResumeEntry[] {
-  if (!existsSync(RESUME_MANIFEST)) return [];
+  const path = resumeManifest();
+  if (!existsSync(path)) return [];
   try {
-    const all = JSON.parse(readFileSync(RESUME_MANIFEST, 'utf8')) as ResumeEntry[];
+    const all = JSON.parse(readFileSync(path, 'utf8')) as ResumeEntry[];
     if (!Array.isArray(all) || !all.length) return [];
     const selected = config.resume.select.toLowerCase();
     return selected ? all.filter(r => [r.id,r.label,r.fileName].some(value => value.toLowerCase() === selected))
@@ -222,8 +225,8 @@ function contextResumes(): ResumeEntry[] {
 /** Invalidate extracted context when account-owned documents or selection change. */
 export function knowledgeContextFingerprint(): string {
   const resumes = contextResumes().map(resume => {
-    try { const stat=statSync(resolve(RESUMES,resume.fileName)); return {...resume,size:stat.size,mtime:stat.mtimeMs}; }
+    try { const stat=statSync(resolve(resumesDirectory(),resume.fileName)); return {...resume,size:stat.size,mtime:stat.mtimeMs}; }
     catch { return {...resume,missing:true}; }
   });
-  return `${contextSignature(loadKnowledge().filter(item=>item.enabled))}|${JSON.stringify(resumes)}`;
+  return `${config.dataDir}|${contextSignature(loadKnowledge().filter(item=>item.enabled))}|${JSON.stringify(resumes)}`;
 }

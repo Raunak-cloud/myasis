@@ -156,7 +156,6 @@ const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
 const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
 export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier'>>): boolean {
-  if (key === 'APPLICATION_AI_MODEL') return entitlement.tier === 'admin';
   if (!FINE_TUNING_KEYS.includes(key)) return true;
   return entitlement.fineTune
     || (entitlement.advancedFilters && (ADVANCED_FILTER_KEYS as readonly string[]).includes(key));
@@ -205,8 +204,6 @@ export function applyRunPolicy(
   boardsChosen = false,
 ): Record<string, string> {
   const resolved = { ...settings };
-  // A saved experimental choice does not grant access after administrator access is removed.
-  if (entitlement.tier !== 'admin') resolved.APPLICATION_AI_MODEL = 'celeris';
   // The field was removed. An old saved value or shared .env value must not
   // keep influencing runs after it disappears from the interface.
   resolved.TARGET_ROLE = RUN_SETTING_DEFAULTS.TARGET_ROLE;

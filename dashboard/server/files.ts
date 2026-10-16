@@ -396,13 +396,10 @@ const CONTEXT_PER_ITEM_CHARS = 6_000;
  * The exact assembled block handed to the model — a per-user reimplementation
  * of seek-bot's own `buildKnowledgeContext()`.
  *
- * It cannot simply call that function: `buildKnowledgeContext()` resolves
- * files off the single process-wide `config.dataDir`, which only ever names
- * one account's knowledge folder for the lifetime of this long-running
- * dashboard server. That is fine for a spawned per-run child (fresh process,
- * fresh env var) but wrong here, where one process answers requests for many
- * accounts — so this rebuilds the same assembly logic against this specific
- * account's Postgres rows and directory instead.
+ * Dashboard requests read this account's authoritative Postgres rows and
+ * directory directly. The worker helper reads filesystem manifests under
+ * its request-scoped data directory; this path keeps the dashboard context
+ * tied to the authenticated account's current database records.
  */
 export async function fullContext(userId: string): Promise<{ ok: boolean; text?: string; error?: string }> {
   try {

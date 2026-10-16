@@ -14,7 +14,7 @@ export interface IdentityVerdict {
   reason: string;
   injectionSuspected: boolean;
 }
-export type IdentityJudge = (job: JobListing, history: readonly PriorVacancy[]) => Promise<IdentityVerdict>;
+type IdentityJudge = (job: JobListing, history: readonly PriorVacancy[]) => Promise<IdentityVerdict>;
 
 /** Bound model input without filtering out records by employer spelling.
  * Every owned record is checked; the model decides whether identities match.

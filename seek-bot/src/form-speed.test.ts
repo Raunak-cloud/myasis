@@ -14,6 +14,7 @@ mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'fixture.txt'), 'Approved synthetic resume');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'fixture', label: 'Fixture CV', fileName: 'fixture.txt', isDefault: true }]));
 const { config } = await import('./config.js');
+const { withApplicationModel } = await import('./application-model.js');
 const { answerFields } = await import('./llm.js');
 const { observe } = await import('./agent/observe.js');
 const { executeTool } = await import('./agent/tools.js');
@@ -161,9 +162,9 @@ try {
     assert.deepEqual(lastFields.map(f => f.ref), ['f100']);
   });
   await check('owner directory, profile, job and form context changes invalidate reuse', async () => {
-    const before = calls, old = config.dataDir;
+    const before = calls;
     const b = resolve(directory, 'owner-b'); mkdirSync(b);
-    config.dataDir = b; await answerFields([field], job, profile); config.dataDir = old;
+    await withApplicationModel({ ...process.env, DATA_DIR: b }, () => answerFields([field], job, profile));
     await answerFields([field], job, { ...profile, phone: '0499999999' });
     await answerFields([field], { ...job, company: 'Different employer' }, profile);
     await answerFields([field], job, profile, undefined, { formContext: 'Different page context' });

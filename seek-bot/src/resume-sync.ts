@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { basename, extname, resolve } from 'node:path';
 import { config } from './config.js';
-import { documentFor, loadResumes, RESUME_DIR, resumeFileInputIndex } from './resume.js';
+import { documentFor, loadResumes, resumeDirectory, resumeFileInputIndex } from './resume.js';
 
 /**
  * The candidate's resumes in Owtomate are the one source of truth for what a
@@ -47,7 +47,7 @@ const sameDocument = (a: string, b: string) => {
   return key(a).length > 0 && key(a) === key(b);
 };
 
-export interface DocumentChoice {
+interface DocumentChoice {
   frame: Frame;
   /** Position among the frame's radios, for clicking it again. */
   index: number;
@@ -202,7 +202,7 @@ export async function ensureChosenResume(page: Page, chosen: { id: string; label
   const choices = await documentChoices(page);
   if (!choices.length) return { action: 'none' };
 
-  const file = resolve(RESUME_DIR, chosen.fileName);
+  const file = resolve(resumeDirectory(), chosen.fileName);
   if (!existsSync(file)) return { action: 'failed', reason: `Owtomate's resume "${chosen.label}" is missing from the account's files.` };
   const sha = sha256(file);
   const record = readJson<SyncRecord>(SYNC_FILE(), {})[board]?.[chosen.id];

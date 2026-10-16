@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import type { CandidateProfile } from './types.js';
+import { applicationModelEnvironment } from './application-model.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -403,6 +404,9 @@ export const config = {
    * shared `data/` folder — same pattern as `PROFILE_PATH` above. Defaults to
    * the original shared path so a direct CLI run (`npm run dev`) is unaffected.
    */
-  dataDir: process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : resolve(ROOT, 'data'),
+  get dataDir() {
+    const directory = applicationModelEnvironment().DATA_DIR;
+    return directory ? resolve(directory) : resolve(ROOT, 'data');
+  },
   dryRun: process.env.DRY_RUN === 'true',
 };

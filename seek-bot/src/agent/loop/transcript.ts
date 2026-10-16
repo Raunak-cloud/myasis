@@ -8,15 +8,6 @@ import { renderObservation, type Observation } from '../observe.js';
 const estimateTokens = (messages: ChatMessage[]): number =>
   Math.ceil(JSON.stringify(messages).length / 4);
 
-/** Preserve provider reasoning signatures. Start a fresh conversation at the
- * context ceiling instead of editing messages that precede signed blocks. */
-export function checkpointTranscript(messages: ChatMessage[], maxTokens: number, state: unknown): ChatMessage[] {
-  if (estimateTokens(messages) <= maxTokens) return messages;
-  const latest = [...messages].reverse().find(message => message.role === 'user');
-  return [messages[0], messages[1], { role: 'user', content: `New controller conversation. Verified executor checkpoint (not new candidate facts): ${JSON.stringify(state)}. Do not repeat a possible submission; inspect receipt first when submissionAttempted is true.` },
-    ...(latest && latest !== messages[1] ? [latest] : [])];
-}
-
 /**
  * Drops the oldest exchanges when the transcript outgrows its budget.
  *

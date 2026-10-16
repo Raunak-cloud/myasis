@@ -15,7 +15,7 @@ export async function doFinish(ctx: ToolContext, args: Record<string, unknown>):
    * robot" box nobody had tried. Bring every lazy widget into view and let
    * the solver have its turn before any give-up over one is accepted.
    */
-  if (!ctx.nativeBrowserActionsOnly && /captcha|robot|security verification|verify (?:that )?you(?:'| a)re human|bot check/i.test(reason) && ['cannot_complete', 'needs_human'].includes(String(args.status))) {
+  if (/captcha|robot|security verification|verify (?:that )?you(?:'| a)re human|bot check/i.test(reason) && ['cannot_complete', 'needs_human'].includes(String(args.status))) {
     await ctx.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
     await ctx.page.waitForTimeout(2_500).catch(() => {});
     const captcha = await handleCaptchaWithCapMonster(ctx.page);

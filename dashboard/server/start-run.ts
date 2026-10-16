@@ -32,7 +32,6 @@ import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } fro
 import { loadProfile } from './profile.js';
 import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
 import type { RunDevice } from '../src/run-device.js';
-import { applicationAiSettingsError, applicationAiModel, applicationAiConfigurationError } from './application-ai-policy.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -135,8 +134,6 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
   const admin = isAdmin(email);
-  const modelError = applicationAiSettingsError(request.clientOverrides ?? {}, admin);
-  if (modelError) return { ok: false, ...modelError };
   const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin);
   if (sourceError) return { ok: false, ...sourceError };
   let borrowFreeProxy = false;
@@ -196,8 +193,6 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
 
   const settingsSnapshot = await runSettingsSnapshotForUser(userId, { unlimited: admin });
   const settings = settingsSnapshot.settings;
-  try { applicationAiModel(settings.APPLICATION_AI_MODEL); }
-  catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
 
   /**
    * Only known per-account settings are accepted from a browser: without this
@@ -222,8 +217,6 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * had not picked boards itself.
    */
   const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1');
-  const modelConfigurationError = applicationAiConfigurationError(applicationAiModel(overrides.APPLICATION_AI_MODEL), { ...readEnv(), ...process.env }, admin);
-  if (modelConfigurationError) return { ok: false, status: 400, error: modelConfigurationError };
   if (request.oneTime?.maxApplications !== undefined) overrides.MAX_APPS_PER_RUN = String(request.oneTime.maxApplications);
   if (request.oneTime?.maxEvaluations !== undefined) overrides.MAX_EVALUATIONS = String(request.oneTime.maxEvaluations);
   /**

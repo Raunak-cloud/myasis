@@ -402,7 +402,7 @@ export function looksUnrendered(observation: Observation): boolean {
   return observation.fields.length === 0 && observation.actions.length < 2;
 }
 
-export interface ObserveOptions {
+interface ObserveOptions {
   /** celeris-1 accepts image input; a screenshot rescues visually-laid-out steps. */
   screenshot?: boolean;
 }

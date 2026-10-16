@@ -9,7 +9,7 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-assessment-reuse-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 const { config } = await import('./config.js');
-const { applicationModelIdentity } = await import('./application-model.js');
+const { applicationModelIdentity, withApplicationModel } = await import('./application-model.js');
 const { cachedAssessment } = await import('./pipeline.js');
 const { rankJobsForReview, ruleConflict } = await import('./llm.js');
 const originalFetch = globalThis.fetch;
@@ -60,11 +60,10 @@ try {
   assert.equal(child.status, 0, child.stderr);
 
   const firstOwner = cachedAssessment({ fixture: 'owners' }, compute, accept);
-  config.dataDir = join(directory, 'second-owner');
-  const secondOwner = cachedAssessment({ fixture: 'owners' }, compute, accept);
+  const secondOwner = withApplicationModel({ ...process.env, DATA_DIR: join(directory, 'second-owner') },
+    () => cachedAssessment({ fixture: 'owners' }, compute, accept));
   await Promise.all([firstOwner, secondOwner]);
   assert.equal(computes, 3, 'same inputs from separate accounts never share in-flight work');
-  config.dataDir = directory;
 
   let failures = 0;
   const fail = async () => { failures++; await new Promise(resolve => setTimeout(resolve, 10)); throw new Error('fixture outage'); };
@@ -87,9 +86,9 @@ try {
   assert.equal((await cachedAssessment({ fixture: 'corrupt' }, compute, accept)).result, 'unchanged');
   mkdirSync(join(directory, 'blocked-owner'), { recursive: true });
   writeFileSync(join(directory, 'blocked-owner', 'fit-cache'), 'not a directory');
-  config.dataDir = join(directory, 'blocked-owner');
-  assert.equal((await cachedAssessment({ fixture: 'unwritable' }, compute, accept)).result, 'unchanged', 'cache write failures do not strand a job');
-  config.dataDir = directory;
+  const uncached = await withApplicationModel({ ...process.env, DATA_DIR: join(directory, 'blocked-owner') },
+    () => cachedAssessment({ fixture: 'unwritable' }, compute, accept));
+  assert.equal(uncached.result, 'unchanged', 'cache write failures do not strand a job');
 
   const before = calls;
   const original = await rankJobsForReview(jobs, profile);
@@ -114,10 +113,9 @@ try {
   writeFileSync(join(directory, 'review-history.jsonl'), JSON.stringify({ ts: new Date().toISOString(), jobId: jobs[0].id, title: jobs[0].title, company: jobs[0].company, status: 'skipped', reason: 'New history evidence' }) + '\n');
   await rankJobsForReview(jobs, profile);
   assert.equal(calls - before, 11, 'instructions, search, constraints, endpoint and history invalidate reuse');
-  config.dataDir = join(directory, 'ranking-other-owner');
-  await rankJobsForReview(jobs, profile);
+  await withApplicationModel({ ...process.env, DATA_DIR: join(directory, 'ranking-other-owner') },
+    () => rankJobsForReview(jobs, profile));
   assert.equal(calls - before, 12);
-  config.dataDir = directory;
 
   for (const kind of ['missing', 'duplicate', 'foreign', 'score'] as const) {
     malformed = kind;

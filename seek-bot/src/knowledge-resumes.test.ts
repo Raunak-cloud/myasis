@@ -4,7 +4,6 @@ import {tmpdir} from 'node:os';
 import {resolve,sep} from 'node:path';
 const dir=mkdtempSync(resolve(tmpdir(),'owtomate-resume-evidence-'));
 process.env.DATA_DIR=dir;
-delete process.env.ADMIN_BROWSER_MODEL_PILOT;
 const {config}=await import('./config.js');
 const {buildKnowledgeContext,knowledgeContextFingerprint}=await import('./knowledge.js');
 const {reviewContextFingerprint}=await import('./review-cache.js');

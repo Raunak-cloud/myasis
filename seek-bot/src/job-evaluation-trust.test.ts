@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-job-trust-'));
-Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fictional-only', ANTHROPIC_API_KEY: '', OPENROUTER_API_KEY: '', COST_TRACKING: 'false' });
+Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fictional-only', COST_TRACKING: 'false' });
 const { config } = await import('./config.js');
 const { assessFit, ruleConflict, JOB_EVALUATION_POLICY } = await import('./llm.js');
 const originalFetch = globalThis.fetch;

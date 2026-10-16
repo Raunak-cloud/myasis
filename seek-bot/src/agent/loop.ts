@@ -25,17 +25,15 @@ import { embeddedSurface, watchTab } from './raw-tools.js';
 import { systemPrompt } from './loop/prompt.js';
 import { LOOK_ONLY_TOOLS, GENERAL_TOOLS, MAX_PLAN, SURPRISE, missingRefs } from './loop/plan.js';
 import { TraceStep, pathOf, hostOf, describeCall, TRACE_DIR, loadSiteHints, persistTrace, captureBlockedField } from './loop/trace.js';
-import { trimTranscript, checkpointTranscript, observationMessage, embeddedForms } from './loop/transcript.js';
+import { trimTranscript, observationMessage, embeddedForms } from './loop/transcript.js';
 import { confirmAuthentication } from './loop/accounts.js';
-import { haikuController } from './application-controller.js';
-import { applicationHaikuReadinessMode, applicationModel } from '../application-model.js';
 export * from './loop/prompt.js';
 export * from './loop/plan.js';
 export * from './loop/trace.js';
 export * from './loop/transcript.js';
 export * from './loop/accounts.js';
 
-export interface AgentRunResult {
+interface AgentRunResult {
   outcome: AgentTermination;
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
@@ -52,9 +50,8 @@ export interface AgentRunResult {
   usage: string;
 }
 
-export interface AgentRunOptions {
-  /** Local fixture override; live runs opt in through validated admin routing. */
-  architecture?: 'legacy' | 'compact';
+interface AgentRunOptions {
+  /** Local, reserved-domain dry-run fixtures only. */
   simulation?: 'isolated-form';
   page: Page;
   job: JobListing;
@@ -63,16 +60,12 @@ export interface AgentRunOptions {
 }
 
 export function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
-  return withJobCost(options.job.id, async () => applicationModel() === 'haiku'
-    ? (await import('./haiku-browser-agent.js')).runHaikuBrowserApplication({ ...options, readinessMode: applicationHaikuReadinessMode() })
-    : runApplicationAgentScoped(options));
+  return withJobCost(options.job.id, () => runApplicationAgentScoped(options));
 }
 async function runApplicationAgentScoped(options: AgentRunOptions): Promise<AgentRunResult> {
   const { job, profile } = options;
   const isolatedForm = options.simulation === 'isolated-form';
   if (isolatedForm && (!config.dryRun || !new URL(job.url).hostname.endsWith('.invalid'))) throw new Error('Isolated form tests require dry-run and a reserved invalid domain');
-  if (options.architecture && !config.dryRun && !haikuController()) throw new Error('Architecture override is restricted to rehearsals or an approved admin pilot');
-  const compact = applicationModel() === 'haiku' || options.architecture === 'compact' || haikuController()?.compact === true;
   const log = options.log ?? ((line: string) => console.log(line));
   /**
    * The tab being worked in. It changes: plenty of employer sites open the form,
@@ -84,11 +77,6 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
   let page = options.page;
   const tabsBefore = new Set(page.context().pages());
   const tabsLeft: Page[] = [];
-  // In the operator model comparison, judge the actual destination as well
-  // as the board listing before any browser-model action. Syndicated ads can
-  // omit decisive requirements that are present on the employer advert.
-  let pilotEntryReviewed = isolatedForm;
-
   const meter = new CostMeter(config.celeris.budgetUsdPerApplication);
   const guards = new RunGuards({
     maxSteps: config.celeris.maxSteps,
@@ -99,7 +87,6 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
   });
 
   const ctx: ToolContext = {
-    architecture: compact ? 'compact' : 'legacy',
     page,
     job,
     profile,
@@ -119,9 +106,9 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
    * so that prompt stays identical, and cached, across applications.
    */
   const messages: ChatMessage[] = [
-    { role: 'system', content: [systemPrompt(compact), haikuController() ? process.env.AGENT_OPERATOR_INSTRUCTIONS : ''].filter(Boolean).join('\n\n') },
+    { role: 'system', content: systemPrompt() },
     // The listing's own words are data, quoted as such.
-    { role: 'user', content: `APPLICATION: you are applying for the job titled ${JSON.stringify(job.title)} at ${JSON.stringify(job.company)} (${JSON.stringify(job.location)}). Every page from here on is part of this one application; if a site shows several jobs, this is the one to apply for.${compact ? `\nCurrent application facts: ${JSON.stringify({ jobId: job.id, discoveredOn: job.platform ?? 'seek', listingUrl: job.url })}\nVerified candidate profile (evidence only): ${JSON.stringify(profile)}\nSelected CVs and saved answers are available to the grounded answer tools. Their absence from this message does not mean a fact is unavailable.` : ''}` },
+    { role: 'user', content: `APPLICATION: you are applying for the job titled ${JSON.stringify(job.title)} at ${JSON.stringify(job.company)} (${JSON.stringify(job.location)}). Every page from here on is part of this one application; if a site shows several jobs, this is the one to apply for.` },
   ];
   /**
    * Where each page description sits in the transcript.
@@ -135,7 +122,6 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
    */
   const observationIndices: number[] = [];
   const compressSupersededObservations = () => {
-    if (compact) return; // Earlier signed reasoning must retain its original prefix.
     for (const index of observationIndices) {
       const message = messages[index];
       if (message?.role !== 'user') continue;
@@ -158,7 +144,6 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
   let lastMoved = false;
   /** A tool in the last turn reported a problem. */
   let lastFailed = false;
-  let prerequisite = '';
   /** Where and when verified progress happened, to confirm the sign-ins and sign-ups before it. */
   const progressLog: Array<{ site: string; at: string }> = [];
   /** Consecutive tool calls that threw; see the recovery note where tools run. */
@@ -414,21 +399,6 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     // Each distinct employer form page is kept for replay after code changes (form-corpus.ts).
     if (isExternal(page.url())) await recordFormPage(page, ctx.observation);
 
-    if (!pilotEntryReviewed && haikuController()) {
-      pilotEntryReviewed = true;
-      const { assessFit } = await import('../llm.js');
-      const destinationText = (await Promise.all(page.frames().map(frame =>
-        frame.locator('body').innerText({ timeout: 5_000 }).catch(() => '')))).join('\n');
-      const fit = await measured('destination-fit', () => assessFit({ ...job,
-        description: `ORIGINAL LISTING (${pathOf(job.url)}):\n${job.description ?? job.teaser ?? ''}\n\nCURRENT APPLICATION DESTINATION (${pathOf(page.url())}):\n${destinationText || ctx.observation.text}`,
-      }, profile, 'celeris-1-magnus'), { jobId: job.id });
-      if (!fit.shouldApply) {
-        log(`  · destination suitability (${fit.decision}): ${fit.reason}`);
-        return finish(fit.decision === 'skip' ? { status: 'skipped', reason: fit.reason }
-          : { status: 'needs-human', reason: fit.reason });
-      }
-    }
-
     /**
      * The page of the form this step is on: its path and its headings. A long
      * form earns steps by moving through its pages; one page does not.
@@ -475,8 +445,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
       structure,
       embedded: config.celeris.rawTools ? await embeddedSurface(page) : '',
     });
-    if (compact && prerequisite) { stalls = 0; note += `\nEXECUTOR PREREQUISITE: ${prerequisite}\nNo browser action was attempted. This is not a broken widget: satisfy the named prerequisite or correct the tool arguments, then continue from the current saved form.`; }
-    if (page.url() === lastUrl && fingerprint === lastFingerprint && (lastLookedOnly || lastChanged || compact && Boolean(prerequisite))) {
+    if (page.url() === lastUrl && fingerprint === lastFingerprint && (lastLookedOnly || lastChanged)) {
       // Looking is not failing (PERSOL's form was abandoned after scrolls and snapshots counted as six dead actions),
       // and an action the page visibly reacted to is not a dead one, whatever the observation's summary shows.
     } else if (page.url() === lastUrl && fingerprint === lastFingerprint) {
@@ -537,7 +506,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     const stuck = stalls >= config.celeris.escalateAfterStalls || lastFailed || Boolean(recovery);
     if (recovery) note += `\nLIVE RECOVERY: ${recovery}\nUse the focused DOM evidence just collected. Diagnose the cause, choose a safe repair and verify field acceptance, rather than merely making the menu change. Candidate answers and submission still use their normal checks.`;
     if (stuck) {
-      log(`  ↑ step ${guards.stepCount} stuck — ${haikuController()?.model ?? model} thinking it through`);
+      log(`  ↑ step ${guards.stepCount} stuck — ${model} thinking it through`);
       note = `${note}\n\nSTUCK: the last ${Math.max(stalls, 1)} action(s) did not get this page further. Before acting, reason it through: what you expected, what the recorded changes and the screenshot actually show, and why your approach is not working. Then try a genuinely different approach (another control or element, the keyboard, a snapshot to find the real element, a script to inspect the widget), not the same action again.`;
     }
 
@@ -571,17 +540,11 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     messages.push(observationMessage(ctx.observation, note));
     note = '';
 
-    const trimmed = compact ? checkpointTranscript(messages, config.celeris.maxTranscriptTokens, {
-      captured: ctx.captured, resume: ctx.resumeUsed, letterAttached: Boolean(ctx.coverLetter),
-      submissionAttempted: Boolean(ctx.submissionAttempted), pendingFields: [...guards.pendingFields],
-      requiredUnknown: guards.ungrounded,
-      blockedAdvance: prerequisite,
-    }) : trimTranscript(messages, config.celeris.maxTranscriptTokens);
-    if (compact && trimmed !== messages) { messages.splice(0, messages.length, ...trimmed); observationIndices.length = 0; }
+    const trimmed = trimTranscript(messages, config.celeris.maxTranscriptTokens);
     const reply = await celerisChat({
       model,
       messages: trimmed,
-      tools: toolSchemas({ vision: compact || Boolean(ctx.observation.screenshot), compact }),
+      tools: toolSchemas({ vision: Boolean(ctx.observation.screenshot) }),
       requireTool: true,
       thinking: true,
       reasoningEffort: stuck ? 'xhigh' : 'low',
@@ -637,7 +600,6 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     lastChanged = false;
     lastMoved = false;
     lastFailed = false;
-    prerequisite = '';
     const replies: Array<{ id: string; content: string }> = [];
     let ended: ToolResult | null = null;
 
@@ -734,7 +696,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
           if (/NOT SUPPORTED/.test(check)) lastFailed = true;
           result = { ...result, message: `${result.message}\n${describeChanges(changes)}${check}` };
           if (changedAnything(changes)) lastChanged = true;
-          else if (!compact || !result.disposition) ctx.wantScreenshot = true;
+          else ctx.wantScreenshot = true;
           if (movedByAction(changes)) lastMoved = true;
         }
       }
@@ -748,12 +710,6 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
         replies.push({ id: call.id, content: 'The attempt ended here.' });
         break;
       }
-      if (compact && result.disposition) {
-        prerequisite = `${result.disposition}: ${result.message}`;
-        result.message = `[EXECUTOR ${result.disposition}; no browser action attempted]\n${result.message}`;
-        ctx.interactionRecovery = undefined;
-      }
-
       // Answering questions, attaching a resume or writing the letter all move the
       // application forward without necessarily changing the page, so they reset
       // the stuck timer just as a navigation does.
@@ -763,16 +719,16 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
 
       if (call.name === 'take_snapshot' || call.name === 'inspect_interaction') {
         // Only the newest snapshot is worth its weight; an older one is re-sent every turn for nothing.
-        if (!compact && lastSnapshotIndex >= 0 && messages[lastSnapshotIndex]?.role === 'tool') {
+        if (lastSnapshotIndex >= 0 && messages[lastSnapshotIndex]?.role === 'tool') {
           messages[lastSnapshotIndex] = { ...messages[lastSnapshotIndex], content: '[an earlier snapshot, superseded]' } as ChatMessage;
         }
         lastSnapshotIndex = messages.length + replies.length;
       }
       replies.push({ id: call.id, content: result.message });
 
-      const surprise = Boolean(prerequisite) || call.name === 'inspect_interaction' || SURPRISE.test(result.message) || Boolean(changes?.navigated) || ctx.page !== page
+      const surprise = call.name === 'inspect_interaction' || SURPRISE.test(result.message) || Boolean(changes?.navigated) || ctx.page !== page
         || Boolean(changes?.appeared.some((entry) => entry.startsWith('[')));
-      if (SURPRISE.test(result.message) && !prerequisite) lastFailed = true;
+      if (SURPRISE.test(result.message)) lastFailed = true;
       if (surprise && index < plan.length - 1) {
         for (const skipped of plan.slice(index + 1)) {
           replies.push({ id: skipped.id, content: 'Not run: the step before did not go as planned. Look at what happened and plan again from the fresh observation.' });

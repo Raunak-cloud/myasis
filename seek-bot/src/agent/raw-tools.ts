@@ -8,7 +8,6 @@ import { abandoned } from '../tool-run.js';
 import { applicationUpload } from '../employer-browser.js';
 import { config } from '../config.js';
 import { inspectInteractionElement } from './interaction-inspection.js';
-import { haikuController } from './application-controller.js';
 import {
   coverLetterDocument,
   coverLetterSent,
@@ -225,9 +224,6 @@ async function watched(ctx: ToolContext, label: string, run: () => Promise<ToolR
   }
 }
 
-/** Shared wire-level policy for native browser executors as well as legacy tools. */
-export { watched as guardedBrowserAction };
-
 const NEED_SNAPSHOT = 'That ref is not on the page any more. Call take_snapshot for current refs.';
 
 const SNAPSHOT_LIMIT = 24_000;
@@ -255,7 +251,7 @@ async function inspectInteraction(ctx: ToolContext, args: Record<string, unknown
     ctx.log('  ↳ inspecting the unresolved form interaction for the controller');
     const json = JSON.stringify(evidence).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
     return ok(`LIVE INTERACTION EVIDENCE. Inspection is read-only; no answer or selection was changed.\n` +
-      `Refs r${sequence}f${frameIndex}e… work with click_element, fill_element and press_key${ctx.architecture !== 'compact' && !haikuController() ? ', or evaluate_script' : ''}. ` +
+      `Refs r${sequence}f${frameIndex}e… work with click_element, fill_element, press_key and evaluate_script. ` +
       'They include visible items omitted by the accessibility tree. Re-inspect after changing the widget.\n' +
       'Controller: give a brief evidence-based diagnosis and expected acceptance signal in the next action reason. ' +
       'Use verified candidate facts, try a different approach and check the result; opening/typing is not a committed selection.\n' +
@@ -276,7 +272,7 @@ async function takeSnapshot(ctx: ToolContext, args: Record<string, unknown>): Pr
     : snapshot;
   return ok(
     `Tab ${tabs.indexOf(ctx.page) + 1} of ${tabs.length}: ${ctx.page.url()}\n` +
-    `Refs below (e12, f1e3 inside an iframe) work with click_element, fill_element, hover, drag, upload_file and press_key${ctx.architecture !== 'compact' && !haikuController() ? ', or evaluate_script' : ''} until the page changes.\n` +
+    `Refs below (e12, f1e3 inside an iframe) work with click_element, fill_element, hover, drag, upload_file, press_key and evaluate_script until the page changes.\n` +
     `<untrusted>\n${clipped}\n</untrusted>`,
   );
 }

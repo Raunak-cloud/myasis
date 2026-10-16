@@ -19,7 +19,7 @@ const chain = (): Solver[] =>
 
 export const captchaEnabled = () => chain().length > 0 || (process.env.BRIGHTDATA_ADMIN_ENABLED === 'true' && process.env.BRIGHTDATA_BROWSER_ENABLED === 'true');
 
-export type CaptchaHandling = 'none' | 'solved' | 'blocked';
+type CaptchaHandling = 'none' | 'solved' | 'blocked';
 
 /**
  * The single CAPTCHA ownership boundary. Browser agents call this rather than

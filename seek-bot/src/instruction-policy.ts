@@ -9,7 +9,7 @@ export interface InstructionVerdict {
   injectionSources: InstructionInjectionSource[];
 }
 
-export interface InstructionValidation {
+interface InstructionValidation {
   verdict: InstructionVerdict | null;
   error?: string;
 }

@@ -27,7 +27,6 @@ import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, 
 import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { jobSourceSettingsError } from './server/job-sources.js';
-import { applicationAiSettingsError, applicationAiSettingsMetadata } from './server/application-ai-policy.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { matchKeysFromRequest, reportRedditConversion } from './server/reddit-capi.js';
@@ -517,8 +516,6 @@ function dataApi(): Plugin {
              * actually withholds them.
              */
             const settingsUser = await currentUser(req.headers?.cookie);
-            const modelError = applicationAiSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email));
-            if (modelError) return send({ error: modelError.error }, modelError.status);
             const sourceError = jobSourceSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email));
             if (sourceError) return send({ error: sourceError.error }, sourceError.status);
             const entitlements = await entitlementsFor(userId, settingsUser?.email);
@@ -534,12 +531,12 @@ function dataApi(): Plugin {
               await upsertSettingRow(userId, PLATFORMS_CHOSEN_KEY, '1');
             }
             const settings = await saveUserSettings(userId, updates);
-            return send({ ok: true, settings: { ...settings, ...applicationAiSettingsMetadata(settings, isAdminEmail(settingsUser?.email), { ...readEnv(), ...process.env }), PLATFORMS: effectivePlatforms(settings, entitlements) } });
+            return send({ ok: true, settings: { ...settings, PLATFORMS: effectivePlatforms(settings, entitlements) } });
           }
           // What the run screen shows is what a run would use, not the raw saved value.
           const viewer = await currentUser(req.headers?.cookie);
           const saved = await loadUserSettings(userId);
-          return send({ ...saved, ...applicationAiSettingsMetadata(saved, isAdminEmail(viewer?.email), { ...readEnv(), ...process.env }), PLATFORMS: effectivePlatforms(saved, await entitlementsFor(userId, viewer?.email)) });
+          return send({ ...saved, PLATFORMS: effectivePlatforms(saved, await entitlementsFor(userId, viewer?.email)) });
         });
       }
 

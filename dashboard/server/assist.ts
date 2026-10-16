@@ -6,7 +6,7 @@ import { fullContext } from './files.js';
 import { listAnswers } from './answers.js';
 import { humanizerAllowed } from './entitlements.js';
 import type { CandidateProfile } from './candidate-profile.js';
-import { accountApplicationAiEnvironment, readEnv } from './runner.js';
+import { accountApplicationEnvironment, readEnv } from './runner.js';
 
 /**
  * Backend for the browser extension.
@@ -156,7 +156,7 @@ export async function answerForm(
     const applicationEnvironment = {
       ...readEnv(),
       ...process.env,
-      ...await accountApplicationAiEnvironment(userId),
+      ...await accountApplicationEnvironment(userId),
       DATA_DIR: userDir(userId),
     };
     return await model.withApplicationModel(applicationEnvironment, async () => {
@@ -181,11 +181,11 @@ export async function answerForm(
       const knowledge = context.ok ? (context.text ?? '') : '';
 
       const wantsLetter = input.fields.some((f) => /cover letter/i.test(f.label));
-      // Untagged queue drafts predate provider selection and came from Celeris.
-      // An explicit Haiku selection must not silently reuse one of those drafts.
+      // Reject drafts whose recorded provenance differs from the current
+      // Celeris model. Untagged historical drafts used the established model.
       const queuedLetterMatchesModel = queued?.applicationModel
         ? JSON.stringify(queued.applicationModel) === JSON.stringify(model.applicationModelIdentity())
-        : model.applicationModel() === 'celeris';
+        : true;
       const [answered, letter] = await Promise.all([
         input.fields.length
           ? llm.answerFields(input.fields, job, profile, knowledge, { savedAnswers })

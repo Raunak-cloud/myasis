@@ -1,23 +1,23 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { config } from './config.js';
 import type { AppliedRecord, ApplyOutcome } from './types.js';
 import type { ReviewCacheMetadata } from './review-cache.js';
 import { recordSubmittedCost } from './cost-ledger.js';
 
-const APPLIED = resolve(config.dataDir, 'applied.json');
-const LOG = resolve(config.dataDir, 'run-log.jsonl');
-const RUN_SUMMARY = resolve(config.dataDir, 'run-summary.json');
+const appliedPath = () => resolve(config.dataDir, 'applied.json');
+const outcomeLogPath = () => resolve(config.dataDir, 'run-log.jsonl');
+const runSummaryPath = () => resolve(config.dataDir, 'run-summary.json');
 
-function ensureDir() {
-  if (!existsSync(config.dataDir)) mkdirSync(config.dataDir, { recursive: true });
+function ensureDir(directory = config.dataDir) {
+  if (!existsSync(directory)) mkdirSync(directory, { recursive: true });
 }
 
-function loadApplied(): AppliedRecord[] {
-  ensureDir();
-  if (!existsSync(APPLIED)) return [];
+function loadApplied(path: string): AppliedRecord[] {
+  ensureDir(dirname(path));
+  if (!existsSync(path)) return [];
   try {
-    const records: unknown = JSON.parse(readFileSync(APPLIED, 'utf8'));
+    const records: unknown = JSON.parse(readFileSync(path, 'utf8'));
     if (!Array.isArray(records)) throw new Error('Invalid application history shape');
     return records as AppliedRecord[];
   } catch {
@@ -25,9 +25,9 @@ function loadApplied(): AppliedRecord[] {
   }
 }
 
-function saveApplied(records: AppliedRecord[]) {
-  ensureDir();
-  writeFileSync(APPLIED, JSON.stringify(records, null, 2));
+function saveApplied(records: AppliedRecord[], path: string) {
+  ensureDir(dirname(path));
+  writeFileSync(path, JSON.stringify(records, null, 2));
 }
 
 const norm = (s: string) =>
@@ -50,12 +50,14 @@ export function roleKey(company: string, title: string): string {
 }
 
 export class AppliedIndex {
+  private readonly path: string;
   private records: AppliedRecord[];
   private keys: Set<string>;
   private ids: Set<string>;
 
   constructor() {
-    this.records = loadApplied();
+    this.path = appliedPath();
+    this.records = loadApplied(this.path);
     this.keys = new Set(this.records.map((r) => dedupeKey(r.company, r.title, r.location)));
     this.ids = new Set(this.records.map((r) => r.jobId));
   }
@@ -79,7 +81,7 @@ export class AppliedIndex {
     this.records.push(rec);
     this.ids.add(rec.jobId);
     this.keys.add(dedupeKey(rec.company, rec.title, rec.location));
-    saveApplied(this.records);
+    saveApplied(this.records, this.path);
   }
 
   /**
@@ -109,10 +111,10 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
   if (outcome.status === 'applied') recordSubmittedCost(outcome.jobId);
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });
-  writeFileSync(LOG, line + '\n', { flag: 'a' });
+  writeFileSync(outcomeLogPath(), line + '\n', { flag: 'a' });
 }
 
-export interface ReviewFeedback {
+interface ReviewFeedback {
   at: string;
   status: string;
   reason: string;
@@ -124,7 +126,7 @@ export interface ReviewFeedback {
 export function recentReviewFeedback(): Map<string, ReviewFeedback> {
   const result = new Map<string, ReviewFeedback>();
   try {
-    const paths = [resolve(config.dataDir, 'review-history.jsonl'), LOG];
+    const paths = [resolve(config.dataDir, 'review-history.jsonl'), outcomeLogPath()];
     const lines = paths.filter(existsSync).flatMap(path => readFileSync(path, 'utf8').trim().split('\n'));
     for (const line of lines.slice(-2000)) {
       try {
@@ -158,7 +160,7 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
  */
 export function saveRunSummary(qualifyingJobs: number, reviewComplete = true): void {
   ensureDir();
-  writeFileSync(RUN_SUMMARY, JSON.stringify({ qualifyingJobs, reviewComplete, completedAt: new Date().toISOString() }, null, 2));
+  writeFileSync(runSummaryPath(), JSON.stringify({ qualifyingJobs, reviewComplete, completedAt: new Date().toISOString() }, null, 2));
 }
 
 /**

@@ -78,8 +78,8 @@ as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 |
 as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "cd $APP/seek-bot && node dist/cost-ledger.test.js"
-as_app "cd $APP/seek-bot && node --test dist/agent/haiku.test.js dist/agent/application-model-routing.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/agent/haiku-browser.test.js dist/agent/haiku-browser-agent.test.js dist/agent/native-readiness-gate.test.js dist/agent/guards-budget.test.js dist/direct-external.test.js"
+as_app "cd $APP/seek-bot && node --test dist/application-model.test.js dist/agent/application-model-routing.test.js dist/agent/guards-budget.test.js dist/store-scope.test.js"
+as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/direct-external.test.js"
 as_app "cd $APP/seek-bot && node dist/fit-contract.test.js && node dist/application-evidence.test.js && node dist/application-model-cache.test.js"
 as_app "cd $APP/seek-bot && node dist/assessment-reuse.test.js"
 as_app "cd $APP/seek-bot && node scripts/test-ranking.mjs"
@@ -107,7 +107,7 @@ as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test test/activ
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/browser-run-policy.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/answers.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/assist.test.ts server/skipped.test.ts server/run-watchdog.test.ts server/chrome-profile.test.ts server/run-completion.test.ts server/salary.test.ts server/run-device.test.ts server/market-scout.test.ts server/blog/*.test.ts server/marketing/*.test.ts"
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-environment.test.ts server/assist.test.ts server/skipped.test.ts server/run-watchdog.test.ts server/chrome-profile.test.ts server/run-completion.test.ts server/salary.test.ts server/run-device.test.ts server/market-scout.test.ts server/blog/*.test.ts server/marketing/*.test.ts"
 as_app "cd $APP/market-scout && npm exec tsc -- -p . && npm test"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.

@@ -13,9 +13,8 @@ let searchStarted = false;
 let adminBoards = 'smartrecruiters';
 let adminSeekSignedIn = false;
 let attentionFixture = false;
-let haikuConfigured = true;
 const writes: Array<{ path: string; body: any }> = [];
-const settings = () => ({ APPLICATION_AI_MODEL: 'celeris', APPLICATION_AI_CELERIS_CONFIGURED: String(admin), APPLICATION_AI_HAIKU_CONFIGURED: String(admin && haikuConfigured),
+const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40', PAGES_PER_KEYWORD: '1' });
@@ -71,11 +70,7 @@ try {
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).waitFor();
-    const model = page.locator('[data-field=APPLICATION_AI_MODEL]');
-    if (admin) {
-      assert.deepEqual(await model.locator('option').allTextContents(), ['Celeris', 'Claude Haiku 5.5']);
-      await model.selectOption('haiku');
-    } else assert.equal(await model.count(), 0);
+    assert.equal(await page.getByRole('combobox', { name: 'Application AI model', exact: true }).count(), 0);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).click({ timeout: 15_000 });
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
@@ -108,8 +103,7 @@ try {
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
     assert.equal('EMPLOYER_BROWSER_PROVIDER' in submitted.overrides, admin);
-    assert.equal('APPLICATION_AI_MODEL' in submitted.overrides, admin);
-    if (admin) assert.equal(submitted.overrides.APPLICATION_AI_MODEL, 'haiku');
+    assert.equal('APPLICATION_AI_MODEL' in submitted.overrides, false);
     if (admin) assert.equal(submitted.overrides.EMPLOYER_BROWSER_PROVIDER, 'brightdata');
     for (const source of EMPLOYER_SOURCES) assert.equal(source.key in submitted.overrides, admin);
     assert.equal(submitted.mode, 'live');
@@ -158,22 +152,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  // Missing provider access is a visible hold, never a silent model switch.
-  admin = true; searchStarted = false; haikuConfigured = false;
-  const heldContext = await browser.newContext();
-  const heldPage = await heldContext.newPage();
-  await heldPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
-  await heldPage.goto(`${origin}/?tab=run`);
-  await heldPage.locator('[data-field=APPLICATION_AI_MODEL]').selectOption('haiku');
-  const runsBeforeHold = writes.filter(write => write.path === '/api/run').length;
-  await heldPage.getByRole('button', { name: 'Start auto apply', exact: true }).click();
-  const heldDialog = heldPage.getByRole('dialog');
-  await heldDialog.waitFor();
-  await heldDialog.getByRole('button', { name: 'Save and apply', exact: true }).click();
-  await heldPage.getByText('Claude Haiku 5.5 needs an Anthropic or OpenRouter API key in Admin settings before starting a run.', { exact: true }).first().waitFor();
-  assert.equal(writes.filter(write => write.path === '/api/run').length, runsBeforeHold);
-  assert.equal(await heldPage.locator('[data-field=APPLICATION_AI_MODEL]').inputValue(), 'haiku');
-  await heldContext.close(); haikuConfigured = true;
+  admin = true;
   attentionFixture = true; searchStarted = false;
   const answerContext = await browser.newContext();
   const answerPage = await answerContext.newPage();
@@ -192,7 +171,7 @@ try {
   assert.deepEqual(answerWrite.body, { jobId: 'handoff-fixture', answers: [{ question: 'Country of birth', answer: 'Nepal' }, { question: 'Audit services', answer: 'No' }] });
   assert.equal(writes.filter(write => write.path === '/api/run').length, runsBeforeSave, 'saving explicit facts does not submit or start a live job');
   await answerContext.close();
-  console.log('PASS: exactly two admin application models, selected-model handoff, missing-key hold, employer feeds, bounded search-only tests and candidate answers; fixture APIs only');
+  console.log('PASS: application controls, employer feeds, bounded search-only tests and candidate answers; fixture APIs only');
 } finally {
   await browser.close();
   await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));

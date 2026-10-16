@@ -15,7 +15,6 @@ import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resum
 import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 import { readSavedForm, savedFormSignature } from '../saved-form.js';
-import { applicationHaikuReadinessMode } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -99,13 +98,8 @@ async function transmits(ctx: ToolContext, label: string, context?: string): Pro
   return verdict;
 }
 
-export type Gate = { proceed: true; submit: boolean } | { proceed: false; result: ToolResult };
+type Gate = { proceed: true; submit: boolean } | { proceed: false; result: ToolResult };
 type PressOptions = { role?: string; knownSubmit?: boolean };
-
-function agentManagedReadiness(ctx: ToolContext): boolean {
-  return ctx.nativeBrowserActionsOnly === true && ctx.nativeFormReadiness === 'agent-managed'
-    && applicationHaikuReadinessMode() === 'agent-managed';
-}
 
 async function classifyPress(ctx: ToolContext, label: string, context: string | undefined, options: PressOptions) {
   const entry = !options.knownSubmit && isEntryAction(label, { captured: ctx.captured.length, fields: ctx.observation.fields.length });
@@ -162,26 +156,9 @@ export async function gateAdvance(
     ctx.log(`  ⛔ held "${label.slice(0, 60)}": nothing on the person's ${boardOf(ctx.page.url()) === 'seek' ? 'SEEK' : 'Indeed'} account is deleted`);
     return { proceed: false, result: ok('Not allowed: nothing saved on the person\'s job-board account (resumés, cover letters, profile) may be deleted or removed. If the board says its document limit is reached, finish with needs_human and say so.') };
   }
-  // This policy is resolved from the authenticated worker, not from page
-  // copy or a tool argument. Transmission/privacy protections are shared;
-  // readiness belongs exclusively to the native controller in this pilot.
-  if (agentManagedReadiness(ctx)) {
-    if (ctx.submissionAttempted) return authorizeFinalSubmission(ctx, label, true);
-    const { submit } = await classifyPress(ctx, label, context, options);
-    return submit ? authorizeFinalSubmission(ctx, label, true) : { proceed: true, submit: false };
-  }
   if (movesForward(ctx, label) && !ctx.resumeSettled) {
     const chosen = await pickResumeForJob(ctx.job, ctx.profile);
-    if (ctx.nativeBrowserActionsOnly && chosen && boardOf(ctx.page.url())
-      && (ctx.observation.fields.some(field => /resume|résumé|\bcv\b/i.test(field.label))
-        || options.knownSubmit || ctx.declaredSubmit === true || submitWorded(ctx, label))) {
-      return { proceed: false, result: ok(
-        `Do not advance yet: the board's attached resume has not been confirmed as the approved "${chosen.seekName || chosen.fileName}". ` +
-        'Use the native browser controls to select its exact saved option or upload the registered approved document, then inspect the saved selection before advancing.',
-        'document-prerequisite',
-      ) };
-    }
-    const step = chosen && !ctx.nativeBrowserActionsOnly ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
+    const step = chosen ? await ensureChosenResume(ctx.page, chosen) : { action: 'none' as const };
     if (step.action === 'failed' && step.full) return { proceed: false, result: boardFullOutcome(step) };
     if (step.action === 'failed') {
       return { proceed: false, result: ok(
@@ -207,21 +184,6 @@ export async function gateAdvance(
     return { proceed: true, submit: false };
   }
 
-  // Some boards land directly on review. A control classified as a final
-  // send still requires the approved resume, without an implicit edit/select
-  // action; earlier steps may legitimately precede the documents step.
-  if (ctx.nativeBrowserActionsOnly && boardOf(ctx.page.url()) && !ctx.resumeSettled && !ctx.resumeUsed) {
-    const chosen = await pickResumeForJob(ctx.job, ctx.profile);
-    if (!chosen) return { proceed: false, result: { kind: 'terminal', outcome: {
-      status: 'skipped', reason: 'No approved resume is available for the required board resume selection.',
-    } } };
-    return { proceed: false, result: ok(
-      `Not submitted: the board's attached resume has not been confirmed as the approved "${chosen.seekName || chosen.fileName}". ` +
-      'Use the native browser controls to open the resume step and select its exact saved option or upload the registered approved document, then inspect the saved selection.',
-      'document-prerequisite',
-    ) };
-  }
-
   /**
    * Indeed can open an application straight on its review page with the
    * resume it already holds for the account attached, so no resume step ever
@@ -229,7 +191,7 @@ export async function gateAdvance(
    * resume is known to be Owtomate's: the resume step is reopened and settled,
    * and the agent goes through to the review page again.
    */
-  if (!ctx.nativeBrowserActionsOnly && !ctx.resumeSettled && !ctx.resumeUsed && boardOf(ctx.page.url()) === 'indeed') {
+  if (!ctx.resumeSettled && !ctx.resumeUsed && boardOf(ctx.page.url()) === 'indeed') {
     const chosen = await pickResumeForJob(ctx.job, ctx.profile);
     if (chosen) {
       ctx.resumeReopenTries = (ctx.resumeReopenTries ?? 0) + 1;
@@ -258,17 +220,16 @@ export async function gateAdvance(
     }
   }
 
-  return authorizeFinalSubmission(ctx, label, false);
+  return authorizeFinalSubmission(ctx, label);
 }
 
-/** Shared transmission boundary: readiness policy cannot disable dry run,
- * external access, actual sent-value recording or independent receipts. */
-async function authorizeFinalSubmission(ctx: ToolContext, label: string, managedReadiness: boolean): Promise<Gate> {
+/** A final send retains the current form review, dry run, external-access
+ * policy, actual sent-value recording and independent receipt checks. */
+async function authorizeFinalSubmission(ctx: ToolContext, label: string): Promise<Gate> {
   if (ctx.submissionAttempted) {
     if (await verifySubmissionEvidence(await submissionEvidence(ctx), ctx.job).catch(() => false)) {
       return { proceed: false, result: { kind: 'terminal', outcome: { status: 'applied' } } };
     }
-    if (managedReadiness) return { proceed: false, result: ok('A possible submission is already recorded. Only inspect the current receipt; no repeat send is permitted.') };
   }
   const verdict = ctx.guards.canSubmit(ctx.page.url());
   if (!verdict.allowed && verdict.kind !== 'dry-run') {
@@ -277,10 +238,8 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string, managed
     }
     return { proceed: false, result: ok(`Submission withheld: ${verdict.reason}`) };
   }
-  if (!managedReadiness) {
-    const audit = await checkSavedForm(ctx);
-    if (audit) return { proceed: false, result: audit };
-  }
+  const audit = await checkSavedForm(ctx);
+  if (audit) return { proceed: false, result: audit };
   // What goes out is what is recorded, for a rehearsal as for a real submission.
   await recordWhatWasSent(ctx);
   if (!verdict.allowed) {
@@ -290,8 +249,6 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string, managed
   // Every submission says whether a letter went with it: a letter is sent wherever the form has a place for one.
   if (ctx.coverLetter) {
     ctx.log(`  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
-  } else if (managedReadiness) {
-    ctx.log('  · no cover letter is recorded for this send; document readiness was owned by the native agent');
   } else {
     // The evidence, not only the verdict: whether the whole page mentions a place for documents at all.
     // Every frame's and shadow root's text (Indeed's review section renders in on scroll; pageOffersDocuments has scrolled).
@@ -322,7 +279,7 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string, managed
  * FTI Group was sent without the letter the form allowed. textContent and the
  * DOM do not depend on rendering.
  */
-export async function pageOffersDocuments(page: Page, options: { scroll?: boolean } = {}): Promise<boolean> {
+export async function pageOffersDocuments(page: Page): Promise<boolean> {
   /**
    * Rendered on scroll, not merely painted on scroll: Indeed's review page
    * does not put the Supporting documents section into the DOM until the
@@ -331,19 +288,17 @@ export async function pageOffersDocuments(page: Page, options: { scroll?: boolea
    * Load Master went out without the letter. Walk the page to the bottom
    * first, in every frame, and leave it there — the agent re-observes anyway.
    */
-  if (options.scroll !== false) {
-    for (const frame of page.frames()) {
-      await frame.evaluate(async () => {
-        const step = Math.max(400, Math.floor(innerHeight * 0.8));
-        for (let y = 0; y <= (document.body?.scrollHeight ?? 0); y += step) {
-          scrollTo(0, y);
-          await new Promise((done) => setTimeout(done, 120));
-        }
-        scrollTo(0, document.body?.scrollHeight ?? 0);
-      }).catch(() => {});
-    }
-    await page.waitForTimeout(600).catch(() => {});
+  for (const frame of page.frames()) {
+    await frame.evaluate(async () => {
+      const step = Math.max(400, Math.floor(innerHeight * 0.8));
+      for (let y = 0; y <= (document.body?.scrollHeight ?? 0); y += step) {
+        scrollTo(0, y);
+        await new Promise((done) => setTimeout(done, 120));
+      }
+      scrollTo(0, document.body?.scrollHeight ?? 0);
+    }).catch(() => {});
   }
+  await page.waitForTimeout(600).catch(() => {});
   const inFrame = async (frame: Frame) => frame.evaluate(() => {
     const place = /supporting documents?|additional documents?|cover[\s-]?letter/i;
     /*
@@ -578,19 +533,6 @@ export async function pageConfirmsSubmission(ctx: ToolContext, strict = false): 
  */
 export async function recordWhatWasSent(ctx: ToolContext): Promise<void> {
   const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
-  if (agentManagedReadiness(ctx)) {
-    // Native direct fills do not pass an answer-writing tool or readiness
-    // reviewer. Preserve what was actually present without judging, inventing
-    // or promoting it to the candidate's verified saved-answer bank.
-    const form = await readSavedForm(ctx.page);
-    for (const field of form.fields) {
-      const value = field.currentValue?.trim();
-      if (!value || ctx.guards.siteControls.has(field.label)) continue;
-      const previous = ctx.captured.findIndex(item => sameLabel(item.question, field.label));
-      if (previous >= 0) ctx.captured.splice(previous, 1);
-      ctx.captured.push({ question: field.label, answer: value });
-    }
-  }
   for (const frame of ctx.page.frames()) {
     const held = await frame.evaluate(() => {
       const box = document.querySelector('[data-owt-letter]') as HTMLTextAreaElement | HTMLInputElement | HTMLElement | null;
@@ -629,9 +571,7 @@ async function coverLetterCheck(ctx: ToolContext, label: string, submit: boolean
   if (ctx.coverLetter || ctx.letterResolved || !(submit || movesForward(ctx, label))) return null;
   const shown = offersCoverLetter(ctx.observation);
   if (!shown && !submit) return null;
-  // Native runs inspect only the existing DOM here. Haiku must request any
-  // scroll/reveal action itself through the native browser toolset.
-  const elsewhere = !shown && submit ? await pageOffersDocuments(ctx.page, { scroll: !ctx.nativeBrowserActionsOnly }) : false;
+  const elsewhere = !shown && submit ? await pageOffersDocuments(ctx.page) : false;
   const stated = ctx.declaredNoLetter;
   if (stated) {
     if ((shown || elsewhere) && !ctx.letterChallenged) {

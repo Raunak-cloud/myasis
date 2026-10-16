@@ -2,7 +2,7 @@ import { config } from './config.js';
 import type { CandidateProfile, JobListing, ScoreBreakdown } from './types.js';
 import { matchingExcludedCompany } from './company-match.js';
 
-export interface ParsedSalaryRate {
+interface ParsedSalaryRate {
   period: 'hourly' | 'daily' | 'annual';
   minimum: number;
   annualEquivalent: number;

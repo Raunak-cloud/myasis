@@ -13,7 +13,7 @@ export function answerKey(question: string): string {
   return question.replace(/\s+/g, ' ').trim().slice(0, 500).toLowerCase();
 }
 
-export interface LastReview {
+interface LastReview {
   at: string;
   status: string;
   questions?: ReadonlyArray<{ question?: unknown }>;
