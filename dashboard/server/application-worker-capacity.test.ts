@@ -22,6 +22,7 @@ function fixture() {
       return { ok: true };
     },
     async startQueue() { return { ok: false, error: 'A run is already in progress.' }; },
+    stop() { return { ok: true }; },
   });
   const accounts = ['one', 'two', 'three', 'four'].map(id => { const run = fake(); runs.set(id, run); return run; });
   return { pool, releases, ports, accounts };
@@ -50,4 +51,13 @@ test('one parallel run plus one serial run respects the three-slot machine budge
   assert.equal((await pool.startQueue('one')).ok, false);
   assert.equal(accounts[0].workerSlots, 2, 'a refused queue start cannot reduce an active parallel run allocation');
   assert.equal(pool.activeCount(), 3);
+});
+test('another account start cannot discard a previous run object while that account is preparing its next run', async () => {
+  const { pool, releases, accounts } = fixture();
+  const first = pool.start('live', {}, 'one');
+  accounts[0].disposable = true; // Previous run finished; next start is awaiting its data export.
+  const second = pool.start('live', {}, 'two');
+  assert.equal(pool.stop('one').ok, true, 'the preparing account must remain visible to stop/status operations');
+  releases.forEach(release => release());
+  assert.ok((await first).ok); assert.ok((await second).ok);
 });

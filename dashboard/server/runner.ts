@@ -644,7 +644,7 @@ export class RunPool {
 
   /** Drops finished runs nobody is watching, so the map cannot grow forever. */
   private sweep(): void {
-    for (const [userId, run] of this.runs) if (run.disposable) this.runs.delete(userId);
+    for (const [userId, run] of this.runs) if (!this.preparing.has(userId) && run.disposable) this.runs.delete(userId);
   }
 
   /**
