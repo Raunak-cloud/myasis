@@ -79,7 +79,7 @@ async function build() {
   const reviewCache = new ReviewCache();
   const reviewContext = reviewContextFingerprint(profile);
   const rememberExistingApplication = (job: JobListing, reason: string, score = 0) => {
-    if (index.has(job.id, job.company, job.title, job.location)) return;
+    if (index.hasApplication(job)) return;
     index.add({
       jobId: job.id,
       title: job.title,
@@ -159,7 +159,7 @@ async function build() {
     const bump = (r: string) => skips.set(r, (skips.get(r) ?? 0) + 1);
     const shortlist = [...seen.values()]
       .filter((j) => !known.has(j.id))
-      .filter((j) => !index.has(j.id, j.company, j.title, j.location))
+      .filter((j) => !index.hasApplication(j))
       .filter((job) => {
         const prior = reviewCache.suppression(job, reviewContext);
         if (!prior) return true;

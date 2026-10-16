@@ -124,7 +124,7 @@ interface ApplicationRow {
   resumeName?: string | null;
 }
 
-/** Matched by the existing `applications_user_id_job_id_key` UNIQUE(user_id, job_id). */
+/** Board ids belong to their platform; the same id on another board is allowed. */
 export async function insertApplicationRow(uid: string, a: ApplicationRow): Promise<boolean> {
   const rows = await query<{ id: string }>(
     `INSERT INTO applications (
@@ -132,7 +132,7 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
        work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons,
        outcome, applied_at, external, submitted_by_myasis, site, actions, resume_name
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-     ON CONFLICT (user_id, job_id) DO NOTHING
+     ON CONFLICT (user_id, platform, job_id) DO NOTHING
      RETURNING id`,
     [
       uid, a.jobId, a.title, a.company, a.location ?? '', a.url ?? '',

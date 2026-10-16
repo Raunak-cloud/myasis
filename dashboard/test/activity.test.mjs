@@ -5,6 +5,44 @@ import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 
+test('interleaved workers keep application outcomes, durations and active indicators separate', () => {
+  const lines = timedLog([
+    [0, 'Application workers: 2 (isolated sessions)'],
+    [1, '[worker:seek]   ✓ 90 · Assistant @ SEEK Employer (Sydney) [SEEK]'],
+    [2, '[worker:seek] → Applying: Assistant @ SEEK Employer'],
+    [3, '[worker:indeed]   ✓ 91 · Floor staff @ Indeed Employer (Sydney) [Indeed]'],
+    [4, '[worker:indeed] → Applying: Floor staff @ Indeed Employer'],
+    [5, '[worker:seek]   · cover letter included'],
+    [6, '[worker:indeed]   ⏸ needs you: Missing answer'],
+    [8, '[worker:seek]   ✅ submitted (1/2)'],
+    [9, '=== Run complete: 1 new application(s) ==='],
+  ]);
+  const inProgress = activityEvents(lines.slice(0, 5), Infinity, true);
+  assert.equal(inProgress.filter(event => event.live && event.title.startsWith('Applying')).length, 2);
+  const events = activityEvents(lines, Infinity, true);
+  const sent = events.find(event => event.title === 'Applied to Assistant');
+  assert.match(sent.detail, /SEEK Employer.*cover letter written/);
+  assert.equal(sent.durationMs, 6000);
+  const needs = events.find(event => event.title === 'Floor staff needs your answer');
+  assert.equal(needs.durationMs, 2000);
+  assert.equal(activitySummary(lines).suitable, 2);
+  assert.equal(activitySummary(lines).submitted, 1);
+  assert.match(events.find(event => event.title === 'Run complete').detail, /1 needs your attention/);
+  assert.equal(events.filter(event => event.live).length, 0);
+});
+
+test('two platform applications with identical employer and role names remain separate events', () => {
+  const events = activityEvents(log([
+    '[worker:seek] → Applying: Assistant @ Same employer',
+    '[worker:indeed] → Applying: Assistant @ Same employer',
+    '[worker:indeed]   ⏸ needs you: Answer needed',
+    '[worker:seek]   ✅ submitted (1/2)',
+  ]), Infinity);
+  assert.equal(events.filter(event => /^(Applied to|Assistant needs)/.test(event.title)).length, 2);
+  assert.ok(events.some(event => event.title === 'Applied to Assistant' && event.tone === 'done'));
+  assert.ok(events.some(event => event.title === 'Assistant needs your answer' && event.tone === 'warn'));
+});
+
 test('late duplicates restore review and match counts without becoming submissions', () => {
   const lines = log([
     '  ✓ 90 · Course Coach @ Fixture College (Sydney) [SEEK]',

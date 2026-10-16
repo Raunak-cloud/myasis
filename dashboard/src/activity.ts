@@ -32,6 +32,8 @@ function lastMatch(lines: LogLine[], pattern: RegExp): RegExpMatchArray | null {
 }
 
 export function activitySummary(lines: LogLine[]) {
+  const originalLines = lines;
+  lines = lines.map(line => ({ ...line, text: line.text.replace(/^\[worker:[a-z]+\] /, '') }));
   const found = Number(lastMatch(lines, /(\d+) unique listings discovered/i)?.[1] ?? 0);
   const restored = lines.filter((line) => /^\s*Review slot restored:/.test(line.text)).length;
   const reviewed = Math.max(0, lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length - restored);
@@ -47,7 +49,7 @@ export function activitySummary(lines: LogLine[]) {
    * Submitted" beside a log that plainly listed four.
    */
   const submitted = lines.filter((line) => /✅\s*submitted/i.test(line.text)).length;
-  const outcomeSummary = activityEvents(lines, Infinity).find((event) => event.title === 'Run complete')?.detail ?? null;
+  const outcomeSummary = activityEvents(originalLines, Infinity).find((event) => event.title === 'Run complete')?.detail ?? null;
   return { found, reviewed, suitable, submitted, outcomeSummary, shortfall: reviewShortfall(lines, reviewed) };
 }
 
@@ -138,9 +140,9 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     outcomes[outcome]++;
     event.outcome = outcome;
   };
-  const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string): ActivityEvent => {
+  const add = (line: LogLine, title: string, tone: ActivityTone, detail?: string, distinct = false): ActivityEvent => {
     const previous = events.at(-1);
-    if (previous?.title === title && previous.detail === detail) return previous;
+    if (!distinct && previous?.title === title && previous.detail === detail) return previous;
     const event: ActivityEvent = { id: `${line.seq}`, title, detail, tone };
     events.push(event);
     return event;
@@ -162,7 +164,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   let suitable = 0;
   let latestMatch = '';
   const matchedJobs: string[] = [];
-  let application: { event: ActivityEvent; title: string; company: string; steps: string[]; startedAtMs: number } | null = null;
+  type Application = { event: ActivityEvent; title: string; company: string; steps: string[]; startedAtMs: number };
+  let application: Application | null = null;
+  const applications = new Map<string, Application>();
+  const currentJobs = new Map<string, string>();
   let finished = false;
 
   const reviewDetail = () =>
@@ -179,7 +184,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   };
 
   for (const line of lines) {
-    const text = line.text.trim();
+    const worker = line.text.match(/^\[worker:([a-z]+)\] /)?.[1] ?? 'serial';
+    const text = line.text.replace(/^\[worker:[a-z]+\] /, '').trim();
+    application = applications.get(worker) ?? null;
+    currentJob = currentJobs.get(worker) ?? '';
     let match: RegExpMatchArray | null;
     if (line.stream === 'err' && text && !/^Warning:|^at\s/.test(text)) lastErrorOutput = text.replace(/^Fatal:\s*/i, '');
 
@@ -188,6 +196,8 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if (/stop requested/i.test(text)) {
       add(line, 'Run stopped', 'neutral', 'You stopped this run. Anything already submitted stays submitted.');
       explained = true;
+    } else if (/^Application workers: 2/.test(text)) {
+      add(line, 'Two application workers ready', 'done', 'SEEK and Indeed use isolated sessions with shared application limits.');
     } else if ((match = text.match(/(SEEK|Indeed) session OK/i))) {
       if (!boards.includes(match[1])) boards = [...boards, match[1]];
       const title = `Signed in to ${boards.join(' and ')}`;
@@ -242,7 +252,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
       currentJob = `${match[1]} at ${match[2]}`;
       application = {
-        event: add(line, `Applying to ${match[1]}`, 'neutral', match[2]),
+        event: add(line, `Applying to ${match[1]}`, 'neutral', match[2], true),
         title: match[1], company: match[2], steps: [],
         startedAtMs: line.ts ? Date.parse(line.ts) : Number.NaN,
       };
@@ -309,6 +319,8 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       recordOutcome(application.event, 'skipped');
       application.event.detail = `${application.company} · ${readableError(match[1])}`;
       finishApplication(line);
+    } else if (/Shared application allowance is reached/i.test(text)) {
+      add(line, 'The shared application limit is reached', 'done', 'Both workers share one limit. Unconfirmed sends keep their places until checked.');
     } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
       add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
       explained = true;
@@ -365,6 +377,9 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         );
       }
     }
+    if (application) applications.set(worker, application);
+    else applications.delete(worker);
+    if (currentJob) currentJobs.set(worker, currentJob);
   }
 
   // Reviewing is finished once the run is; until then it is live whenever nothing is being applied for.
@@ -372,11 +387,11 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     if (finished) {
       review.title = `Reviewed ${reviewed} ${reviewed === 1 ? 'job' : 'jobs'}`;
       review.tone = 'done';
-    } else if (!application) {
+    } else if (!applications.size) {
       review.live = true;
     }
   }
-  if (application && !finished) application.event.live = true;
+  if (!finished) for (const active of applications.values()) active.event.live = true;
   return events.slice(-limit);
 }
 
@@ -396,7 +411,7 @@ function completionDetail(lines: LogLine[], suitable: number, submitted: number,
   ];
   const remaining = Math.max(0, suitable - submitted - alreadyApplied - skipped - needsHuman - failed);
   if (remaining) {
-    const reason = lastMatch(lines, /(?:Run|Daily) cap of \d+ (?:already )?reached/i)
+    const reason = lastMatch(lines, /(?:Run|Daily) cap of \d+ (?:already )?reached|Shared application allowance is reached/i)
       ? 'the application limit was reached'
       : lastMatch(lines, /anti-bot challenges/i) ? 'the job board blocked further attempts' : null;
     parts.push(`${remaining} matched ${remaining === 1 ? 'job' : 'jobs'} not submitted${reason ? `: ${reason}` : ''}`);

@@ -15,6 +15,7 @@ import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resum
 import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 import { readSavedForm, savedFormSignature } from '../saved-form.js';
+import { authorizeReservedSubmission } from '../../application-reservations.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -264,6 +265,10 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string): Promis
     ctx.log(`  · no cover letter: this form has no place for one (page mentions: ${mentions.join(', ') || 'none of cover letter / supporting documents'})`);
     // The whole page as sent, so "no place for a letter" can be seen rather than trusted.
     await ctx.page.screenshot({ path: resolve(config.dataDir, 'traces', `${ctx.job.id}-submit-no-letter.png`), fullPage: true, timeout: 10_000 }).catch(() => {});
+  }
+  if (!authorizeReservedSubmission(ctx.page.url())) {
+    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'needs-human',
+      reason: 'Submission withheld: this exact form is reserved or may already have been sent, or the shared application limit is reached.' } } };
   }
   ctx.log(`  → submitting: "${label}"`);
   ctx.submissionAttempted = true;

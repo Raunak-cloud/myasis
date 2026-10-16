@@ -1,59 +1,45 @@
 import type { AppliedRecord, JobListing } from './types.js';
 
-export interface PriorVacancy {
-  jobId: string;
-  company: string;
-  title: string;
-  location: string;
+/** Preserve vacancy, tenant and form parameters; remove advertising attribution only. */
+export function applicationUrlKey(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    url.hostname = url.hostname.replace(/^www\./, '');
+    if (!/^#[/!]/.test(url.hash)) url.hash = '';
+    for (const name of [...url.searchParams.keys()]) {
+      if (/^utm_|^(?:fbclid|gclid|msclkid)$/i.test(name)) url.searchParams.delete(name);
+    }
+    url.searchParams.sort();
+    return url.href;
+  } catch { return null; }
 }
-export interface IdentityVerdict {
-  state: 'distinct' | 'duplicate' | 'uncertain';
-  matchedJobId: string;
-  sameEmployer: boolean;
-  sameVacancy: boolean;
-  reason: string;
-  injectionSuspected: boolean;
-}
-type IdentityJudge = (job: JobListing, history: readonly PriorVacancy[]) => Promise<IdentityVerdict>;
 
-/** Bound model input without filtering out records by employer spelling.
- * Every owned record is checked; the model decides whether identities match.
- * Only vacancy metadata is sent, never prior answers, CVs or credentials. */
-export async function checkApplicationIdentity(
-  job: JobListing,
-  records: readonly AppliedRecord[],
-  judge: IdentityJudge,
-): Promise<IdentityVerdict> {
-  const distinct: IdentityVerdict = { state: 'distinct', matchedJobId: '', sameEmployer: false, sameVacancy: false,
-    reason: 'No previous application for this vacancy was identified.', injectionSuspected: false };
-  const uncertain = (reason: string): IdentityVerdict => ({ ...distinct, state: 'uncertain', reason });
-  const chunks: PriorVacancy[][] = [];
-  let chunk: PriorVacancy[] = [], chars = 0;
-  for (const record of records) {
-    if (!record || ![record.jobId, record.company, record.title].every(value => typeof value === 'string' && value.trim())
-      || typeof record.location !== 'string') return uncertain('Historical vacancy identity metadata is incomplete.');
-    const item = { jobId: record.jobId, company: record.company, title: record.title, location: record.location };
-    const size = JSON.stringify(item).length;
-    if (size > 48_000) return uncertain('An oversized historical vacancy could not be checked safely.');
-    if (chunk.length && chars + size > 48_000) { chunks.push(chunk); chunk = []; chars = 0; }
-    chunk.push(item); chars += size;
-  }
-  if (chunk.length) chunks.push(chunk);
-  for (const history of chunks) {
-    let verdict: IdentityVerdict;
-    try { verdict = await judge(job, history); }
-    catch { return uncertain('The AI could not complete the previous-application identity check.'); }
-    if (!verdict || verdict.injectionSuspected !== false || typeof verdict.reason !== 'string' || !verdict.reason.trim()
-      || typeof verdict.sameEmployer !== 'boolean' || typeof verdict.sameVacancy !== 'boolean' || typeof verdict.matchedJobId !== 'string') {
-      return uncertain('The previous-application identity check returned unusable or suspicious evidence.');
-    }
-    if (verdict.state === 'duplicate' && verdict.sameEmployer === true && verdict.sameVacancy === true
-      && history.some(record => record.jobId === verdict.matchedJobId)) {
-      return { ...verdict, reason: verdict.reason.slice(0, 500) };
-    }
-    if (verdict.state !== 'distinct' || verdict.matchedJobId !== '' || verdict.sameVacancy !== false) {
-      return uncertain(verdict.reason.slice(0, 500));
-    }
-  }
-  return distinct;
+/** Some ATSs reuse /apply or /review for every vacancy. Such a URL identifies
+ * a form template, not a vacancy: qualify it with listing context rather than
+ * permanently blocking every other job at that employer. */
+export function applicationFormKey(job: Pick<JobListing, 'company' | 'title' | 'location'>, raw: string): string | null {
+  const canonical = applicationUrlKey(raw);
+  if (!canonical) return null;
+  const url = new URL(canonical);
+  const postingPath = /\/(?:jobs?|vacanc(?:y|ies)|requisitions?|positions?)\/[^/]+/i.test(url.pathname)
+    || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f-]{18,}/i.test(url.pathname);
+  const postingQuery = [...url.searchParams.keys()].some(key => /^(?:job|vacancy|requisition|position|posting)(?:id|_id|key)?$/i.test(key));
+  if (postingPath || postingQuery) return `url:${canonical}`;
+  const context = [job.company, job.title, job.location].map(value => value.trim().toLowerCase().replace(/\s+/g, ' '));
+  return `form:${canonical}:${JSON.stringify(context)}`;
+}
+
+export function applicationKeys(job: Pick<JobListing, 'id' | 'platform' | 'url' | 'applicationUrl' | 'company' | 'title' | 'location'>): string[] {
+  const keys = [`listing:${job.platform ?? 'seek'}:${job.id}`];
+  const form = applicationFormKey(job, job.applicationUrl ?? job.url);
+  if (form) keys.push(form);
+  return keys;
+}
+
+/** A matching role on a different platform/form is explicitly allowed. */
+export function sameApplication(record: AppliedRecord, job: JobListing): boolean {
+  if (record.platform === (job.platform ?? 'seek') && record.jobId === job.id) return true;
+  const form = applicationFormKey(record, record.url);
+  return form !== null && applicationKeys(job).includes(form);
 }

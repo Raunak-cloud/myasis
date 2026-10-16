@@ -12,12 +12,14 @@ import { runTimeoutMs, signalRunTree, superviseRun } from './run-watchdog.js';
 import { isAdmin } from './admin-access.js';
 import { browserRunEnvironment } from './browser-run-policy.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
+import { applicationWorkerEnvironment } from './application-worker-policy.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
   const admin = isAdmin(owners[0]?.email);
   const env = readEnv();
   return { ...browserRunEnvironment(admin, mode, process.env.ADMIN_HEADLESS ?? env.ADMIN_HEADLESS),
+    ...applicationWorkerEnvironment(admin, mode, process.env.ADMIN_PARALLEL_APPLY ?? env.ADMIN_PARALLEL_APPLY),
     FORM_SPEED_PILOT: String(admin && (process.env.ADMIN_FORM_SPEED ?? env.ADMIN_FORM_SPEED) === 'true') };
 }
 
@@ -238,6 +240,8 @@ class Run {
   /** Keeps the account's next run out until result sync and keyword renewal finish. */
   private postProcessing = false;
   private keywordRenewal: KeywordRenewalContext | null = null;
+  /** A parallel admin run consumes two machine slots, including preparation. */
+  workerSlots = 1;
   private lines: LogLine[] = [];
   private seq = 0;
   private listeners = new Set<(l: LogLine) => void>();
@@ -326,6 +330,7 @@ class Run {
     onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
     keywordRenewal?: KeywordRenewalContext,
+    reserveExtraWorker?: () => boolean,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
@@ -333,6 +338,7 @@ class Run {
     if (!existsSync(resolve(BOT_DIR, 'dist', 'main.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
+    this.workerSlots = 1;
     this.cdpPort = cdpPort;
     let accountOverrides: Record<string, string>;
     try {
@@ -348,6 +354,8 @@ class Run {
     let browserOverrides: Record<string, string>;
     try {
       browserOverrides = await accountBrowserEnvironment(userId, mode);
+      if (browserOverrides.APPLICATION_WORKERS === '2' && !reserveExtraWorker?.()) browserOverrides.APPLICATION_WORKERS = '1';
+      this.workerSlots = browserOverrides.APPLICATION_WORKERS === '2' ? 2 : 1;
       const exported = await exportUserForRun(userId);
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
@@ -422,6 +430,7 @@ class Run {
     if (!existsSync(resolve(BOT_DIR, 'dist', 'queue.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
+    this.workerSlots = 1;
     this.cdpPort = cdpPort;
     let accountOverrides: Record<string, string>;
     try {
@@ -620,8 +629,9 @@ class Run {
  * touch another's. The only shared resource left is the machine itself, which
  * `MAX_CONCURRENT` protects.
  */
-class RunPool {
+export class RunPool {
   private runs = new Map<string, Run>();
+  private preparing = new Map<string, { slots: number; port: number }>();
 
   private forUser(userId: string): Run {
     let run = this.runs.get(userId);
@@ -650,7 +660,8 @@ class RunPool {
 
   activeCount(): number {
     let n = 0;
-    for (const run of this.runs.values()) if (run.occupiesSlot) n++;
+    for (const run of this.runs.values()) if (run.occupiesSlot) n += run.workerSlots;
+    for (const [id, allocation] of this.preparing) if (!this.runs.get(id)?.occupiesSlot) n += allocation.slots;
     return n;
   }
 
@@ -699,6 +710,7 @@ class RunPool {
     const env = readEnv();
     const first = Number(process.env.CDP_PORT ?? env.CDP_PORT ?? 9333);
     const used = new Set([...this.runs.values()].map((run) => run.browserPort).filter((port) => port !== null));
+    for (const allocation of this.preparing.values()) used.add(allocation.port);
     for (let offset = 0; offset < MAX_CONCURRENT; offset++) {
       const candidate = first + offset;
       if (!used.has(candidate)) return candidate;
@@ -732,22 +744,34 @@ class RunPool {
     this.sweep();
     const full = this.atCapacity(userId);
     if (full) return { ok: false, error: full };
-    return this.forUser(userId).start(
+    if (this.preparing.has(userId)) return { ok: false, error: 'A run is already being prepared for this account.' };
+    const allocation = { slots: 1, port: this.availableBrowserPort() };
+    this.preparing.set(userId, allocation);
+    try { return await this.forUser(userId).start(
       mode,
       overrides,
-      this.availableBrowserPort(),
+      allocation.port,
       onApplicationSubmitted,
       onFinished,
       runStartId,
       keywordRenewal,
-    );
+      () => {
+        if (this.activeCount() >= MAX_CONCURRENT) return false;
+        allocation.slots = 2;
+        return true;
+      },
+    ); } finally { this.preparing.delete(userId); }
   }
 
   async startQueue(userId: string, overrides: Record<string, string> = {}, runStartId?: string | null): Promise<{ ok: boolean; error?: string }> {
     this.sweep();
     const full = this.atCapacity(userId);
     if (full) return { ok: false, error: full };
-    return this.forUser(userId).startQueue(this.availableBrowserPort(), overrides, runStartId);
+    if (this.preparing.has(userId)) return { ok: false, error: 'A run is already being prepared for this account.' };
+    const allocation = { slots: 1, port: this.availableBrowserPort() };
+    this.preparing.set(userId, allocation);
+    try { return await this.forUser(userId).startQueue(allocation.port, overrides, runStartId); }
+    finally { this.preparing.delete(userId); }
   }
 
   stop(userId: string): { ok: boolean; error?: string } {

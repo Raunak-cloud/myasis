@@ -191,6 +191,29 @@ export async function getPage(ctx: BrowserContext): Promise<Page> {
   return existing ?? (await ctx.newPage());
 }
 
+/** Separate cookie jars AND popup lifecycles; sharing tabs alone lets an
+ * application's cleanup close the other worker's newly opened form. */
+export async function applicationWorkerContexts(ctx: BrowserContext, count: number): Promise<BrowserContext[]> {
+  if (!Number.isInteger(count) || count < 1 || count > 2) throw new Error('Application concurrency must be one or two.');
+  const browser = ctx.browser();
+  if (!browser) throw new Error('This browser cannot create isolated application sessions.');
+  const storageState = await ctx.storageState({ indexedDB: true });
+  const contexts: BrowserContext[] = [];
+  try {
+    for (let i = 0; i < count; i++) {
+      const worker = await browser.newContext({ storageState, viewport: null });
+      contexts.push(worker);
+      worker.setDefaultTimeout(30_000);
+      await installEsbuildNameShim(worker);
+      watchCaptchas(worker);
+    }
+    return contexts;
+  } catch (error) {
+    await Promise.allSettled(contexts.map(worker => worker.close()));
+    throw error;
+  }
+}
+
 /**
  * Records what this run observed about the SEEK session.
  *

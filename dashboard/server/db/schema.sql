@@ -115,6 +115,11 @@ CREATE TABLE IF NOT EXISTS applications (
 );
 CREATE INDEX IF NOT EXISTS applications_user_idx ON applications(user_id, applied_at DESC);
 
+-- Each platform has its own job-id namespace. Cross-platform applications
+-- remain independent; exact form reservations are managed by the run coordinator.
+CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_platform_job_idx ON applications(user_id, platform, job_id);
+ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_user_id_job_id_key;
+
 -- Replaces run-log.jsonl. Feeds the "Needs you" screen.
 CREATE TABLE IF NOT EXISTS run_events (
   id       BIGSERIAL PRIMARY KEY,

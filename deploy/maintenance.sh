@@ -39,7 +39,8 @@ db_file="$BACKUP_DIR/db-$STAMP.dump"
 files_file="$BACKUP_DIR/files-$STAMP.tar.gz"
 db_tmp="$db_file.part-$$"
 files_tmp="$files_file.part-$$"
-trap 'rm -f -- "$db_tmp" "$files_tmp"' EXIT
+reservation_stage=$(mktemp -d "$BACKUP_DIR/.reservations.XXXXXXXX")
+trap 'rm -f -- "$db_tmp" "$files_tmp"; rm -rf -- "$reservation_stage"' EXIT
 trap 'log "ERROR: maintenance failed at line $LINENO"' ERR
 # Custom format: compressed, and pg_restore can pick single tables from it.
 sudo -u postgres pg_dump -Fc "$DB_NAME" > "$db_tmp"
@@ -48,10 +49,11 @@ mv -- "$db_tmp" "$db_file"
 log "database → $db_file ($(du -h "$db_file" | cut -f1))"
 
 if [ -d "$USERS_DIR" ]; then
-  # Only what userdata.ts calls canonical in the directory; everything else
-  # there is re-exported from Postgres before each run.
+  # Reservation journals are canonical too; snapshot SQLite consistently
+  # before including them beside the resumes/knowledge in the same archive.
+  node "$(dirname "$0")/backup-reservations.mjs" "$USERS_DIR" "$reservation_stage"
   (cd "$USERS_DIR" && find . -maxdepth 2 \( -name resumes -o -name knowledge -o -name queue.json \) -print0 \
-    | tar --null -czf "$files_tmp" --files-from -)
+    | tar --null -czf "$files_tmp" --files-from - -C "$reservation_stage" .)
   tar -tzf "$files_tmp" > /dev/null
   mv -- "$files_tmp" "$files_file"
   log "account files → $files_file ($(du -h "$files_file" | cut -f1))"

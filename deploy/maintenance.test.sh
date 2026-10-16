@@ -7,6 +7,12 @@ case "$FIXTURE" in /tmp/myasis-maintenance-test.*) ;; *) exit 1 ;; esac
 trap 'rm -rf -- "$FIXTURE"' EXIT
 mkdir -p "$FIXTURE/bin" "$FIXTURE/app/seek-bot/data/users/fixture/resumes"
 printf 'fixture resume\n' > "$FIXTURE/app/seek-bot/data/users/fixture/resumes/cv.txt"
+node --input-type=module - "$FIXTURE/app/seek-bot/data/users/fixture/application-reservations.sqlite" <<'JS'
+import { DatabaseSync } from 'node:sqlite';
+const db = new DatabaseSync(process.argv[2]);
+db.exec("PRAGMA journal_mode=WAL; CREATE TABLE claims(key TEXT PRIMARY KEY); INSERT INTO claims VALUES('pending-fixture-form')");
+db.close();
+JS
 cat > "$FIXTURE/bin/sudo" <<'STUB'
 #!/bin/bash
 shift 2
@@ -39,6 +45,14 @@ test "$(find "$FIXTURE/success" -name '*.dump' | wc -l)" = 1 || fail 'database a
 test "$(find "$FIXTURE/success" -name '*.tar.gz' | wc -l)" = 1 || fail 'file archive missing'
 test "$(stat -c %a "$FIXTURE/success/"*.dump)" = 600 || fail 'database permissions not private'
 tar -tzf "$FIXTURE/success/"*.tar.gz | grep -q '/resumes/cv.txt' || fail 'resume not archived'
+mkdir "$FIXTURE/restored"
+tar -xzf "$FIXTURE/success/"*.tar.gz -C "$FIXTURE/restored"
+node --input-type=module - "$FIXTURE/restored/fixture/application-reservations.sqlite" <<'JS'
+import { DatabaseSync } from 'node:sqlite';
+const db = new DatabaseSync(process.argv[2], { readOnly: true });
+if (!db.prepare('SELECT 1 FROM claims WHERE key=?').get('pending-fixture-form')) throw Error('Pending form reservation was not restored');
+db.close();
+JS
 grep -q 'copied off-box' "$FIXTURE/success.log" || fail 'remote copy not completed'
 
 if FAIL_DUMP=1 run_backup failed_dump; then fail 'database failure ignored'; fi

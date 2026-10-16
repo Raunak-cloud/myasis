@@ -1,9 +1,12 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { config } from './config.js';
 import type { AppliedRecord, ApplyOutcome } from './types.js';
 import type { ReviewCacheMetadata } from './review-cache.js';
 import { recordSubmittedCost } from './cost-ledger.js';
+import { sameApplication } from './application-identity.js';
+import type { JobListing } from './types.js';
 
 const appliedPath = () => resolve(config.dataDir, 'applied.json');
 const outcomeLogPath = () => resolve(config.dataDir, 'run-log.jsonl');
@@ -27,60 +30,26 @@ function loadApplied(path: string): AppliedRecord[] {
 
 function saveApplied(records: AppliedRecord[], path: string) {
   ensureDir(dirname(path));
-  writeFileSync(path, JSON.stringify(records, null, 2));
-}
-
-const norm = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/\b(pty|ltd|limited|group|australia|au|inc|llc)\b/g, '')
-    .replace(/[^a-z0-9]/g, '');
-
-/** company+title+location, normalised — matches the dedupe rule in seek.md. */
-function dedupeKey(company: string, title: string, location: string): string {
-  return `${norm(company)}::${norm(title)}::${norm(location)}`;
-}
-
-/**
- * One role however a board names its employer: "HCF" on Indeed and "HCF
- * Australia" on SEEK are the same job. The run uses it to attempt a role once.
- */
-export function roleKey(company: string, title: string): string {
-  return `${norm(company)}::${norm(title)}`;
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, JSON.stringify(records, null, 2), { mode: 0o600 });
+  renameSync(temporary, path);
 }
 
 export class AppliedIndex {
   private readonly path: string;
   private records: AppliedRecord[];
-  private keys: Set<string>;
-  private ids: Set<string>;
 
   constructor() {
     this.path = appliedPath();
     this.records = loadApplied(this.path);
-    this.keys = new Set(this.records.map((r) => dedupeKey(r.company, r.title, r.location)));
-    this.ids = new Set(this.records.map((r) => r.jobId));
   }
 
-  has(jobId: string, company: string, title: string, location: string): boolean {
-    return this.ids.has(jobId) || this.keys.has(dedupeKey(company, title, location));
-  }
-
-  /**
-   * This employer's role, wherever it is listed. Two listings of one role
-   * carry different locations ("Remote" and a city), so the location-keyed
-   * check let CSC receive a second application after a first submit that
-   * could not be confirmed. Checked right before applying.
-   */
-  hasRole(company: string, title: string): boolean {
-    const wanted = roleKey(company, title);
-    return this.records.some((record) => roleKey(record.company, record.title) === wanted);
+  hasApplication(job: JobListing): boolean {
+    return this.records.some(record => sameApplication(record, job));
   }
 
   add(rec: AppliedRecord) {
     this.records.push(rec);
-    this.ids.add(rec.jobId);
-    this.keys.add(dedupeKey(rec.company, rec.title, rec.location));
     saveApplied(this.records, this.path);
   }
 
@@ -187,7 +156,7 @@ export async function syncFromSeek(page: import('patchright').Page): Promise<num
   const index = new AppliedIndex();
   let added = 0;
   for (const s of scraped) {
-    if (!s.title || index.has(s.id, s.blob, s.title, s.blob)) continue;
+    if (!s.title || index.hasApplication({ id: s.id, platform: 'seek', url: `${config.seekBase}/job/${s.id}`, company: s.blob, title: s.title, location: s.blob })) continue;
     index.add({
       jobId: s.id,
       title: s.title,

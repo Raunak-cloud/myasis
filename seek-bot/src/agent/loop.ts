@@ -14,6 +14,7 @@ import { measured } from '../pipeline.js';
 import { withJobCost } from '../cost-ledger.js';
 import { config } from '../config.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
+import { recordReservedRejection } from '../application-reservations.js';
 import { jitter, waitForChallengeToClear, workingIn } from '../browser.js';
 import { extractFields, readPickerOptions } from '../dom.js';
 import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js';
@@ -389,6 +390,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     needVision = false;
     ctx.wantScreenshot = false;
     ctx.observation = await observe(page, { screenshot: wantScreenshot });
+    if (ctx.submissionAttempted && ctx.observation.fields.some(field => Boolean(field.validationError))) recordReservedRejection();
     for (let retry = 0; retry < 3 && looksUnrendered(ctx.observation); retry++) {
       // Cold SPA bundles on SEEK's apply flow have taken north of 15s to
       // hydrate. Keep waiting rather than asking the model about a blank page.
