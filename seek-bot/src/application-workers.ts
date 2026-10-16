@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { LiveWorkerId } from './live-workers.js';
 
 /** One process owns shared files and counters; application browser contexts are isolated. */
 export class AsyncMutex {
@@ -52,9 +53,10 @@ export class ApplicationSlots {
   }
 }
 
-const workerScope = new AsyncLocalStorage<string>();
+const workerScope = new AsyncLocalStorage<LiveWorkerId>();
+export const currentApplicationWorker = (): LiveWorkerId => workerScope.getStore() ?? 'main';
 let loggingInstalled = false;
-export function withApplicationWorker<T>(worker: string, action: () => T): T {
+export function withApplicationWorker<T>(worker: LiveWorkerId, action: () => T): T {
   if (!loggingInstalled) {
     loggingInstalled = true;
     for (const method of ['log', 'warn', 'error'] as const) {

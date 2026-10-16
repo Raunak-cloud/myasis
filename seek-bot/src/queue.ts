@@ -16,6 +16,7 @@ import { resolve } from 'node:path';
 import { config, loadProfile } from './config.js';
 import { applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
+import { resetLiveWorkers } from './live-workers.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
@@ -99,6 +100,7 @@ async function build() {
   console.log(`${existing.length} already queued, ${index.all.length} already applied\n`);
 
   const ctx = await launchBrowser();
+  resetLiveWorkers(config.dataDir);
   const page = await getPage(ctx);
   const fresh: QueueItem[] = [];
   const pruned = new Set<string>();

@@ -1,8 +1,10 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { LiveWorkerId } from './live-workers.js';
 
 export const REMOTE_PREVIEW_FILE = 'remote-browser-preview.json';
 export const LIVE_VIEW_REQUEST_FILE = 'live-view-request.json';
+export const remotePreviewFile = (id: LiveWorkerId = 'main') => id === 'main' ? REMOTE_PREVIEW_FILE : `remote-browser-preview-${id}.json`;
 export interface RemoteBrowserPreview {
   sessionId: string;
   provider: 'brightdata';
@@ -12,9 +14,9 @@ export interface RemoteBrowserPreview {
 }
 
 /** Fixed account-owned path; expired, partial and oversized pictures are never presented as live. */
-export function readRemoteBrowserPreview(directory: string, now = Date.now()): RemoteBrowserPreview | null {
+export function readRemoteBrowserPreview(directory: string, now = Date.now(), worker: LiveWorkerId = 'main'): RemoteBrowserPreview | null {
   try {
-    const file = resolve(directory, REMOTE_PREVIEW_FILE);
+    const file = resolve(directory, remotePreviewFile(worker));
     if (!existsSync(file) || statSync(file).size > 4_000_000) return null;
     const frame = JSON.parse(readFileSync(file, 'utf8')) as RemoteBrowserPreview;
     if (frame.provider !== 'brightdata' || typeof frame.sessionId !== 'string' || !/^[a-f0-9-]{36}$/.test(frame.sessionId)

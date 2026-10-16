@@ -4,7 +4,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { resolve } from 'node:path';
 import { config } from './config.js';
 import { brightDataBrowserEndpoint, employerBrowserProvider } from './employer-browser-config.js';
-import { LIVE_VIEW_REQUEST_FILE, REMOTE_PREVIEW_FILE, type RemoteBrowserPreview } from './remote-browser-preview.js';
+import { LIVE_VIEW_REQUEST_FILE, remotePreviewFile, type RemoteBrowserPreview } from './remote-browser-preview.js';
+import { currentApplicationWorker } from './application-workers.js';
+import type { LiveWorkerId } from './live-workers.js';
 import { countHealth } from './run-health.js';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
@@ -20,12 +22,13 @@ interface RemoteSession {
   timer: ReturnType<typeof setInterval>;
   publishing: boolean;
   closed: boolean;
+  worker: LiveWorkerId;
   providerSessionId?: string;
   captchaControls: Map<Page, Promise<CaptchaControl>>;
 }
 interface CaptchaControl { session: CDPSession; inFlight?: Promise<boolean>; blocked: boolean; removeListeners: () => void }
 const remoteSessions = new WeakMap<BrowserContext, RemoteSession>();
-const previewFile = () => resolve(config.dataDir, REMOTE_PREVIEW_FILE);
+const previewFile = (worker: LiveWorkerId) => resolve(config.dataDir, remotePreviewFile(worker));
 // Bright Data otherwise submits a form after solving. Owtomate owns that decision.
 const captchaOptions = [{ type: 'hcaptcha', submit_form: false }, { type: 'usercaptcha', submit_form: false }];
 
@@ -88,11 +91,11 @@ export function selectRemotePage(page: Page): boolean {
   return true;
 }
 
-function writePreview(frame: RemoteBrowserPreview): void {
+function writePreview(frame: RemoteBrowserPreview, worker: LiveWorkerId): void {
   mkdirSync(config.dataDir, { recursive: true });
-  const temporary = `${previewFile()}.${frame.sessionId}.tmp`;
+  const temporary = `${previewFile(worker)}.${frame.sessionId}.tmp`;
   writeFileSync(temporary, JSON.stringify(frame), { mode: 0o600 });
-  renameSync(temporary, previewFile());
+  renameSync(temporary, previewFile(worker));
 }
 
 async function publish(remote: RemoteSession): Promise<void> {
@@ -110,7 +113,7 @@ async function publish(remote: RemoteSession): Promise<void> {
     const data = wanted && pageUrl !== 'about:blank'
       ? await remote.page.screenshot({ type: 'jpeg', quality: 82, timeout: 5_000 }).then(bytes => bytes.toString('base64')).catch(() => null)
       : null;
-    if (!remote.closed) writePreview({ sessionId: remote.sessionId, provider: 'brightdata', at: Date.now(), url: pageUrl, data });
+    if (!remote.closed) writePreview({ sessionId: remote.sessionId, provider: 'brightdata', at: Date.now(), url: pageUrl, data }, remote.worker);
   } catch { /* The run remains usable if the browser picture is temporarily unavailable. */ }
   finally { remote.publishing = false; }
 }
@@ -128,7 +131,7 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
     context.setDefaultTimeout(30_000);
     const page = await context.newPage();
     // Only the provider's solver handles this context. CapMonster never receives it.
-    const remote: RemoteSession = { browser, page, sessionId: randomUUID(), timer: undefined!, publishing: false, closed: false, captchaControls: new Map() };
+    const remote: RemoteSession = { browser, page, sessionId: randomUUID(), worker: currentApplicationWorker(), timer: undefined!, publishing: false, closed: false, captchaControls: new Map() };
     remoteSessions.set(context, remote);
     await captchaControl(remote, page);
     remote.timer = setInterval(() => void publish(remote), 2_000);
@@ -140,7 +143,7 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
       clearInterval(remote.timer);
       remoteSessions.delete(context);
       try {
-        if (existsSync(previewFile()) && JSON.parse(readFileSync(previewFile(), 'utf8')).sessionId === remote.sessionId) unlinkSync(previewFile());
+        if (existsSync(previewFile(remote.worker)) && JSON.parse(readFileSync(previewFile(remote.worker), 'utf8')).sessionId === remote.sessionId) unlinkSync(previewFile(remote.worker));
       } catch { /* A later session owns its own picture. */ }
       await Promise.allSettled([...remote.captchaControls.values()].map(async ready => {
         const control = await ready;

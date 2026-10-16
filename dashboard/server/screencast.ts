@@ -1,11 +1,12 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { upgradeOriginAllowed } from './http-guards.js';
 import { currentUser } from './auth.js';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readEnv, runner } from './runner.js';
 import { userDir } from './userdata.js';
-import { LIVE_VIEW_REQUEST_FILE, REMOTE_PREVIEW_FILE, readRemoteBrowserPreview } from '../../seek-bot/src/remote-browser-preview.js';
+import { LIVE_VIEW_REQUEST_FILE, remotePreviewFile, readRemoteBrowserPreview } from '../../seek-bot/src/remote-browser-preview.js';
+import { readLiveWorkers, readLiveTarget, type LiveWorkerId } from '../../seek-bot/src/live-workers.js';
 
 
 /**
@@ -32,7 +33,7 @@ function cdpBase(portOverride?: number): string {
   return `http://${host}:${port}`;
 }
 
-interface CdpTarget {
+export interface CdpTarget {
   id: string;
   type: string;
   title: string;
@@ -53,6 +54,7 @@ type Pending = (msg: any) => void;
  * pumping frames one way and input the other.
  */
 class Session {
+  disconnected = false;
   private cdp: WebSocket | null = null;
   private nextId = 1;
   private pending = new Map<number, Pending>();
@@ -65,10 +67,12 @@ class Session {
   // builds with `erasableSyntaxOnly`, which disallows the shorthand.
   private client: WebSocket;
   private targetWsUrl: string;
+  private workerId: LiveWorkerId;
 
-  constructor(client: WebSocket, targetWsUrl: string) {
+  constructor(client: WebSocket, targetWsUrl: string, workerId: LiveWorkerId) {
     this.client = client;
     this.targetWsUrl = targetWsUrl;
+    this.workerId = workerId;
   }
 
   private send(method: string, params: Record<string, unknown> = {}): Promise<any> {
@@ -86,6 +90,7 @@ class Session {
     this.cdp = new WebSocket(this.targetWsUrl, { perMessageDeflate: false });
 
     this.cdp.on('open', async () => {
+      if (this.closed) return;
       /**
        * Page domain only. Never enable Runtime here: that is the single
        * biggest thing Cloudflare fingerprints in a CDP-driven tab, and the
@@ -110,6 +115,7 @@ class Session {
        * a slow heartbeat so the picture cannot silently go stale.
        */
       await this.prime();
+      if (this.closed) return;
       this.heartbeat = setInterval(() => {
         if (Date.now() - this.lastFrameAt > 3000) void this.prime();
       }, 3000);
@@ -140,8 +146,8 @@ class Session {
       }
     });
 
-    this.cdp.on('close', () => this.safeSend({ type: 'detached' }));
-    this.cdp.on('error', (e) => this.safeSend({ type: 'error', message: e.message }));
+    this.cdp.on('close', () => { this.disconnected = true; this.safeSend({ type: 'detached' }); });
+    this.cdp.on('error', (e) => { this.disconnected = true; this.safeSend({ type: 'error', message: e.message }); });
   }
 
   /** One-off screenshot pushed as a frame, for static pages. */
@@ -161,9 +167,9 @@ class Session {
     });
   }
 
-  private safeSend(payload: unknown) {
+  private safeSend(payload: Record<string, unknown>) {
     if (this.closed) return;
-    if (this.client.readyState === WebSocket.OPEN) this.client.send(JSON.stringify(payload));
+    if (this.client.readyState === WebSocket.OPEN) this.client.send(JSON.stringify({ ...payload, workerId: this.workerId }));
   }
 
   async stop() {
@@ -207,134 +213,125 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
     });
   });
 
-  wss.on('connection', async (client, req: any) => {
+  wss.on('connection', (client, req: any) => {
     const url = new URL(req.url ?? '', 'http://localhost');
-    const quality = Math.max(30, Math.min(90, Number(url.searchParams.get('quality') ?? 82)));
-    const maxWidth = Math.max(800, Math.min(1600, Number(url.searchParams.get('width') ?? 1440)));
-    const port = Number(req.runBrowserPort);
-
-    let session: Session | null = null;
-    let current: CdpTarget | null = null;
-    const directory = userDir(String(req.runUserId));
-    let remoteId: string | null = null;
-    let remoteAt = 0;
-    let remoteUrl = '';
-    let remoteUnavailable = false;
-    const send = (message: unknown) => {
-      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
+    const bounded = (name: string, fallback: number, min: number, max: number) => {
+      const value = Number(url.searchParams.get(name) ?? fallback);
+      return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
     };
-    const followRemote = async (): Promise<boolean> => {
-      // Only this authenticated account's worker sees the request and supplies frames.
-      try { writeFileSync(resolve(directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }), { mode: 0o600 }); }
-      catch { /* The worker may still be preparing its account directory. */ }
-      const frame = readRemoteBrowserPreview(directory);
-      if (!frame) {
-        if (!existsSync(resolve(directory, REMOTE_PREVIEW_FILE))) {
-          remoteId = null; remoteAt = 0; remoteUrl = ''; remoteUnavailable = false;
-          return false;
-        }
-        if (!remoteUnavailable) {
-          await session?.stop(); session = null; current = null;
-          send({ type: 'error', message: 'The cloud browser picture is temporarily unavailable.' });
-          remoteUnavailable = true;
-        }
-        return true;
-      }
-      if (session) { await session.stop(); session = null; current = null; }
-      if (frame.sessionId !== remoteId || frame.url !== remoteUrl || remoteUnavailable) {
-        send({ type: 'attached', target: { id: frame.sessionId, url: frame.url, title: 'Employer application' } });
-        send({ type: 'ready' });
-        remoteAt = 0;
-      }
-      remoteId = frame.sessionId; remoteUrl = frame.url; remoteUnavailable = false;
-      if (frame.at !== remoteAt) {
-        if (frame.data) send({ type: 'frame', data: frame.data });
-        else {
-          send({ type: 'attached', target: { id: frame.sessionId, url: 'about:blank', title: 'Waiting for cloud browser picture' } });
-          remoteUrl = '';
-        }
-        remoteAt = frame.at;
-      }
-      return true;
-    };
-    /**
-     * The tab the run says it is working in (seek-bot writes it every time that
-     * changes). Guessing was tried first — "the newest tab" — and measured wrong:
-     * with a few employer sites behind it a run has several tabs open, and the
-     * view sat on one left over from an earlier application while the form being
-     * filled was in another. When the run has not said yet, Chrome lists its tabs
-     * most recently active first, so the first one is the best answer available.
-     */
-    const workingIn = (targets: CdpTarget[]): CdpTarget | null => {
-      try {
-        const file = resolve(userDir(String(req.runUserId)), 'live-target.json');
-        const said = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { targetId?: string }) : null;
-        const named = said?.targetId ? targets.find((t) => t.id === said.targetId) : undefined;
-        if (named) return named;
-      } catch {
-        // A half-written file is a moment, not an answer; the next tick reads it whole.
-      }
-      return targets.find((t) => t.id === current?.id) ?? targets[0] ?? null;
-    };
-    const viewable = (t: CdpTarget) =>
-      t.type === 'page' && !t.url.startsWith('devtools://') && !t.url.startsWith('chrome://') && Boolean(t.webSocketDebuggerUrl);
-
-    const attach = async (target: CdpTarget) => {
-      await session?.stop();
-      current = target;
-      client.send(JSON.stringify({ type: 'attached', target: { id: target.id, url: target.url, title: target.title } }));
-      session = new Session(client, target.webSocketDebuggerUrl!);
-      await session.start(quality, maxWidth);
-    };
-
-    try {
-      if (!await followRemote()) {
-        const target = workingIn((await listTargets(port)).filter(viewable));
-        if (!target) {
-          client.send(JSON.stringify({ type: 'error', message: 'The live view is still getting ready.' }));
-          client.close();
-          return;
-        }
-        await attach(target);
-      }
-    } catch {
-      client.send(
-        JSON.stringify({
-          type: 'error',
-          message: 'The live view is still getting ready. Please try again in a moment.',
-        }),
-      );
-      client.close();
-      return;
-    }
-
-    /**
-     * Follow the run into whichever tab it is working in.
-     *
-     * Indeed's application form and every employer site open in a new tab,
-     * and a viewer pinned to the first tab watched the search results sit
-     * still for the whole application.
-     */
-    let switching = false;
-    const follow = setInterval(async () => {
-      if (switching || client.readyState !== WebSocket.OPEN) return;
-      switching = true;
-      try {
-        if (await followRemote()) return;
-        const active = workingIn((await listTargets(port)).filter(viewable));
-        if (active && active.id !== current?.id) await attach(active);
-      } catch {
-        // The browser may be between pages, or gone; the next tick will see.
-      } finally {
-        switching = false;
-      }
-    }, 1500);
-
-    // Deliberately no `message` handler: the browser connection is view-only
-    // even if a client manually sends mouse, keyboard or navigation commands.
-    client.on('close', () => {
-      clearInterval(follow);
-      void session?.stop();
+    streamLiveWorkers(client, {
+      directory: userDir(String(req.runUserId)), port: Number(req.runBrowserPort),
+      quality: bounded('quality', 82, 30, 90), maxWidth: bounded('width', 1440, 800, 1600),
     });
   });
+}
+
+interface WorkerStream {
+  session: Session | null;
+  current: CdpTarget | null;
+  remoteId: string | null;
+  remoteAt: number;
+  remoteUrl: string;
+  state: string;
+}
+
+/** One authenticated socket carries independent, account-owned worker streams.
+ * The optional target reader is for offline fixtures; callers never supply a
+ * browser port, worker path, or target through a client message.
+ */
+export function streamLiveWorkers(client: WebSocket, options: {
+  directory: string; port: number; quality: number; maxWidth: number;
+  targets?: (port: number) => Promise<CdpTarget[]>;
+  intervalMs?: number;
+}): void {
+  const streams = new Map<LiveWorkerId, WorkerStream>();
+  let roster = '', disposed = false, switching = false;
+  const send = (message: Record<string, unknown>) => {
+    if (!disposed && client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
+  };
+  const stop = async (stream: WorkerStream) => {
+    const session = stream.session;
+    stream.session = null; stream.current = null;
+    await session?.stop();
+  };
+  const update = async () => {
+    if (disposed || switching || client.readyState !== WebSocket.OPEN) return;
+    switching = true;
+    try {
+      const workers = readLiveWorkers(options.directory);
+      const nextRoster = JSON.stringify(workers);
+      if (nextRoster !== roster) {
+        roster = nextRoster;
+        send({ type: 'workers', workers });
+        for (const [id, stream] of streams) if (!workers.some(worker => worker.id === id)) {
+          streams.delete(id); await stop(stream);
+        }
+      }
+      // Fetch once per tick, shared by both streams. Never guess another
+      // worker's target when its own page is between tabs or closed.
+      const targets = await (options.targets ?? listTargets)(options.port).catch(() => []);
+      if (disposed) return;
+      await Promise.all(workers.map(async worker => {
+        let stream = streams.get(worker.id);
+        if (!stream) {
+          stream = { session: null, current: null, remoteId: null, remoteAt: 0, remoteUrl: '', state: '' };
+          streams.set(worker.id, stream);
+        }
+        const emit = (message: Record<string, unknown>) => send({ ...message, workerId: worker.id });
+        const waiting = async (state: string, finished = false) => {
+          await stop(stream!);
+          if (stream!.state !== state) emit({ type: 'waiting', finished });
+          stream!.state = state;
+        };
+        const named = readLiveTarget(options.directory, worker.id);
+        if (named?.finished) { await waiting('finished', true); return; }
+        try {
+          writeFileSync(resolve(options.directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }), { mode: 0o600 });
+        } catch { /* Preparing account directory: retry on the next tick. */ }
+        const remote = readRemoteBrowserPreview(options.directory, Date.now(), worker.id);
+        if (remote) {
+          await stop(stream);
+          if (remote.sessionId !== stream.remoteId || remote.url !== stream.remoteUrl || stream.state !== 'remote') {
+            emit({ type: 'attached', target: { id: remote.sessionId, url: remote.url, title: 'Employer application' } });
+            emit({ type: 'ready' });
+            stream.remoteAt = 0;
+          }
+          stream.remoteId = remote.sessionId; stream.remoteUrl = remote.url; stream.state = 'remote';
+          if (remote.at !== stream.remoteAt) {
+            if (remote.data) emit({ type: 'frame', data: remote.data });
+            else emit({ type: 'waiting' });
+            stream.remoteAt = remote.at;
+            // The next valid picture must restore attachment after an empty frame.
+            if (!remote.data) stream.state = 'remote-waiting';
+          }
+          return;
+        }
+        if (existsSync(resolve(options.directory, remotePreviewFile(worker.id)))) {
+          await waiting('remote-unavailable'); return;
+        }
+        stream.remoteId = null; stream.remoteAt = 0; stream.remoteUrl = '';
+        const pages = targets.filter(target => target.type === 'page'
+          && !/^(devtools|chrome):/.test(target.url) && Boolean(target.webSocketDebuggerUrl));
+        const active = named?.targetId ? pages.find(target => target.id === named.targetId)
+          : worker.id === 'main' ? pages.find(target => target.id === stream!.current?.id) ?? pages[0] : undefined;
+        if (!active) { await waiting('waiting'); return; }
+        if (active.id !== stream.current?.id || stream.session?.disconnected) {
+          await stop(stream);
+          if (disposed) return;
+          stream.current = active; stream.state = 'local';
+          emit({ type: 'attached', target: { id: active.id, url: active.url, title: active.title } });
+          stream.session = new Session(client, active.webSocketDebuggerUrl!, worker.id);
+          await stream.session.start(options.quality, options.maxWidth);
+        }
+      }));
+    } finally { switching = false; }
+  };
+  const follow = setInterval(() => { void update().catch(() => {}); }, options.intervalMs ?? 1500);
+  // View-only: no client message handler or Input/Runtime CDP commands.
+  client.once('close', () => {
+    disposed = true; clearInterval(follow);
+    for (const stream of streams.values()) void stop(stream);
+    streams.clear();
+  });
+  void update().catch(() => {});
 }

@@ -5,6 +5,7 @@ import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, rul
 import { applicationKeys } from './application-identity.js';
 import { ApplicationReservations, withApplicationAttempt } from './application-reservations.js';
 import { ApplicationSlots, AsyncMutex, withApplicationWorker } from './application-workers.js';
+import { configureLiveWorkers, resetLiveWorkers, writeLiveTarget } from './live-workers.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
 import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
@@ -211,6 +212,7 @@ async function main() {
   if (runScope() !== 'all') console.log(`Scope: ${SCOPE_LABEL[runScope()]}`);
 
   const ctx = await launchBrowser();
+  resetLiveWorkers(config.dataDir);
   const directNavigation = directExternalUrl ? await guardExternalNavigations(ctx) : null;
   const page = await getPage(ctx);
   await workingIn(page);
@@ -1339,9 +1341,19 @@ async function main() {
       }
       console.log(`Application workers: ${contexts.length === 2 ? '2 (SEEK and Indeed/feeds, isolated sessions)' : '1'}`);
       if (contexts.length === 2) {
+        configureLiveWorkers(config.dataDir, ['seek', 'indeed']);
+        const runVisibleWorker = (id: 'seek' | 'indeed', workerPage: Page, accept: (job: JobListing) => boolean) =>
+          withApplicationWorker(id, async () => {
+            try {
+              await workingIn(workerPage);
+              await runWorker(workerPage, accept);
+            } finally {
+              try { writeLiveTarget(config.dataDir, id, { finished: true }); } catch { /* Viewer metadata cannot fail a run. */ }
+            }
+          });
         const results = await Promise.allSettled([
-          withApplicationWorker('seek', () => runWorker(workerPages[0], job => (job.platform ?? 'seek') === 'seek')),
-          withApplicationWorker('indeed', () => runWorker(workerPages[1], job => (job.platform ?? 'seek') !== 'seek')),
+          runVisibleWorker('seek', workerPages[0], job => (job.platform ?? 'seek') === 'seek'),
+          runVisibleWorker('indeed', workerPages[1], job => (job.platform ?? 'seek') !== 'seek'),
         ]);
         const failed = results.find(result => result.status === 'rejected');
         if (failed?.status === 'rejected') throw failed.reason;

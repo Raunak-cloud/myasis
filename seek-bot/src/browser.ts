@@ -8,6 +8,8 @@ import { hasCaptchaSurface } from './captcha/detect.js';
 import { countHealth } from './run-health.js';
 import { selectRemotePage } from './employer-browser.js';
 import { metric } from './pipeline.js';
+import { currentApplicationWorker } from './application-workers.js';
+import { writeLiveTarget } from './live-workers.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -245,7 +247,7 @@ export async function workingIn(page: Page): Promise<void> {
     const session = await page.context().newCDPSession(page);
     try {
       const { targetInfo } = await session.send('Target.getTargetInfo');
-      writeFileSync(resolve(config.dataDir, 'live-target.json'), JSON.stringify({ targetId: targetInfo.targetId, at: new Date().toISOString() }));
+      writeLiveTarget(config.dataDir, currentApplicationWorker(), { targetId: targetInfo.targetId });
     } finally {
       await session.detach().catch(() => {});
     }

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { readRemoteBrowserPreview, REMOTE_PREVIEW_FILE } from './remote-browser-preview.js';
+import { readRemoteBrowserPreview, REMOTE_PREVIEW_FILE, remotePreviewFile } from './remote-browser-preview.js';
 
 test('preview never reads another account or presents an expired, partial or oversized frame', () => {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-preview-fixture-'));
@@ -15,6 +15,11 @@ test('preview never reads another account or presents an expired, partial or ove
     const file = join(directory, REMOTE_PREVIEW_FILE);
     writeFileSync(file, JSON.stringify(frame));
     assert.deepEqual(readRemoteBrowserPreview(directory, now), frame);
+    const secondWorker = { ...frame, sessionId: randomUUID(), data: 'ZGVm' };
+    writeFileSync(join(directory, remotePreviewFile('seek')), JSON.stringify(frame));
+    writeFileSync(join(directory, remotePreviewFile('indeed')), JSON.stringify(secondWorker));
+    assert.deepEqual(readRemoteBrowserPreview(directory, now, 'seek'), frame);
+    assert.deepEqual(readRemoteBrowserPreview(directory, now, 'indeed'), secondWorker);
     assert.equal(readRemoteBrowserPreview(second, now), null);
     assert.equal(readRemoteBrowserPreview(directory, now + 8_001), null);
     for (const override of [{ at: now + 2_000 }, { url: 'wss://secret@service.test' }, { data: '<script>' }]) {
