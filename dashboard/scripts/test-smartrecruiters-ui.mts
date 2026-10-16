@@ -13,6 +13,7 @@ let searchStarted = false;
 let adminBoards = 'smartrecruiters';
 let adminSeekSignedIn = false;
 let attentionFixture = false;
+let skippedFixture = false;
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
@@ -40,6 +41,7 @@ const server = createServer(async (req, res) => {
       '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [],
       '/api/attention': attentionFixture ? [{ jobId: 'handoff-fixture', title: 'Fixture Developer', company: 'Fixture Employer', kind: 'question', reason: 'Your answer is needed', at: new Date().toISOString(), url: 'https://fixture.invalid', questions: [{ question: 'Country of birth', kind: 'select', options: ['Australia', 'Canada'] }, { question: 'Audit services', kind: 'select', options: ['Unrelated skill'] }] }] : [],
       '/api/answers': { saved: 2 },
+      '/api/skipped': { items: skippedFixture ? [{ jobId: 'skip-fixture', title: 'Skipped Fixture Role', company: 'Fixture Employer', kind: 'fit', reason: 'Experience does not match', url: '', at: new Date().toISOString(), verdict: null, note: null }] : [] },
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/settings': req.method === 'POST' ? { ok: true, settings: settings() } : settings(),
       '/api/run': { ok: true, mode: 'live' },
@@ -171,7 +173,18 @@ try {
   assert.deepEqual(answerWrite.body, { jobId: 'handoff-fixture', answers: [{ question: 'Country of birth', answer: 'Nepal' }, { question: 'Audit services', answer: 'No' }] });
   assert.equal(writes.filter(write => write.path === '/api/run').length, runsBeforeSave, 'saving explicit facts does not submit or start a live job');
   await answerContext.close();
-  console.log('PASS: application controls, employer feeds, bounded search-only tests and candidate answers; fixture APIs only');
+  // Retention policy is visible with both populated and empty skipped history.
+  const skippedContext = await browser.newContext();
+  const skippedPage = await skippedContext.newPage();
+  await skippedPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  for (skippedFixture of [false, true]) {
+    await skippedPage.goto(`${origin}/?tab=applications`);
+    await skippedPage.getByRole('tab', { name: /^Skipped/ }).click();
+    await skippedPage.getByText('Only your latest 500 skipped-job records are stored. Older records are automatically deleted.', { exact: true }).waitFor();
+    await skippedPage.getByText(skippedFixture ? 'Skipped Fixture Role' : 'Nothing skipped lately', { exact: true }).waitFor();
+  }
+  await skippedContext.close();
+  console.log('PASS: application controls, employer feeds, search-only tests, candidate answers and skipped retention notice; fixture APIs only');
 } finally {
   await browser.close();
   await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));

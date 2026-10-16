@@ -41,6 +41,8 @@ const KIND: Record<SkipKind, { label: string; tone: string; what: string }> = {
 
 type Filter = SkipKind | 'all' | 'called';
 
+const RETENTION_NOTICE = 'Only your latest 500 skipped-job records are stored. Older records are automatically deleted.';
+
 /** One skipped job: why, and the candidate's call on it. */
 function SkippedRow({ job, onChange }: { job: SkippedJob; onChange: (items: SkippedJob[]) => void }) {
   const [saving, setSaving] = useState(false);
@@ -166,6 +168,7 @@ export function SkippedPanel({ items, error, onItems }: {
       <div className="card empty">
         <div className="big">Nothing skipped lately</div>
         <p>Jobs the fit check passes over in your runs appear here for two weeks, with the reason it gave.</p>
+        <p className="job-meta">{RETENTION_NOTICE}</p>
       </div>
     );
   }
@@ -195,6 +198,7 @@ export function SkippedPanel({ items, error, onItems }: {
           ? KIND[filter].what
           : 'Jobs the fit check passed over in the last two weeks. If it got one wrong, choose “I’d have applied” and it goes into your next run.'}
       </p>
+      <p className="job-meta attention-what">{RETENTION_NOTICE}</p>
       <div className="card table-wrap attention-list">
         <table className="attention-table">
           <colgroup>

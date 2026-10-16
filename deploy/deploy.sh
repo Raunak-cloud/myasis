@@ -102,7 +102,7 @@ as_app "cd $APP/seek-bot && node --test dist/captcha/retry.test.js dist/captcha/
 as_app "cd $APP/seek-bot && node dist/employer-browser.test.js"
 as_app "cd $APP/seek-bot && node --test dist/smartrecruiters.test.js dist/employer-feeds.test.js dist/agent/apply-employer-job.test.js dist/agent/choose-option.test.js"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-worker-policy.test.ts server/application-worker-capacity.test.ts server/application-platform-scope.test.ts test/activity.test.mjs"
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-worker-policy.test.ts server/application-worker-capacity.test.ts server/application-platform-scope.test.ts server/skipped-retention.test.ts test/activity.test.mjs"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/application-costs.test.ts && ../seek-bot/node_modules/.bin/tsx scripts/test-application-costs-api.mts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-smartrecruiters-ui.mts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-application-costs-ui.mts"

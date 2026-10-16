@@ -14,6 +14,7 @@ import { query } from './db/index.js';
  * Read from `run_events`: only fit decisions (a skip, an uncertain verdict, a
  * score under the account's minimum), the latest per job, from the last two
  * weeks, and never one the account has since applied to.
+ * The database retains at most 500 skipped events per account (schema.sql).
  */
 
 export type SkipKind = 'rules' | 'fit' | 'uncertain' | 'score';

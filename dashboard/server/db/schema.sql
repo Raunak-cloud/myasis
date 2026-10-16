@@ -709,3 +709,59 @@ CREATE INDEX IF NOT EXISTS application_cost_run_idx ON application_cost_events(u
 -- Idempotent and confined to settings; application and usage history remains intact.
 DELETE FROM settings
 WHERE left(key, length('APPLICATION_AI_')) = 'APPLICATION_AI_';
+
+-- BEGIN skipped history retention
+-- Bound stored skip events, not just the number returned by the Skipped page.
+-- All writers (including imports/upserts and parallel workers) use the same
+-- per-account transaction lock. Lock before INSERT's conflict handling so an
+-- upsert cannot hold an old row while waiting for a pruning writer's lock.
+CREATE INDEX IF NOT EXISTS run_events_skipped_recent_idx
+  ON run_events(user_id, ts DESC, id DESC) WHERE status = 'skipped';
+
+CREATE OR REPLACE FUNCTION lock_skipped_history() RETURNS trigger
+LANGUAGE plpgsql VOLATILE AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('skipped-history:' || NEW.user_id::text, 0));
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION prune_skipped_history(owner_id BIGINT) RETURNS void
+LANGUAGE plpgsql VOLATILE AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('skipped-history:' || owner_id::text, 0));
+  WITH overflow AS MATERIALIZED (
+    SELECT id FROM run_events
+     WHERE user_id = owner_id AND status = 'skipped'
+     ORDER BY ts DESC, id DESC OFFSET 500
+  )
+  DELETE FROM run_events e USING overflow
+   WHERE e.id = overflow.id AND e.user_id = owner_id AND e.status = 'skipped';
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION retain_skipped_history() RETURNS trigger
+LANGUAGE plpgsql VOLATILE AS $$
+BEGIN
+  PERFORM prune_skipped_history(NEW.user_id);
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS run_events_skipped_lock ON run_events;
+CREATE TRIGGER run_events_skipped_lock
+  BEFORE INSERT OR UPDATE OF user_id, status, ts ON run_events
+  FOR EACH ROW WHEN (NEW.status = 'skipped')
+  EXECUTE FUNCTION lock_skipped_history();
+
+DROP TRIGGER IF EXISTS run_events_skipped_retain ON run_events;
+CREATE TRIGGER run_events_skipped_retain
+  AFTER INSERT OR UPDATE OF user_id, status, ts ON run_events
+  FOR EACH ROW WHEN (NEW.status = 'skipped')
+  EXECUTE FUNCTION retain_skipped_history();
+
+-- Apply the same policy to existing accounts. Timestamp, then id, gives a
+-- stable newest-first order even when a run records several skips at once.
+SELECT prune_skipped_history(user_id)
+  FROM (SELECT DISTINCT user_id FROM run_events WHERE status = 'skipped') owners;
+-- END skipped history retention
