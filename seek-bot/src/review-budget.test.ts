@@ -49,6 +49,8 @@ export const fetchJobDetail = async (_page, job) => {
 };
 `);
     writeFileSync(join(directory, 'browser.mjs'), `
+import { record } from './boundary.mjs';
+import { currentApplicationWorker } from ${JSON.stringify(new URL('./application-workers.js', import.meta.url).href)};
 export const launchBrowser = async () => ({});
 export const applicationWorkerContexts = async () => [0,1].map(worker => ({newPage:async()=>({worker}),close:async()=>{}}));
 export const getPage = async () => ({});
@@ -56,6 +58,7 @@ export const closeBrowser = async () => {};
 export const ensureSignedIn = async page => {if(${options.failedParallelSignin === true} && page.worker !== undefined) throw Error('Fixture isolated session expired');};
 export const ensureIndeedSignedIn = async () => {};
 export const workingIn = async () => {};
+export const showLiveActivity = async activity => { record('activity-'+activity.phase,currentApplicationWorker()); };
 export const jitter = async () => {};
 `);
     writeFileSync(join(directory, 'llm.mjs'), `
@@ -161,6 +164,11 @@ test('the complete main pipeline overlaps two platform applications while sharin
   assert.equal(starts.length, 2);
   assert.ok(starts[1].at < finishes[0].at, 'both applications must overlap, not merely alternate');
   assert.equal(result.history.length, 2);
+  for (const worker of ['seek', 'indeed']) {
+    for (const phase of ['waiting', 'applying', 'finished']) {
+      assert.ok(result.events.some(event => event.stage === `activity-${phase}` && event.id === worker), `${worker} reports ${phase}`);
+    }
+  }
   assert.deepEqual(result.history.map(record => record.platform).sort(), ['indeed', 'seek']);
   assert.match(result.output, /Application workers: 2/);
   assert.match(result.output, /Run complete: 2 new application/);
