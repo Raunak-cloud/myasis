@@ -1,6 +1,7 @@
 import { reviewEvidence, unsupportedClaim, type QualitySummary } from '../core/quality.js';
 import { shortSeed, verifiedCandidate } from '../core/discovery.js';
 import { buildMarketingPlan, type MarketingPlan } from './planning.js';
+import type { AiReadiness } from '../geo-audit.js';
 import { siteProfiles } from '../insights/competitors.js';
 import { mergeKeywords } from '../insights/keywords.js';
 import { scoreAds } from '../insights/ads.js';
@@ -54,6 +55,8 @@ export interface Report {
   coverage: TaskResult[];
   cost: string;
   marketingPlan?: MarketingPlan;
+  /** AI-search readiness of the owner's website, measured by code; absent when no website was given. */
+  aiReadiness?: AiReadiness;
 }
 
 /** Revalidate public details too: a model summary is never a price source. */

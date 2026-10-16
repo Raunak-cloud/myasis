@@ -1,12 +1,31 @@
 import { detectWall, dismissConsent, withPage } from './browser/session.js';
+import { summarizeVisibility, type VisibilityObservation, type VisibilitySummary } from './geo-audit.js';
 
-export interface VisibilityInput { provider:'ChatGPT'|'Perplexity'; prompts:string[]; country:string }
-export async function checkAIVisibility(input:VisibilityInput) {
-  if(!['ChatGPT','Perplexity'].includes(input.provider) || !Array.isArray(input.prompts) || input.prompts.length<1 || input.prompts.length>3 || input.prompts.some(p=>typeof p!=='string' || p.length<10 || p.length>500)) throw new Error('Choose a supported provider and one to three short prompts.');
-  const observations:Array<Record<string,unknown>>=[];
+export interface VisibilityInput {
+  provider: 'ChatGPT' | 'Perplexity';
+  prompts: string[];
+  country: string;
+  /** Who to look for in the answers; the summary counts mentions and citations. */
+  brand?: string;
+  website?: string;
+  competitors?: string[];
+}
+
+export interface VisibilityResult { observations: VisibilityObservation[]; summary: VisibilitySummary }
+
+/**
+ * Asks a public assistant the buyer questions a run cares about, from a
+ * logged-out browser, and records the answer and its citations. A wall or a
+ * refusal ends the provider: nothing is signed in to or worked around. The
+ * summary is computed by code: brand mentions, own-site citations, and the
+ * hosts the assistant cited instead.
+ */
+export async function checkAIVisibility(input: VisibilityInput): Promise<VisibilityResult> {
+  if(!['ChatGPT','Perplexity'].includes(input.provider) || !Array.isArray(input.prompts) || input.prompts.length<1 || input.prompts.length>8 || input.prompts.some(p=>typeof p!=='string' || p.length<10 || p.length>500)) throw new Error('Choose a supported provider and one to eight short prompts.');
+  const observations:VisibilityObservation[]=[];
   await withPage(async page=>{
     for(const prompt of input.prompts) {
-      const base={provider:input.provider,prompt,country:input.country,observedAt:new Date().toISOString(),method:'browser',answer:'',citations:[] as string[],responseUrl:null as string|null,model:'Model not exposed by browser',note:''};
+      const base:VisibilityObservation={provider:input.provider,prompt,status:'unavailable',answer:'',citations:[],observedAt:new Date().toISOString(),note:''};
       try {
         const response=await page.goto(input.provider==='ChatGPT'?'https://chatgpt.com/':'https://www.perplexity.ai/',{waitUntil:'domcontentloaded',timeout:25_000});
         await dismissConsent(page);
@@ -28,11 +47,11 @@ export async function checkAIVisibility(input:VisibilityInput) {
           if(stable>=3) break;
         }
         if(stable<3 || answer.length<100 || answer.length>30_000 || /sign in to continue|limit reached|something went wrong|unable to (?:answer|respond)/i.test(answer)) {observations.push({...base,status:'unavailable',note:'A complete stable answer within the capture limit could not be obtained. This is not a negative visibility result.'});continue;}
-        observations.push({...base,status:'complete',answer,citations:[...new Set(citations)].slice(0,60),responseUrl:page.url(),note:'Sampled from a logged-out browser. Model, search mode and geographic personalization are not verified. Recommendations require a checked exact quote.'});
+        observations.push({...base,status:'complete',answer,citations:[...new Set(citations)].slice(0,60),note:'Sampled once from a logged-out browser. Model, search mode and personalisation are not controlled, and answers vary between runs; treat a single sample as an indication, not a rate.'});
       } catch {
         observations.push({...base,status:'blocked',note:'Provider access was blocked or unavailable. No login or challenge was bypassed; visibility is unknown.'});break;
       }
     }
   });
-  return observations;
+  return summarizeVisibility(observations,{brand:input.brand ?? '',website:input.website,competitors:input.competitors ?? []});
 }

@@ -38,7 +38,24 @@ npm run dev -- research \
 npm run dev -- collect meta-ads "Gymshark"        # one source, printed
 npm run dev -- agent https://www.trustpilot.com/review/gymshark.com "complaints and praise in recent reviews"
 npm run dev -- research --resume .scout/runs/<run>  # re-analyse a run
+
+npm run dev -- audit-site https://your-site.com.au --brand "LiftLab" --output audit.json
+npm run dev -- ai-visibility --brief visibility.json --output answers.json
+# visibility.json: {"provider":"ChatGPT","prompts":["best activewear in Australia"],"country":"AU","brand":"LiftLab","website":"https://your-site.com.au","competitors":["Gymshark"]}
 ```
+
+## AI search readiness (GEO)
+
+When a run includes your own website, the report gets an **AI search readiness** section. It is measured by code from what the site serves, with each engine's documented behaviour stated next to the check (sources in `src/geo-audit.ts`):
+
+- **Crawler access.** robots.txt verdicts for the search, user-fetch and training crawlers of OpenAI (`OAI-SearchBot`, `ChatGPT-User`, `GPTBot`), Anthropic (`Claude-SearchBot`, `Claude-User`, `ClaudeBot`), Perplexity, Google (`Googlebot` governs AI Overviews and AI Mode; `Google-Extended` only Gemini training), Bing and Common Crawl. Blocking a search crawler removes the site from that assistant's answers; blocking a training crawler does not.
+- **Rendering.** Each page is fetched once as a plain HTTP client and once in a browser. Text that only appears after JavaScript, or a server that refuses plain clients, is flagged because AI fetchers do not run scripts.
+- **Content.** An opening paragraph that answers the page's question, question-phrased headings or an FAQ, dates and authors on content pages, and no `noindex`/`nosnippet` on pages meant to be quoted.
+- **Structured data and entity.** Valid JSON-LD, Organization schema with `sameAs` profiles, Product/Service schema on product pages, and the brand named consistently.
+- **llms.txt.** Reported as optional: Anthropic and Perplexity say they read it, Google says no AI-specific file is needed, and no engine has published that it changes citations.
+- **What assistants answer.** Up to four buyer questions (written by Magnus from the brief) are asked in ChatGPT and Perplexity from a logged-out browser. The report counts brand mentions and own-site citations and lists the sites cited instead. A wall ends that provider; nothing is signed in to. One sample per prompt: treat it as an indication, not a rate.
+
+The checks state facts and documented consequences. They do not predict rankings or citation frequency. Independent studies find most assistant citations go to third-party pages (Reddit, Wikipedia, YouTube, reviews, news), so the run's community and review evidence is the other half of the picture.
 
 Run the CLI from the compiled build (`npm run dev` or `npm run build && npm run scout`), not through tsx. Code that runs inside the page breaks under tsx's `__name` helper.
 

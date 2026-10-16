@@ -17,6 +17,9 @@ import { mapLimit } from './llm/extract.js';
 import { renderHtml, renderMarkdown } from './report/render.js';
 import { synthesize, type Report } from './report/synthesize.js';
 import { sourceById } from './sources/index.js';
+import { auditSite } from './audit-site.js';
+import { checkAIVisibility } from './ai-visibility.js';
+import { combineReadiness, suggestVisibilityPrompts, summarizeVisibility, type AiReadiness, type VisibilityObservation } from './geo-audit.js';
 
 /**
  * One research run, end to end:
@@ -106,6 +109,7 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
       const followUps = options.tasks ? [] : await planFollowUp(brief, coverage, reviewEvidence(store.all(), brief).evidence, meter, options.followUps ?? 6);
       if (followUps.length && Date.now() < deadline) await runTasks(followUps);
       store.writeJson('coverage.json', coverage);
+      if (brief.ownWebsite && Date.now() < deadline) await assessAiReadiness(brief, store, meter, deadline, log);
     }
   } finally {
     await closeBrowser();
@@ -142,7 +146,8 @@ export async function runResearch(brief: Brief, options: RunOptions = {}): Promi
     };
   });
   const complete = draft.sections.length && runCoverage.some((r) => r.ok && r.count > 0) && runCoverage.every((r) => r.ok) && !(brief.autoDiscover && !brief.websites.length);
-  const report: Report = { ...draft, quality, version: 3, status: complete ? 'ready' : 'partial', cost: meter.summary() };
+  const aiReadiness = readJson<AiReadiness>(store, 'ai-readiness.json');
+  const report: Report = { ...draft, quality, version: 3, status: complete ? 'ready' : 'partial', cost: meter.summary(), ...(aiReadiness ? { aiReadiness } : {}) };
 
   const files = {
     json: store.writeJson('report.json', report),
@@ -171,9 +176,52 @@ export function interleave(tasks: Task[]): Task[] {
 }
 
 function readCoverage(store: EvidenceStore): TaskResult[] {
+  return readJson<TaskResult[]>(store, 'coverage.json') ?? [];
+}
+
+function readJson<T>(store: EvidenceStore, name: string): T | null {
   try {
-    return JSON.parse(readFileSync(join(store.dir, 'coverage.json'), 'utf8')) as TaskResult[];
+    return JSON.parse(readFileSync(join(store.dir, name), 'utf8')) as T;
   } catch {
-    return [];
+    return null;
   }
+}
+
+/**
+ * The owner's website as AI search sees it: the site audit (crawler access,
+ * plain-fetch rendering, answer-first content, schema, llms.txt) and a small
+ * sample of what ChatGPT and Perplexity answer to buyer questions. Both are
+ * bounded, logged-out and read-only; a blocked assistant is recorded, never
+ * worked around. Saved as ai-readiness.json so --resume can report on it.
+ */
+async function assessAiReadiness(brief: Brief, store: EvidenceStore, meter: CostMeter, deadline: number, log: (line: string) => void): Promise<void> {
+  const website = brief.ownWebsite!;
+  log(`\nChecking AI search readiness of ${website}…`);
+  let site: AiReadiness['site'] = null;
+  try {
+    const audit = await auditSite(website, { brand: brief.brand });
+    store.writeJson('site-audit.json', audit);
+    site = audit.readiness;
+    log(`✓ site audit: ${audit.pages.length} pages, ${site.findings.filter((f) => f.severity !== 'info').length} findings`);
+  } catch (error) {
+    log(`✗ site audit: ${(error as Error).message.split('\n')[0].slice(0, 200)}`);
+  }
+  let visibility: AiReadiness['visibility'] = null;
+  // Each prompt can take a minute; leave the run its time to finish writing.
+  if (deadline - Date.now() > 6 * 60_000) {
+    const prompts = await suggestVisibilityPrompts(brief, meter, 4);
+    const observations: VisibilityObservation[] = [];
+    for (const provider of ['ChatGPT', 'Perplexity'] as const) {
+      if (deadline - Date.now() < 3 * 60_000) break;
+      try {
+        const result = await checkAIVisibility({ provider, prompts, country: brief.country, brand: brief.brand, website, competitors: brief.competitors });
+        observations.push(...result.observations);
+        log(`✓ ${provider}: ${result.summary.complete}/${prompts.length} answers, brand mentioned in ${result.summary.brandMentions}`);
+      } catch (error) {
+        log(`✗ ${provider}: ${(error as Error).message.split('\n')[0].slice(0, 200)}`);
+      }
+    }
+    visibility = { prompts, ...summarizeVisibility(observations, { brand: brief.brand, website, competitors: brief.competitors }) };
+  } else log('  skipped assistant sampling: not enough run time left');
+  store.writeJson('ai-readiness.json', combineReadiness(site, visibility));
 }

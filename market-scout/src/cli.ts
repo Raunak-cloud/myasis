@@ -31,6 +31,8 @@ const HELP = `market-scout — public marketing research with a Celeris browser 
   sources                         List sources and whether each can run
   ui                              Open the local web interface (http://127.0.0.1:5190)
   scan-site <https://website>      Read product pages; --output <file.json>
+  audit-site <https://website>     SEO health and AI-search readiness; --output <file.json> [--brand "Name"]
+  ai-visibility --brief <in.json>  Ask ChatGPT or Perplexity buyer questions; --output <file.json>
 
 Every model call is Celeris: celeris-1 for extraction and tagging,
 celeris-1-magnus for planning, browsing, analysis and writing.`;
@@ -79,8 +81,8 @@ async function main() {
 
   switch (command) {
     case 'audit-site': {
-      if(!positionals[0] || !values.output) throw new Error('Usage: audit-site <public HTTPS website> --output <file.json>');
-      try {writeFileSync(values.output,JSON.stringify(await auditSite(positionals[0]),null,2));} finally {await closeBrowser();}
+      if(!positionals[0] || !values.output) throw new Error('Usage: audit-site <public HTTPS website> --output <file.json> [--brand "Name"]');
+      try {writeFileSync(values.output,JSON.stringify(await auditSite(positionals[0],{brand:typeof values.brand==='string'?values.brand:''}),null,2));} finally {await closeBrowser();}
       return;
     }
     case 'ai-visibility': {
