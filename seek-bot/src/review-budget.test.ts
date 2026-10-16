@@ -187,3 +187,8 @@ test('a known pre-send failure leaves the shared slot available for the other pl
   assert.equal(result.events.filter(event => event.stage === 'apply').length, 2);
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);
 });
+test('a late duplicate on one platform wakes the other worker when its review slot is restored', () => {
+  const result = run([job('old', { platform: 'indeed', source: 'recommended', lateApplied: true, delayMs: 80 }), job('fresh', { source: 'search' })],
+    { apply: true, workers: 2, cap: 1, reviews: 1 });
+  assert.ok(result.history.some(record => record.jobId === 'fresh' && record.submittedByMyasis === true));
+});

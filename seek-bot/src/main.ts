@@ -608,6 +608,9 @@ async function main() {
      * rarely what ends a run (about 1.4 submissions per run over ten days).
      */
     const candidates: Array<{ job: JobListing; score: number; why: string; reasons: string[] }> = [];
+    let busyWorkers = 0;
+    const workWaiters = new Set<() => void>();
+    const workChanged = () => { for (const resolve of workWaiters) resolve(); workWaiters.clear(); };
     /** Every job that qualified this run, applied for yet or not. */
     let qualified = 0;
     const pendingFits: Array<{
@@ -684,6 +687,7 @@ async function main() {
 
       const semanticScore = fit?.matchScore ?? score;
       candidates.push({ job, score: semanticScore, why, reasons: decisionReasons });
+      workChanged();
       qualified++;
       console.log(
         `  ✓ ${semanticScore} · ${job.title} @ ${job.company} (${job.location}) [${adapter.label}]` +
@@ -722,6 +726,7 @@ async function main() {
         console.log(`  Review slot restored: ${job.title} @ ${job.company}`);
       }
       if (qualified < candidateCap && evaluated < config.limits.maxEvaluations) reviewStopped = false;
+      workChanged();
     };
     const reviewDone = () => reviewStopped || (reviewIndex >= shortlist.length && !searchesLeft());
     /** Nothing left to review and no fit check still out. */
@@ -1072,237 +1077,248 @@ async function main() {
           await advanceReview();
           next = takeCandidate(accept);
         }
-        if (!next) break;
-        const { job, score, reasons } = next;
-        const platformId = job.platform ?? 'seek';
-        const adapter = ADAPTERS.get(platformId);
-        if (!adapter) continue;
-
-        // A listing whose kind is already known and outside this run's scope is not attempted; an unknown one is left to the board's own panel to decide.
-        if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
-          logOutcome({ status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company });
-          continue;
-        }
-
-        // Check this exact listing/form again: another attempt may have finished since discovery.
-        if (previousApplication(job)) {
-          restoreReviewSlot(job, true);
-          console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
-          logOutcome({ status: 'skipped', jobId: job.id, reason: 'already applied through this listing or form', title: job.title, company: job.company });
-          continue;
-        }
-        const forms = applicationKeys(job);
-        if (forms.some(key => attemptedForms.has(key))) {
-          restoreReviewSlot(job, true);
-          logOutcome({ status: 'skipped', jobId: job.id, reason: 'This exact application form was already attempted this run.', title: job.title, company: job.company });
-          continue;
-        }
-        if (job.applicationMode === 'external') {
-          if (externalSubmitted >= config.limits.maxExternalPerDay) {
-            console.log(`  – skipped (daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached): ${job.title} @ ${job.company}`);
-            logOutcome({ status: 'skipped', jobId: job.id, reason: `daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached`, title: job.title, company: job.company });
-            continue;
-          }
-        }
-
-        if (abortedPlatforms.has(platformId)) {
-          console.log(`  – skipped (${adapter.label} stopped earlier this run after repeated friction): ${job.title} @ ${job.company}`);
-          continue;
-        }
-        if (blockedPlatforms.has(platformId)) {
-          console.log(`  – skipped (${adapter.label} hit a security check earlier this run): ${job.title} @ ${job.company}`);
-          continue;
-        }
-
-        // A rehearsal's cap counts every application that reached its end, so one that somehow went out still stops it.
-        const completed = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed + applied : applied;
-        if (completed >= config.limits.maxApplicationsPerRun) {
-          console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
+        if (!next) {
+          // Another application may restore a review slot or produce new
+          // candidates during its cooldown. Stay available until all are idle.
+          if (busyWorkers) { await new Promise<void>(resolve => workWaiters.add(resolve)); continue; }
           break;
         }
-        if (index.appliedToday() >= config.limits.maxApplicationsPerDay) {
-          console.log(`\nDaily cap of ${config.limits.maxApplicationsPerDay} reached.`);
-          break;
-        }
-
-        const slot = await slots.acquire(job.applicationMode === 'external');
-        if (!slot) {
-          console.log('Shared application allowance is reached; this worker is finished.');
-          break;
-        }
-        let attemptId: string | null;
-        try { attemptId = journal.acquire(job); }
-        catch (error) { slot.finish(false); throw error; }
-        if (!attemptId) {
-          slot.finish(false);
-          restoreReviewSlot(job, true);
-          console.log(`  \u2013 skipped (same form reserved or previously sent): ${job.title} @ ${job.company}`);
-          logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company,
-            reason: 'This exact form is reserved, previously submitted, or awaiting confirmation after an interrupted attempt.' });
-          continue;
-        }
-        for (const key of forms) attemptedForms.add(key);
-        let finalOutcome: ApplyOutcome | undefined;
-        let finalized = false;
-        const finalize = () => {
-          if (finalized) return;
-          finalized = true;
-          let mayHaveSent = true;
-          try { mayHaveSent = journal.finish(attemptId!, finalOutcome); }
-          finally { slot.finish(mayHaveSent || (config.dryRun && process.env.REHEARSE === 'true' && finalOutcome?.status === 'rehearsed')); }
-        };
+        busyWorkers++;
         try {
-          console.log(`\n→ Applying: ${job.title} @ ${job.company}`);
-          // The letter is written while the listing opens and the form's first steps are filled,
-          // not when the agent reaches the letter box. Already under way for every job but a run's first.
-          prepare(job);
+          const { job, score, reasons } = next;
+          const platformId = job.platform ?? 'seek';
+          const adapter = ADAPTERS.get(platformId);
+          if (!adapter) continue;
 
-          /**
-           * A dead browser must not take the whole run's reporting with it. It is
-           * unrecoverable (every later job would fail the same way), but the run
-           * still has to say what it completed rather than dying with a stack
-           * trace — and has to be explicit that this job was NOT submitted.
-           */
-          let outcome: ApplyOutcome;
-          let candidateHitFriction = false;
-          // Applying opens the board's listing again: a search just made there still has its gap to run out.
-          await sitePacer.ready(platformId);
-          try {
-            outcome = await withApplicationAttempt({ journal, id: attemptId, job, beforeSubmit: slot.beforeSubmit }, () => measured('application', () => adapter.apply(applicationPage, job, profile, {
-              onFriction: () => {
-                candidateHitFriction = true;
-                frictionStreak.set(platformId, (frictionStreak.get(platformId) ?? 0) + 1);
-              },
-            }), { jobId: job.id, platform: platformId }));
-          } catch (err) {
-            const msg = (err as Error).message;
-            const submitPressed = applicationFailureContext(err)?.submitPressed === true;
-            finalOutcome = { status: 'error', jobId: job.id, error: msg, submitPressed };
-            if (submitPressed) {
-              countHealth('unconfirmedSubmits');
-              rememberExistingApplication(job, 'Submit was pressed before an application error; receipt is uncertain and it will not be retried automatically.');
-            }
-            if (/Target page, context or browser has been closed|browser has disconnected|Target closed/i.test(msg)) {
-              console.log(
-                `\n🛑 The browser closed mid-run — "${job.title} @ ${job.company}" submission was not confirmed.\n` +
-                  `   Usual causes: the Chrome window was closed, another process killed it,\n` +
-                  `   or a page became unavailable. The original error and browser state were captured before cleanup.`,
-              );
-              logOutcome({
-                status: 'error',
-                jobId: job.id,
-                error: 'The application browser became unavailable before submission was confirmed.',
-                submitPressed,
-                title: job.title,
-                company: job.company,
-              });
-              break;
-            }
-            console.log(`  ✗ unexpected error: ${msg}`);
-            logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company });
-            // It may have failed halfway through the board's form, so the next request still keeps its distance.
-            await cooldown(candidateHitFriction, !candidateHitFriction);
+          // A listing whose kind is already known and outside this run's scope is not attempted; an unknown one is left to the board's own panel to decide.
+          if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+            logOutcome({ status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company });
             continue;
           }
-          finalOutcome = outcome;
-          logOutcome({ ...outcome, title: job.title, company: job.company });
-          // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
-          for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
-          if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');
-          if (outcome.status === 'applied') countHealth('applied');
-          if (outcome.status === 'needs-human') countHealth('needsHuman');
-          if (outcome.submitPressed && outcome.status !== 'applied' && outcome.status !== 'rehearsed') {
-            countHealth('unconfirmedSubmits');
-            rememberExistingApplication(job, 'Submit was pressed on the employer form, so it may have been received; not retried automatically.');
-            console.log('  ℹ submit was pressed on this form, so it will not be retried automatically');
+
+          // Check this exact listing/form again: another attempt may have finished since discovery.
+          if (previousApplication(job)) {
+            restoreReviewSlot(job, true);
+            console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
+            logOutcome({ status: 'skipped', jobId: job.id, reason: 'already applied through this listing or form', title: job.title, company: job.company });
+            continue;
+          }
+          const forms = applicationKeys(job);
+          if (forms.some(key => attemptedForms.has(key))) {
+            restoreReviewSlot(job, true);
+            logOutcome({ status: 'skipped', jobId: job.id, reason: 'This exact application form was already attempted this run.', title: job.title, company: job.company });
+            continue;
+          }
+          if (job.applicationMode === 'external') {
+            if (externalSubmitted >= config.limits.maxExternalPerDay) {
+              console.log(`  – skipped (daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached): ${job.title} @ ${job.company}`);
+              logOutcome({ status: 'skipped', jobId: job.id, reason: `daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached`, title: job.title, company: job.company });
+              continue;
+            }
           }
 
-          switch (outcome.status) {
-            case 'applied':
-              applied++;
-              if (job.applicationMode === 'external') externalSubmitted++;
-              if (applied === 1) metric('first-submission', performance.now() - startedAt);
-              frictionStreak.set(platformId, 0);
-              index.add({
-                jobId: job.id,
-                title: job.title,
-                company: job.company,
-                location: job.location,
-                url: job.url,
-                appliedAt: outcome.at,
-                score,
-                platform: platformId,
-                salary: job.salary,
-                workArrangement: job.workArrangement,
-                ageDaysAtApply: job.ageDays,
-                coverLetter: outcome.coverLetter,
-                answers: outcome.answers,
-                ...(outcome.resume ? { resume: outcome.resume } : {}),
-                scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...reasons] : reasons,
-                external: job.applicationMode === 'external',
-                ...(outcome.site ? { site: outcome.site } : {}),
-                ...(outcome.actions?.length ? { actions: outcome.actions } : {}),
-                submittedByMyasis: true,
-              });
-              console.log(`  ✅ submitted${job.applicationMode === 'external' ? ' [external]' : ''} (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
-              break;
-            case 'rehearsed':
-              rehearsed++;
-              console.log(`  🧪 rehearsed — form completed, submit withheld (DRY_RUN)${outcome.resume ? ` · resume "${outcome.resume}"` : ''}`);
-              if (outcome.coverLetter) {
-                console.log(`\n     ── cover letter ──\n${outcome.coverLetter.replace(/^/gm, '     ')}\n`);
-              }
-              for (const a of outcome.answers) {
-                console.log(`     Q: ${a.question}\n     A: ${a.answer}`);
-              }
-              break;
-            case 'off-platform':
-              console.log(`  ↪ off-platform (${outcome.redirectedTo}) — skipped, nothing entered`);
-              break;
-            case 'already-applied':
-              restoreReviewSlot(job, true);
-              rememberExistingApplication(job, outcome.reason);
-              console.log(`  ↩ already applied — ${outcome.reason}`);
-              break;
-            case 'needs-human':
-              console.log(`  ⏸ needs you: ${outcome.reason}\n     ${outcome.url}`);
-              break;
-            case 'skipped':
-              console.log(`  – skipped: ${outcome.reason}`);
-              break;
-            case 'error':
-              console.log(`  ✗ error: ${outcome.error}`);
-              break;
+          if (abortedPlatforms.has(platformId)) {
+            console.log(`  – skipped (${adapter.label} stopped earlier this run after repeated friction): ${job.title} @ ${job.company}`);
+            continue;
+          }
+          if (blockedPlatforms.has(platformId)) {
+            console.log(`  – skipped (${adapter.label} hit a security check earlier this run): ${job.title} @ ${job.company}`);
+            continue;
           }
 
-          finalize();
-          const streak = frictionStreak.get(platformId) ?? 0;
-          if (streak >= config.limits.frictionAbortThreshold) {
-            abortedPlatforms.add(platformId);
-            console.log(
-              `\n🛑 [${adapter.label}] ${streak} anti-bot challenges in a row. Stopping ${adapter.label} for this run — ` +
-                `that account is being rate-limited.` +
-                (active.length > abortedPlatforms.size
-                  ? ` Continuing with the other platform(s); let ${adapter.label} cool down before including it again.`
-                  : ' Let it cool down before running again.'),
-            );
-            if (abortedPlatforms.size >= active.length) break; // every active platform has hit the wall
-          }
-
-          const completedAfter = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : applied;
-          if (completedAfter >= config.limits.maxApplicationsPerRun) {
+          // A rehearsal's cap counts every application that reached its end, so one that somehow went out still stops it.
+          const completed = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed + applied : applied;
+          if (completed >= config.limits.maxApplicationsPerRun) {
             console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
             break;
           }
-          /**
-           * Full pacing after anything that may have reached the employer: a
-           * confirmed submission, a verification wall, or a submit that was pressed
-           * but never confirmed — that one may well have been sent, and used to get
-           * only the short gap meant for attempts that transmitted nothing.
-           */
-          await cooldown(outcome.status === 'applied' || candidateHitFriction || Boolean(outcome.submitPressed), !candidateHitFriction);
+          if (index.appliedToday() >= config.limits.maxApplicationsPerDay) {
+            console.log(`\nDaily cap of ${config.limits.maxApplicationsPerDay} reached.`);
+            break;
+          }
+
+          const slot = await slots.acquire(job.applicationMode === 'external');
+          if (!slot) {
+            console.log('Shared application allowance is reached; this worker is finished.');
+            break;
+          }
+          let attemptId: string | null;
+          try { attemptId = journal.acquire(job); }
+          catch (error) { slot.finish(false); throw error; }
+          if (!attemptId) {
+            slot.finish(false);
+            restoreReviewSlot(job, true);
+            console.log(`  \u2013 skipped (same form reserved or previously sent): ${job.title} @ ${job.company}`);
+            logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company,
+              reason: 'This exact form is reserved, previously submitted, or awaiting confirmation after an interrupted attempt.' });
+            continue;
+          }
+          for (const key of forms) attemptedForms.add(key);
+          let finalOutcome: ApplyOutcome | undefined;
+          let finalized = false;
+          const finalize = () => {
+            if (finalized) return;
+            finalized = true;
+            let mayHaveSent = true;
+            try { mayHaveSent = journal.finish(attemptId!, finalOutcome); }
+            finally { slot.finish(mayHaveSent || (config.dryRun && process.env.REHEARSE === 'true' && finalOutcome?.status === 'rehearsed')); }
+          };
+          try {
+            console.log(`\n→ Applying: ${job.title} @ ${job.company}`);
+            // The letter is written while the listing opens and the form's first steps are filled,
+            // not when the agent reaches the letter box. Already under way for every job but a run's first.
+            prepare(job);
+
+            /**
+             * A dead browser must not take the whole run's reporting with it. It is
+             * unrecoverable (every later job would fail the same way), but the run
+             * still has to say what it completed rather than dying with a stack
+             * trace — and has to be explicit that this job was NOT submitted.
+             */
+            let outcome: ApplyOutcome;
+            let candidateHitFriction = false;
+            // Applying opens the board's listing again: a search just made there still has its gap to run out.
+            await sitePacer.ready(platformId);
+            try {
+              outcome = await withApplicationAttempt({ journal, id: attemptId, job, beforeSubmit: slot.beforeSubmit }, () => measured('application', () => adapter.apply(applicationPage, job, profile, {
+                onFriction: () => {
+                  candidateHitFriction = true;
+                  frictionStreak.set(platformId, (frictionStreak.get(platformId) ?? 0) + 1);
+                },
+              }), { jobId: job.id, platform: platformId }));
+            } catch (err) {
+              const msg = (err as Error).message;
+              const submitPressed = applicationFailureContext(err)?.submitPressed === true;
+              finalOutcome = { status: 'error', jobId: job.id, error: msg, submitPressed };
+              if (submitPressed) {
+                countHealth('unconfirmedSubmits');
+                rememberExistingApplication(job, 'Submit was pressed before an application error; receipt is uncertain and it will not be retried automatically.');
+              }
+              if (/Target page, context or browser has been closed|browser has disconnected|Target closed/i.test(msg)) {
+                console.log(
+                  `\n🛑 The browser closed mid-run — "${job.title} @ ${job.company}" submission was not confirmed.\n` +
+                    `   Usual causes: the Chrome window was closed, another process killed it,\n` +
+                    `   or a page became unavailable. The original error and browser state were captured before cleanup.`,
+                );
+                logOutcome({
+                  status: 'error',
+                  jobId: job.id,
+                  error: 'The application browser became unavailable before submission was confirmed.',
+                  submitPressed,
+                  title: job.title,
+                  company: job.company,
+                });
+                break;
+              }
+              console.log(`  ✗ unexpected error: ${msg}`);
+              logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company });
+              // It may have failed halfway through the board's form, so the next request still keeps its distance.
+              await cooldown(candidateHitFriction, !candidateHitFriction);
+              continue;
+            }
+            finalOutcome = outcome;
+            logOutcome({ ...outcome, title: job.title, company: job.company });
+            // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
+            for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
+            if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');
+            if (outcome.status === 'applied') countHealth('applied');
+            if (outcome.status === 'needs-human') countHealth('needsHuman');
+            if (outcome.submitPressed && outcome.status !== 'applied' && outcome.status !== 'rehearsed') {
+              countHealth('unconfirmedSubmits');
+              rememberExistingApplication(job, 'Submit was pressed on the employer form, so it may have been received; not retried automatically.');
+              console.log('  ℹ submit was pressed on this form, so it will not be retried automatically');
+            }
+
+            switch (outcome.status) {
+              case 'applied':
+                applied++;
+                if (job.applicationMode === 'external') externalSubmitted++;
+                if (applied === 1) metric('first-submission', performance.now() - startedAt);
+                frictionStreak.set(platformId, 0);
+                index.add({
+                  jobId: job.id,
+                  title: job.title,
+                  company: job.company,
+                  location: job.location,
+                  url: job.url,
+                  appliedAt: outcome.at,
+                  score,
+                  platform: platformId,
+                  salary: job.salary,
+                  workArrangement: job.workArrangement,
+                  ageDaysAtApply: job.ageDays,
+                  coverLetter: outcome.coverLetter,
+                  answers: outcome.answers,
+                  ...(outcome.resume ? { resume: outcome.resume } : {}),
+                  scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...reasons] : reasons,
+                  external: job.applicationMode === 'external',
+                  ...(outcome.site ? { site: outcome.site } : {}),
+                  ...(outcome.actions?.length ? { actions: outcome.actions } : {}),
+                  submittedByMyasis: true,
+                });
+                console.log(`  ✅ submitted${job.applicationMode === 'external' ? ' [external]' : ''} (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
+                break;
+              case 'rehearsed':
+                rehearsed++;
+                console.log(`  🧪 rehearsed — form completed, submit withheld (DRY_RUN)${outcome.resume ? ` · resume "${outcome.resume}"` : ''}`);
+                if (outcome.coverLetter) {
+                  console.log(`\n     ── cover letter ──\n${outcome.coverLetter.replace(/^/gm, '     ')}\n`);
+                }
+                for (const a of outcome.answers) {
+                  console.log(`     Q: ${a.question}\n     A: ${a.answer}`);
+                }
+                break;
+              case 'off-platform':
+                console.log(`  ↪ off-platform (${outcome.redirectedTo}) — skipped, nothing entered`);
+                break;
+              case 'already-applied':
+                restoreReviewSlot(job, true);
+                rememberExistingApplication(job, outcome.reason);
+                console.log(`  ↩ already applied — ${outcome.reason}`);
+                break;
+              case 'needs-human':
+                console.log(`  ⏸ needs you: ${outcome.reason}\n     ${outcome.url}`);
+                break;
+              case 'skipped':
+                console.log(`  – skipped: ${outcome.reason}`);
+                break;
+              case 'error':
+                console.log(`  ✗ error: ${outcome.error}`);
+                break;
+            }
+
+            finalize();
+            const streak = frictionStreak.get(platformId) ?? 0;
+            if (streak >= config.limits.frictionAbortThreshold) {
+              abortedPlatforms.add(platformId);
+              console.log(
+                `\n🛑 [${adapter.label}] ${streak} anti-bot challenges in a row. Stopping ${adapter.label} for this run — ` +
+                  `that account is being rate-limited.` +
+                  (active.length > abortedPlatforms.size
+                    ? ` Continuing with the other platform(s); let ${adapter.label} cool down before including it again.`
+                    : ' Let it cool down before running again.'),
+              );
+              if (abortedPlatforms.size >= active.length) break; // every active platform has hit the wall
+            }
+
+            const completedAfter = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : applied;
+            if (completedAfter >= config.limits.maxApplicationsPerRun) {
+              console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
+              break;
+            }
+            /**
+             * Full pacing after anything that may have reached the employer: a
+             * confirmed submission, a verification wall, or a submit that was pressed
+             * but never confirmed — that one may well have been sent, and used to get
+             * only the short gap meant for attempts that transmitted nothing.
+             */
+            await cooldown(outcome.status === 'applied' || candidateHitFriction || Boolean(outcome.submitPressed), !candidateHitFriction);
+          } finally {
+            finalize();
+          }
         } finally {
-          finalize();
+          busyWorkers--;
+          workChanged();
         }
       }
     };
