@@ -1323,12 +1323,25 @@ async function main() {
       }
     };
     try {
+      let workerPages: Page[] = [];
+      if (contexts.length === 2) {
+        try {
+          workerPages = await Promise.all(contexts.map(context => context.newPage()));
+          const sessions = await Promise.allSettled([ensureSignedIn(workerPages[0]), ensureIndeedSignedIn(workerPages[1])]);
+          const failed = sessions.find(result => result.status === 'rejected');
+          if (failed?.status === 'rejected') throw failed.reason;
+        } catch (error) {
+          await Promise.allSettled(contexts.map(context => context.close()));
+          contexts.length = 0;
+          workerPages = [];
+          console.warn(`Parallel session validation failed; using the original single-worker session: ${(error as Error).message}`);
+        }
+      }
       console.log(`Application workers: ${contexts.length === 2 ? '2 (SEEK and Indeed/feeds, isolated sessions)' : '1'}`);
       if (contexts.length === 2) {
-        const pages = await Promise.all(contexts.map(context => context.newPage()));
         const results = await Promise.allSettled([
-          withApplicationWorker('seek', () => runWorker(pages[0], job => (job.platform ?? 'seek') === 'seek')),
-          withApplicationWorker('indeed', () => runWorker(pages[1], job => (job.platform ?? 'seek') !== 'seek')),
+          withApplicationWorker('seek', () => runWorker(workerPages[0], job => (job.platform ?? 'seek') === 'seek')),
+          withApplicationWorker('indeed', () => runWorker(workerPages[1], job => (job.platform ?? 'seek') !== 'seek')),
         ]);
         const failed = results.find(result => result.status === 'rejected');
         if (failed?.status === 'rejected') throw failed.reason;

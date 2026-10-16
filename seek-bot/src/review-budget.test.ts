@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { history?: AppliedRecord[]; apply?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number } = {}) {
+function run(jobs: FixtureJob[], options: { history?: AppliedRecord[]; apply?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -53,7 +53,7 @@ export const launchBrowser = async () => ({});
 export const applicationWorkerContexts = async () => [0,1].map(worker => ({newPage:async()=>({worker}),close:async()=>{}}));
 export const getPage = async () => ({});
 export const closeBrowser = async () => {};
-export const ensureSignedIn = async () => {};
+export const ensureSignedIn = async page => {if(${options.failedParallelSignin === true} && page.worker !== undefined) throw Error('Fixture isolated session expired');};
 export const ensureIndeedSignedIn = async () => {};
 export const workingIn = async () => {};
 export const jitter = async () => {};
@@ -191,4 +191,11 @@ test('a late duplicate on one platform wakes the other worker when its review sl
   const result = run([job('old', { platform: 'indeed', source: 'recommended', lateApplied: true, delayMs: 80 }), job('fresh', { source: 'search' })],
     { apply: true, workers: 2, cap: 1, reviews: 1 });
   assert.ok(result.history.some(record => record.jobId === 'fresh' && record.submittedByMyasis === true));
+});
+test('an isolated-session sign-in failure falls back before any form is opened and does not submit twice', () => {
+  const result = run([job('seek-one'), job('indeed-one', { platform: 'indeed' })],
+    { apply: true, workers: 2, cap: 2, reviews: 10, failedParallelSignin: true });
+  assert.match(result.output, /Application workers: 1/);
+  assert.equal(result.events.filter(event => event.stage === 'apply').length, 2);
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, 2);
 });
