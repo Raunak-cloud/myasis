@@ -7,6 +7,13 @@
 # account. So: refuse new runs first (the dashboard checks the lock file),
 # wait for the ones in flight to finish, and only then build and restart.
 set -euo pipefail
+# Serialize whole releases, including builds/tests. The .deploying file only
+# blocks job starts; it cannot keep two deploys from clearing the same dist.
+exec 9>/run/lock/myasis-deploy.lock
+if ! flock -n 9; then
+  echo 'another deployment is already running; not changing the live checkout'
+  exit 1
+fi
 APP=/home/myasis/myasis
 LOCK=$APP/.deploying
 WAIT_MINUTES=${WAIT_MINUTES:-45}
