@@ -35,7 +35,7 @@ export async function assertPublicUrl(raw: string): Promise<void> {
 }
 
 /** Text/API requests pin the checked DNS address and validate every redirect. */
-export async function publicFetch(raw: string, options: {method?:string;body?:string;headers?:Record<string,string>;timeoutMs?:number}={}, redirects=0): Promise<Response> {
+export async function publicFetch(raw: string, options: {method?:string;body?:string;headers?:Record<string,string>;timeoutMs?:number;redirectOrigin?:string}={}, redirects=0): Promise<Response> {
   if(redirects>5) throw new Error('Too many website redirects.');
   await assertPublicUrl(raw);
   const url=new URL(raw), host=url.hostname.replace(/[\[\]]/g,'');
@@ -62,6 +62,7 @@ export async function publicFetch(raw: string, options: {method?:string;body?:st
   });
   if([301,302,303,307,308].includes(response.status) && response.headers.get('location')) {
     const next=new URL(response.headers.get('location')!,url);
+    if(options.redirectOrigin && next.origin!==options.redirectOrigin) throw new Error('Website redirected outside the connected origin.');
     const changed=next.origin!==url.origin;
     const headers={...options.headers};if(changed) for(const key of Object.keys(headers)) if(/authorization|cookie/i.test(key)) delete headers[key];
     return publicFetch(next.href,{...options,headers,...(response.status===303?{method:'GET',body:undefined}:{})},redirects+1);

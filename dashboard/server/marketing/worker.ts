@@ -9,6 +9,7 @@ import { fetchReportingSnapshots } from './google-results.js';
 import { planContent, reviewContent, writeContent } from './content.js';
 import { articleHash, nextWeeklyRun, productsRemainVerified, publicationProblem, topicKey, validateArticle } from './policy.js';
 import { MarketingError, marketingOrigin, ownedSite, ownerIsAdmin, siteView, topicView, transaction, type JobRow } from './store.js';
+import { executeImprovement, runImprovements, websiteAccess } from './execution.js';
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let busy=false, stopping=false;
@@ -115,6 +116,14 @@ async function publish(job: JobRow, scheduled=false) {
 
 async function execute(job: JobRow) {
   if(!await ownerIsAdmin(job.user_id)) throw new MarketingError('Marketing is available to admins only.',403);
+  if(job.kind==='improve') {
+    await progress(job,'Preparing, applying or verifying website improvements…');
+    const result=await executeImprovement(job);
+    job.payload={...job.payload,result};await query('UPDATE marketing_jobs SET payload=$2 WHERE id=$1',[job.id,job.payload]);
+    if('passed' in result && !result.passed) throw new MarketingError('The change is saved but public verification needs attention. See Website changes to retry or roll back.',409);
+    if('blocked' in result && result.blocked.length) throw new MarketingError(`${result.prepared} proposals saved. ${result.blocked[0]}`,409);
+    return;
+  }
   if(job.kind==='cycle' || job.kind==='growth') return growthCycle(job);
   if(job.kind==='health') return health(job);
   if(job.kind==='visibility') {
@@ -147,7 +156,7 @@ async function growthCycle(job:JobRow) {
     if(key==='health') {
       await health(job);site=await load();
       const report=site.health!;
-      return outcome(report.pages.some(p=>!p.error && p.status!==null && p.status<400)?'done':'attention',`${report.pages.length} pages sampled; ${report.findings.filter(f=>f.severity==='urgent').length} urgent findings; ${report.pages.filter(p=>p.error || p.status===null).length} unreadable pages. See Website health for evidence. Findings require website changes; they have not been automatically fixed.`);
+      return outcome(report.pages.some(p=>!p.error && p.status!==null && p.status<400)?'done':'attention',`${report.pages.length} pages sampled; ${report.findings.filter(f=>f.severity==='urgent').length} urgent findings; ${report.pages.filter(p=>p.error || p.status===null).length} unreadable pages. Supported fixes are handled in the website improvements step.`);
     }
     if(key==='research') {
       const planned=await one<{n:number}>("SELECT count(*)::int n FROM marketing_topics WHERE site_id=$1 AND user_id=$2 AND status='planned'",[site.id,job.user_id]);
@@ -171,6 +180,15 @@ async function growthCycle(job:JobRow) {
       const actions=data.strategy.actions.filter(a=>a.status==='open');
       const priorities=[...actions].sort((a,b)=>Number(b.kind==='fix' && b.priority==='high')-Number(a.kind==='fix' && a.priority==='high') || Number(b.kind==='refresh')-Number(a.kind==='refresh')).slice(0,3);
       return outcome(actions.length?'done':'attention',`${actions.length} open actions. ${priorities.map((a,i)=>`${i+1}. ${a.title}`).join(' ')} Existing-content overlap and dismissed actions are excluded from automatic new-blog selection. Review website fixes and content updates under Content strategy.`);
+    }
+    if(key==='improvements') {
+      const access=websiteAccess(site,await ownerIsAdmin(job.user_id));
+      if(!access.available) return outcome('attention',access.reason);
+      if(!site.profileConfirmed) return outcome('attention','Confirm the website profile before preparing website changes.');
+      const automatic=site.improvementMode==='auto';
+      const result=await runImprovements(job.user_id,site.id,automatic,job.kind==='cycle');
+      if(result.verified) {await health(job);site=await load();}
+      return outcome(result.errors.length?'attention':'done',`${result.prepared} new proposals saved. ${result.verified} changes applied and verified through public pages. ${automatic?'Automatic website improvements are on.':'Review the before and after values under Website changes, then apply them.'} ${result.errors.slice(0,2).join(' ')} Access rules, indexing exclusions, unavailable pages and image descriptions remain for manual review.`);
     }
     if(!site.profileConfirmed) return outcome('attention','Confirm the product description and audience before the agent writes or publishes. Research and audits are saved.');
     if(report.steps.find(s=>s.key==='research')?.status!=='done' || !site.research || Date.now()-Date.parse(site.research.researchedAt)>6*86400_000) return outcome('attention','Fresh usable research is required before creating content. Fix the research issue and run another growth review.');
@@ -260,7 +278,13 @@ export async function marketingTick() {
     const job=await one<JobRow>(`UPDATE marketing_jobs SET status='running',attempts=attempts+1,heartbeat_at=now(),error=NULL WHERE id=(SELECT id FROM marketing_jobs WHERE status='queued' AND available_at<=now() ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`);
     if(!job) return;
     const heartbeat=setInterval(()=>void query("UPDATE marketing_jobs SET heartbeat_at=now() WHERE id=$1 AND status='running'",[job.id]).catch(()=>{}),20_000);
-    try {await execute(job);const attention=job.payload?.growthRun?.steps.filter((s:GrowthStep)=>s.status==='attention').length || 0;await query("UPDATE marketing_jobs SET status='done',progress=$2,finished_at=now() WHERE id=$1",[job.id,attention?`Growth review finished · ${attention} steps need attention`:'Complete']);}
+    try {
+      await execute(job);
+      const attention=job.payload?.growthRun?.steps.filter((s:GrowthStep)=>s.status==='attention').length || 0;
+      const result=job.payload?.result;
+      const completed=job.kind==='improve'?(typeof result?.prepared==='number'?`${result.prepared} website proposals saved for review`:result?.dismissed?'Proposal dismissed':job.payload.operation==='rollback'?'Website change rolled back and verified':'Website change verified on the public page'):'Complete';
+      await query("UPDATE marketing_jobs SET status='done',progress=$2,finished_at=now() WHERE id=$1",[job.id,attention?`Growth review finished · ${attention} steps need attention`:completed]);
+    }
     catch(error) {
       const permanent=error instanceof MarketingError || Number(job.attempts)>=3;
       const message=error instanceof MarketingError?error.message:'Research or writing could not finish. Check your public website and Admin model configuration, then retry.';

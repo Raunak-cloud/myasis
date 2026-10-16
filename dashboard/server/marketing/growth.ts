@@ -49,6 +49,10 @@ export function contentStrategy(site:MarketingSite,topics:MarketingTopic[],state
   const add=(a:Omit<ContentAction,'id'|'status'>)=>{const id=actionId(a.kind,a.url,a.targetUrl,a.title,a.topicId);if(!actions.some(v=>v.id===id)) actions.push({...a,id,status:states.get(id) || 'open'});};
   for(const f of site.health?.findings || []) add({kind:'fix',title:f.title,reason:`${f.evidence} ${f.action}`,url:f.url,evidenceUrls:[f.url],priority:f.severity==='urgent'?'high':'medium'});
   const pages=(site.health?.pages || []).filter(p=>!p.error && p.status!==null && p.status<400);
+  for(const p of pages) {
+    if(!p.jsonLdTypes.length) add({kind:'fix',title:'Add page information for AI search',reason:'No structured data was read on this sampled page. Add factual WebPage information matching its visible title and description.',url:p.url,evidenceUrls:[p.url],priority:'medium'});
+    add({kind:'refresh',title:`Improve search presentation: ${p.title || p.url}`,reason:'Review this existing page, improve its title and search description, and prepare a concise answer drawn from its own content.',url:p.url,evidenceUrls:[p.url],priority:'medium'});
+  }
   for(const topic of topics.filter(t=>t.status==='planned')) {
     const tokens=words(topic.keyword);
     const matching=tokens.length>=2?pages.find(p=>{const hay=words(`${p.title} ${p.h1.join(' ')}`);return tokens.filter(t=>hay.includes(t)).length/tokens.length>=0.8 && new URL(p.url).pathname!=='/';}):undefined;

@@ -2,7 +2,7 @@ import type { GrowthRun, GrowthStep, MarketingSite, MarketingTopic, OrganicStrat
 
 const growthSteps = [
   ['results','Read measured results'], ['health','Check website health'], ['research','Refresh market research'],
-  ['visibility','Check AI visibility'], ['strategy','Choose the next priorities'], ['content','Prepare useful content'],
+  ['visibility','Check AI visibility'], ['strategy','Choose the next priorities'], ['improvements','Improve existing pages'], ['content','Prepare useful content'],
 ] as const;
 export const newGrowthRun = ():GrowthRun => ({startedAt:new Date().toISOString(),completedAt:null,steps:growthSteps.map(([key,title])=>({key,title,status:'pending',summary:'Waiting to start.',finishedAt:null}))});
 type Outcome={status:'done'|'attention'|'skipped';summary:string};

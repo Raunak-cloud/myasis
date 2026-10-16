@@ -29,6 +29,7 @@ export interface MarketingSite {
   health?: WebsiteHealth | null;
   growthGoal?: 'traffic' | 'leads' | 'sales';
   growthAIProvider?: 'off' | 'ChatGPT' | 'Perplexity';
+  improvementMode?: 'review' | 'auto';
 }
 export interface MarketingTopic {
   id: string; title: string; keyword: string; angle: string; intent: 'learn' | 'compare' | 'buy';
@@ -43,9 +44,9 @@ export interface MarketingPost {
   model: string; publishedUrl: string | null; createdAt: string; updatedAt: string;
   metrics: { periodStart: string; periodEnd: string; visits: number | null; leads: number | null; orders: number | null; revenue: number | null; currency: string; notes: string; recordedAt: string } | null;
 }
-export interface MarketingJob { id: string; kind: 'research' | 'write' | 'review' | 'publish' | 'cycle' | 'growth' | 'health' | 'visibility' | 'results'; status: 'queued' | 'running' | 'done' | 'failed'; progress: string; error: string | null; createdAt: string; growthRun?: GrowthRun }
+export interface MarketingJob { id: string; kind: 'research' | 'write' | 'review' | 'publish' | 'cycle' | 'growth' | 'health' | 'visibility' | 'results' | 'improve'; status: 'queued' | 'running' | 'done' | 'failed'; progress: string; error: string | null; createdAt: string; growthRun?: GrowthRun }
 export interface GrowthStep {
-  key: 'results' | 'health' | 'research' | 'visibility' | 'strategy' | 'content';
+  key: 'results' | 'health' | 'research' | 'visibility' | 'strategy' | 'improvements' | 'content';
   title: string; status: 'pending' | 'running' | 'done' | 'attention' | 'skipped'; summary: string; finishedAt: string | null;
 }
 export interface GrowthRun { startedAt:string; completedAt:string|null; steps:GrowthStep[] }
@@ -87,4 +88,18 @@ export interface MarketingGrowth {
   strategy:OrganicStrategy; observations:AIObservation[]; prompts:string[]; results:ResultsSnapshot[];
   connection:{connected:boolean;configured:boolean;searchProperty:string|null;gaProperty:string|null;dailySync:boolean;lastSyncAt:string|null;error:string|null;redirectUri:string};
 }
-export interface MarketingWorkspace { site: MarketingSite; topics: MarketingTopic[]; posts: MarketingPost[]; jobs: MarketingJob[]; canPublish: boolean; growth?:MarketingGrowth }
+export interface WebsitePatch {
+  title?:string; description?:string; h1?:string; canonical?:string; lang?:string;
+  summary?:string; links?:Array<{text:string;href:string}>; structuredData?:boolean; repairJsonLd?:boolean;
+}
+export interface WebsiteChange {
+  id:string; actionId:string; title:string; url:string; kind:ContentAction['kind'];
+  status:'proposed'|'applied'|'verified'|'rolled_back'|'conflict'|'dismissed';
+  before:WebsitePatch; after:WebsitePatch; createdAt:string; appliedAt:string|null;
+  original:WebsitePatch;
+  verification:{checkedAt:string;passed:boolean;checks:string[]}|null; error:string|null;
+}
+export interface WebsiteExecution {
+  available:boolean; reason:string; capabilities:string[]; changes:WebsiteChange[];
+}
+export interface MarketingWorkspace { site: MarketingSite; topics: MarketingTopic[]; posts: MarketingPost[]; jobs: MarketingJob[]; canPublish: boolean; growth?:MarketingGrowth; execution?:WebsiteExecution }

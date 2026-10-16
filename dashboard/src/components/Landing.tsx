@@ -7,6 +7,12 @@ import { Wordmark } from './Wordmark';
 import { SiteHeader } from './SiteHeader';
 import { HeroStory } from './HeroStory';
 import { TrustStrip } from './TrustStrip';
+import type { WebsitePatch } from '../marketingTypes';
+
+function landingImprovements():WebsitePatch {
+  if(typeof document==='undefined') return {};
+  try {return JSON.parse(document.getElementById('marketing-page-data')?.textContent || '{}');} catch {return {};}
+}
 
 /** Mirrored word for word in index.html's FAQ structured data; change both together. */
 const QUESTIONS = [
@@ -100,6 +106,7 @@ function PriceRow({ row, cta }: { row: PriceRowSpec; cta: ReactNode }) {
 }
 
 export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
+  const [improvements]=useState(landingImprovements);
   const [error] = useState(() => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('auth_error')));
   const [playError, setPlayError] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
@@ -142,8 +149,10 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
         <section className="home-hero" aria-labelledby="home-heading">
           <div className="home-width home-hero-inner">
             <h1 id="home-heading" className="home-hero-title">
+              {improvements.h1 || <>
               Stop applying for jobs.<br />
               <span className="home-hero-promise"><span className="home-hero-mark">Owtomate</span> does it <em>for</em> you.</span>
+              </>}
             </h1>
             <p className="home-hero-summary">
               It reads SEEK and Indeed against your resume, writes a cover letter for each job, and applies from your own account. If it cannot answer something honestly, it asks you.
@@ -283,6 +292,10 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
             </aside>
           </div>
         </section>
+        {(improvements.summary || improvements.links?.length) && <section className="home-width" data-marketing-enhancements="true" aria-label="Page summary and related reading">
+          {improvements.summary && <p>{improvements.summary}</p>}
+          {Boolean(improvements.links?.length) && <nav aria-label="Related reading"><ul>{improvements.links!.map(l=><li key={l.href}><a href={l.href}>{l.text}</a></li>)}</ul></nav>}
+        </section>}
       </main>
 
       <footer className="home-footer">

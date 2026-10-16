@@ -7,8 +7,8 @@ test('growth review checkpoints completed work, resumes an interrupted step and 
   const report=newGrowthRun();report.steps[0].status='done';report.steps[0].summary='Saved measurements';report.steps[1].status='running';
   const called:string[]=[],saved:string[]=[];
   await runGrowthSteps(report,{allowed:async()=>true,save:async r=>{saved.push(JSON.stringify(r));},perform:async key=>{called.push(key);if(key==='health') throw new Error('private provider details');return {status:'done',summary:`Saved ${key}`};},error:()=> 'The health check could not finish.'});
-  assert.deepEqual(called,['health','research','visibility','strategy','content']);
-  assert.equal(report.steps[0].summary,'Saved measurements');assert.equal(report.steps[1].status,'attention');assert.ok(report.completedAt);assert.equal(saved.length,11);
+  assert.deepEqual(called,['health','research','visibility','strategy','improvements','content']);
+  assert.equal(report.steps[0].summary,'Saved measurements');assert.equal(report.steps[1].status,'attention');assert.ok(report.completedAt);assert.equal(saved.length,13);
   await runGrowthSteps(report,{allowed:async()=>true,save:async()=>assert.fail('Finished review must not run again'),perform:async()=>{throw new Error('Duplicate run');},error:()=>''});
 });
 test('pausing a growth run prevents remaining actions while retaining completed evidence',async()=>{

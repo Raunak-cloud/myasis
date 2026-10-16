@@ -9,6 +9,7 @@ import { addTopic, createSite, enqueue, MarketingError, ownedSite, saveDraft, sa
 import { beginReportingConnection, configureReporting, disconnectReporting, finishReportingConnection, availableProperties } from './google-results.js';
 import { confirmRecommendation, queueVisibility, saveObservation, saveResultsSnapshot, updateAction } from './growth-store.js';
 import { importResults, recordedResults } from './results.js';
+import { queueImprovement } from './execution.js';
 
 export async function handleMarketing(req: IncomingMessage,res: ServerResponse,url: URL,user: {id:string;email:string},send:(body:unknown,status?:number)=>void,readBody:()=>Promise<unknown>) {
   res.setHeader('Cache-Control','no-store');
@@ -36,6 +37,7 @@ export async function handleMarketing(req: IncomingMessage,res: ServerResponse,u
       if(method==='PATCH') return send({site:await updateSite(user.id,siteId,admin,await body())});
     }
     if(parts.length===3 && method==='POST') {
+      if(parts[2]==='improvements') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);const b=await body();return send({job:await queueImprovement(user.id,siteId,b.operation,b.changeId)},202);}
       if(parts[2]==='growth') {configured();return send({job:await enqueue(user.id,siteId,admin,'growth')},202);}
       if(parts[2]==='health') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);return send({job:await enqueue(user.id,siteId,admin,'health')},202);}
       if(parts[2]==='visibility') {if(deploying()) throw new MarketingError('An update is being installed. Try again shortly.',503);return send({job:await queueVisibility(user.id,siteId,await body())},202);}

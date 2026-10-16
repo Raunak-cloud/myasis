@@ -18,6 +18,42 @@ npm run dev      # http://localhost:5180
 `npm run build && npm run preview` also serves the API, so the production build
 works standalone.
 
+## Marketing website improvements
+
+The admin Marketing agent can now execute supported improvements on Owtomate's
+public homepage, job-application guide, blog index and published blog pages.
+Open **Marketing → Website changes** after confirming the website profile and
+running a health check. **Prepare website improvements** saves concrete before
+and after values. Apply a proposal to change the HTML served to visitors and
+crawlers immediately; no rebuild is needed for individual edits.
+
+Supported edits include titles, search/social descriptions, missing H1 headings,
+canonical URLs, document language, basic WebPage structured data, invalid JSON-LD
+repair, source-backed answer summaries and relevant internal links. Gemini checks
+rewritten search text against the existing page; summaries must be exact passages
+from that page. The agent samples public URLs after a write and records **Verified**
+only when the expected fields are present. A failed public check leaves a visible
+**Saved · verification needed** result with retry and rollback controls.
+
+Choose automatic website improvements to apply supported proposals during manual
+growth reviews and scheduled weekly cycles. Blog publication follows its separate
+approval setting. Each cycle prepares at most five page changes; pausing automatic
+improvements or the weekly schedule stops subsequent automatic writes. Original
+patches, change history and public verification results are stored in PostgreSQL.
+The production preview server applies the idempotent schema upgrade at startup.
+
+Applied edits have rollback controls. Newer page edits cannot be overwritten by
+an older proposal or rollback. Legal pages, application screens, crawler policy,
+intentional indexing exclusions, broken URLs and image descriptions remain manual
+work. External websites remain research/export workspaces until a CMS write
+adapter is added; this release implements Owtomate's native adapter first.
+
+Run marketing/blog tests with `../seek-bot/node_modules/.bin/tsx --test
+server/marketing/*.test.ts server/blog/*.test.ts`. Set `RUN_MARKETING_DB_TESTS=1`
+and point `DATABASE_URL` at a disposable PostgreSQL instance for the migration,
+ownership, queue, public-serving and rollback integration tests. These tests use
+isolated schemas and remove them afterward.
+
 ## Payments and application allowances
 
 The dashboard uses Stripe-hosted Checkout for one-time passes. An application

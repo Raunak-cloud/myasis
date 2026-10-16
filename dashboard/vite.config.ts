@@ -63,6 +63,7 @@ import { startBlogScheduler } from './server/blog/index.js';
 import { handleMarketing } from './server/marketing/api.js';
 import { startMarketingWorker, stopMarketingWorker } from './server/marketing/worker.js';
 import { blogPages } from './server/blog/pages.js';
+import { improvedStaticPages } from './server/marketing/page-publisher.js';
 import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 import { stopAllSignins } from './server/signin.js';
@@ -1382,6 +1383,7 @@ function dataApi(): Plugin {
     // Braces matter: an arrow body would return `Server`, but the hook is void.
     configureServer(server) {
       server.middlewares.use(handler);
+      server.middlewares.use(improvedStaticPages(import.meta.dirname,(url,html)=>server.transformIndexHtml(url,html)));
       server.middlewares.use(blogPages(resolve(import.meta.dirname, 'blog.html')));
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
     },
@@ -1391,6 +1393,7 @@ function dataApi(): Plugin {
      */
     configurePreviewServer(server) {
       server.middlewares.use(handler);
+      server.middlewares.use(improvedStaticPages(resolve(import.meta.dirname,'dist')));
       server.middlewares.use(blogPages(resolve(import.meta.dirname, 'dist', 'blog.html')));
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
       /**

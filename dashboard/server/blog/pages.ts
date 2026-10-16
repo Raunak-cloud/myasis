@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { publishedPost, publishedPosts, siteOrigin } from './index.js';
 import { renderIndex, renderPost, renderRss, renderSitemap } from './render.js';
+import { publishPageHtml } from '../marketing/page-publisher.js';
 
 /**
  * Serves /blog, each post, the RSS feed and the sitemap.
@@ -41,8 +42,10 @@ export function blogPages(templateFile: string) {
     res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
     res.end(body);
   };
-  const page = (res: Res, status: number, parts: { head: string; body: string }) =>
-    send(res, status, 'text/html', shell().replace(HEAD, parts.head).replace(BODY, parts.body));
+  const page = async (res: Res, status: number, parts: { head: string; body: string }, path:string) => {
+    const html=shell().replace(HEAD, parts.head).replace(BODY, parts.body);
+    send(res, status, 'text/html', status===200?await publishPageHtml(html,path):html,0);
+  };
 
   return (req: Req, res: Res, next: (error?: unknown) => void) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
@@ -59,7 +62,7 @@ export function blogPages(templateFile: string) {
       }
       if (path === '/sitemap.xml') return send(res, 200, 'application/xml', renderSitemap(await publishedPosts(), origin), 3_600);
       if (path === '/blog/rss.xml') return send(res, 200, 'application/rss+xml', renderRss(await publishedPosts(), origin), 3_600);
-      if (path === '/blog') return page(res, 200, renderIndex(await publishedPosts(), origin));
+      if (path === '/blog') return page(res, 200, renderIndex(await publishedPosts(), origin),path);
 
       const slug = path.match(SLUG)?.[1];
       const post = slug ? await publishedPost(slug) : null;
@@ -70,12 +73,12 @@ export function blogPages(templateFile: string) {
           res.setHeader('Location', `/blog/${post.slug}`);
           return res.end();
         }
-        return page(res, 200, renderPost(post, origin));
+        return page(res, 200, renderPost(post, origin),path);
       }
       return page(res, 404, {
         head: '<title>Not found | Owtomate</title>\n    <meta name="robots" content="noindex" />',
         body: '<h1>That brief is not here</h1><p>It may have been taken down. <a href="/blog">See every weekly brief</a>.</p>',
-      });
+      },path);
     })().catch(next);
   };
 }

@@ -7,6 +7,7 @@ import type { MarketingJob, MarketingPost, MarketingSite, MarketingTopic, Market
 import { COUNTRIES, nextWeeklyRun, ownedLink, publicationProblem, topicKey, validateArticle, validateTimezone } from './policy.js';
 import { assertPublicUrl, publicWebsiteUrl } from '../../../market-scout/src/core/public-url.js';
 import { growthWorkspace } from './growth-store.js';
+import { executionWorkspace, websiteAccess } from './execution.js';
 
 export function marketingOrigin(): string { try { return new URL(process.env.APP_BASE_URL ?? readEnv().APP_BASE_URL ?? 'https://owtomate.com').origin; } catch { return 'https://owtomate.com'; } }
 export class MarketingError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
@@ -20,7 +21,7 @@ export function siteView(row: SiteRow): MarketingSite {
     publisher: row.publisher, scheduleEnabled: row.schedule_enabled, publishMode: row.publish_mode, scheduleDay: row.schedule_day,
     scheduleTime: row.schedule_time, timezone: row.timezone, nextRunAt: iso(row.next_run_at), ownsBlogSchedule: row.owns_blog_schedule,
     createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, health:row.health || null,
-    growthGoal:row.growth_goal || 'traffic',growthAIProvider:row.growth_ai_provider || 'off' };
+    growthGoal:row.growth_goal || 'traffic',growthAIProvider:row.growth_ai_provider || 'off',improvementMode:row.improvement_mode || 'review' };
 }
 export function topicView(row: Record<string, any>): MarketingTopic { return { id: row.id, title: row.title, keyword: row.keyword, angle: row.angle, intent: row.intent, priority: row.priority, rationale: row.rationale, productUrl: row.product_url, evidenceUrls: row.evidence_urls, basis: row.basis, status: row.status, createdAt: iso(row.created_at)! }; }
 function postView(row: Record<string, any>): MarketingPost { return { id: row.id, topicId: row.topic_id, status: row.status, article: row.article, sources: row.brief?.sources ?? [], quality: row.quality, model: row.model, publishedUrl: row.published_url, createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, metrics: row.metrics, handledAt:iso(row.handled_at) }; }
@@ -45,7 +46,7 @@ export async function workspace(userId: string, siteId: string, admin: boolean):
     query('SELECT * FROM marketing_jobs WHERE site_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 20', [siteId,userId]),
   ]);
   const site=siteView(row);
-  return { site, topics: topics.map(topicView), posts: posts.map(postView), jobs: jobs.map(jobView), canPublish: admin && row.publisher === 'owtomate',growth:await growthWorkspace(userId,siteId,site) };
+  return { site, topics: topics.map(topicView), posts: posts.map(postView), jobs: jobs.map(jobView), canPublish: admin && row.publisher === 'owtomate',growth:await growthWorkspace(userId,siteId,site),execution:await executionWorkspace(userId,site,admin) };
 }
 
 export async function createSite(userId: string, admin: boolean, value: Record<string, unknown>): Promise<MarketingSite> {
@@ -80,6 +81,11 @@ export async function updateSite(userId: string, siteId: string, admin: boolean,
     if (body.profileConfirmed !== undefined) { if (typeof body.profileConfirmed !== 'boolean') throw new MarketingError('Check profile confirmation.'); if (body.profileConfirmed && !row.profile?.pages?.length) throw new MarketingError('Complete the website scan first.'); row.profile_confirmed = body.profileConfirmed; }
     if(body.growthGoal!==undefined) {if(typeof body.growthGoal!=='string' || !['traffic','leads','sales'].includes(body.growthGoal)) throw new MarketingError('Choose traffic, leads or sales as your goal.');row.growth_goal=body.growthGoal;}
     if(body.growthAIProvider!==undefined) {if(typeof body.growthAIProvider!=='string' || !['off','ChatGPT','Perplexity'].includes(body.growthAIProvider)) throw new MarketingError('Choose a supported browser AI check.');row.growth_ai_provider=body.growthAIProvider;}
+    if(body.improvementMode!==undefined) {
+      if(!['review','auto'].includes(String(body.improvementMode))) throw new MarketingError('Choose review or automatic website improvements.');
+      if(body.improvementMode==='auto' && (!row.profile_confirmed || !websiteAccess(siteView(row),admin).available)) throw new MarketingError('Confirm the profile and connect website editing before enabling automatic improvements.');
+      row.improvement_mode=body.improvementMode;
+    }
     const fields:Record<string,string>={scheduleEnabled:'schedule_enabled',publishMode:'publish_mode',scheduleDay:'schedule_day',scheduleTime:'schedule_time',timezone:'timezone'};
     const scheduleChanged = Object.entries(fields).some(([input,field]) => body[input] !== undefined && body[input]!==row[field]);
     if (body.scheduleEnabled !== undefined) { if (typeof body.scheduleEnabled !== 'boolean') throw new MarketingError('Check the weekly schedule.'); row.schedule_enabled = body.scheduleEnabled; }
@@ -92,8 +98,8 @@ export async function updateSite(userId: string, siteId: string, admin: boolean,
     if (row.schedule_enabled && row.publisher === 'owtomate') row.owns_blog_schedule = true;
     if (scheduleChanged) row.next_run_at = row.schedule_enabled ? nextWeeklyRun(new Date(),row.schedule_day,row.schedule_time,row.timezone) : null;
     const updated = (await client.query(`UPDATE marketing_sites SET name=$3,voice=$4,audience=$5,cta_label=$6,cta_url=$7,profile_confirmed=$8,
-      schedule_enabled=$9,publish_mode=$10,schedule_day=$11,schedule_time=$12,timezone=$13,next_run_at=$14,owns_blog_schedule=$15,growth_goal=$16,growth_ai_provider=$17,updated_at=now()
-      WHERE id=$1 AND user_id=$2 RETURNING *`, [siteId,userId,row.name,row.voice,row.audience,row.cta_label,row.cta_url,row.profile_confirmed,row.schedule_enabled,row.publish_mode,row.schedule_day,row.schedule_time,row.timezone,row.next_run_at,row.owns_blog_schedule,row.growth_goal || 'traffic',row.growth_ai_provider || 'off'])).rows[0];
+      schedule_enabled=$9,publish_mode=$10,schedule_day=$11,schedule_time=$12,timezone=$13,next_run_at=$14,owns_blog_schedule=$15,growth_goal=$16,growth_ai_provider=$17,improvement_mode=$18,updated_at=now()
+      WHERE id=$1 AND user_id=$2 RETURNING *`, [siteId,userId,row.name,row.voice,row.audience,row.cta_label,row.cta_url,row.profile_confirmed,row.schedule_enabled,row.publish_mode,row.schedule_day,row.schedule_time,row.timezone,row.next_run_at,row.owns_blog_schedule,row.growth_goal || 'traffic',row.growth_ai_provider || 'off',row.improvement_mode || 'review'])).rows[0];
     if (!row.schedule_enabled) await client.query("UPDATE marketing_jobs SET status='failed',error='Weekly schedule paused.',finished_at=now() WHERE site_id=$1 AND user_id=$2 AND kind='cycle' AND status='queued'",[siteId,userId]);
     return siteView(updated);
   });

@@ -646,10 +646,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS marketing_one_site_job_idx ON marketing_jobs(s
 ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS health JSONB;
 ALTER TABLE marketing_jobs ADD COLUMN IF NOT EXISTS payload JSONB;
 ALTER TABLE marketing_jobs DROP CONSTRAINT IF EXISTS marketing_jobs_kind_check;
-ALTER TABLE marketing_jobs ADD CONSTRAINT marketing_jobs_kind_check CHECK (kind IN ('research','write','review','publish','cycle','growth','health','visibility','results'));
+ALTER TABLE marketing_jobs ADD CONSTRAINT marketing_jobs_kind_check CHECK (kind IN ('research','write','review','publish','cycle','growth','health','visibility','results','improve'));
 ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS growth_goal TEXT NOT NULL DEFAULT 'traffic' CHECK (growth_goal IN ('traffic','leads','sales'));
 ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS growth_ai_provider TEXT NOT NULL DEFAULT 'off' CHECK (growth_ai_provider IN ('off','ChatGPT','Perplexity'));
 ALTER TABLE marketing_posts ADD COLUMN IF NOT EXISTS handled_at TIMESTAMPTZ;
+ALTER TABLE marketing_sites ADD COLUMN IF NOT EXISTS improvement_mode TEXT NOT NULL DEFAULT 'review' CHECK (improvement_mode IN ('review','auto'));
+-- Persistent, reversible page edits. Publishing these rows changes the HTML served to visitors.
+CREATE TABLE IF NOT EXISTS marketing_page_patches (
+  site_id UUID NOT NULL, user_id BIGINT NOT NULL, path TEXT NOT NULL, patch JSONB NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(site_id,path),
+  FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS marketing_website_changes (
+  id UUID PRIMARY KEY, site_id UUID NOT NULL, user_id BIGINT NOT NULL, action_id TEXT NOT NULL,
+  title TEXT NOT NULL, url TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('fix','refresh','link','new')),
+  status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','applied','verified','rolled_back','conflict','dismissed')),
+  before_patch JSONB NOT NULL, after_patch JSONB NOT NULL, original_values JSONB NOT NULL, source_hash TEXT NOT NULL,
+  verification JSONB, error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), applied_at TIMESTAMPTZ,
+  FOREIGN KEY(site_id,user_id) REFERENCES marketing_sites(id,user_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS marketing_change_active_idx ON marketing_website_changes(site_id,action_id)
+  WHERE status IN ('proposed','applied','verified');
 CREATE TABLE IF NOT EXISTS marketing_action_states (
   site_id UUID NOT NULL, user_id BIGINT NOT NULL, action_id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('open','done','dismissed')), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

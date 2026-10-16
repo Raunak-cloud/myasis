@@ -113,16 +113,16 @@ test('real PostgreSQL migration, ownership, queue uniqueness, edits and weekly i
     assert.equal(settings.growthGoal,'leads');assert.equal(settings.growthAIProvider,'Perplexity');
     const growthJob=await enqueue(user,site,true,'growth');
     await assert.rejects(enqueue(user,site,true,'growth'),/in progress/);
-    const checkpoint=newGrowthRun();for(const step of checkpoint.steps.slice(0,5)) {step.status='done';step.summary='Previously completed';}
+    const checkpoint=newGrowthRun();for(const step of checkpoint.steps.slice(0,-1)) {step.status='done';step.summary='Previously completed';}
     await query('UPDATE marketing_jobs SET payload=$2 WHERE id=$1',[growthJob.id,{growthRun:checkpoint}]);
     await marketingTick();
     const finished=(await workspace(user,site,true)).jobs.find(j=>j.id===growthJob.id)!;
-    assert.equal(finished.status,'done');assert.equal(finished.growthRun?.steps[5].status,'attention');assert.match(finished.growthRun!.steps[5].summary,/Confirm/);assert.ok(finished.growthRun?.completedAt);
+    assert.equal(finished.status,'done');assert.equal(finished.growthRun?.steps.at(-1)?.status,'attention');assert.match(finished.growthRun!.steps.at(-1)!.summary,/Confirm/);assert.ok(finished.growthRun?.completedAt);
     await updateSite(user,site,true,{profileConfirmed:true});
     const resumed=await enqueue(user,site,true,'growth');
     await query('UPDATE marketing_jobs SET payload=$2,topic_id=$3,post_id=$4 WHERE id=$1',[resumed.id,{growthRun:checkpoint},topic,post]);
     await marketingTick();await marketingTick();
     assert.equal((await one('SELECT count(*)::int n FROM blog_posts'))?.n,1);
-    assert.equal((await workspace(user,site,true)).jobs.find(j=>j.id===resumed.id)?.growthRun?.steps[5].status,'done');
+    assert.equal((await workspace(user,site,true)).jobs.find(j=>j.id===resumed.id)?.growthRun?.steps.at(-1)?.status,'done');
   } finally {globalThis.fetch=oldFetch;for(const key of keys) if(oldEnv[key]===undefined) delete process.env[key];else process.env[key]=oldEnv[key];await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();}
 });
