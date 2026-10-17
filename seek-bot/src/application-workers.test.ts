@@ -38,7 +38,7 @@ test('late external redirects share one external allowance and never bypass it',
   second.finish(true);
   assert.equal(await slots.acquire(true), null);
 });
-test('review navigation is serialized and one failed review cannot poison its mutex', async () => {
+test('fallback discovery is serialized and one failed refill cannot poison its mutex', async () => {
   const mutex = new AsyncMutex(), seen: number[] = [];
   let active = 0, maximum = 0;
   const work = (id: number) => mutex.run(async () => {

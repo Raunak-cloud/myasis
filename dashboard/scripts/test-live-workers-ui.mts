@@ -98,14 +98,18 @@ try {
   assert.ok(await viewer.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal overflow');
   await viewer.setViewportSize({ width: 1440, height: 1000 });
 
-  // A shared review page belongs to the worker holding the review mutex.
-  // The other pane must continue its application, then wait without showing
-  // either its previous form or another worker's subsequent review navigation.
+  // Each worker owns its review page. Both can review together, then switch
+  // independently between review, application and a page-less wait.
   const reviewContext = await browser.newContext();
   const reviewPage = await reviewContext.newPage();
-  await reviewPage.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<h1 style="background:pink">Shared job review</h1>' }));
+  await reviewPage.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<h1 style="background:pink">SEEK job review</h1>' }));
   await reviewPage.goto('https://review.fixture.invalid/job');
   const reviewId = await targetId(reviewPage);
+  const otherReviewContext = await browser.newContext();
+  const otherReviewPage = await otherReviewContext.newPage();
+  await otherReviewPage.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<h1 style="background:orange">Indeed job review</h1>' }));
+  await otherReviewPage.goto('https://indeed-review.fixture.invalid/job');
+  const otherReviewId = await targetId(otherReviewPage);
   writeLiveTarget(directory, 'seek', { targetId: reviewId, activity: { phase: 'reviewing', detail: 'Checking listings against your profile.' } });
   writeLiveTarget(directory, 'indeed', { targetId: ids[1], activity: { phase: 'applying', detail: 'Indeed fixture application' } });
   await seek.getByText('Reviewing jobs', { exact: true }).waitFor();
@@ -113,18 +117,23 @@ try {
   await eventually(() => attachedTo('seek') === reviewId);
   await seek.getByText('Picture live', { exact: true }).waitFor();
   assert.equal(attachedTo('indeed'), ids[1]);
+  writeLiveTarget(directory, 'indeed', { targetId: otherReviewId, activity: { phase: 'reviewing', detail: 'Checking Indeed listings.' } });
+  await indeed.getByText('Reviewing jobs', { exact: true }).waitFor();
+  await eventually(() => attachedTo('seek') === reviewId && attachedTo('indeed') === otherReviewId);
+  await indeed.getByText('Picture live', { exact: true }).waitFor();
+  assert.notEqual(await seek.getByRole('img').getAttribute('src'), await indeed.getByRole('img').getAttribute('src'), 'simultaneous review pictures remain separate');
   await viewer.setViewportSize({ width: 390, height: 844 });
   assert.ok(await viewer.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'activity badges and descriptions fit mobile');
   await viewer.setViewportSize({ width: 1440, height: 1000 });
-  writeLiveTarget(directory, 'seek', { activity: { phase: 'waiting', detail: 'Waiting for shared review.' } });
+  writeLiveTarget(directory, 'seek', { activity: { phase: 'waiting', detail: 'No matching SEEK job ready.' } });
   await seek.getByRole('heading', { name: 'Waiting', exact: true }).waitFor();
   assert.equal(await seek.getByRole('img').count(), 0, 'waiting must remove the previous form');
   // A lingering cloud preview must not override the newly owned review page.
   const oldCloudFile = join(directory, remotePreviewFile('indeed'));
   writeFileSync(oldCloudFile, JSON.stringify({ sessionId: randomUUID(), provider: 'brightdata', at: Date.now(), url: 'https://cloud.fixture.invalid', data: (await pages[1].screenshot({ type: 'jpeg' })).toString('base64') }));
-  writeLiveTarget(directory, 'indeed', { targetId: reviewId, activity: { phase: 'reviewing' } });
+  writeLiveTarget(directory, 'indeed', { targetId: otherReviewId, activity: { phase: 'reviewing' } });
   await indeed.getByText('Reviewing jobs', { exact: true }).waitFor();
-  await eventually(() => attachedTo('indeed') === reviewId);
+  await eventually(() => attachedTo('indeed') === otherReviewId);
   await indeed.getByText('Picture live', { exact: true }).waitFor();
   assert.equal(await seek.getByRole('img').count(), 0, 'released review page must not appear in the waiting worker');
   unlinkSync(oldCloudFile);
@@ -167,7 +176,7 @@ try {
   assert.equal(attachedTo('indeed'), ids[1]);
   assert.deepEqual(errors, []);
   await viewerContext.close();
-  console.log('PASS: real worker pictures and phases, shared review ownership, waiting/cooldown clearing, application isolation, desktop/mobile layout, popups, cloud switching and cleanup; synthetic pages only');
+  console.log('PASS: simultaneous independent review pictures and phases, waiting/cooldown clearing, application isolation, desktop/mobile layout, popups, cloud switching and cleanup; synthetic pages only');
 } finally {
   for (const client of wss.clients) client.terminate();
   await server.close();

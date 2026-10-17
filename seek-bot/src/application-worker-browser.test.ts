@@ -30,14 +30,26 @@ test('isolated sessions preserve login, separate mutable state/popups, and allow
     await seedPage.evaluate(() => localStorage.setItem('candidate', 'Fictional Owner'));
     const [seek, indeed] = await applicationWorkerContexts(seed, 2);
     const markup = '<main><h1>Fixture Assistant</h1><label>First name<input value="Fixture"></label><button id="submit" type="button" onclick="document.title=\'SENT\'">Submit application</button></main>';
-    for (const context of [seek, indeed]) await context.route('**/*', route => route.fulfill({ contentType: 'text/html', body: markup }));
+    let reads = 0, maximumReads = 0;
+    for (const context of [seek, indeed]) await context.route('**/*', async route => {
+      maximumReads = Math.max(maximumReads, ++reads);
+      try {
+        await new Promise(resolve => setTimeout(resolve, 60));
+        await route.fulfill({ contentType: 'text/html', body: markup });
+      } finally { reads--; }
+    });
     const pages = await Promise.all([seek.newPage(), indeed.newPage()]);
     await Promise.all(pages.map(page => page.goto('https://employer.fixture.invalid/jobs/7/apply')));
+    assert.equal(maximumReads, 2, 'isolated worker pages can load listings concurrently');
     await Promise.all([
-      withApplicationWorker('seek', () => showLiveActivity({ phase: 'reviewing' }, seedPage)),
-      withApplicationWorker('indeed', () => showLiveActivity({ phase: 'applying', detail: 'Fixture application' }, pages[1])),
+      withApplicationWorker('seek', () => showLiveActivity({ phase: 'reviewing' }, pages[0])),
+      withApplicationWorker('indeed', () => showLiveActivity({ phase: 'reviewing' }, pages[1])),
     ]);
     const reviewTarget = readLiveTarget(directory, 'seek')!;
+    const otherReviewTarget = readLiveTarget(directory, 'indeed')!;
+    assert.equal(otherReviewTarget.activity?.phase, 'reviewing');
+    assert.notEqual(reviewTarget.targetId, otherReviewTarget.targetId);
+    await withApplicationWorker('indeed', () => showLiveActivity({ phase: 'applying', detail: 'Fixture application' }, pages[1]));
     const applicationTarget = readLiveTarget(directory, 'indeed')!;
     assert.equal(reviewTarget.activity?.phase, 'reviewing');
     assert.equal(applicationTarget.activity?.phase, 'applying');

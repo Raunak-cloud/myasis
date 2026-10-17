@@ -233,6 +233,12 @@ async function main() {
     const active: PlatformAdapter[] = [];
     /** Each board's own polite gap between searches (seek-bot/src/pacing.ts). */
     const sitePacer = new SitePacer();
+    const platformReads = new Map<PlatformId, AsyncMutex>();
+    const readPlatform = <T>(platform: PlatformId, read: () => Promise<T>): Promise<T> => {
+      let mutex = platformReads.get(platform);
+      if (!mutex) platformReads.set(platform, mutex = new AsyncMutex());
+      return mutex.run(read);
+    };
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
     /**
@@ -488,15 +494,20 @@ async function main() {
           continue;
         }
         let results: JobListing[];
-        await sitePacer.ready(stream.adapter.id);
         try {
-          results = await measured(
-            'discovery',
-            () => stream.adapter.search(page, stream.keyword, pageNumber),
-            { platform: stream.adapter.id },
-          );
+          results = await readPlatform(stream.adapter.id, async () => {
+            await sitePacer.ready(stream.adapter.id);
+            try {
+              return await measured(
+                'discovery',
+                () => stream.adapter.search(page, stream.keyword, pageNumber),
+                { platform: stream.adapter.id },
+              );
+            } finally {
+              sitePacer.done(stream.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
+            }
+          });
         } catch (error) {
-          sitePacer.done(stream.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
           // A search that fails ends that search, not the run.
           stream.exhausted = true;
           if (isVerificationWall(error)) blockPlatform(stream.adapter, error);
@@ -508,7 +519,6 @@ async function main() {
         const accepted = ingest(results, stream.adapter);
         round.push({ stream, accepted });
         if (!results.length || results.length < stream.adapter.pageSize) stream.exhausted = true;
-        sitePacer.done(stream.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
       }
 
       const newlyAccepted = round.flatMap((item) => item.accepted);
@@ -589,6 +599,16 @@ async function main() {
       shortlist.push(...added);
       console.log(`  Search page ${pageNumber}: ${added.length} new listing(s) to review.`);
     };
+    // Only fallback discovery still owns the persistent search page. Recheck
+    // the queue after acquiring it: another worker may already have refilled it.
+    const discoveryMutex = new AsyncMutex();
+    const refillReviews = () => discoveryMutex.run(async () => {
+      if (!hasUnreviewed() && searchesLeft()) {
+        await showLiveActivity({ phase: 'reviewing', detail: 'Finding more job listings.' }, page);
+        try { await searchMore(); }
+        finally { await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' }); }
+      }
+    });
     console.log(`${shortlist.length} after dedupe + age/company filters (pre-ranked).\n`);
 
     /**
@@ -637,7 +657,12 @@ async function main() {
 
     /** Turns one finished fit check into a candidate, or a logged skip. */
     const settleFit = (item: (typeof pendingFits)[number], { fit, error }: { fit?: Awaited<ReturnType<typeof assessFit>>; error?: string }) => {
-      pendingFits.splice(pendingFits.indexOf(item), 1);
+      const position = pendingFits.indexOf(item);
+      // Concurrent reviewers can await the same finished model call. Consume
+      // it exactly once; splice(-1) would otherwise remove an unrelated check.
+      if (position < 0) return;
+      pendingFits.splice(position, 1);
+      workChanged();
       if (qualified >= candidateCap) return;
       const { job, score, scoreReasons, adapter } = item;
       if (error) {
@@ -715,9 +740,13 @@ async function main() {
       settleFit(decision.item, decision.result);
     };
 
-    let reviewIndex = 0;
+    const reviewClaimed = new Set<string>();
+    const hasUnreviewed = (accept: (job: JobListing) => boolean = () => true) =>
+      shortlist.some(job => !reviewClaimed.has(reviewReservationKey(job)) && accept(job));
     let evaluated = 0;
     let reviewStopped = false;
+    let workersRemaining = 1;
+    const activeReviews = new Set<Promise<void>>();
     const reviewReservations = new Set<string>();
     const reviewReservationKey = (job: JobListing) => `${job.platform ?? 'seek'}:${job.id}`;
     /** Unusable reviews and late duplicate discoveries must leave room for another new job. */
@@ -731,9 +760,9 @@ async function main() {
       if (qualified < candidateCap && evaluated < config.limits.maxEvaluations) reviewStopped = false;
       workChanged();
     };
-    const reviewDone = () => reviewStopped || (reviewIndex >= shortlist.length && !searchesLeft());
+    const reviewDone = () => reviewStopped || (!hasUnreviewed() && !searchesLeft());
     /** Nothing left to review and no fit check still out. */
-    const reviewExhausted = () => reviewDone() && !pendingFits.length;
+    const reviewExhausted = () => reviewDone() && !pendingFits.length && !activeReviews.size;
 
     /** Reviews the next listing in the pre-ranked queue. */
     const jobLabel = (job: JobListing) => `${job.title} @ ${job.company}`;
@@ -746,7 +775,7 @@ async function main() {
       logOutcome({ status: 'already-applied', jobId: job.id, reason, title: job.title, company: job.company });
       return true;
     };
-    const reviewNext = async (): Promise<void> => {
+    const reviewNext = async (reviewPage: Page, accept: (job: JobListing) => boolean): Promise<void> => {
       if (reviewDone()) return;
       if (qualified >= candidateCap) {
         reviewStopped = true;
@@ -758,11 +787,12 @@ async function main() {
         reviewStopped = true;
         return;
       }
-      if (reviewIndex >= shortlist.length) {
-        await searchMore();
+      const stub = shortlist.find(job => !reviewClaimed.has(reviewReservationKey(job)) && accept(job));
+      if (!stub) {
+        await refillReviews();
         return;
       }
-      const stub = shortlist[reviewIndex++];
+      reviewClaimed.add(reviewReservationKey(stub));
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id) || abortedPlatforms.has(adapter.id)) return;
       // History may have changed since discovery while another application was sent.
@@ -783,162 +813,192 @@ async function main() {
         });
         return;
       }
-      let job: JobListing;
-      // A search just made on this board still has its gap to run out.
-      await sitePacer.ready(adapter.id);
+      // Claim capacity before the first await. Page reads now overlap, but the
+      // evaluation allowance remains one run-wide budget. Unusable reads return
+      // their reservation in finally, including navigation failures and walls.
+      evaluated++;
+      reviewReservations.add(reviewReservationKey(stub));
+      let retained = false;
       try {
-        job = await measured('detail', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
-      } catch (error) {
-        if (isVerificationWall(error)) blockPlatform(adapter, error);
-        else console.warn(`  ! ${jobLabel(stub)}: the listing could not be opened (${(error as Error).message})`);
-        return;
-      }
-
-      // Board history includes applications made by hand or on another device.
-      // Check it before reading pauses, fit/model calls and the evaluation reservation.
-      if (skipPreviousApplication(job)) return;
-
-      // Resolve run scope as soon as the listing CTA is known. In particular,
-      // do not make a page-judgement model call or simulate reading time for an
-      // employer-site redirect in an Indeed-hosted-only run.
-      if (job.applicationMode === 'external' && !config.allowExternalApply) {
-        const destination = job.applicationUrl ?? 'employer site';
-        console.log(`  ↪ off-platform (${destination}) — skipped before AI fit review`);
-        bump('external application disabled');
-        logOutcome({
-          status: 'off-platform',
-          jobId: job.id,
-          redirectedTo: destination,
-          title: job.title,
-          company: job.company,
-          reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
-        });
-        return;
-      }
-
-      if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
-        bump('outside run scope');
-        logOutcome({
-          status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company,
-          ...(job.applicationMode === 'external'
-            ? { reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external) }
-            : {}),
-        });
-        return;
-      }
-
-      /**
-       * Posting age and excluded employers are facts the listing states, so
-       * they are checked before the reading pause, not after it. Many stubs
-       * carry no age until the listing is open: over ten days 1,671 listings
-       * waited out a 5–8 s pause and a page check only to be dropped as too old.
-       */
-      const excluded = deterministicExclusion(job);
-      if (excluded) {
-        bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
-        logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
-        return;
-      }
-
-      /**
-       * Reading pace, not network pace. At 1–3 s a hundred job ads went by in
-       * fifteen minutes, and Cloudflare challenges are partly rate-based — the
-       * one that blocked a run appeared on a plain search page.
-       */
-      if (!adapter.apiDiscovery) await jitter(5000, 8000);
-
-      /**
-       * The page verdict is for a listing whose description did not come
-       * through: it tells a wall from a slow page from a job that has gone.
-       * A listing that loaded needs no verdict. It was asked of every listing,
-       * a reasoning-model call each, and over ten days it found six jobs
-       * already applied for — which the application step detects on its own.
-       */
-      if (!job.description) {
-        if (adapter.apiDiscovery) {
-          bump('listing unavailable');
-          logOutcome({ status: 'skipped', jobId: job.id, reason: 'The public job feed did not provide a description.', title: job.title, company: job.company, url: job.url });
-          return;
-        }
-        const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
-        let verdict = await judgePage(page, expected);
-        if (verdict.state === 'loading') {
-          await jitter(3000, 5000);
-          job = await measured('detail-retry', () => adapter.fetchJobDetail(page, stub), { jobId: stub.id });
-          if (!job.description) verdict = await judgePage(page, expected);
-        }
-        if (verdict.state === 'already-applied') {
-          console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
-          bump('already applied');
-          rememberExistingApplication(job, verdict.reason);
-          logOutcome({ status: 'already-applied', jobId: job.id, reason: verdict.reason, title: job.title, company: job.company });
-          return;
-        }
-        if (!job.description) {
-          if (WALL_STATES.has(verdict.state)) {
-            const reason = `${verdict.state === 'captcha' ? 'CAPTCHA' : verdict.state === 'login' ? 'Login wall' : 'Verification gate'} before AI fit review — ${verdict.reason}`;
-            console.log(`  ↷ ${adapter.label} unavailable before fit review — no AI review was sent`);
-            bump(reason);
-            reviewBlockedPlatforms.add(adapter.id);
-            logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company });
+        await readPlatform(adapter.id, async () => {
+          let job: JobListing;
+          // A search just made on this board still has its gap to run out.
+          await sitePacer.ready(adapter.id);
+          try {
+            job = await measured('detail', () => adapter.fetchJobDetail(reviewPage, stub), { jobId: stub.id });
+          } catch (error) {
+            if (isVerificationWall(error)) blockPlatform(adapter, error);
+            else console.warn(`  ! ${jobLabel(stub)}: the listing could not be opened (${(error as Error).message})`);
             return;
           }
-          console.log(`  ↷ ${job.title} @ ${job.company} — listing unavailable (${verdict.reason})`);
-          bump('listing unavailable');
-          logOutcome({ status: 'skipped', jobId: job.id, reason: `Listing unavailable: ${verdict.reason}`, title: job.title, company: job.company });
-          return;
-        }
-      }
 
-      // A loading retry can be the first read to reveal the board's applied marker.
-      if (skipPreviousApplication(job)) return;
-      evaluated++;
-      reviewReservations.add(reviewReservationKey(job));
+          // Board history includes applications made by hand or on another device.
+          // Check it before reading pauses and fit/model calls; an early return
+          // gives the temporary evaluation reservation back to the run.
+          if (skipPreviousApplication(job)) return;
 
-      const heuristic = searchOnly ? scoreJob(job, profile) : null;
-      const priority = reviewPriorities.get(reviewKey(job));
-      const score = heuristic?.total ?? priority?.priority ?? 0;
-      const scoreReasons = heuristic?.reasons ?? (priority?.reason ? [priority.reason] : []);
-      /** The candidate's own call on a job the fit check skipped before; nothing to judge again. */
-      const chosenFit: FitAssessment | null = stub.source === 'chosen'
-        ? {
-            decision: 'apply',
-            shouldApply: true,
-            matchScore: 100,
-            reason: 'You chose to apply to this one after it was skipped.',
-            evidence: ['Your call in the Skipped view'],
-            injectionSuspected: false,
+          // Resolve run scope as soon as the listing CTA is known. In particular,
+          // do not make a page-judgement model call or simulate reading time for an
+          // employer-site redirect in an Indeed-hosted-only run.
+          if (job.applicationMode === 'external' && !config.allowExternalApply) {
+            const destination = job.applicationUrl ?? 'employer site';
+            console.log(`  ↪ off-platform (${destination}) — skipped before AI fit review`);
+            bump('external application disabled');
+            logOutcome({
+              status: 'off-platform',
+              jobId: job.id,
+              redirectedTo: destination,
+              title: job.title,
+              company: job.company,
+              reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external),
+            });
+            return;
           }
-        : null;
-      const fitPromise = chosenFit
-        ? Promise.resolve({ fit: chosenFit })
-        : applicationModelAvailable()
-        ? assessFit(job, profile).then(
-            (fit) => ({ fit }),
-            (error) => ({ error: (error as Error).message }),
-          )
-        : Promise.resolve({});
-      const item = { job, score, scoreReasons, adapter, settled: false, fitPromise };
-      void fitPromise.then(() => { item.settled = true; });
-      pendingFits.push(item);
-      if (pendingFits.length >= config.limits.fitConcurrency) await flushFits();
+
+          if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+            bump('outside run scope');
+            logOutcome({
+              status: 'skipped', jobId: job.id, reason: scopeSkipReason(), title: job.title, company: job.company,
+              ...(job.applicationMode === 'external'
+                ? { reviewCache: reviewCacheMetadata(job, 'external', reviewContext, REVIEW_TTL.external) }
+                : {}),
+            });
+            return;
+          }
+
+          /**
+           * Posting age and excluded employers are facts the listing states, so
+           * they are checked before the reading pause, not after it. Many stubs
+           * carry no age until the listing is open: over ten days 1,671 listings
+           * waited out a 5–8 s pause and a page check only to be dropped as too old.
+           */
+          const excluded = deterministicExclusion(job);
+          if (excluded) {
+            bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
+            logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
+            return;
+          }
+
+          /**
+           * Reading pace, not network pace. At 1–3 s a hundred job ads went by in
+           * fifteen minutes, and Cloudflare challenges are partly rate-based — the
+           * one that blocked a run appeared on a plain search page.
+           */
+          if (!adapter.apiDiscovery) await jitter(5000, 8000);
+
+          /**
+           * The page verdict is for a listing whose description did not come
+           * through: it tells a wall from a slow page from a job that has gone.
+           * A listing that loaded needs no verdict. It was asked of every listing,
+           * a reasoning-model call each, and over ten days it found six jobs
+           * already applied for — which the application step detects on its own.
+           */
+          if (!job.description) {
+            if (adapter.apiDiscovery) {
+              bump('listing unavailable');
+              logOutcome({ status: 'skipped', jobId: job.id, reason: 'The public job feed did not provide a description.', title: job.title, company: job.company, url: job.url });
+              return;
+            }
+            const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
+            let verdict = await judgePage(reviewPage, expected);
+            if (verdict.state === 'loading') {
+              await jitter(3000, 5000);
+              job = await measured('detail-retry', () => adapter.fetchJobDetail(reviewPage, stub), { jobId: stub.id });
+              if (!job.description) verdict = await judgePage(reviewPage, expected);
+            }
+            if (verdict.state === 'already-applied') {
+              console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
+              bump('already applied');
+              rememberExistingApplication(job, verdict.reason);
+              logOutcome({ status: 'already-applied', jobId: job.id, reason: verdict.reason, title: job.title, company: job.company });
+              return;
+            }
+            if (!job.description) {
+              if (WALL_STATES.has(verdict.state)) {
+                const reason = `${verdict.state === 'captcha' ? 'CAPTCHA' : verdict.state === 'login' ? 'Login wall' : 'Verification gate'} before AI fit review — ${verdict.reason}`;
+                console.log(`  ↷ ${adapter.label} unavailable before fit review — no AI review was sent`);
+                bump(reason);
+                reviewBlockedPlatforms.add(adapter.id);
+                logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company });
+                return;
+              }
+              console.log(`  ↷ ${job.title} @ ${job.company} — listing unavailable (${verdict.reason})`);
+              bump('listing unavailable');
+              logOutcome({ status: 'skipped', jobId: job.id, reason: `Listing unavailable: ${verdict.reason}`, title: job.title, company: job.company });
+              return;
+            }
+          }
+
+          // A loading retry can be the first read to reveal the board's applied marker.
+          if (skipPreviousApplication(job)) return;
+
+          // Both reviewers share the same model concurrency ceiling. Recheck after
+          // every await before starting another call; page reading stays parallel.
+          while (pendingFits.length >= config.limits.fitConcurrency) await flushFits();
+
+          const heuristic = searchOnly ? scoreJob(job, profile) : null;
+          const priority = reviewPriorities.get(reviewKey(job));
+          const score = heuristic?.total ?? priority?.priority ?? 0;
+          const scoreReasons = heuristic?.reasons ?? (priority?.reason ? [priority.reason] : []);
+          /** The candidate's own call on a job the fit check skipped before; nothing to judge again. */
+          const chosenFit: FitAssessment | null = stub.source === 'chosen'
+            ? {
+                decision: 'apply',
+                shouldApply: true,
+                matchScore: 100,
+                reason: 'You chose to apply to this one after it was skipped.',
+                evidence: ['Your call in the Skipped view'],
+                injectionSuspected: false,
+              }
+            : null;
+          const fitPromise = chosenFit
+            ? Promise.resolve({ fit: chosenFit })
+            : applicationModelAvailable()
+            ? assessFit(job, profile).then(
+                (fit) => ({ fit }),
+                (error) => ({ error: (error as Error).message }),
+              )
+            : Promise.resolve({});
+          const item = { job, score, scoreReasons, adapter, settled: false, fitPromise };
+          void fitPromise.then(() => { item.settled = true; });
+          pendingFits.push(item);
+          retained = true;
+          if (pendingFits.length >= config.limits.fitConcurrency) await flushFits();
+        });
+      } finally {
+        if (!retained) restoreReviewSlot(stub, false);
+      }
     };
 
     /** Moves review on by one step: answered fit checks first, then the next listing, then a check still out. */
-    const reviewMutex = new AsyncMutex();
-    const advanceReview = async () => {
-      await showLiveActivity({ phase: 'waiting', detail: 'Waiting for the shared job review page.' });
-      return reviewMutex.run(async () => {
-        await showLiveActivity({ phase: 'reviewing', detail: 'Checking job listings and matching your profile.' }, page);
-        try {
-          await settleAnswered();
-          if (!reviewDone()) await reviewNext();
-          else if (pendingFits.length) await flushFits();
-        } finally {
-          // Stop following the shared page before another worker navigates it.
-          await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
+    const advanceReview = async (reviewPage: Page = page, accept: (job: JobListing) => boolean = () => true, waitForOther = true): Promise<boolean> => {
+      try {
+        await settleAnswered();
+        if (!reviewDone() && (hasUnreviewed(accept) || !hasUnreviewed())) {
+          if (hasUnreviewed(accept)) await showLiveActivity({ phase: 'reviewing', detail: 'Checking job listings and matching your profile.' }, reviewPage);
+          const review = reviewNext(reviewPage, accept);
+          activeReviews.add(review);
+          try { await review; } finally { activeReviews.delete(review); }
+        } else if (pendingFits.length) {
+          await showLiveActivity({ phase: 'waiting', detail: 'Waiting for profile match checks.' });
+          await flushFits();
         }
-      });
+        else if (activeReviews.size && waitForOther) {
+          // The last slot may still be reading a page. Wait for its result or
+          // restored capacity rather than spinning or declaring the run done.
+          void showLiveActivity({ phase: 'waiting', detail: 'Waiting for reviews already in progress.' });
+          await Promise.race([...activeReviews].map(review => review.catch(() => {})));
+        } else if (!reviewDone() && workersRemaining > 1 && waitForOther) {
+          // Only the other platform has queued listings. Its progress (or exit)
+          // wakes us; never borrow its browser page or review the same board twice.
+          void showLiveActivity({ phase: 'waiting', detail: 'No matching job ready on this platform.' });
+          await new Promise<void>(resolve => workWaiters.add(resolve));
+        } else return false;
+        return true;
+      } finally {
+        workChanged();
+        await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
+      }
     };
 
     /**
@@ -1032,16 +1092,16 @@ async function main() {
      * (1 Oct, all seven). Checked again after each listing reviewed.
      */
     const REVIEW_STEP_MS = 10_000;
-    const pauseWhileReviewing = async (minMs: number, maxMs: number, prepareNext: boolean) => {
+    const pauseWhileReviewing = async (minMs: number, maxMs: number, prepareNext: boolean, reviewPage: Page, accept: (job: JobListing) => boolean) => {
       const until = Date.now() + Math.floor(minMs + Math.random() * (maxMs - minMs));
       let prepared: JobListing | undefined;
       const prepareBest = () => {
-        const best = prepareNext ? bestCandidate()?.job : undefined;
+        const best = prepareNext ? bestCandidate(accept)?.job : undefined;
         if (best && best !== prepared) prepare((prepared = best));
       };
       prepareBest();
       while (Date.now() < until - REVIEW_STEP_MS && !reviewExhausted()) {
-        await advanceReview();
+        if (!await advanceReview(reviewPage, accept, false)) break;
         prepareBest();
       }
       const left = until - Date.now();
@@ -1051,12 +1111,14 @@ async function main() {
      * The pause before the next application. A cooldown only protects the
      * next interaction, so a run with nothing left to do does not wait it out.
      */
-    const cooldown = async (full: boolean, prepareNext: boolean) => {
-      if (reviewExhausted() && !bestCandidate()) return;
+    const cooldown = async (full: boolean, prepareNext: boolean, reviewPage: Page, accept: (job: JobListing) => boolean) => {
+      if (reviewExhausted() && !bestCandidate(accept)) return;
       await pauseWhileReviewing(
         full ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
         full ? config.limits.maxDelayMs : config.limits.maxNonSubmitDelayMs,
         prepareNext,
+        reviewPage,
+        accept,
       );
     };
     // ---- apply -----------------------------------------------------------
@@ -1083,11 +1145,11 @@ async function main() {
     const runWorker = async (applicationPage: Page, accept: (job: JobListing) => boolean) => {
       for (;;) {
         await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
-        // Only discovery/review touches the persistent discovery page. The mutex
-        // keeps both workers from navigating it or consuming a review slot together.
+        // Each worker reads and applies on its own isolated page. Only fallback
+        // discovery uses the persistent page; queue claims and budgets are shared.
         let next = takeCandidate(accept);
         while (!next && !reviewExhausted()) {
-          await advanceReview();
+          if (!await advanceReview(applicationPage, accept)) break;
           next = takeCandidate(accept);
         }
         if (!next) {
@@ -1234,7 +1296,7 @@ async function main() {
               console.log(`  ✗ unexpected error: ${msg}`);
               logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company });
               // It may have failed halfway through the board's form, so the next request still keeps its distance.
-              await cooldown(candidateHitFriction, !candidateHitFriction);
+              await cooldown(candidateHitFriction, !candidateHitFriction, applicationPage, accept);
               continue;
             }
             finalOutcome = outcome;
@@ -1335,7 +1397,7 @@ async function main() {
              */
             await showLiveActivity({ phase: 'cooldown', detail: outcome.status === 'applied'
               ? 'Application submitted. Pausing before the next job.' : 'Pausing before the next job.' });
-            await cooldown(outcome.status === 'applied' || candidateHitFriction || Boolean(outcome.submitPressed), !candidateHitFriction);
+            await cooldown(outcome.status === 'applied' || candidateHitFriction || Boolean(outcome.submitPressed), !candidateHitFriction, applicationPage, accept);
           } finally {
             finalize();
           }
@@ -1362,6 +1424,7 @@ async function main() {
       }
       console.log(`Application workers: ${contexts.length === 2 ? '2 (SEEK and Indeed/feeds, isolated sessions)' : '1'}`);
       if (contexts.length === 2) {
+        workersRemaining = 2;
         configureLiveWorkers(config.dataDir, ['seek', 'indeed']);
         const runVisibleWorker = (id: 'seek' | 'indeed', workerPage: Page, accept: (job: JobListing) => boolean) =>
           withApplicationWorker(id, async () => {
@@ -1369,6 +1432,8 @@ async function main() {
               await showLiveActivity({ phase: 'starting', detail: 'Getting this worker ready.' });
               await runWorker(workerPage, accept);
             } finally {
+              workersRemaining--;
+              workChanged();
               await showLiveActivity({ phase: 'finished', detail: 'This worker has finished its work for this run.' });
             }
           });

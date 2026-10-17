@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, JobListing } from './types.js';
 
-type FixtureJob = JobListing & { detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; lateApplied?: boolean; delayMs?: number; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney',
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -25,7 +25,7 @@ function run(jobs: FixtureJob[], options: { history?: AppliedRecord[]; apply?: b
     writeFileSync(join(directory, 'boundary.mjs'), `
 import { readFileSync, appendFileSync } from 'node:fs';
 export const jobs = JSON.parse(readFileSync(new URL('./jobs.json', import.meta.url)));
-export const record = (stage, id) => appendFileSync(new URL('./events.jsonl', import.meta.url), JSON.stringify({stage,id,at:Date.now()})+'\\n');
+export const record = (stage, id, extra={}) => appendFileSync(new URL('./events.jsonl', import.meta.url), JSON.stringify({stage,id,at:Date.now(),...extra})+'\\n');
 `);
     writeFileSync(join(directory, 'config.mjs'), `
 export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
@@ -39,10 +39,23 @@ Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurre
     writeFileSync(join(directory, 'discovery.mjs'), `
 import { jobs, record } from './boundary.mjs';
 const reads = new Map();
-export const recommended = async () => jobs.filter(job => ${options.workers === 2} ? job.platform === new URL(import.meta.url).searchParams.get('platform') : true);
-export const search = async () => [];
+const platform = new URL(import.meta.url).searchParams.get('platform');
+export const recommended = async () => jobs.filter(job => !job.searchOnlyJob && (${options.workers === 2} ? job.platform === platform : true));
+export const search = async (_page,_keyword,pageNumber) => {
+  record('search',platform,{page:_page.worker});
+  _page.currentJob='search:'+platform;
+  await new Promise(done=>setTimeout(done,10));
+  if(_page.currentJob!=='search:'+platform) throw Error('Discovery page was navigated by another worker');
+  return pageNumber===1 ? jobs.filter(job=>job.searchOnlyJob && job.platform===platform) : [];
+};
 export const fetchJobDetail = async (_page, job) => {
-  record('detail',job.id);
+  record('detail',job.id,{page:_page.worker});
+  _page.currentJob=job.id;
+  await new Promise(done=>setTimeout(done,job.detailDelayMs||0));
+  if(_page.currentJob!==job.id) throw Error('Another reviewer navigated this page');
+  if(job.wall) throw Error('VerificationBlocked: Fixture security verification');
+  if(job.detailError) throw Error('Fixture unavailable listing');
+  record('detail-finish',job.id,{page:_page.worker});
   const count = (reads.get(job.id) || 0) + 1; reads.set(job.id,count);
   if(job.loadingFirst && count === 1) return {...job,description:'',alreadyApplied:false};
   return {...job,description:'Build software in Sydney.',alreadyApplied:job.detailApplied===true,appliedNote:'You applied on 1 October'};
@@ -53,12 +66,12 @@ import { record } from './boundary.mjs';
 import { currentApplicationWorker } from ${JSON.stringify(new URL('./application-workers.js', import.meta.url).href)};
 export const launchBrowser = async () => ({});
 export const applicationWorkerContexts = async () => [0,1].map(worker => ({newPage:async()=>({worker}),close:async()=>{}}));
-export const getPage = async () => ({});
+export const getPage = async () => ({worker:'discovery'});
 export const closeBrowser = async () => {};
-export const ensureSignedIn = async page => {if(${options.failedParallelSignin === true} && page.worker !== undefined) throw Error('Fixture isolated session expired');};
+export const ensureSignedIn = async page => {if(${options.failedParallelSignin === true} && typeof page.worker === 'number') throw Error('Fixture isolated session expired');};
 export const ensureIndeedSignedIn = async () => {};
 export const workingIn = async () => {};
-export const showLiveActivity = async activity => { record('activity-'+activity.phase,currentApplicationWorker()); };
+export const showLiveActivity = async (activity,page) => { record('activity-'+activity.phase,currentApplicationWorker(),{page:page?.worker}); };
 export const jitter = async () => {};
 `);
     writeFileSync(join(directory, 'llm.mjs'), `
@@ -69,6 +82,8 @@ export const ruleConflict = async () => ({decision:'allow',conflict:'',because:'
 export const finishedCoverLetterForJob = async () => 'Fixture letter';
 export const assessFit = async job => {
   record('fit',job.id);
+  await new Promise(done => setTimeout(done,job.fitDelayMs||0));
+  record('fit-finish',job.id);
   if(job.fitError) { await new Promise(done => setTimeout(done,20)); throw Error('Instruction exception review violated its evidence schema'); }
   return {decision:'apply',shouldApply:true,matchScore:90,reason:'Fixture fit',evidence:['Fixture'],injectionSuspected:false};
 };
@@ -172,6 +187,86 @@ test('the complete main pipeline overlaps two platform applications while sharin
   assert.deepEqual(result.history.map(record => record.platform).sort(), ['indeed', 'seek']);
   assert.match(result.output, /Application workers: 2/);
   assert.match(result.output, /Run complete: 2 new application/);
+});
+
+test('platform reviews overlap on their own pages and each finished fit is consumed once', () => {
+  const result = run([
+    job('seek-one', { detailDelayMs: 100, fitDelayMs: 30 }),
+    job('seek-two'),
+    job('indeed-one', { platform: 'indeed', detailDelayMs: 100, fitDelayMs: 30 }),
+    job('indeed-two', { platform: 'indeed' }),
+  ], { apply: true, workers: 2, cap: 2, reviews: 2, concurrency: 1 });
+  const starts = result.events.filter(event => event.stage === 'detail');
+  const ends = result.events.filter(event => event.stage === 'detail-finish');
+  assert.equal(starts.length, 2, 'in-flight reads reserve the last two evaluation slots');
+  assert.ok(starts[1].at < ends[0].at, 'the listing reads must actually overlap');
+  assert.deepEqual(starts.map(event => [event.id, event.page]).sort(), [['indeed-one', 1], ['seek-one', 0]]);
+  let fitting = 0, maximum = 0;
+  for (const event of result.events) {
+    if (event.stage === 'fit') maximum = Math.max(maximum, ++fitting);
+    if (event.stage === 'fit-finish') fitting--;
+  }
+  assert.equal(maximum, 1, 'parallel reads must not multiply the configured fit concurrency');
+  assert.equal(result.history.length, 2, 'a fit awaited by both workers creates only one candidate');
+  assert.equal(new Set(result.history.map(record => record.jobId)).size, 2);
+  assert.match(result.output, /2 qualifying jobs/);
+  for (const [worker, page] of [['seek', 0], ['indeed', 1]]) {
+    const reviews = result.events.filter(event => event.stage === 'activity-reviewing' && event.id === worker);
+    assert.ok(reviews.length);
+    assert.ok(reviews.every(event => event.page === page), 'review activity follows only the owning worker page');
+  }
+});
+
+test('out-of-order model results respect a multi-call ceiling without losing or duplicating candidates', () => {
+  const result = run(Array.from({ length: 8 }, (_, i) => job(`job-${i}`, {
+    platform: i % 2 ? 'indeed' : 'seek', detailDelayMs: 5, fitDelayMs: [70, 10, 60, 20][i % 4],
+  })), { apply: true, workers: 2, cap: 4, reviews: 4, concurrency: 3 });
+  let fitting = 0, maximum = 0;
+  for (const event of result.events) {
+    if (event.stage === 'fit') maximum = Math.max(maximum, ++fitting);
+    if (event.stage === 'fit-finish') fitting--;
+  }
+  assert.ok(maximum > 1 && maximum <= 3);
+  assert.equal(result.events.filter(event => event.stage === 'fit').length, 4);
+  assert.equal(result.history.length, 4);
+  assert.equal(new Set(result.history.map(record => record.jobId)).size, 4);
+  assert.match(result.output, /4 qualifying jobs/);
+});
+
+test('a verification wall on one board leaves the other platform reviewing and applying', () => {
+  const result = run([job('blocked', { wall: true }), job('unused'), job('fresh', { platform: 'indeed', detailDelayMs: 30 })],
+    { apply: true, workers: 2, cap: 2, reviews: 3 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['fresh']);
+  assert.ok(result.history.some(record => record.jobId === 'fresh' && record.submittedByMyasis));
+  assert.match(result.output, /SEEK is left out for the rest of this run/);
+});
+
+for (const fault of ['detailError', 'detailApplied', 'fitError'] as const) test(`parallel ${fault} returns the final review slot and wakes the other platform`, () => {
+  const result = run([
+    job('seek-unusable', { [fault]: true, detailDelayMs: 30 }),
+    job('indeed-fresh', { platform: 'indeed' }),
+  ], { apply: true, workers: 2, cap: 1, reviews: 1, concurrency: 3 });
+  assert.equal(result.events.filter(event => event.stage === 'apply').length, 1);
+  assert.ok(result.history.some(record => record.jobId === 'indeed-fresh' && record.submittedByMyasis));
+  assert.equal(result.events.filter(event => event.stage === 'fit' && event.id === 'indeed-fresh').length, 1);
+});
+
+test('an idle platform exits cleanly while the other platform reviews its remaining jobs', () => {
+  const result = run([job('seek-only', { detailDelayMs: 30 })], { apply: true, workers: 2, cap: 2, reviews: 4 });
+  assert.equal(result.events.filter(event => event.stage === 'apply').length, 1);
+  assert.ok(result.events.some(event => event.stage === 'activity-finished' && event.id === 'indeed'));
+  assert.match(result.output, /Run complete: 1 new application/);
+});
+
+test('parallel workers resume fallback discovery once and share its new listings without re-reviewing old ones', () => {
+  const result = run([
+    job('old', { platform: 'indeed', source: 'recommended', lateApplied: true, delayMs: 40 }),
+    job('fallback', { searchOnlyJob: true, source: 'search', detailDelayMs: 20 }),
+  ], { apply: true, workers: 2, cap: 1, reviews: 1 });
+  assert.equal(result.events.filter(event => event.stage === 'search' && event.id === 'seek').length, 1);
+  assert.equal(result.events.filter(event => event.stage === 'search' && event.id === 'indeed').length, 1);
+  assert.equal(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length, 1);
+  assert.ok(result.history.some(record => record.jobId === 'fallback' && record.submittedByMyasis));
 });
 test('a shared employer destination is sent once, while different platform forms for the same vacancy remain allowed', () => {
   const result = run([

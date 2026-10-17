@@ -258,7 +258,7 @@ export async function workingIn(page: Page): Promise<void> {
 
 /** Publish actual worker activity without changing browser focus or application
  * decisions. A page-less phase clears the old form instead of presenting it
- * as current work. Review callers must hold the shared review mutex first.
+ * as current work. Callers publish only the page owned by their current worker.
  */
 export async function showLiveActivity(activity: LiveActivity, page?: Page): Promise<void> {
   try {
