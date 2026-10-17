@@ -44,7 +44,9 @@ run_backup success
 test "$(find "$FIXTURE/success" -name '*.dump' | wc -l)" = 1 || fail 'database archive missing'
 test "$(find "$FIXTURE/success" -name '*.tar.gz' | wc -l)" = 1 || fail 'file archive missing'
 test "$(stat -c %a "$FIXTURE/success/"*.dump)" = 600 || fail 'database permissions not private'
-tar -tzf "$FIXTURE/success/"*.tar.gz | grep -q '/resumes/cv.txt' || fail 'resume not archived'
+# Drain the listing: grep -q can close early and make tar exit on SIGPIPE
+# under pipefail, falsely reporting a valid archive as missing its resume.
+tar -tzf "$FIXTURE/success/"*.tar.gz | grep -F '/resumes/cv.txt' > /dev/null || fail 'resume not archived'
 mkdir "$FIXTURE/restored"
 tar -xzf "$FIXTURE/success/"*.tar.gz -C "$FIXTURE/restored"
 node --input-type=module - "$FIXTURE/restored/fixture/application-reservations.sqlite" <<'JS'
