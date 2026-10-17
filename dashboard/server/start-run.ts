@@ -367,7 +367,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (sessionFor(userId)) {
     // Only the account holder pressing Start ends their own sign-in; nobody else closes a window they are using.
     if (trigger !== 'manual') return { ok: false, status: 409, error: 'A sign-in is in progress for this account.' };
-    stopSignin(userId);
+    await stopSignin(userId);
   }
 
   const browserReady = await waitForSigninChecks(userId);

@@ -386,7 +386,7 @@ function setAdminEmail(email: string, admin: boolean): void {
 /** Ends whatever the account has going: its run, its sign-in window, and every session it holds. */
 async function cutOff(user: UserRecord): Promise<void> {
   if (runner.stateFor(user.id).running) runner.stop(user.id);
-  if (sessionFor(user.id)) stopSignin(user.id);
+  if (sessionFor(user.id)) await stopSignin(user.id);
   await query('DELETE FROM sessions WHERE user_id = $1', [user.id]);
 }
 

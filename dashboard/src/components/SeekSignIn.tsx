@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN } from '../boards';
+import { SigninViewer, type BrowserSigninSession as Session } from './SigninViewer';
 
 /**
  * Signing in to SEEK, in a browser this account controls.
@@ -15,19 +16,6 @@ import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN } from '../boards';
  * On a desktop install there is a real screen, so it falls back to opening a
  * normal Chrome window instead.
  */
-
-interface Session {
-  display: number;
-  startedAt: number;
-  expiresAt: number;
-  password: string;
-  /** Which sign-in this window was opened for; only the labels differ. */
-  target?: 'seek' | 'indeed' | 'gmail';
-  assist?: {
-    state: 'waiting' | 'clicked' | 'unavailable' | 'failed';
-    message: string;
-  };
-}
 
 /** Last known SEEK sign-in state; null when nobody has ever found out. */
 interface SeekState {
@@ -59,19 +47,51 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
   const [notice, setNotice] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const screen = useRef<HTMLDivElement>(null);
-  const rfb = useRef<{ disconnect: () => void } | null>(null);
+  const requestEpoch = useRef(0);
+  const acting = useRef(false);
+  const polling = useRef(false);
+  const previousSession = useRef<Session | null>(null);
+  const reopening = useRef(false);
+  const reopenTimes = useRef<number[]>([]);
+  previousSession.current = status?.session ?? null;
 
   const refresh = useCallback(async (verify = false) => {
+    if (acting.current || polling.current) return;
+    polling.current = true;
+    const epoch = requestEpoch.current;
     try {
       const sites = indeedEnabled ? 'seek,indeed' : 'seek';
       const response = await fetch(
         verify ? `/api/signin/session?verify=${encodeURIComponent(sites)}` : '/api/signin/session',
+        {signal: AbortSignal.timeout(10_000)},
       );
-      setStatus(await response.json());
+      if (!response.ok) throw new Error('Could not check sign-in.');
+      const body = await response.json();
+      if (epoch !== requestEpoch.current || acting.current) return;
+      const previous = previousSession.current;
+      // A dashboard restart forgets its in-memory session. Restore the window
+      // only while the user still has it open and its original lease is valid.
+      if (!body.session && previous && Date.now() < previous.expiresAt && !reopening.current) {
+        reopenTimes.current = reopenTimes.current.filter(time => Date.now() - time < 60_000);
+        if (reopenTimes.current.length < 3) {
+          reopenTimes.current.push(Date.now()); reopening.current = true;
+          setStatus(current => current?.session ? {...current, session: {...current.session, state: 'recovering', message: 'Restoring your sign-in window after the connection stopped...'}} : current);
+          try {
+            const restored = await fetch('/api/signin/session', { method: 'POST', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({target: previous.target ?? 'seek', manual: true, resumeUntil: previous.expiresAt}) });
+            const result = await restored.json();
+            if (epoch !== requestEpoch.current) return;
+            if (restored.ok && result.session) { setStatus({...body, session: result.session}); return; }
+            setError(result.error ?? 'Could not restore sign-in. Please open it again.');
+          } finally { reopening.current = false; }
+        } else setNotice('The sign-in window keeps stopping. Please open it again to retry.');
+      } else if (!body.session && reopening.current) return;
+      setStatus(body);
       window.dispatchEvent(new Event(BOARDS_CHANGED));
     } catch {
-      setStatus({ supported: false, session: null });
+      if (epoch === requestEpoch.current) setStatus(previous => previous ?? { supported: false, session: null });
+    } finally {
+      polling.current = false;
     }
   }, [indeedEnabled]);
 
@@ -96,59 +116,19 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     return () => clearInterval(tick);
   }, [status?.checking, refresh]);
 
-  // Connect the viewer once a session exists and the canvas is on screen.
+  // Session state/revision changes drive recovery without replacing a healthy
+  // viewer on every poll. A temporary HTTP outage must not discard the session.
+  const activeSession = Boolean(status?.session);
   useEffect(() => {
-    const session = status?.session;
-    if (!session || !screen.current || rfb.current) return;
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const { default: RFB } = await import('@novnc/novnc');
-        if (cancelled || !screen.current) return;
-        const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-        const client = new RFB(screen.current, `${scheme}://${location.host}/ws/signin`, {
-          credentials: { password: session.password },
-        });
-        client.scaleViewport = true;
-        client.background = 'transparent';
-        client.addEventListener('connect', () => setConnected(true));
-        client.addEventListener('disconnect', () => {
-          setConnected(false);
-          rfb.current = null;
-        });
-        rfb.current = client as unknown as { disconnect: () => void };
-      } catch (reason) {
-        setError(`Could not open the viewer: ${(reason as Error).message}`);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [status?.session]);
-
-  // Keeps the remaining-time figure honest, and clears the panel once the
-  // server has expired the session on its side.
-  useEffect(() => {
-    if (!status?.session) return;
-    const tick = setInterval(() => {
-      setNow(Date.now());
-      if (Date.now() > status.session!.expiresAt) void refresh();
-    }, 15_000);
+    if (!activeSession) return;
+    const tick = setInterval(() => { setNow(Date.now()); void refresh(); }, 2_000);
     return () => clearInterval(tick);
-  }, [status?.session, refresh]);
+  }, [activeSession, refresh]);
 
-  // The server selects a known Google account for Indeed after the page has
-  // rendered. Poll only while that one bounded action is still in progress.
-  useEffect(() => {
-    if (status?.session?.assist?.state !== 'waiting') return;
-    const tick = setInterval(() => void refresh(), 1_500);
-    return () => clearInterval(tick);
-  }, [status?.session?.assist?.state, refresh]);
-
-  async function open(target: 'seek' | 'indeed' = 'seek', manual = false) {
-    if (busy) return;
+  async function open(target: 'seek' | 'indeed' | 'gmail' = 'seek', manual = false) {
+    if (acting.current) return;
+    acting.current = true;
+    requestEpoch.current++;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -167,19 +147,16 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     } catch (reason) {
       setError((reason as Error).message);
     } finally {
+      acting.current = false;
       setBusy(false);
     }
   }
 
   async function close(verifySignIn: boolean) {
-    if (busy) return;
+    if (acting.current) return;
+    acting.current = true;
     setBusy(true);
-    try {
-      rfb.current?.disconnect();
-    } catch {
-      /* already gone */
-    }
-    rfb.current = null;
+    requestEpoch.current++;
     setConnected(false);
     const target = status?.session?.target ?? 'seek';
     try {
@@ -204,6 +181,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     } catch {
       setStatus({ supported: true, session: null });
     } finally {
+      acting.current = false;
       setBusy(false);
     }
   }
@@ -323,7 +301,8 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
           </div>
         )}
         {error && <div className="banner banner-bad seek-window-error">{error}</div>}
-        <div className="seek-window-screen" ref={screen} />
+        <SigninViewer session={status.session} onConnectionChange={setConnected}
+          onRetry={() => void open(status.session?.target ?? 'seek', true)} />
       </div>
     </div>
   );

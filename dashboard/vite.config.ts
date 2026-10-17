@@ -903,14 +903,15 @@ function dataApi(): Plugin {
                 return send({ error: 'Verification email access requires an Intensive plan.' }, 403);
               }
             }
-            const result = await startSignin(userId, target, { assist: body?.manual !== true });
+            const result = await startSignin(userId, target, { assist: body?.manual !== true,
+              expiresAt: typeof body?.resumeUntil === 'number' ? body.resumeUntil : undefined });
             if (!result.ok) return send({ error: result.error }, 409);
             return send({ ok: true, supported: true, session: result.session });
           }
           if (req.method === 'DELETE') {
             const target = sessionFor(userId)?.target;
             const cancelled = url.searchParams.get('cancel') === 'true';
-            stopSignin(userId);
+            await stopSignin(userId);
             /**
              * Done is not proof of sign-in, so the site is checked directly
              * in this account's profile. Close is an explicit cancellation:
@@ -1290,7 +1291,7 @@ function dataApi(): Plugin {
           // Claimed like a run start, so a scan never closes a browser a run is using.
           if (!runner.claimStart(userId)) return send({ error: 'A run is already starting or in progress for this account.' }, 409);
           try {
-            if (sessionFor(userId)) stopSignin(userId);
+            if (sessionFor(userId)) await stopSignin(userId);
             const ready = await waitForSigninChecks(userId);
             if (!ready.ok) return send({ error: ready.error }, 409);
             const runStartId = await recordRunStart(userId, 'scan', 'manual', null, runDeviceFromHeaders(req.headers)).catch(() => null);
@@ -1448,12 +1449,12 @@ function dataApi(): Plugin {
         console.log(`[shutdown] ${signal}: stopping runs and sign-in browsers`);
         const runsStopped = runner.stopAll();
         stopMarketingWorker();
-        stopAllSignins();
+        const signinsStopped = stopAllSignins();
         // Keep the server alive through the 10-second escalation and browser cleanup.
         const shutdownDeadline = setTimeout(() => process.exit(1), 25_000);
         // Preserve the grace period for sign-in and marketing browser shutdown too.
         const browserGrace = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
-        void Promise.all([runsStopped, browserGrace]).finally(() => {
+        void Promise.all([runsStopped, signinsStopped, browserGrace]).finally(() => {
           clearTimeout(shutdownDeadline);
           process.exit(0);
         });

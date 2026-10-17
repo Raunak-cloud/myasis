@@ -498,11 +498,7 @@ export function restartDashboard(actor: string): { ok: true } | { ok: false; err
   console.log(`[config] ${actor} restarted the dashboard`);
   // Let the reply reach the browser first.
   setTimeout(() => {
-    try {
-      stopAllSignins();
-    } finally {
-      process.exit(0);
-    }
+    void stopAllSignins().then(() => process.exit(0), () => process.exit(1));
   }, 400).unref();
   return { ok: true };
 }

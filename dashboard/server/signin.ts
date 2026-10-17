@@ -1,301 +1,62 @@
 import { browserRoute } from './route.js';
-import { spawn, type ChildProcess } from 'node:child_process';
 import { upgradeOriginAllowed } from './http-guards.js';
 import { createConnection } from 'node:net';
-import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { currentUser } from './auth.js';
 import { readEnv } from './runner.js';
 import { userChromeDir, ensureUserDataDir } from './userdata.js';
 import { chromeGoogleAccounts } from './chrome-accounts.js';
-import { assistIndeedGoogleSignin, type SigninAssistStatus } from './signin-assist.js';
+import { assistIndeedGoogleSignin } from './signin-assist.js';
 import { releaseChromeProfile } from './chrome-profile.js';
-import { signinChromeArgs, SigninInputFilter } from './signin-input.js';
-
-/**
- * Signing an account in to a job board on a headless server.
- *
- * The bot never handles credentials. For Indeed it may select a Google account
- * already present in this Chrome profile; passwords, verification and CAPTCHA
- * remain with the person. On a desktop this is a Chrome window. On a VPS there is no screen,
- * so this gives each account a private virtual one: its own Xvfb display, its
- * own Chrome on its own profile, and an x11vnc server bound to localhost that
- * the dashboard proxies to the browser over an authenticated WebSocket.
- *
- * A real remote desktop remains essential for credentials and verification:
- * its keyboard and mouse events reach X11 as ordinary input. The one automated
- * exception is choosing an already-known Google account on Indeed; it neither
- * reads nor types a credential.
- *
- * Nothing here is reachable from outside. x11vnc listens on 127.0.0.1 only,
- * carries a random password generated per session, and the only route to it
- * is a WebSocket that checks the dashboard session cookie and refuses to
- * bridge one account to another account's display.
- */
-
-const SESSION_MS = 15 * 60_000;
-const FIRST_DISPLAY = 100;
-const FIRST_PORT = 5900;
-const FIRST_DEBUG_PORT = 19222;
-const SCREEN = '1280x900x24';
-
-/** What a sign-in window was opened for; only the label and start page differ. */
-type SigninTarget = 'seek' | 'indeed' | 'gmail';
+import { SigninInputFilter } from './signin-input.js';
+import { SigninDesktop } from './signin-desktop.js';
+import { SigninSessions, type SigninTarget } from './signin-sessions.js';
 
 const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
   indeed: 'https://secure.indeed.com/account/login?hl=en_AU&co=AU',
-  /**
-   * Straight to the account chooser rather than mail.google.com, which would
-   * land an already-signed-in profile in an inbox instead of offering to add
-   * the separate account this flow exists to add.
-   */
   gmail: 'https://accounts.google.com/AddSession?service=mail',
 };
 
-interface SigninSession {
-  userId: string;
-  display: number;
-  vncPort: number;
-  password: string;
-  startedAt: number;
-  expiresAt: number;
-  target: SigninTarget;
-  assist?: SigninAssistStatus;
-}
-
-interface Live extends SigninSession {
-  closeViewer?: () => void;
-  xvfb: ChildProcess;
-  chrome: ChildProcess;
-  vnc: ChildProcess;
-  passwordDir: string;
-  timer: NodeJS.Timeout;
-  debugPort?: number;
-}
-
-const sessions = new Map<string, Live>();
-
-export function signinSupported(): boolean {
-  return process.platform === 'linux';
-}
-
-/**
- * A display and port nobody is using.
- *
- * The in-memory map is not enough on its own: a dashboard restart forgets its
- * sessions while their Xvfb processes keep running, and X refuses a display
- * whose lock file already exists. Checking the filesystem too means a
- * leftover display is skipped rather than collided with.
+/** Each account owns its profile, desktop processes, lease and recovery budget.
+ * VNC and Chrome debugging listen only on loopback. Only the authenticated
+ * owner may see or drive the private sign-in screen; credentials remain manual.
  */
-function allocate(): { display: number; vncPort: number } {
-  const used = new Set([...sessions.values()].map((s) => s.display));
-  let display = FIRST_DISPLAY;
-  while (used.has(display) || existsSync(`/tmp/.X${display}-lock`) || existsSync(`/tmp/.X11-unix/X${display}`)) {
-    display++;
-    if (display > FIRST_DISPLAY + 64) throw new Error('No free virtual display. Restart the server to clear stale ones.');
-  }
-  return { display, vncPort: FIRST_PORT + (display - FIRST_DISPLAY) };
-}
-
-function stopProcess(child: ChildProcess | undefined): void {
-  if (!child || child.killed) return;
-  try {
-    child.kill('SIGTERM');
-  } catch {
-    /* already gone */
-  }
-}
-
-export function stopSignin(userId: string): { ok: boolean } {
-  const live = sessions.get(userId);
-  if (!live) return { ok: false };
-  sessions.delete(userId);
-  clearTimeout(live.timer);
-  live.closeViewer?.();
-  // Reverse order: the viewer first, then the browser, then the display it drew on.
-  stopProcess(live.vnc);
-  stopProcess(live.chrome);
-  stopProcess(live.xvfb);
-  try {
-    rmSync(live.passwordDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-  return { ok: true };
-}
-
-/** Sign-in windows open right now; each is a Chrome of its own. */
-export function signinSessionCount(): number {
-  return sessions.size;
-}
-
-export function sessionFor(userId: string): SigninSession | null {
-  const live = sessions.get(userId);
-  if (!live) return null;
-  const { userId: id, display, vncPort, password, startedAt, expiresAt, target, assist } = live;
-  return { userId: id, display, vncPort, password, startedAt, expiresAt, target, assist };
-}
-
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Opens a private browser for this account and returns what the viewer needs.
- *
- * Chrome runs on the account's own profile, so whatever is signed in here is
- * exactly what later runs use. Indeed alone gets a loopback-only debugging
- * port for the bounded Google-account click; the remote viewer remains the
- * path for every credential, verification or CAPTCHA step.
- */
-export async function startSignin(userId: string, target: SigninTarget = 'seek', options: { assist?: boolean } = {}): Promise<{
-  ok: boolean;
-  error?: string;
-  session?: SigninSession;
-}> {
-  if (!signinSupported()) {
-    return { ok: false, error: 'Remote sign-in is only available on the Linux server. On this machine, use the local Chrome sign-in instead.' };
-  }
-  const existing = sessions.get(userId);
-  if (existing) return { ok: true, session: sessionFor(userId)! };
-
-  const startUrl = START_URLS[target] ?? START_URLS.seek;
-  const env = readEnv();
-  const chromePath = env.CHROME_PATH?.trim() || '/usr/bin/google-chrome';
+const desktops = new SigninSessions(async (session, assist) => {
+  const { userId, target, id } = session;
   ensureUserDataDir(userId);
   const profileDir = userChromeDir(userId);
-  // A browser left on this profile by an earlier session would swallow the new one into its own window, on a display nobody is watching.
-  await releaseChromeProfile(profileDir);
-  const { display, vncPort } = allocate();
-  const googleAccount = target === 'indeed' && options.assist !== false ? chromeGoogleAccounts(userId)[0] : undefined;
-  const debugPort = googleAccount ? FIRST_DEBUG_PORT + (display - FIRST_DISPLAY) : undefined;
-  const password = randomBytes(8).toString('base64url').slice(0, 8);
-
-  let passwordDir = '';
-  let xvfb: ChildProcess | undefined;
-  let chrome: ChildProcess | undefined;
-  let vnc: ChildProcess | undefined;
-  try {
-    passwordDir = mkdtempSync(resolve(tmpdir(), 'myasis-vnc-'));
-    const passwordFile = resolve(passwordDir, 'passwd');
-    // x11vnc -passwd would put the secret in the process list; a 0600 file does not.
-    writeFileSync(passwordFile, password);
-    chmodSync(passwordFile, 0o600);
-
-    xvfb = spawn('Xvfb', [`:${display}`, '-screen', '0', SCREEN, '-nolisten', 'tcp'], { stdio: 'ignore' });
-    xvfb.on('error', () => {});
-    await wait(700);
-    if (xvfb.exitCode !== null) {
-      throw new Error(
-        `The virtual display :${display} would not start. If Xvfb is missing, install it with \`apt install xvfb\`; ` +
-          'otherwise a stale display is holding it and the server needs a restart.',
-      );
-    }
-
-    // Signed in from the same address the runs will apply from.
-    const route = await browserRoute(userId);
-    const chromeArgs = [
-      `--user-data-dir=${profileDir}`,
-      ...route.args,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--window-position=0,0',
-      '--window-size=1280,900',
-      '--test-type',
-      ...(debugPort
-        ? [`--remote-debugging-address=127.0.0.1`, `--remote-debugging-port=${debugPort}`]
-        : []),
-      ...signinChromeArgs(startUrl),
-    ];
-    chrome = spawn(
-      chromePath,
-      chromeArgs,
-      { env: { ...process.env, DISPLAY: `:${display}` }, stdio: 'ignore' },
-    );
-    chrome.on('error', () => {});
-    // Chrome exiting on its own means the person closed the window; tear the rest down.
-    chrome.on('exit', () => stopSignin(userId));
-    await wait(1200);
-    if (chrome.exitCode !== null) {
-      throw new Error(`Chrome could not start. Check CHROME_PATH (${chromePath}) and that the profile is not already in use by a run.`);
-    }
-
-    vnc = spawn(
-      'x11vnc',
-      [
-        '-display', `:${display}`,
-        '-rfbport', String(vncPort),
-        '-localhost',
-        '-passwdfile', passwordFile,
-        '-forever',
-        '-shared',
-        '-rfbversion', '3.8',
-        '-input', 'KMB',
-        '-nosel',
-        '-noxdamage',
-        '-quiet',
-      ],
-      { stdio: 'ignore' },
-    );
-    vnc.on('error', () => {});
-    await wait(700);
-    if (vnc.exitCode !== null) throw new Error('x11vnc did not start. Install it with `apt install x11vnc`.');
-
-    const startedAt = Date.now();
-    const live: Live = {
-      userId,
-      display,
-      vncPort,
-      password,
-      startedAt,
-      expiresAt: startedAt + SESSION_MS,
-      target,
-      assist:
-        target === 'indeed'
-          ? googleAccount
-            ? { state: 'waiting', message: `Selecting ${googleAccount} with Google...` }
-            : { state: 'unavailable', message: 'No Google account is available in this browser profile. Sign in manually.' }
-          : undefined,
-      xvfb,
-      chrome,
-      vnc,
-      passwordDir,
-      // A forgotten sign-in window is a logged-in browser left open on a server.
-      timer: setTimeout(() => stopSignin(userId), SESSION_MS),
-      debugPort,
-    };
-    sessions.set(userId, live);
-    if (debugPort && googleAccount) {
-      void assistIndeedGoogleSignin({
-        debugPort,
-        email: googleAccount,
-        active: () => sessions.get(userId) === live,
-        update: (assist) => {
-          if (sessions.get(userId) === live) live.assist = assist;
-        },
+  if (!await releaseChromeProfile(profileDir)) throw new Error('The previous browser is still closing. Please retry shortly.');
+  const route = await browserRoute(userId);
+  const account = target === 'indeed' && assist ? chromeGoogleAccounts(userId)[0] : undefined;
+  if (target === 'indeed') session.assist = account
+    ? { state: 'waiting', message: `Selecting ${account} with Google...` }
+    : { state: 'unavailable', message: 'No Google account is available in this browser profile. Sign in manually.' };
+  const desktop = new SigninDesktop({
+    profileDir, chromePath: readEnv().CHROME_PATH?.trim() || '/usr/bin/google-chrome',
+    routeArgs: route.args, startUrl: START_URLS[target], password: session.password,
+    log: message => console.warn(`[signin ${id}] ${message}`),
+    onReady: debugPort => {
+      if (!account) return;
+      const revision = desktop.revision;
+      const active = () => desktops.sessionFor(userId)?.id === id && desktop.revision === revision && desktop.state === 'ready';
+      void assistIndeedGoogleSignin({ debugPort, email: account, active,
+        update: status => { if (active()) session.assist = status; },
       });
-    }
-    return { ok: true, session: sessionFor(userId)! };
-  } catch (error) {
-    stopProcess(vnc);
-    stopProcess(chrome);
-    stopProcess(xvfb);
-    if (passwordDir) {
-      try {
-        rmSync(passwordDir, { recursive: true, force: true });
-      } catch {
-        /* best effort */
-      }
-    }
-    return { ok: false, error: (error as Error).message };
-  }
-}
+    },
+  });
+  return desktop;
+});
 
-/** Closes every open sign-in window; used when the server shuts down. */
-export function stopAllSignins(): void {
-  for (const userId of [...sessions.keys()]) stopSignin(userId);
+export function signinSupported(): boolean { return process.platform === 'linux'; }
+export const sessionFor = (userId: string) => desktops.sessionFor(userId);
+export const signinSessionCount = () => desktops.count();
+export const stopSignin = (userId: string) => desktops.stop(userId);
+export const stopAllSignins = () => desktops.stopAll();
+
+export async function startSignin(userId: string, target: SigninTarget = 'seek', options: { assist?: boolean; expiresAt?: number } = {}) {
+  if (!signinSupported()) return { ok: false, error: 'Remote sign-in is only available on the Linux server. On this machine, use the local Chrome sign-in instead.' };
+  return desktops.start(userId, target, options.assist !== false, options.expiresAt);
 }
 
 /**
@@ -309,7 +70,7 @@ export function attachSigninVnc(server: { on: (ev: string, cb: (...a: any[]) => 
 
   // A restart must not leave a signed-in browser running on a spare display.
   for (const signal of ['SIGINT', 'SIGTERM', 'exit'] as const) {
-    process.once(signal, () => stopAllSignins());
+    process.once(signal, () => { void stopAllSignins(); });
   }
 
   server.on('upgrade', (req: any, socket: any, head: any) => {
@@ -321,8 +82,8 @@ export function attachSigninVnc(server: { on: (ev: string, cb: (...a: any[]) => 
       return;
     }
     void currentUser(req.headers?.cookie).then((user) => {
-      const live = user ? sessions.get(user.id) : null;
-      if (!live) {
+      const live = user ? desktops.desktopFor(user.id) : null;
+      if (!live || live.state !== 'ready') {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;
@@ -331,7 +92,7 @@ export function attachSigninVnc(server: { on: (ev: string, cb: (...a: any[]) => 
         live.closeViewer?.();
         live.closeViewer = bridge(ws, live.vncPort);
       });
-    });
+    }).catch(() => socket.destroy());
   });
 }
 
