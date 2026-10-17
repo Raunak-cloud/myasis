@@ -43,6 +43,10 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
       ]))] };
     }
     if (/FROM knowledge_items/i.test(sql)) return { rows: [] };
+    if (/FROM settings/i.test(sql)) return { rows: [
+      { key: 'WORK_ARRANGEMENTS', value: account === 'Alice' ? 'remote' : 'hybrid,onsite' },
+      { key: 'ONSITE_CITY', value: account === 'Alice' ? 'Melbourne' : 'Sydney' },
+    ] };
     assert.match(sql, /FROM saved_answers/i);
     if (account === 'Failure') throw new Error('Fixture answer-bank failure');
     return { rows: banks[account].map((answer) => ({ question: 'Availability?', answer, created_at: new Date() })) };
@@ -74,6 +78,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
     assert.equal(results[index].answers?.[0].value, banks[account][0] ?? '');
     const prompt = prompts.find((text) => text.includes(`Name: ${account}\n`));
     assert.ok(prompt);
+    assert.match(prompt, account === 'Alice' ? /"arrangements":\["remote"\],"onsiteCity":"Melbourne"/ : /"arrangements":\["hybrid","onsite"\],"onsiteCity":"Sydney"/);
     assert.ok(!prompt.includes(sharedAnswer), 'dashboard must never read the process-wide bank');
     for (const [owner, answers] of Object.entries(banks)) {
       for (const answer of answers) assert.equal(prompt.includes(answer), owner === account);

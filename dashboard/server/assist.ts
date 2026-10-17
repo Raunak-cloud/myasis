@@ -7,6 +7,7 @@ import { listAnswers } from './answers.js';
 import { humanizerAllowed } from './entitlements.js';
 import type { CandidateProfile } from './candidate-profile.js';
 import { accountApplicationEnvironment, readEnv } from './runner.js';
+import { loadUserSettings, RUN_SETTING_DEFAULTS } from './settings.js';
 
 /**
  * Backend for the browser extension.
@@ -174,9 +175,10 @@ export async function answerForm(
         description: input.description ?? queued?.fitReason ?? '',
       };
 
-      const [context, savedAnswers] = await Promise.all([
+      const [context, savedAnswers, settings] = await Promise.all([
         fullContext(userId),
         input.fields.length ? listAnswers(userId) : Promise.resolve([]),
+        loadUserSettings(userId),
       ]);
       const knowledge = context.ok ? (context.text ?? '') : '';
 
@@ -188,7 +190,11 @@ export async function answerForm(
         : true;
       const [answered, letter] = await Promise.all([
         input.fields.length
-          ? llm.answerFields(input.fields, job, profile, knowledge, { savedAnswers })
+          ? llm.answerFields(input.fields, job, profile, knowledge, { savedAnswers, workPreferences: {
+              arrangements: (settings.WORK_ARRANGEMENTS ?? RUN_SETTING_DEFAULTS.WORK_ARRANGEMENTS).split(',').map(value => value.trim()).filter(Boolean),
+              onsiteCity: settings.ONSITE_CITY ?? RUN_SETTING_DEFAULTS.ONSITE_CITY,
+              instructions: Buffer.from(settings.AI_INSTRUCTIONS_B64 ?? '', 'base64').toString('utf8'),
+            } })
           : Promise.resolve({ answers: [], injectionSuspected: false }),
         queued?.coverLetter && queuedLetterMatchesModel
           ? Promise.resolve(queued.coverLetter)

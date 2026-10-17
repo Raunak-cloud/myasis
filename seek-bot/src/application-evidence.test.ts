@@ -39,6 +39,11 @@ globalThis.fetch = async (_url, init) => {
   assert.match(prompt, /listing may support facts ABOUT THE EMPLOYER/);
   assert.match(prompt, /cannot establish that the candidate has a qualification/);
   assert.match(prompt, /Availability windows and permitted total hours are different facts/);
+  if (prompt.includes('A job application form is about to be sent') || prompt.includes('Independently review this CURRENT SAVED FORM')) {
+    assert.match(prompt, /ROUTINE WORK-ARRANGEMENT POLICY/);
+    assert.match(prompt, /CANDIDATE SAVED APPLICATION PREFERENCES/);
+    assert.match(prompt, /does not invent exact shift availability/);
+  }
   if (prompt.includes('A job application form is about to be sent')) {
     assert.ok(prompt.includes('CURRENT form URL (from the browser): "https://apply.alias.fixture/application"'));
     assert.match(prompt, /explicit candidate-confirmed saved answer/);

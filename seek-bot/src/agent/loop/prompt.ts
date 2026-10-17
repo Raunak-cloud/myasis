@@ -1,5 +1,6 @@
 import { config } from '../../config.js';
 import { browserGmailAvailable } from '../../browser-gmail.js';
+import { WORK_PREFERENCE_POLICY } from '../../work-preferences.js';
 
 // Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
 
@@ -218,7 +219,7 @@ STOPPING
  * cache-friendly prompt.
  */
 export function systemPrompt(): string {
-  const sections = [SYSTEM_PROMPT];
+  const sections = [SYSTEM_PROMPT, WORK_PREFERENCE_POLICY];
   if (config.celeris.rawTools) sections.push(BROWSER_TOOLS_PROMPT);
   if (config.formSpeed && config.celeris.rawTools) sections.push(LIVE_RECOVERY_PROMPT);
   if (browserGmailAvailable()) sections.push(EMAIL_PROMPT);
