@@ -31,7 +31,7 @@ const JOB_SEARCH_AUTO_RUNS_PER_DAY = PLAN_LIMITS['job-search-pass'].autoRunsPerD
 const INTENSIVE_AUTO_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].autoRunsPerDay;
 
 /** Scheduled runs per local day for an operator of this installation. */
-const ADMIN_AUTO_RUNS_PER_DAY = 10;
+const ADMIN_AUTO_RUNS_PER_DAY = 4;
 
 /**
  * Where an account's own "automatic runs off" choice is kept. A settings row,

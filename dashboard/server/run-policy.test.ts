@@ -76,7 +76,7 @@ check('Intensive runs keep the humanizer', intensive.HUMANIZER_MODE !== 'off');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Essential accounts receive one scheduled run', automaticRunsPerDay('standard', 'essential') === 1);
 check('Active Search accounts receive four scheduled runs', automaticRunsPerDay('standard', 'active') === 4);
-check('admins receive ten scheduled runs', automaticRunsPerDay('admin') === 10);
+check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);
 check('Intensive includes four automatic runs', automaticRunsPerDay('intensive') === 4);
 
 const intensiveFacts = {

@@ -27,7 +27,7 @@ import { loadUserSettings } from './settings.js';
  * order. Handing each account fixed times spreads the same work evenly and
  * makes a starved account impossible.
  *
- * Admin accounts get ten runs a day on the same timetable. Any account can
+ * Admin accounts get four runs a day on the same timetable. Any account can
  * switch its automatic runs off — found a job, taking a break — and a
  * switched-off account is not scheduled at all until it switches them on.
  *
