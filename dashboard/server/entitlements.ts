@@ -4,6 +4,7 @@ import { billingStatus, isAdmin, type BillingStatus } from './billing.js';
 import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
 import type { RunDevice } from '../src/run-device.js';
+import { countedRunSql } from './run-accounting.js';
 
 export { SCHEDULED_MIN_SCORE };
 
@@ -335,7 +336,8 @@ export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'ac
 }
 
 /**
- * Successful scheduled runs this account has completed since local midnight.
+ * Scheduled runs completed since local midnight: a clean completion or real
+ * submissions count, including submissions made before a timeout or Stop.
  *
  * The comparison is written as a round trip through the local zone —
  * truncate in local time, then read the result back as an instant — so the
@@ -345,25 +347,25 @@ export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'ac
 async function automaticRunsStartedToday(userId: string): Promise<number> {
   const rows = await query<{ n: string }>(
     `SELECT count(*)::text AS n
-       FROM run_starts
-      WHERE user_id = $1
-        AND trigger IN ('auto', 'onboarding')
-        AND successful
-        AND started_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
+       FROM run_starts r
+      WHERE r.user_id = $1
+        AND r.trigger IN ('auto', 'onboarding')
+        AND ${countedRunSql('r')}
+        AND r.started_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
     [userId, RUN_TIME_ZONE],
   );
   return Number(rows[0]?.n ?? 0);
 }
 
-/** A completed first run, including one an operator completed for the account with real submissions. */
+/** A first run with completed work, including an operator's real submissions. */
 async function hasCompletedFirstRun(userId: string): Promise<boolean> {
   const row = await one<{ complete: boolean }>(
     `SELECT EXISTS (
-       SELECT 1 FROM run_starts
-        WHERE user_id = $1
-          AND mode = 'live'
-          AND successful
-          AND (trigger IN ('auto', 'onboarding') OR (trigger = 'admin' AND applied > 0))
+       SELECT 1 FROM run_starts r
+        WHERE r.user_id = $1
+          AND r.mode = 'live'
+          AND ${countedRunSql('r')}
+          AND (r.trigger IN ('auto', 'onboarding') OR (r.trigger = 'admin' AND r.applied > 0))
      ) AS complete`,
     [userId],
   );

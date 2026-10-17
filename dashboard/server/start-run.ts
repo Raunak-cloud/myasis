@@ -418,9 +418,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    *
    * A refused start — the pool was full, or this account was already running
    * — never reached an employer, so it must not spend a slot; the scheduler
-   * simply tries again on its next tick. The runner marks this durable record
-   * successful only after the bot reaches its normal completion checkpoint,
-   * so a run that starts and then fails is also eligible for a retry.
+   * simply tries again on its next tick. The allowance counts a normal
+   * completion or confirmed submissions, independently of process health;
+   * an unsuccessful empty attempt remains eligible for a retry.
    */
   let started = false;
   try {

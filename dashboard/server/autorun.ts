@@ -11,6 +11,7 @@ import { sendOperatorAlerts } from './operator-alerts.js';
 import { accountSetupComplete } from './setup.js';
 import { readSiteState } from './seek-state.js';
 import { loadUserSettings } from './settings.js';
+import { countedRunSql } from './run-accounting.js';
 
 /**
  * Applications for the accounts that do not drive runs themselves.
@@ -312,7 +313,7 @@ export async function autoScheduleFor(userId: string, now: Date = new Date()): P
  * How long an account waits after scheduled runs that failed in a row: 5,
  * 15 and 45 minutes, then two hours at most.
  *
- * Only a successful run counts toward the day's allowance, so a failed one
+ * An unsuccessful run without submissions does not use the day's allowance, so it
  * left the account due again on the very next minute. An account whose board
  * had walled it was relaunched every tick — a lane, a Chrome and model calls
  * each time, against a site already refusing it.
@@ -323,9 +324,9 @@ export function retryDelayMinutes(failures: number): number {
 }
 
 /**
- * Scheduled runs that failed in a row since each account's last successful
- * run, from the run records themselves, so a restart keeps the backoff. A run
- * the person stopped is not a failure; the streak only looks back a day.
+ * Scheduled runs that failed without submissions since each account's last
+ * counted run, so a restart keeps the backoff. A run the person stopped is
+ * not a failure; the streak only looks back a day.
  */
 async function failureStreaks(userIds: string[]): Promise<Map<string, { failures: number; lastAt: number }>> {
   const streaks = new Map<string, { failures: number; lastAt: number }>();
@@ -336,11 +337,11 @@ async function failureStreaks(userIds: string[]): Promise<Map<string, { failures
       WHERE r.user_id = ANY($1::bigint[])
         AND r.trigger IN ('auto', 'onboarding')
         AND r.finished_at IS NOT NULL
-        AND NOT r.successful
+        AND NOT ${countedRunSql('r')}
         AND NOT r.stopped
         AND r.started_at > now() - interval '1 day'
         AND r.started_at > COALESCE(
-          (SELECT max(s.started_at) FROM run_starts s WHERE s.user_id = r.user_id AND s.successful),
+          (SELECT max(s.started_at) FROM run_starts s WHERE s.user_id = r.user_id AND ${countedRunSql('s')}),
           '-infinity'::timestamptz)
       GROUP BY r.user_id`,
     [userIds],
