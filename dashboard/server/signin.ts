@@ -13,6 +13,7 @@ import { userChromeDir, ensureUserDataDir } from './userdata.js';
 import { chromeGoogleAccounts } from './chrome-accounts.js';
 import { assistIndeedGoogleSignin, type SigninAssistStatus } from './signin-assist.js';
 import { releaseChromeProfile } from './chrome-profile.js';
+import { signinChromeArgs, SigninInputFilter } from './signin-input.js';
 
 /**
  * Signing an account in to a job board on a headless server.
@@ -67,6 +68,7 @@ interface SigninSession {
 }
 
 interface Live extends SigninSession {
+  closeViewer?: () => void;
   xvfb: ChildProcess;
   chrome: ChildProcess;
   vnc: ChildProcess;
@@ -113,6 +115,7 @@ export function stopSignin(userId: string): { ok: boolean } {
   if (!live) return { ok: false };
   sessions.delete(userId);
   clearTimeout(live.timer);
+  live.closeViewer?.();
   // Reverse order: the viewer first, then the browser, then the display it drew on.
   stopProcess(live.vnc);
   stopProcess(live.chrome);
@@ -204,7 +207,7 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek',
       ...(debugPort
         ? [`--remote-debugging-address=127.0.0.1`, `--remote-debugging-port=${debugPort}`]
         : []),
-      startUrl,
+      ...signinChromeArgs(startUrl),
     ];
     chrome = spawn(
       chromePath,
@@ -228,6 +231,9 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek',
         '-passwdfile', passwordFile,
         '-forever',
         '-shared',
+        '-rfbversion', '3.8',
+        '-input', 'KMB',
+        '-nosel',
         '-noxdamage',
         '-quiet',
       ],
@@ -299,7 +305,7 @@ export function stopAllSignins(): void {
  * request, so one account cannot ask for another's display.
  */
 export function attachSigninVnc(server: { on: (ev: string, cb: (...a: any[]) => void) => unknown }): void {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
 
   // A restart must not leave a signed-in browser running on a spare display.
   for (const signal of ['SIGINT', 'SIGTERM', 'exit'] as const) {
@@ -321,20 +327,26 @@ export function attachSigninVnc(server: { on: (ev: string, cb: (...a: any[]) => 
         socket.destroy();
         return;
       }
-      wss.handleUpgrade(req, socket, head, (ws) => bridge(ws, live.vncPort));
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        live.closeViewer?.();
+        live.closeViewer = bridge(ws, live.vncPort);
+      });
     });
   });
 }
 
-/** Plain byte pipe between the WebSocket and the local VNC port. */
-function bridge(ws: WebSocket, port: number): void {
+/** The authenticated viewer can enter sign-in details, not drive Chrome's UI. */
+export function bridge(ws: WebSocket, port: number): () => void {
   const tcp = createConnection({ host: '127.0.0.1', port });
+  const input = new SigninInputFilter();
   let open = true;
   const shutdown = () => {
     if (!open) return;
     open = false;
     try {
-      tcp.destroy();
+      for (const packet of input.release()) tcp.write(packet);
+      tcp.end();
+      tcp.setTimeout(1_000, () => tcp.destroy()).unref();
     } catch {
       /* already gone */
     }
@@ -354,8 +366,13 @@ function bridge(ws: WebSocket, port: number): void {
   ws.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
     if (!open) return;
     const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
-    tcp.write(buf);
+    try {
+      for (const packet of input.feed(buf)) tcp.write(packet);
+    } catch {
+      shutdown();
+    }
   });
   ws.on('error', shutdown);
   ws.on('close', shutdown);
+  return shutdown;
 }
