@@ -2,7 +2,7 @@ import { config } from '../../config.js';
 import { browserGmailAvailable } from '../../browser-gmail.js';
 import { WORK_PREFERENCE_POLICY } from '../../work-preferences.js';
 import { applicationModelIdentity } from '../../application-model.js';
-import { HAIKU_ANSWER_POLICY, APPLICATION_EVIDENCE_RULES } from '../../application-answer-policy.js';
+import { HAIKU_ANSWER_POLICY, APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from '../../application-answer-policy.js';
 
 // Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
 
@@ -225,6 +225,7 @@ export function systemPrompt(): string {
   const sections = applicationModelIdentity().selection === 'haiku'
     ? [HAIKU_SYSTEM_PROMPT, WORK_PREFERENCE_POLICY, HAIKU_ANSWER_POLICY, APPLICATION_EVIDENCE_RULES]
     : [SYSTEM_PROMPT, WORK_PREFERENCE_POLICY];
+  sections.push(CONTACT_IDENTITY_RULES);
   if (config.celeris.rawTools) sections.push(BROWSER_TOOLS_PROMPT);
   if (config.formSpeed && config.celeris.rawTools) sections.push(LIVE_RECOVERY_PROMPT);
   if (browserGmailAvailable()) sections.push(EMAIL_PROMPT);

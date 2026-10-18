@@ -6,7 +6,7 @@ import { withApplicationModel, applicationModelIdentity } from '../application-m
 import { systemPrompt } from './loop/prompt.js';
 import { toolSchemas } from './tools/schemas.js';
 import { answerFields, finishedCoverLetterForJob, formatCoverLetterParagraphs } from '../llm.js';
-import { APPLICATION_EVIDENCE_RULES } from '../application-answer-policy.js';
+import { APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from '../application-answer-policy.js';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,12 +22,15 @@ test('candidate evidence stays account scoped and known facts do not become huma
       const answers = JSON.stringify([{ question: 'Qualification', answer: `${marker} MBBS` }]);
       writeFileSync(join(directory, 'answers.json'), answers);
       writeFileSync(join(directory, 'knowledge.json'), JSON.stringify([{ id: marker, kind: 'note', label: 'Clinical CV', text: `${marker} medical officer experience`, enabled: true }]));
-      const ctx = { profile: { name: marker, qualification: 'MBBS' }, job: { title: 'Patient Concierge' }, resumeUsed: 'Retail CV', guards: { ungrounded: [], pendingFields: new Set() } } as unknown as ToolContext;
+      const ctx = { page: { url: () => 'https://smartapply.indeed.com/beta/indeedapply/form/review-module' }, profile: { name: marker, qualification: 'MBBS' }, job: { title: 'Patient Concierge' }, resumeUsed: 'Retail CV', guards: { ungrounded: [], pendingFields: new Set() } } as unknown as ToolContext;
       const result = await readCandidateEvidence(ctx, 'medical qualifications');
       assert.equal(result.kind, 'ok');
       const text = result.kind === 'ok' ? result.message : '';
       assert.match(text, new RegExp(`${marker} medical officer experience`));
       assert.match(text, /MBBS/);
+      assert.ok(text.includes(CONTACT_IDENTITY_RULES));
+      assert.match(text, /currentDestination.*smartapply\.indeed\.com/);
+      assert.ok(text.indexOf(CONTACT_IDENTITY_RULES) < text.indexOf('<untrusted'), 'policy is trusted instruction, evidence remains data');
       assert.match(text, /omission.*does not contradict/s);
       assert.equal(readFileSync(join(directory, 'answers.json'), 'utf8'), answers, 'read does not alter saved evidence');
       const stopped = await doFinish(ctx, { status: 'needs_human', reason: 'The retail CV omits MBBS' });
@@ -97,6 +100,7 @@ test('Haiku uses its own prompt, tools and native message schema; one-off prompt
   assert.ok(!JSON.stringify(body).includes('cache_control'));
   assert.ok(!JSON.stringify(body).includes('chat_template_kwargs'));
   assert.match(systemPrompt(), /You are Claude Haiku/);
+  assert.ok(systemPrompt().includes(CONTACT_IDENTITY_RULES), 'navigator shares the scoped contact rule with the saved-form reviewer');
   assert.ok(systemPrompt().includes(APPLICATION_EVIDENCE_RULES), 'navigator uses the same candidate-evidence policy as its answer and verification helpers');
   assert.match(systemPrompt(), /low- and medium-risk questions/);
   const tools = toolSchemas({ vision: true });

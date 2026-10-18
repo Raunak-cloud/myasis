@@ -8,7 +8,7 @@ import { FormAnswerCache } from './form-speed.js';
 import { reviewContextFingerprint } from './review-cache.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { applicationModelIdentity } from './application-model.js';
-import { applicationAnswerPolicy, APPLICATION_EVIDENCE_RULES } from './application-answer-policy.js';
+import { applicationAnswerPolicy, APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from './application-answer-policy.js';
 import { workPreferenceEvidence, type ApplicationWorkPreferences } from './work-preferences.js';
 import { validateInstructionVerdict, type InstructionVerdict, type InstructionInjectionSource } from './instruction-policy.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
@@ -181,9 +181,6 @@ async function json<T>(
   if (!reply.text) throw new ReplyUnusableError('Model returned an empty structured response');
   return JSON.parse(reply.text) as T;
 }
-
-const CONTACT_IDENTITY_RULES = `Contact identity has one scoped exception: an explicit candidate-confirmed saved answer authorising their own contact alias for a particular platform or site may override the general profile email ONLY on that matching destination. Match its scope to the CURRENT form URL, not merely the job board where the listing was discovered. A generic saved email, another person's address or an approval for a different site does not establish this permission. The page's existing login/contact email alone is not proof of candidate ownership or authorisation. Do not change sign-in emails or account security settings to resolve a mismatch. If no matching explicit approval exists, retain the ordinary candidate-evidence check.
-Compare telephone identity, not its typography. Read the selected country/dialling prefix together with the number: the prefix can be shown separately from the telephone input, and international formatting omits the national trunk zero. For example, an Australian +61 selector with 491-570-159 is the same number as profile 0491 570 159. Spaces, punctuation and that correct country-prefix/trunk-zero conversion are not unsupported answers and do not need rewriting. Different subscriber digits, a conflicting country code or an actual form validation error still require correction. An isolated changed-control excerpt may omit the country selector; do not assert a mismatch merely because that excerpt lacks the prefix. Use the complete current form for that decision.`;
 
 function currentApplicationEvidence(job: JobListing, includeListing = false): string {
   const metadata = `CURRENT APPLICATION FACTS (authoritative for this application, not personal history)\n${JSON.stringify({jobId: job.id, company: job.company, title: job.title, discoveredOn: job.platform ?? 'seek', listingUrl: job.url})}\nA historical answer about another application, including its referral source, does not override these current facts. Interpret saved answers in their original context; a question being worded the same does not make an application-specific answer universal.`;
