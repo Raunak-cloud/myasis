@@ -7,7 +7,7 @@ import type { Page } from 'patchright';
  * count towards "six actions with no effect"; the step and per-page budgets
  * still bound how long an agent may spend looking.
  */
-export const LOOK_ONLY_TOOLS = new Set(['take_snapshot', 'take_screenshot', 'scroll', 'list_pages', 'get_diagnostics', 'inspect_interaction']);
+export const LOOK_ONLY_TOOLS = new Set(['take_snapshot', 'take_screenshot', 'scroll', 'list_pages', 'get_diagnostics', 'inspect_interaction', 'get_candidate_evidence']);
 
 /** Tools that can change an answer without the grounded answer path; what they set is checked as it lands. */
 export const GENERAL_TOOLS = new Set(['evaluate_script', 'click_element', 'fill_element', 'type_text', 'press_key', 'click_point', 'drag']);

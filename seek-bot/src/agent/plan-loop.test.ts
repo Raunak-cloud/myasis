@@ -109,6 +109,9 @@ try {
   assert.ok(lines.some((line) => /plan: click → click → click/.test(line)), lines.join(' | '));
   assert.equal(agentTurns[0].chat_template_kwargs?.reasoning_effort, haiku ? 'medium' : 'low', 'a routine turn uses its model default');
   assert.equal(run.outcome.status, 'skipped');
+  const initialContext = JSON.stringify(agentTurns[0].messages);
+  assert.equal(initialContext.includes('AUTHORITATIVE CANDIDATE PROFILE'), haiku, 'Haiku receives the authoritative profile; Celeris context is unchanged');
+  if (haiku) assert.match(initialContext, /Raunak Shrestha/);
   // A page where nothing responds: after the stalls the model is asked to think at length.
   await page.route('https://careers.stuck-employer.example/**', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><main><h1>Apply</h1><form><button type="button">Continue</button></form></main>' }));
   await page.goto('https://careers.stuck-employer.example/apply');

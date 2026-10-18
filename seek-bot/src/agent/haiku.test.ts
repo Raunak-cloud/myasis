@@ -6,6 +6,41 @@ import { withApplicationModel, applicationModelIdentity } from '../application-m
 import { systemPrompt } from './loop/prompt.js';
 import { toolSchemas } from './tools/schemas.js';
 import { answerFields, finishedCoverLetterForJob } from '../llm.js';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { readCandidateEvidence } from './tools/candidate-evidence.js';
+import { doFinish } from './tools/finish.js';
+import type { ToolContext } from './tools/context.js';
+
+test('candidate evidence stays account scoped and known facts do not become human questions', async () => {
+  const dirs = ['A', 'B'].map(() => mkdtempSync(join(tmpdir(), 'haiku-evidence-')));
+  try {
+    const outputs = await Promise.all(dirs.map((directory, index) => withApplicationModel({ ...environment, DATA_DIR: directory }, async () => {
+      const marker = `PRIVATE_ACCOUNT_${index}`;
+      const answers = JSON.stringify([{ question: 'Qualification', answer: `${marker} MBBS` }]);
+      writeFileSync(join(directory, 'answers.json'), answers);
+      writeFileSync(join(directory, 'knowledge.json'), JSON.stringify([{ id: marker, kind: 'note', label: 'Clinical CV', text: `${marker} medical officer experience`, enabled: true }]));
+      const ctx = { profile: { name: marker, qualification: 'MBBS' }, job: { title: 'Patient Concierge' }, resumeUsed: 'Retail CV', guards: { ungrounded: [], pendingFields: new Set() } } as unknown as ToolContext;
+      const result = await readCandidateEvidence(ctx, 'medical qualifications');
+      assert.equal(result.kind, 'ok');
+      const text = result.kind === 'ok' ? result.message : '';
+      assert.match(text, new RegExp(`${marker} medical officer experience`));
+      assert.match(text, /MBBS/);
+      assert.match(text, /omission.*does not contradict/s);
+      assert.equal(readFileSync(join(directory, 'answers.json'), 'utf8'), answers, 'read does not alter saved evidence');
+      assert.equal((await doFinish(ctx, { status: 'needs_human', reason: 'The retail CV omits MBBS' })).kind, 'ok');
+      ctx.guards.ungrounded.push('Do you hold a valid police clearance?');
+      const unknown = await doFinish(ctx, { status: 'needs_human', reason: 'Unknown required clearance' });
+      assert.equal(unknown.kind === 'terminal' && unknown.outcome.status, 'needs-human');
+      assert.ok(toolSchemas().some(tool => tool.name === 'get_candidate_evidence'));
+      return text;
+    })));
+    assert.ok(!outputs[0].includes('PRIVATE_ACCOUNT_1'));
+    assert.ok(!outputs[1].includes('PRIVATE_ACCOUNT_0'));
+    withApplicationModel({ APPLICATION_AI_MODEL: 'celeris' }, () => assert.ok(!toolSchemas().some(tool => tool.name === 'get_candidate_evidence')));
+  } finally { dirs.forEach(directory => rmSync(directory, { recursive: true, force: true })); }
+});
 
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; });

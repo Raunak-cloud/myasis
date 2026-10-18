@@ -62,6 +62,12 @@ const CLICK_POINT_TOOL: ToolSchema = {
 export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
   return [
     ...TOOL_SCHEMAS,
+    ...(applicationModelIdentity().selection === 'haiku' ? [{
+      name: 'get_candidate_evidence',
+      description: 'Read this account\'s authoritative profile, saved answers and relevant supporting documents. Use before judging an apparent qualification/history conflict or stopping because the displayed CV omits a claim. A selected CV preview is not the complete candidate record. Read only; cannot choose another account or change facts.',
+      parameters: { type: 'object', properties: { focus: { type: 'string', maxLength: 512,
+        description: 'The fact or apparent contradiction to check, e.g. education, work history or a cover-letter claim.' } }, required: [] },
+    }] : []),
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
