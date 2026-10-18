@@ -48,8 +48,8 @@ const reply = (message: Record<string, unknown>) => {
 globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
   const body = JSON.parse(String(init?.body ?? '{}')) as Body;
   if (haiku) {
-    const native = body as unknown as { output_config: { effort: string }; messages: Array<{ role: string; content: Array<{ type: string; text?: string; content?: string; tool_use_id?: string }> }> };
-    body.chat_template_kwargs = { reasoning_effort: native.output_config.effort };
+    const native = body as unknown as { output_config: { effort: string }; messages: Array<{ role: string; output_config?: { effort: string }; content: Array<{ type: string; text?: string; content?: string; tool_use_id?: string }> }> };
+    body.chat_template_kwargs = { reasoning_effort: native.messages.filter(message => message.output_config).at(-1)?.output_config?.effort ?? native.output_config.effort };
     body.messages = native.messages.flatMap(message => {
       if (message.role !== 'user') return [{ role: message.role, content: message.content }];
       const results = message.content.filter(block => block.type === 'tool_result').map(block => ({ role: 'tool', tool_call_id: block.tool_use_id, content: block.content }));

@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readCandidateEvidence } from './tools/candidate-evidence.js';
 import { doFinish } from './tools/finish.js';
+import { browserTranscript, estimateHaikuTokens } from './loop/transcript.js';
 import type { ToolContext } from './tools/context.js';
 
 test('candidate evidence stays account scoped and known facts do not become human questions', async () => {
@@ -130,6 +131,61 @@ test('signed thinking and complete tool results survive the next request unchang
   assert.equal(messages[2].content[2].text, 'Page two');
   assert.equal(messages[2].content[3].type, 'image');
   assert.equal(JSON.stringify(transcript), before);
+});
+
+test('browser recovery changes effort without changing the cached prefix, including return to medium', () => {
+  const tools = [{ name: 'click', description: 'Click', parameters: { type: 'object', properties: {}, required: [] } }];
+  const messages: ChatMessage[] = [{ role: 'system', content: 'Stable rules' }, { role: 'user', content: 'First page' }];
+  const first = haikuBody({ ...request, messages, tools }, 'medium');
+  messages.push({ role: 'assistant', content: null, nativeEffort: 'medium', nativeContent: [{ type: 'tool_use', id: 'a', name: 'click', input: {} }] },
+    { role: 'tool', tool_call_id: 'a', content: 'Did not move' }, { role: 'user', content: 'Fresh observation; recover.' });
+  const high = haikuBody({ ...request, messages, tools }, 'high');
+  assert.deepEqual((high.messages as unknown[]).slice(0, 1), first.messages);
+  assert.deepEqual(high.output_config, { effort: 'medium' });
+  assert.deepEqual((high.messages as unknown[]).at(-1), { role: 'system', content: [], output_config: { effort: 'high' } });
+  messages.push({ role: 'assistant', content: null, nativeEffort: 'high', nativeContent: [{ type: 'tool_use', id: 'b', name: 'click', input: {} }] },
+    { role: 'tool', tool_call_id: 'b', content: 'Moved' }, { role: 'user', content: 'Next page' });
+  const normal = haikuBody({ ...request, messages, tools }, 'medium');
+  assert.deepEqual((normal.messages as unknown[]).slice(0, (high.messages as unknown[]).length), high.messages);
+  assert.deepEqual((normal.messages as unknown[]).at(-1), { role: 'system', content: [], output_config: { effort: 'medium' } });
+});
+
+test('Haiku tools stay identical when vision appears, while Celeris retains its existing tool selection', () => {
+  withApplicationModel(environment, () => assert.deepEqual(toolSchemas({ vision: false }), toolSchemas({ vision: true })));
+  withApplicationModel({ CELERIS_API_KEY: 'fictional' }, () => {
+    assert.ok(!toolSchemas().some(tool => tool.name === 'click_point'));
+    assert.ok(toolSchemas({ vision: true }).some(tool => tool.name === 'click_point'));
+  });
+});
+
+test('only opted-in reusable system rules are cached for helpers; changing form evidence stays outside', () => {
+  const helper = { ...request, cacheSystemPrefix: true, messages: [{ role: 'system' as const, content: 'Reusable trusted rules' }, { role: 'user' as const, content: 'Changing private form evidence' }] };
+  const body = haikuBody(helper, 'medium');
+  assert.ok(JSON.stringify(body.system).includes('cache_control'));
+  assert.ok(!JSON.stringify(body.messages).includes('cache_control'));
+  assert.ok(!JSON.stringify(body.system).includes('Changing private form evidence'));
+  assert.ok(!('cache_control' in body), 'do not cache the entire changing one-off prompt');
+});
+
+test('native history ignores base64 expansion and duplicate assistant representations; bounded trimming is committed once', () => {
+  const messages: ChatMessage[] = [{ role: 'system', content: 'Fixed' }, { role: 'user', content: 'Canonical profile' },
+    { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${'A'.repeat(400_000)}` } }] }];
+  assert.ok(estimateHaikuTokens(messages) < 5000);
+  const before = JSON.stringify(messages);
+  assert.equal(browserTranscript(messages, 60_000, true), messages);
+  assert.equal(JSON.stringify(messages), before);
+  for (let i = 0; i < 35; i++) messages.push({ role: 'assistant', content: null, nativeEffort: i % 2 ? 'high' : 'medium', nativeContent: [{ type: 'tool_use', id: String(i), name: 'click', input: {} }] },
+    { role: 'tool', tool_call_id: String(i), content: 'Completed' }, { role: 'user', content: `Page ${i}: ${'evidence '.repeat(100)}` });
+  browserTranscript(messages, 6000, true);
+  assert.equal(messages[1].content, 'Canonical profile');
+  const trimmed = JSON.stringify(messages);
+  browserTranscript(messages, 6000, true);
+  assert.equal(JSON.stringify(messages), trimmed, 'the next call reuses the same retained prefix');
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if (message.role === 'assistant') for (const block of message.nativeContent ?? []) if (block.type === 'tool_use') ids.add(String(block.id));
+    if (message.role === 'tool') assert.ok(ids.has(message.tool_call_id), 'never orphan a tool result');
+  }
 });
 
 test('real answer-batch schemas fit the strict grammar while original dispatch bounds remain enforced', () => withApplicationModel(environment, () => {

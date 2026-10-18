@@ -27,7 +27,7 @@ import { embeddedSurface, watchTab } from './raw-tools.js';
 import { systemPrompt } from './loop/prompt.js';
 import { LOOK_ONLY_TOOLS, MAX_PLAN, SURPRISE, missingRefs } from './loop/plan.js';
 import { TraceStep, pathOf, hostOf, describeCall, TRACE_DIR, loadSiteHints, persistTrace, captureBlockedField } from './loop/trace.js';
-import { trimTranscript, observationMessage, embeddedForms } from './loop/transcript.js';
+import { browserTranscript, observationMessage, embeddedForms } from './loop/transcript.js';
 import { confirmAuthentication } from './loop/accounts.js';
 export * from './loop/prompt.js';
 export * from './loop/plan.js';
@@ -547,7 +547,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     messages.push(observationMessage(ctx.observation, note));
     note = '';
 
-    const trimmed = trimTranscript(messages, config.celeris.maxTranscriptTokens);
+    const trimmed = browserTranscript(messages, config.celeris.maxTranscriptTokens, applicationModelIdentity().selection === 'haiku');
     const reply = await celerisChat({
       model,
       messages: trimmed,

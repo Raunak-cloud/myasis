@@ -70,7 +70,9 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
     }] : []),
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
-    ...(options.vision ? [CLICK_POINT_TOOL] : []),
+    // A stable Haiku tool prefix survives screenshot/text transitions. The
+    // dispatcher still refuses coordinate clicks without a current screenshot.
+    ...(options.vision || applicationModelIdentity().selection === 'haiku' ? [CLICK_POINT_TOOL] : []),
   ].map(withPressJudgement).map(tool => applicationModelIdentity().selection === 'haiku' && tool.name === 'add_cover_letter'
     ? { ...tool, description: tool.description + ' If the saved-form review rejected the current letter, pass its specific feedback in repair_feedback to revise it; repeating without feedback reuses the draft.', parameters: {
       ...tool.parameters, properties: { ...(tool.parameters as { properties: object }).properties,

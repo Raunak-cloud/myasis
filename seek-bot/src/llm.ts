@@ -1,6 +1,6 @@
 import { isEmployerSource } from './employer-source-config.js';
 import { config, expectedSalaryAnswer } from './config.js';
-import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel } from './agent/celeris.js';
+import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel, type ChatMessage } from './agent/celeris.js';
 import type { CandidateProfile, FieldAnswer, FormField, JobListing } from './types.js';
 import type { SavedForm } from './agent/saved-form.js';
 import { cachedAssessment, relevantEvidence, measured, metric } from './pipeline.js';
@@ -8,7 +8,7 @@ import { FormAnswerCache } from './form-speed.js';
 import { reviewContextFingerprint } from './review-cache.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { applicationModelIdentity } from './application-model.js';
-import { applicationAnswerPolicy, APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from './application-answer-policy.js';
+import { APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from './application-answer-policy.js';
 import { workPreferenceEvidence, type ApplicationWorkPreferences } from './work-preferences.js';
 import { validateInstructionVerdict, type InstructionVerdict, type InstructionInjectionSource } from './instruction-policy.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
@@ -166,12 +166,20 @@ async function json<T>(
   maxTokens?: number,
   reasoningEffort?: 'low' | 'medium' | 'xhigh',
 ): Promise<T> {
+  const haiku = applicationModelIdentity().selection === 'haiku';
+  // Cache only shared trusted rules, never a changing job/form prompt. The
+  // adapter already supplies the answer policy, so do not duplicate it here.
+  const messages: ChatMessage[] = haiku ? [
+    { role: 'system', content: GUARD },
+    { role: 'user', content: prompt.startsWith(GUARD) ? prompt.slice(GUARD.length).trimStart() : prompt },
+  ] : [{ role: 'user', content: prompt }];
   const request = {
     model,
     reasoningEffort,
     // Magnus can spend 75% of its output budget reasoning before the JSON.
     maxTokens: model === 'celeris-1-magnus' && maxTokens ? Math.max(config.celeris.maxOutputTokens, maxTokens * 4) : maxTokens,
-    messages: [{ role: 'user' as const, content: applicationModelIdentity().selection === 'haiku' ? `${prompt}\n\n${applicationAnswerPolicy()}` : prompt }],
+    messages,
+    cacheSystemPrefix: haiku,
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
     // The reasoning model is only worth its latency when it is allowed to reason.
     thinking: model === 'celeris-1-magnus',

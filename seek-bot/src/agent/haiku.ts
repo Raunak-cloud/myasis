@@ -6,7 +6,7 @@ import { providerOutOfCredit } from '../run-health.js';
 import { ReplyUnusableError, type CelerisRequest, type CelerisReply, type ToolSchema } from './celeris.js';
 
 type Block = Record<string, unknown>;
-type NativeMessage = { role: 'user' | 'assistant'; content: Block[] };
+type NativeMessage = { role: 'user' | 'assistant' | 'system'; content: Block[]; output_config?: { effort: 'medium' | 'high' } };
 
 /** Convert the shared schemas to Anthropic's grammar subset without mutating
  * the originals. Constraints the grammar cannot express stay in the tool
@@ -92,9 +92,15 @@ export function validHaikuInput(value: unknown, schema: Record<string, unknown>,
   return true;
 }
 
-function nativeConversation(request: CelerisRequest): { system: Block[]; messages: NativeMessage[] } {
+function nativeConversation(request: CelerisRequest, effort: 'medium' | 'high'): { system: Block[]; messages: NativeMessage[] } {
   const system: Block[] = [];
   const messages: NativeMessage[] = [];
+  let activeEffort: 'medium' | 'high' = 'medium';
+  const setEffort = (next: 'medium' | 'high') => {
+    if (!request.tools?.length || activeEffort === next) return;
+    messages.push({ role: 'system', content: [], output_config: { effort: next } });
+    activeEffort = next;
+  };
   const push = (role: NativeMessage['role'], content: Block[]) => {
     const previous = messages.at(-1);
     if (previous?.role === role) previous.content.push(...content);
@@ -106,6 +112,9 @@ function nativeConversation(request: CelerisRequest): { system: Block[]; message
     } else if (message.role === 'tool') {
       push('user', [{ type: 'tool_result', tool_use_id: message.tool_call_id, content: message.content }]);
     } else if (message.role === 'assistant') {
+      // Reconstruct accepted effort transitions at their original positions.
+      // Never rewrite the top-level effort or signed assistant content.
+      setEffort(message.nativeEffort ?? 'medium');
       // Retain signed thinking, redacted thinking and tool blocks exactly.
       push('assistant', message.nativeContent ? structuredClone(message.nativeContent) : [
         ...(message.content ? [{ type: 'text', text: message.content }] : []),
@@ -120,20 +129,21 @@ function nativeConversation(request: CelerisRequest): { system: Block[]; message
       }));
     }
   }
+  setEffort(effort);
   return { system, messages };
 }
 
 export function haikuBody(request: CelerisRequest, effort: 'medium' | 'high'): Record<string, unknown> {
-  const { system, messages } = nativeConversation(request);
+  const { system, messages } = nativeConversation(request, effort);
   const tools = request.tools?.length ? haikuTools(request.tools) : undefined;
   // A stable reusable prefix only. One-off fit/letter/answer prompts are not
   // cached wholesale at the more expensive cache-write rate.
-  system.push({ type: 'text', text: HAIKU_ANSWER_POLICY, ...(tools ? { cache_control: { type: 'ephemeral' } } : {}) });
+  system.push({ type: 'text', text: HAIKU_ANSWER_POLICY, ...(tools || request.cacheSystemPrefix ? { cache_control: { type: 'ephemeral' } } : {}) });
   if (tools) tools[tools.length - 1].cache_control = { type: 'ephemeral' };
   return {
     model: 'claude-haiku-5-5', max_tokens: Math.max(request.maxTokens ?? 8192, 8192),
     thinking: { type: 'adaptive' },
-    output_config: { effort, ...(!tools && request.responseSchema ? { format: { type: 'json_schema', schema: haikuSchema(request.responseSchema) } } : {}) },
+    output_config: { effort: tools ? 'medium' : effort, ...(!tools && request.responseSchema ? { format: { type: 'json_schema', schema: haikuSchema(request.responseSchema) } } : {}) },
     // Browser conversations grow without rewriting earlier turns. Automatic
     // caching reuses that prefix; one-off structured calls stay uncached.
     system, messages, ...(tools ? { tools, tool_choice: { type: 'auto' }, cache_control: { type: 'ephemeral' } } : {}),
@@ -161,7 +171,8 @@ export async function haikuChat(request: CelerisRequest): Promise<CelerisReply> 
     let accounted = false;
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01',
+          ...(request.tools?.length ? { 'anthropic-beta': 'mid-conversation-output-config-2026-07-01' } : {}) },
         body: JSON.stringify(haikuBody(request, effort)), signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
       });
       if (!response.ok) {
@@ -192,7 +203,7 @@ export async function haikuChat(request: CelerisRequest): Promise<CelerisReply> 
         if (!validHaikuInput(parsed, request.responseSchema, false)) throw new ReplyUnusableError('Haiku structured output did not satisfy the original response schema.');
       }
       metric('model', performance.now() - started, { model: applicationModelIdentity().model, attempts: attempt + 1, effort, usage: payload.usage });
-      return { text, toolCalls, message: { role: 'assistant', content: text || null, nativeContent: content,
+      return { text, toolCalls, message: { role: 'assistant', content: text || null, nativeContent: content, nativeEffort: effort,
         tool_calls: toolCalls.map(call => ({ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } };
     } catch (error) {
       if (!accounted) recordCost({ provider: 'Anthropic', model: 'claude-haiku-5-5', amountUsd: null, basis: 'unknown', detail: 'Request failed without usage; final charge unavailable.' });
