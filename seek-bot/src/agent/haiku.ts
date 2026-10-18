@@ -8,13 +8,28 @@ import { ReplyUnusableError, type CelerisRequest, type CelerisReply, type ToolSc
 type Block = Record<string, unknown>;
 type NativeMessage = { role: 'user' | 'assistant'; content: Block[] };
 
-/** Close object schemas recursively, including objects nested in array items.
+/** Convert the shared schemas to Anthropic's grammar subset without mutating
+ * the originals. Constraints the grammar cannot express stay in the tool
+ * description and are enforced against the original schema before dispatch.
  * Keep optional fields optional: making them required changes tool semantics. */
 export function haikuSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(haikuSchema);
   if (!value || typeof value !== 'object') return value;
   const schema = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, haikuSchema(item)]));
   if (schema.type === 'object') schema.additionalProperties = false;
+  // JSON outputs and strict tools reject maxItems, and only accept minItems
+  // of 0 or 1. Sending the common answer-batch schema unchanged is HTTP 400.
+  if (schema.type === 'array') {
+    const limits: string[] = [];
+    for (const key of ['maxItems']) {
+      if (key in schema) { limits.push(`${key}: ${JSON.stringify(schema[key])}`); delete schema[key]; }
+    }
+    if (typeof schema.minItems === 'number' && schema.minItems > 1) {
+      limits.push(`minItems: ${schema.minItems}`);
+      schema.minItems = 1;
+    }
+    if (limits.length) schema.description = [schema.description, `Additional requirements: ${limits.join('; ')}.`].filter(Boolean).join(' ');
+  }
   return schema;
 }
 

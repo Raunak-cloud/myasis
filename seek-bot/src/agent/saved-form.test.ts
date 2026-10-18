@@ -10,6 +10,8 @@ process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 process.env.DRY_RUN = 'true';
 process.env.ALLOW_EXTERNAL_APPLY = 'true';
+const haiku = process.env.TEST_APPLICATION_MODEL === 'haiku';
+if (haiku) { process.env.APPLICATION_AI_MODEL = 'haiku'; process.env.ANTHROPIC_API_KEY = 'fictional-only'; }
 let mode = 'approve';
 let calls = 0;
 let lastForm: import('./saved-form.js').SavedForm;
@@ -17,11 +19,12 @@ let duringReview: (() => Promise<void>) | undefined;
 globalThis.fetch = (async (_url, init) => {
   calls++;
   const request = JSON.parse(String(init?.body));
-  const prompt = String(request.messages[0].content);
+  const content = request.messages[0].content;
+  const prompt = typeof content === 'string' ? content : content.map((block: { text?: string }) => block.text ?? '').join('\n');
   const match = prompt.match(/<untrusted role="current-saved-form">([\s\S]*)<\/untrusted>/);
   assert.ok(match, 'every advancement uses the saved-form reviewer');
   lastForm = JSON.parse(match[1]);
-  assert.equal(request.model, 'celeris-1-magnus');
+  assert.equal(request.model, haiku ? 'claude-haiku-5-5' : 'celeris-1-magnus');
   if (mode === 'unavailable') throw Error('Fixture outage');
   if (duringReview) { const change = duringReview; duringReview = undefined; await change(); }
   let problems: unknown[] = [];
@@ -31,7 +34,8 @@ globalThis.fetch = (async (_url, init) => {
   }];
   if (mode === 'wrong-ref') problems = [{ ref: 'frame99:f999', field: 'Suburb *', value: 'Lidcombe', kind: 'invalid', problem: 'Invented field.' }];
   if (mode === 'wrong-value') problems = [{ ref: field.ref, field: field.label, value: 'Old stale value', kind: 'unsupported', problem: 'Not on form.' }];
-  return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems }) } }] }), { status: 200 });
+  return Response.json(haiku ? { content: [{ type: 'text', text: JSON.stringify({ problems }) }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }
+    : { choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems }) } }] });
 }) as typeof fetch;
 const { readSavedForm } = await import('./saved-form.js');
 const { observe } = await import('./observe.js');
@@ -95,6 +99,15 @@ try {
   mode = 'needs_candidate';
   result = await gateAdvance(ctx, 'Next');
   assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'needs-human');
+
+  if (haiku) {
+    ctx = await open(good); mode = 'unsupported';
+    result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
+    assert.ok(!result.proceed && result.result.kind === 'ok' && /repair_feedback/.test(result.result.message));
+    result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
+    assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'skipped');
+    assert.equal(ctx.guards.ungrounded.length, 0, 'a repeated draft error must never create a candidate question');
+  }
 
   ctx = await open(good);
   duringReview = () => page.locator('#city').fill('Changed after review');

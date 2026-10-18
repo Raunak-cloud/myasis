@@ -16,6 +16,7 @@ import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 import { readSavedForm, savedFormSignature } from '../saved-form.js';
 import { authorizeReservedSubmission } from '../../application-reservations.js';
+import { applicationModelIdentity } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -431,6 +432,12 @@ async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; va
     const count = (strikes.get(problem.field) ?? 0) + 1;
     strikes.set(problem.field, count);
     if (count >= 2) {
+      // Haiku's saved-form reviewer already separates missing required
+      // high-risk facts as needs_candidate. A repeated unsupported draft is
+      // an agent repair failure, not a new personal question for the user.
+      if (applicationModelIdentity().selection === 'haiku') return { kind: 'terminal', outcome: {
+        status: 'skipped', reason: 'The application answers could not be corrected against your saved information.',
+      } };
       const field = ctx.observation.fields.find((candidate) => sameLabel(candidate.label, problem.field));
       ctx.guards.rememberField(field ?? { label: problem.field }, await candidateQuestion(ctx, field, problem));
       ctx.guards.recordUngrounded(problem.field);
@@ -450,6 +457,7 @@ async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; va
     problems.map((p) => `- ${p.field}: "${p.value.slice(0, 80)}" — ${p.problem}`).join('\n') +
     '\nCorrect each one with answer_questions (a value the page already held goes in repair_refs, with your reason), ' +
     'or fill_element without a value for a field only the snapshot shows (both answer from the verified record), ' +
+    (applicationModelIdentity().selection === 'haiku' ? 'For a rejected cover letter, use add_cover_letter with repair_feedback quoting the specific rejection; this creates a corrected draft instead of reusing it. ' : '') +
     'then press the same control again.',
   );
 }

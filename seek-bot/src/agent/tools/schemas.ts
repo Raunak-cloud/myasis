@@ -65,7 +65,11 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
-  ].map(withPressJudgement).map(tool => applicationModelIdentity().selection === 'haiku' && tool.name === 'answer_questions'
+  ].map(withPressJudgement).map(tool => applicationModelIdentity().selection === 'haiku' && tool.name === 'add_cover_letter'
+    ? { ...tool, description: tool.description + ' If the saved-form review rejected the current letter, pass its specific feedback in repair_feedback to revise it; repeating without feedback reuses the draft.', parameters: {
+      ...tool.parameters, properties: { ...(tool.parameters as { properties: object }).properties,
+        repair_feedback: { type: 'string', description: 'Specific saved-form rejection to correct in the existing letter. Omit for the first draft or an upload retry.' } },
+    } } : tool).map(tool => applicationModelIdentity().selection === 'haiku' && tool.name === 'answer_questions'
     ? { ...tool, description: tool.description + ' You (Haiku) generate these answers from the account evidence. Infer reasonable low/medium-risk preferences and willingness; only unsupported required high-risk facts need the candidate. Re-observe after a partial batch.' }
     : tool);
 }

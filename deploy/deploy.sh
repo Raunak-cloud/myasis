@@ -101,6 +101,7 @@ as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable FORM_SPEED
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/interaction-recovery.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/committed-answers.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/saved-form.test.js"
+as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable TEST_APPLICATION_MODEL=haiku node dist/agent/saved-form.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/delayed-receipt.test.js"
 as_app "cd $APP/seek-bot && node --test dist/form-replay-compare.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/form-replay.test.js"

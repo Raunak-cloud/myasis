@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { haikuBody, haikuTools, haikuUsage, validHaikuInput } from './haiku.js';
+import { haikuBody, haikuSchema, haikuTools, haikuUsage, validHaikuInput } from './haiku.js';
 import { celerisChat, CostMeter, type CelerisRequest, type ChatMessage } from './celeris.js';
 import { withApplicationModel, applicationModelIdentity } from '../application-model.js';
 import { systemPrompt } from './loop/prompt.js';
 import { toolSchemas } from './tools/schemas.js';
-import { answerFields } from '../llm.js';
+import { answerFields, finishedCoverLetterForJob } from '../llm.js';
 
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; });
@@ -51,6 +51,25 @@ test('signed thinking and complete tool results survive the next request unchang
   assert.equal(messages[2].content[3].type, 'image');
   assert.equal(JSON.stringify(transcript), before);
 });
+
+test('real answer-batch schemas fit the strict grammar while original dispatch bounds remain enforced', () => withApplicationModel(environment, () => {
+  const shared = toolSchemas().find(tool => tool.name === 'answer_questions')!;
+  const before = JSON.stringify(shared);
+  const native = haikuTools([shared])[0];
+  const array = ((native.input_schema as { properties: Record<string, unknown> }).properties.refs) as Record<string, unknown>;
+  assert.equal(native.strict, true);
+  assert.equal(array.minItems, 1);
+  assert.ok(!('maxItems' in array));
+  assert.match(String(array.description), /maxItems:/);
+  assert.equal(JSON.stringify(shared), before, 'provider conversion must not weaken the shared dispatch schema');
+  assert.equal(validHaikuInput({ refs: ['f0'], reason: 'Answer the current page' }, shared.parameters as Record<string, unknown>), true);
+  assert.equal(validHaikuInput({ refs: Array.from({ length: 100 }, (_, i) => `f${i}`), reason: 'Answer the current page' }, shared.parameters as Record<string, unknown>), false);
+  assert.equal(validHaikuInput({ refs: [], reason: 'Answer the current page' }, shared.parameters as Record<string, unknown>), false);
+  const nested = haikuSchema({ type: 'array', minItems: 3, maxItems: 5, items: { type: 'array', maxItems: 2, items: { type: 'string' } } }) as Record<string, unknown>;
+  assert.equal(nested.minItems, 1);
+  assert.ok(!('maxItems' in nested));
+  assert.ok(!('maxItems' in (nested.items as object)));
+}));
 
 test('concurrent account selections never send Haiku data or its key to Celeris', async () => {
   const seen: Array<{ url: string; key: string | null; body: Record<string, unknown> }> = [];
@@ -112,6 +131,32 @@ test('Haiku usage includes cached writes, reads and reasoning at Anthropic rates
   assert.deepEqual(usage, { prompt: 3500, cached: 2000, completion: 100, amountUsd: 0.0002325 });
   assert.equal(haikuUsage(undefined), null);
   assert.equal(haikuUsage({ input_tokens: 100_001, output_tokens: 0 })!.amountUsd, 0.0500005);
+});
+
+test('a rejected letter is revised at high effort and replaces the cached draft for later form steps', async () => {
+  const profile = { name: 'Synthetic Revision', phone: '', email: 'fixture@example.test', nationality: '', expectedSalary: '', noticePeriod: '',
+    willingToRelocate: false, experienceSummary: 'Four years of TypeScript development.', skills: ['TypeScript'], excludedDomains: [], securityClearance: '' };
+  const job = { id: 'synthetic-letter-revision', title: 'Developer', company: 'Fixture', location: 'Sydney', url: 'https://fixture.invalid' };
+  let drafts = 0;
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    const prompt = JSON.stringify(body.messages);
+    if (prompt.includes('Check factual claims in this letter')) return response([{ type: 'text', text: '{"supported":true,"reason":"Synthetic evidence check"}' }]);
+    drafts++;
+    if (drafts === 2) {
+      assert.match(prompt, /REVISION REQUIRED/);
+      assert.match(prompt, /Remove the unsupported on-time delivery claim/);
+      assert.equal(body.output_config.effort, 'high');
+    }
+    return response([{ type: 'text', text: JSON.stringify({ letter: drafts === 1 ? 'Original synthetic letter. Synthetic Revision' : 'Revised synthetic letter. Synthetic Revision' }) }]);
+  }) as typeof fetch;
+  await withApplicationModel(environment, async () => {
+    const original = await finishedCoverLetterForJob(job, profile);
+    const repaired = await finishedCoverLetterForJob(job, profile, { draft: original, feedback: 'Remove the unsupported on-time delivery claim.' });
+    assert.notEqual(repaired, original);
+    assert.equal(await finishedCoverLetterForJob(job, profile), repaired);
+    assert.equal(drafts, 2, 'later form steps reuse the corrected letter without redrafting');
+  });
 });
 
 test('routine answer failures recover at high; only explicitly high-risk unknowns can reach the candidate', async () => {

@@ -1,7 +1,8 @@
 import { config } from '../../config.js';
 import { uploadObservedFile } from '../../form-speed.js';
 import { fillField } from '../../dom.js';
-import { finishedCoverLetterForJob, fitCoverLetterToLimit } from '../../llm.js';
+import { finishedCoverLetterForJob, fitCoverLetterToLimit, type CoverLetterRevision } from '../../llm.js';
+import { applicationModelIdentity } from '../../application-model.js';
 import { acceptsFormat, pickResumeForJob, resumeDirectory, documentFor } from '../../resume.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
@@ -19,8 +20,10 @@ import { applicationUpload } from '../../employer-browser.js';
 
 /** Writes only to the current field selected by the navigation model. */
 export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const revision = applicationModelIdentity().selection === 'haiku' && ctx.coverLetter && typeof args.repair_feedback === 'string' && args.repair_feedback.trim()
+    ? { draft: ctx.coverLetter, feedback: args.repair_feedback.trim() } : undefined;
   const upload = ctx.observation.actions.find(action => action.ref === args.ref && action.role === 'file');
-  if (upload) return addCoverLetterFile(ctx, upload);
+  if (upload) return addCoverLetterFile(ctx, upload, revision);
   const field = ctx.observation.fields.find(field => field.ref === args.ref);
   if (field && ['radio', 'select'].includes(field.kind) && typeof args.option === 'string' && field.options?.includes(args.option)) {
     try { await fillField(ctx.page, field, args.option); }
@@ -49,7 +52,7 @@ export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, un
   }
   const target = writable ?? ctx.page.locator(`[data-field-id="${field!.ref}"]`);
   const label = field?.label ?? 'cover letter';
-  let letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
+  let letter = await finishedCoverLetterForJob(ctx.job, ctx.profile, revision);
   if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
   const maxLength = await target.evaluate(el => (el as HTMLTextAreaElement).maxLength).catch(() => -1);
   if (Number.isInteger(maxLength) && maxLength >= 0) letter = await fitCoverLetterToLimit(letter, maxLength, ctx.job, ctx.profile);
@@ -81,13 +84,13 @@ export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, un
  * PageUp forms). Written as text, then converted to what the input accepts,
  * PDF when it does not say.
  */
-async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions'][number]): Promise<ToolResult> {
+async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions'][number], revision?: CoverLetterRevision): Promise<ToolResult> {
   if (/image/i.test(action.text) && !/letter|document|cv|resume/i.test(action.text)) {
     return ok('That upload is for an image, not a cover letter. Choose the cover-letter upload from a fresh observation.');
   }
   const input = ctx.page.locator(`input[type="file"][data-ref-id="${action.ref}"]`);
   const accept = (await input.getAttribute('accept').catch(() => null)) ?? '';
-  const document = await coverLetterDocument(ctx, accept);
+  const document = await coverLetterDocument(ctx, accept, revision);
   if (!document) return ok(`This upload only accepts "${accept}", and the cover letter could not be produced in that format. Look for a text box or another option.`);
   try {
     assertLive();
@@ -101,8 +104,8 @@ async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions
 }
 
 /** The grounded letter as a file this upload accepts: PDF when it may, otherwise what it lists. */
-export async function coverLetterDocument(ctx: ToolContext, accept: string): Promise<{ file: string; letter: string } | null> {
-  const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
+export async function coverLetterDocument(ctx: ToolContext, accept: string, revision?: CoverLetterRevision): Promise<{ file: string; letter: string } | null> {
+  const letter = await finishedCoverLetterForJob(ctx.job, ctx.profile, revision);
   if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
   const dir = resolve(config.dataDir, 'cover-letters');
   mkdirSync(dir, { recursive: true });
