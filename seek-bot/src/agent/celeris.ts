@@ -1,5 +1,5 @@
 import { metric } from '../pipeline.js';
-import { applicationModelEnvironment } from '../application-model.js';
+import { applicationModelEnvironment, applicationModelIdentity } from '../application-model.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost } from '../cost-ledger.js';
@@ -19,7 +19,7 @@ export interface ToolSchema {
   parameters: Record<string, unknown>;
 }
 
-interface ToolCall {
+export interface ToolCall {
   id: string;
   name: string;
   /** Already JSON-parsed. Malformed arguments surface as a parse error instead. */
@@ -28,7 +28,7 @@ interface ToolCall {
 
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string | ContentPart[] }
-  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] }
+  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[]; nativeContent?: Record<string, unknown>[] }
   | { role: 'tool'; tool_call_id: string; content: string };
 
 type ContentPart =
@@ -41,7 +41,7 @@ interface RawToolCall {
   function: { name: string; arguments: string };
 }
 
-interface CelerisReply {
+export interface CelerisReply {
   text: string;
   toolCalls: ToolCall[];
   /** Kept verbatim so it can be appended to the transcript for the next turn. */
@@ -104,6 +104,14 @@ export class CostMeter {
     this.totals.costUsd += (uncached * RATES.promptUncached + cached * RATES.promptCached + completion * RATES.completion) / 1_000_000;
   }
 
+  recordProvider(usage: { prompt: number; cached: number; completion: number; amountUsd: number }): void {
+    this.totals.calls++;
+    this.totals.promptTokens += usage.prompt;
+    this.totals.cachedPromptTokens += usage.cached;
+    this.totals.completionTokens += usage.completion;
+    this.totals.costUsd += usage.amountUsd;
+  }
+
   get exhausted(): boolean {
     return this.exceeds(1);
   }
@@ -120,7 +128,7 @@ export class CostMeter {
   }
 }
 
-interface CelerisRequest {
+export interface CelerisRequest {
   model: CelerisModel;
   messages: ChatMessage[];
   tools?: ToolSchema[];
@@ -161,6 +169,10 @@ export class ReplyUnusableError extends Error {}
 class ReplyTruncatedError extends ReplyUnusableError {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
+  if (applicationModelIdentity().selection === 'haiku') {
+    const { haikuChat } = await import('./haiku.js');
+    return haikuChat(request);
+  }
   const apiKey = applicationModelEnvironment().CELERIS_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('CELERIS_API_KEY is not set — the browser agent cannot run without it.');

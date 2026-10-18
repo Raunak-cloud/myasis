@@ -21,6 +21,14 @@ test('application AI requires a nonempty Celeris credential', () => {
   assert.doesNotThrow(() => assertApplicationBrowserConfigured({ CELERIS_API_KEY: 'fictional-key' }));
 });
 
+test('Haiku has a separate identity and requires its own scoped credential', () => {
+  const env = { APPLICATION_AI_MODEL: 'haiku', ANTHROPIC_API_KEY: 'fictional' };
+  assert.equal(applicationModelIdentity(env).model, 'claude-haiku-5-5');
+  assert.equal(applicationModelAvailable(env), true);
+  assert.equal(applicationModelAvailable({ APPLICATION_AI_MODEL: 'haiku', CELERIS_API_KEY: 'not-a-fallback' }), false);
+  assert.throws(() => assertApplicationModelConfigured({ APPLICATION_AI_MODEL: 'haiku' }), /ANTHROPIC_API_KEY/);
+});
+
 test('concurrent account scopes isolate credentials and data directories across awaits', async () => {
   const originalData = process.env.DATA_DIR, originalKey = process.env.CELERIS_API_KEY;
   const accounts = ['one', 'two'];

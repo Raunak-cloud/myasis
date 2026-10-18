@@ -13,6 +13,8 @@ import { isAdmin } from './admin-access.js';
 import { browserRunEnvironment } from './browser-run-policy.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
+import { loadUserSettings } from './settings.js';
+import { applicationModelForAccount } from './application-model-policy.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -24,17 +26,22 @@ export async function accountBrowserEnvironment(userId: string, mode: RunMode): 
 }
 
 /** Recheck the active owner before accessing their private application files. */
-export async function accountApplicationEnvironment(userId: string): Promise<Record<string, string>> {
+export async function accountApplicationEnvironment(userId: string, settings?: Record<string, string>): Promise<Record<string, string>> {
   if (!/^[A-Za-z0-9_-]+$/.test(userId)) throw new Error('This account is not available for an application run.');
-  const owners = await query<{ id: string }>(
-    'SELECT id FROM users WHERE id = $1 AND blocked_at IS NULL',
+  const owners = await query<{ id: string; email: string }>(
+    'SELECT id, email FROM users WHERE id = $1 AND blocked_at IS NULL',
     [userId],
   );
   const owner = owners[0];
   if (!owner) throw new Error('This account is not available for an application run.');
   const serverEnv = { ...readEnv(), ...process.env };
-  if (!serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Celeris is not configured. Add a Celeris API key in Admin settings before starting a run.');
-  return { DATA_DIR: userDir(userId) };
+  const selected = applicationModelForAccount((settings ?? await loadUserSettings(userId)).APPLICATION_AI_MODEL, isAdmin(owner.email));
+  const keyName = selected === 'haiku' ? 'ANTHROPIC_API_KEY' : 'CELERIS_API_KEY';
+  if (!serverEnv[keyName]?.trim()) throw new Error(`${selected === 'haiku' ? 'Haiku' : 'Celeris'} is not configured. Add ${keyName} in Admin settings before starting a run.`);
+  return { DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
+    CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
+    ANTHROPIC_API_KEY: selected === 'haiku' ? serverEnv.ANTHROPIC_API_KEY! : '',
+    ...(selected === 'haiku' ? { HUMANIZER_MODE: 'off' } : {}) };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */
@@ -342,8 +349,8 @@ class Run {
     this.cdpPort = cdpPort;
     let accountOverrides: Record<string, string>;
     try {
-      accountOverrides = await accountApplicationEnvironment(userId);
-      await assertHumanizerHealthy(overrides);
+      accountOverrides = await accountApplicationEnvironment(userId, overrides);
+      if (accountOverrides.APPLICATION_AI_MODEL !== 'haiku') await assertHumanizerHealthy(overrides);
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
@@ -405,7 +412,7 @@ class Run {
 
     this.push('sys', `▶ starting ${mode} run`);
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', '  application AI: Celeris');
+    this.push('sys', `  application AI: ${accountOverrides.APPLICATION_AI_MODEL === 'haiku' ? 'Haiku 5.5 (medium; high for recovery)' : 'Celeris'}`);
     const shown = Object.entries(overrides)
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
@@ -434,8 +441,8 @@ class Run {
     this.cdpPort = cdpPort;
     let accountOverrides: Record<string, string>;
     try {
-      accountOverrides = await accountApplicationEnvironment(userId);
-      await assertHumanizerHealthy(overrides);
+      accountOverrides = await accountApplicationEnvironment(userId, overrides);
+      if (accountOverrides.APPLICATION_AI_MODEL !== 'haiku') await assertHumanizerHealthy(overrides);
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
@@ -480,7 +487,7 @@ class Run {
       COST_TRACKING: 'true',
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', '  application AI: Celeris');
+    this.push('sys', `  application AI: ${accountOverrides.APPLICATION_AI_MODEL === 'haiku' ? 'Haiku 5.5 (medium; high for recovery)' : 'Celeris'}`);
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = null;

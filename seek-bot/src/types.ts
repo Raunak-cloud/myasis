@@ -246,6 +246,8 @@ export interface BlockedQuestion {
 }
 
 export interface FieldAnswer {
+  /** Haiku's contextual classification, not a keyword-based question filter. */
+  risk?: 'low' | 'medium' | 'high';
   ref: string;
   value: string;
   /** False when the observed control is page chrome or a misread heading, not part of the application. */

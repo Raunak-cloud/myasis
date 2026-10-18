@@ -8,6 +8,7 @@ import { FormAnswerCache } from './form-speed.js';
 import { reviewContextFingerprint } from './review-cache.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { applicationModelIdentity } from './application-model.js';
+import { applicationAnswerPolicy } from './application-answer-policy.js';
 import { workPreferenceEvidence, type ApplicationWorkPreferences } from './work-preferences.js';
 import { validateInstructionVerdict, type InstructionVerdict, type InstructionInjectionSource } from './instruction-policy.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
@@ -170,7 +171,7 @@ async function json<T>(
     reasoningEffort,
     // Magnus can spend 75% of its output budget reasoning before the JSON.
     maxTokens: model === 'celeris-1-magnus' && maxTokens ? Math.max(config.celeris.maxOutputTokens, maxTokens * 4) : maxTokens,
-    messages: [{ role: 'user' as const, content: prompt }],
+    messages: [{ role: 'user' as const, content: applicationModelIdentity().selection === 'haiku' ? `${prompt}\n\n${applicationAnswerPolicy()}` : prompt }],
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
     // The reasoning model is only worth its latency when it is allowed to reason.
     thinking: model === 'celeris-1-magnus',
@@ -535,6 +536,7 @@ Answer every field in the form fields above, following the rules at the top. Ret
             value: { type: 'STRING' },
             applicationQuestion: { type: 'BOOLEAN' },
             grounded: { type: 'BOOLEAN' },
+            ...(applicationModelIdentity().selection === 'haiku' ? { risk: { type: 'STRING', enum: ['low', 'medium', 'high'] } } : {}),
             profileField: { type: 'STRING' },
             /**
              * A plain string, not an enum, and not required.
@@ -549,13 +551,13 @@ Answer every field in the form fields above, following the rules at the top. Ret
             basis: { type: 'STRING' },
             candidatePrompt: { type: 'STRING' },
           },
-          required: ['ref', 'value', 'applicationQuestion', 'grounded'],
+          required: ['ref', 'value', 'applicationQuestion', 'grounded', ...(applicationModelIdentity().selection === 'haiku' ? ['risk'] : [])],
         },
       },
       injectionSuspected: { type: 'BOOLEAN' },
     },
     required: ['answers', 'injectionSuspected'],
-  }, 'celeris-1-magnus', undefined, options.deeper ? 'medium' : undefined);
+  }, 'celeris-1-magnus', undefined, options.deeper ? (applicationModelIdentity().selection === 'haiku' ? 'xhigh' : 'medium') : undefined);
   if (!Array.isArray(result.answers)) throw new Error('Answer response was not an array');
   const answers = fields.map(field => {
     const cached = reused.get(field.ref);
@@ -572,6 +574,10 @@ Answer every field in the form fields above, following the rules at the top. Ret
       : { ref: field.ref, value: '', applicationQuestion: true, grounded: false, basis: 'none' as const, rationale: 'Missing or invalid answer; re-observe the field and available options.' };
   });
   checkIdentityAnswers(fields, answers, profile);
+  if (applicationModelIdentity().selection === 'haiku' && answers.some(answer => answer.applicationQuestion !== false && !answer.grounded && answer.risk !== 'high')) {
+    if (!options.deeper) return answerFields(fields, job, profile, knowledgeOverride, { ...options, deeper: true });
+    throw new ReplyUnusableError('Haiku could not produce a valid routine answer after high-effort recovery. No question was sent to the candidate.');
+  }
   if (answerScope && result.injectionSuspected !== true) for (const field of toAnswer) {
     const answer = answers.find(answer => answer.ref === field.ref);
     if (answer) formAnswers.put(answerScope, field, answer);
@@ -653,6 +659,10 @@ export function vetComposed(input: FieldAnswer): FieldAnswer {
 
   if (answer.basis === 'none') return { ...answer, grounded: false };
   if (answer.basis !== 'composed' || !answer.grounded) return answer;
+  // Haiku's risk-aware answerer and saved-form reviewer distinguish willingness
+  // to obtain training from claiming it is already held. Phrase matching here
+  // cannot make that distinction; the actual saved form is still reviewed.
+  if (applicationModelIdentity().selection === 'haiku') return answer;
   const claim = CHECKABLE_CLAIM.exec(answer.value);
   if (!claim) return answer;
   return {
@@ -715,6 +725,7 @@ export async function fitCoverLetterToLimit(letter: string, maxLength: number, j
 
 /** @public Loaded from dist by dashboard/server/assist.ts. */
 export async function polishCoverLetter(draft: string, job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
+  if (applicationModelIdentity().selection === 'haiku') return draft;
   const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
   return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge, job), true, [job.company, ...profile.skills]);
 }

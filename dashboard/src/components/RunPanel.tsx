@@ -37,6 +37,7 @@ interface AutoScheduleStatus {
 }
 
 const RUN_DEFAULTS: Record<string, string> = {
+  APPLICATION_AI_MODEL: 'celeris',
   KEYWORDS: '',
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
@@ -412,9 +413,9 @@ export function RunPanel({
    * are shown only to plans that include them; the server ignores them for
    * the rest.
    */
-  const standingKeys = entitlements?.fineTune
+  const standingKeys = [...(entitlements?.fineTune
     ? ['KEYWORDS', 'EXCLUDED_COMPANIES', 'AI_INSTRUCTIONS_B64']
-    : ['KEYWORDS', 'EXCLUDED_COMPANIES'];
+    : ['KEYWORDS', 'EXCLUDED_COMPANIES']), ...(isAdmin ? ['APPLICATION_AI_MODEL'] : [])];
   const standingDirty = standingKeys.some(
     (key) => edits[key] !== undefined && edits[key] !== (settings[key] ?? RUN_DEFAULTS[key] ?? ''),
   );
@@ -550,7 +551,7 @@ export function RunPanel({
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -879,6 +880,14 @@ export function RunPanel({
             <span className="job-meta">Press Enter or comma to add a company. Matching is typo-tolerant.</span>
           </div>
 
+          {isAdmin && <div className="field">
+            <FieldLabel label="Application model" help="The saved choice is used for this account's next manual and automatic runs, including reviews, answers, cover letters and browser actions." />
+            <select className="input" aria-label="Saved application model" value={val('APPLICATION_AI_MODEL')} disabled={standingSaving} onChange={event => editStanding('APPLICATION_AI_MODEL', event.target.value)}>
+              <option value="celeris">Celeris Magnus</option>
+              <option value="haiku">Claude Haiku 5.5</option>
+            </select>
+            <span className="job-meta">Haiku uses medium effort and high for recovery. Only missing high-risk answers need your attention.</span>
+          </div>}
           {entitlements?.fineTune && (
             <div className="field">
               <FieldLabel
@@ -1371,6 +1380,14 @@ export function RunPanel({
                   </p>
                 )}
                 <div className="run-review-grid">
+                  {isAdmin && <label className="field">
+                    <FieldLabel label="Application model" help="Applies to this account's next runs, including job reviews, answers, cover letters and browser actions. Haiku uses its own prompt and Claude API with Patchright." />
+                    <select className="input" aria-label="Application model" value={val('APPLICATION_AI_MODEL')} onChange={event => setEdit('APPLICATION_AI_MODEL', event.target.value)}>
+                      <option value="celeris">Celeris Magnus</option>
+                      <option value="haiku">Claude Haiku 5.5</option>
+                    </select>
+                    <span className="job-meta">Haiku: medium effort, high for recovery. Routine questions are answered automatically; missing high-risk facts need attention.</span>
+                  </label>}
                   {(isAdmin || entitlements?.fineTune) && <label className="field">
                     <FieldLabel
                       label="Max applications"

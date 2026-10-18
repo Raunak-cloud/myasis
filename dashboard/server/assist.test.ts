@@ -74,7 +74,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
 
   const results = await Promise.all(['Alice', 'Bob', 'Empty'].map((account) => answerForm(account, input)));
   for (const [index, account] of ['Alice', 'Bob', 'Empty'].entries()) {
-    assert.equal(results[index].ok, true);
+    assert.equal(results[index].ok, true, results[index].error);
     assert.equal(results[index].answers?.[0].value, banks[account][0] ?? '');
     const prompt = prompts.find((text) => text.includes(`Name: ${account}\n`));
     assert.ok(prompt);

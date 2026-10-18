@@ -725,7 +725,8 @@ CREATE INDEX IF NOT EXISTS application_cost_run_idx ON application_cost_events(u
 -- Retired application-engine experiments are no longer configurable.
 -- Idempotent and confined to settings; application and usage history remains intact.
 DELETE FROM settings
-WHERE left(key, length('APPLICATION_AI_')) = 'APPLICATION_AI_';
+WHERE left(key, length('APPLICATION_AI_')) = 'APPLICATION_AI_'
+  AND key <> 'APPLICATION_AI_MODEL';
 
 -- BEGIN skipped history retention
 -- Bound stored skip events, not just the number returned by the Skipped page.

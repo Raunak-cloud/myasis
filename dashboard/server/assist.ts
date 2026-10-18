@@ -183,11 +183,11 @@ export async function answerForm(
       const knowledge = context.ok ? (context.text ?? '') : '';
 
       const wantsLetter = input.fields.some((f) => /cover letter/i.test(f.label));
-      // Reject drafts whose recorded provenance differs from the current
-      // Celeris model. Untagged historical drafts used the established model.
+      // Reject drafts from another selected model. Untagged historical drafts
+      // belong to the established Celeris path, never to Haiku.
       const queuedLetterMatchesModel = queued?.applicationModel
         ? JSON.stringify(queued.applicationModel) === JSON.stringify(model.applicationModelIdentity())
-        : true;
+        : model.applicationModelIdentity().selection === 'celeris';
       const [answered, letter] = await Promise.all([
         input.fields.length
           ? llm.answerFields(input.fields, job, profile, knowledge, { savedAnswers, workPreferences: {

@@ -1,7 +1,10 @@
 import { EMPLOYER_SOURCES, employerTargets, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { EMPLOYER_BROWSER_PROVIDERS } from '../../seek-bot/src/employer-browser-config.js';
+import { applicationModelSettingsError, applicationModelForAccount } from './application-model-policy.js';
 
 export function jobSourceSettingsError(updates: Record<string, unknown>, targetIsAdmin: boolean): { status: number; error: string } | null {
+  const modelError = applicationModelSettingsError(updates, targetIsAdmin);
+  if (modelError) return modelError;
   if (updates.EMPLOYER_BROWSER_PROVIDER !== undefined) {
     if (!targetIsAdmin) return { status: 403, error: 'Employer browser selection is available only to administrator accounts.' };
     if (!(EMPLOYER_BROWSER_PROVIDERS as readonly unknown[]).includes(updates.EMPLOYER_BROWSER_PROVIDER)) return { status: 400, error: 'Choose a supported employer browser.' };
@@ -20,6 +23,7 @@ export function jobSourceSettingsError(updates: Record<string, unknown>, targetI
 
 /** Account access wins over saved choices, client overrides and shared process environment. */
 export function applyJobSourceAccess(settings: Record<string, string>, targetIsAdmin: boolean): void {
+  settings.APPLICATION_AI_MODEL = applicationModelForAccount(settings.APPLICATION_AI_MODEL, targetIsAdmin);
   const allowed: string[] = ['seek', 'indeed', ...(targetIsAdmin ? EMPLOYER_SOURCES.map(source => source.id) : [])];
   const platforms = [...new Set((settings.PLATFORMS || 'seek').split(',').map(value => value.trim().toLowerCase()))].filter(value => allowed.includes(value));
   settings.PLATFORMS = platforms.join(',') || 'seek';

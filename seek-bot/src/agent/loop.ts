@@ -13,6 +13,7 @@ import type { Page } from 'patchright';
 import { measured } from '../pipeline.js';
 import { withJobCost } from '../cost-ledger.js';
 import { config } from '../config.js';
+import { applicationModelIdentity } from '../application-model.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordReservedRejection } from '../application-reservations.js';
 import { jitter, waitForChallengeToClear, workingIn } from '../browser.js';
@@ -508,7 +509,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     const stuck = stalls >= config.celeris.escalateAfterStalls || lastFailed || Boolean(recovery);
     if (recovery) note += `\nLIVE RECOVERY: ${recovery}\nUse the focused DOM evidence just collected. Diagnose the cause, choose a safe repair and verify field acceptance, rather than merely making the menu change. Candidate answers and submission still use their normal checks.`;
     if (stuck) {
-      log(`  ↑ step ${guards.stepCount} stuck — ${model} thinking it through`);
+      log(`  ↑ step ${guards.stepCount} stuck — ${applicationModelIdentity().selection === 'haiku' ? 'Haiku (high effort)' : model} thinking it through`);
       note = `${note}\n\nSTUCK: the last ${Math.max(stalls, 1)} action(s) did not get this page further. Before acting, reason it through: what you expected, what the recorded changes and the screenshot actually show, and why your approach is not working. Then try a genuinely different approach (another control or element, the keyboard, a snapshot to find the real element, a script to inspect the widget), not the same action again.`;
     }
 
@@ -537,7 +538,8 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
       note = [note, await embeddedForms(page)].filter(Boolean).join('\n\n');
     }
 
-    compressSupersededObservations();
+    // Keep Claude's conversation prefix stable between browser turns.
+    if (applicationModelIdentity().selection !== 'haiku') compressSupersededObservations();
     observationIndices.push(messages.length);
     messages.push(observationMessage(ctx.observation, note));
     note = '';
@@ -721,7 +723,7 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
 
       if (call.name === 'take_snapshot' || call.name === 'inspect_interaction') {
         // Only the newest snapshot is worth its weight; an older one is re-sent every turn for nothing.
-        if (lastSnapshotIndex >= 0 && messages[lastSnapshotIndex]?.role === 'tool') {
+        if (applicationModelIdentity().selection !== 'haiku' && lastSnapshotIndex >= 0 && messages[lastSnapshotIndex]?.role === 'tool') {
           messages[lastSnapshotIndex] = { ...messages[lastSnapshotIndex], content: '[an earlier snapshot, superseded]' } as ChatMessage;
         }
         lastSnapshotIndex = messages.length + replies.length;
@@ -740,6 +742,13 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
       if (index < plan.length - 1 && !config.formSpeed) await jitter(250, 600);
     }
 
+    // Haiku's native assistant block is retained verbatim. Even calls beyond
+    // our plan limit must get a result, without executing the extra actions.
+    if (applicationModelIdentity().selection === 'haiku') {
+      for (const call of reply.toolCalls) {
+        if (!replies.some(result => result.id === call.id)) replies.push({ id: call.id, content: 'Not run: the action batch ended or reached its limit. Re-observe and plan again.' });
+      }
+    }
     for (const entry of replies) messages.push({ role: 'tool', tool_call_id: entry.id, content: entry.content });
     if (ended && ended.kind === 'terminal') {
       // The confirmation page is authoritative even here: a submit click that

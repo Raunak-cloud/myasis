@@ -4,6 +4,7 @@ import { browserGmailAvailable } from '../../browser-gmail.js';
 import { RAW_TOOL_SCHEMAS } from '../raw-tools.js';
 import { ANSWER_BATCH } from './context.js';
 import { MAX_ANSWER_BATCH } from '../../form-speed.js';
+import { applicationModelIdentity } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -64,7 +65,9 @@ export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
-  ].map(withPressJudgement);
+  ].map(withPressJudgement).map(tool => applicationModelIdentity().selection === 'haiku' && tool.name === 'answer_questions'
+    ? { ...tool, description: tool.description + ' You (Haiku) generate these answers from the account evidence. Infer reasonable low/medium-risk preferences and willingness; only unsupported required high-risk facts need the candidate. Re-observe after a partial batch.' }
+    : tool);
 }
 
 /**

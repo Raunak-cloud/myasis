@@ -12,7 +12,7 @@ const { withApplicationModel } = await import('../application-model.js');
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; rmSync(directory, { recursive: true, force: true }); });
 
-test('Celeris is the only transport and each concurrent request keeps its scoped key and endpoint', async () => {
+test('default Celeris transport keeps every concurrent request scoped to its key and endpoint', async () => {
   const seen: Array<{ url: string; authorization: string; body: Record<string, unknown> }> = [];
   globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;

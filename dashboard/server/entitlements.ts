@@ -157,6 +157,7 @@ const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
 const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
 export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier'>>): boolean {
+  if (key === 'APPLICATION_AI_MODEL') return entitlement.tier === 'admin';
   if (!FINE_TUNING_KEYS.includes(key)) return true;
   return entitlement.fineTune
     || (entitlement.advancedFilters && (ADVANCED_FILTER_KEYS as readonly string[]).includes(key));

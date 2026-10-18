@@ -21,6 +21,7 @@ import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
  * oversight.
  */
 export const KEEP_SETTINGS_KEYS = [
+  'APPLICATION_AI_MODEL',
   'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'SMARTRECRUITERS_COMPANIES', 'LEVER_COMPANIES', 'GREENHOUSE_BOARDS', 'PAGEUP_SITES', 'WORKDAY_SITES', 'EMPLOYER_BROWSER_PROVIDER', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
@@ -81,6 +82,7 @@ function normalizeSetting(key: string, value: string): string {
  * silently discard jobs the account never chose to exclude.
  */
 export const RUN_SETTING_DEFAULTS: Record<string, string> = {
+  APPLICATION_AI_MODEL: 'celeris',
   KEYWORDS: '',
   TARGET_ROLE: '',
   EXCLUDED_COMPANIES: '',
@@ -154,7 +156,8 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
   // Stored verbatim; the ceilings are applied when a run is built, which is
   // the only place they can be waived for an operator of this installation.
   for (const row of rows) {
-    if (!row.key.startsWith('APPLICATION_AI_')) out[row.key] = row.value;
+    if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = row.value === 'haiku' ? 'haiku' : 'celeris';
+    else if (!row.key.startsWith('APPLICATION_AI_')) out[row.key] = row.value;
   }
   return out;
 }

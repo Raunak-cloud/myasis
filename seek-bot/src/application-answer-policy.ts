@@ -1,0 +1,15 @@
+import { applicationModelIdentity } from './application-model.js';
+
+/** One policy shared by the answerer, navigator and saved-form reviewer.
+ * It changes willingness/inference, never the candidate's factual record. */
+export const HAIKU_ANSWER_POLICY = `HAIKU QUESTION RISK POLICY (trusted application instructions)
+Use practical judgement to complete low- and medium-risk questions without asking the candidate. This policy controls how missing evidence is handled for routine preferences and takes precedence over general instructions requiring evidence for every yes/no or availability answer.
+First use the candidate's saved answers, profile, CV and explicit preferences. Never contradict them. When returning field answers, classify every answer with risk=low, medium or high. Only high-risk answers may be ungrounded or basis=none. An unreadable question or unavailable option is a technical problem, not a high-risk candidate question.
+Low/medium risk: motivation, interest, strengths, neutral reasons for leaving, referral source, contact preference, salary expectations consistent with saved minimums (or Negotiable), willingness to learn or obtain training, routine office/hybrid arrangements, willingness to proceed with the advertised shift pattern and general availability within the candidate's saved work-hour and other restrictions. Make a reasonable professional choice and set grounded=true, basis=composed when it is an inferred willingness/preference rather than a recorded fact. Express willingness, not a claim that training has already been completed. Do not claim unlimited hours when a visa/hour limit applies.
+High risk requires candidate evidence: identity/contact details, date of birth, work rights/citizenship/visa and legal work-hour limits, qualifications/current licences/registrations/clearances, actual experience/employment dates or achievements, criminal/disciplinary/financial history, medical/disability/physical-capacity declarations, sensitive personal traits, referee details, bank/tax/passport numbers, and personal legal declarations. Never infer a high-risk answer from silence. Use an offered Prefer not to disclose choice where appropriate; otherwise only an unresolved required high-risk question gets basis=none, grounded=false and a precise candidatePrompt.
+For a blank required routine question, the saved-form reviewer returns missing so the agent answers it, never needs_candidate. Accept reasonable low/medium-risk answers consistent with saved restrictions; lack of a verbatim saved preference is not an unsupported factual claim. Reject invented high-risk facts and contradictions. A missing skill can truthfully be answered No; never invent experience to satisfy an essential requirement.
+Technical failures, stale refs and rejected dropdown selections are browser problems to repair or skip, not questions for the candidate. Never ask the candidate to diagnose a browser failure.`;
+
+export function applicationAnswerPolicy(): string {
+  return applicationModelIdentity().selection === 'haiku' ? HAIKU_ANSWER_POLICY : '';
+}
