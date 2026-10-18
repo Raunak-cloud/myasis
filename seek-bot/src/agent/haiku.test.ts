@@ -5,7 +5,7 @@ import { celerisChat, CostMeter, type CelerisRequest, type ChatMessage } from '.
 import { withApplicationModel, applicationModelIdentity } from '../application-model.js';
 import { systemPrompt } from './loop/prompt.js';
 import { toolSchemas } from './tools/schemas.js';
-import { answerFields, finishedCoverLetterForJob } from '../llm.js';
+import { answerFields, finishedCoverLetterForJob, formatCoverLetterParagraphs } from '../llm.js';
 import { APPLICATION_EVIDENCE_RULES } from '../application-answer-policy.js';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,6 +49,34 @@ const environment = { APPLICATION_AI_MODEL: 'haiku', ANTHROPIC_API_KEY: 'fiction
 const request: CelerisRequest = { model: 'celeris-1-magnus', messages: [{ role: 'user', content: 'Synthetic question.' }], thinking: true, reasoningEffort: 'low' };
 const response = (content: unknown[], stop_reason = 'end_turn') => Response.json({ content, stop_reason,
   usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 10, cache_creation_input_tokens: 50 } });
+
+test('single-block letters gain model-chosen paragraphs without changing wording; formatted letters need no extra call', async () => {
+  const pieces = ['Dear Hiring Team,', 'I handled payments and supported customers for four years.', 'I would welcome the opportunity to join Example Shop.', 'Kind regards,\nSynthetic Applicant'];
+  const dense = pieces.join(' ').replace(/\n/g, ' ');
+  let calls = 0;
+  globalThis.fetch = (async (_url, init) => {
+    calls++;
+    const body = JSON.parse(String(init?.body));
+    assert.match(JSON.stringify(body), /Keep every word, number, punctuation mark/);
+    return response([{ type: 'text', text: JSON.stringify({ paragraphs: pieces }) }]);
+  }) as typeof fetch;
+  await withApplicationModel(environment, async () => {
+    const formatted = await formatCoverLetterParagraphs(dense);
+    assert.equal(formatted, pieces.join('\n\n'));
+    assert.equal(await formatCoverLetterParagraphs(formatted), formatted);
+    assert.equal(calls, 1);
+  });
+});
+
+test('paragraph repair rejects rewritten claims instead of silently sending a different letter', async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return response([{ type: 'text', text: JSON.stringify({ paragraphs: ['I have ten years of experience.', 'Synthetic Applicant'] }) }]);
+  }) as typeof fetch;
+  await withApplicationModel(environment, () => assert.rejects(() => formatCoverLetterParagraphs('I have four years of experience. Synthetic Applicant'), /changed the wording/));
+  assert.equal(calls, 2, 'format repair is bounded');
+});
 
 test('Haiku uses its own prompt, tools and native message schema; one-off prompts are not cache writes', () => withApplicationModel(environment, () => {
   const body = haikuBody({ ...request, responseSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } }, 'medium');
@@ -217,7 +245,7 @@ test('a rejected letter is revised at high effort and replaces the cached draft 
       assert.match(prompt, /Remove the unsupported on-time delivery claim/);
       assert.equal(body.output_config.effort, 'high');
     }
-    return response([{ type: 'text', text: JSON.stringify({ letter: drafts === 1 ? 'Original synthetic letter. Synthetic Revision' : 'Revised synthetic letter. Synthetic Revision' }) }]);
+    return response([{ type: 'text', text: JSON.stringify({ letter: drafts === 1 ? 'Original synthetic letter.\n\nSynthetic Revision' : 'Revised synthetic letter.\n\nSynthetic Revision' }) }]);
   }) as typeof fetch;
   await withApplicationModel(environment, async () => {
     const original = await finishedCoverLetterForJob(job, profile);

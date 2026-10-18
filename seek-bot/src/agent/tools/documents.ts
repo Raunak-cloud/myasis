@@ -62,10 +62,16 @@ export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, un
       // fill() replaces whatever the box held; read back so a box that rejected it is not reported as written.
       assertLive();
       await writable!.fill(letter, { timeout: 10_000 });
-      const held = embeddedKind === 'editor'
-        ? await writable!.innerText({ timeout: 5_000 })
-        : await writable!.inputValue({ timeout: 5_000 });
-      if (held.replace(/\s+/g, ' ').trim() !== letter.replace(/\s+/g, ' ').trim()) throw new Error('the box did not keep the letter');
+    }
+    const saved = await target.evaluate(el => ({
+      multiline: el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable,
+      text: 'value' in el ? String((el as HTMLInputElement).value) : (el as HTMLElement).innerText,
+    }));
+    const words = (text: string) => text.replace(/\s+/g, ' ').trim();
+    if (words(saved.text) !== words(letter)) throw new Error('the box did not keep the letter');
+    const paragraphs = (text: string) => text.replace(/\r\n?/g, '\n').trim().split(/\n[\t ]*\n+/).map(words);
+    if (saved.multiline && JSON.stringify(paragraphs(saved.text)) !== JSON.stringify(paragraphs(letter))) {
+      throw new Error('the editor removed the cover letter paragraph breaks');
     }
   }
   catch (error) { return ok(`Cover letter not accepted: ${(error as Error).message}. Re-observe and choose the current writing field or resolve the form's validation.`); }

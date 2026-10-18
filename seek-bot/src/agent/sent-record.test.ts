@@ -26,6 +26,11 @@ try {
   assert.equal(ctx.coverLetter, "Dear Hiring Team, I can start after one week's notice.", 'the letter the form holds is the one recorded');
   assert.equal(ctx.captured[0].answer, '1 week', 'an answer changed on the form is recorded as sent');
   assert.equal(ctx.captured[1].answer, 'kept', 'an answer from an earlier page is left as given');
+  const withParagraphs = "Dear Hiring Team,\n\nI can start after one week's notice.\n\nKind regards,\nSynthetic Applicant";
+  ctx.coverLetter = withParagraphs.replace(/\s+/g, ' ');
+  await page.locator('textarea').fill(withParagraphs);
+  await recordWhatWasSent(ctx);
+  assert.equal(ctx.coverLetter, withParagraphs, 'paragraph-only changes are retained in the actual sent record');
   console.log('PASS: the application record is what the form held when it was sent');
 } finally {
   await browser.close();

@@ -559,7 +559,7 @@ export async function recordWhatWasSent(ctx: ToolContext): Promise<void> {
       return 'value' in box && typeof (box as HTMLTextAreaElement).value === 'string' ? (box as HTMLTextAreaElement).value : (box as HTMLElement).innerText;
     }).catch(() => null);
     if (held === null) continue;
-    if (held.trim() && normal(held) !== normal(ctx.coverLetter ?? '')) {
+    if (held.trim() && held.trim() !== (ctx.coverLetter ?? '').trim()) {
       ctx.coverLetter = held.trim();
       ctx.log('  · the letter on the form differs from the first draft; the one sent is recorded');
     }
