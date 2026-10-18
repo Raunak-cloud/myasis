@@ -156,7 +156,7 @@ try {
   const scriptResult = agentTurns[1]?.messages.filter((message) => message.role === 'tool').map((message) => String(message.content)).join(' | ') ?? '';
   assert.doesNotMatch(scriptResult, /NOT SUPPORTED|answer check unavailable/i, 'a successful edit does not launch a competing answer audit');
   const advanceResult = agentTurns[2]?.messages.filter(message => message.role === 'tool').map(message => String(message.content)).join(' | ') ?? '';
-  assert.match(advanceResult, /Not supported.*Degree.*PhD/s, 'the single saved-form review catches an unsupported raw edit before leaving the page');
+  assert.match(advanceResult, /not supported.*Degree.*PhD/s, 'the single saved-form review catches an unsupported raw edit before leaving the page');
   assert.equal(savedReviews.length, 1, 'only one answer-readiness review, at advance');
 
   // A failure is reviewed, and its lesson is kept for every employer on the same platform.

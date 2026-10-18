@@ -263,7 +263,7 @@ export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | nul
       return { kind: 'terminal', outcome: { status: 'needs-human', reason: `Your answer is needed for: ${missingFacts.map(problem => problem.field).join('; ')}` } };
     }
     if (problems.length) return ok('Do not advance: The CURRENT saved form is not ready:\n' +
-      problems.map(problem => `- ${problem.kind === 'unsupported' ? 'Not supported' : problem.kind}: ${problem.ref} ${problem.field}: "${problem.value.slice(0, 100)}" - ${problem.problem}`).join('\n') +
+      problems.map(problem => `- ${problem.kind === 'unsupported' ? "not supported by the candidate's record" : problem.kind}: ${problem.ref} ${problem.field}: "${problem.value.slice(0, 100)}" - ${problem.problem}`).join('\n') +
       '\nRepair these observed fields using answer_questions (use repair_refs for an existing value), or fill_element without a value for a field only the snapshot shows. ' +
       (applicationModelIdentity().selection === 'haiku' ? 'For a rejected cover letter, use add_cover_letter with repair_feedback quoting the specific rejection. ' : '') +
       'Then check the actual form again. A failed repair or a missing/unaccepted selection is not a new personal question. Recovery is bounded by the normal attempt limits.');
