@@ -51,6 +51,16 @@ const request: CelerisRequest = { model: 'celeris-1-magnus', messages: [{ role: 
 const response = (content: unknown[], stop_reason = 'end_turn') => Response.json({ content, stop_reason,
   usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 10, cache_creation_input_tokens: 50 } });
 
+test('both navigators include offered optional letters and preserve suitable existing ones without a no-letter gate', () => {
+  for (const model of ['haiku', 'celeris']) withApplicationModel({ APPLICATION_AI_MODEL: model }, () => {
+    const prompt = systemPrompt();
+    assert.match(prompt, /Include a tailored cover letter wherever the application offers[\s\S]*even when the employer marks it optional/);
+    assert.match(prompt, /On Indeed's review page, inspect Supporting documents/);
+    assert.match(prompt, /keep it when it suits this role and employer/);
+    assert.ok(toolSchemas().every(tool => !Object.prototype.hasOwnProperty.call(tool.parameters.properties ?? {}, 'no_cover_letter_place')));
+  });
+});
+
 test('single-block letters gain model-chosen paragraphs without changing wording; formatted letters need no extra call', async () => {
   const pieces = ['Dear Hiring Team,', 'I handled payments and supported customers for four years.', 'I would welcome the opportunity to join Example Shop.', 'Kind regards,\nSynthetic Applicant'];
   const dense = pieces.join(' ').replace(/\n/g, ' ');
