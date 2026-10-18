@@ -40,6 +40,8 @@ globalThis.fetch = async (_url, init) => {
   assert.match(prompt, /cannot establish that the candidate has a qualification/);
   assert.match(prompt, /Availability windows and permitted total hours are different facts/);
   if (prompt.includes('A job application form is about to be sent') || prompt.includes('Independently review this CURRENT SAVED FORM')) {
+    assert.match(prompt, /Compare telephone identity, not its typography/);
+    assert.match(prompt, /Different subscriber digits, a conflicting country code/);
     assert.match(prompt, /ROUTINE WORK-ARRANGEMENT POLICY/);
     assert.match(prompt, /CANDIDATE SAVED APPLICATION PREFERENCES/);
     assert.match(prompt, /does not invent exact shift availability/);

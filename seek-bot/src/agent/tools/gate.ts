@@ -428,7 +428,14 @@ async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; va
   if (!problems.length) return null;
   const strikes = (ctx.auditStrikes ??= new Map<string, number>());
   const candidateFields: string[] = [];
+  // A model may describe two issues on one field. They are one failed review,
+  // not two repair attempts; the agent must receive the feedback first.
+  const reviewedFields = new Set<string>();
+  ctx.log(`  ✋ pre-submit check: ${problems.length} unsupported answer(s): ${problems.map(p => `${p.field}: ${p.problem}`).join('; ').slice(0, 900)}`);
   for (const problem of problems) {
+    const key = problem.field.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (reviewedFields.has(key)) continue;
+    reviewedFields.add(key);
     const count = (strikes.get(problem.field) ?? 0) + 1;
     strikes.set(problem.field, count);
     if (count >= 2) {
@@ -444,7 +451,6 @@ async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; va
       candidateFields.push(problem.field);
     }
   }
-  ctx.log(`  ✋ pre-submit check: ${problems.length} unsupported answer(s): ${problems.map((p) => p.field).join('; ').slice(0, 200)}`);
   if (candidateFields.length) {
     return { kind: 'terminal', outcome: {
       status: 'needs-human',

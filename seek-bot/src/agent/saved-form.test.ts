@@ -14,6 +14,7 @@ const haiku = process.env.TEST_APPLICATION_MODEL === 'haiku';
 if (haiku) { process.env.APPLICATION_AI_MODEL = 'haiku'; process.env.ANTHROPIC_API_KEY = 'fictional-only'; }
 let mode = 'approve';
 let calls = 0;
+let duplicateProblems = false;
 let lastForm: import('./saved-form.js').SavedForm;
 let duringReview: (() => Promise<void>) | undefined;
 globalThis.fetch = (async (_url, init) => {
@@ -34,6 +35,7 @@ globalThis.fetch = (async (_url, init) => {
   }];
   if (mode === 'wrong-ref') problems = [{ ref: 'frame99:f999', field: 'Suburb *', value: 'Lidcombe', kind: 'invalid', problem: 'Invented field.' }];
   if (mode === 'wrong-value') problems = [{ ref: field.ref, field: field.label, value: 'Old stale value', kind: 'unsupported', problem: 'Not on form.' }];
+  if (duplicateProblems && problems.length) problems = [...problems, ...problems];
   return Response.json(haiku ? { content: [{ type: 'text', text: JSON.stringify({ problems }) }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }
     : { choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems }) } }] });
 }) as typeof fetch;
@@ -102,8 +104,11 @@ try {
 
   if (haiku) {
     ctx = await open(good); mode = 'unsupported';
+    duplicateProblems = true;
     result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
     assert.ok(!result.proceed && result.result.kind === 'ok' && /repair_feedback/.test(result.result.message));
+    assert.equal(ctx.auditStrikes?.get('Suburb *'), 1, 'duplicate reports in one review must allow a repair instead of spending two attempts');
+    duplicateProblems = false;
     result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
     assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'skipped');
     assert.equal(ctx.guards.ungrounded.length, 0, 'a repeated draft error must never create a candidate question');
