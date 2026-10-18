@@ -72,11 +72,15 @@ try {
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).waitFor();
-    assert.equal(await page.getByRole('combobox', { name: 'Application AI model', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('combobox', { name: 'Saved application model', exact: true }).count(), admin ? 1 : 0);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).click({ timeout: 15_000 });
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
     if (admin) {
+      const modelChoice = dialog.getByRole('combobox', { name: 'Application model', exact: true });
+      assert.equal(await modelChoice.inputValue(), 'celeris');
+      assert.deepEqual(await modelChoice.locator('option').evaluateAll(options => options.map(option => option.getAttribute('value'))), ['celeris', 'haiku']);
+      await modelChoice.selectOption('haiku');
       const browserChoice = dialog.getByRole('combobox', { name: 'Employer browser', exact: true });
       assert.equal(await browserChoice.inputValue(), 'local');
       await browserChoice.selectOption('brightdata');
@@ -90,6 +94,7 @@ try {
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       }
     } else {
+      assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0);
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES]').count(), 0);
@@ -105,7 +110,8 @@ try {
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
     assert.equal('EMPLOYER_BROWSER_PROVIDER' in submitted.overrides, admin);
-    assert.equal('APPLICATION_AI_MODEL' in submitted.overrides, false);
+    assert.equal('APPLICATION_AI_MODEL' in submitted.overrides, admin);
+    if (admin) assert.equal(submitted.overrides.APPLICATION_AI_MODEL, 'haiku');
     if (admin) assert.equal(submitted.overrides.EMPLOYER_BROWSER_PROVIDER, 'brightdata');
     for (const source of EMPLOYER_SOURCES) assert.equal(source.key in submitted.overrides, admin);
     assert.equal(submitted.mode, 'live');
