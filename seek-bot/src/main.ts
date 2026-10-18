@@ -36,6 +36,7 @@ import { AppliedIndex, logOutcome, recentReviewFeedback, saveRunSummary, syncFro
 import { savedAnswerTimes } from './knowledge.js';
 import { waitingForAnswers } from './answer-gate.js';
 import { countHealth } from './run-health.js';
+import { assertApplicationProviderReady } from './provider-availability.js';
 import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -339,6 +340,7 @@ async function main() {
         void (async () => {
           try {
             for (let job = cardQueue.shift(); job; job = cardQueue.shift()) {
+              try { assertApplicationProviderReady(); } catch { break; }
               const rule = await ruleConflict(job).catch(() => null);
               if (rule?.conflict) cardConflicts.set(reviewKey(job), rule);
             }
@@ -351,6 +353,7 @@ async function main() {
 
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
+      assertApplicationProviderReady();
       checkCards(jobs);
       if (!jobs.length || !rankingAvailable) return;
       try {
@@ -359,6 +362,7 @@ async function main() {
         rankingAvailable = false;
         console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
       }
+      assertApplicationProviderReady();
     };
     /**
      * A listing already known to be outside this run's scope fills no slot:
@@ -972,6 +976,7 @@ async function main() {
 
     /** Moves review on by one step: answered fit checks first, then the next listing, then a check still out. */
     const advanceReview = async (reviewPage: Page = page, accept: (job: JobListing) => boolean = () => true, waitForOther = true): Promise<boolean> => {
+      assertApplicationProviderReady();
       try {
         await settleAnswered();
         if (!reviewDone() && (hasUnreviewed(accept) || !hasUnreviewed())) {
@@ -1144,6 +1149,7 @@ async function main() {
     }
     const runWorker = async (applicationPage: Page, accept: (job: JobListing) => boolean) => {
       for (;;) {
+        assertApplicationProviderReady();
         await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
         // Each worker reads and applies on its own isolated page. Only fallback
         // discovery uses the persistent page; queue claims and budgets are shared.

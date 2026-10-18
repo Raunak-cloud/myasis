@@ -3,6 +3,7 @@ import { HAIKU_ANSWER_POLICY } from '../application-answer-policy.js';
 import { beginCostRequest, recordCost } from '../cost-ledger.js';
 import { metric } from '../pipeline.js';
 import { providerOutOfCredit } from '../run-health.js';
+import { anthropicSpendLimit, assertProviderReady, blockProviderBudget } from '../provider-availability.js';
 import { ReplyUnusableError, type CelerisRequest, type CelerisReply, type ToolSchema } from './celeris.js';
 
 type Block = Record<string, unknown>;
@@ -167,6 +168,7 @@ export async function haikuChat(request: CelerisRequest): Promise<CelerisReply> 
   let effort: 'medium' | 'high' = request.reasoningEffort === 'xhigh' ? 'high' : 'medium';
   const deadline = Date.now() + 120_000, started = performance.now();
   for (let attempt = 0; attempt < 3; attempt++) {
+    assertProviderReady('Anthropic', key);
     const end = beginCostRequest('Anthropic', 'claude-haiku-5-5');
     let accounted = false;
     try {
@@ -177,6 +179,11 @@ export async function haikuChat(request: CelerisRequest): Promise<CelerisReply> 
       });
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
+        const limit = anthropicSpendLimit(response.status, detail);
+        if (limit) {
+          metric('provider-spending-limit', 0, { provider: 'Anthropic', scope: limit });
+          throw blockProviderBudget('Anthropic', key, limit);
+        }
         if (response.status === 402 || /credit balance is too low|insufficient.*credit/i.test(detail)) providerOutOfCredit('Anthropic');
         throw new Error(`Haiku provider HTTP ${response.status}.`);
       }

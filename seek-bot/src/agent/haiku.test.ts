@@ -301,6 +301,20 @@ test('Haiku usage includes cached writes, reads and reasoning at Anthropic rates
   assert.equal(haikuUsage({ input_tokens: 100_001, output_tokens: 0 })!.amountUsd, 0.0500005);
 });
 
+test('workspace exhaustion reports its real cause and suppresses subsequent requests without changing model', async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return Response.json({ error: { type: 'invalid_request_error', message: 'You have reached your specified workspace API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.' } }, { status: 400 });
+  }) as typeof fetch;
+  await withApplicationModel({ ...environment, ANTHROPIC_API_KEY: 'fictional-budget-blocked-key' }, async () => {
+    await assert.rejects(() => celerisChat(request), /Anthropic workspace API spending limit reached/);
+    await assert.rejects(() => celerisChat(request), /Anthropic workspace API spending limit reached/);
+    assert.equal(applicationModelIdentity().selection, 'haiku');
+  });
+  assert.equal(calls, 1, 'do not keep sending requests against an exhausted workspace');
+});
+
 test('a rejected letter is revised at high effort and replaces the cached draft for later form steps', async () => {
   const profile = { name: 'Synthetic Revision', phone: '', email: 'fixture@example.test', nationality: '', expectedSalary: '', noticePeriod: '',
     willingToRelocate: false, experienceSummary: 'Four years of TypeScript development.', skills: ['TypeScript'], excludedDomains: [], securityClearance: '' };
