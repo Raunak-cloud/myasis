@@ -6,6 +6,7 @@ import { withApplicationModel, applicationModelIdentity } from '../application-m
 import { systemPrompt } from './loop/prompt.js';
 import { toolSchemas } from './tools/schemas.js';
 import { answerFields, finishedCoverLetterForJob } from '../llm.js';
+import { APPLICATION_EVIDENCE_RULES } from '../application-answer-policy.js';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,6 +58,7 @@ test('Haiku uses its own prompt, tools and native message schema; one-off prompt
   assert.ok(!JSON.stringify(body).includes('cache_control'));
   assert.ok(!JSON.stringify(body).includes('chat_template_kwargs'));
   assert.match(systemPrompt(), /You are Claude Haiku/);
+  assert.ok(systemPrompt().includes(APPLICATION_EVIDENCE_RULES), 'navigator uses the same candidate-evidence policy as its answer and verification helpers');
   assert.match(systemPrompt(), /low- and medium-risk questions/);
   const tools = toolSchemas({ vision: true });
   assert.match(tools.find(tool => tool.name === 'answer_questions')!.description, /You \(Haiku\)/);
