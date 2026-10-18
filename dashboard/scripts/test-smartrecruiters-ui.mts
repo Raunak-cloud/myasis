@@ -79,7 +79,7 @@ try {
     if (admin) {
       const modelChoice = dialog.getByRole('combobox', { name: 'Application model', exact: true });
       assert.equal(await modelChoice.inputValue(), 'celeris');
-      assert.deepEqual(await modelChoice.locator('option').evaluateAll(options => options.map(option => option.getAttribute('value'))), ['celeris', 'haiku']);
+      assert.deepEqual(await Promise.all((await modelChoice.locator('option').all()).map(option => option.getAttribute('value'))), ['celeris', 'haiku']);
       await modelChoice.selectOption('haiku');
       const browserChoice = dialog.getByRole('combobox', { name: 'Employer browser', exact: true });
       assert.equal(await browserChoice.inputValue(), 'local');
