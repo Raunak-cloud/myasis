@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, JobListing } from './types.js';
 
-type FixtureJob = JobListing & { wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney',
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { history?: AppliedRecord[]; apply?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
+function run(jobs: FixtureJob[], options: { instructions?: string; history?: AppliedRecord[]; apply?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -30,7 +30,7 @@ export const record = (stage, id, extra={}) => appendFileSync(new URL('./events.
     writeFileSync(join(directory, 'config.mjs'), `
 export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
-Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:'',formSpeed:false});
+Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},formSpeed:false});
 Object.assign(config.coverLetter, {mode:'tailored'});
 Object.assign(config.rules, {minScore:0,excludedCompanies:[]});
 Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:1,maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:100,
@@ -78,7 +78,7 @@ export const jitter = async () => {};
 import { record } from './boundary.mjs';
 export const reviewKey = job => job.platform+':'+job.id;
 export const rankJobsForReview = async jobs => new Map(jobs.map(job => [reviewKey(job),{priority:90,reason:'Fixture priority'}]));
-export const ruleConflict = async () => ({decision:'allow',conflict:'',because:'',checks:[]});
+export const ruleConflict = async job => {record('instruction',job.id);return {decision:job.cardConflict?'skip':'allow',conflict:job.cardConflict?'Avoid manager roles.':'',because:'Fixture instruction verdict',checks:[]};};
 export const finishedCoverLetterForJob = async () => 'Fixture letter';
 export const assessFit = async job => {
   record('fit',job.id);
@@ -127,9 +127,35 @@ export const applyToIndeedJob = applyToJobWithAgent;
     const history: AppliedRecord[] = JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8'));
     return { output, events, history };
   } finally {
+    assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-review-budget-'));
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+test('a large discovered queue cannot spend instruction calls beyond its reserved review budget', () => {
+  const result = run(Array.from({ length: 500 }, (_, index) => job(`queue-${index}`)), {
+    instructions: 'Avoid manager roles.', reviews: 2,
+  });
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 2);
+  assert.equal(result.events.filter(event => event.stage === 'detail').length, 2);
+  assert.equal(result.events.filter(event => event.stage === 'fit').length, 2);
+});
+
+test('a card rejection consumes one shared review slot and never opens or applies to the excluded role', () => {
+  const result = run([job('excluded', { cardConflict: true }), job('other', { platform: 'indeed' })], {
+    instructions: 'Avoid manager roles.', workers: 2, reviews: 1, apply: true,
+  });
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 1);
+  assert.equal(result.events.filter(event => ['detail', 'fit', 'apply'].includes(event.stage)).length, 0);
+  assert.match(result.output, /Your instructions rule this out/);
+  assert.equal(result.history.length, 0, 'a screening rejection must never become an application record');
+});
+
+test('feed descriptions go directly through the full fit review without a redundant card check', () => {
+  const result = run([job('feed', { description: 'Complete source description.' })], { instructions: 'Avoid manager roles.' });
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 0);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['feed']);
+});
 
 for (const platform of ['seek', 'indeed'] as const) test(`${platform} applied markers are skipped before fit review and leave the one-review slot for a new job`, () => {
   const result = run([job('old', { platform, detailApplied: true }), job('new', { platform })], { platform });

@@ -317,44 +317,9 @@ async function main() {
       return accepted;
     };
 
-    /**
-     * The candidate's own rules, read from the search result before the
-     * listing is opened. Two in five fit rejections were "your instructions
-     * rule this out", mostly a senior or manager title, and each one cost a
-     * page load, a reading pause and a model call to learn what the title
-     * already said. The same rule check runs here on the card; a card that
-     * leaves it open is decided on the listing, as before.
-     *
-     * Checked in the background as results arrive, a few at a time. Review
-     * never waits for one: a listing whose card is not checked yet is opened.
-     */
-    const cardConflicts = new Map<string, { conflict: string; because: string }>();
-    const cardQueue: JobListing[] = [];
-    let cardWorkers = 0;
-    const checkCards = (jobs: JobListing[]) => {
-      if (!applicationModelAvailable() || !config.aiInstructions.trim()) return;
-      // A job the candidate chose has had its fit decided by them.
-      cardQueue.push(...jobs.filter((job) => job.source !== 'chosen'));
-      while (cardWorkers < config.limits.fitConcurrency && cardQueue.length) {
-        cardWorkers++;
-        void (async () => {
-          try {
-            for (let job = cardQueue.shift(); job; job = cardQueue.shift()) {
-              try { assertApplicationProviderReady(); } catch { break; }
-              const rule = await ruleConflict(job).catch(() => null);
-              if (rule?.conflict) cardConflicts.set(reviewKey(job), rule);
-            }
-          } finally {
-            cardWorkers--;
-          }
-        })();
-      }
-    };
-
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
       assertApplicationProviderReady();
-      checkCards(jobs);
       if (!jobs.length || !rankingAvailable) return;
       try {
         for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
@@ -371,8 +336,7 @@ async function main() {
      * of them out as "outside run scope", so new search terms were never searched.
      */
     const isPromising = (job: JobListing): boolean =>
-      !cardConflicts.has(reviewKey(job))
-      && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
+      !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
       && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
     const promisingCount = (): number => shortlist.filter(isPromising).length;
 
@@ -805,18 +769,6 @@ async function main() {
         bump('outside run scope');
         return;
       }
-      const cardRule = cardConflicts.get(reviewKey(stub));
-      if (cardRule) {
-        const reason = `Your instructions rule this out ("${cardRule.conflict}"). ${cardRule.because}`;
-        console.log(`  ✗ ${jobLabel(stub)} — ${reason} (from the search result; not opened)`);
-        metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
-        bump('fit mismatch');
-        logOutcome({
-          status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company, url: stub.url,
-          reviewCache: reviewCacheMetadata(stub, 'fit-mismatch', reviewContext, REVIEW_TTL.fit),
-        });
-        return;
-      }
       // Claim capacity before the first await. Page reads now overlap, but the
       // evaluation allowance remains one run-wide budget. Unusable reads return
       // their reservation in finally, including navigation failures and walls.
@@ -824,6 +776,22 @@ async function main() {
       reviewReservations.add(reviewReservationKey(stub));
       let retained = false;
       try {
+        // Instruction screening belongs to the same reserved review as the
+        // detail/fit check, not a background sweep of every discovered job.
+        // Feed descriptions go straight to their complete detail review.
+        if (!stub.description && stub.source !== 'chosen' && applicationModelAvailable() && config.aiInstructions.trim()) {
+          const cardRule = await ruleConflict(stub).catch(() => null);
+          if (cardRule?.decision === 'skip' && cardRule.conflict) {
+            const reason = `Your instructions rule this out ("${cardRule.conflict}"). ${cardRule.because}`;
+            console.log(`  ✗ ${jobLabel(stub)} — ${reason} (from the search result; not opened)`);
+            metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
+            bump('fit mismatch');
+            logOutcome({ status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company, url: stub.url,
+              reviewCache: reviewCacheMetadata(stub, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
+            retained = true;
+            return;
+          }
+        }
         await readPlatform(adapter.id, async () => {
           let job: JobListing;
           // A search just made on this board still has its gap to run out.
@@ -1044,8 +1012,6 @@ async function main() {
     };
 
     const printSummary = () => {
-      // Review is over: cards still waiting for a rule check would only be paid for.
-      cardQueue.length = 0;
       if (skips.size) {
         console.log('\nFiltered out:');
         for (const [reason, n] of [...skips].sort((a, b) => b[1] - a[1])) {

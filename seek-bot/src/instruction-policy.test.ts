@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeInstructionVerdict, validateInstructionVerdict } from './instruction-policy.js';
+import { instructionRuleQuotes, normalizeInstructionVerdict, validateInstructionVerdict } from './instruction-policy.js';
+
+test('schema citation choices contain only unchanged candidate source blocks', () => {
+  const original = ' Avoid senior roles.\n\nAllow junior product managers.\nAvoid senior roles. ';
+  assert.deepEqual(instructionRuleQuotes(original), [original.trim(), 'Avoid senior roles.', 'Allow junior product managers.']);
+  assert.deepEqual(instructionRuleQuotes('   '), []);
+});
 
 const rules = 'Avoid manager roles. Exception: junior or associate product manager roles are allowed.';
 const check = (status: string, conditionStatus: string) => ({checks:[{

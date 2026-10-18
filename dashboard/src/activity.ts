@@ -31,12 +31,14 @@ function lastMatch(lines: LogLine[], pattern: RegExp): RegExpMatchArray | null {
   return null;
 }
 
+const cardRejection = /^\s*✗\s+.+\(from the search result; not opened\)$/;
+
 export function activitySummary(lines: LogLine[]) {
   const originalLines = lines;
   lines = lines.map(line => ({ ...line, text: line.text.replace(/^\[worker:[a-z]+\] /, '') }));
   const found = Number(lastMatch(lines, /(\d+) unique listings discovered/i)?.[1] ?? 0);
   const restored = lines.filter((line) => /^\s*Review slot restored:/.test(line.text)).length;
-  const reviewed = Math.max(0, lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text)).length - restored);
+  const reviewed = Math.max(0, lines.filter((line) => /^\s*[✓✗]\s+\d+\s+·/.test(line.text) || cardRejection.test(line.text)).length - restored);
   // Matches are counted as they are found; the end-of-run total wins once it is printed.
   const suitable = Math.max(
     lines.filter((line) => /^\s*✓\s+\d+\s+·/.test(line.text)).length - restored,
@@ -230,6 +232,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if ((match = text.match(/Search page (\d+): (\d+) new listing/i))) {
       const last = events.at(-1);
       if (last?.title === 'Searching for more jobs') last.detail = `Page ${match[1]} added ${match[2]} new listings to review.`;
+    } else if (cardRejection.test(text)) {
+      reviewed++;
+      if (!review) review = add(line, 'Reviewing jobs', 'neutral', reviewDetail());
+      else review.detail = reviewDetail();
     } else if ((match = text.match(/^([✓✗])\s+(\d+)\s+·\s+(.+)$/))) {
       reviewed++;
       if (match[1] === '✓') {
@@ -326,6 +332,8 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       explained = true;
     } else if ((match = text.match(/Run cap of (\d+) reached/i))) {
       add(line, 'This run reached its limit', 'done', `${match[1]} applications is the most one run sends.`);
+    } else if ((match = text.match(/evaluation cap \((\d+)\) reached/i))) {
+      add(line, 'Review limit reached', 'warn', `This run used its ${match[1]} job reviews. Other listings may remain unreviewed; zero submissions does not mean there are no suitable jobs.`);
     } else if ((match = text.match(/✗\s+(?:unexpected )?error:\s*(.*)/i))) {
       if (application) {
         application.event.title = `Could not apply to ${application.title}`;

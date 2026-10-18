@@ -5,7 +5,7 @@ import { smartRecruitersIdentity } from './smartrecruiters.js';
 import type { JobListing } from './types.js';
 
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
-type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; now?: () => number };
+type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number };
 export const EMPLOYER_FEED_PAGE_SIZE = 20;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const key = (source: string, namespace: string, id: string) => `${source}-${createHash('sha256').update(`${namespace}:${id}`).digest('hex').slice(0, 32)}`;
@@ -65,10 +65,30 @@ export function employerJobIdentity(source: EmployerSourceId, raw: string): { na
   throw new Error(`Invalid ${source} job address.`);
 }
 
+class CareerSiteHttpError extends Error {
+  constructor(readonly status: number) { super(`Public career site returned HTTP ${status}.`); }
+}
+
 class PublicReader {
   private readyAt = 0;
   constructor(private options: FeedOptions) {}
   async read(url: string, body?: object): Promise<string> {
+    // These endpoints only read public career data (including Workday's
+    // search POST). Retry transient transport/server failures once. Access
+    // denials, rate limits, redirects and invalid data are never retried.
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.readOnce(url, body); }
+      catch (error) {
+        const redirectRefused = error instanceof TypeError && error.cause instanceof Error && /redirect/i.test(error.cause.message);
+        const transient = error instanceof CareerSiteHttpError ? error.status >= 500 && error.status <= 599
+          : error instanceof Error && (['TimeoutError', 'AbortError'].includes(error.name)
+            || (error instanceof TypeError && !redirectRefused && /fetch failed|network|terminated/i.test(error.message)));
+        if (attempt || !transient) throw error;
+        await new Promise(resolve => setTimeout(resolve, this.options.retryDelayMs ?? 500));
+      }
+    }
+  }
+  private async readOnce(url: string, body?: object): Promise<string> {
     const wait = this.readyAt - Date.now();
     if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
     this.readyAt = Date.now() + (this.options.gapMs ?? 250);
@@ -76,7 +96,7 @@ class PublicReader {
       headers: { Accept: 'application/json,text/html', ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}),
     });
-    if (!response.ok) { await response.body?.cancel(); throw new Error(`Public career site returned HTTP ${response.status}.`); }
+    if (!response.ok) { await response.body?.cancel(); throw new CareerSiteHttpError(response.status); }
     const reader = response.body?.getReader();
     if (!reader) throw new Error('Empty career-site response.');
     const chunks: Uint8Array[] = []; let bytes = 0;

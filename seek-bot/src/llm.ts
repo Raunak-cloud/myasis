@@ -10,7 +10,7 @@ import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.j
 import { applicationModelIdentity } from './application-model.js';
 import { APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from './application-answer-policy.js';
 import { workPreferenceEvidence, type ApplicationWorkPreferences } from './work-preferences.js';
-import { validateInstructionVerdict, type InstructionVerdict, type InstructionInjectionSource } from './instruction-policy.js';
+import { instructionRuleQuotes, validateInstructionVerdict, type InstructionVerdict, type InstructionInjectionSource } from './instruction-policy.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
 import { recentReviewFeedback } from './store.js';
 import { withJobCost } from './cost-ledger.js';
@@ -1212,9 +1212,26 @@ company type, work pattern, location, hours or pay means what it says. A verb in
 ("manage your own tickets", "lead a workshop") does not make a role a manager or a lead.
 Whether the candidate could do the job well is irrelevant here.
 
+Distinguish a prohibition from a positive eligibility requirement. For a prohibition,
+mark satisfied when the available title and duties give no affirmative evidence of a
+breach. A posting does not need to say "not senior", "not a manager", or explicitly
+negate every excluded category. Unstated seniority, an excerpt's omission notice,
+working alongside senior colleagues, or ordinary task verbs are not by themselves
+reasons for uncertain. Use uncertain only when concrete listing evidence supports
+conflicting interpretations of a restriction, or when a necessary exception has an
+unproved limiting condition. Explain that specific ambiguity; do not require proof
+of a negative. Positive requirements and all exception conditions still need evidence.
+
 Check EVERY restrictive instruction separately before deciding. Preserve the complete scope
 of exceptions: every qualifier, named employer, role, location, experience route and other
 condition still applies. An exception for a qualified subset never permits the whole category.
+Evaluate the underlying restriction first, then any permission that overrides it. A permitted
+subset still belongs to its parent category: do not call it outside that category to avoid
+recording the exception. If the job would break a restriction without its exception, you MUST
+fill exceptionQuote and exceptionConditions, even when ruleQuote contains the whole rule block.
+For example, "Exclude category X; junior X is allowed" permits a junior X THROUGH the
+exception. It does not make junior X cease to be X. Return the quoted junior-X permission
+and its level condition as evidence, rather than satisfied with empty exception fields.
 Preserve AND/OR relationships. A named exception that is irrelevant to this vacancy is not
 a new restriction requiring every vacancy to match that employer or role; do not rely on it.
 Quote the exact exception and each limiting condition from the candidate's rules, then judge
@@ -1226,7 +1243,7 @@ listing contradicts it, use violated. When an exception does not apply at all, r
 underlying restriction. Instructions about truthful claims remain binding but do not exclude
 a role merely because it asks for experience that the candidate could truthfully clarify.
 
-${jobEvaluationEvidence(job, job.title + ' role responsibilities', 6000)}
+${jobEvaluationEvidence(job, job.title + ' role responsibilities', 24000)}
 ${job.description ? '' : `
 Only the job board's search result is shown here, not the full listing. Name a conflict only
 when this title or summary itself shows it. When the result leaves it open, return an empty
@@ -1234,7 +1251,10 @@ conflict: the full listing is read and checked afterwards.
 `}
 Return checks, one per candidate instruction. Preferences that only prioritise jobs and
 instructions about writing truthful claims do not themselves exclude a vacancy; explain
-their scope without turning them into prohibitions. ruleQuote is a verbatim quote from the rules;
+their scope without turning them into prohibitions. Select ruleQuote from the original
+source blocks allowed by the schema. When a block contains several restrictions,
+reuse that block for separate checks and explain the particular restriction in reason.
+Never quote evaluation policy or listing text as if the candidate wrote it.
 status is satisfied, violated or uncertain; reason cites the decisive listing evidence.
 exceptionQuote is empty when no exception is relied on; otherwise quote the exception
 verbatim and list EVERY limiting condition in exceptionConditions with a verbatim
@@ -1242,7 +1262,7 @@ conditionQuote, its jobEvidence and status met, not-met or unclear. Return JSON.
   const schema = {
     type: 'OBJECT',
     properties: { checks: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
-      ruleQuote: { type: 'STRING' }, status: { type: 'STRING', enum: ['satisfied','violated','uncertain'] }, reason: { type: 'STRING' },
+      ruleQuote: { type: 'STRING', enum: instructionRuleQuotes(rules), description: 'An original candidate instruction block; never a paraphrase or application policy.' }, status: { type: 'STRING', enum: ['satisfied','violated','uncertain'] }, reason: { type: 'STRING' },
       exceptionQuote: { type: 'STRING' }, exceptionConditions: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
         conditionQuote: { type: 'STRING' }, jobEvidence: { type: 'STRING' }, status: { type: 'STRING', enum: ['met','not-met','unclear'] },
       }, required: ['conditionQuote','jobEvidence','status'] } },
@@ -1252,7 +1272,7 @@ conditionQuote, its jobEvidence and status met, not-met or unclear. Return JSON.
   // The complete model input is the cache identity. Hand-picking listing
   // properties previously missed salary and work arrangement changes.
   return cachedAssessment(
-    { version: 'instruction-check-v4-trusted-policy', job: reviewKey(job), prompt, schema, model, exceptionReviewer: 'celeris-1-magnus', endpoint: config.celeris.baseUrl },
+    { version: 'instruction-check-v5-source-citations', job: reviewKey(job), prompt, schema, model, exceptionReviewer: 'celeris-1-magnus', endpoint: config.celeris.baseUrl },
     () => evaluateInstructionConflict(job, prompt, schema, rules, model),
     value => Boolean(value && ['allow', 'skip'].includes(value.decision) && typeof value.conflict === 'string' && typeof value.because === 'string' && Array.isArray(value.checks) && typeof value.injectionSuspected === 'boolean' && Array.isArray(value.injectionSources)),
   );

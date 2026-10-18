@@ -35,6 +35,8 @@ globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
   requests.push({ kind: instruction ? 'instructions' : 'fit', prompt, data });
   let value: unknown;
   if (instruction) {
+    assert.deepEqual(schema.properties.checks.items.properties.ruleQuote.enum, [rules], 'Provider grammar permits only original candidate instruction blocks.');
+    assert.match(prompt, /do not require proof\s+of a negative/);
     const review = prompt.includes('INDEPENDENT EXCEPTION REVIEW');
     value = mode === 'invalid-injection' && !review ? { checks: [], injectionSuspected: true }
       : { checks: [{ ruleQuote: rules, status: 'satisfied', reason: 'The factual vacancy is frontline retail work, not a manager role.', exceptionQuote: '', exceptionConditions: [] }], injectionSuspected: mode === 'invalid-injection' ? false : injection };
@@ -54,6 +56,14 @@ test('source-only destination evidence passes both checks with policy outside un
   for (const request of requests.slice(before)) assert.equal(request.data.description, listing, 'Normal employer application directions remain source facts.');
   const verdict = await ruleConflict(job('ordinary-facts'));
   assert.equal(verdict.injectionSuspected, false); assert.deepEqual(verdict.injectionSources, []);
+});
+
+test('ordinary longer descriptions preserve qualification evidence beyond the former excerpt boundary', async () => {
+  config.aiInstructions = rules; mode = 'normal'; const before = requests.length;
+  const description = listing + '\n' + 'Ordinary employer context. '.repeat(300) + '\nThis is an individual contributor role.';
+  assert.ok(description.length > 6000 && description.length < 24000);
+  await ruleConflict(job('long-description', description));
+  assert.equal(requests[before].data.description, description);
 });
 
 test('actual assistant-redirection content stays held and retains injection provenance without exception diagnostics', async () => {

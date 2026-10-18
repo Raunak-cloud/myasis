@@ -11,6 +11,44 @@ const puRoot = 'https://careers.pageuppeople.com/999/cw/en';
 const now = () => Date.parse('2026-10-12T00:00:00Z');
 const response = (data: unknown) => new Response(typeof data === 'string' ? data : JSON.stringify(data), { status: 200 });
 
+for (const failure of ['timeout', 'network', 'server', 'body-timeout'] as const) test(`public career reads recover once from a transient ${failure}`, async () => {
+  let calls = 0;
+  const api = new EmployerFeedDiscovery('greenhouse', 'fixture', { gapMs: 0, retryDelayMs: 0, fetch: async () => {
+    if (++calls === 1) {
+      if (failure === 'timeout') throw new DOMException('Timed out', 'TimeoutError');
+      if (failure === 'network') throw new TypeError('fetch failed');
+      if (failure === 'server') return new Response('', { status: 503 });
+      return new Response(new ReadableStream({ start(controller) { controller.error(new DOMException('Timed out reading body', 'TimeoutError')); } }));
+    }
+    return response({ jobs: [greenhouse] });
+  } });
+  assert.equal((await api.search('software', 1)).length, 1);
+  assert.equal(calls, 2);
+});
+
+for (const status of [403, 429, 503]) test(`HTTP ${status} failures remain bounded without bypassing access restrictions`, async () => {
+  let calls = 0;
+  const api = new EmployerFeedDiscovery('greenhouse', 'fixture', { gapMs: 0, retryDelayMs: 0, fetch: async () => { calls++; return new Response('', { status }); } });
+  await assert.rejects(api.search('software', 1), /None of the selected/);
+  assert.equal(calls, status === 503 ? 2 : 1);
+});
+
+test('invalid provider data is not repeatedly fetched', async () => {
+  let calls = 0;
+  const api = new EmployerFeedDiscovery('greenhouse', 'fixture', { gapMs: 0, retryDelayMs: 0, fetch: async () => { calls++; return response('not JSON'); } });
+  await assert.rejects(api.search('software', 1), /None of the selected/);
+  assert.equal(calls, 1);
+});
+
+test('a native fetch redirect refusal is not treated as a transient network outage', async () => {
+  let calls = 0;
+  const api = new EmployerFeedDiscovery('greenhouse', 'fixture', { gapMs: 0, retryDelayMs: 0, fetch: async () => {
+    calls++; throw new TypeError('fetch failed', { cause: new Error('unexpected redirect') });
+  } });
+  await assert.rejects(api.search('software', 1), /None of the selected/);
+  assert.equal(calls, 1);
+});
+
 test('all source target contracts refuse local, credentialed, cross-provider and malformed addresses', () => {
   for (const source of EMPLOYER_SOURCES) assert.ok(employerTargets(source.id, source.defaults).length);
   for (const source of ['lever', 'greenhouse'] as const) assert.throws(() => employerTargets(source, 'https://localhost'));

@@ -14,6 +14,13 @@ interface InstructionValidation {
   error?: string;
 }
 
+/** Citation choices are original source blocks, never model-authored prose.
+ * A block may contain several restrictions; the model still judges each one
+ * separately, using the same source block when necessary. */
+export function instructionRuleQuotes(rules: string): string[] {
+  return [...new Set([rules.trim(), ...rules.split(/\r?\n/).map(line => line.trim())].filter(Boolean))];
+}
+
 /** The model judges meaning; this validates its evidence and preserves its restrictive verdicts. */
 export function validateInstructionVerdict(value: unknown, rules: string, source: InstructionInjectionSource = 'instruction-check'): InstructionValidation {
   const invalid = (error: string): InstructionValidation => ({ verdict: null, error });

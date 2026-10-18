@@ -283,3 +283,23 @@ test('unexpected exits expose exit codes only to admins', () => {
   assert.equal(activityEvents(lines)[0].detail, 'The run stopped before finishing. Please try again.');
   assert.match(activityEvents(lines, 14, true)[0].detail, /code 137/);
 });
+
+test('an exhausted review allowance explains that remaining listings were not ruled out', () => {
+  const lines = log(['evaluation cap (100) reached', '=== Run complete: 0 new application(s) ===']);
+  const event = activityEvents(lines).find(event => event.title === 'Review limit reached');
+  assert.ok(event);
+  assert.match(event.detail, /100 job reviews/);
+  assert.match(event.detail, /unreviewed/);
+  assert.equal(activityEvents(lines).at(-1).title, 'Run complete');
+});
+
+test('reserved search-card rejections count as reviews without creating profile matches', () => {
+  const lines = log([
+    '[worker:seek]   ✗ Senior Developer @ Fixture — Your instructions rule this out (from the search result; not opened)',
+    '  ✓ 80 · Developer @ Fixture (Sydney) [SEEK]',
+    '=== Run complete: 0 new application(s) ===',
+  ]);
+  assert.equal(activitySummary(lines).reviewed, 2);
+  assert.equal(activitySummary(lines).suitable, 1);
+  assert.equal(activityEvents(lines).find(event => event.title === 'Reviewed 2 jobs').detail.startsWith('2 checked'), true);
+});
