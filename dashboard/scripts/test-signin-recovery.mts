@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import { createServer as httpServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -13,7 +13,7 @@ import { WebSocketServer } from 'ws';
 import { SigninDesktop } from '../server/signin-desktop.js';
 import { SigninSessions } from '../server/signin-sessions.js';
 import { bridge } from '../server/signin.js';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 assert.equal(process.platform, 'linux');
 if (process.argv[2] === '--orphan-child') {
@@ -40,6 +40,21 @@ const fixture = httpServer((_req, res) => {
 await new Promise<void>(done => fixture.listen(0, '127.0.0.1', done));
 const startUrl = `http://127.0.0.1:${(fixture.address() as { port: number }).port}/`;
 const actual = new Map<string, SigninDesktop>();
+const fixtureCreators = new Set<number>();
+/** SIGKILL cannot let x11vnc detach and remove its SysV image tiles. Repeated
+ * fault-injection runs otherwise exhaust the host's segment count. Remove
+ * only private, unattached segments whose creator is a dead fixture process
+ * and whose owner/creator UID matches this test; never touch a live desktop. */
+function cleanFixtureSharedMemory() {
+  const lines = readFileSync('/proc/sysvipc/shm', 'utf8').trim().split('\n');
+  const columns = lines.shift()!.trim().split(/\s+/);
+  for (const line of lines) {
+    const item = Object.fromEntries(line.trim().split(/\s+/).map((value, index) => [columns[index], Number(value)]));
+    if (item.key !== 0 || item.nattch !== 0 || item.uid !== process.getuid?.() || item.cuid !== process.getuid?.()
+      || !fixtureCreators.has(item.cpid) || existsSync(`/proc/${item.cpid}`)) continue;
+    execFileSync('ipcrm', ['--shmem-id', String(item.shmid)], {stdio: 'ignore'});
+  }
+}
 const profiles = new Map<string, string>();
 let invalidBrowser = false;
 let preparations = 0;
@@ -54,6 +69,7 @@ const sessions = new SigninSessions(async session => {
   const desktop = new SigninDesktop({ profileDir, chromePath: invalidBrowser ? '/nonexistent/signin-chrome-fixture' : chromePath,
     startUrl, routeArgs: [], password: session.password, healthIntervalMs: 300,
     log: message => console.log(`[fixture ${session.userId}] ${message}`),
+    onReady: () => { for (const pid of Object.values(desktop.processIds)) if (pid) fixtureCreators.add(pid); },
   });
   actual.set(session.userId, desktop); return desktop;
 });
@@ -113,6 +129,7 @@ try {
   orphan.stdout!.on('data', chunk => { orphanOutput += String(chunk); });
   await eventually(() => orphanOutput.includes('\n'), 'orphan desktop');
   const orphanInfo = JSON.parse(orphanOutput.trim()) as {owner: number; pids: Record<string, number>; display: number};
+  for (const pid of Object.values(orphanInfo.pids)) fixtureCreators.add(pid);
   const orphanExited = new Promise<void>(done => orphan.once('exit', () => done()));
   // Kill tsx's Node child as well as the CLI wrapper: the actual desktop owner
   // is the process named in the manifest, not necessarily this wrapper PID.
@@ -150,6 +167,7 @@ try {
       assert.equal(sessions.sessionFor(user)!.id, session.id); assert.equal(sessions.sessionFor(user)!.expiresAt, session.expiresAt);
       await viewer.locator('.seek-dot.on').waitFor();
       page = await inspect(desktop);
+      cleanFixtureSharedMemory();
       if (fault.name === 'VNC SIGKILL') {
         assert.equal(desktop.processIds.browser, browserPid, 'screen-only recovery preserves browser');
         assert.equal(await page.locator('#email').inputValue(), 'typed-before-screen-crash');
@@ -205,5 +223,6 @@ try {
   await viewerBrowser.close(); await sessions.stopAll();
   await Promise.allSettled(connections.map(browser => browser.close()));
   await vite.close(); wss.close(); fixture.close();
+  cleanFixtureSharedMemory();
   rmSync(directory, {recursive: true, force: true});
 }
