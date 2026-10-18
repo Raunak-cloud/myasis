@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { withApplicationModel } from '../dist/application-model.js';
 import { celerisChat, CostMeter } from '../dist/agent/celeris.js';
 import { systemPrompt } from '../dist/agent/loop/prompt.js';
+process.env.COST_TRACKING = 'false';
 
 const approval = (scope, createdAt) => ({
   question: `Which contact address have I approved for ${scope}?`,
@@ -26,8 +27,8 @@ const meter = new CostMeter(0.2);
 await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'haiku', COST_TRACKING: 'false' }, async () => {
   for (const fixture of cases) {
     const start = performance.now();
-    const reply = await celerisChat({ model: 'celeris-1-magnus', meter, reasoningEffort: 'medium', maxTokens: 1800, requireTool: true, tools,
-      messages: [{ role: 'system', content: systemPrompt() }, { role: 'user', content: `Synthetic review page. All required fields are valid; the approved resume and suitable tailored letter are present. The only decision is the contact email. You have already retrieved the complete candidate evidence below; no further tools are needed. Choose the next action, without executing it.\nCURRENT URL: ${fixture.url}\nListing discovered on: SEEK\nCANDIDATE EVIDENCE: ${JSON.stringify({ profile: { name: 'Synthetic Applicant', email: 'primary@example.com', phone: '0491570159' }, savedAnswers: fixture.answers })}\n<untrusted role="page">Name: Synthetic Applicant. Phone: +61 491-570-159. Email: alias@example.com (locked). Required questions: complete. No errors. ACTION a1: Submit your application. ${fixture.page ?? ''}</untrusted>` }],
+    const reply = await celerisChat({ model: 'celeris-1-magnus', meter, reasoningEffort: 'medium', maxTokens: 6000, requireTool: true, tools,
+      messages: [{ role: 'system', content: systemPrompt() }, { role: 'user', content: `Synthetic review page. All required fields are valid; the approved resume and suitable tailored letter are present. The only decision is the contact email. You have already retrieved the complete candidate evidence below; no further tools are needed. Call one of the provided mock tools to record your next action. These are inert simulation tools: no real browser, submission or message can occur.\nCURRENT URL: ${fixture.url}\nListing discovered on: SEEK\nCANDIDATE EVIDENCE: ${JSON.stringify({ profile: { name: 'Synthetic Applicant', email: 'primary@example.com', phone: '0491570159' }, savedAnswers: fixture.answers })}\n<untrusted role="page">Name: Synthetic Applicant. Phone: +61 491-570-159. Email: alias@example.com (locked). Required questions: complete. No errors. ACTION a1: Submit your application. ${fixture.page ?? ''}</untrusted>` }],
     });
     assert.equal(reply.toolCalls.length, 1, fixture.name);
     const action = reply.toolCalls[0];
