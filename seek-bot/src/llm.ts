@@ -1703,7 +1703,14 @@ export async function reviewSavedApplicationForm(
   job: JobListing,
   profile: CandidateProfile,
 ): Promise<SavedFormProblem[]> {
-  const knowledge = await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ''}`);
+  // Retrieve evidence for the claims being verified, rather than only the
+  // vacancy. A job-focused excerpt can omit an unrelated qualification or
+  // employer that is actually present on the saved application.
+  const knowledge = await buildKnowledgeContext([
+    job.title,
+    ...form.fields.map(field => `${field.label}\n${field.currentValue ?? ''}`),
+    form.text,
+  ].join('\n'));
   const saved = loadSavedAnswers();
   const refs = [...form.fields.map(field => field.ref), 'page'];
   const verdict = await json<{ problems: SavedFormProblem[] }>(`${GUARD}

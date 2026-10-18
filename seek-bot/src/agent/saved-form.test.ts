@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
@@ -25,6 +25,10 @@ globalThis.fetch = (async (_url, init) => {
   const match = prompt.match(/<untrusted role="current-saved-form">([\s\S]*)<\/untrusted>/);
   assert.ok(match, 'every advancement uses the saved-form reviewer');
   lastForm = JSON.parse(match[1]);
+  if (mode === 'claim-evidence') {
+    const evidence = prompt.match(/<candidate-documents>([\s\S]*?)<\/candidate-documents>/)?.[1] ?? '';
+    assert.match(evidence, /Nova Heart Centre.*Cardiology observership.*2024/, 'retrieve the current form claim even when vacancy-focused excerpts would omit it');
+  }
   assert.equal(request.model, haiku ? 'claude-haiku-5-5' : 'celeris-1-magnus');
   if (mode === 'unavailable') throw Error('Fixture outage');
   if (duringReview) { const change = duringReview; duringReview = undefined; await change(); }
@@ -59,6 +63,15 @@ try {
       guards: new RunGuards({ maxSteps: 30, maxStepsPerPage: 16, maxStuckMs: 60000, maxTotalMs: 600000, meter: new CostMeter(1) }), log: () => {} };
   };
   const good = '<main><label>Suburb *<input id="city" required value="Lidcombe" role="combobox" aria-expanded="false" aria-invalid="false"></label><button type="button">Submit application</button></main>';
+  // A large candidate document: job-keyword passages used to crowd the
+  // career entry out of the reviewer's evidence. No extra model call or
+  // larger context budget is needed to retrieve the actual claim.
+  writeFileSync(join(directory, 'knowledge.json'), JSON.stringify([{ id: 'history', kind: 'note', enabled: true,
+    label: 'Candidate history', text: ('Developer software engineering project delivery. ' + 'Other duties. '.repeat(45) + '\n').repeat(60)
+      + '\nNova Heart Centre — Cardiology observership — 2024.\n' }]));
+  let evidenceCtx = await open('<main><p>Career history: Nova Heart Centre — Cardiology observership — 2024.</p><button>Continue</button></main>');
+  mode = 'claim-evidence';
+  assert.equal((await gateAdvance(evidenceCtx, 'Continue')).proceed, true);
   let ctx = await open(good);
   // Exactly the old failure: accepted search text is unchanged by a recovery
   // click, but the search path left pending and failed records behind.
