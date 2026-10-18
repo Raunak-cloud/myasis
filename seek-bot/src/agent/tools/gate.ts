@@ -1,9 +1,8 @@
 import { waitForPageToSettle } from '../../browser.js';
 import { extractFields } from '../../dom.js';
-import { answerFields, isSubmitControl, reviewSavedApplicationForm, verifySubmissionEvidence } from '../../llm.js';
+import { isSubmitControl, reviewSavedApplicationForm, verifySubmissionEvidence } from '../../llm.js';
 import { pickResumeForJob } from '../../resume.js';
 import { createHash } from 'node:crypto';
-import type { FormField } from '../../types.js';
 import { isEntryAction } from '../guards.js';
 import { wasHumanized } from '../../humanizer.js';
 import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resume-sync.js';
@@ -254,7 +253,6 @@ export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | nul
     if (savedFormSignature(form) !== savedFormSignature(now)) {
       return ok('The saved form changed during verification. Re-observe before advancing; the earlier verdict is no longer valid.');
     }
-    ctx.auditFailures = 0;
     const missingFacts = problems.filter(problem => problem.kind === 'needs_candidate');
     if (missingFacts.length) {
       for (const problem of missingFacts) {
@@ -264,18 +262,17 @@ export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | nul
       }
       return { kind: 'terminal', outcome: { status: 'needs-human', reason: `Your answer is needed for: ${missingFacts.map(problem => problem.field).join('; ')}` } };
     }
-    const unsupported = problems.filter(problem => problem.kind === 'unsupported');
-    if (unsupported.length) return withheldFor(ctx, unsupported);
-    if (problems.length) return ok('The CURRENT saved form is not ready:\n' +
-      problems.map(problem => `- ${problem.ref} ${problem.field}: ${problem.problem}`).join('\n') +
-      '\nRepair these observed fields and check again. A missing or unaccepted selection is not a missing personal fact.');
+    if (problems.length) return ok('Do not advance: The CURRENT saved form is not ready:\n' +
+      problems.map(problem => `- ${problem.kind === 'unsupported' ? 'Not supported' : problem.kind}: ${problem.ref} ${problem.field}: "${problem.value.slice(0, 100)}" - ${problem.problem}`).join('\n') +
+      '\nRepair these observed fields using answer_questions (use repair_refs for an existing value), or fill_element without a value for a field only the snapshot shows. ' +
+      (applicationModelIdentity().selection === 'haiku' ? 'For a rejected cover letter, use add_cover_letter with repair_feedback quoting the specific rejection. ' : '') +
+      'Then check the actual form again. A failed repair or a missing/unaccepted selection is not a new personal question. Recovery is bounded by the normal attempt limits.');
     for (const field of form.fields) {
       // Clear only records for questions actually checked on this page.
       const labels = new Set([field.label, ...[...ctx.guards.pendingFields, ...ctx.guards.ungrounded,
         ...ctx.guards.unfillable.keys()].filter(label => sameLabel(label, field.label))]);
       for (const label of labels) {
         ctx.guards.recordFillSuccess(label);
-        ctx.auditStrikes?.delete(label);
       }
       const value = field.currentValue?.trim();
       if (value && !ctx.guards.siteControls.has(field.label)) {
@@ -287,10 +284,8 @@ export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | nul
     ctx.log('  · the current saved form passed AI verification');
     return null;
   } catch (error) {
-    ctx.auditFailures = (ctx.auditFailures ?? 0) + 1;
     ctx.log(`  · saved-form review unavailable: ${String((error as Error).message).slice(0, 120)}`);
-    if (ctx.auditFailures >= 2) return { kind: 'terminal', outcome: { status: 'skipped', reason: 'The saved form could not be verified before continuing.' } };
-    return ok('The saved-form check could not run. Nothing was advanced or submitted. Wait, re-observe and try the same advance control again.');
+    return ok('The saved-form check could not run. Nothing was advanced or submitted. Re-observe and retry if useful, or finish cannot_complete if the review remains unavailable. Recovery is bounded by the normal attempt limits.');
   }
 }
 
@@ -298,77 +293,6 @@ const sameLabel = (a: string, b: string) => {
   const normal = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase().replace(/[\s*:]+$/, '');
   return normal(a) === normal(b);
 };
-
-/**
- * The question the candidate sees in Needs attention for a field the check
- * would not send. "What should Owtomate enter for 'Tell us more:'?" told them
- * nothing: not what the employer wants there, nor why the bot stopped. The
- * answer model writes the specific question, as it does for any field it
- * cannot answer; the fallback still names the job, the employer and the reason.
- */
-async function candidateQuestion(
-  ctx: ToolContext,
-  field: FormField | undefined,
-  problem: { field: string; value: string; problem: string },
-): Promise<string> {
-  // Short: it is read in a list. Why the old answer was withheld is in the run's steps.
-  const fallback = `What should Owtomate enter for "${problem.field.replace(/[\s*:]+$/, '')}" on this ${ctx.job.company} application?`;
-  if (!field) return fallback;
-  const asked: FormField = {
-    ...field,
-    currentValue: '',
-    description: `${field.description ? `${field.description}\n` : ''}Not sent: "${problem.value.slice(0, 200)}" — ${problem.problem}`,
-  };
-  const answer = await answerFields([asked], ctx.job, ctx.profile)
-    .then((result) => result.answers.find((candidate) => candidate.ref === field.ref))
-    .catch(() => undefined);
-  return answer?.candidatePrompt?.trim() || fallback;
-}
-
-/** What the agent is told when answers on the form are not the candidate's; a field flagged twice goes to the candidate. */
-async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; value: string; problem: string }>): Promise<ToolResult | null> {
-  if (!problems.length) return null;
-  const strikes = (ctx.auditStrikes ??= new Map<string, number>());
-  const candidateFields: string[] = [];
-  // A model may describe two issues on one field. They are one failed review,
-  // not two repair attempts; the agent must receive the feedback first.
-  const reviewedFields = new Set<string>();
-  ctx.log(`  ✋ pre-submit check: ${problems.length} unsupported answer(s): ${problems.map(p => `${p.field}: ${p.problem}`).join('; ').slice(0, 900)}`);
-  for (const problem of problems) {
-    const key = problem.field.replace(/\s+/g, ' ').trim().toLowerCase();
-    if (reviewedFields.has(key)) continue;
-    reviewedFields.add(key);
-    const count = (strikes.get(problem.field) ?? 0) + 1;
-    strikes.set(problem.field, count);
-    if (count >= 2) {
-      // Haiku's saved-form reviewer already separates missing required
-      // high-risk facts as needs_candidate. A repeated unsupported draft is
-      // an agent repair failure, not a new personal question for the user.
-      if (applicationModelIdentity().selection === 'haiku') return { kind: 'terminal', outcome: {
-        status: 'skipped', reason: 'The application answers could not be corrected against your saved information.',
-      } };
-      const field = ctx.observation.fields.find((candidate) => sameLabel(candidate.label, problem.field));
-      ctx.guards.rememberField(field ?? { label: problem.field }, await candidateQuestion(ctx, field, problem));
-      ctx.guards.recordUngrounded(problem.field);
-      candidateFields.push(problem.field);
-    }
-  }
-  if (candidateFields.length) {
-    return { kind: 'terminal', outcome: {
-      status: 'needs-human',
-      reason: `These answers are not supported by your profile: ${candidateFields.slice(0, 3).join('; ')}`,
-      detail: problems.map((p) => `${p.field}: ${p.problem}`).join('; '),
-    } };
-  }
-  return ok(
-    `Not sent on: these answers are not supported by the candidate's record:\n` +
-    problems.map((p) => `- ${p.field}: "${p.value.slice(0, 80)}" — ${p.problem}`).join('\n') +
-    '\nCorrect each one with answer_questions (a value the page already held goes in repair_refs, with your reason), ' +
-    'or fill_element without a value for a field only the snapshot shows (both answer from the verified record), ' +
-    (applicationModelIdentity().selection === 'haiku' ? 'For a rejected cover letter, use add_cover_letter with repair_feedback quoting the specific rejection; this creates a corrected draft instead of reusing it. ' : '') +
-    'then press the same control again.',
-  );
-}
 
 /**
  * Whether the page in front of the agent confirms this application was

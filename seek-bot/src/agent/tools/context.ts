@@ -85,9 +85,6 @@ export interface ToolContext {
   submitCleared?: boolean;
   /** This tool call's press was judged by the gate (submit or not), so its form post needs no second judgment. */
   pressJudged?: boolean;
-  auditFailures?: number;
-  /** Times the pre-submit audit flagged each field. */
-  auditStrikes?: Map<string, number>;
   /** What the last tool call did, for judging a dialog it raised. */
   lastActionLabel?: string;
   /** Browser dialogs answered since the last turn, reported to the agent. */

@@ -55,7 +55,7 @@ try {
     await page.goto('https://saved.fixture.invalid/application');
     return { page, job: { id: 'saved-form-fixture', title: 'Developer', company: 'Fixture', location: 'Sydney', url: page.url() },
       profile: { name: 'Fixture', email: 'fixture@example.test', phone: '', suburb: 'Lidcombe', state: 'NSW', nationality: '', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' },
-      observation: await observe(page), captured: [], actions: [], resumeSettled: true,
+      observation: await observe(page), captured: [], actions: [], resumeSettled: true, declaredSubmit: false,
       guards: new RunGuards({ maxSteps: 30, maxStepsPerPage: 16, maxStuckMs: 60000, maxTotalMs: 600000, meter: new CostMeter(1) }), log: () => {} };
   };
   const good = '<main><label>Suburb *<input id="city" required value="Lidcombe" role="combobox" aria-expanded="false" aria-invalid="false"></label><button type="button">Submit application</button></main>';
@@ -124,17 +124,20 @@ try {
   result = await gateAdvance(ctx, 'Next');
   assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'needs-human');
 
-  if (haiku) {
-    ctx = await open(good); mode = 'unsupported';
-    duplicateProblems = true;
+  ctx = await open(good); mode = 'unsupported';
+  const repairsBefore = calls;
+  duplicateProblems = true;
+  for (let attempt = 0; attempt < 3; attempt++) {
     result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
-    assert.ok(!result.proceed && result.result.kind === 'ok' && /repair_feedback/.test(result.result.message));
-    assert.equal(ctx.auditStrikes?.get('Suburb *'), 1, 'duplicate reports in one review must allow a repair instead of spending two attempts');
-    duplicateProblems = false;
-    result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
-    assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'skipped');
-    assert.equal(ctx.guards.ungrounded.length, 0, 'a repeated draft error must never create a candidate question');
+    assert.ok(!result.proceed && result.result.kind === 'ok' && /Do not advance.*CURRENT saved form/s.test(result.result.message), 'a failed repair returns current-state feedback, not a counter-based stop');
+    if (haiku) assert.match(result.result.kind === 'ok' ? result.result.message : '', /repair_feedback/);
+    assert.equal(ctx.guards.ungrounded.length, 0, 'repeated model mistakes must not become a candidate question');
   }
+  assert.equal(calls - repairsBefore, 3, 'each attempt has one current-form review and no extra candidate-question checker');
+  duplicateProblems = false;
+  mode = 'approve';
+  result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
+  assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'rehearsed', 'a successful later repair proceeds without an old strike veto');
 
   ctx = await open(good);
   duringReview = () => page.locator('#city').fill('Changed after review');
@@ -143,10 +146,13 @@ try {
   assert.equal(ctx.captured.length, 0, 'a stale approval is never recorded');
   for (const corrupt of ['wrong-ref', 'wrong-value', 'unavailable']) {
     ctx = await open(good); mode = corrupt;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      result = await gateAdvance(ctx, 'Next');
+      assert.ok(!result.proceed && result.result.kind === 'ok' && /could not run/.test(result.result.message), 'bad/unavailable reviews never advance and do not have a separate retry cutoff');
+    }
+    mode = 'approve';
     result = await gateAdvance(ctx, 'Next');
-    assert.ok(!result.proceed && result.result.kind === 'ok');
-    result = await gateAdvance(ctx, 'Next');
-    assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'skipped');
+    assert.equal(result.proceed, true, 'a recovered reviewer can continue under the normal run limits');
   }
   ctx = await open('<main><label>City<input value="Main city"></label><div id="shadow"></div><iframe srcdoc="&lt;label&gt;City&lt;input value=&quot;Embedded city&quot;&gt;&lt;/label&gt;"></iframe><iframe hidden srcdoc="&lt;label&gt;Hidden unrelated form&lt;input required value=&quot;hidden-frame-value&quot;&gt;&lt;/label&gt;"></iframe><input type="password" value="secret-value"><input type="hidden" value="hidden-secret"><label>Verification code<input id="otp" value="private-code"></label></main>');
   await page.locator('#shadow').evaluate(host => { host.attachShadow({ mode: 'open' }).innerHTML = '<label>City<input value="Shadow city"></label>'; });
@@ -157,7 +163,7 @@ try {
   assert.ok(form.fields.some(f => f.frame === 1 && f.currentValue === 'Embedded city'));
   assert.ok(!JSON.stringify(form).includes('secret-value') && !JSON.stringify(form).includes('hidden-secret')
     && !JSON.stringify(form).includes('private-code') && !JSON.stringify(form).includes('hidden-frame-value'));
-  console.log('PASS: current-form authority, stale checklist repair, one review, invalid unchanged values, required blanks, missing facts, changed-state expiry, corrupt/outage fail-closed, frames/shadow roots, private values and dry-run protection.');
+  console.log('PASS: current-form authority, stale checklist repair, one review, invalid unchanged values, required blanks, missing facts, changed-state expiry, corrupt/outage fail-closed recovery without strike cutoffs, frames/shadow roots, private values and dry-run protection.');
 } finally {
   await browser.close();
   assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-saved-form-'));
