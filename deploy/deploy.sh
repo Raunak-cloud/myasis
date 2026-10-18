@@ -90,6 +90,7 @@ as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --tes
 as_app "cd $APP/seek-bot && node dist/fit-contract.test.js && node dist/application-evidence.test.js && node dist/application-model-cache.test.js"
 as_app "cd $APP/seek-bot && node dist/assessment-reuse.test.js"
 as_app "cd $APP/seek-bot && node scripts/test-ranking.mjs"
+as_app "cd $APP/seek-bot && TEST_APPLICATION_MODEL=haiku node scripts/test-ranking.mjs"
 as_app "cd $APP/seek-bot && node --test dist/profile-salary.test.js"
 as_app "cd $APP/seek-bot && node --test dist/application-identity.test.js"
 as_app "cd $APP/seek-bot && node --test dist/instruction-policy.test.js dist/job-evaluation-trust.test.js"

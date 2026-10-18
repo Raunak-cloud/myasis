@@ -71,6 +71,38 @@ test('real answer-batch schemas fit the strict grammar while original dispatch b
   assert.ok(!('maxItems' in (nested.items as object)));
 }));
 
+test('ranking numeric/text bounds are translated recursively and still checked before accepting output', async () => {
+  const schema = { type: 'object', properties: { jobs: { type: 'array', minItems: 1, maxItems: 1, items: {
+    type: 'object', properties: { priority: { type: 'integer', minimum: 0, maximum: 100 },
+      reason: { type: 'string', minLength: 1, maxLength: 120 } }, required: ['priority', 'reason'],
+  } } }, required: ['jobs'] };
+  const before = JSON.stringify(schema);
+  const native = haikuSchema(schema) as typeof schema;
+  assert.ok(!('minimum' in native.properties.jobs.items.properties.priority));
+  assert.ok(!('maximum' in native.properties.jobs.items.properties.priority));
+  assert.ok(!('maxLength' in native.properties.jobs.items.properties.reason));
+  assert.match(String((native.properties.jobs.items.properties.priority as unknown as {description: string}).description), /minimum: 0; maximum: 100/);
+  assert.equal(JSON.stringify(schema), before);
+  assert.equal(validHaikuInput({jobs: [{priority: 90, reason: 'Fits'}]}, schema), true);
+  for (const invalid of [
+    {jobs: [{priority: -1, reason: 'Fits'}]}, {jobs: [{priority: 101, reason: 'Fits'}]},
+    {jobs: [{priority: 50.5, reason: 'Fits'}]}, {jobs: [{priority: 90, reason: ''}]},
+    {jobs: [{priority: 90, reason: 'x'.repeat(121)}]}, {jobs: []},
+  ]) assert.equal(validHaikuInput(invalid, schema), false);
+  assert.equal(validHaikuInput(0.3, {type: 'number', exclusiveMinimum: 0, exclusiveMaximum: 1, multipleOf: 0.1}), true);
+  assert.equal(validHaikuInput(1, {type: 'number', exclusiveMaximum: 1}), false);
+  const efforts: string[] = [];
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body)); efforts.push(body.output_config.effort);
+    return response([{type: 'text', text: JSON.stringify({jobs: [{priority: efforts.length === 1 ? 101 : 90, reason: 'Fits'}]})}]);
+  }) as typeof fetch;
+  await withApplicationModel(environment, async () => {
+    const result = await celerisChat({...request, responseSchema: schema});
+    assert.equal(JSON.parse(result.text!).jobs[0].priority, 90);
+    assert.deepEqual(efforts, ['medium', 'high']);
+  });
+});
+
 test('concurrent account selections never send Haiku data or its key to Celeris', async () => {
   const seen: Array<{ url: string; key: string | null; body: Record<string, unknown> }> = [];
   globalThis.fetch = (async (url, init) => {

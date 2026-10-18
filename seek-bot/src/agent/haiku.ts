@@ -17,19 +17,24 @@ export function haikuSchema(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const schema = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, haikuSchema(item)]));
   if (schema.type === 'object') schema.additionalProperties = false;
-  // JSON outputs and strict tools reject maxItems, and only accept minItems
-  // of 0 or 1. Sending the common answer-batch schema unchanged is HTTP 400.
+  // Both JSON output and strict tools use the same constrained grammar.
+  // Move unsupported bounds to descriptions, as Anthropic's SDK does,
+  // while validating replies against the untouched original schema below.
+  const limits: string[] = [];
+  const unsupported = schema.type === 'array' ? ['maxItems']
+    : schema.type === 'string' ? ['minLength', 'maxLength']
+      : schema.type === 'integer' || schema.type === 'number'
+        ? ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'] : [];
+  for (const key of unsupported) {
+    if (key in schema) { limits.push(`${key}: ${JSON.stringify(schema[key])}`); delete schema[key]; }
+  }
   if (schema.type === 'array') {
-    const limits: string[] = [];
-    for (const key of ['maxItems']) {
-      if (key in schema) { limits.push(`${key}: ${JSON.stringify(schema[key])}`); delete schema[key]; }
-    }
     if (typeof schema.minItems === 'number' && schema.minItems > 1) {
       limits.push(`minItems: ${schema.minItems}`);
       schema.minItems = 1;
     }
-    if (limits.length) schema.description = [schema.description, `Additional requirements: ${limits.join('; ')}.`].filter(Boolean).join(' ');
   }
+  if (limits.length) schema.description = [schema.description, `Additional requirements: ${limits.join('; ')}.`].filter(Boolean).join(' ');
   return schema;
 }
 
@@ -54,21 +59,36 @@ export function haikuTools(tools: ToolSchema[]): Block[] {
 }
 
 /** Validate before dispatch, even for tools that are not grammar-constrained. */
-export function validHaikuInput(value: unknown, schema: Record<string, unknown>): boolean {
+export function validHaikuInput(value: unknown, schema: Record<string, unknown>, closedObjects = true): boolean {
   if (schema.enum && !(schema.enum as unknown[]).includes(value)) return false;
   if (schema.type === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const object = value as Record<string, unknown>, properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
     if ((schema.required as string[] | undefined)?.some(key => !(key in object))) return false;
-    return Object.entries(object).every(([key, item]) => Boolean(properties[key]) && validHaikuInput(item, properties[key]));
+    return Object.entries(object).every(([key, item]) => properties[key]
+      ? validHaikuInput(item, properties[key], closedObjects) : !closedObjects && schema.additionalProperties !== false);
   }
   if (schema.type === 'array') return Array.isArray(value)
     && (typeof schema.minItems !== 'number' || value.length >= schema.minItems)
     && (typeof schema.maxItems !== 'number' || value.length <= schema.maxItems)
-    && value.every(item => validHaikuInput(item, (schema.items ?? {}) as Record<string, unknown>));
-  if (schema.type === 'integer') return Number.isInteger(value);
-  if (schema.type === 'number') return typeof value === 'number' && Number.isFinite(value);
-  if (schema.type === 'string' || schema.type === 'boolean') return typeof value === schema.type;
+    && value.every(item => validHaikuInput(item, (schema.items ?? {}) as Record<string, unknown>, closedObjects));
+  if (schema.type === 'integer' || schema.type === 'number') {
+    if (typeof value !== 'number' || !Number.isFinite(value) || (schema.type === 'integer' && !Number.isInteger(value))) return false;
+    if (typeof schema.minimum === 'number' && value < schema.minimum) return false;
+    if (typeof schema.maximum === 'number' && value > schema.maximum) return false;
+    if (typeof schema.exclusiveMinimum === 'number' && value <= schema.exclusiveMinimum) return false;
+    if (typeof schema.exclusiveMaximum === 'number' && value >= schema.exclusiveMaximum) return false;
+    if (typeof schema.multipleOf === 'number') {
+      if (schema.multipleOf <= 0) return false;
+      const ratio = value / schema.multipleOf;
+      if (Math.abs(ratio - Math.round(ratio)) > Number.EPSILON * Math.max(1, Math.abs(ratio)) * 4) return false;
+    }
+    return true;
+  }
+  if (schema.type === 'string') return typeof value === 'string'
+    && (typeof schema.minLength !== 'number' || [...value].length >= schema.minLength)
+    && (typeof schema.maxLength !== 'number' || [...value].length <= schema.maxLength);
+  if (schema.type === 'boolean') return typeof value === 'boolean';
   return true;
 }
 
@@ -167,7 +187,9 @@ export async function haikuChat(request: CelerisRequest): Promise<CelerisReply> 
         throw new ReplyUnusableError('Haiku did not return a complete actionable response.');
       }
       if (request.responseSchema && !request.tools?.length) {
-        try { JSON.parse(text); } catch { throw new ReplyUnusableError('Haiku returned invalid structured output.'); }
+        let parsed: unknown;
+        try { parsed = JSON.parse(text); } catch { throw new ReplyUnusableError('Haiku returned invalid structured output.'); }
+        if (!validHaikuInput(parsed, request.responseSchema, false)) throw new ReplyUnusableError('Haiku structured output did not satisfy the original response schema.');
       }
       metric('model', performance.now() - started, { model: applicationModelIdentity().model, attempts: attempt + 1, effort, usage: payload.usage });
       return { text, toolCalls, message: { role: 'assistant', content: text || null, nativeContent: content,
