@@ -22,10 +22,10 @@ import type { CandidateProfile, JobListing, BlockedQuestion } from '../types.js'
 import { CostMeter, celerisChat, type ChatMessage, type CelerisModel } from './celeris.js';
 import { RunGuards, detectConfirmation, isExternal, listingIdIn, siteDomain } from './guards.js';
 import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
-import { checkGeneralToolAnswers, executeTool, pageConfirmsSubmission, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
+import { executeTool, pageConfirmsSubmission, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
 import { embeddedSurface, watchTab } from './raw-tools.js';
 import { systemPrompt } from './loop/prompt.js';
-import { LOOK_ONLY_TOOLS, GENERAL_TOOLS, MAX_PLAN, SURPRISE, missingRefs } from './loop/plan.js';
+import { LOOK_ONLY_TOOLS, MAX_PLAN, SURPRISE, missingRefs } from './loop/plan.js';
 import { TraceStep, pathOf, hostOf, describeCall, TRACE_DIR, loadSiteHints, persistTrace, captureBlockedField } from './loop/trace.js';
 import { trimTranscript, observationMessage, embeddedForms } from './loop/transcript.js';
 import { confirmAuthentication } from './loop/accounts.js';
@@ -695,13 +695,9 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
       if (result.kind === 'ok' && !looking && startedAt && ctx.page === page && !page.isClosed()) {
         changes = await readChanges(page, startedAt).catch(() => null);
         if (changes) {
-          // Answers a general tool set are checked against the record now, not three pages later at submit.
-          const checkAnswers = GENERAL_TOOLS.has(call.name) || Boolean(ctx.rawAnswerProblems?.size && ['answer_questions', 'choose_option'].includes(call.name));
-          const check = checkAnswers ? await checkGeneralToolAnswers(ctx, changes.controls, config.formSpeed ? changes.values : undefined)
-            .catch(() => config.formSpeed ? 'ANSWER CHECK UNAVAILABLE' : '') : '';
-          if (/ANSWER CHECK UNAVAILABLE/.test(check)) return finish({ status: 'skipped', reason: 'The browser changes could not be checked against your saved information.' });
-          if (/NOT SUPPORTED/.test(check)) lastFailed = true;
-          result = { ...result, message: `${result.message}\n${describeChanges(changes)}${check}` };
+          // Record observed changes for recovery. The saved-form review is
+          // the single answer-readiness check before advancing or submitting.
+          result = { ...result, message: `${result.message}\n${describeChanges(changes)}` };
           if (changedAnything(changes)) lastChanged = true;
           else ctx.wantScreenshot = true;
           if (movedByAction(changes)) lastMoved = true;

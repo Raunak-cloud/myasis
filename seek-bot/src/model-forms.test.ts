@@ -12,6 +12,8 @@ process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 process.env.HUMANIZER_MODE = 'off';
 process.env.RESUME_ALLOW_UPLOAD = 'true';
+process.env.DRY_RUN = 'true';
+process.env.ALLOW_EXTERNAL_APPLY = 'true';
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'candidate.txt'), 'Fixture resume');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
@@ -20,7 +22,7 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
 const { config } = await import('./config.js');
 const { observe, renderObservation } = await import('./agent/observe.js');
 const { fillField } = await import('./dom.js');
-const { executeTool, fillEmailedCode, pageOffersDocuments } = await import('./agent/tools.js');
+const { executeTool, fillEmailedCode } = await import('./agent/tools.js');
 const { RunGuards } = await import('./agent/guards.js');
 const { CostMeter } = await import('./agent/celeris.js');
 const { recentReviewFeedback } = await import('./store.js');
@@ -66,28 +68,6 @@ try {
     (await observe(page)).actions.some(action => /^Open State \/ Territory/.test(action.text)),
     'an icon-only dropdown button is named from the field it opens, even beside a hidden native select',
   );
-  // Indeed's review page: Supporting documents far below, rendered lazily (content-visibility), so innerText skips it.
-  await page.setContent('<main><h1>Review your application</h1><div style="height:4000px">Resume preview</div><section style="content-visibility:auto"><h2>Supporting documents</h2><button>Add</button><p>No cover letter or additional documents added. This is optional to add.</p></section><button>Submit your application</button></main>');
-  assert.equal(await pageOffersDocuments(page), true, 'a lazily rendered Supporting documents section below the fold is a place for a letter');
-  // The live Indeed page: the review section inside a shadow root, lazily rendered, below a job description that says "cover letter".
-  await page.setContent('<main><p>Job description: please include a cover letter.</p><div id="host"></div><button>Submit your application</button></main>');
-  await page.evaluate(() => {
-    const shadow = document.getElementById('host')!.attachShadow({ mode: 'open' });
-    shadow.innerHTML = '<div style="height:4000px">Resume preview</div><section style="content-visibility:auto"><div><h2>Supporting documents</h2><button>Add</button></div><p>No cover letter or additional documents added. This is optional to add.</p></section>';
-  });
-  assert.equal(await pageOffersDocuments(page), true, 'a Supporting documents section inside a shadow root is a place for a letter');
-  await page.setContent('<main><h1>Review your application</h1><p>Contact information</p><button>Submit your application</button></main>');
-  assert.equal(await pageOffersDocuments(page), false, 'a review page with no documents section offers no place');
-  // The section is not in the DOM at all until the page is scrolled towards it (Indeed, Sep 2026).
-  await page.setContent('<main><h1>Review your application</h1><div style="height:5000px">Resume preview</div><div id="slot"></div><button>Submit your application</button></main>');
-  await page.evaluate(() => {
-    addEventListener('scroll', () => {
-      if (scrollY > 3000 && !document.querySelector('#slot section')) {
-        document.getElementById('slot')!.innerHTML = '<section><h2>Supporting documents</h2><button>Add</button><p>No cover letter or additional documents added.</p></section>';
-      }
-    });
-  });
-  assert.equal(await pageOffersDocuments(page), true, 'a documents section that enters the DOM only on scroll is still found');
   // PageUp's declaration dropdowns: the placeholder carries a non-empty value.
   await page.setContent('<main><label>Medical condition *<select required><option value="0">Please select</option><option value="1043">No</option><option value="1044">Yes</option></select></label><label>Notice<select><option value="" disabled selected>Choose</option><option value="7">1 week</option></select></label><label>Years<select><option value="3">3 years</option></select></label></main>');
   const selects = (await observe(page)).fields;
@@ -193,8 +173,8 @@ try {
   await page.setContent('<main><label>Cover letter<textarea></textarea></label><button onclick="document.body.dataset.advanced=\'yes\'">Continue</button></main>');
   ctx = await context();
   const blockedAdvance = await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Continue' });
-  assert.ok(blockedAdvance.kind === 'ok' && blockedAdvance.message.includes('has a place for a cover letter'), 'a step with a letter box holds the forward press until the letter is added');
-  assert.equal(await page.locator('body').getAttribute('data-advanced'), null, 'an offered cover letter cannot be skipped');
+  assert.equal(blockedAdvance.kind, 'ok', 'an optional letter does not add an advancement gate');
+  assert.equal(await page.locator('body').getAttribute('data-advanced'), 'yes', 'the saved-form review permits an optional blank letter');
   await executeTool(ctx, 'add_cover_letter', { ref: ctx.observation.fields[0].ref });
   await executeTool(ctx, 'click', { ref: ctx.observation.actions[0].ref, reason: 'Continue after letter' });
   assert.equal(await page.locator('body').getAttribute('data-advanced'), 'yes', 'advance is allowed after the letter is retained');
@@ -211,11 +191,11 @@ try {
   const indeedSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
   assert.ok(indeedSubmit, 'Indeed fixture exposes its submit action');
   const blockedIndeedSubmit = await executeTool(ctx, 'click', { ref: indeedSubmit.ref, reason: 'Submit', sends_application: true });
-  assert.ok(blockedIndeedSubmit.kind === 'ok' && /cover letter/i.test(blockedIndeedSubmit.message));
+  assert.ok(!(blockedIndeedSubmit.kind === 'ok' && /cover letter/i.test(blockedIndeedSubmit.message)), 'optional supporting documents do not add a second veto');
   assert.equal(
     await page.locator('body').getAttribute('data-submitted'),
     null,
-    'Indeed supporting documents cannot be skipped when its cover-letter control is only labelled Add',
+    'dry-run still withholds the submit even without a document prerequisite',
   );
 
   await page.setContent(`
@@ -235,18 +215,18 @@ try {
   const contextualSubmit = ctx.observation.actions.find(action => action.text === 'Submit your application');
   assert.ok(contextualSubmit, 'long Indeed fixture exposes its submit action');
   const blockedTruncatedSubmit = await executeTool(ctx, 'click', { ref: contextualSubmit.ref, reason: 'Submit', sends_application: true });
-  assert.ok(blockedTruncatedSubmit.kind === 'ok' && /cover letter/i.test(blockedTruncatedSubmit.message));
+  assert.ok(!(blockedTruncatedSubmit.kind === 'ok' && /cover letter/i.test(blockedTruncatedSubmit.message)));
   assert.equal(
     await page.locator('body').getAttribute('data-submitted'),
     null,
-    'a below-fold supporting-documents section cannot be skipped when the page summary is truncated',
+    'a long optional documents section does not bypass dry-run',
   );
 
   await page.setContent('<main><button onclick="document.body.dataset.submitted=\'yes\'">Submit your application</button></main>');
   ctx = await context();
   ctx.observation.url = 'https://smartapply.indeed.com/beta/indeedapply/form/review-module';
   const indeedSubmitWithoutDocuments = ctx.observation.actions[0];
-  const indeedWithoutLetterOption = await executeTool(ctx, 'click', { ref: indeedSubmitWithoutDocuments.ref, reason: 'Submit', sends_application: true, no_cover_letter_place: 'the review page has no supporting documents or cover letter option' });
+  const indeedWithoutLetterOption = await executeTool(ctx, 'click', { ref: indeedSubmitWithoutDocuments.ref, reason: 'Submit', sends_application: true });
   assert.ok(
     !(indeedWithoutLetterOption.kind === 'ok' && /cover letter/i.test(indeedWithoutLetterOption.message)),
     'an Indeed application whose agent states it offers no cover-letter option is not held back for one',
@@ -428,7 +408,7 @@ try {
   sendCtx.captured.push({ question: 'Phone', answer: '0412345678' });
   sendsApplication = true;
   process.env.DRY_RUN = 'true';
-  const withheld = await executeTool(sendCtx, 'click', { ref: sendCtx.observation.actions.find(action => action.text === 'Send')!.ref, reason: 'Finish', no_cover_letter_place: 'the form has only a phone field and no letter box or upload' });
+  const withheld = await executeTool(sendCtx, 'click', { ref: sendCtx.observation.actions.find(action => action.text === 'Send')!.ref, reason: 'Finish' });
   delete process.env.DRY_RUN;
   sendsApplication = false;
   assert.ok(withheld.kind === 'terminal' && withheld.outcome.status === 'rehearsed', 'an unlisted submit wording is withheld in a rehearsal');

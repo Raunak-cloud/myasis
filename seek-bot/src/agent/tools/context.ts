@@ -49,7 +49,7 @@ export type AgentTermination =
   | { status: 'already-applied'; reason: string }
   | { status: 'skipped'; reason: string };
 
-export type ToolResult = { kind: 'ok'; message: string; disposition?: 'document-prerequisite' | 'invalid-arguments' } | { kind: 'terminal'; outcome: AgentTermination };
+export type ToolResult = { kind: 'ok'; message: string; disposition?: 'invalid-arguments' } | { kind: 'terminal'; outcome: AgentTermination };
 
 export interface ToolContext {
   /** Counts tool calls; a call past its time limit is retired and can no longer change the page (tool-run.ts). */
@@ -63,15 +63,8 @@ export interface ToolContext {
   /** Everything this run would transmit, so a dry run can show it. */
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
-  /** Set only after a real cover-letter input or reveal control was observed. */
   /** The agent's own judgement on the current press: does it send the application? */
   declaredSubmit?: boolean;
-  /** The agent's own statement, on the current press, of why the form has no place for a cover letter. */
-  declaredNoLetter?: string;
-  /** Moving on without a letter has been settled for this application (the agent's statement accepted). */
-  letterResolved?: boolean;
-  /** The agent's statement was questioned once against what the page shows. */
-  letterChallenged?: boolean;
   /** Passwords set on a site in this attempt and not yet accepted by it, by host. */
   pendingCredentials?: Map<string, SiteCredential>;
   resumeUsed?: string;
@@ -104,15 +97,13 @@ export interface ToolContext {
   /** Focused evidence requests deeper Magnus reasoning without treating menu animation as completion. */
   interactionRecovery?: string;
   recoveryInspectionSequence?: number;
-  /** AI-rejected raw-tool answers stay blocked until a committed replacement is checked. */
-  rawAnswerProblems?: Map<string, { field: string; value: string; problem: string }>;
   /** Recent failed requests and console errors, per tab, for get_diagnostics. */
   diagnostics?: WeakMap<Page, string[]>;
 }
 
 export { abandoned } from '../../tool-run.js';
 
-export const ok = (message: string, disposition?: 'document-prerequisite' | 'invalid-arguments'): ToolResult => ({ kind: 'ok', message, ...(disposition ? { disposition } : {}) });
+export const ok = (message: string, disposition?: 'invalid-arguments'): ToolResult => ({ kind: 'ok', message, ...(disposition ? { disposition } : {}) });
 
 /** Records a side effect once per kind and site, and says so in the run log. */
 export function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {

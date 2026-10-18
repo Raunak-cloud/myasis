@@ -49,10 +49,7 @@ try {
   await page.goto('https://career2.successfactors-fixture.example/portalcareer');
   ctx.observation = await observe(page);
   ctx.captured.push({ question: 'First name', answer: 'Raunak' });
-  const prerequisite = await executeTool(ctx, 'click', { ref: applyRef(), sends_application: true });
-  assert.equal(prerequisite.kind === 'ok' && prerequisite.disposition, 'document-prerequisite', 'an unmet document condition is not a broken browser control');
-  assert.notEqual(await page.title(), 'SENT', 'a prerequisite never presses the submit');
-  result = await executeTool(ctx, 'click', { ref: applyRef(), reason: 'submit', no_cover_letter_place: 'the form has no letter box or upload' });
+  result = await executeTool(ctx, 'click', { ref: applyRef(), reason: 'submit' });
   assert.notEqual(await page.title(), 'SENT', 'the filled form was not sent');
   assert.equal(result.kind, 'terminal');
   assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed', 'the rehearsal ends at the withheld submit');
@@ -62,7 +59,7 @@ try {
   ctx.observation = await observe(page);
   const before = modelCalls;
   const proceed = ctx.observation.actions.find((action) => /^proceed$/i.test(action.text))!.ref;
-  result = await executeTool(ctx, 'click', { ref: proceed, reason: 'send it', sends_application: true, no_cover_letter_place: 'the form has no letter box or upload' });
+  result = await executeTool(ctx, 'click', { ref: proceed, reason: 'send it', sends_application: true });
   assert.notEqual(await page.title(), 'SENT', 'what the agent says is the submit is gated as one');
   assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed');
   assert.equal(modelCalls - before, 1, 'the declared submit needs one saved-form review, with no extra submit-classifier call');

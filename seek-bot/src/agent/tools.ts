@@ -106,7 +106,6 @@ async function runTool(
     return ok('Your tool arguments were not valid JSON. Call the tool again with well-formed arguments.', 'invalid-arguments');
   }
   ctx.declaredSubmit = typeof args.sends_application === 'boolean' ? args.sends_application : undefined;
-  ctx.declaredNoLetter = typeof args.no_cover_letter_place === 'string' && args.no_cover_letter_place.trim() ? args.no_cover_letter_place.trim() : undefined;
   switch (name) {
     case 'get_candidate_evidence':
       return applicationModelIdentity().selection === 'haiku'

@@ -26,7 +26,7 @@ globalThis.fetch=async (_url,init)=>{
   const field=text.match(/(f\d+)\s+[^\n]*Email/)?.[1];
   const calls=turn===1 ? [{name:'answer_questions',args:{refs:[field]}}]
    : turn===2 ? [{name:'attach_resume',args:{ref:await fixturePage.locator('input[type="file"]').getAttribute('data-ref-id')}}]
-   : turn===3 ? [{name:'click',args:{ref:await action('SUBMIT'),sends_application:true,no_cover_letter_place:'There is no cover letter field or supporting-document control.'}}]
+   : turn===3 ? [{name:'click',args:{ref:await action('SUBMIT'),sends_application:true}}]
    : positive ? [{name:'click',args:{ref:await action('Continue'),sends_application:false,reason:'Continue the draft.'}}]
    : [{name:'finish',args:{status:'cannot_complete',reason:'Only a draft is present for this role.'}}];
   message={role:'assistant',content:null,tool_calls:calls.map((c,i)=>({id:`c${turn}-${i}`,type:'function',function:{name:c.name,arguments:JSON.stringify(c.args)}}))};

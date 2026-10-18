@@ -3,15 +3,11 @@ import { isExternal } from '../guards.js';
 import { handleCaptchaWithCapMonster } from '../../captcha.js';
 import { ToolResult, ToolContext, ok } from './context.js';
 import { submissionEvidence } from './gate.js';
-import { applicationModelIdentity } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
 export async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const reason = String(args.reason ?? 'no reason given');
-  if (applicationModelIdentity().selection === 'haiku' && args.status === 'needs_human' && !ctx.guards.ungrounded.length) {
-    return ok('No required high-risk question has been reported as missing by the answer helper. Read get_candidate_evidence for the disputed facts, use answer_questions for unanswered required fields, or repair a rejected letter with add_cover_letter and repair_feedback. A CV preview omitting a fact is not evidence it is unsupported. Technical failures use finish cannot_complete. Continue from the actual evidence instead of asking the candidate to reconfirm known information.');
-  }
   /**
    * CAPTCHAs belong to CapMonster, never to the model's judgment. A widget
    * that loads only when scrolled into view is invisible to the check that

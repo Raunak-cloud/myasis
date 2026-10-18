@@ -9,9 +9,6 @@ import type { Page } from 'patchright';
  */
 export const LOOK_ONLY_TOOLS = new Set(['take_snapshot', 'take_screenshot', 'scroll', 'list_pages', 'get_diagnostics', 'inspect_interaction', 'get_candidate_evidence']);
 
-/** Tools that can change an answer without the grounded answer path; what they set is checked as it lands. */
-export const GENERAL_TOOLS = new Set(['evaluate_script', 'click_element', 'fill_element', 'type_text', 'press_key', 'click_point', 'drag']);
-
 /** The most actions one plan may hold; a page needing more is planned again after the first batch. */
 export const MAX_PLAN = 6;
 

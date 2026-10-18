@@ -105,10 +105,6 @@ function withPressJudgement(tool: ToolSchema): ToolSchema {
           type: 'boolean',
           description: 'Your judgement: true when this press sends the finished application to the employer (the final submit), false for anything else (opening the form, Next, Continue, Save, a menu).',
         },
-        no_cover_letter_place: {
-          type: 'string',
-          description: 'Only when moving on or submitting without having added a cover letter: what you checked that shows this form has no place for one (no cover-letter box, no supporting-documents upload, after scrolling and opening any Add control).',
-        },
       },
     },
   };
@@ -119,7 +115,7 @@ function withPressJudgement(tool: ToolSchema): ToolSchema {
  * differ only here are the same action: the repeat check leaves these out, or
  * a rephrased reason made every retry of a dead click look new.
  */
-export const NARRATIVE_ARGS: ReadonlySet<string> = new Set(['reason', 'no_cover_letter_place']);
+export const NARRATIVE_ARGS: ReadonlySet<string> = new Set(['reason']);
 
 const TOOL_SCHEMAS: ToolSchema[] = [
   {

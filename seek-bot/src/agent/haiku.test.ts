@@ -30,7 +30,8 @@ test('candidate evidence stays account scoped and known facts do not become huma
       assert.match(text, /MBBS/);
       assert.match(text, /omission.*does not contradict/s);
       assert.equal(readFileSync(join(directory, 'answers.json'), 'utf8'), answers, 'read does not alter saved evidence');
-      assert.equal((await doFinish(ctx, { status: 'needs_human', reason: 'The retail CV omits MBBS' })).kind, 'ok');
+      const stopped = await doFinish(ctx, { status: 'needs_human', reason: 'The retail CV omits MBBS' });
+      assert.equal(stopped.kind === 'terminal' && stopped.outcome.status, 'skipped', 'no missing candidate fact means a stop is a skip, without forcing a retry');
       ctx.guards.ungrounded.push('Do you hold a valid police clearance?');
       const unknown = await doFinish(ctx, { status: 'needs_human', reason: 'Unknown required clearance' });
       assert.equal(unknown.kind === 'terminal' && unknown.outcome.status, 'needs-human');

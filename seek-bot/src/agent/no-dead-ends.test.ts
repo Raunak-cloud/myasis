@@ -13,6 +13,8 @@ import { chromium, type Page } from 'patchright';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-dead-ends-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
+process.env.DRY_RUN = 'true';
+process.env.ALLOW_EXTERNAL_APPLY = 'true';
 globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ problems: [], sends_application: false, unsafe: false, reason: 'fixture' }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
 const { observe } = await import('./observe.js');
 const { executeTool } = await import('./tools.js');
@@ -66,21 +68,11 @@ try {
   result = await executeTool(ctx, 'click', { ref: next!.ref, reason: 'Next step', sends_application: false });
   assert.equal(await page.locator('#next').count(), 1, 'Next goes through on a page that only mentions a letter');
 
-  // 2b. At the final submit, moving on without a letter takes the agent's statement, questioned once when the page shows a place.
-  const withBox = `<!doctype html><main><form>
-    <label>First name <input value="Raunak"></label>
-    <label>Cover letter <textarea></textarea></label>
-    <button type="button" onclick="document.title='SENT'">Submit application</button></form></main>`;
-  ctx = await open(withBox);
-  ctx.captured.push({ question: 'First name', answer: 'Raunak' });
-  const submitRef = ctx.observation.actions.find((action) => /submit/i.test(action.text))!.ref;
+  // 2b. An optional letter is a navigator decision, not a second submit veto.
+  ctx = await open(`<main><label>First name <input value="Raunak"></label><label>Cover letter <textarea></textarea></label><button>Submit application</button></main>`);
+  const submitRef = ctx.observation.actions.find(action => /submit/i.test(action.text))!.ref;
   result = await executeTool(ctx, 'click', { ref: submitRef, reason: 'submit', sends_application: true });
-  assert.match(message(result), /has a place for a cover letter/, 'a submit past a letter box is held');
-  result = await executeTool(ctx, 'click', { ref: submitRef, reason: 'submit', sends_application: true, no_cover_letter_place: 'there is no letter field' });
-  assert.match(message(result), /but this step lists a cover-letter control/, 'a statement against the evidence is questioned once');
-  result = await executeTool(ctx, 'click', { ref: submitRef, reason: 'submit', sends_application: true, no_cover_letter_place: 'the box is for a different purpose and rejects text' });
-  assert.ok(!/cover letter/i.test(message(result)) || /withheld|rehears/i.test(message(result)) || result.kind === 'terminal', `a repeated statement is accepted: ${message(result)}`);
-  assert.ok(logged.some((line) => /no cover letter: the box is for a different purpose/.test(line)), logged.join(' | '));
+  assert.ok(result.kind === 'terminal' && result.outcome.status === 'rehearsed', 'one approved saved-form review reaches dry run without a no-letter explanation');
 
   // 3. A site whose check stopped an application is remembered for the day.
   assert.equal(walledHost('jobs.lever.co'), null);
@@ -98,7 +90,7 @@ try {
   assert.match(walledHost('jobs.lever.co')?.reason ?? '', /security verification/, 'local failures remain intact');
   assert.match(walledHost('career2.successfactors.example', 'Nestlé', 'brightdata')?.reason ?? '', /could not sign in/, 'failed account credentials are shared across browser choices');
 
-  console.log("PASS: declined site controls are operable, a letter mention does not hold a step, the agent's no-letter statement is questioned once against the page, and a walled site is remembered");
+  console.log("PASS: declined site controls are operable, optional letters do not block a verified form, dry-run stays active, and a walled site is remembered");
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });

@@ -7,7 +7,7 @@ import type { SavedForm } from './agent/saved-form.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-application-evidence-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
-const { reviewSavedApplicationForm, draftCoverLetter, auditFormBeforeSubmit } = await import('./llm.js');
+const { reviewSavedApplicationForm, draftCoverLetter } = await import('./llm.js');
 const originalFetch = globalThis.fetch;
 const profile = { name: 'Fixture Candidate', phone: '', email: 'general@example.test', nationality: 'Permitted up to 20 hours per week',
   expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: 'Previous retail experience.',
@@ -46,12 +46,6 @@ globalThis.fetch = async (_url, init) => {
     assert.match(prompt, /CANDIDATE SAVED APPLICATION PREFERENCES/);
     assert.match(prompt, /does not invent exact shift availability/);
   }
-  if (prompt.includes('A job application form is about to be sent')) {
-    assert.ok(prompt.includes('CURRENT form URL (from the browser): "https://apply.alias.fixture/application"'));
-    assert.match(prompt, /explicit candidate-confirmed saved answer/);
-    assert.match(prompt, /existing login\/contact email alone is not proof/);
-    return Response.json({ choices: [{ message: { content: JSON.stringify({ problems: [] }) } }] });
-  }
   if (prompt.includes('Independently review this CURRENT SAVED FORM')) {
     const current = JSON.parse(/<untrusted role="current-saved-form">([\s\S]*?)<\/untrusted>/.exec(prompt)![1]) as SavedForm;
     assert.match(prompt, /explicit candidate-confirmed saved answer/);
@@ -88,8 +82,6 @@ globalThis.fetch = async (_url, init) => {
 };
 try {
   assert.deepEqual(await reviewSavedApplicationForm(form, job, profile), [], 'employer facts and an explicitly approved matching-site alias can be supported');
-  assert.deepEqual(await auditFormBeforeSubmit('Contact email currently holds approved@example.test', job, profile, [], ['Contact email'], form.url), [],
-    'raw-tool auditing receives the same scoped permission and actual destination');
   mode = 'personal-claim';
   const personal = structuredClone(form);
   personal.fields[0].currentValue = 'I have unrestricted full-time work rights and availability.';

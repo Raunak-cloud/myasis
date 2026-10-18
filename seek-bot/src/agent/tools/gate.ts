@@ -1,16 +1,11 @@
-import type { Frame, Page } from 'patchright';
-import { config } from '../../config.js';
 import { waitForPageToSettle } from '../../browser.js';
 import { extractFields } from '../../dom.js';
-import { answerFields, auditFormBeforeSubmit, isSubmitControl, reviewSavedApplicationForm, verifySubmissionEvidence } from '../../llm.js';
+import { answerFields, isSubmitControl, reviewSavedApplicationForm, verifySubmissionEvidence } from '../../llm.js';
 import { pickResumeForJob } from '../../resume.js';
-import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { FormField } from '../../types.js';
-import type { PageChanges } from '../page-changes.js';
 import { isEntryAction } from '../guards.js';
 import { wasHumanized } from '../../humanizer.js';
-import { offersCoverLetter } from '../cover-letter-opportunity.js';
 import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resume-sync.js';
 import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
@@ -118,13 +113,12 @@ async function classifyPress(ctx: ToolContext, label: string, context: string | 
  * a script, or a form post caught on the network. One gate, so a new way to
  * act cannot become a new way around the rules:
  *
- * - a cover letter the employer offers is written before the form advances;
  * - a forward/submit control checks the current saved form once;
  * - a submit passes configuration policy (dry run and external scope);
  * - a second submit is pressed only once the first is known not to have gone
  *   through, since some forms confirm in place and pressing again sends the
  *   employer another copy;
- * - a form the agent filled with its own browser tools is audited first.
+ * - answer readiness is decided from the current saved form, not fill history.
  */
 export async function gateAdvance(
   ctx: ToolContext,
@@ -137,12 +131,6 @@ export async function gateAdvance(
     ctx.log(`  · held "${label.slice(0, 60)}": it came from a step already abandoned`);
     return { proceed: false, result: ok('This step was abandoned for taking too long; nothing was pressed.') };
   }
-  /**
-   * The observation's text is the start of the page, capped. Indeed's review
-   * page puts "Supporting documents" under the resume preview, past that cap,
-   * so a letter the employer allowed could go unsent. Before the form moves
-   * on without a letter, the whole page is read for a place to add one.
-   */
   /**
    * The resume a board sends is Owtomate's, never whatever it preselected.
    * Settled here, deterministically, as the documents step is left, so the
@@ -171,13 +159,6 @@ export async function gateAdvance(
     if (step.action !== 'none') settleResume(ctx, step);
   }
   const { entry, submit } = await classifyPress(ctx, label, context, options);
-  if (!entry) {
-    // Asked at the press the agent itself calls the final submit; a press a word list calls a submit
-    // but the agent does not (Indeed's "Review your application") still runs the submit gates below.
-    const final = ctx.declaredSubmit ?? submit;
-    const letter = await coverLetterCheck(ctx, label, final);
-    if (letter) return { proceed: false, result: letter };
-  }
   if (!submit) {
     if (!entry && movesForward(ctx, label)) {
       const held = await checkSavedForm(ctx);
@@ -248,25 +229,10 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string): Promis
     ctx.log(`  ✋ dry run — withheld "${label}"`);
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } } };
   }
-  // Every submission says whether a letter went with it: a letter is sent wherever the form has a place for one.
-  if (ctx.coverLetter) {
-    ctx.log(`  · cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
-  } else {
-    // The evidence, not only the verdict: whether the whole page mentions a place for documents at all.
-    // Every frame's and shadow root's text (Indeed's review section renders in on scroll; pageOffersDocuments has scrolled).
-    const whole = (await Promise.all(ctx.page.frames().map((frame) => frame.evaluate(() => {
-      const roots: Array<Document | ShadowRoot> = [document];
-      for (let i = 0; i < roots.length; i++) {
-        for (const element of roots[i].querySelectorAll('*')) if (element.shadowRoot) roots.push(element.shadowRoot);
-      }
-      return roots.map((root) => (root instanceof Document ? root.body?.textContent : root.textContent) ?? '').join('\n');
-    }).catch(() => '')))).join('\n');
-    const mentions = [/cover[\s-]?letter/i, /supporting documents?/i, /additional documents?/i]
-      .filter((pattern) => pattern.test(whole)).map((pattern) => pattern.source.replace(/\\s|\[|\]|-|\?/g, ' ').replace(/\s+/g, ' ').trim());
-    ctx.log(`  · no cover letter: this form has no place for one (page mentions: ${mentions.join(', ') || 'none of cover letter / supporting documents'})`);
-    // The whole page as sent, so "no place for a letter" can be seen rather than trusted.
-    await ctx.page.screenshot({ path: resolve(config.dataDir, 'traces', `${ctx.job.id}-submit-no-letter.png`), fullPage: true, timeout: 10_000 }).catch(() => {});
-  }
+  // Letter presence is descriptive, not an advancement prerequisite. The
+  // navigator handles documents from the actual form; an existing letter
+  // need not have been drafted by this attempt to be valid.
+  if (ctx.coverLetter) ctx.log(`  cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
   if (!authorizeReservedSubmission(ctx.page.url())) {
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'needs-human',
       reason: 'Submission withheld: this exact form is reserved or may already have been sent, or the shared application limit is reached.' } } };
@@ -275,69 +241,6 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string): Promis
   ctx.submissionAttempted = true;
   ctx.submitCleared = true;
   return { proceed: true, submit: true };
-}
-
-/**
- * Whether the page, read as it is and not as it is painted, has a control for
- * adding a cover letter or supporting documents. Indeed renders the lower part
- * of its review page lazily (content-visibility), so while it is off screen
- * both the observation and innerText skip "Supporting documents · Add", and
- * FTI Group was sent without the letter the form allowed. textContent and the
- * DOM do not depend on rendering.
- */
-export async function pageOffersDocuments(page: Page): Promise<boolean> {
-  /**
-   * Rendered on scroll, not merely painted on scroll: Indeed's review page
-   * does not put the Supporting documents section into the DOM until the
-   * page has been scrolled towards it, so the walk below found nothing while
-   * the full-page screenshot (which scrolls) showed the section plainly, and
-   * Load Master went out without the letter. Walk the page to the bottom
-   * first, in every frame, and leave it there — the agent re-observes anyway.
-   */
-  for (const frame of page.frames()) {
-    await frame.evaluate(async () => {
-      const step = Math.max(400, Math.floor(innerHeight * 0.8));
-      for (let y = 0; y <= (document.body?.scrollHeight ?? 0); y += step) {
-        scrollTo(0, y);
-        await new Promise((done) => setTimeout(done, 120));
-      }
-      scrollTo(0, document.body?.scrollHeight ?? 0);
-    }).catch(() => {});
-  }
-  await page.waitForTimeout(600).catch(() => {});
-  const inFrame = async (frame: Frame) => frame.evaluate(() => {
-    const place = /supporting documents?|additional documents?|cover[\s-]?letter/i;
-    /*
-     * Shadow roots included: Indeed's review section lives in one, so
-     * document.body.textContent never contained "Supporting documents" and
-     * Stake was sent without the letter too. Nameless and iterative — see the
-     * note in observe.ts on named inner functions under tsx.
-     */
-    const roots: Array<Document | ShadowRoot> = [document];
-    const controls: Element[] = [];
-    for (let i = 0; i < roots.length; i++) {
-      for (const element of roots[i].querySelectorAll('*')) {
-        if (element.shadowRoot) roots.push(element.shadowRoot);
-        if (element.matches('button, a, [role="button"], label')) controls.push(element);
-      }
-    }
-    return controls.some((control) => {
-      const name = `${control.textContent ?? ''} ${control.getAttribute('aria-label') ?? ''}`.replace(/\s+/g, ' ').trim();
-      if (!/^(add|attach|upload|include|write)\b/i.test(name) && !place.test(name)) return false;
-      // Up through the section around the control, crossing out of a shadow root to its host.
-      let node: Element | null = control;
-      for (let depth = 0; node && depth < 6; depth++) {
-        if (place.test(node.textContent ?? '')) return true;
-        const root = node.getRootNode();
-        node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
-      }
-      return false;
-    });
-  }).catch(() => false);
-  for (const frame of page.frames()) {
-    if (await inFrame(frame)) return true;
-  }
-  return false;
 }
 
 /** All tools advance through this same current-state review. No cached fill
@@ -369,10 +272,9 @@ export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | nul
     for (const field of form.fields) {
       // Clear only records for questions actually checked on this page.
       const labels = new Set([field.label, ...[...ctx.guards.pendingFields, ...ctx.guards.ungrounded,
-        ...ctx.guards.unfillable.keys(), ...(ctx.rawAnswerProblems?.keys() ?? [])].filter(label => sameLabel(label, field.label))]);
+        ...ctx.guards.unfillable.keys()].filter(label => sameLabel(label, field.label))]);
       for (const label of labels) {
         ctx.guards.recordFillSuccess(label);
-        ctx.rawAnswerProblems?.delete(label);
         ctx.auditStrikes?.delete(label);
       }
       const value = field.currentValue?.trim();
@@ -469,66 +371,6 @@ async function withheldFor(ctx: ToolContext, problems: Array<{ field: string; va
 }
 
 /**
- * Answers a general tool just put on the form, checked against the
- * candidate's record the moment they land.
- *
- * A script, a raw click or typed keys set a dropdown or a box without the
- * grounded answer path, and only the check at submit used to look at them:
- * the agent went on building a page on an answer it could not stand behind
- * (a Degree set by script on DTN's Workday form was caught at submit, three
- * pages later). The recorded changes say exactly what was set; the same
- * check as the submit audit reads them now, and the agent is told straight
- * away what the record does not support, while it is still on that page.
- */
-export async function checkGeneralToolAnswers(ctx: ToolContext, changes: string[], committed?: PageChanges['values']): Promise<string> {
-  const labels: string[] = [];
-  for (const value of committed ?? []) {
-    if (value.value.trim()) continue;
-    const field = value.frame === 0 ? ctx.observation.fields.find(field => field.ref === value.ref) : undefined;
-    const label = field?.label ?? value.name;
-    ctx.rawAnswerProblems?.delete(label);
-    if (field && !field.required) ctx.guards.resolveGrounding(label);
-  }
-  const set = committed ? committed.filter(value => value.value.trim()).map(value => {
-    const field = value.frame === 0 ? ctx.observation.fields.find(field => field.ref === value.ref) : undefined;
-    const label = field?.label ?? value.name;
-    labels.push(label);
-    return JSON.stringify({ field: label, value: value.value, section: field?.section, description: field?.description, required: field?.required });
-  }) : changes.filter((change) =>
-    /now holds|aria-checked: \S+ → true|checked: \S+ → |aria-selected: \S+ → true|class \+\S*(?:selected|checked|highlight|active)/i.test(change)
-    && !/now holds \(hidden\)|now holds nothing/.test(change));
-  if (!set.length) return '';
-  let problems: Awaited<ReturnType<typeof auditFormBeforeSubmit>>;
-  try {
-    problems = await auditFormBeforeSubmit(
-      `Answers just set on the form with a general browser tool (control: what changed):\n${set.map((change) => `- ${change}`).join('\n')}`,
-      ctx.job, ctx.profile, ctx.captured,
-      committed ? [...new Set(labels)] : undefined,
-      ctx.page.url(),
-    );
-  } catch {
-    if (committed) return '\nANSWER CHECK UNAVAILABLE: the committed browser changes could not be verified. Do not continue this attempt.';
-    return '';
-  }
-  if (committed) {
-    const issues = (ctx.rawAnswerProblems ??= new Map());
-    for (const label of labels) if (!problems.some(problem => sameLabel(problem.field, label))) {
-      if (issues.has(label)) ctx.guards.resolveGrounding(label);
-      issues.delete(label);
-      ctx.auditStrikes?.delete(label);
-    }
-    for (const problem of problems) {
-      const label = labels.find(label => sameLabel(label, problem.field));
-      if (!label) continue;
-      issues.set(label, { ...problem, field: label });
-    }
-  }
-  if (!problems.length) return '\nThe answers this set are supported by the candidate\'s record.';
-  ctx.log(`  ✋ ${problems.length} answer(s) set by a general tool not supported: ${problems.map((problem) => problem.field).join('; ').slice(0, 160)}`);
-  return `\nNOT SUPPORTED by the candidate's record, so this must not stay on the form: ${problems.map((problem) => `"${problem.field}" = "${problem.value}" (${problem.problem})`).join('; ')}. Put the right answer in with answer_questions or choose_option, or undo it; if the record has no answer, leave it for the candidate.`;
-}
-
-/**
  * Whether the page in front of the agent confirms this application was
  * received, read by the independent verifier (it must quote the page).
  * For an attempt that ends on a limit right after its submit: Accenture's
@@ -571,37 +413,4 @@ export async function recordWhatWasSent(ctx: ToolContext): Promise<void> {
     const now = field && field.kind !== 'checkbox' && !field.sensitive ? field.currentValue?.trim() : '';
     if (now && normal(now) !== normal(item.answer)) item.answer = now;
   }
-}
-
-/**
- * Whether the application may move on without a cover letter, decided from
- * the agent's own statement checked against what the page shows.
- *
- * A word-matching rule used to decide: a page that merely mentioned a letter
- * held every forward press (APRA's Oracle form spent its step budget there),
- * and a letter section rendered out of view was missed (Indeed). Now an
- * ordinary step moves on unless it shows a letter control itself; the final
- * submit asks the agent once; and a statement that the form has no place
- * for a letter is accepted, after being questioned once if the page does
- * show one (a cover-letter control in view, or a supporting-documents
- * section anywhere on the page).
- */
-async function coverLetterCheck(ctx: ToolContext, label: string, submit: boolean): Promise<ToolResult | null> {
-  if (ctx.coverLetter || ctx.letterResolved || !(submit || movesForward(ctx, label))) return null;
-  const shown = offersCoverLetter(ctx.observation);
-  if (!shown && !submit) return null;
-  const elsewhere = !shown && submit ? await pageOffersDocuments(ctx.page) : false;
-  const stated = ctx.declaredNoLetter;
-  if (stated) {
-    if ((shown || elsewhere) && !ctx.letterChallenged) {
-      ctx.letterChallenged = true;
-      return ok(`You said the form has no place for a cover letter ("${stated.slice(0, 200)}"), but ${shown ? 'this step lists a cover-letter control in its FIELDS or ACTIONS' : 'the page has a supporting-documents or cover-letter section, possibly below or folded away'}. Add the letter with add_cover_letter (the writing FIELD, or the upload ACTION when it takes a file); if you have checked and it really cannot take one, press again with no_cover_letter_place saying why.`, 'document-prerequisite');
-    }
-    ctx.letterResolved = true;
-    ctx.log(`  · no cover letter: ${stated.slice(0, 160)}`);
-    return null;
-  }
-  return ok(shown
-    ? 'This step has a place for a cover letter and none has been added. Add it with add_cover_letter (the writing FIELD, or the upload ACTION when it takes a file) before moving on; if it is not really a place for a letter, press again with no_cover_letter_place saying why.'
-    : `This sends the application without a cover letter. If the form takes one anywhere (a cover-letter box, supporting documents, attachments; scroll down and open any Add control), add it with add_cover_letter; otherwise press again with no_cover_letter_place saying what you checked.${elsewhere ? ' The page does have a supporting-documents or cover-letter section.' : ''}`, 'document-prerequisite');
 }

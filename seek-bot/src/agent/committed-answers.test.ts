@@ -22,7 +22,7 @@ globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
   return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ problems: reviewedProblems, answers: [{ ref: 'f0', grounded: false, value: '', candidatePrompt: 'What month did you start your degree?' }] }) } }], usage: {} }), { headers: { 'content-type': 'application/json' } });
 }) as typeof fetch;
 const { startRecording, readChanges, changedAnything } = await import('./page-changes.js');
-const { checkGeneralToolAnswers, gateAdvance } = await import('./tools/gate.js');
+const { gateAdvance } = await import('./tools/gate.js');
 const { RunGuards } = await import('./guards.js');
 const { CostMeter } = await import('./celeris.js');
 const { observe } = await import('./observe.js');
@@ -38,8 +38,7 @@ try {
   let changes = await readChanges(page, started);
   assert.ok(changes.controls.length);
   assert.deepEqual(changes.values, [], 'highlighting a menu option does not commit an answer');
-  await checkGeneralToolAnswers(ctx, changes.controls, changes.values);
-  assert.equal(prompts.length, 0, 'menu movement does not ask the checker about unrelated saved birth facts');
+  assert.equal(prompts.length, 0, 'recording menu movement needs no answer review');
 
   started = await startRecording(page);
   await page.locator('#start').evaluate(node => (node as HTMLInputElement).value = 'January');
@@ -47,46 +46,33 @@ try {
   await page.locator('#hidden').evaluate(node => (node as HTMLInputElement).value = 'changed-private');
   changes = await readChanges(page, started);
   assert.equal(changes.values?.length, 1, 'silent property assignment is seen; private controls are not read');
-  assert.equal(changedAnything(changes), true, 'a silent committed selection is real progress');
+  assert.equal(changedAnything(changes), true);
+  assert.equal(prompts.length, 0, 'recording an edit does not launch a competing AI audit');
   problems = [{ field: 'Education Start Date Month', value: 'January', problem: 'The education month is not in the verified record.' }];
-  const check = await checkGeneralToolAnswers(ctx, changes.controls, changes.values);
-  assert.match(check, /NOT SUPPORTED/);
+  (ctx as unknown as { declaredSubmit: boolean }).declaredSubmit = false;
+  const before = prompts.length;
+  const held = await gateAdvance(ctx, 'Next');
+  assert.equal(held.proceed, false, 'the current saved-form review holds an unsupported answer before advancing');
+  assert.equal(prompts.length - before, 1, 'one review at advance');
   assert.ok(prompts.at(-1)?.includes('Education Start Date Month'));
   assert.ok(!prompts.at(-1)?.includes('changed-private'));
-  assert.ok(!prompts.at(-1)?.includes('Date of Birth Month'), 'the audit receives only changed fields, with their actual question');
-  const held = await gateAdvance(ctx, 'Next');
-  assert.equal(held.proceed, false, 'a model-rejected answer cannot be left behind on an earlier page');
-  const heldAgain = await gateAdvance(ctx, 'Next');
-  assert.equal(heldAgain.proceed, false);
-  assert.equal((heldAgain as { result?: { outcome?: { status: string } } }).result?.outcome?.status, 'needs-human', 'repeated unresolved facts become a candidate question');
 
-  started = await startRecording(page);
   await page.locator('#start').fill('September');
-  changes = await readChanges(page, started);
   problems = [];
-  await checkGeneralToolAnswers(ctx, changes.controls, changes.values);
-  assert.equal((ctx as unknown as { rawAnswerProblems: Map<string, unknown> }).rawAnswerProblems.size, 0);
-  assert.equal((ctx as unknown as { guards: InstanceType<typeof RunGuards> }).guards.ungrounded.length, 0, 'a verified replacement resolves the old rejection');
+  const repaired = await gateAdvance(ctx, 'Next');
+  assert.equal(repaired.proceed, true, 'the actual repaired value wins without stale per-action rejection records');
+  assert.equal((ctx as unknown as { guards: InstanceType<typeof RunGuards> }).guards.ungrounded.length, 0);
 
   problems = [{ field: 'Date of Birth Month', value: 'September', problem: 'Wrong unrelated month.' }];
-  assert.match(await checkGeneralToolAnswers(ctx, changes.controls, changes.values), /ANSWER CHECK UNAVAILABLE/, 'an unrelated field returned by the model is rejected, not accepted as an audit');
-
-  started = await startRecording(page);
-  await page.locator('#start').fill('January');
-  changes = await readChanges(page, started);
-  problems = [{ field: 'Education Start Date Month', value: 'January', problem: 'Unknown education month.' }];
-  await checkGeneralToolAnswers(ctx, changes.controls, changes.values);
-  started = await startRecording(page);
+  const corrupt = await gateAdvance(ctx, 'Next');
+  assert.ok(!corrupt.proceed && corrupt.result.kind === 'ok' && /could not run/.test(corrupt.result.message), 'a reviewer cannot invent an absent field value');
   await page.locator('#start').fill('');
-  changes = await readChanges(page, started);
-  await checkGeneralToolAnswers(ctx, changes.controls, changes.values);
-  assert.equal((ctx as unknown as { rawAnswerProblems: Map<string, unknown> }).rawAnswerProblems.size, 0, 'clearing an unsupported optional value removes its rejection');
+  problems = [];
+  assert.equal((await gateAdvance(ctx, 'Next')).proceed, true, 'an optional blank is not blocked by an earlier edit');
 
-  started = await startRecording(page);
-  await page.locator('#start').fill('January');
-  changes = await readChanges(page, started);
   unavailable = true;
-  assert.match(await checkGeneralToolAnswers(ctx, changes.controls, changes.values), /ANSWER CHECK UNAVAILABLE/);
+  const outage = await gateAdvance(ctx, 'Next');
+  assert.equal(outage.proceed, false, 'failure of the remaining review still withholds advancement');
   await page.setContent('<div id="shadow"></div><iframe srcdoc="&lt;label&gt;Embedded city&lt;input id=city&gt;&lt;/label&gt;"></iframe>');
   await page.locator('#shadow').evaluate(host => { host.attachShadow({ mode: 'open' }).innerHTML = '<input id="shadow-city">'; });
   await page.frames()[1].waitForSelector('#city');
@@ -96,7 +82,7 @@ try {
   changes = await readChanges(page, started);
   assert.ok(changes.values?.some(value => value.value === 'Shadow value' && value.frame === 0));
   assert.ok(changes.values?.some(value => value.value === 'Embedded value' && value.frame === 1));
-  console.log('PASS: silent value changes, precise question context, uncommitted highlights, private values, held navigation, candidate escalation, verified replacement and unavailable-check stop; offline fixtures only.');
+  console.log('PASS: recorded changes without per-action AI audits, one current-form review, private values, held unsupported answers, verified repair and unavailable-check stop; offline fixtures only.');
 } finally {
   await browser.close();
   assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-committed-answers-'));

@@ -172,7 +172,7 @@ try {
   reviewCtx.job = { ...reviewCtx.job, url: reviewUrl };
   const submitRef = reviewCtx.observation.actions.find((action) => action.text === 'Submit your application')?.ref;
   assert.ok(submitRef, 'the review fixture has its submit');
-  const held = await executeTool(reviewCtx, 'click', { ref: submitRef, reason: 'Submit', sends_application: true, no_cover_letter_place: 'the review page offers no documents' });
+  const held = await executeTool(reviewCtx, 'click', { ref: submitRef, reason: 'Submit', sends_application: true });
   assert.ok(held.kind === 'ok' && /Not submitted yet/.test(held.message), `held for the resume: ${JSON.stringify(held)}`);
   assert.match(page.url(), /resume-selection/, 'the resume step was reopened');
   const sentName = (reviewCtx as { resumeName?: string }).resumeName;
@@ -183,7 +183,7 @@ try {
   await open(page, reviewUrl, reviewPage);
   reviewCtx.observation = await observe(page);
   const again = reviewCtx.observation.actions.find((action) => action.text === 'Submit your application')?.ref;
-  const second = await executeTool(reviewCtx, 'click', { ref: again!, reason: 'Submit', sends_application: true, no_cover_letter_place: 'the review page offers no documents' });
+  const second = await executeTool(reviewCtx, 'click', { ref: again!, reason: 'Submit', sends_application: true });
   assert.ok(!(second.kind === 'ok' && /Not submitted/.test(second.message)), `a settled resume is not held again: ${JSON.stringify(second)}`);
 
   // 12. SEEK at its ten-resumé limit opens "select a resumé to delete" instead of saving the upload (Rinu Thapa, 5 Oct):

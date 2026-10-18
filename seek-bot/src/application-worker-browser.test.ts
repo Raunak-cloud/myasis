@@ -69,7 +69,7 @@ test('isolated sessions preserve login, separate mutable state/popups, and allow
     const profile = { name: 'Fixture', email: 'fixture@example.test', phone: '', nationality: '', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' };
     const jobs = (['seek', 'indeed'] as const).map(platform => ({ id: 'same-id', platform, title: 'Assistant', company: 'Fixture', location: 'Sydney', url: `https://${platform}.fixture.invalid/jobs/7` }));
     const contexts: ToolContext[] = await Promise.all(pages.map(async (page, index) => ({ page, job: jobs[index], profile,
-      observation: await observe(page), captured: [], actions: [], resumeSettled: true, letterResolved: true,
+      observation: await observe(page), captured: [], actions: [], resumeSettled: true,
       guards: new RunGuards({ maxSteps: 30, maxStepsPerPage: 16, maxStuckMs: 60000, maxTotalMs: 600000, meter: new CostMeter(1) }), log: () => {} })));
     const ids = jobs.map(job => journal.acquire(job)!);
     assert.ok(ids.every(Boolean));

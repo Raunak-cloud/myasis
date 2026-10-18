@@ -9,7 +9,7 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-work-preferences-'));
 process.env.DATA_DIR = directory;
 process.env.FORM_SPEED_PILOT = 'false';
 const { config } = await import('../dist/config.js');
-const { answerFields, auditFormBeforeSubmit, reviewSavedApplicationForm } = await import('../dist/llm.js');
+const { answerFields, reviewSavedApplicationForm } = await import('../dist/llm.js');
 const officeQuestion = 'This role requires you to be in-office in Sydney at least 3 days a week. Based on this requirement, do you feel comfortable moving forward with this opportunity?';
 const profile = { name: 'Synthetic Applicant', suburb: 'Sydney', state: 'NSW', nationality: 'Not supplied', phone: '', email: 'fixture@example.test',
   expectedSalary: 'Negotiable', noticePeriod: '', willingToRelocate: true, experienceSummary: 'Four years of software development.', skills: ['TypeScript'], excludedDomains: [], securityClearance: '' };
@@ -47,8 +47,6 @@ try {
       if (scenario.expected) {
         form.fields[0].currentValue = scenario.expected;
         assert.deepEqual(await reviewSavedApplicationForm(form, job, profile), [], 'compatible answers survive independent saved-form review');
-        assert.deepEqual(await auditFormBeforeSubmit(`${scenario.question}: ${scenario.expected}`, job, profile, [], [scenario.question], form.url), [],
-          'raw browser answers follow the same preference evidence');
       }
       console.log(`PASS ${scenario.name}: ${Date.now() - started}ms`);
     } catch (error) {

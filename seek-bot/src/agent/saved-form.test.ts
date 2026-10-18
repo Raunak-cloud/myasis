@@ -55,7 +55,7 @@ try {
     await page.goto('https://saved.fixture.invalid/application');
     return { page, job: { id: 'saved-form-fixture', title: 'Developer', company: 'Fixture', location: 'Sydney', url: page.url() },
       profile: { name: 'Fixture', email: 'fixture@example.test', phone: '', suburb: 'Lidcombe', state: 'NSW', nationality: '', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' },
-      observation: await observe(page), captured: [], actions: [], resumeSettled: true, letterResolved: true,
+      observation: await observe(page), captured: [], actions: [], resumeSettled: true,
       guards: new RunGuards({ maxSteps: 30, maxStepsPerPage: 16, maxStuckMs: 60000, maxTotalMs: 600000, meter: new CostMeter(1) }), log: () => {} };
   };
   const good = '<main><label>Suburb *<input id="city" required value="Lidcombe" role="combobox" aria-expanded="false" aria-invalid="false"></label><button type="button">Submit application</button></main>';
@@ -65,15 +65,37 @@ try {
   ctx.guards.pendingFields.add('Suburb *');
   ctx.guards.recordFillFailure('Suburb *', 'Old failure');
   ctx.guards.recordUngrounded('Suburb *');
-  ctx.rawAnswerProblems = new Map([['Suburb *', { field: 'Suburb *', value: 'Wrong old value', problem: 'Old rejection' }]]);
   const before = calls;
   let result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
   assert.equal(result.proceed, false);
   assert.equal(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status, 'rehearsed');
   assert.equal(calls - before, 1, 'one saved-form review replaces conflicting pre-submit audits');
-  assert.equal(ctx.guards.pendingFields.size + ctx.guards.ungrounded.length + ctx.guards.unfillable.size + ctx.rawAnswerProblems.size, 0);
+  assert.equal(ctx.guards.pendingFields.size + ctx.guards.ungrounded.length + ctx.guards.unfillable.size, 0);
   assert.deepEqual(ctx.captured, [{ question: 'Suburb *', answer: 'Lidcombe' }]);
   assert.equal(ctx.submissionAttempted, undefined, 'dry-run still withholds the press');
+
+  // The Indeed failure: a read-only letter from an earlier attempt is on
+  // review, while this attempt has no ctx.coverLetter bookkeeping.
+  const review = '<main><h1>Review your application</h1><section><h2>Supporting documents</h2><p>Cover letter</p><p>Existing grounded letter for this employer.</p><button>Edit</button></section><button>Submit application</button></main>';
+  ctx = await open(review);
+  const letterCalls = calls;
+  result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
+  assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'rehearsed');
+  assert.equal(calls - letterCalls, 1, 'an existing review letter reaches the single saved-form check without a document veto');
+  assert.match(await page.locator('body').innerText(), /Existing grounded letter/);
+  ctx = await open('<main><label>Cover letter<textarea></textarea></label><button>Submit application</button></main>');
+  result = await gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true });
+  assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'rehearsed', 'an optional blank letter requires no special declaration');
+  ctx = await open('<main><label>Cover letter<textarea required></textarea></label><button>Next</button></main>');
+  mode = 'missing';
+  result = await gateAdvance(ctx, 'Next');
+  assert.ok(!result.proceed && result.result.kind === 'ok' && /CURRENT saved form/.test(result.result.message), 'actual employer-required fields still need completion');
+  if (haiku) {
+    ctx = await open('<main><p>Application unavailable.</p></main>');
+    const { doFinish } = await import('./tools/finish.js');
+    const stopped = await doFinish(ctx, { status: 'needs_human', reason: 'The form cannot be completed.' });
+    assert.ok(stopped.kind === 'terminal' && stopped.outcome.status === 'skipped', 'Haiku can end an attempt without being forced to build an internal checklist or invent a candidate question');
+  }
 
   const originalPilot = config.formSpeed;
   for (const pilot of [false, true]) {
