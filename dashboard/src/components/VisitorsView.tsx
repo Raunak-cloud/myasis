@@ -277,7 +277,7 @@ export function VisitorsView() {
         <p className="job-meta">
           Visible tabs reporting within the last{' '}
           {liveData?.activeWithinSeconds ?? 60} seconds. Updates every 10
-          seconds. Multiple tabs count as one browser visitor.
+          seconds. Multiple tabs count as one browser visitor. Locations are approximate.
         </p>
         {live.error ? (
           <p role="status" className="banner banner-bad">
@@ -291,7 +291,7 @@ export function VisitorsView() {
               <tr>
                 <th>Visitor</th>
                 <th>Current page</th>
-                <th>Approximate location</th>
+                <th>Location</th>
                 <th>Device</th>
                 <th>Last seen</th>
               </tr>
@@ -409,7 +409,7 @@ export function VisitorsView() {
                   <tr>
                     <th>Started</th>
                     <th>Visitor</th>
-                    <th>Approximate location</th>
+                    <th>Location</th>
                     <th>Pages / details</th>
                     <th>Visible time</th>
                   </tr>
@@ -540,7 +540,7 @@ export function VisitorsView() {
                 <thead>
                   <tr>
                     <th>IP address</th>
-                    <th>Approximate location</th>
+                    <th>Location</th>
                     <th>Visits</th>
                     <th>Last seen</th>
                     <th>Action</th>
