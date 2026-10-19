@@ -7,6 +7,7 @@ import { Wordmark } from './Wordmark';
 import { SiteHeader } from './SiteHeader';
 import { HeroStory } from './HeroStory';
 import { TrustStrip } from './TrustStrip';
+import { JobSourceLogos } from './JobSourceLogos';
 import type { WebsitePatch } from '../marketingTypes';
 
 function landingImprovements():WebsitePatch {
@@ -155,8 +156,9 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               </>}
             </h1>
             <p className="home-hero-summary">
-              Owtomate finds matching jobs across SEEK, Indeed, government job portals and employer career sites, then handles applications and tailored cover letters for you.
+              Owtomate finds matching jobs across job boards, government portals and employer career sites, then handles applications and tailored cover letters for you.
             </p>
+            <JobSourceLogos />
             <div className="home-hero-actions">
               {start()}
               <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications, no card.</p>

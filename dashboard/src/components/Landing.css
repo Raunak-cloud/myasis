@@ -83,6 +83,27 @@
   max-width: 62ch; margin: 26px 0 0;
   font-size: clamp(15px, 1.15vw, 17px); line-height: 1.65; color: var(--body);
 }
+.home-job-sources {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px; max-width: 720px; margin: 24px 0 0; padding: 0;
+  list-style: none;
+}
+.home-job-source {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 7px; min-width: 0; padding: 14px 10px 12px;
+  border: 1px solid #dce3ed; border-radius: 8px; background: #fff;
+}
+.home-job-source-logo {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 34px; color: var(--accent);
+}
+.home-job-source-logo img { display: block; width: auto; height: 26px; max-width: 100%; object-fit: contain; }
+.home-job-source-apsjobs .home-job-source-logo { padding: 5px 8px; border-radius: 4px; background: #172b45; }
+.home-job-source-apsjobs img { width: 100%; height: 100%; }
+.home-job-source-caption { font-size: 11px; line-height: 1.45; color: #526175; text-align: center; }
+@media (max-width: 600px) {
+  .home-job-sources { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
+}
 .home-hero-actions {
   display: flex; flex-wrap: wrap; align-items: center; gap: 20px 28px;
   margin-top: 38px;
