@@ -150,12 +150,12 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           <div className="home-width home-hero-inner">
             <h1 id="home-heading" className="home-hero-title">
               {improvements.h1 || <>
-              Stop applying for jobs.<br />
-              <span className="home-hero-promise"><span className="home-hero-mark">Owtomate</span> does it <em>for</em> you.</span>
+              More opportunities.{' '}
+              <span className="home-hero-promise">Less time applying.</span>
               </>}
             </h1>
             <p className="home-hero-summary">
-              It reads SEEK and Indeed against your resume, writes a cover letter for each job, and applies from your own account. If it cannot answer something honestly, it asks you.
+              Owtomate finds matching jobs across SEEK, Indeed, government job portals and employer career sites, then handles applications and tailored cover letters for you.
             </p>
             <div className="home-hero-actions">
               {start()}

@@ -78,12 +78,7 @@
   font-size: clamp(30px, 4.6vw, 62px);
   line-height: 1.08; letter-spacing: -.03em;
 }
-.home-hero-title em { font-family: var(--display); font-weight: 500; font-style: italic; color: var(--accent); }
-.home-hero-mark {
-  position: relative; display: inline-block;
-  background: linear-gradient(180deg, transparent 82%, color-mix(in srgb, var(--accent) 30%, transparent) 82%);
-  padding: 0 .05em;
-}
+.home-hero-promise { display: block; color: var(--accent); }
 .home-hero-summary {
   max-width: 62ch; margin: 26px 0 0;
   font-size: clamp(15px, 1.15vw, 17px); line-height: 1.65; color: var(--body);
@@ -671,9 +666,7 @@
     font-size: clamp(28px, 8.2vw, 38px); font-weight: 650;
     line-height: 1.18; letter-spacing: -.035em; color: #172b45;
   }
-  .home-hero-mark { padding: 0; background: none; color: #1f4f8a; }
   .home-hero-promise { display: inline-block; width: 100%; text-wrap: balance; }
-  .home-hero-title em { font-style: normal; font-weight: inherit; color: inherit; }
   .home-hero-summary {
     margin-top: 20px; font-size: 16px; line-height: 1.65;
     color: #526175; text-wrap: pretty;
