@@ -2287,30 +2287,7 @@ textarea.run-instructions-input {
   .admin-facts dt { margin-top: 6px; }
 }
 
-/* ---------- Admin: visitors ---------- */
-.admin-visitors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 12px; }
-/* Breakdowns are one line per row: fixed columns for the numbers, the name takes the rest and is cut with an ellipsis. */
-.admin-breakdown table { width: 100%; table-layout: fixed; }
-.admin-breakdown th, .admin-breakdown td { padding: 5px 8px; vertical-align: middle; }
-.admin-breakdown th:first-child, .admin-breakdown td:first-child { padding-left: 0; }
-.admin-breakdown th:last-child, .admin-breakdown td:last-child { padding-right: 0; }
-.admin-breakdown th.num { width: 58px; }
-.admin-breakdown th.num.time { width: 66px; }
-.admin-breakdown .num, .admin-section .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* The share of visitors is drawn behind the name, not under it. */
-.admin-fill {
-  padding: 4px 8px; border-radius: 5px; font-size: 13px; line-height: 1.35;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  background: linear-gradient(var(--accent-soft), var(--accent-soft)) no-repeat 0 0 / var(--fill, 0%) 100%;
-}
-.admin-fill-sub { margin-left: 6px; color: var(--text-faint); font-size: 12px; }
-.admin-nav.compact button { padding: 5px 12px; font-size: 13px; }
-.admin-ignored { margin-bottom: 12px; }
-.admin-ignored li { align-items: center; }
-.admin-pages { display: flex; flex-wrap: wrap; gap: 4px; }
-.admin-pages span { min-width: 0; padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--surface-2); color: var(--text-dim); overflow-wrap: anywhere; }
-.admin-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
-.admin-attribution { margin: 0; }
+.admin-section .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---------- Admin: server health ----------
    Meters, service list and the machine's own console. The three meters read
@@ -2639,8 +2616,6 @@ textarea.run-instructions-input {
   /* Every section stays in view: the tabs wrap onto a second row rather than scrolling off the edge. */
   .admin-nav { width: 100%; flex-wrap: wrap; }
   .admin-nav button { flex: 1 0 auto; padding: 7px 13px; font-size: 13px; }
-  /* Breakdown names wrap instead of being cut with an ellipsis; the fill still marks the share. */
-  .admin-fill { white-space: normal; overflow-wrap: anywhere; }
   .admin-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .admin-tile { padding: 12px 13px; }
   .admin-tile strong { font-size: 20px; }

@@ -23,7 +23,7 @@ import { startRun } from './start-run.js';
 import { userDir } from './userdata.js';
 import { PAID_PLANS, isPassPlanKey } from '../src/pricing.js';
 import { runDeviceFromHeaders, type RunDevice } from '../src/run-device.js';
-import { clientIp, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
+import { clientIp, liveVisitors, ignoreAddress, ignoredAddresses, parseAddress, parseMarket, parseRange, recentVisits, unignoreAddress, visitorReport } from './visits.js';
 import { redditCapiHealth } from './reddit-capi.js';
 import { blogReport, isBlogWriting, publishWeek, setPostHidden, weekOf } from './blog/index.js';
 
@@ -554,12 +554,13 @@ export async function handleAdminRequest(
       return send({ ok: true, profiles, traces, traceRetentionDays: TRACE_RETENTION_DAYS });
     }
 
+    if (path === '/visitors/live' && method === 'GET') return send(await liveVisitors());
+
     if (path === '/visitors' && method === 'GET') {
       // Who has been looking at the site, from where, and for how long.
       const scope = {
         range: parseRange(url.searchParams.get('range')),
         market: parseMarket(url.searchParams.get('market')),
-        includeAdmins: url.searchParams.get('admins') === '1',
       };
       const [report, recent, ignored] = await Promise.all([visitorReport(scope), recentVisits(scope), ignoredAddresses()]);
       // The operator's own address, so it can be ignored in one click.

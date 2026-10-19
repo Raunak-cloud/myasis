@@ -145,7 +145,7 @@ export default function App() {
     // A first-time visitor already has the landing page in front of them while
     // auth loads. Record it immediately so a quick bounce is still a visit.
     if (authLoading && wasSignedIn()) return;
-    trackPage(user ? tab : 'landing');
+    trackPage(user ? tab : 'landing', user?.id ?? null);
   }, [authLoading, user, tab]);
 
   /**

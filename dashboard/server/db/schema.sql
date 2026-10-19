@@ -783,3 +783,10 @@ CREATE TRIGGER run_events_skipped_retain
 SELECT prune_skipped_history(user_id)
   FROM (SELECT DISTINCT user_id FROM run_events WHERE status = 'skipped') owners;
 -- END skipped history retention
+
+-- Presence is a short lease, separate from recorded visible time. Old rows are not live.
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS presence_seq BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS page_views_presence ON page_views(last_seen_at DESC) WHERE visible;
+CREATE INDEX IF NOT EXISTS page_views_identity ON page_views(visitor_id, user_id);

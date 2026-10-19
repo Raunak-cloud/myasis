@@ -8,25 +8,24 @@ import { geoipConfigured, lookupPlace } from './geoip.js';
 /**
  * First-party visitor analytics: who looked at what, from where, for how long.
  *
- * The page sends a beacon when it is shown and another when it is left, and
- * each becomes or completes one row in page_views. Everything an operator
- * sees in the Visitors view is a query over those rows. There is no third
+ * The page opens a row and renews a short presence lease while visible.
+ * Ordered hide beacons preserve visible time without reviving stale tabs.
+ * Everything an operator sees in the Visitors view is a query over those rows. There is no third
  * party in the loop: the address comes off the connection, the place comes
  * from a local database (geoip.ts), and the rows are pruned on a schedule.
  */
 
 /** Days of page views kept. An address with a place is personal information; the counts do not need it forever. */
 const RETENTION_DAYS = Math.max(7, Number(process.env.VISIT_RETENTION_DAYS ?? 180) || 180);
-/** A page open longer than this is a tab left behind, not a visit. */
+/** Limit client-reported visible duration per page. Presence has a separate short lease. */
 const MAX_DURATION_MS = 6 * 60 * 60 * 1000;
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const PAGE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
 
 /**
- * The market the product serves. Visits from there are the report an
- * operator opens to; everything else is a second report, so a wave of
- * scanners from a data centre abroad never buries the customers at home.
+ * The market the product serves. All countries are shown by default; home and other-country filters
+ * are explicit subsets, including unknown locations in the latter.
  */
 const HOME_COUNTRY = (process.env.VISIT_HOME_COUNTRY ?? 'AU').trim().toUpperCase().slice(0, 2) || 'AU';
 
@@ -80,7 +79,7 @@ interface Agent {
  */
 function describeAgent(ua: string): Agent {
   const bot = !ua || /bot|crawl|spider|slurp|headless|lighthouse|pingdom|uptime|monitor|curl\/|wget\/|python-requests|go-http-client|facebookexternalhit|preview|scan/i.test(ua);
-  const device: Agent['device'] = /iPad|Tablet/i.test(ua) ? 'tablet' : /Mobi|Android|iPhone/i.test(ua) ? 'mobile' : 'desktop';
+  const device: Agent['device'] = /iPad|Tablet|Android(?!.*Mobi)/i.test(ua) ? 'tablet' : /Mobi|Android|iPhone/i.test(ua) ? 'mobile' : 'desktop';
   const os = /Windows/i.test(ua) ? 'Windows'
     : /Android/i.test(ua) ? 'Android'
       : /iPhone|iPad|iPod/i.test(ua) ? 'iOS'
@@ -109,11 +108,12 @@ function cleanReferrer(raw: unknown, ownHost: string): string | null {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   try {
     const url = new URL(raw);
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
     const host = url.hostname.replace(/^www\./, '');
     if (host === ownHost.replace(/^www\./, '') || NOT_A_SOURCE.has(host)) return null;
     return `${url.origin}${url.pathname}`.slice(0, 500);
   } catch {
-    return raw.slice(0, 200);
+    return null;
   }
 }
 
@@ -157,41 +157,53 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
        visitor_id, session_id, user_id, page, referrer,
        attribution_source, attribution_medium, attribution_campaign, ip,
        country_code, country, region, city, latitude, longitude,
-       user_agent, device, browser, os, screen, language, time_zone
+       user_agent, device, browser, os, screen, language, time_zone, last_seen_at, visible
      )
      SELECT $1::text, $2::text, $3::bigint, $4::text, $5::text,
             $6::text, $7::text, $8::text, $9::inet,
             $10::text, $11::text, $12::text, $13::text, $14::double precision, $15::double precision,
-            $16::text, $17::text, $18::text, $19::text, $20::text, $21::text, $22::text
+            $16::text, $17::text, $18::text, $19::text, $20::text, $21::text, $22::text, now(), $23::boolean
       WHERE NOT EXISTS (SELECT 1 FROM ignored_addresses WHERE ip = $9::inet)
      RETURNING id::text AS id`,
     [
       visitorId, sessionId, userId, page, cleanReferrer(b.referrer, host),
       attribution.source, attribution.medium, attribution.campaign, ip,
       place.countryCode, place.country, place.region, place.city, place.latitude, place.longitude,
-      ua, agent.device, agent.browser, agent.os, screen, language, timeZone,
+      ua, agent.device, agent.browser, agent.os, screen, language, timeZone, b.visible === true,
     ],
   );
   return row?.id ?? null;
 }
 
-/**
- * A page-left beacon. The page reports its time on every hide as well as on
- * leaving, since a phone's browser often never fires the final one, so the
- * longest report wins. Only a row this visitor opened today can be closed.
- */
-export async function endPageView(body: unknown): Promise<void> {
+/** Ordered heartbeats prevent a delayed request from making a hidden tab live again. */
+export async function pulsePageView(body: unknown, userId: string | null = null, leaving = false): Promise<void> {
   const b = (body ?? {}) as Record<string, unknown>;
   const id = String(b.id ?? '');
   const visitorId = String(b.visitorId ?? '');
   const duration = Math.floor(Number(b.durationMs));
+  const sequence = Number(b.sequence);
   if (!/^\d{1,18}$/.test(id) || !ID_PATTERN.test(visitorId) || !Number.isFinite(duration) || duration < 0) return;
-  await query(
-    `UPDATE page_views
-        SET duration_ms = GREATEST(COALESCE(duration_ms, 0), $3)
+  if (!Number.isSafeInteger(sequence) || sequence < 1) {
+    // Old clients can still report duration, but cannot claim to be live.
+    if (leaving) await query(`UPDATE page_views SET duration_ms = GREATEST(COALESCE(duration_ms, 0), $3)
       WHERE id = $1 AND visitor_id = $2 AND started_at > now() - interval '1 day'`,
-    [id, visitorId, Math.min(duration, MAX_DURATION_MS)],
+      [id, visitorId, Math.min(duration, MAX_DURATION_MS)]);
+    return;
+  }
+  await query(
+    `UPDATE page_views SET
+       duration_ms = GREATEST(COALESCE(duration_ms, 0), $3),
+       last_seen_at = CASE WHEN presence_seq < $4 THEN now() ELSE last_seen_at END,
+       visible = CASE WHEN presence_seq < $4 THEN $5 ELSE visible END,
+       presence_seq = GREATEST(presence_seq, $4),
+       user_id = CASE WHEN presence_seq < $4 THEN COALESCE($6::bigint, user_id) ELSE user_id END
+     WHERE id = $1 AND visitor_id = $2 AND started_at > now() - interval '1 day'`,
+    [id, visitorId, Math.min(duration, MAX_DURATION_MS), sequence, !leaving && b.visible === true, userId],
   );
+}
+
+export async function endPageView(body: unknown): Promise<void> {
+  await pulsePageView(body, null, true);
 }
 
 // ---------------------------------------------------------------- reporting
@@ -204,17 +216,15 @@ export function parseRange(value: string | null): VisitorRange {
 }
 
 /** Visits from the home country, or from everywhere else (which includes visits with no known place). */
-type VisitorMarket = 'home' | 'abroad';
+type VisitorMarket = 'all' | 'home' | 'abroad';
 
 export function parseMarket(value: string | null): VisitorMarket {
-  return value === 'abroad' ? 'abroad' : 'home';
+  return value === 'home' || value === 'abroad' ? value : 'all';
 }
 
 interface VisitorScope {
   range: VisitorRange;
   market: VisitorMarket;
-  /** Operators' own visits are left out unless asked for: they are not customers. */
-  includeAdmins: boolean;
 }
 
 async function adminUserIds(): Promise<string[]> {
@@ -238,15 +248,20 @@ async function scope(opts: VisitorScope): Promise<{ where: string; params: unkno
     params.push(RANGE_DAYS[opts.range]);
     clauses.push(`started_at >= now() - make_interval(days => $${params.length}::int)`);
   }
-  params.push(HOME_COUNTRY);
-  clauses.push(opts.market === 'home' ? `country_code = $${params.length}` : `country_code IS DISTINCT FROM $${params.length}`);
+  if (opts.market !== 'all') {
+    params.push(HOME_COUNTRY);
+    clauses.push(opts.market === 'home' ? `country_code = $${params.length}` : `country_code IS DISTINCT FROM $${params.length}`);
+  }
   clauses.push('NOT EXISTS (SELECT 1 FROM ignored_addresses i WHERE i.ip = page_views.ip)');
-  if (!opts.includeAdmins) {
-    const admins = await adminUserIds();
-    if (admins.length) {
-      params.push(admins);
-      clauses.push(`(user_id IS NULL OR user_id <> ALL($${params.length}::bigint[]))`);
-    }
+  const admins = await adminUserIds();
+  if (admins.length) {
+    params.push(admins);
+    const adminParam = `$${params.length}::bigint[]`;
+    // Hide anonymous browsing by a recognised admin browser too. A different
+    // signed-in customer's visits on a shared device remain customer visits.
+    clauses.push(`((user_id IS NOT NULL AND user_id <> ALL(${adminParam})) OR
+      (user_id IS NULL AND NOT EXISTS (SELECT 1 FROM page_views admin_view
+       WHERE admin_view.visitor_id = page_views.visitor_id AND admin_view.user_id = ANY(${adminParam}))))`);
   }
   return { where: clauses.join(' AND '), params };
 }
@@ -283,7 +298,7 @@ export async function unignoreAddress(ip: string): Promise<void> {
 
 interface Breakdown { label: string; sub: string | null; code: string | null; visitors: number; views: number; seconds: number | null }
 
-interface VisitorReport {
+export interface VisitorReport {
   range: VisitorRange;
   market: VisitorMarket;
   /** The country the 'home' market is. */
@@ -300,7 +315,7 @@ interface VisitorReport {
   devices: Breakdown[];
   browsers: Breakdown[];
   days: Array<{ day: string; visitors: number; views: number }>;
-  /** Every distinct address in the market, most recently seen first. */
+  /** Exact distinct-address count and the latest 200 addresses in this scope. */
   addresses: {
     count: number;
     list: Array<{ ip: string; city: string | null; region: string | null; country: string | null; visits: number; views: number; lastSeenAt: string }>;
@@ -322,12 +337,13 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     ).then((rows) => rows.map((row) => ({ ...row, label: row.label ?? 'Unknown' })));
 
   const [totals, countries, regions, cities, pages, referrers, devices, browsers, days, addresses] = await Promise.all([
-    one<{ visitors: number; visits: number; views: number; signed_in: number; located: number; avg_seconds: number | null }>(
+    one<{ visitors: number; visits: number; views: number; signed_in: number; located: number; addresses: number; avg_seconds: number | null }>(
       `SELECT count(DISTINCT visitor_id)::int AS visitors,
-              count(DISTINCT session_id)::int AS visits,
+              count(DISTINCT (visitor_id, session_id))::int AS visits,
               count(*)::int AS views,
               count(DISTINCT visitor_id) FILTER (WHERE user_id IS NOT NULL)::int AS signed_in,
               count(*) FILTER (WHERE country_code IS NOT NULL)::int AS located,
+              count(DISTINCT ip)::int AS addresses,
               round(avg(duration_ms) / 1000)::int AS avg_seconds
          FROM page_views WHERE ${where}`,
       params,
@@ -337,8 +353,8 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     breakdown('city', home ? 'region' : `concat_ws(', ', region, country)`, 'country_code', 'AND city IS NOT NULL'),
     breakdown('page', 'NULL', 'NULL'),
     // A source brings a visit, not a page view: the page reports it once, and it is counted once.
-    breakdown(`COALESCE(attribution_source, referrer)`, 'NULL', 'NULL',
-      'AND COALESCE(attribution_source, referrer) IS NOT NULL', 'count(DISTINCT session_id)'),
+    breakdown(`COALESCE(attribution_source, CASE WHEN referrer ~ '^https?://' THEN referrer END)`, 'NULL', 'NULL',
+      "AND COALESCE(attribution_source, CASE WHEN referrer ~ '^https?://' THEN referrer END) IS NOT NULL", 'count(DISTINCT (visitor_id, session_id))'),
     breakdown('device', 'os', 'NULL'),
     breakdown('browser', 'os', 'NULL'),
     query<{ day: string; visitors: number; views: number }>(
@@ -353,9 +369,9 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
               (array_agg(city ORDER BY started_at DESC))[1] AS city,
               (array_agg(region ORDER BY started_at DESC))[1] AS region,
               (array_agg(country ORDER BY started_at DESC))[1] AS country,
-              count(DISTINCT session_id)::int AS visits, count(*)::int AS views, max(started_at) AS last_seen
+              count(DISTINCT (visitor_id, session_id))::int AS visits, count(*)::int AS views, max(COALESCE(last_seen_at, started_at)) AS last_seen
          FROM page_views WHERE ${where} AND ip IS NOT NULL
-        GROUP BY host(ip) ORDER BY max(started_at) DESC LIMIT 200`,
+        GROUP BY host(ip) ORDER BY max(COALESCE(last_seen_at, started_at)) DESC LIMIT 200`,
       params,
     ),
   ]);
@@ -377,7 +393,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     },
     countries, regions, cities, pages, referrers, devices, browsers, days,
     addresses: {
-      count: addresses.length,
+      count: totals?.addresses ?? 0,
       list: addresses.map((row) => ({
         ip: row.ip,
         city: row.city,
@@ -391,15 +407,13 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
   };
 }
 
-interface RecentVisit {
+export interface RecentVisit {
   sessionId: string;
   visitorId: string;
-  /** How many visits this visitor has made in the range, counting this one. */
-  visitNumber: number;
   startedAt: string;
   endedAt: string;
   views: number;
-  durationMs: number;
+  durationMs: number | null;
   pages: string[];
   ip: string | null;
   countryCode: string | null;
@@ -424,8 +438,8 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
   const { where, params } = await scope(opts);
   params.push(Math.min(500, Math.max(1, limit)));
   const rows = await query<{
-    session_id: string; visitor_id: string; visit_number: number; started_at: Date; ended_at: Date;
-    views: number; duration_ms: number; pages: string[]; ip: string | null;
+    session_id: string; visitor_id: string; started_at: Date; ended_at: Date;
+    views: number; duration_ms: string | null; pages: string[]; ip: string | null;
     country_code: string | null; country: string | null; region: string | null; city: string | null;
     device: string | null; browser: string | null; os: string | null; screen: string | null;
     language: string | null; time_zone: string | null; referrer: string | null;
@@ -435,10 +449,10 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
     `WITH visits AS (
        SELECT session_id, visitor_id,
               min(started_at) AS started_at,
-              max(started_at + COALESCE(duration_ms, 0) * interval '1 millisecond') AS ended_at,
+              max(COALESCE(last_seen_at, started_at)) AS ended_at,
               count(*)::int AS views,
-              COALESCE(sum(duration_ms), 0)::int AS duration_ms,
-              array_agg(page ORDER BY started_at) AS pages,
+              sum(duration_ms)::text AS duration_ms,
+              array_agg(page ORDER BY started_at, id) AS pages,
               (array_agg(host(ip) ORDER BY started_at))[1] AS ip,
               (array_agg(country_code ORDER BY started_at))[1] AS country_code,
               (array_agg(country ORDER BY started_at))[1] AS country,
@@ -454,12 +468,11 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
               (array_agg(attribution_source ORDER BY started_at) FILTER (WHERE attribution_source IS NOT NULL))[1] AS attribution_source,
               (array_agg(attribution_medium ORDER BY started_at) FILTER (WHERE attribution_medium IS NOT NULL))[1] AS attribution_medium,
               (array_agg(attribution_campaign ORDER BY started_at) FILTER (WHERE attribution_campaign IS NOT NULL))[1] AS attribution_campaign,
-              max(user_id) AS user_id
+              (array_agg(user_id ORDER BY started_at DESC, id DESC) FILTER (WHERE user_id IS NOT NULL))[1] AS user_id
          FROM page_views WHERE ${where}
         GROUP BY session_id, visitor_id
      )
-     SELECT v.*, u.email,
-            (row_number() OVER (PARTITION BY v.visitor_id ORDER BY v.started_at))::int AS visit_number
+     SELECT v.*, u.email
        FROM visits v LEFT JOIN users u ON u.id = v.user_id
       ORDER BY v.started_at DESC
       LIMIT $${params.length}`,
@@ -468,11 +481,10 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
   return rows.map((row) => ({
     sessionId: row.session_id,
     visitorId: row.visitor_id,
-    visitNumber: row.visit_number,
     startedAt: new Date(row.started_at).toISOString(),
     endedAt: new Date(row.ended_at).toISOString(),
     views: row.views,
-    durationMs: row.duration_ms,
+    durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
     pages: row.pages ?? [],
     ip: row.ip,
     countryCode: row.country_code,
@@ -485,12 +497,42 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
     screen: row.screen,
     language: row.language,
     timeZone: row.time_zone,
-    referrer: row.referrer,
+    referrer: cleanReferrer(row.referrer, ''),
     attributionSource: row.attribution_source,
     attributionMedium: row.attribution_medium,
     attributionCampaign: row.attribution_campaign,
     email: row.email,
   }));
+}
+
+export interface LiveVisitors {
+  generatedAt: string;
+  activeWithinSeconds: number;
+  count: number;
+  visitors: Array<{
+    visitorId: string; page: string; email: string | null; city: string | null;
+    region: string | null; country: string | null; device: string | null;
+    browser: string | null; lastSeenAt: string;
+  }>;
+}
+
+/** A visible tab must renew its lease; closing, losing connection or crashing expires it. */
+export async function liveVisitors(): Promise<LiveVisitors> {
+  const { where, params } = await scope({ range: '7d', market: 'all' });
+  const rows = await query<{
+    visitor_id: string; page: string; email: string | null; city: string | null;
+    region: string | null; country: string | null; device: string | null;
+    browser: string | null; last_seen_at: Date; total: number;
+  }>(`WITH active AS (
+      SELECT DISTINCT ON (visitor_id) visitor_id, page, user_id, city, region, country, device, browser, last_seen_at
+      FROM page_views WHERE ${where} AND visible AND last_seen_at >= now() - interval '60 seconds'
+      ORDER BY visitor_id, last_seen_at DESC, id DESC
+    ) SELECT a.*, u.email, count(*) OVER ()::int AS total FROM active a
+      LEFT JOIN users u ON u.id = a.user_id ORDER BY last_seen_at DESC LIMIT 100`, params);
+  return { generatedAt: new Date().toISOString(), activeWithinSeconds: 60, count: rows[0]?.total ?? 0,
+    visitors: rows.map(row => ({ visitorId: row.visitor_id, page: row.page, email: row.email,
+      city: row.city, region: row.region, country: row.country, device: row.device,
+      browser: row.browser, lastSeenAt: new Date(row.last_seen_at).toISOString() })) };
 }
 
 // ---------------------------------------------------------------- upkeep

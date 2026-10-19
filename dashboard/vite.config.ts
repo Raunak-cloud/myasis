@@ -28,7 +28,7 @@ import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { jobSourceSettingsError } from './server/job-sources.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
-import { endPageView, recordPageView, startVisitMaintenance } from './server/visits.js';
+import { endPageView, pulsePageView, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { matchKeysFromRequest, reportRedditConversion } from './server/reddit-capi.js';
 import { startProfileMaintenance } from './server/profile-prune.js';
 import { startHealthMaintenance } from './server/health.js';
@@ -343,6 +343,14 @@ function dataApi(): Plugin {
         const user = await currentUser(req.headers?.cookie).catch(() => null);
         const id = await recordPageView(req, b, user?.id ?? null).catch(() => null);
         return send({ id });
+      });
+    }
+    if (route === '/api/visit/pulse' && req.method === 'POST') {
+      return readBody().then(async (b) => {
+        const user = await currentUser(req.headers?.cookie).catch(() => null);
+        await pulsePageView(b, user?.id ?? null).catch(() => {});
+        res.statusCode = 204;
+        res.end();
       });
     }
     if (route === '/api/visit/leave' && req.method === 'POST') {

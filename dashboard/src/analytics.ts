@@ -81,44 +81,53 @@ const ids = () => ({
 interface View {
   id: string | null;
   page: string;
-  /** Time on the page while it was visible, so far. */
+  identity: string | null;
+  visitorId: string;
+  sequence: number;
+  startedAt: number;
+  failed: boolean;
   visibleMs: number;
-  /** When it last became visible, or null while hidden. */
   visibleSince: number | null;
-  /** The server's id arrives after the first beacon; a leave before then waits for it. */
   ready: Promise<void>;
 }
 
 let current: View | null = null;
 let listening = false;
-/**
- * document.referrer is the page load's, not the tab's: it stays the same
- * through every in-app page change. Reported once, with the first page, and
- * the visit carries it from there — otherwise a Google search that brought
- * someone here counted once for every tab they opened.
- */
 let referrerReported = false;
 let attributionReported = false;
 
 function elapsed(view: View): number {
-  return Math.round(view.visibleMs + (view.visibleSince === null ? 0 : performance.now() - view.visibleSince));
+  return Math.max(0, Math.round(view.visibleMs + (view.visibleSince === null ? 0 : performance.now() - view.visibleSince)));
 }
 
-/** Reports the time on the page so far. Sent as text so a beacon needs no preflight; the server parses it as JSON. */
-function report(view: View, durationMs: number): void {
-  if (!view.id) return;
-  const body = JSON.stringify({ id: view.id, visitorId: ids().visitorId, durationMs });
-  if (!navigator.sendBeacon?.('/api/visit/leave', body)) {
-    void fetch('/api/visit/leave', { method: 'POST', body, keepalive: true }).catch(() => {});
-  }
+/** Sequence numbers keep delayed network requests from reviving a hidden tab. */
+function report(view: View, visible: boolean): void {
+  const message = { visitorId: view.visitorId, durationMs: elapsed(view), visible, sequence: ++view.sequence };
+  const send = () => {
+    if (!view.id) return;
+    const body = JSON.stringify({ ...message, id: view.id });
+    const url = visible ? '/api/visit/pulse' : '/api/visit/leave';
+    try {
+      if (navigator.sendBeacon?.(url, body)) return;
+    } catch { /* Some browsers throw when the beacon queue is full. */ }
+    void fetch(url, { method: 'POST', body, keepalive: true }).catch(() => {});
+  };
+  if (view.id) send();
+  else void view.ready.then(send);
 }
 
-function leave(view: View): void {
-  const duration = elapsed(view);
+function hide(view: View): void {
+  view.visibleMs = elapsed(view);
   view.visibleSince = null;
-  view.visibleMs = duration;
-  if (view.id) report(view, duration);
-  else void view.ready.then(() => report(view, duration));
+  report(view, false);
+}
+
+function show(view: View): void {
+  // Renew very long-lived tabs so duration caps and the server write window stay accurate.
+  trackPage(view.page, view.identity);
+  if (current !== view) return;
+  if (view.visibleSince === null) view.visibleSince = performance.now();
+  report(view, true);
 }
 
 function listen(): void {
@@ -126,59 +135,44 @@ function listen(): void {
   listening = true;
   document.addEventListener('visibilitychange', () => {
     if (!current) return;
-    if (document.visibilityState === 'hidden') {
-      // Phones often never fire pagehide; what is known now is reported now, and the server keeps the longest.
-      current.visibleMs = elapsed(current);
-      current.visibleSince = null;
-      report(current, current.visibleMs);
-    } else if (current.visibleSince === null) {
-      current.visibleSince = performance.now();
+    if (document.visibilityState === 'hidden') hide(current);
+    else show(current);
+  });
+  window.addEventListener('pagehide', () => { if (current) hide(current); });
+  // Back/forward cache restores do not remount React.
+  window.addEventListener('pageshow', () => {
+    if (current && document.visibilityState !== 'hidden') show(current);
+  });
+  window.setInterval(() => {
+    if (current && current.visibleSince !== null && document.visibilityState !== 'hidden') {
+      trackPage(current.page, current.identity);
+      if (current) report(current, true);
     }
-  });
-  window.addEventListener('pagehide', () => {
-    if (current) leave(current);
-  });
+  }, 20_000);
 }
 
-/**
- * The visitor is now looking at `page`. Idempotent for the page already
- * shown; a change closes the previous page's row and opens a new one.
- */
-export function trackPage(page: string): void {
-  // A browser under automation says so; a scanner is not a visitor.
+/** Authentication changes rotate the row too, so account identity stays accurate. */
+export function trackPage(page: string, identity: string | null = null): void {
   if (navigator.webdriver) return;
-  if (current?.page === page) return;
+  if (current?.page === page && current.identity === identity && !current.failed && performance.now() - current.startedAt < 6 * 60 * 60 * 1000) return;
   listen();
-  if (current) leave(current);
-
+  if (current) hide(current);
   const { visitorId, sessionId } = ids();
   const view: View = {
-    id: null,
-    page,
-    visibleMs: 0,
+    id: null, page, identity, visitorId, sequence: 0, startedAt: performance.now(), failed: false, visibleMs: 0,
     visibleSince: document.visibilityState === 'hidden' ? null : performance.now(),
     ready: Promise.resolve(),
   };
   view.ready = fetch('/api/visit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    keepalive: true,
-    body: JSON.stringify({
-      visitorId,
-      sessionId,
-      page,
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+    body: JSON.stringify({ visitorId, sessionId, page, visible: view.visibleSince !== null,
       referrer: referrerReported ? '' : document.referrer,
       attribution: attributionReported ? null : attribution,
-      screen: `${window.screen.width}x${window.screen.height}`,
-      language: navigator.language,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    }),
-  })
-    .then((response) => response.json())
-    .then((body: { id?: unknown }) => {
-      if (typeof body?.id === 'string') view.id = body.id;
-    })
-    .catch(() => {});
+      screen: `${window.screen.width}x${window.screen.height}`, language: navigator.language,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+  }).then(response => response.json()).then((body: { id?: unknown }) => {
+    if (typeof body?.id === 'string') view.id = body.id;
+  }).catch(() => { view.failed = true; });
   referrerReported = true;
   attributionReported = true;
   current = view;
