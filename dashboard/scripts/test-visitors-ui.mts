@@ -394,7 +394,8 @@ try {
     name: 'Close menu',
     exact: true,
   });
-  if (await closeMenu.isVisible()) { await closeMenu.click(); await page.waitForTimeout(350); }
+  if (await closeMenu.isVisible()) await closeMenu.click();
+  await page.locator('.side-nav').waitFor({ state: 'hidden' });
   assert.equal(
     await page
       .locator('.visitor-live tbody td')
@@ -417,11 +418,13 @@ try {
     'mobile must not overflow',
   );
   await page.screenshot({
+    animations: 'disabled',
     path: resolve(import.meta.dirname, '../../tmp/visitors-mobile-fixture.png'),
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
+    animations: 'disabled',
     path: resolve(
       import.meta.dirname,
       '../../tmp/visitors-desktop-fixture.png',
