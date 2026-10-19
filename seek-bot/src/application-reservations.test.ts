@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { ApplicationReservations, authorizeReservedSubmission, withApplicationAttempt } from './application-reservations.js';
+import { ApplicationReservations, authorizeReservedSubmission, reservedSubmissionDecision, withApplicationAttempt } from './application-reservations.js';
+import { ApplicationSlots } from './application-workers.js';
 import type { JobListing } from './types.js';
 
 const job: JobListing = { id: 'one', platform: 'seek', title: 'Assistant', company: 'Fixture', location: 'Sydney', url: 'https://seek.com.au/job/one' };
@@ -12,8 +13,41 @@ const other: JobListing = { ...job, platform: 'indeed', url: 'https://au.indeed.
 function fixture(action: (journal: ApplicationReservations, directory: string) => void | Promise<void>) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-claims-'));
   const journal = new ApplicationReservations(directory);
-  return Promise.resolve().then(() => action(journal, directory)).finally(() => { journal.close(); rmSync(directory, { recursive: true, force: true }); });
+  return Promise.resolve().then(() => action(journal, directory)).finally(() => {
+    journal.close(); assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-claims-'));
+    rmSync(directory, { recursive: true, force: true });
+  });
 }
+
+test('a free account can authorize SEEK aliases and recover the right daily allowance after a crash', () => fixture(async journal => {
+  const slots = new ApplicationSlots({ run: 5, day: 20, external: 0, appliedToday: () => 0, externalToday: 0 });
+  for (const [index, host] of ['au.seek.com', 'www.seek.com.au', 'AU.SEEK.COM.'].entries()) {
+    const listing = { ...job, id: String(index), url: `https://www.seek.com.au/job/${index}` };
+    const slot = (await slots.acquire(false))!;
+    const id = journal.acquire(listing)!;
+    assert.ok(id);
+    assert.equal(withApplicationAttempt({ journal, id, job: listing, beforeSubmit: slot.beforeSubmit }, () => authorizeReservedSubmission(`https://${host}/job/${index}/apply/review`)), true);
+    assert.equal(journal.state(id), 'pending');
+    assert.equal(journal.authorize(id, listing, `https://${host}/job/${index}/apply/review`), false);
+    journal.finish(id);
+    slot.finish(true);
+  }
+  assert.deepEqual(journal.unrecordedToday([]), { applications: 3, external: 0 });
+}));
+
+test('free allowance rejects a real employer handoff without marking it pending or blaming a duplicate', () => fixture(async journal => {
+  const slots = new ApplicationSlots({ run: 5, day: 20, external: 0, appliedToday: () => 0, externalToday: 0 });
+  for (const url of ['https://employer.fixture.invalid/apply', 'https://au.seek.com/apply/external/7']) {
+    const slot = (await slots.acquire(false))!, id = journal.acquire(job)!;
+    const result = withApplicationAttempt({ journal, id, job, beforeSubmit: slot.beforeSubmit }, () => reservedSubmissionDecision(url));
+    assert.equal(result.allowed, false);
+    if (!result.allowed) { assert.equal(result.kind, 'allowance'); assert.match(result.reason, /employer-site/); }
+    assert.equal(journal.state(id), 'running');
+    assert.equal(journal.finish(id), false);
+    slot.finish(false);
+  }
+  assert.deepEqual(journal.unrecordedToday([]), { applications: 0, external: 0 });
+}));
 test('different platform applications are allowed; the exact listing is claimed only once', () => fixture(journal => {
   assert.ok(journal.acquire(job)); assert.ok(journal.acquire(other)); assert.equal(journal.acquire(job), null);
 }));

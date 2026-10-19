@@ -2,6 +2,7 @@ import type { Page } from 'patchright';
 import { config } from '../config.js';
 import { hostOf } from '../site-auth.js';
 import { CostMeter } from './celeris.js';
+import { isExternalApplicationUrl, jobBoardForUrl } from '../job-board-url.js';
 
 /**
  * Deterministic rails the agent cannot argue its way past.
@@ -37,16 +38,7 @@ export function isEntryAction(text: string, state: { captured: number; fields: n
  * form on any of them is the board's own flow; anywhere else is an employer's
  * site. Indeed's Easy Apply wizard lives on smartapply.indeed.com.
  */
-const BOARD_HOSTS = /(^|\.)(seek\.com\.au|seek\.com|indeed\.com)$/i;
-
-export function isExternal(url: string): boolean {
-  if (/\/apply\/external/i.test(url)) return true;
-  try {
-    return !BOARD_HOSTS.test(new URL(url).hostname);
-  } catch {
-    return false;
-  }
-}
+export const isExternal = isExternalApplicationUrl;
 
 /**
  * The job-board listing a URL shows, when it shows one: SEEK's /job/<id>, and
@@ -57,7 +49,7 @@ export function isExternal(url: string): boolean {
 export function listingIdIn(url: string): string | null {
   try {
     const parsed = new URL(url);
-    if (!BOARD_HOSTS.test(parsed.hostname)) return null;
+    if (!jobBoardForUrl(url)) return null;
     const seek = /\/job\/(\d+)/.exec(parsed.pathname)?.[1];
     if (seek) return seek;
     return parsed.searchParams.get('jk') ?? parsed.searchParams.get('vjk');
@@ -99,12 +91,11 @@ export function isForbiddenDestination(url: string): boolean {
  * unrecorded and sets up a duplicate application on the next run.
  */
 export async function detectConfirmation(page: Page): Promise<boolean> {
-  if (/\/apply\/success/.test(page.url())) return true;
-
   // On SEEK, only its dedicated success URL is proof: application forms and
   // employer copy can contain "application received" before anything is sent.
   try {
-    if (/(^|\.)seek\.com\.au$/i.test(new URL(page.url()).hostname)) return false;
+    const url = new URL(page.url());
+    if (jobBoardForUrl(url.href) === 'seek') return /\/apply\/success(?:\/|$)/.test(url.pathname);
   } catch {
     return false;
   }

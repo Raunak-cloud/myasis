@@ -3,6 +3,7 @@ import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing }
 import type { Observation } from '../observe.js';
 import { RunGuards } from '../guards.js';
 import type { SiteCredential } from '../../site-auth.js';
+import { jobBoardForHost } from '../../job-board-url.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -110,7 +111,8 @@ export function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at
 
 /** A site named the way the candidate knows it. */
 export function siteName(host: string): string {
-  if (/(^|\.)seek\.com(\.au)?$/.test(host)) return 'SEEK';
-  if (/(^|\.)indeed\.com$/.test(host)) return 'Indeed';
+  const board = jobBoardForHost(host);
+  if (board === 'seek') return 'SEEK';
+  if (board === 'indeed') return 'Indeed';
   return host;
 }

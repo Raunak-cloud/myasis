@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, extname, resolve } from 'node:path';
 import { config } from './config.js';
 import { documentFor, loadResumes, resumeDirectory, resumeFileInputIndex } from './resume.js';
+import { jobBoardForUrl } from './job-board-url.js';
 
 /**
  * The candidate's resumes in Owtomate are the one source of truth for what a
@@ -30,13 +31,7 @@ import { documentFor, loadResumes, resumeDirectory, resumeFileInputIndex } from 
 
 export type Board = 'seek' | 'indeed';
 
-export function boardOf(url: string): Board | null {
-  let host = '';
-  try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
-  if (/(^|\.)seek\.com(\.au)?$/.test(host)) return 'seek';
-  if (/(^|\.)indeed\.com$/.test(host)) return 'indeed';
-  return null;
-}
+export const boardOf = jobBoardForUrl;
 
 /** A document file name as boards show it: "Raunak_New_Resume (2).docx". */
 const DOCUMENT_NAME = /([^\n\\/:*?"<>|]{1,140}?\.(?:pdf|docx?|rtf|txt))(?![a-z])/i;

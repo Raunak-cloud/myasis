@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { instructions?: string; history?: AppliedRecord[]; apply?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
+function run(jobs: FixtureJob[], options: { externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -30,10 +30,10 @@ export const record = (stage, id, extra={}) => appendFileSync(new URL('./events.
     writeFileSync(join(directory, 'config.mjs'), `
 export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
-Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},formSpeed:false});
+Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},formSpeed:false,allowExternalApply:${options.externalLimit !== 0}});
 Object.assign(config.coverLetter, {mode:'tailored'});
 Object.assign(config.rules, {minScore:0,excludedCompanies:[]});
-Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:1,maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:100,
+Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:1,maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:100,maxExternalPerDay:${options.externalLimit ?? 10},
   minDelayMs:0,maxDelayMs:0,minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
 `);
     writeFileSync(join(directory, 'discovery.mjs'), `
@@ -155,6 +155,31 @@ test('feed descriptions go directly through the full fit review without a redund
   const result = run([job('feed', { description: 'Complete source description.' })], { instructions: 'Avoid manager roles.' });
   assert.equal(result.events.filter(event => event.stage === 'instruction').length, 0);
   assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['feed']);
+});
+
+test('the four run-518 review URLs submit through the real coordinator with free-plan external allowance zero', () => {
+  const ids = ['95237902', '95234091', '95299570', '95220951'];
+  const result = run(ids.map(id => job(id, { url: `https://www.seek.com.au/job/${id}`, formUrl: `https://au.seek.com/job/${id}/apply/review` })), {
+    apply: true, cap: 5, reviews: 15, externalLimit: 0,
+  });
+  assert.equal(result.events.filter(event => event.stage === 'denied').length, 0);
+  assert.deepEqual(result.history.filter(record => record.submittedByMyasis).map(record => record.jobId), ids);
+  assert.match(result.output, /Run complete: 4 new application/);
+});
+
+test('a free-plan run can review fifteen jobs without reviewing the sixteenth', () => {
+  const result = run(Array.from({ length: 16 }, (_, i) => job(`free-${i}`)), { cap: 5, reviews: 15, externalLimit: 0 });
+  assert.equal(result.events.filter(event => event.stage === 'fit').length, 15);
+  assert.equal(result.events.filter(event => event.stage === 'detail').length, 15);
+  assert.equal(result.events.some(event => event.id === 'free-15' && event.stage === 'fit'), false);
+});
+
+test('a free account with one application left cannot send a second application', () => {
+  const result = run(['first', 'second'].map(id => job(id, { formUrl: `https://au.seek.com/job/${id}/apply/review` })), {
+    apply: true, cap: 1, reviews: 15, externalLimit: 0,
+  });
+  assert.equal(result.events.filter(event => event.stage === 'finish').length, 1);
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);
 });
 
 for (const platform of ['seek', 'indeed'] as const) test(`${platform} applied markers are skipped before fit review and leave the one-review slot for a new job`, () => {

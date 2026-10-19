@@ -9,7 +9,7 @@ import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resum
 import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 import { readSavedForm, savedFormSignature } from '../saved-form.js';
-import { authorizeReservedSubmission } from '../../application-reservations.js';
+import { reservedSubmissionDecision } from '../../application-reservations.js';
 import { applicationModelIdentity } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
@@ -232,9 +232,10 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string): Promis
   // navigator handles documents from the actual form; an existing letter
   // need not have been drafted by this attempt to be valid.
   if (ctx.coverLetter) ctx.log(`  cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
-  if (!authorizeReservedSubmission(ctx.page.url())) {
-    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'needs-human',
-      reason: 'Submission withheld: this exact form is reserved or may already have been sent, or the shared application limit is reached.' } } };
+  const reservation = reservedSubmissionDecision(ctx.page.url());
+  if (!reservation.allowed) {
+    return { proceed: false, result: { kind: 'terminal', outcome: { status: 'skipped',
+      reason: `Submission withheld: ${reservation.reason}` } } };
   }
   ctx.log(`  → submitting: "${label}"`);
   ctx.submissionAttempted = true;

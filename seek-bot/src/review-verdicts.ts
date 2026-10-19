@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { config } from './config.js';
 import type { JobListing } from './types.js';
 import type { PlatformId } from './platforms.js';
+import { jobBoardForUrl } from './job-board-url.js';
 
 /**
  * The candidate's own calls on jobs the fit check skipped, from the
@@ -54,9 +55,8 @@ export function loadReviewVerdicts(): ReviewVerdict[] {
 /** The board a listing address belongs to, or none this bot applies through. */
 function boardOf(url: string): PlatformId | null {
   try {
-    const host = new URL(url).hostname;
-    if (/(^|\.)seek\.com\.au$/i.test(host)) return 'seek';
-    if (/(^|\.)indeed\.com$/i.test(host)) return 'indeed';
+    const board = jobBoardForUrl(url);
+    if (board) return board;
     for (const source of EMPLOYER_SOURCES) {
       try { employerJobIdentity(source.id, url); return source.id; } catch { /* different source */ }
     }

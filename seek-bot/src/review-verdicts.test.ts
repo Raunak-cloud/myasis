@@ -7,6 +7,7 @@ const base = { title: 'Junior Developer', company: 'Acme', skipReason: 'The role
 test('a job the candidate would have applied to comes back as their choice, on its own board', () => {
   const verdicts: ReviewVerdict[] = [
     { ...base, jobId: '94000001', url: 'https://www.seek.com.au/job/94000001', verdict: 'apply' },
+    { ...base, jobId: '94000005', url: 'https://au.seek.com/job/94000005', verdict: 'apply' },
     { ...base, jobId: 'abcdef0123456789', url: 'https://au.indeed.com/viewjob?jk=abcdef0123456789', verdict: 'apply' },
     { ...base, jobId: '94000002', url: 'https://www.seek.com.au/job/94000002', verdict: 'skip' },
     { ...base, jobId: '94000003', verdict: 'apply' },
@@ -16,6 +17,7 @@ test('a job the candidate would have applied to comes back as their choice, on i
   const chosen = chosenListings(verdicts);
   assert.deepEqual(chosen.map((job) => [job.id, job.platform, job.source]), [
     ['94000001', 'seek', 'chosen'],
+    ['94000005', 'seek', 'chosen'],
     ['abcdef0123456789', 'indeed', 'chosen'],
   ]);
 });

@@ -1,6 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import type { BrowserContext } from 'patchright';
+import { jobBoardForHost } from './job-board-url.js';
 
 const PRIVATE = new BlockList();
 for (const [network, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 3]] as const) {
@@ -38,7 +39,7 @@ export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOn
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
     throw new Error('The direct external job URL is not a public website.');
   }
-  if (/(^|\.)(seek\.com\.au|seek\.com|indeed\.com)$/.test(host)) throw new Error('A direct external run cannot target a SEEK or Indeed listing.');
+  if (jobBoardForHost(host)) throw new Error('A direct external run cannot target a SEEK or Indeed listing.');
   if (/\/(?:checkout|payment|billing)(?:\/|$)/i.test(url.pathname)) throw new Error('Payment pages cannot be used as a direct job URL.');
   if (!(await resolveHost(host))) throw new Error('The direct external job URL does not resolve only to public internet addresses.');
   return url.href;

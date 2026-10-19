@@ -56,7 +56,8 @@ const adminTyped = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '30', MAX_APPS_P
 check('admins keep application limits they set, above the plan ceilings', adminTyped.MAX_APPS_PER_RUN === '30' && adminTyped.MAX_APPS_PER_DAY === '80');
 
 const standardAuto = applyRunPolicy(saved, freePolicy, 'auto');
-check('Free runs assess 10 jobs', standardAuto.MAX_EVALUATIONS === '10');
+check('Free runs assess 15 jobs', standardAuto.MAX_EVALUATIONS === '15');
+check('Free first-run policy also assesses 15 jobs', standardManual.MAX_EVALUATIONS === '15');
 check('Essential runs assess 25 jobs', applyRunPolicy(saved, essentialPolicy, 'auto').MAX_EVALUATIONS === '25');
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, adminPolicy, 'auto');
 check('admin scheduled runs keep their own limits too', adminAuto.MAX_EVALUATIONS === '100' && adminAuto.MAX_APPS_PER_DAY === 'none');
@@ -98,6 +99,13 @@ const intensiveFacts = {
 };
 const intensiveEntitlements = deriveEntitlements(intensiveFacts);
 const adminEntitlements = deriveEntitlements({ ...intensiveFacts, admin: true });
+const freeEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRun: false,
+  billing: { paid: { ...intensiveFacts.billing.paid, remaining: 0, employerSiteRemaining: 0, expiresAt: null,
+    hasActivePass: false, hasActiveEssentialPass: false, hasActiveJobSearchPass: false, hasActiveIntensivePass: false } },
+});
+check('new free accounts receive 15 reviews per run and per scheduled day', freeEntitlements.evaluationsPerRun === 15 && freeEntitlements.scheduledJobsPerDay === 15);
+check('a failed empty free onboarding run remains retryable', freeEntitlements.firstRunRequired && manualRunRefusal(freeEntitlements) === null);
+check('free accounts keep their one daily run, SEEK-only access and no humanizer', freeEntitlements.autoRunsPerDay === 1 && !freeEntitlements.indeedApplications && !freeEntitlements.humanizer);
 check('customers cannot start runs manually', !intensiveEntitlements.manualRuns);
 check('administrators can start runs manually', adminEntitlements.manualRuns);
 check('administrators use the humanizer by default', adminEntitlements.humanizer);

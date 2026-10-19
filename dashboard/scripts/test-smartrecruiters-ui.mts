@@ -1,4 +1,5 @@
 import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
+import { PLAN_LIMITS } from '../src/pricing.js';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
@@ -30,7 +31,8 @@ const server = createServer(async (req, res) => {
       '/api/auth/me': { user: { id: 'fixture', email: 'fixture@example.test', name: 'Fixture Candidate' }, googleConfigured: true },
       '/api/entitlements': { tier: admin ? 'admin' : 'standard', manualRuns: admin, firstRunRequired: !admin,
         autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true, autoRunsUsedToday: 0,
-        scheduledMinScore: null, scheduledJobsPerDay: null, evaluationsPerRun: null, maxApplicationsPerRunOverride: null,
+        scheduledMinScore: null, scheduledJobsPerDay: admin ? null : PLAN_LIMITS.free.evaluationsPerRun,
+        evaluationsPerRun: admin ? null : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
         fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin, humanizer: admin },
       '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 },
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: null, hasActivePass: false } },
@@ -94,6 +96,7 @@ try {
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       }
     } else {
+      await dialog.getByText('AI reviews up to 15 jobs this run. Only successful applications use your application allowance.', { exact: true }).waitFor();
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0);
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);

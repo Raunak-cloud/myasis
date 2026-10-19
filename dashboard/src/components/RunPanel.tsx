@@ -1138,6 +1138,7 @@ export function RunPanel({
               <div>
                 <h2 id="run-review-title">{firstRun ? 'Review your first run' : 'Review run settings'}</h2>
                 <p className="job-meta">Changes made here are saved before a live run starts.</p>
+                {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs this run. Only successful applications use your application allowance.</p>}
               </div>
               <span className="badge bad">
                 Live run{scope === 'external' ? ' · employer sites only' : scope === 'hosted' ? ' · job boards only' : ''}

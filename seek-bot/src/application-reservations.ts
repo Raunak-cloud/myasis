@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { applicationKeys, applicationFormKey } from './application-identity.js';
+import { applicationKeys, applicationFormKey, applicationUrlKey } from './application-identity.js';
+import { isExternalApplicationUrl } from './job-board-url.js';
 import type { AppliedRecord, ApplyOutcome, JobListing } from './types.js';
 
 type AttemptState = 'running' | 'pending' | 'applied' | 'observed' | 'uncertain' | 'released';
@@ -62,8 +63,7 @@ export class ApplicationReservations {
       if (!form) return false;
       // Hosted review URLs sometimes omit the vacancy id. Keep their identity
       // tied to the board listing; external form URLs are shared across boards.
-      const host = new URL(formUrl).hostname;
-      const external = !/(^|\.)(?:seek\.com\.au|indeed\.com)$/.test(host);
+      const external = isExternalApplicationUrl(formUrl);
       if (external) keys.push(form);
       if (!this.claim(id, keys)) return false;
       this.db.prepare('UPDATE attempts SET state=?,updated_at=?,external=? WHERE id=?').run('pending', new Date().toISOString(), external ? 1 : 0, id);
@@ -113,11 +113,19 @@ export function recordReservedRejection(): void {
 }
 
 /** No active coordinator means the existing single-application guard still owns submission. */
-export function authorizeReservedSubmission(formUrl: string): boolean {
+export function reservedSubmissionDecision(formUrl: string): { allowed: true } | { allowed: false; kind: 'allowance' | 'reservation' | 'invalid-url'; reason: string } {
   const attempt = attemptScope.getStore();
-  if (!attempt) return true;
-  const host = new URL(formUrl).hostname;
-  const external = !/(^|\.)(?:seek\.com\.au|indeed\.com)$/.test(host);
-  if (attempt.beforeSubmit && !attempt.beforeSubmit(external)) return false;
-  return attempt.journal.authorize(attempt.id, attempt.job, formUrl);
+  if (!applicationUrlKey(formUrl)) {
+    return { allowed: false, kind: 'invalid-url', reason: 'The current application address is invalid.' };
+  }
+  if (!attempt) return { allowed: true };
+  const external = isExternalApplicationUrl(formUrl);
+  if (attempt.beforeSubmit && !attempt.beforeSubmit(external)) return { allowed: false, kind: 'allowance',
+    reason: external ? 'No employer-site application allowance is available for this destination.' : 'The reserved application slot is no longer available.' };
+  return attempt.journal.authorize(attempt.id, attempt.job, formUrl) ? { allowed: true }
+    : { allowed: false, kind: 'reservation', reason: 'This exact application is reserved, previously sent, or awaiting confirmation.' };
+}
+
+export function authorizeReservedSubmission(formUrl: string): boolean {
+  return reservedSubmissionDecision(formUrl).allowed;
 }

@@ -1,4 +1,5 @@
 import { resolvesPublic } from './proxy-address.js';
+import { jobBoardForHost } from '../../seek-bot/src/job-board-url.js';
 
 const MAX_URL_LENGTH = 2_048;
 
@@ -29,7 +30,7 @@ export async function validateExternalJobUrl(value: unknown, resolveHost = resol
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
     return { error: 'The external job URL must be a public website.' };
   }
-  if (/(^|\.)(seek\.com\.au|seek\.com|indeed\.com)$/.test(host)) {
+  if (jobBoardForHost(host)) {
     return { error: 'Use this field for an employer website, not a SEEK or Indeed listing.' };
   }
   if (/\/(?:checkout|payment|billing)(?:\/|$)/i.test(url.pathname)) {

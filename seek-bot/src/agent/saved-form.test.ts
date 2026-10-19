@@ -46,7 +46,9 @@ globalThis.fetch = (async (_url, init) => {
 const { readSavedForm } = await import('./saved-form.js');
 const { observe } = await import('./observe.js');
 const { gateAdvance } = await import('./tools/gate.js');
-const { RunGuards } = await import('./guards.js');
+const { RunGuards, detectConfirmation } = await import('./guards.js');
+const { ApplicationReservations, withApplicationAttempt } = await import('../application-reservations.js');
+const { ApplicationSlots } = await import('../application-workers.js');
 const { CostMeter } = await import('./celeris.js');
 const { config } = await import('../config.js');
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -176,6 +178,44 @@ try {
   assert.ok(form.fields.some(f => f.frame === 1 && f.currentValue === 'Embedded city'));
   assert.ok(!JSON.stringify(form).includes('secret-value') && !JSON.stringify(form).includes('hidden-secret')
     && !JSON.stringify(form).includes('private-code') && !JSON.stringify(form).includes('hidden-frame-value'));
+
+  // Exercise the real saved-form gate + durable reservation + Submit control
+  // at the URL that blocked run 518, with actual free-plan constraints.
+  // Both destinations are fulfilled locally; no request reaches SEEK.
+  let sends = 0;
+  await page.route('https://au.seek.com/**', route => {
+    if (new URL(route.request().url()).pathname.endsWith('/apply/success')) {
+      sends++;
+      return route.fulfill({ contentType: 'text/html', body: '<main><h1>Application sent</h1></main>' });
+    }
+    return route.fulfill({ contentType: 'text/html', body: '<main><form method="post" action="/job/95237902/apply/success"><label>Suburb *<input required value="Lidcombe"></label><button type="submit">Submit application</button></form></main>' });
+  });
+  ctx = await open(good);
+  await page.goto('https://au.seek.com/job/95237902/apply/review');
+  ctx.job = { ...ctx.job, id: '95237902', platform: 'seek', applicationMode: 'hosted', url: 'https://www.seek.com.au/job/95237902' };
+  ctx.observation = await observe(page);
+  config.dryRun = false;
+  process.env.DRY_RUN = 'false';
+  config.allowExternalApply = false;
+  const journal = new ApplicationReservations(join(directory, 'free-plan'));
+  try {
+    const slots = new ApplicationSlots({ run: 1, day: 1, external: 0, appliedToday: () => 0, externalToday: 0 });
+    const slot = (await slots.acquire(false))!;
+    const id = journal.acquire(ctx.job)!;
+    assert.ok(id);
+    const gate = await withApplicationAttempt({ journal, id, job: ctx.job, beforeSubmit: slot.beforeSubmit }, () => gateAdvance(ctx, 'Submit application', undefined, { knownSubmit: true }));
+    assert.equal(gate.proceed, true, 'free users must get past the actual Submit gate on au.seek.com');
+    assert.equal(journal.state(id), 'pending', 'record uncertainty before the browser can send');
+    await page.getByRole('button', { name: 'Submit application', exact: true }).click();
+    await page.waitForURL('**/apply/success');
+    assert.equal(await detectConfirmation(page), true);
+    assert.equal(sends, 1);
+    journal.finish(id, { status: 'applied', jobId: ctx.job.id, at: new Date().toISOString() });
+    slot.finish(true);
+    assert.equal(await slots.acquire(false), null, 'the final free application cannot be spent twice');
+    assert.deepEqual(journal.unrecordedToday([]), { applications: 1, external: 0 });
+  } finally { journal.close(); }
+  console.log('PASS: free-plan browser submission on au.seek.com, current saved-form verification, durable pending marker, dedicated receipt and last-credit limit; all network responses mocked.');
   console.log('PASS: current-form authority, stale checklist repair, one review, invalid unchanged values, required blanks, missing facts, changed-state expiry, corrupt/outage fail-closed recovery without strike cutoffs, frames/shadow roots, private values and dry-run protection.');
 } finally {
   await browser.close();
