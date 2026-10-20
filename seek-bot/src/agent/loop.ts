@@ -14,6 +14,8 @@ import { measured } from '../pipeline.js';
 import { withJobCost } from '../cost-ledger.js';
 import { config } from '../config.js';
 import { applicationModelIdentity } from '../application-model.js';
+import { isAgentOnlyApplication } from '../application-agent-mode.js';
+import { runAgentOnlyApplication } from './agent-only.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordReservedRejection } from '../application-reservations.js';
 import { jitter, waitForChallengeToClear, workingIn } from '../browser.js';
@@ -35,7 +37,7 @@ export * from './loop/trace.js';
 export * from './loop/transcript.js';
 export * from './loop/accounts.js';
 
-interface AgentRunResult {
+export interface AgentRunResult {
   outcome: AgentTermination;
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
@@ -52,7 +54,7 @@ interface AgentRunResult {
   usage: string;
 }
 
-interface AgentRunOptions {
+export interface AgentRunOptions {
   /** Local, reserved-domain dry-run fixtures only. */
   simulation?: 'isolated-form';
   page: Page;
@@ -62,7 +64,8 @@ interface AgentRunOptions {
 }
 
 export function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
-  return withJobCost(options.job.id, () => runApplicationAgentScoped(options));
+  return withJobCost(options.job.id, () => isAgentOnlyApplication()
+    ? runAgentOnlyApplication(options) : runApplicationAgentScoped(options));
 }
 async function runApplicationAgentScoped(options: AgentRunOptions): Promise<AgentRunResult> {
   const { job, profile } = options;

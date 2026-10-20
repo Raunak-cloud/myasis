@@ -6,6 +6,7 @@ import type { ApplyOutcome, CandidateProfile, JobListing } from '../types.js';
 import { runApplicationAgent } from './loop.js';
 import { outcomeFromRun } from './outcome.js';
 import { outsideScope, scopeSkipReason } from '../run-scope.js';
+import { isAgentOnlyApplication } from '../application-agent-mode.js';
 
 /**
  * Agent-driven replacement for `applyToJob`.
@@ -72,6 +73,18 @@ export async function applyToJobWithAgent(
   deps: ApplyDeps,
 ): Promise<ApplyOutcome> {
   const tabsBefore = new Set(page.context().pages());
+  const runFrom = async (flowPage: Page): Promise<ApplyOutcome> => {
+    try {
+      const run = await runApplicationAgent({ page: flowPage, job, profile, log: line => console.log(line) });
+      console.log(`  agent: ${run.steps} steps · ${run.usage}`);
+      return outcomeFromRun(run, job.id, flowPage.url(), deps.onFriction);
+    } finally {
+      for (const tab of page.context().pages()) {
+        if (!tabsBefore.has(tab) && tab !== page) await tab.close().catch(() => {});
+      }
+      await workingIn(page);
+    }
+  };
   await page.goto(job.url, { waitUntil: 'domcontentloaded' });
   await page
     .waitForFunction(
@@ -93,6 +106,22 @@ export async function applyToJobWithAgent(
    * project makes. Everything after this point is the agent's.
    */
   const applyCta = page.locator('[data-automation="job-detail-apply"]').first();
+  if (isAgentOnlyApplication()) {
+    // Only product scope/access is decided here. Missing controls, prior
+    // applications and listing recovery belong to the applying agent.
+    if (await applyCta.count()) {
+      const label = clean(await applyCta.innerText().catch(() => ''));
+      job.applicationMode = /quick\s*apply/i.test(label) ? 'hosted' : 'external';
+    }
+    if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+      return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
+    }
+    if (job.applicationMode === 'external' && !config.allowExternalApply) {
+      return { status: 'off-platform', jobId: job.id, redirectedTo: job.applicationUrl ?? job.url };
+    }
+    if (config.dryRun && process.env.REHEARSE !== 'true') return { status: 'skipped', jobId: job.id, reason: 'Dry run — forms are not opened.' };
+    return runFrom(page);
+  }
   if (!(await applyCta.count())) {
     return { status: 'skipped', jobId: job.id, reason: 'No apply button on the listing — it may have closed.' };
   }
@@ -118,25 +147,5 @@ export async function applyToJobWithAgent(
 
   const flowPage = await openApplyFlow(page, applyCta);
 
-  try {
-    const run = await runApplicationAgent({
-      page: flowPage,
-      job,
-      profile,
-      log: (line) => console.log(line),
-    });
-
-    console.log(`  agent: ${run.steps} steps · ${run.usage}`);
-    return outcomeFromRun(run, job.id, flowPage.url(), deps.onFriction);
-  } finally {
-    /**
-     * Every tab this application opened, not only the first. Employer sites open
-     * more along the way, and left open they pile up — a half-hour run was found
-     * carrying seven, each still running its page, on a machine with two cores.
-     */
-    for (const tab of page.context().pages()) {
-      if (!tabsBefore.has(tab) && tab !== page) await tab.close().catch(() => {});
-    }
-    await workingIn(page);
-  }
+  return runFrom(flowPage);
 }

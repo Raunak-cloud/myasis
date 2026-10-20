@@ -38,6 +38,7 @@ interface AutoScheduleStatus {
 
 const RUN_DEFAULTS: Record<string, string> = {
   APPLICATION_AI_MODEL: 'celeris',
+  APPLICATION_AGENT_MODE: 'protected',
   KEYWORDS: '',
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
@@ -415,7 +416,7 @@ export function RunPanel({
    */
   const standingKeys = [...(entitlements?.fineTune
     ? ['KEYWORDS', 'EXCLUDED_COMPANIES', 'AI_INSTRUCTIONS_B64']
-    : ['KEYWORDS', 'EXCLUDED_COMPANIES']), ...(isAdmin ? ['APPLICATION_AI_MODEL'] : [])];
+    : ['KEYWORDS', 'EXCLUDED_COMPANIES']), ...(isAdmin ? ['APPLICATION_AI_MODEL', 'APPLICATION_AGENT_MODE'] : [])];
   const standingDirty = standingKeys.some(
     (key) => edits[key] !== undefined && edits[key] !== (settings[key] ?? RUN_DEFAULTS[key] ?? ''),
   );
@@ -551,7 +552,7 @@ export function RunPanel({
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && key !== 'APPLICATION_AGENT_MODE' && key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -887,6 +888,16 @@ export function RunPanel({
               <option value="haiku">Claude Haiku 5.5</option>
             </select>
             <span className="job-meta">Haiku uses medium effort and high for recovery. Only missing high-risk answers need your attention.</span>
+          </div>}
+          {isAdmin && <div className="field">
+            <FieldLabel label="Application decisions" help="Saved for this admin account's next manual and automatic runs. Agent-only lets the applying agent judge answers, recovery, duplicate history and submission evidence." />
+            <select className="input" aria-label="Saved application decisions" value={val('APPLICATION_AGENT_MODE')} disabled={standingSaving} onChange={event => editStanding('APPLICATION_AGENT_MODE', event.target.value)}>
+              <option value="protected">Protected</option>
+              <option value="agent-only">Agent-only experiment</option>
+            </select>
+            <span className="job-meta">{val('APPLICATION_AGENT_MODE') === 'agent-only'
+              ? 'The agent makes application decisions without Owtomate form or submission checks. Run limits and history recording remain.'
+              : 'Owtomate verifies saved answers and submission evidence alongside the applying agent.'}</span>
           </div>}
           {entitlements?.fineTune && (
             <div className="field">
@@ -1388,6 +1399,16 @@ export function RunPanel({
                       <option value="haiku">Claude Haiku 5.5</option>
                     </select>
                     <span className="job-meta">Haiku: medium effort, high for recovery. Routine questions are answered automatically; missing high-risk facts need attention.</span>
+                  </label>}
+                  {isAdmin && <label className="field">
+                    <FieldLabel label="Application decisions" help="Agent-only lets the applying agent decide answers, recovery and whether an application was received, using the full candidate evidence and application history." />
+                    <select className="input" aria-label="Application decisions" value={val('APPLICATION_AGENT_MODE')} onChange={event => setEdit('APPLICATION_AGENT_MODE', event.target.value)}>
+                      <option value="protected">Protected</option>
+                      <option value="agent-only">Agent-only experiment</option>
+                    </select>
+                    <span className="job-meta">{val('APPLICATION_AGENT_MODE') === 'agent-only'
+                      ? 'No Owtomate form or submission checks. The agent decides; run limits and history recording remain.'
+                      : 'Saved-answer, duplicate and submission checks are enabled.'}</span>
                   </label>}
                   {(isAdmin || entitlements?.fineTune) && <label className="field">
                     <FieldLabel

@@ -7,6 +7,7 @@ import { runApplicationAgent } from './agent/loop.js';
 import { outcomeFromRun } from './agent/outcome.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { outsideScope, scopeSkipReason } from './run-scope.js';
+import { isAgentOnlyApplication } from './application-agent-mode.js';
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
 
@@ -82,10 +83,39 @@ export async function applyToIndeedJob(
   deps: ApplyDeps,
 ): Promise<ApplyOutcome> {
   const tabsBefore = new Set(page.context().pages());
+  const runFrom = async (applyPage: Page): Promise<ApplyOutcome> => {
+    try {
+      const run = await runApplicationAgent({ page: applyPage, job, profile, log: line => console.log(line) });
+      console.log(`  agent: ${run.steps} steps · ${run.usage}`);
+      return outcomeFromRun(run, job.id, applyPage.url(), deps.onFriction);
+    } finally {
+      for (const tab of page.context().pages()) {
+        if (!tabsBefore.has(tab) && tab !== page) await tab.close().catch(() => {});
+      }
+      await workingIn(page);
+    }
+  };
   const location = config.search.location || 'Australia';
   await page.goto(`${config.indeedBase}/jobs?l=${encodeURIComponent(location)}&vjk=${encodeURIComponent(job.id)}`, {
     waitUntil: 'domcontentloaded',
   });
+
+  if (isAgentOnlyApplication()) {
+    const hosted = await byName(page, /^(apply now|apply with indeed|continue application)/i).count() > 0;
+    const external = await byName(page, /^apply on company site/i).count() > 0;
+    if (hosted) job.applicationMode = 'hosted';
+    else if (external) job.applicationMode = 'external';
+    if (job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode)) {
+      return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
+    }
+    if (job.applicationMode === 'external' && !config.allowExternalApply) {
+      return { status: 'off-platform', jobId: job.id, redirectedTo: job.applicationUrl ?? job.url };
+    }
+    if (config.dryRun && process.env.REHEARSE !== 'true') return { status: 'skipped', jobId: job.id, reason: 'DRY_RUN (set REHEARSE=true to fill forms)' };
+    // No pre-judge, CAPTCHA wait or already-applied veto: the same agent
+    // owns the listing, form, recovery and final outcome in this experiment.
+    return runFrom(page);
+  }
 
   // Never interpret a Cloudflare interstitial as a listing. The visual judge
   // can still see stale listing content behind the overlay, so this explicit
@@ -193,28 +223,5 @@ export async function applyToIndeedJob(
     };
   }
 
-  try {
-    const run = await runApplicationAgent({
-      page: applyPage,
-      job,
-      profile,
-      log: (line) => console.log(line),
-    });
-    console.log(`  agent: ${run.steps} steps · ${run.usage}`);
-    return outcomeFromRun(run, job.id, applyPage.url(), deps.onFriction);
-  } finally {
-    /**
-     * Leaving the popup open backgrounds the original tab, and Chrome
-     * throttles background tabs' timers/hydration — a real failure mode
-     * observed live: after one job left its smartapply.indeed.com tab open,
-     * every subsequent `page.goto()` on the original tab stopped rendering
-     * the job panel in time. Always close the popup and refocus the main
-     * page, on every exit path, so later candidates in the same run are not
-     * silently starved of foreground priority.
-     */
-    for (const tab of page.context().pages()) {
-      if (!tabsBefore.has(tab) && tab !== page) await tab.close().catch(() => {});
-    }
-    await workingIn(page);
-  }
+  return runFrom(applyPage);
 }

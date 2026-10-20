@@ -3,6 +3,33 @@
 Patchright + Celeris agent that searches SEEK, scores listings against your
 resume, and completes Quick Apply end to end.
 
+## Admin agent-only experiment
+
+In Apply, an admin can select **Application decisions → Agent-only experiment**,
+with either Celeris or Haiku. Normal accounts always use the protected path.
+The runner authenticates the owner before issuing the per-run authorization;
+saved settings or client overrides cannot authorize this mode by themselves.
+
+The separate `agent/agent-only.ts` driver gives the applying model the profile,
+saved answers, approved CV/supporting documents, preferences, browser state and
+advisory application history. It authors values and letters, operates the
+browser directly, and decides recovery, duplicate handling and receipt. It
+does not invoke the protected answerer, saved-form checker, reservation gate,
+script reviewer or independent receipt verifier. Optional read-only specialists
+use the same selected model and parent cost budget, with no recursive delegation.
+The model starts at medium effort and can request high effort for recovery.
+
+Account/site access, run/day/application spending allowances, resource deadlines
+and Stop remain infrastructure rules. Production dry runs are read-only in this
+mode; the invalid-domain simulation explicitly intercepts all browser traffic.
+Model-confirmed applications alone consume application slots. Uncertain sends
+remain advisory evidence rather than an automatic duplicate veto. Selecting
+Protected restores the established checks without deleting any history.
+
+Offline browser fixtures (no real provider requests or applications):
+`node dist/agent/agent-only.test.js` and
+`TEST_APPLICATION_MODEL=haiku node dist/agent/agent-only.test.js`.
+
 ## How SEEK actually works (verified live, Aug 2026)
 
 Worth knowing before you touch the code, because the obvious approach doesn't work:

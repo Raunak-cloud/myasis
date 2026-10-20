@@ -9,6 +9,9 @@ import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
 import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
+import { isAgentOnlyApplication } from './application-agent-mode.js';
+import { withApplicationAllowance } from './application-allowance.js';
+import { applicationWorkerPage } from './application-worker-page.js';
 import {
   launchBrowser,
   applicationWorkerContexts,
@@ -136,6 +139,7 @@ if (employerFeedsEnabled(process.env)) {
 
 async function main() {
   const startedAt = performance.now();
+  const agentOnly = isAgentOnlyApplication();
   const profile = loadProfile();
   const directExternalUrl = process.env.DIRECT_EXTERNAL_JOB_URL
     ? await assertExternalJobUrl(process.env.DIRECT_EXTERNAL_JOB_URL)
@@ -186,7 +190,7 @@ async function main() {
       submittedByMyasis: false,
     });
   };
-  const previousApplication = (job: JobListing): string | null => job.alreadyApplied
+  const previousApplication = (job: JobListing): string | null => agentOnly ? null : job.alreadyApplied
     ? job.appliedNote || 'The job board confirms an earlier application to this role.'
     : index.hasApplication(job)
       ? 'An application through this listing or form is already recorded.'
@@ -211,7 +215,7 @@ async function main() {
   const ctx = await launchBrowser();
   resetLiveWorkers(config.dataDir);
   const directNavigation = directExternalUrl ? await guardExternalNavigations(ctx) : null;
-  const page = await getPage(ctx);
+  let page = await getPage(ctx);
   await workingIn(page);
 
   try {
@@ -277,7 +281,7 @@ async function main() {
           continue;
         }
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
-        if (waitingForAnswers(feedback.get(JSON.stringify([job.id, job.title, job.company])), answeredAt)) {
+        if (!agentOnly && waitingForAnswers(feedback.get(JSON.stringify([job.id, job.title, job.company])), answeredAt)) {
           bump('waiting for your answer');
           continue;
         }
@@ -873,7 +877,7 @@ async function main() {
               job = await measured('detail-retry', () => adapter.fetchJobDetail(reviewPage, stub), { jobId: stub.id });
               if (!job.description) verdict = await judgePage(reviewPage, expected);
             }
-            if (verdict.state === 'already-applied') {
+            if (!agentOnly && verdict.state === 'already-applied') {
               console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
               bump('already applied');
               rememberExistingApplication(job, verdict.reason);
@@ -1039,6 +1043,7 @@ async function main() {
      * Prepare the next job's checked letter during the pause.
      */
     const prepare = (job: JobListing) => {
+      if (agentOnly) return;
       void finishedCoverLetterForJob(job, profile).catch(() => {});
       void pickResumeForJob(job, profile).catch(() => {});
     };
@@ -1090,8 +1095,8 @@ async function main() {
     /** Employer-site applications actually SUBMITTED today, across runs. Failures cost model calls but not allowance. */
     let externalSubmitted = config.limits.externalAttemptsToday;
     const attemptedForms = new Set<string>();
-    const journal = new ApplicationReservations(config.dataDir);
-    const recovered = journal.unrecordedToday(index.all);
+    const journal = agentOnly ? null : new ApplicationReservations(config.dataDir);
+    const recovered = journal?.unrecordedToday(index.all) ?? { applications: 0, external: 0 };
     const slots = new ApplicationSlots({ run: config.limits.maxApplicationsPerRun,
       day: config.limits.maxApplicationsPerDay, external: config.limits.maxExternalPerDay,
       appliedToday: () => index.appliedToday() + recovered.applications,
@@ -1107,6 +1112,15 @@ async function main() {
     const runWorker = async (applicationPage: Page, accept: (job: JobListing) => boolean) => {
       for (;;) {
         assertApplicationProviderReady();
+        // An application deadline retires its outstanding browser work. Start
+        // the next review/attempt in this same isolated worker session.
+        if (agentOnly) {
+          const previousPage = applicationPage;
+          applicationPage = await applicationWorkerPage(previousPage);
+          // Single-worker fallback discovery shares this page. Keep that
+          // reference current as well; parallel discovery has its own page.
+          if (page === previousPage) page = applicationPage;
+        }
         await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
         // Each worker reads and applies on its own isolated page. Only fallback
         // discovery uses the persistent page; queue claims and budgets are shared.
@@ -1147,7 +1161,7 @@ async function main() {
             continue;
           }
           const forms = applicationKeys(job);
-          if (forms.some(key => attemptedForms.has(key))) {
+          if (!agentOnly && forms.some(key => attemptedForms.has(key))) {
             restoreReviewSlot(job, true);
             logOutcome({ status: 'skipped', jobId: job.id, reason: 'This exact application form was already attempted this run.', title: job.title, company: job.company });
             continue;
@@ -1186,10 +1200,10 @@ async function main() {
             console.log('Shared application allowance is reached; this worker is finished.');
             break;
           }
-          let attemptId: string | null;
-          try { attemptId = journal.acquire(job); }
+          let attemptId: string | null = null;
+          try { attemptId = journal?.acquire(job) ?? null; }
           catch (error) { slot.finish(false); throw error; }
-          if (!attemptId) {
+          if (!agentOnly && !attemptId) {
             slot.finish(false);
             restoreReviewSlot(job, true);
             console.log(`  \u2013 skipped (same form reserved or previously sent): ${job.title} @ ${job.company}`);
@@ -1197,14 +1211,18 @@ async function main() {
               reason: 'This exact form is reserved, previously submitted, or awaiting confirmation after an interrupted attempt.' });
             continue;
           }
-          for (const key of forms) attemptedForms.add(key);
+          if (!agentOnly) for (const key of forms) attemptedForms.add(key);
           let finalOutcome: ApplyOutcome | undefined;
           let finalized = false;
           const finalize = () => {
             if (finalized) return;
             finalized = true;
+            if (agentOnly) {
+              slot.finish(finalOutcome?.status === 'applied');
+              return;
+            }
             let mayHaveSent = true;
-            try { mayHaveSent = journal.finish(attemptId!, finalOutcome); }
+            try { mayHaveSent = journal!.finish(attemptId!, finalOutcome); }
             finally { slot.finish(mayHaveSent || (config.dryRun && process.env.REHEARSE === 'true' && finalOutcome?.status === 'rehearsed')); }
           };
           try {
@@ -1226,17 +1244,20 @@ async function main() {
             await sitePacer.ready(platformId);
             await showLiveActivity({ phase: 'applying', detail: `${job.title} at ${job.company}` }, applicationPage);
             try {
-              outcome = await withApplicationAttempt({ journal, id: attemptId, job, beforeSubmit: slot.beforeSubmit }, () => measured('application', () => adapter.apply(applicationPage, job, profile, {
+              const apply = () => measured('application', () => adapter.apply(applicationPage, job, profile, {
                 onFriction: () => {
+                  if (agentOnly) return;
                   candidateHitFriction = true;
                   frictionStreak.set(platformId, (frictionStreak.get(platformId) ?? 0) + 1);
                 },
-              }), { jobId: job.id, platform: platformId }));
+              }), { jobId: job.id, platform: platformId });
+              outcome = agentOnly ? await withApplicationAllowance(slot.beforeSubmit, apply)
+                : await withApplicationAttempt({ journal: journal!, id: attemptId!, job, beforeSubmit: slot.beforeSubmit }, apply);
             } catch (err) {
               const msg = (err as Error).message;
               const submitPressed = applicationFailureContext(err)?.submitPressed === true;
               finalOutcome = { status: 'error', jobId: job.id, error: msg, submitPressed };
-              if (submitPressed) {
+              if (submitPressed && !agentOnly) {
                 countHealth('unconfirmedSubmits');
                 rememberExistingApplication(job, 'Submit was pressed before an application error; receipt is uncertain and it will not be retried automatically.');
               }
@@ -1269,7 +1290,7 @@ async function main() {
             if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');
             if (outcome.status === 'applied') countHealth('applied');
             if (outcome.status === 'needs-human') countHealth('needsHuman');
-            if (outcome.submitPressed && outcome.status !== 'applied' && outcome.status !== 'rehearsed') {
+            if (!agentOnly && outcome.submitPressed && outcome.status !== 'applied' && outcome.status !== 'rehearsed') {
               countHealth('unconfirmedSubmits');
               rememberExistingApplication(job, 'Submit was pressed on the employer form, so it may have been received; not retried automatically.');
               console.log('  ℹ submit was pressed on this form, so it will not be retried automatically');
@@ -1335,7 +1356,7 @@ async function main() {
 
             finalize();
             const streak = frictionStreak.get(platformId) ?? 0;
-            if (streak >= config.limits.frictionAbortThreshold) {
+            if (!agentOnly && streak >= config.limits.frictionAbortThreshold) {
               abortedPlatforms.add(platformId);
               console.log(
                 `\n🛑 [${adapter.label}] ${streak} anti-bot challenges in a row. Stopping ${adapter.label} for this run — ` +
@@ -1409,7 +1430,7 @@ async function main() {
       } else await runWorker(page, () => true);
     } finally {
       await Promise.allSettled(contexts.map(context => context.close()));
-      journal.close();
+      journal?.close();
     }
 
     printSummary();

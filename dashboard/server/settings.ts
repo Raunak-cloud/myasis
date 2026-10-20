@@ -21,7 +21,7 @@ import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
  * oversight.
  */
 export const KEEP_SETTINGS_KEYS = [
-  'APPLICATION_AI_MODEL',
+  'APPLICATION_AI_MODEL', 'APPLICATION_AGENT_MODE',
   'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'SMARTRECRUITERS_COMPANIES', 'LEVER_COMPANIES', 'GREENHOUSE_BOARDS', 'PAGEUP_SITES', 'WORKDAY_SITES', 'EMPLOYER_BROWSER_PROVIDER', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
@@ -83,6 +83,7 @@ function normalizeSetting(key: string, value: string): string {
  */
 export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   APPLICATION_AI_MODEL: 'celeris',
+  APPLICATION_AGENT_MODE: 'protected',
   KEYWORDS: '',
   TARGET_ROLE: '',
   EXCLUDED_COMPANIES: '',
@@ -157,6 +158,8 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
   // the only place they can be waived for an operator of this installation.
   for (const row of rows) {
     if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = row.value === 'haiku' ? 'haiku' : 'celeris';
+    else if (row.key === 'APPLICATION_AGENT_MODE') out[row.key] = row.value === 'agent-only' ? 'agent-only' : 'protected';
+    else if (row.key === 'APPLICATION_AGENT_MODE_AUTHORIZED') continue;
     else if (!row.key.startsWith('APPLICATION_AI_')) out[row.key] = row.value;
   }
   return out;

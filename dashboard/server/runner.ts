@@ -14,6 +14,7 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import { applicationModelForAccount } from './application-model-policy.js';
+import { applicationAgentModeForAccount } from './application-agent-policy.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -34,10 +35,14 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const owner = owners[0];
   if (!owner) throw new Error('This account is not available for an application run.');
   const serverEnv = { ...readEnv(), ...process.env };
-  const selected = applicationModelForAccount((settings ?? await loadUserSettings(userId)).APPLICATION_AI_MODEL, isAdmin(owner.email));
+  const admin = isAdmin(owner.email);
+  const selectedSettings = settings ?? await loadUserSettings(userId);
+  const selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
+  const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
   const keyName = selected === 'haiku' ? 'ANTHROPIC_API_KEY' : 'CELERIS_API_KEY';
   if (!serverEnv[keyName]?.trim()) throw new Error(`${selected === 'haiku' ? 'Haiku' : 'Celeris'} is not configured. Add ${keyName} in Admin settings before starting a run.`);
   return { DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
+    APPLICATION_AGENT_MODE: agentMode, APPLICATION_AGENT_MODE_AUTHORIZED: String(admin && agentMode === 'agent-only'),
     CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
     ANTHROPIC_API_KEY: selected === 'haiku' ? serverEnv.ANTHROPIC_API_KEY! : '' };
 }
@@ -46,7 +51,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'BRIGHTDATA_API_KEY', 'BRIGHTDATA_BROWSER_PASSWORD', 'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('APPLICATION_AI_') && !key.startsWith('HUMANIZER_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 
@@ -398,6 +403,7 @@ class Run {
     this.push('sys', `▶ starting ${mode} run`);
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
     this.push('sys', `  application AI: ${accountOverrides.APPLICATION_AI_MODEL === 'haiku' ? 'Haiku 5.5 (medium; high for recovery)' : 'Celeris'}`);
+    this.push('sys', `  application decisions: ${accountOverrides.APPLICATION_AGENT_MODE === 'agent-only' ? 'agent-only (admin experiment)' : 'protected'}`);
     const shown = Object.entries(overrides)
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
@@ -472,6 +478,7 @@ class Run {
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
     this.push('sys', `  application AI: ${accountOverrides.APPLICATION_AI_MODEL === 'haiku' ? 'Haiku 5.5 (medium; high for recovery)' : 'Celeris'}`);
+    this.push('sys', `  application decisions: ${accountOverrides.APPLICATION_AGENT_MODE === 'agent-only' ? 'agent-only (admin experiment)' : 'protected'}`);
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = null;
