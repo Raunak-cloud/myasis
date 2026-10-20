@@ -16,6 +16,7 @@ process.env.ADMIN_EMAILS = 'admin-cost-fixture@example.test';
 const dir = mkdtempSync(resolve(tmpdir(), 'cost-api-'));
 const runId = randomUUID();
 const fixture = { id: randomUUID(), runId, at: new Date().toISOString(), kind: 'usage', jobId: 'fixture-job', provider: 'Celeris', amountUsd: 0.12, basis: 'estimated' };
+const retiredFixture = { ...fixture, id: randomUUID(), provider: 'Anthropic', model: 'claude-haiku-5-5', amountUsd: 4 };
 const stored = new Map<string, unknown>();
 let costReads = 0;
 pool.query = (async (sql: string, params: unknown[] = []) => {
@@ -29,7 +30,7 @@ pool.query = (async (sql: string, params: unknown[] = []) => {
   if (sql.includes('FROM application_cost_events')) {
     costReads++; assert.equal(params[0], '9000000000000', 'cost query owner is the session, not the supplied userId');
     assert.match(sql, /WHERE user_id = \$1/);
-    return { rows: [{ payload: fixture }] };
+    return { rows: [{ payload: fixture }, { payload: retiredFixture }] };
   }
   throw new Error(`Unexpected database access: ${sql}`);
 }) as typeof pool.query;
@@ -50,7 +51,10 @@ try {
     const response = await fetch(`${origin}/api/applications/costs?userId=someone-else`, { headers: cookie ? { cookie } : {} });
     assert.equal(response.status, status);
     const body = await response.json() as Record<string, { totalUsd: number }>;
-    if (status === 200) assert.equal(body['fixture-job'].totalUsd, 0.12);
+    if (status === 200) {
+      assert.equal(body['fixture-job'].totalUsd, 0.12);
+      assert.doesNotMatch(JSON.stringify(body), /haiku|anthropic/i, 'retired-provider data never reaches the UI');
+    }
     else assert.equal(body['fixture-job'], undefined);
   }
   assert.equal(costReads, 1, 'signed-out and normal users cannot even query cost data');

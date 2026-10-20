@@ -15,16 +15,22 @@ export interface ApplicationCost {
   lines: CostLine[]; notes: string[];
 }
 
-/** Every event allocated once. Shared search/failed-attempt costs go equally to
- * that run's confirmed sends; runs without a send retain their job attribution.
- * Repeat attempts add to the same job, without copying old ledger totals. */
+/** Submission costs belong to the latest confirmed submission run, not every
+ * historical attempt at the listing. Shared allocation keeps its original
+ * denominator even when another job now has a more recent submission run.
+ * Retired-provider records stay in the ledger but are excluded from this view. */
 export function summariseApplicationCosts(events: UsageEvent[]): Record<string, ApplicationCost> {
   const runs = new Map<string, UsageEvent[]>();
   const seen = new Set<string>();
+  const submissions = new Map<string, { runId: string; at: string }>();
   for (const event of events) {
     if (seen.has(event.id)) continue;
     seen.add(event.id);
     const run = runs.get(event.runId) ?? []; run.push(event); runs.set(event.runId, run);
+    if (event.kind === 'submitted' && event.jobId) {
+      const previous = submissions.get(event.jobId);
+      if (!previous || Date.parse(event.at) > Date.parse(previous.at)) submissions.set(event.jobId, event);
+    }
   }
   const result: Record<string, ApplicationCost> = Object.create(null);
   for (const run of runs.values()) {
@@ -36,7 +42,14 @@ export function summariseApplicationCosts(events: UsageEvent[]): Record<string, 
       const direct = Boolean(e.jobId && recipients.has(e.jobId));
       const targets = direct ? [e.jobId!] : [...recipients];
       for (const jobId of targets) {
+        if (submissions.has(jobId) && submissions.get(jobId)!.runId !== e.runId) continue;
         const cost = result[jobId] ??= { currency: 'USD', totalUsd: 0, knownCharges: 0, incomplete: false, lines: [], notes: [] };
+        if (/anthropic/i.test(e.provider ?? '') || /haiku/i.test(e.model ?? '')) {
+          cost.incomplete = true;
+          const note = 'Retired-provider charges are excluded from this view; historical billing records are retained.';
+          if (!cost.notes.includes(note)) cost.notes.push(note);
+          continue;
+        }
         const allocation = direct ? 'direct' : 'shared';
         let line = cost.lines.find(l => l.provider === e.provider && l.model === e.model && l.allocation === allocation);
         if (!line) { line = { provider: e.provider ?? 'Other', model: e.model, allocation, amountUsd: 0, knownCharges: 0, unknownCharges: 0, calls: 0, details: [] }; cost.lines.push(line); }
@@ -50,7 +63,10 @@ export function summariseApplicationCosts(events: UsageEvent[]): Record<string, 
       }
     }
   }
-  for (const cost of Object.values(result)) {
+  for (const [jobId, cost] of Object.entries(result)) {
+    cost.notes.push(submissions.has(jobId)
+      ? 'Costs shown are from the submission run; earlier attempts are excluded.'
+      : 'No submission run is recorded; showing available attempt costs.');
     cost.notes.push('USD estimates before provider credits, tax and invoice adjustments.');
     if (cost.lines.some(l => l.allocation === 'shared')) cost.notes.push('Shared: equal share of search, ranking and unsuccessful attempts in this run. Runs with no submissions retain costs against reviewed jobs.');
   }

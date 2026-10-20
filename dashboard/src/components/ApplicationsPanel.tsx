@@ -313,7 +313,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
               {showCosts && <div className="section application-cost-details">
                 <h3>Application cost (USD)</h3>
                 {costError ? <p>Cost data could not be loaded.</p> : costs[open.jobId] ? <>
-                  <p><strong>{formatApplicationCost(costs[open.jobId])}</strong> · {costs[open.jobId].incomplete ? 'Partial estimate; some charges are unavailable.' : 'Estimated total'}</p>
+                  <p><strong>{formatApplicationCost(costs[open.jobId])}</strong> · {costs[open.jobId].incomplete ? 'Partial estimate; see the cost notes below.' : 'Estimated total'}</p>
                   <ul>{costs[open.jobId].lines.map((line, i) => <li key={i}>
                     <strong>{line.provider}{line.model ? ` · ${line.model}` : ''}</strong> ({line.allocation}): {line.knownCharges ? `US$${line.amountUsd.toFixed(4)}` : 'Unavailable'}{line.unknownCharges > 0 && line.knownCharges > 0 ? ' + unreported charges' : ''}
                     <div className="job-meta">{line.calls} {line.provider === 'Infrastructure' ? 'allocation(s)' : 'request(s)'}{line.unknownCharges ? ` · ${line.unknownCharges} without a known cost` : ''}</div>

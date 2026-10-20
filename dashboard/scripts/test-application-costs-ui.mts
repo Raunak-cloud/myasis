@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
+import { summariseApplicationCosts } from '../src/application-cost.js';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 
 // Serve only the built frontend and fixture APIs: no database, worker or employer is contacted.
@@ -20,6 +21,17 @@ const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40', PAGES_PER_KEYWORD: '1' });
+// Include an older interrupted provider run for the same listing: it must not
+// leak its label, amount, or unfinished-run warning into the submitted row.
+const costFixture = summariseApplicationCosts([
+  {id:'old-1',runId:'old',at:'2026-10-18T00:00:00Z',kind:'usage',jobId:'tracked',provider:'Anthropic',model:'claude-haiku-5-5',amountUsd:0.0097},
+  {id:'old-2',runId:'old',at:'2026-10-18T00:00:01Z',kind:'usage',provider:'Anthropic',model:'claude-haiku-5-5',amountUsd:null},
+  {id:'current-1',runId:'current',at:'2026-10-21T00:00:00Z',kind:'usage',jobId:'tracked',provider:'Celeris',model:'celeris-1-magnus',amountUsd:0.1128,detail:'Usage includes cached input, reasoning and retries.'},
+  {id:'current-2',runId:'current',at:'2026-10-21T00:00:01Z',kind:'usage',jobId:'tracked',provider:'Bright Data',amountUsd:0.03,detail:'Provider session bandwidth estimate.'},
+  {id:'current-3',runId:'current',at:'2026-10-21T00:00:02Z',kind:'usage',provider:'Infrastructure',amountUsd:null,detail:'Overhead not allocated.'},
+  {id:'current-4',runId:'current',at:'2026-10-21T00:00:03Z',kind:'submitted',jobId:'tracked'},
+  {id:'current-5',runId:'current',at:'2026-10-21T00:00:04Z',kind:'finished'},
+]);
 const server = createServer(async (req, res) => {
   const path = new URL(req.url!, 'http://fixture').pathname;
   if (path.startsWith('/api/')) {
@@ -44,11 +56,7 @@ const server = createServer(async (req, res) => {
         { jobId:'tracked', title:'Fixture AI Engineer', company:'Example Employer', location:'Sydney NSW', appliedAt:new Date().toISOString(), score:90, platform:'lever', url:'https://fixture.invalid/job' },
         { jobId:'legacy', title:'Historical Developer', company:'Historical Employer', location:'Sydney NSW', appliedAt:'2026-10-01T09:00:00Z', score:85, platform:'seek', url:'https://fixture.invalid/old' },
       ],
-      '/api/applications/costs': { tracked: { currency:'USD', totalUsd:0.1428, knownCharges:4, incomplete:true, notes:['USD estimates before credits and taxes.','Shared costs are allocated equally across confirmed applications.'], lines:[
-        {provider:'Celeris',model:'celeris-1-magnus',allocation:'direct',amountUsd:0.1128,knownCharges:3,unknownCharges:0,calls:3,details:['Usage includes cached input, reasoning and retries.']},
-        {provider:'Bright Data',allocation:'direct',amountUsd:0.03,knownCharges:1,unknownCharges:0,calls:1,details:['Provider session bandwidth estimate.']},
-        {provider:'Infrastructure',allocation:'shared',amountUsd:0,knownCharges:0,unknownCharges:1,calls:1,details:['Overhead not allocated.']},
-      ] } }, '/api/site-accounts': [], '/api/skipped': {items:[]} ,
+      '/api/applications/costs': costFixture, '/api/site-accounts': [], '/api/skipped': {items:[]} ,
       '/api/attention': attentionFixture ? [{ jobId: 'handoff-fixture', title: 'Fixture Developer', company: 'Fixture Employer', kind: 'question', reason: 'Your answer is needed', at: new Date().toISOString(), url: 'https://fixture.invalid', questions: [{ question: 'Country of birth', kind: 'select', options: ['Australia', 'Canada'] }, { question: 'Audit services', kind: 'select', options: ['Unrelated skill'] }] }] : [],
       '/api/answers': { saved: 2 },
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
@@ -96,6 +104,8 @@ try {
         assert.match(await drawer.innerText(), /Celeris.*celeris-1-magnus/s);
         assert.match(await drawer.innerText(), /Bright Data/);
         assert.match(await drawer.innerText(), /Infrastructure.*Unavailable/s);
+        assert.doesNotMatch(await drawer.innerText(), /haiku|anthropic|Run has not closed cleanly/i);
+        assert.match(await drawer.innerText(), /Costs shown are from the submission run; earlier attempts are excluded/);
         await drawer.getByRole('button',{name:'Close',exact:true}).click();
         await page.getByText('Historical Developer',{exact:true}).click();
         await page.getByText(/historical charges cannot be reconstructed reliably/).waitFor();
