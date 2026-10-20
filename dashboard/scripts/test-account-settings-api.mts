@@ -7,6 +7,7 @@ import type { Plugin, ViteDevServer } from 'vite';
 import config from '../vite.config.js';
 import { getPool } from '../server/db/index.js';
 import { userDir, USERS_DIR } from '../server/userdata.js';
+import { accountRequest, accountUnavailable } from '../server/account-lifecycle.js';
 
 const pool = getPool();
 const client = await pool.connect();
@@ -70,7 +71,16 @@ try {
   assert.equal((await request('/api/account')).status,200,'a refused deletion remains retryable');
   assert.equal(existsSync(paths[0]),true);
   await client.query("UPDATE marketing_jobs SET status='done'");
-  const deleted=await request(`/api/account?userId=${peer}`,'DELETE',{confirmEmail:' OWNER@example.test ',userId:peer});
+  let finishUpload!:()=>void;
+  const upload=accountRequest(owner,()=>new Promise<void>(done=>{finishUpload=()=>{writeFileSync(resolve(paths[0],'last-upload.txt'),'private upload');done();};}));
+  await Promise.resolve();
+  const deleting=request(`/api/account?userId=${peer}`,'DELETE',{confirmEmail:' OWNER@example.test ',userId:peer});
+  const deadline=Date.now()+5000;
+  while(!accountUnavailable(owner) && Date.now()<deadline) await new Promise(done=>setTimeout(done,5));
+  assert.equal(accountUnavailable(owner),true);
+  assert.equal(existsSync(paths[0]),true,'a pending upload must settle before its account files are removed');
+  finishUpload(); await upload;
+  const deleted=await deleting;
   assert.equal(deleted.status,200);
   assert.deepEqual(await deleted.json(),{ok:true});
   assert.match(deleted.headers.get('set-cookie')??'',/myasis_session=;.*Max-Age=0/);

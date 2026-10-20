@@ -56,7 +56,7 @@ import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
 import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
 import { dailySummaryEnabled, setDailySummaryEnabled } from './server/email-preferences.js';
 import { deleteAccount } from './server/account-deletion.js';
-import { AccountDeletionError } from './server/account-lifecycle.js';
+import { AccountDeletionError, accountRequest } from './server/account-lifecycle.js';
 import { setUpFromResume } from './server/quick-setup.js';
 import { startRun, expectedSalaryRefusal } from './server/start-run.js';
 import { runDeviceFromHeaders } from './src/run-device.js';
@@ -241,9 +241,10 @@ function dataApi(): Plugin {
     const withUser = (fn: (userId: string) => Promise<void> | void) =>
       currentUser(req.headers?.cookie).then((user) => {
         if (!user) return send({ error: 'Sign in required.' }, 401);
-        return fn(user.id);
+        return accountRequest(user.id, () => fn(user.id));
       }).catch((error) => {
         if (error instanceof BodyTooLarge) return send({ error: error.message }, 413);
+        if (error instanceof AccountDeletionError) return send({ error: error.message }, error.status);
         throw error;
       });
 
@@ -517,6 +518,8 @@ function dataApi(): Plugin {
       }
       case '/api/account': {
         if (req.method !== 'GET' && req.method !== 'DELETE') return send({ error: 'GET or DELETE required.' }, 405);
+        // Authenticate directly: deletion drains withUser requests and must
+        // never wait for its own request to finish.
         return currentUser(req.headers.cookie).then(async (user) => {
           if (!user) return send({ error: 'Sign in required.' }, 401);
           if (req.method === 'GET') return send({ email: user.email });

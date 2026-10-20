@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { beginAccountDeletion, accountUnavailable } from './account-lifecycle.js';
+import { beginAccountDeletion, accountUnavailable, accountRequest, waitForAccountRequests } from './account-lifecycle.js';
 import { RunPool } from './runner.js';
 import { startSignin } from './signin.js';
 import { checkSignin } from './seek-check.js';
@@ -35,4 +35,20 @@ test('deletion excludes new work, drains only its own worker and releases a fail
   const retry = beginAccountDeletion(owner); retry(true);
   assert.equal(accountUnavailable(owner), true, 'stale work cannot recreate a deleted account');
   assert.throws(() => beginAccountDeletion('../72002'), /Invalid account/);
+});
+
+test('pending uploads settle before removal and later writes cannot start', async () => {
+  let finish!: () => void;
+  const pending = accountRequest('72003', () => new Promise<void>(done => { finish = done; }));
+  await Promise.resolve();
+  const release = beginAccountDeletion('72003');
+  let drained = false;
+  const waiting = waitForAccountRequests('72003').then(() => { drained = true; });
+  await Promise.resolve();
+  assert.equal(drained,false);
+  await assert.rejects(() => accountRequest('72003', () => { throw new Error('must not execute'); }),/deletion is in progress/);
+  await accountRequest('72004', () => {});
+  finish(); await pending; await waiting;
+  assert.equal(drained,true);
+  release(true);
 });

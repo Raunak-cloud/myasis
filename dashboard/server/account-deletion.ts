@@ -8,7 +8,7 @@ import { stopSignin } from './signin.js';
 import { stopSigninChecks } from './seek-check.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { forgetAccountRoute } from './route.js';
-import { AccountDeletionError, beginAccountDeletion } from './account-lifecycle.js';
+import { AccountDeletionError, beginAccountDeletion, waitForAccountRequests } from './account-lifecycle.js';
 
 /** The caller owns the transaction. Files are removed before the account and
  * sessions, so a filesystem failure leaves a signed-in account able to retry. */
@@ -50,6 +50,7 @@ export async function deleteAccount(user: { id: string }): Promise<void> {
     await runner.stopForAccountDeletion(user.id);
     await stopSignin(user.id);
     await stopSigninChecks(user.id);
+    await waitForAccountRequests(user.id);
     if (!await releaseChromeProfile(userChromeDir(user.id))) {
       throw new AccountDeletionError('Your browser is still closing. Please try deleting your account again shortly.');
     }
