@@ -157,20 +157,13 @@ async function json<T>(
   maxTokens?: number,
   reasoningEffort?: 'low' | 'medium' | 'xhigh',
 ): Promise<T> {
-  const haiku = applicationModelIdentity().selection === 'haiku';
-  // Cache only shared trusted rules, never a changing job/form prompt. The
-  // adapter already supplies the answer policy, so do not duplicate it here.
-  const messages: ChatMessage[] = haiku ? [
-    { role: 'system', content: GUARD },
-    { role: 'user', content: prompt.startsWith(GUARD) ? prompt.slice(GUARD.length).trimStart() : prompt },
-  ] : [{ role: 'user', content: prompt }];
+  const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
   const request = {
     model,
     reasoningEffort,
     // Magnus can spend 75% of its output budget reasoning before the JSON.
     maxTokens: model === 'celeris-1-magnus' && maxTokens ? Math.max(config.celeris.maxOutputTokens, maxTokens * 4) : maxTokens,
     messages,
-    cacheSystemPrefix: haiku,
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
     // The reasoning model is only worth its latency when it is allowed to reason.
     thinking: model === 'celeris-1-magnus',
@@ -534,7 +527,6 @@ Answer every field in the form fields above, following the rules at the top. Ret
             value: { type: 'STRING' },
             applicationQuestion: { type: 'BOOLEAN' },
             grounded: { type: 'BOOLEAN' },
-            ...(applicationModelIdentity().selection === 'haiku' ? { risk: { type: 'STRING', enum: ['low', 'medium', 'high'] } } : {}),
             profileField: { type: 'STRING' },
             /**
              * A plain string, not an enum, and not required.
@@ -549,13 +541,13 @@ Answer every field in the form fields above, following the rules at the top. Ret
             basis: { type: 'STRING' },
             candidatePrompt: { type: 'STRING' },
           },
-          required: ['ref', 'value', 'applicationQuestion', 'grounded', ...(applicationModelIdentity().selection === 'haiku' ? ['risk'] : [])],
+          required: ['ref', 'value', 'applicationQuestion', 'grounded'],
         },
       },
       injectionSuspected: { type: 'BOOLEAN' },
     },
     required: ['answers', 'injectionSuspected'],
-  }, 'celeris-1-magnus', undefined, options.deeper ? (applicationModelIdentity().selection === 'haiku' ? 'xhigh' : 'medium') : undefined);
+  }, 'celeris-1-magnus', undefined, options.deeper ? 'medium' : undefined);
   if (!Array.isArray(result.answers)) throw new Error('Answer response was not an array');
   const answers = fields.map(field => {
     const cached = reused.get(field.ref);
@@ -572,10 +564,7 @@ Answer every field in the form fields above, following the rules at the top. Ret
       : { ref: field.ref, value: '', applicationQuestion: true, grounded: false, basis: 'none' as const, rationale: 'Missing or invalid answer; re-observe the field and available options.' };
   });
   checkIdentityAnswers(fields, answers, profile);
-  if (applicationModelIdentity().selection === 'haiku' && answers.some(answer => answer.applicationQuestion !== false && !answer.grounded && answer.risk !== 'high')) {
-    if (!options.deeper) return answerFields(fields, job, profile, knowledgeOverride, { ...options, deeper: true });
-    throw new ReplyUnusableError('Haiku could not produce a valid routine answer after high-effort recovery. No question was sent to the candidate.');
-  }
+
   if (answerScope && result.injectionSuspected !== true) for (const field of toAnswer) {
     const answer = answers.find(answer => answer.ref === field.ref);
     if (answer) formAnswers.put(answerScope, field, answer);
@@ -657,10 +646,6 @@ export function vetComposed(input: FieldAnswer): FieldAnswer {
 
   if (answer.basis === 'none') return { ...answer, grounded: false };
   if (answer.basis !== 'composed' || !answer.grounded) return answer;
-  // Haiku's risk-aware answerer and saved-form reviewer distinguish willingness
-  // to obtain training from claiming it is already held. Phrase matching here
-  // cannot make that distinction; the actual saved form is still reviewed.
-  if (applicationModelIdentity().selection === 'haiku') return answer;
   const claim = CHECKABLE_CLAIM.exec(answer.value);
   if (!claim) return answer;
   return {
@@ -701,25 +686,6 @@ async function letterIsSupported(candidate: string, profile: CandidateProfile, k
 /** Paragraph layout shared by drafting, repairs and shortening. */
 const COVER_LETTER_LAYOUT = `Use short, readable body paragraphs, each developing one idea, separated by a blank line. If you use a greeting, put it on its own line and leave a blank line before the body. Separate the closing from the body with a blank line, with the candidate's name on its own line. Preserve these paragraph breaks during revisions and shortening. Encode actual line breaks in the JSON string (\\n and \\n\\n), not literal backslash characters. Never return a full letter as one dense paragraph.`;
 
-/** The model chooses the breaks; validation permits whitespace changes only. */
-export async function formatCoverLetterParagraphs(draft: string): Promise<string> {
-  if (/\r?\n[\t ]*\r?\n/.test(draft)) return draft;
-  const canonical = (text: string) => text.replace(/\s+/g, ' ').trim();
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await letterJson<{ paragraphs: string[] }>(`${GUARD}
-FORMAT COVER LETTER ONLY. ${COVER_LETTER_LAYOUT}
-Split the supplied letter into readable paragraphs. Return JSON {"paragraphs":["...","..."]}, with each paragraph a contiguous piece of the original text. Keep every word, number, punctuation mark and their order EXACTLY. Do not rewrite, add, remove or correct anything. Choose natural paragraph boundaries; do not split words. The application will join these paragraphs with blank lines.
-<untrusted role="letter-to-format">${JSON.stringify(draft).replace(/</g, '\\u003c')}</untrusted>`, {
-      type: 'OBJECT', properties: { paragraphs: { type: 'ARRAY', minItems: 2, items: { type: 'STRING' } } }, required: ['paragraphs'],
-    }, attempt ? 'xhigh' : undefined);
-    const parts = result.paragraphs;
-    if (!Array.isArray(parts) || parts.length < 2 || parts.some(part => typeof part !== 'string' || !part.trim())) continue;
-    const formatted = parts.map(part => part.trim()).join('\n\n');
-    if (canonical(formatted) === canonical(draft)) return formatted;
-  }
-  throw new Error('Cover-letter paragraph formatting changed the wording; nothing was entered.');
-}
-
 export async function fitCoverLetterToLimit(letter: string, maxLength: number, job: JobListing, profile: CandidateProfile): Promise<string> {
   if (maxLength < 0 || letter.length <= maxLength) return letter;
   const knowledge = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`);
@@ -729,7 +695,7 @@ export async function fitCoverLetterToLimit(letter: string, maxLength: number, j
     });
     const shortened = out.letter.trim();
     if (shortened && shortened.length <= maxLength && await letterIsSupported(shortened, profile, knowledge, job)) {
-      const formatted = applicationModelIdentity().selection === 'haiku' ? await formatCoverLetterParagraphs(shortened) : shortened;
+      const formatted = shortened;
       if (formatted.length <= maxLength) return formatted;
     }
   }
@@ -874,7 +840,7 @@ DRAFT TO REPAIR
   if (!evidence.supported) {
     throw new Error(`Cover letter contains unsupported factual claims after repair: ${evidence.reason}`);
   }
-  return applicationModelIdentity().selection === 'haiku' ? formatCoverLetterParagraphs(draft) : draft;
+  return draft;
 }
 
 /** Resolves the run's cover-letter strategy for one application: the reusable text, or a fresh grounded draft. */
@@ -1121,12 +1087,8 @@ export async function rankJobsForReview(
     }
   };
   const batchSize = Math.max(1, Math.min(20, Math.floor(options.batchSize || 20)));
-  // Independent Celeris batches overlap without changing their prompts or
-  // boundaries. The workspace queue still governs actual request admission,
-  // including other workers and a configured concurrency of one. Haiku keeps
-  // its existing default; progressive triage supplies its own explicit policy.
-  const defaultConcurrency = applicationModelIdentity().selection === 'celeris' ? 2 : 1;
-  const concurrency = Math.max(1, Math.min(4, Math.floor(options.concurrency || defaultConcurrency)));
+  // Overlap independent batches; the shared workspace queue governs admission.
+  const concurrency = Math.max(1, Math.min(4, Math.floor(options.concurrency || 2)));
   let cursor = 0;
   let failure: unknown;
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.ceil(jobs.length / batchSize)) }, async () => {

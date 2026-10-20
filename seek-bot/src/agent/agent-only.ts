@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { BrowserContext, Locator, Page, Route } from 'patchright';
 import { config } from '../config.js';
-import { applicationModelIdentity } from '../application-model.js';
 import { isAgentOnlyApplication } from '../application-agent-mode.js';
 import { WORK_RIGHTS_EVIDENCE_RULES } from '../application-answer-policy.js';
 import { applicationAllowance } from '../application-allowance.js';
@@ -14,7 +13,7 @@ import { outsideScope } from '../run-scope.js';
 import { workingIn, waitForChallengeToClear } from '../browser.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
 import { CostMeter, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
-import { validHaikuInput } from './haiku.js';
+import { validToolInput } from './tool-input.js';
 import { RunGuards, isExternal } from './guards.js';
 import { locate } from './raw-tools.js';
 import { observe } from './observe.js';
@@ -242,7 +241,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         const source = String(args.script).trim();
         const isFunction = /^(?:async\s+)?function\b|^(?:async\s*)?(?:\([^)]*\)|[\w$]+)\s*=>/.test(source);
         const executable = isFunction ? `(${source})()` : `(async () => {${source}\n})()`;
-        return ok(JSON.stringify(await ctx.page.evaluate(executable, undefined, undefined, false)) ?? 'Script completed.');
+        return ok(JSON.stringify(await ctx.page.evaluate(executable, undefined, undefined)) ?? 'Script completed.');
       }
       case 'scroll': await ctx.page.mouse.wheel(Number(args.x ?? 0), Number(args.y ?? 650)); break;
       case 'press': if (args.ref || args.selector) await target(ctx, args).press(value, { timeout: 8_000 }); else await ctx.page.keyboard.press(value); break;
@@ -283,9 +282,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
       messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
-      const haiku = applicationModelIdentity().selection === 'haiku';
       steps++; // AGENT_MAX_STEPS counts model turns, as in the protected loop.
-      const reply = await celerisChat({ model: 'celeris-1-magnus', messages: agentOnlyTranscript(messages, 42_000, haiku), tools: agentOnlyTools,
+      const reply = await celerisChat({ model: 'celeris-1-magnus', messages: agentOnlyTranscript(messages, 42_000), tools: agentOnlyTools,
         requireTool: true, thinking: true, reasoningEffort: highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
       messages.push(reply.message);
       highEffort = false;
@@ -300,7 +298,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         } else {
           planActions++;
           try {
-            if (!tool || !validHaikuInput(call.args, tool.parameters)) throw new Error('Invalid tool input. Read the schema and retry with the correct arguments.');
+            if (!tool || !validToolInput(call.args, tool.parameters)) throw new Error('Invalid tool input. Read the schema and retry with the correct arguments.');
             if (await routeEmployer()) {
               interrupted = true;
               result = ok('Not run: the browser changed. Read the fresh employer form before acting.');

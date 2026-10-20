@@ -22,7 +22,7 @@ function account(marker: string, model = 'celeris') {
   mkdirSync(join(dir, 'resumes'));
   writeFileSync(join(dir, 'resumes.json'), JSON.stringify([{ id: 'current', label: 'Selected CV', fileName: 'cv.txt', isDefault: true }]));
   writeFileSync(join(dir, 'resumes', 'cv.txt'), `${marker} selected CV with supported employment`);
-  return { dir, answers, env: { APPLICATION_AI_MODEL: model, CELERIS_API_KEY: `private-celeris-${marker}`, ANTHROPIC_API_KEY: `private-haiku-${marker}`,
+  return { dir, answers, env: { APPLICATION_AI_MODEL: model, CELERIS_API_KEY: `private-celeris-${marker}`,
     DATA_DIR: dir, COST_TRACKING: 'false', TARGET_ROLE: `${marker} retail assistant`, MIN_HOURLY_RATE: '22',
     AI_INSTRUCTIONS_B64: Buffer.from(`${marker} avoid overnight shifts`).toString('base64') } };
 }
@@ -45,11 +45,9 @@ function context(marker = 'current'): ToolContext {
 const options = (): ConsultationOptions => ({ enabled: true, meter: new CostMeter(1), remainingMs: () => 300_000,
   applicationHistory: 'The last submit returned a required-field validation error; no receipt was observed.' });
 const message = (result: ToolResult) => result.kind === 'ok' ? result.message : '';
-function success(model: string, content: unknown = advice) {
+function success(_model: string, content: unknown = advice) {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
-  return model === 'haiku'
-    ? Response.json({ content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 100, output_tokens: 60 } })
-    : Response.json({ choices: [{ finish_reason: 'stop', message: { content: text } }], usage: { prompt_tokens: 100, completion_tokens: 60 } });
+  return Response.json({ choices: [{ finish_reason: 'stop', message: { content: text } }], usage: { prompt_tokens: 100, completion_tokens: 60 } });
 }
 
 test('parallel account consultations isolate full candidate evidence, preferences and credentials', async () => {
@@ -78,7 +76,7 @@ test('parallel account consultations isolate full candidate evidence, preference
     assert.ok(bodyText.includes('required-field validation error'));
     assert.ok(bodyText.includes('capturedAnswers') && bodyText.includes('Referral source'));
     assert.ok(!bodyText.includes(other));
-    assert.ok(!bodyText.includes('private-celeris-') && !bodyText.includes('private-haiku-'));
+    assert.ok(!bodyText.includes('private-celeris-'));
     assert.ok(!bodyText.includes('synthetic-hidden-password'));
     assert.ok(bodyText.includes('[credential withheld]'));
     assert.ok(!bodyText.includes(owner.dir));
@@ -89,8 +87,8 @@ test('parallel account consultations isolate full candidate evidence, preference
   }
 });
 
-test('each selected provider receives a read-only structured request without fallback or tools', async () => {
-  for (const model of ['celeris', 'haiku']) {
+test('Celeris receives a read-only structured request without fallback or tools', async () => {
+  for (const model of ['celeris']) {
     const owner = account(`MODEL_${model}`, model), shared = options();
     let called = 0;
     globalThis.fetch = async (url, init) => {
@@ -98,12 +96,7 @@ test('each selected provider receives a read-only structured request without fal
       const body = JSON.parse(String(init?.body));
       assert.equal(body.tools, undefined);
       assert.equal(body.tool_choice, undefined);
-      if (model === 'haiku') {
-        assert.equal(String(url), 'https://api.anthropic.com/v1/messages');
-        assert.equal(body.model, 'claude-haiku-5-5');
-        assert.equal(body.output_config.effort, 'medium');
-        assert.equal(body.output_config.format.type, 'json_schema');
-      } else {
+      {
         assert.match(String(url), /\/celeris-1-magnus\/v1\/chat\/completions$/);
         assert.equal(body.model, 'celeris-1-magnus');
         assert.equal(body.chat_template_kwargs.reasoning_effort, 'medium');

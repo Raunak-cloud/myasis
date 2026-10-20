@@ -1,11 +1,10 @@
 import type { ChatMessage } from './celeris.js';
-import { browserTranscript } from './loop/transcript.js';
+import { trimTranscript } from './loop/transcript.js';
 
 /** Old DOM trees are observations, not candidate facts. Keep the current
- * observation/snapshot, authored answers and tool actions. Haiku's accepted
- * native prefix stays immutable for thinking continuity and prompt caching. */
-export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number, haiku: boolean): ChatMessage[] {
-  if (haiku) return browserTranscript(messages, maxTokens, true);
+ * observation/snapshot, authored answers and tool actions. */
+export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number): ChatMessage[] {
+
   const snapshotCalls = new Set<string>();
   for (const message of messages) if (message.role === 'assistant') {
     for (const call of message.tool_calls ?? []) if (call.function.name === 'take_snapshot') snapshotCalls.add(call.id);
@@ -25,5 +24,5 @@ export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number, 
     }
     return message;
   });
-  return browserTranscript(compact, maxTokens, false);
+  return trimTranscript(compact, maxTokens);
 }

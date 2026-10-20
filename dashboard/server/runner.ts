@@ -40,14 +40,12 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const selectedSettings = settings ?? await loadUserSettings(userId);
   const selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
-  const keyName = selected === 'haiku' ? 'ANTHROPIC_API_KEY' : 'CELERIS_API_KEY';
-  if (!serverEnv[keyName]?.trim()) throw new Error(`${selected === 'haiku' ? 'Haiku' : 'Celeris'} is not configured. Add ${keyName} in Admin settings before starting a run.`);
+  if (!serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Celeris is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode, APPLICATION_AGENT_MODE_AUTHORIZED: String(admin && agentMode === 'agent-only'),
-    CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
-    ANTHROPIC_API_KEY: selected === 'haiku' ? serverEnv.ANTHROPIC_API_KEY! : '' };
+    CELERIS_API_KEY: serverEnv.CELERIS_API_KEY };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */
@@ -405,7 +403,7 @@ class Run {
 
     this.push('sys', `▶ starting ${mode} run`);
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', `  application AI: ${accountOverrides.APPLICATION_AI_MODEL === 'haiku' ? 'Haiku 5.5 (medium; high for recovery)' : 'Celeris'}`);
+    this.push('sys', '  application AI: Celeris Magnus');
     this.push('sys', `  application decisions: ${accountOverrides.APPLICATION_AGENT_MODE === 'agent-only' ? 'agent-only (admin experiment)' : 'protected'}`);
     const shown = Object.entries(overrides)
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
@@ -480,7 +478,7 @@ class Run {
       COST_TRACKING: 'true',
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', `  application AI: ${accountOverrides.APPLICATION_AI_MODEL === 'haiku' ? 'Haiku 5.5 (medium; high for recovery)' : 'Celeris'}`);
+    this.push('sys', '  application AI: Celeris Magnus');
     this.push('sys', `  application decisions: ${accountOverrides.APPLICATION_AGENT_MODE === 'agent-only' ? 'agent-only (admin experiment)' : 'protected'}`);
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;

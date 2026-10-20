@@ -8,39 +8,6 @@ import { renderObservation, type Observation } from '../observe.js';
 const estimateTokens = (messages: ChatMessage[]): number =>
   Math.ceil(JSON.stringify(messages).length / 4);
 
-/** Base64 is a transport encoding, not text tokens. Also count native
- * assistant blocks once, rather than their duplicate compatibility fields. */
-export function estimateHaikuTokens(messages: ChatMessage[]): number {
-  return messages.reduce((total, message) => {
-    if (message.role === 'assistant' && message.nativeContent) {
-      return total + Math.ceil(JSON.stringify(message.nativeContent).length / 4);
-    }
-    if (message.role === 'user' && Array.isArray(message.content)) {
-      return total + message.content.reduce((sum, part) => sum + (part.type === 'text' ? Math.ceil(part.text.length / 4) : 4096), 0);
-    }
-    return total + Math.ceil(JSON.stringify(message).length / 4);
-  }, 0);
-}
-
-/** Keep the accepted native prefix stable. If a long conversation must be
- * trimmed, retain complete exchanges and commit that change once with room
- * for more turns, rather than shifting the prefix on every following call. */
-export function browserTranscript(messages: ChatMessage[], maxTokens: number, haiku: boolean): ChatMessage[] {
-  if (!haiku) return trimTranscript(messages, maxTokens);
-  if (estimateHaikuTokens(messages) <= maxTokens) return messages;
-  const [system, application, ...rest] = messages;
-  const kept = [...rest];
-  const omitted: ChatMessage = { role: 'user', content: '[Earlier page observations omitted. Canonical candidate profile and current application remain authoritative; retrieve saved evidence again if needed.]' };
-  const target = Math.min(maxTokens, 40_000) / 2;
-  while (kept.length > 4 && estimateHaikuTokens([system, application, omitted, ...kept]) > target) {
-    let end = 1;
-    while (end < kept.length && kept[end].role !== 'user') end++;
-    kept.splice(0, end);
-  }
-  messages.splice(0, messages.length, system, application, omitted, ...kept);
-  return messages;
-}
-
 /**
  * Drops the oldest exchanges when the transcript outgrows its budget.
  *

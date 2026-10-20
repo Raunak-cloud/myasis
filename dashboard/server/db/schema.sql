@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS settings (
   PRIMARY KEY (user_id, key)
 );
 
+-- Application AI has one supported provider; migrate saved legacy selections.
+UPDATE settings SET value = 'celeris'
+WHERE key = 'APPLICATION_AI_MODEL' AND value <> 'celeris';
+
 CREATE TABLE IF NOT EXISTS resumes (
   id          BIGSERIAL PRIMARY KEY,
   user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

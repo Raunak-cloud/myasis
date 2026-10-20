@@ -17,7 +17,7 @@ test('Celeris retains candidate facts, authored actions and current state while 
     { role: 'user', content: 'URL: https://fixture.invalid/two\nCURRENT_OBSERVATION_AND_RECORDED_DRAFT' },
   ];
   const before = JSON.stringify(messages);
-  const payload = JSON.stringify(agentOnlyTranscript(messages, 42_000, false));
+  const payload = JSON.stringify(agentOnlyTranscript(messages, 42_000));
   assert.match(payload, /CANONICAL_CANDIDATE_CV_AND_JOB/);
   assert.match(payload, /Saved candidate answer/);
   assert.match(payload, /CURRENT_SNAPSHOT_REFS_AND_VALUES/);
@@ -25,5 +25,4 @@ test('Celeris retains candidate facts, authored actions and current state while 
   assert.doesNotMatch(payload, /OLD_OBSERVATION_|OLD_SNAPSHOT_/);
   assert.ok(payload.length < before.length / 10, 'large superseded trees no longer inflate every turn');
   assert.equal(JSON.stringify(messages), before, 'original audit conversation is unchanged');
-  assert.deepEqual(agentOnlyTranscript(messages, 42_000, true), messages, 'Haiku retains its accepted native prefix unchanged while within budget');
 });

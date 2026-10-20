@@ -35,7 +35,7 @@ test('application environment rechecks active ownership and only returns that ow
   try {
     await assert.rejects(accountApplicationEnvironment('../owner-account'), /account is not available/);
     assert.equal(queries, 0);
-    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'protected', APPLICATION_AGENT_MODE_AUTHORIZED: 'false', CELERIS_API_KEY: 'fixture-only', ANTHROPIC_API_KEY: '' });
+    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'protected', APPLICATION_AGENT_MODE_AUTHORIZED: 'false', CELERIS_API_KEY: 'fixture-only' });
     available = false;
     await assert.rejects(accountApplicationEnvironment('owner-account', {}), /account is not available/);
     available = true;
@@ -47,22 +47,20 @@ test('application environment rechecks active ownership and only returns that ow
   }
 });
 
-test('runtime selection rechecks admin status and excludes the other provider credential', async () => {
+test('runtime always selects Celeris and rechecks admin-only decision modes', async () => {
   const originalQuery = pool.query;
-  const names = ['ANTHROPIC_API_KEY', 'CELERIS_API_KEY', 'ADMIN_EMAILS', 'APPLICATION_AGENT_MODE', 'APPLICATION_AGENT_MODE_AUTHORIZED'] as const;
+  const names = ['CELERIS_API_KEY', 'ADMIN_EMAILS', 'APPLICATION_AGENT_MODE', 'APPLICATION_AGENT_MODE_AUTHORIZED'] as const;
   const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
-  Object.assign(process.env, { ANTHROPIC_API_KEY: 'fictional-haiku', CELERIS_API_KEY: 'fictional-celeris', ADMIN_EMAILS: 'admin@fixture.invalid', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' });
+  Object.assign(process.env, { CELERIS_API_KEY: 'fictional-celeris', ADMIN_EMAILS: 'admin@fixture.invalid', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' });
   pool.query = (async (_sql: string, params: unknown[]) => ({ rows: [{ id: params[0], email: params[0] === 'admin' ? 'admin@fixture.invalid' : 'customer@fixture.invalid' }] })) as typeof originalQuery;
   try {
-    const [admin, customer] = await Promise.all(['admin', 'customer'].map(owner => accountApplicationEnvironment(owner, { APPLICATION_AI_MODEL: 'haiku', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' })));
-    assert.equal(admin.APPLICATION_AI_MODEL, 'haiku');
-    assert.equal(admin.CELERIS_API_KEY, '');
-    assert.equal(admin.ANTHROPIC_API_KEY, 'fictional-haiku');
+    const [admin, customer] = await Promise.all(['admin', 'customer'].map(owner => accountApplicationEnvironment(owner, { APPLICATION_AI_MODEL: 'retired', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' })));
+    assert.equal(admin.APPLICATION_AI_MODEL, 'celeris');
+    assert.equal(admin.CELERIS_API_KEY, 'fictional-celeris');
     assert.equal(admin.APPLICATION_AGENT_MODE, 'agent-only');
     assert.equal(admin.APPLICATION_AGENT_MODE_AUTHORIZED, 'true');
     assert.equal('HUMANIZER_MODE' in admin, false);
     assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
-    assert.equal(customer.ANTHROPIC_API_KEY, '');
     assert.equal(customer.CELERIS_API_KEY, 'fictional-celeris');
     assert.equal(customer.APPLICATION_AGENT_MODE, 'protected');
     assert.equal(customer.APPLICATION_AGENT_MODE_AUTHORIZED, 'false');
@@ -90,11 +88,11 @@ test('model selection persists while retired form-review controls stay hidden', 
   }) as typeof originalQuery;
   try {
     assert.deepEqual(await loadUserSettings('owner-account'), { APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'protected', KEYWORDS: 'retail assistant', PLATFORMS_CHOSEN: '1' });
-    const saved = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'haiku', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', KEYWORDS: 'sales assistant' });
-    assert.deepEqual(writes, [['owner-account', 'APPLICATION_AI_MODEL', 'haiku'], ['owner-account', 'APPLICATION_AGENT_MODE', 'agent-only'], ['owner-account', 'KEYWORDS', 'sales assistant']]);
-    assert.equal(saved.APPLICATION_AI_MODEL, 'haiku');
+    const saved = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', KEYWORDS: 'sales assistant' });
+    assert.deepEqual(writes, [['owner-account', 'APPLICATION_AI_MODEL', 'celeris'], ['owner-account', 'APPLICATION_AGENT_MODE', 'agent-only'], ['owner-account', 'KEYWORDS', 'sales assistant']]);
+    assert.equal(saved.APPLICATION_AI_MODEL, 'celeris');
     assert.equal(saved.PLATFORMS_CHOSEN, '1');
-    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'haiku');
+    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'celeris');
     assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AGENT_MODE, 'agent-only');
     assert.equal(saved.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
     assert.equal(saved.APPLICATION_AI_FORM_REVIEW_MODE, undefined);

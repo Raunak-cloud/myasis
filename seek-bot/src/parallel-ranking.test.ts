@@ -32,12 +32,12 @@ async function until(predicate: () => boolean): Promise<void> {
   assert.ok(predicate(), 'expected ranking requests arrived');
 }
 
-function stub(haiku = false) {
+function stub() {
   const calls: Array<{ ids: string[]; reply: (status?: number) => void }> = [];
   let active = 0, peak = 0, released = false;
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body));
-    const schema = haiku ? body.output_config.format.schema : body.response_format.json_schema.schema;
+    const schema = body.response_format.json_schema.schema;
     const ids: string[] = schema.properties.jobs.items.properties.reviewId.enum;
     active++; peak = Math.max(peak, active);
     let reply!: (status?: number) => void;
@@ -51,9 +51,7 @@ function stub(haiku = false) {
       jobs: ids.map(reviewId => ({ reviewId, priority: 80, reason: 'Relevant fixture role' })),
     });
     if (status !== 200) return new Response('{}', { status });
-    return haiku ? Response.json({ content: [{ type: 'text', text: content }], stop_reason: 'end_turn',
-      usage: { input_tokens: 20, output_tokens: 10 } })
-      : Response.json({ choices: [{ message: { content } }], usage: { prompt_tokens: 20, completion_tokens: 10 } });
+    return Response.json({ choices: [{ message: { content } }], usage: { prompt_tokens: 20, completion_tokens: 10 } });
   };
   return { calls, peak: () => peak, release: () => { released = true; calls.forEach(call => call.reply()); } };
 }
@@ -108,23 +106,6 @@ test('parallel ranking obeys a lower workspace queue limit', async () => {
     await until(() => fixture.calls.length === 1);
     await pause(50);
     assert.equal(fixture.calls.length, 1, 'the other logical batch waits in the shared queue');
-    for (let i = 0; i < 3; i++) {
-      await until(() => fixture.calls.length === i + 1);
-      fixture.calls[i].reply();
-    }
-    assert.equal((await work).size, 41);
-    assert.equal(fixture.peak(), 1);
-  } finally { fixture.release(); await work.catch(() => {}); }
-});
-
-test('Haiku keeps its existing sequential default and native request format', async () => {
-  const fixture = stub(true), listings = jobs('haiku', 41);
-  const work = withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'haiku', ANTHROPIC_API_KEY: 'fixture-only' },
-    () => rankJobsForReview(listings, profile));
-  try {
-    await until(() => fixture.calls.length === 1);
-    await pause(30);
-    assert.equal(fixture.calls.length, 1);
     for (let i = 0; i < 3; i++) {
       await until(() => fixture.calls.length === i + 1);
       fixture.calls[i].reply();

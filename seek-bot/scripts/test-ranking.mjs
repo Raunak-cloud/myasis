@@ -12,8 +12,6 @@ import { join, resolve, sep } from 'node:path';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-ranking-test-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
-const haiku = process.env.TEST_APPLICATION_MODEL === 'haiku';
-if (haiku) { process.env.APPLICATION_AI_MODEL = 'haiku'; process.env.ANTHROPIC_API_KEY = 'fixture-only'; }
 const { rankJobsForReview } = await import('../dist/llm.js');
 
 const profile = { name: 'Test', nationality: 'Australian citizen', phone: '0400000000', email: 't@example.com', expectedSalary: '90000', noticePeriod: '2 weeks', experienceSummary: 'Developer', skills: ['TypeScript'], excludedDomains: [] };
@@ -26,22 +24,12 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init) => {
   calls++;
   const body = JSON.parse(init.body);
-  const schema = haiku ? body.output_config.format.schema : body.response_format.json_schema.schema;
-  const item = schema.properties.jobs.items;
-  const ids = item.properties.reviewId.enum;
-  if (haiku) {
-    assert.ok(!('minimum' in item.properties.priority) && !('maximum' in item.properties.priority));
-    assert.ok(!('maxLength' in item.properties.reason) && !('maxItems' in schema.properties.jobs));
-    assert.match(item.properties.priority.description, /minimum: 0; maximum: 100/);
-    assert.match(item.properties.reason.description, /maxLength: 120/);
-  }
+  const schema = body.response_format.json_schema.schema;
+  const ids = schema.properties.jobs.items.properties.reviewId.enum;
   if (mode === 'down' || (mode === 'down-after-first' && calls > 1)) throw new TypeError('fetch failed');
-  if (mode === 'too-big' && ids.length > 5) return haiku
-    ? Response.json({content: [], stop_reason: 'max_tokens', usage: {input_tokens: 10, output_tokens: 10}})
-    : new Response(REAL_ERROR, { status: 400 });
+  if (mode === 'too-big' && ids.length > 5) return new Response(REAL_ERROR, { status: 400 });
   const content = JSON.stringify({ jobs: ids.map((reviewId, i) => ({ reviewId, priority: 90 - i, reason: 'fits' })) });
-  return haiku ? Response.json({ content: [{type: 'text', text: content}], stop_reason: 'end_turn', usage: {input_tokens: 10, output_tokens: 10} })
-    : new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }], usage: { completion_tokens: 10 } }), { status: 200 });
+  return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }], usage: { completion_tokens: 10 } }), { status: 200 });
 };
 
 try {

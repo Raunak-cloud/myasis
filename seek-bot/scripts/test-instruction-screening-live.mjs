@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 if (!process.argv.includes('--live')) throw Error('Pass --live to authorise billable synthetic instruction checks.');
-if (!['haiku', 'celeris'].includes(process.env.APPLICATION_AI_MODEL)) throw Error('Select APPLICATION_AI_MODEL=haiku or celeris explicitly.');
+if (!['celeris', 'celeris'].includes(process.env.APPLICATION_AI_MODEL)) throw Error('Select APPLICATION_AI_MODEL=celeris explicitly.');
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-screening-eval-'));
 process.env.DATA_DIR = directory;
 process.env.COST_TRACKING = 'true';

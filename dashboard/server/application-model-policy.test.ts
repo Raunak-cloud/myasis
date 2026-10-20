@@ -4,23 +4,23 @@ import { applicationModelForAccount, applicationModelSettingsError } from './app
 import { applyJobSourceAccess } from './job-sources.js';
 import { mayEditRunSetting } from './entitlements.js';
 
-test('only admins can choose supported application models', () => {
-  assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'haiku' }, true), null);
+test('legacy model settings accept only Celeris for admins and reject other values', () => {
+  assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'retired' }, true)?.status, 400);
   assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'celeris' }, true), null);
   assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'unknown' }, true)?.status, 400);
-  assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'haiku' }, false)?.status, 403);
+  assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'retired' }, false)?.status, 403);
   assert.equal(mayEditRunSetting('APPLICATION_AI_MODEL', { tier: 'admin', fineTune: true, advancedFilters: true }), true);
   assert.equal(mayEditRunSetting('APPLICATION_AI_MODEL', { tier: 'intensive', fineTune: true, advancedFilters: true }), false);
 });
 
-test('stale saved and process settings cannot enable Haiku for customers', () => {
-  for (const value of ['haiku', 'celeris', undefined, 'retired']) {
-    assert.equal(applicationModelForAccount(value, false), 'celeris');
+test('stale saved and process settings cannot enable another provider for any account', () => {
+  for (const value of ['retired', 'celeris', undefined]) {
+    for (const admin of [true, false]) assert.equal(applicationModelForAccount(value, admin), 'celeris');
   }
-  const customer = { PLATFORMS: 'seek', APPLICATION_AI_MODEL: 'haiku' };
+  const customer = { PLATFORMS: 'seek', APPLICATION_AI_MODEL: 'retired' };
   applyJobSourceAccess(customer, false);
   assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
-  const admin = { PLATFORMS: 'seek', APPLICATION_AI_MODEL: 'haiku' };
+  const admin = { PLATFORMS: 'seek', APPLICATION_AI_MODEL: 'retired' };
   applyJobSourceAccess(admin, true);
-  assert.equal(admin.APPLICATION_AI_MODEL, 'haiku');
+  assert.equal(admin.APPLICATION_AI_MODEL, 'celeris');
 });

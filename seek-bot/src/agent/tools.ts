@@ -15,8 +15,6 @@ import { doChooseOption, doAcceptTerms, doAnswerQuestions } from './tools/answer
 import { doCompleteAuthentication, doEnterEmailedCode, EMAIL_WAIT_MS, doOpenEmailedLink } from './tools/auth.js';
 import { doAddCoverLetter, doAttachResume } from './tools/documents.js';
 import { doFinish } from './tools/finish.js';
-import { readCandidateEvidence } from './tools/candidate-evidence.js';
-import { applicationModelIdentity } from '../application-model.js';
 export * from './tools/context.js';
 export * from './tools/gate.js';
 export * from './tools/schemas.js';
@@ -107,10 +105,6 @@ async function runTool(
   }
   ctx.declaredSubmit = typeof args.sends_application === 'boolean' ? args.sends_application : undefined;
   switch (name) {
-    case 'get_candidate_evidence':
-      return applicationModelIdentity().selection === 'haiku'
-        ? readCandidateEvidence(ctx, typeof args.focus === 'string' ? args.focus : '')
-        : ok('This tool is available only in the Haiku application protocol.', 'invalid-arguments');
     case 'choose_option':
       return doChooseOption(ctx, args);
     case 'accept_terms':

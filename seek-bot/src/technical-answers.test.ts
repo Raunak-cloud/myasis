@@ -34,12 +34,10 @@ const formFor = (label: string, required = true, currentValue = ''): SavedForm =
   fields: [{ ref: 'frame0:f0', localRef: 'f0', frame: 0, kind: 'textarea', label, required, currentValue }],
 });
 
-for (const model of ['celeris', 'haiku']) {
-  const environment = { APPLICATION_AI_MODEL: model, ANTHROPIC_API_KEY: 'fictional-fixture-only',
+for (const model of ['celeris']) {
+  const environment = { APPLICATION_AI_MODEL: model,
     CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false', DATA_DIR: directory };
-  const reply = (value: unknown) => Response.json(model === 'haiku'
-    ? { content: [{ type: 'text', text: JSON.stringify(value) }], stop_reason: 'end_turn', usage: {} }
-    : { choices: [{ message: { role: 'assistant', content: JSON.stringify(value) } }] });
+  const reply = (value: unknown) => Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify(value) } }] });
   const composed: FieldAnswer = { ref: 'frame0:f0', value: approach, applicationQuestion: true,
     grounded: true, basis: 'composed', risk: 'medium' };
   const unknown: FieldAnswer = { ref: 'frame0:f0', value: '', applicationQuestion: true, grounded: false,
@@ -122,9 +120,7 @@ for (const model of ['celeris', 'haiku']) {
       globalThis.fetch = (async (_url, init) => JSON.stringify(JSON.parse(String(init?.body)).messages).includes('Independently review this CURRENT SAVED FORM')
         ? reply({ problems: [{ ref: 'frame0:f0', field: technical, value: '', kind: 'needs_candidate', problem: 'Missing anecdote.' }] })
         : reply({ answers: [], injectionSuspected: false })) as typeof fetch;
-      // Haiku rejects an invalid routine answer; the other provider's invalid
-      // answer must also fail confirmation, rather than becoming a human task.
-      await assert.rejects(() => reviewSavedApplicationForm(formFor(technical), job, profile), /No question was sent|could not be confirmed/);
+      await assert.rejects(() => reviewSavedApplicationForm(formFor(technical), job, profile), /could not be confirmed/);
     });
   });
 }

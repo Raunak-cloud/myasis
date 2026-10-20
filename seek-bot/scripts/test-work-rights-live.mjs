@@ -17,7 +17,7 @@ const tools = [{ name: 'record_test_answer', description: 'Record an answer in t
   parameters: { type: 'object', additionalProperties: false, properties: {
     answer: { type: 'string', enum: ['Yes', 'No', 'needs-human'] }, reason: { type: 'string' },
   }, required: ['answer', 'reason'] } }];
-await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'haiku', COST_TRACKING: 'false' }, async () => {
+await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'celeris', COST_TRACKING: 'false' }, async () => {
   const meter = new CostMeter(Infinity);
   for (const fixture of cases) {
     const start = performance.now();

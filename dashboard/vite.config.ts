@@ -1013,9 +1013,7 @@ function dataApi(): Plugin {
       case '/api/run/status': {
         // Runs are per-account now, so an account only ever sees its own.
         return withUser(async (userId) => {
-          const saved = await loadUserSettings(userId);
-          const owner = await one<{ email: string }>('SELECT email FROM users WHERE id = $1', [userId]);
-          const selected = isAdminEmail(owner?.email) && saved.APPLICATION_AI_MODEL === 'haiku' ? 'ANTHROPIC_API_KEY' : 'CELERIS_API_KEY';
+          const selected = 'CELERIS_API_KEY';
           const hasKey = Boolean((process.env[selected] ?? readEnvSafe()[selected])?.trim());
           return send({ ...runner.stateFor(userId), hasKey, isOwner: true });
         });

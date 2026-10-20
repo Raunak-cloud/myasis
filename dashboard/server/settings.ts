@@ -44,7 +44,6 @@ export const RUN_LIMITS: Record<string, number> = {
   MAX_APPS_PER_DAY: 50,
 };
 
-
 function normalizeSetting(key: string, value: string): string {
   if (key === 'KEYWORDS') {
     const terms = value.split(',').map((t) => t.trim()).filter(Boolean);
@@ -156,7 +155,7 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
   // Stored verbatim; the ceilings are applied when a run is built, which is
   // the only place they can be waived for an operator of this installation.
   for (const row of rows) {
-    if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = row.value === 'haiku' ? 'haiku' : 'celeris';
+    if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = 'celeris';
     else if (row.key === 'APPLICATION_AGENT_MODE') out[row.key] = row.value === 'agent-only' ? 'agent-only' : 'protected';
     else if (row.key === 'APPLICATION_AGENT_MODE_AUTHORIZED') continue;
     else if (!row.key.startsWith('APPLICATION_AI_')) out[row.key] = row.value;

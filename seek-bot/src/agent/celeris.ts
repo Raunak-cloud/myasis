@@ -1,5 +1,5 @@
 import { metric } from '../pipeline.js';
-import { applicationModelEnvironment, applicationModelIdentity } from '../application-model.js';
+import { applicationModelEnvironment } from '../application-model.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost, recordCost } from '../cost-ledger.js';
@@ -29,7 +29,7 @@ export interface ToolCall {
 
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string | ContentPart[] }
-  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[]; nativeContent?: Record<string, unknown>[]; nativeEffort?: 'medium' | 'high' }
+  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };
 
 type ContentPart =
@@ -140,8 +140,6 @@ export interface CelerisRequest {
   thinking?: boolean;
   /** How long Magnus may think when it does: 'low' (the default), 'medium' or 'xhigh'. */
   reasoningEffort?: 'low' | 'medium' | 'xhigh';
-  /** Haiku only: cache a deliberately separated, reusable system prefix. */
-  cacheSystemPrefix?: boolean;
   /**
    * JSON Schema the reply must conform to, enforced server-side via
    * `response_format`. Use for a structured answer; use `tools` when the model
@@ -172,10 +170,7 @@ export class ReplyUnusableError extends Error {}
 class ReplyTruncatedError extends ReplyUnusableError {}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
-  if (applicationModelIdentity().selection === 'haiku') {
-    const { haikuChat } = await import('./haiku.js');
-    return haikuChat(request);
-  }
+
   const apiKey = applicationModelEnvironment().CELERIS_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('CELERIS_API_KEY is not set — the browser agent cannot run without it.');

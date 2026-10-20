@@ -28,7 +28,7 @@ function owner(marker: string) {
   writeFileSync(join(dir, 'answers.json'), JSON.stringify([{ question: 'Confirmed account alias', answer: `${marker}@example.invalid`, createdAt: '2026-10-20T00:00:00Z' }]));
   writeFileSync(join(dir, 'applied.json'), JSON.stringify([{ jobId: marker, title: `${marker} old job`, company: 'Synthetic', appliedAt: '2026-10-19T00:00:00Z',
     platform: 'seek', url: 'https://jobs.example.invalid/' + marker, coverLetter: 'UNNEEDED_PRIVATE_HISTORY_LETTER' }]));
-  return { dir, env: { DATA_DIR: dir, CELERIS_API_KEY: `SECRET_${marker}`, ANTHROPIC_API_KEY: `OTHER_SECRET_${marker}`,
+  return { dir, env: { DATA_DIR: dir, CELERIS_API_KEY: `SECRET_${marker}`, RETIRED_PROVIDER_API_KEY: `OTHER_SECRET_${marker}`,
     TARGET_ROLE: `${marker} target role`, ONSITE_CITY: `${marker} city`, WORK_ARRANGEMENTS: 'hybrid,onsite',
     AI_INSTRUCTIONS_B64: Buffer.from(`${marker} no overnight work`).toString('base64') } };
 }

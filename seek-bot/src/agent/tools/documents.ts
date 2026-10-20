@@ -2,7 +2,6 @@ import { config } from '../../config.js';
 import { uploadObservedFile } from '../../form-speed.js';
 import { fillField } from '../../dom.js';
 import { finishedCoverLetterForJob, fitCoverLetterToLimit, type CoverLetterRevision } from '../../llm.js';
-import { applicationModelIdentity } from '../../application-model.js';
 import { acceptsFormat, pickResumeForJob, resumeDirectory, documentFor } from '../../resume.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
@@ -18,10 +17,8 @@ import { applicationUpload } from '../../employer-browser.js';
 
 /** Writes only to the current field selected by the navigation model. */
 export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  const revision = applicationModelIdentity().selection === 'haiku' && ctx.coverLetter && typeof args.repair_feedback === 'string' && args.repair_feedback.trim()
-    ? { draft: ctx.coverLetter, feedback: args.repair_feedback.trim() } : undefined;
   const upload = ctx.observation.actions.find(action => action.ref === args.ref && action.role === 'file');
-  if (upload) return addCoverLetterFile(ctx, upload, revision);
+  if (upload) return addCoverLetterFile(ctx, upload);
   const field = ctx.observation.fields.find(field => field.ref === args.ref);
   if (field && ['radio', 'select'].includes(field.kind) && typeof args.option === 'string' && field.options?.includes(args.option)) {
     try { await fillField(ctx.page, field, args.option); }
@@ -50,7 +47,7 @@ export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, un
   }
   const target = writable ?? ctx.page.locator(`[data-field-id="${field!.ref}"]`);
   const label = field?.label ?? 'cover letter';
-  let letter = await finishedCoverLetterForJob(ctx.job, ctx.profile, revision);
+  let letter = await finishedCoverLetterForJob(ctx.job, ctx.profile);
   if (!letter.trim()) throw new Error('Cover-letter drafting returned no text.');
   const maxLength = await target.evaluate(el => (el as HTMLTextAreaElement).maxLength).catch(() => -1);
   if (Number.isInteger(maxLength) && maxLength >= 0) letter = await fitCoverLetterToLimit(letter, maxLength, ctx.job, ctx.profile);

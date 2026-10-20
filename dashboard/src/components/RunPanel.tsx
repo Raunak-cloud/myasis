@@ -20,7 +20,6 @@ import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, type LogLine } from '../activity';
 
-
 interface AutoScheduleStatus {
   runsUsedToday: number;
   runsPerDay: number;
@@ -881,14 +880,6 @@ export function RunPanel({
           </div>
 
           {isAdmin && <div className="field">
-            <FieldLabel label="Application model" help="The saved choice is used for this account's next manual and automatic runs, including reviews, answers, cover letters and browser actions." />
-            <select className="input" aria-label="Saved application model" value={val('APPLICATION_AI_MODEL')} disabled={standingSaving} onChange={event => editStanding('APPLICATION_AI_MODEL', event.target.value)}>
-              <option value="celeris">Celeris Magnus</option>
-              <option value="haiku">Claude Haiku 5.5</option>
-            </select>
-            <span className="job-meta">Haiku uses medium effort and high for recovery. Only missing high-risk answers need your attention.</span>
-          </div>}
-          {isAdmin && <div className="field">
             <FieldLabel label="Application decisions" help="Saved for this admin account's next manual and automatic runs. Agent-only lets the applying agent judge answers, recovery, duplicate history and submission evidence." />
             <select className="input" aria-label="Saved application decisions" value={val('APPLICATION_AGENT_MODE')} disabled={standingSaving} onChange={event => editStanding('APPLICATION_AGENT_MODE', event.target.value)}>
               <option value="protected">Protected</option>
@@ -1387,14 +1378,7 @@ export function RunPanel({
                   </p>
                 )}
                 <div className="run-review-grid">
-                  {isAdmin && <label className="field">
-                    <FieldLabel label="Application model" help="Applies to this account's next runs, including job reviews, answers, cover letters and browser actions. Haiku uses its own prompt and Claude API with Patchright." />
-                    <select className="input" aria-label="Application model" value={val('APPLICATION_AI_MODEL')} onChange={event => setEdit('APPLICATION_AI_MODEL', event.target.value)}>
-                      <option value="celeris">Celeris Magnus</option>
-                      <option value="haiku">Claude Haiku 5.5</option>
-                    </select>
-                    <span className="job-meta">Haiku: medium effort, high for recovery. Routine questions are answered automatically; missing high-risk facts need attention.</span>
-                  </label>}
+
                   {isAdmin && <label className="field">
                     <FieldLabel label="Application decisions" help="Agent-only lets the applying agent decide answers, recovery and whether an application was received, using the full candidate evidence and application history." />
                     <select className="input" aria-label="Application decisions" value={val('APPLICATION_AGENT_MODE')} onChange={event => setEdit('APPLICATION_AGENT_MODE', event.target.value)}>

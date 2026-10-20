@@ -14,19 +14,17 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
 
 /** Stable provider identity also separates established caches from retired
  * experiments without deleting account history. */
-export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
-  if (env.APPLICATION_AI_MODEL === 'haiku') return {
-    selection: 'haiku', model: 'claude-haiku-5-5', protocol: 'anthropic-custom-tools-v1', provider: 'Anthropic',
-  } as const;
+export function applicationModelIdentity(_env?: ApplicationEnvironment) {
+
   return { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
 }
 
 export function applicationModelAvailable(env: ApplicationEnvironment = applicationModelEnvironment()): boolean {
-  return Boolean(env[applicationModelIdentity(env).selection === 'haiku' ? 'ANTHROPIC_API_KEY' : 'CELERIS_API_KEY']?.trim());
+  return Boolean(env.CELERIS_API_KEY?.trim());
 }
 
 export function assertApplicationModelConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
-  if (!applicationModelAvailable(env)) throw new Error(`${applicationModelIdentity(env).selection === 'haiku' ? 'ANTHROPIC_API_KEY' : 'CELERIS_API_KEY'} is required for application AI.`);
+  if (!applicationModelAvailable(env)) throw new Error('CELERIS_API_KEY is required for application AI.');
 }
 
 export const assertApplicationBrowserConfigured = assertApplicationModelConfigured;

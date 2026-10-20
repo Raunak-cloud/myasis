@@ -24,7 +24,7 @@ const tools = [
   { name: 'finish', description: 'Stop when a genuinely missing required high-risk fact prevents submission.', parameters: { type: 'object', properties: { status: { type: 'string', enum: ['needs_human', 'cannot_complete'] }, reason: { type: 'string' } }, required: ['status', 'reason'] } },
 ];
 const meter = new CostMeter(0.2);
-await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'haiku', COST_TRACKING: 'false' }, async () => {
+await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'celeris', COST_TRACKING: 'false' }, async () => {
   for (const fixture of cases) {
     const start = performance.now();
     const reply = await celerisChat({ model: 'celeris-1-magnus', meter, reasoningEffort: 'medium', maxTokens: 6000, requireTool: true, tools,

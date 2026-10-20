@@ -74,15 +74,12 @@ try {
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).waitFor();
-    assert.equal(await page.getByRole('combobox', { name: 'Saved application model', exact: true }).count(), admin ? 1 : 0);
+    assert.equal(await page.getByRole('combobox', { name: 'Saved application model', exact: true }).count(), 0);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).click({ timeout: 15_000 });
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
     if (admin) {
-      const modelChoice = dialog.getByRole('combobox', { name: 'Application model', exact: true });
-      assert.equal(await modelChoice.inputValue(), 'celeris');
-      assert.deepEqual(await Promise.all((await modelChoice.locator('option').all()).map(option => option.getAttribute('value'))), ['celeris', 'haiku']);
-      await modelChoice.selectOption('haiku');
+      assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0, 'account choices cannot bypass server browser routing');
       assert.match(await dialog.textContent() ?? '', /Bright Data receives your resume/);
       await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).waitFor();
@@ -112,7 +109,7 @@ try {
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
     assert.equal('EMPLOYER_BROWSER_PROVIDER' in submitted.overrides, false);
     assert.equal('APPLICATION_AI_MODEL' in submitted.overrides, admin);
-    if (admin) assert.equal(submitted.overrides.APPLICATION_AI_MODEL, 'haiku');
+    if (admin) assert.equal(submitted.overrides.APPLICATION_AI_MODEL, 'celeris');
     for (const source of EMPLOYER_SOURCES) assert.equal(source.key in submitted.overrides, admin);
     assert.equal(submitted.mode, 'live');
     assert.equal(submitted.confirm, true);

@@ -8,10 +8,9 @@ import type { JobListing } from '../types.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-agent-only-'));
 process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
 process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
-Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', ANTHROPIC_API_KEY: 'fixture-only',
+Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only',
   APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false' });
-const haiku = process.env.TEST_APPLICATION_MODEL === 'haiku';
-process.env.APPLICATION_AI_MODEL = haiku ? 'haiku' : 'celeris';
+process.env.APPLICATION_AI_MODEL = 'celeris';
 writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Availability', answer: 'Weekends only' }]));
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Private candidate CV evidence: pharmacy placement.');
@@ -23,9 +22,7 @@ type Body = { messages: Array<{ role: string; content: unknown }>; tools?: unkno
 let script: Array<(body: Body) => Call[]> = [];
 const turns: Body[] = [];
 const observation = (body: Body) => JSON.stringify(body.messages.filter(message => message.role === 'user').at(-1)?.content);
-const reply = (calls: Call[]) => haiku
-  ? Response.json({ content: calls.map((call, index) => ({ type: 'tool_use', id: `turn-${turns.length}-${index}`, name: call.name, input: call.args })), stop_reason: 'tool_use', usage: { input_tokens: 30, output_tokens: 10 } })
-  : Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: 10 } });
+const reply = (calls: Call[]) => Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: 10 } });
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body)) as Body;
   assert.ok(body.tools?.length, 'no independent checker, answerer, receipt verifier or script reviewer may be called');
@@ -81,10 +78,8 @@ try {
   assert.equal(await page.evaluate('window.presses', undefined, undefined, false), 2);
   assert.equal(run.coverLetter, letter); assert.equal(run.resumeUsed, 'cv-1'); assert.equal(run.submitPressed, true);
   assert.equal(script.length, 0); assert.equal(turns.length, 4); assert.equal(quotaChecks, 7);
-  const effort = (body: Body) => haiku
-    ? (body.messages.filter(message => (message as unknown as { output_config?: { effort: string } }).output_config).at(-1) as unknown as { output_config?: { effort: string } })?.output_config?.effort ?? body.output_config?.effort
-    : body.chat_template_kwargs?.reasoning_effort;
-  assert.equal(effort(turns[0]), 'medium'); assert.equal(effort(turns[2]), haiku ? 'high' : 'xhigh');
+  const effort = (body: Body) => body.chat_template_kwargs?.reasoning_effort;
+  assert.equal(effort(turns[0]), 'medium'); assert.equal(effort(turns[2]), 'xhigh');
   assert.match(readFileSync(join(directory, 'traces', 'agent-only-retry.json'), 'utf8'), /ABC123/);
   assert.equal(JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8')).length, 1, 'driver does not mutate history or reserve duplicate claims');
 
@@ -113,7 +108,7 @@ try {
     { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
   ], body => {
     assert.match(JSON.stringify(body.messages), /Not run: the prior action failed/);
-    assert.equal(effort(body), haiku ? 'high' : 'xhigh');
+    assert.equal(effort(body), 'xhigh');
     return [{ name: 'finish', args: { status: 'needs-human', reason: 'A consequential candidate fact is unknown', evidence: 'No candidate evidence supplied for this fact' } }];
   }];
   const failedInput = await runApplicationAgent({ page, job: { ...job, id: 'agent-invalid-input' }, profile, log: () => {} });
@@ -150,5 +145,5 @@ try {
   assert.equal(page.isClosed(), true, 'outstanding script cannot continue into the next application');
   assert.ok(Date.now() - started < 8000, 'resource deadline retires an indefinitely pending browser script');
   config.celeris.maxTotalMs = maxMs;
-  console.log(`Agent-only ${haiku ? 'Haiku' : 'Celeris'}: retry/receipt, full evidence, direct scripts, medium/high effort, quota, dry-run and authorization fixtures passed.`);
+  console.log(`Agent-only ${'Celeris'}: retry/receipt, full evidence, direct scripts, medium/high effort, quota, dry-run and authorization fixtures passed.`);
 } finally { await browser.close(); rmSync(directory, { recursive: true, force: true }); }

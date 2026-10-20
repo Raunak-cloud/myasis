@@ -22,11 +22,6 @@ process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 process.env.ALLOW_EXTERNAL_APPLY = 'true';
 process.env.DRY_RUN = 'true';
-const haiku = process.env.TEST_APPLICATION_MODEL === 'haiku';
-if (haiku) {
-  process.env.APPLICATION_AI_MODEL = 'haiku';
-  process.env.ANTHROPIC_API_KEY = 'fictional-only';
-}
 
 type Body = { messages: Array<{ role: string; content: unknown; tool_call_id?: string }>; tools?: unknown[]; chat_template_kwargs?: { reasoning_effort?: string }; response_format?: unknown };
 const agentTurns: Body[] = [];
@@ -41,24 +36,12 @@ const lastObservation = (body: Body) => {
 };
 const refFor = (body: Body, text: string) => lastObservation(body).match(new RegExp(`(a\\d+)\\s+\\[[^\\]]+\\][^\\n]*${text}`))?.[1] ?? 'missing';
 const reply = (message: Record<string, unknown>) => {
-  if (haiku) return Response.json({ content: [
-    ...(message.content ? [{ type: 'text', text: message.content }] : []),
-    ...((message.tool_calls ?? []) as Array<{ id: string; function: { name: string; arguments: string } }>).map(call => ({ type: 'tool_use', id: call.id, name: call.function.name, input: JSON.parse(call.function.arguments) })),
-  ], stop_reason: message.tool_calls ? 'tool_use' : 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } });
+
   return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message }], usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
   const body = JSON.parse(String(init?.body ?? '{}')) as Body;
-  if (haiku) {
-    const native = body as unknown as { output_config: { effort: string }; messages: Array<{ role: string; output_config?: { effort: string }; content: Array<{ type: string; text?: string; content?: string; tool_use_id?: string }> }> };
-    body.chat_template_kwargs = { reasoning_effort: native.messages.filter(message => message.output_config).at(-1)?.output_config?.effort ?? native.output_config.effort };
-    body.messages = native.messages.flatMap(message => {
-      if (message.role !== 'user') return [{ role: message.role, content: message.content }];
-      const results = message.content.filter(block => block.type === 'tool_result').map(block => ({ role: 'tool', tool_call_id: block.tool_use_id, content: block.content }));
-      const observation = message.content.filter(block => block.type !== 'tool_result');
-      return [...results, ...(observation.length ? [{ role: 'user', content: observation }] : [])];
-    });
-  }
+
   if (body.tools?.length) {
     agentTurns.push(body);
     const next = script.shift();
@@ -124,11 +107,11 @@ try {
   assert.match(results[2], /^Not run/, `the step after the surprise did not run: ${results[2]}`);
   assert.equal(await page.textContent('h1'), 'Apply: Junior Developer', 'Next was never pressed');
   assert.ok(lines.some((line) => /plan: click → click → click/.test(line)), lines.join(' | '));
-  assert.equal(agentTurns[0].chat_template_kwargs?.reasoning_effort, haiku ? 'medium' : 'low', 'a routine turn uses its model default');
+  assert.equal(agentTurns[0].chat_template_kwargs?.reasoning_effort, 'low', 'a routine turn uses its model default');
   assert.equal(run.outcome.status, 'skipped');
   const initialContext = JSON.stringify(agentTurns[0].messages);
-  assert.equal(initialContext.includes('AUTHORITATIVE CANDIDATE PROFILE'), haiku, 'Haiku receives the authoritative profile; Celeris context is unchanged');
-  if (haiku) assert.match(initialContext, /Raunak Shrestha/);
+  assert.equal(initialContext.includes('AUTHORITATIVE CANDIDATE PROFILE'), false, 'The established Celeris application context is unchanged');
+
   // A successful answer reveals a new question. The old plan must stop, but
   // the next turn stays at routine effort rather than costly stuck recovery.
   await page.route('https://careers.dynamic-employer.example/**', route => route.fulfill({ contentType: 'text/html', body:
@@ -149,7 +132,7 @@ try {
   assert.match(handoff[0] ?? '', /Verified 1 field/);
   assert.match(handoff[0] ?? '', /Not filled yet/);
   assert.match(handoff[1] ?? '', /^Not run/, 'a changed question prevents later actions in the stale plan');
-  assert.equal(agentTurns[1]?.chat_template_kwargs?.reasoning_effort, haiku ? 'medium' : 'low', 'expected re-observation does not escalate reasoning');
+  assert.equal(agentTurns[1]?.chat_template_kwargs?.reasoning_effort, 'low', 'expected re-observation does not escalate reasoning');
   assert.doesNotMatch(lastObservation(agentTurns[1]), /STUCK: the last/);
   assert.notEqual(await page.title(), 'advanced-too-soon');
   // A page where nothing responds: after the stalls the model is asked to think at length.
@@ -163,7 +146,7 @@ try {
     profile: { name: 'Raunak Shrestha', phone: '0400000000', email: 'raunak@example.com', nationality: 'Nepali', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' } as never,
     log: (line) => lines.push(line),
   });
-  assert.ok(agentTurns.some((turn) => turn.chat_template_kwargs?.reasoning_effort === (haiku ? 'high' : 'xhigh')), 'a stuck turn thinks at length');
+  assert.ok(agentTurns.some((turn) => turn.chat_template_kwargs?.reasoning_effort === ('xhigh')), 'a stuck turn thinks at length');
   assert.ok(agentTurns.some((turn) => /STUCK: the last/.test(lastObservation(turn))), 'and is asked to step back and form a theory');
   assert.ok(agentTurns.slice(1).some((turn) => turn.messages.some((message) => message.role === 'tool' && /no change of any kind was recorded/.test(String(message.content)))), 'a dead click is reported as doing nothing at all');
 

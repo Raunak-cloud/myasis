@@ -4,7 +4,6 @@ import { browserGmailAvailable } from '../../browser-gmail.js';
 import { RAW_TOOL_SCHEMAS } from '../raw-tools.js';
 import { ANSWER_BATCH } from './context.js';
 import { MAX_ANSWER_BATCH } from '../../form-speed.js';
-import { applicationModelIdentity } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -62,24 +61,10 @@ const CLICK_POINT_TOOL: ToolSchema = {
 export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
   return [
     ...TOOL_SCHEMAS,
-    ...(applicationModelIdentity().selection === 'haiku' ? [{
-      name: 'get_candidate_evidence',
-      description: 'Read this account\'s authoritative profile, saved answers and relevant supporting documents. Use before judging an apparent qualification/history conflict or stopping because the displayed CV omits a claim. A selected CV preview is not the complete candidate record. Read only; cannot choose another account or change facts.',
-      parameters: { type: 'object', properties: { focus: { type: 'string', maxLength: 512,
-        description: 'The fact or apparent contradiction to check, e.g. education, work history or a cover-letter claim.' } }, required: [] },
-    }] : []),
     ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
-    // A stable Haiku tool prefix survives screenshot/text transitions. The
-    // dispatcher still refuses coordinate clicks without a current screenshot.
-    ...(options.vision || applicationModelIdentity().selection === 'haiku' ? [CLICK_POINT_TOOL] : []),
-  ].map(withPressJudgement).map(tool => applicationModelIdentity().selection === 'haiku' && tool.name === 'add_cover_letter'
-    ? { ...tool, description: tool.description + ' If the saved-form review rejected the current letter, pass its specific feedback in repair_feedback to revise it; repeating without feedback reuses the draft.', parameters: {
-      ...tool.parameters, properties: { ...(tool.parameters as { properties: object }).properties,
-        repair_feedback: { type: 'string', description: 'Specific saved-form rejection to correct in the existing letter. Omit for the first draft or an upload retry.' } },
-    } } : tool).map(tool => applicationModelIdentity().selection === 'haiku' && tool.name === 'answer_questions'
-    ? { ...tool, description: tool.description + ' You (Haiku) generate these answers from the account evidence. Infer reasonable low/medium-risk preferences and willingness; only unsupported required high-risk facts need the candidate. Re-observe after a partial batch.' }
-    : tool);
+    ...(options.vision ? [CLICK_POINT_TOOL] : []),
+  ].map(withPressJudgement).map(tool => tool).map(tool => tool);
 }
 
 /**

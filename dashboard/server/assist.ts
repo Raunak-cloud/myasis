@@ -185,7 +185,7 @@ export async function answerForm(
 
       const wantsLetter = input.fields.some((f) => /cover letter/i.test(f.label));
       // Reject drafts from another selected model. Untagged historical drafts
-      // belong to the established Celeris path, never to Haiku.
+      // belong to the established Celeris path.
       const queuedLetterMatchesModel = queued?.applicationModel
         ? JSON.stringify(queued.applicationModel) === JSON.stringify(model.applicationModelIdentity())
         : model.applicationModelIdentity().selection === 'celeris';

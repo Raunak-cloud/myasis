@@ -9,7 +9,6 @@ import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 import { readSavedForm, savedFormSignature } from '../saved-form.js';
 import { reservedSubmissionDecision } from '../../application-reservations.js';
-import { applicationModelIdentity } from '../../application-model.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -265,7 +264,6 @@ export async function checkSavedForm(ctx: ToolContext): Promise<ToolResult | nul
     if (problems.length) return ok('Do not advance: The CURRENT saved form is not ready:\n' +
       problems.map(problem => `- ${problem.kind === 'unsupported' ? "not supported by the candidate's record" : problem.kind}: ${problem.ref} ${problem.field}: "${problem.value.slice(0, 100)}" - ${problem.problem}`).join('\n') +
       '\nRepair these observed fields using answer_questions (use repair_refs for an existing value), or fill_element without a value for a field only the snapshot shows. ' +
-      (applicationModelIdentity().selection === 'haiku' ? 'For a rejected cover letter, use add_cover_letter with repair_feedback quoting the specific rejection. ' : '') +
       'Then check the actual form again. A failed repair or a missing/unaccepted selection is not a new personal question. Recovery is bounded by the normal attempt limits.');
     for (const field of form.fields) {
       // Clear only records for questions actually checked on this page.
