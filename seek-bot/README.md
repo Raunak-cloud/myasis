@@ -117,6 +117,12 @@ Every key for a workspace must use the same `CELERIS_WORKSPACE_ID` and
 The file contains only opaque tickets and timestamps, never keys or candidate data.
 It coordinates one server; multiple hosts would need a shared queue service.
 
+Celeris search-result ranking runs two independent batches concurrently, keeping
+the same 20-job batches, prompts, validation and exact-result cache. Results retain
+discovery order when scores tie. The shared queue can reduce actual concurrency;
+ranking stops dispatching new batches on an outage and drains in-flight requests.
+This overlaps ranking requests, without changing discovery or application limits.
+
 A 429 publishes a cooldown for all queued application workers. Retries honor
 `Retry-After` (seconds or HTTP date), add exponential jitter, and stay within the
 request deadline. A delay longer than the remaining deadline fails without sending

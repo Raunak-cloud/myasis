@@ -1121,7 +1121,12 @@ export async function rankJobsForReview(
     }
   };
   const batchSize = Math.max(1, Math.min(20, Math.floor(options.batchSize || 20)));
-  const concurrency = Math.max(1, Math.min(4, Math.floor(options.concurrency || 1)));
+  // Independent Celeris batches overlap without changing their prompts or
+  // boundaries. The workspace queue still governs actual request admission,
+  // including other workers and a configured concurrency of one. Haiku keeps
+  // its existing default; progressive triage supplies its own explicit policy.
+  const defaultConcurrency = applicationModelIdentity().selection === 'celeris' ? 2 : 1;
+  const concurrency = Math.max(1, Math.min(4, Math.floor(options.concurrency || defaultConcurrency)));
   let cursor = 0;
   let failure: unknown;
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.ceil(jobs.length / batchSize)) }, async () => {
@@ -1138,7 +1143,11 @@ export async function rankJobsForReview(
     if (!ranked.size) throw failure;
     console.warn(`  ! ranking stopped after ${ranked.size} of ${jobs.length} jobs: ${(failure as Error).message}`);
   }
-  return ranked;
+  // Network completion order must not change listing/tie order for consumers.
+  return new Map(jobs.flatMap(job => {
+    const key = reviewKey(job), value = ranked.get(key);
+    return value ? [[key, value] as const] : [];
+  }));
 }
 
 /**
