@@ -5,6 +5,7 @@ import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, rul
 import { applicationKeys } from './application-identity.js';
 import { ApplicationReservations, withApplicationAttempt } from './application-reservations.js';
 import { ApplicationSlots, AsyncMutex, withApplicationWorker } from './application-workers.js';
+import { ProgressiveTriage, progressiveSearchBatch } from './progressive-triage.js';
 import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { config, loadProfile } from './config.js';
@@ -228,6 +229,24 @@ async function main() {
     // other down with it — seek.md requires exactly this isolation.
     const seen = new Map<string, JobListing>();
     const shortlist: JobListing[] = [];
+    // Roll out the streaming scheduler with Haiku first; existing Magnus runs
+    // retain their established discovery policy during this measured rollout.
+    const progressive = !searchOnly && applicationModelIdentity().selection === 'haiku';
+    const triageScores = new Map<string, number>();
+    const triageScore = (job: JobListing): number => {
+      const key = reviewKey(job);
+      if (!triageScores.has(key)) triageScores.set(key, scoreJob(job, profile).total);
+      return triageScores.get(key)!;
+    };
+    const pendingTriage = new ProgressiveTriage<JobListing>({
+      key: reviewKey,
+      group: job => job.platform ?? 'seek',
+      compare: (a, b) => Number(index.hasApplication(a)) - Number(index.hasApplication(b))
+        || triageScore(b) - triageScore(a),
+    });
+    let discoveryStopped = false;
+    let discoveryFailure: unknown;
+    let prefetch: Promise<void> | undefined;
     const skips = new Map<string, number>();
     const reviewPriorities = new Map<string, { priority: number; reason: string }>();
     const active: PlatformAdapter[] = [];
@@ -310,9 +329,10 @@ async function main() {
           logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
           continue;
         }
-        shortlist.push(job);
+        if (!progressive) shortlist.push(job);
         accepted.push(job);
       }
+      if (progressive) pendingTriage.add(accepted);
       return accepted;
     };
 
@@ -407,7 +427,7 @@ async function main() {
       recommendedAccepted.push(...accepted);
       if (accepted.length) console.log(`  ${adapter.label}: ${accepted.length} skipped job(s) you chose to apply to after all`);
     }
-    await rankNew(recommendedAccepted);
+    if (!progressive) await rankNew(recommendedAccepted);
 
     type SearchStream = {
       adapter: PlatformAdapter;
@@ -450,6 +470,65 @@ async function main() {
     const liveStreams = () => streams.filter((stream) => !stream.exhausted && stream.lowYieldPages < 2 && !blockedPlatforms.has(stream.adapter.id));
     /** Whether the job-title searches have pages they have not read yet. */
     const searchesLeft = () => nextPage <= config.limits.pagesPerKeyword && liveStreams().length > 0;
+    const progressiveStreamsLeft = () => streams.filter(stream => !stream.exhausted && !blockedPlatforms.has(stream.adapter.id)
+      && stream.pages < config.limits.pagesPerKeyword);
+    const discoveryLeft = () => progressive ? progressiveStreamsLeft().length > 0 : searchesLeft();
+
+    /** Public feeds have no shared browser state. Fetch at most two different
+     * sources together; browser-backed searches keep their existing mutex and pace. */
+    const searchProgressiveStep = async (apiOnly = false): Promise<void> => {
+      if (discoveryStopped) return;
+      const batch = progressiveSearchBatch(streams, {
+        available: stream => !stream.exhausted && !blockedPlatforms.has(stream.adapter.id) && stream.pages < config.limits.pagesPerKeyword,
+        source: stream => stream.adapter.id, api: stream => Boolean(stream.adapter.apiDiscovery),
+        preferApi: runScope() === 'external', apiOnly,
+      });
+      await Promise.all(batch.map(async stream => {
+        if (discoveryStopped) return;
+        const pageNumber = ++stream.pages;
+        try {
+          const results = await readPlatform(stream.adapter.id, async () => {
+            await sitePacer.ready(stream.adapter.id);
+            try { return await measured('discovery', () => stream.adapter.search(page, stream.keyword, pageNumber), { platform: stream.adapter.id }); }
+            finally { sitePacer.done(stream.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8); }
+          });
+          stream.total += results.length;
+          if (discoveryStopped) return;
+          const accepted = ingest(results, stream.adapter);
+          if (!results.length || results.length < stream.adapter.pageSize) stream.exhausted = true;
+          // Board snapshots ignore search terms. Once read, retire sibling terms
+          // too; every returned job remains in the pending queue for later triage.
+          if (stream.adapter.id === 'lever' || stream.adapter.id === 'greenhouse') {
+            for (const sibling of streams.filter(item => item.adapter.id === stream.adapter.id)) sibling.exhausted = true;
+          }
+          console.log(`  [${stream.adapter.label}] progressive search page ${pageNumber}: ${results.length} listings, ${accepted.length} new.`);
+        } catch (error) {
+          stream.exhausted = true;
+          if (isVerificationWall(error)) blockPlatform(stream.adapter, error);
+          else console.warn(`  ! ${stream.adapter.label} progressive search failed: ${(error as Error).message}`);
+        }
+      }));
+    };
+
+    const admitTriageWindow = async (limit = 24): Promise<void> => {
+      if (discoveryStopped) return;
+      const batch = pendingTriage.take(limit);
+      if (!batch.length) return;
+      assertApplicationProviderReady();
+      if (rankingAvailable) {
+        try {
+          for (const [key, value] of await rankJobsForReview(batch, profile, { batchSize: 12, concurrency: 2 })) reviewPriorities.set(key, value);
+        } catch (error) {
+          rankingAvailable = false;
+          console.warn(`  ! progressive ranking unavailable: ${(error as Error).message}`);
+        }
+      }
+      assertApplicationProviderReady();
+      if (discoveryStopped) return;
+      shortlist.push(...batch);
+      shortlist.sort(reviewOrder);
+      console.log(`  Progressive triage: ${batch.length} listings ready; ${pendingTriage.size} retained for later.`);
+    };
     /** Reads the next result page of every search still yielding. */
     const searchPageRound = async (): Promise<void> => {
       const pageNumber = nextPage++;
@@ -511,7 +590,14 @@ async function main() {
       );
     }
 
-    while (!stoppedEarly && searchesLeft()) {
+    if (progressive) {
+      // Start with a bounded window, rather than waiting for every source and
+      // ranking every job in its snapshot. Further sources arrive on demand.
+      await searchProgressiveStep();
+      await admitTriageWindow(Math.min(24, config.limits.maxEvaluations));
+      console.log('  Progressive discovery active: apply from the first reviewed matches; refill in the background.');
+    }
+    while (!progressive && !stoppedEarly && searchesLeft()) {
       await searchPageRound();
       const pageNumber = nextPage - 1;
       if (shouldStopDiscovery({
@@ -569,7 +655,25 @@ async function main() {
     // Only fallback discovery still owns the persistent search page. Recheck
     // the queue after acquiring it: another worker may already have refilled it.
     const discoveryMutex = new AsyncMutex();
-    const refillReviews = () => discoveryMutex.run(async () => {
+    const refillReviews = (background = false) => discoveryMutex.run(async () => {
+      if (progressive) {
+        if (discoveryStopped || reviewStopped || qualified >= candidateCap) return;
+        const ready = shortlist.filter(job => !reviewClaimed.has(reviewReservationKey(job))).length;
+        if (ready >= 12) return;
+        const capacity = Math.min(24, 36 - ready, config.limits.maxEvaluations - evaluated - ready);
+        if (capacity <= 0) return;
+        // Give every source a first look before draining a large feed. After
+        // that, further network searches are needed only when the backlog runs low.
+        const beforeSeen = seen.size;
+        const freshSource = progressiveStreamsLeft().some(stream => (!background || stream.adapter.apiDiscovery)
+          && !streams.some(other => other.adapter.id === stream.adapter.id && other.pages > 0));
+        if (freshSource || pendingTriage.size < 24) await searchProgressiveStep(background);
+        if (discoveryStopped) return;
+        await admitTriageWindow(capacity);
+        workChanged();
+        if (seen.size > beforeSeen) console.log(`  Search page ${Math.max(1, ...streams.map(stream => stream.pages))}: ${seen.size - beforeSeen} new listing(s) to review.`);
+        return;
+      }
       if (!hasUnreviewed() && searchesLeft()) {
         await showLiveActivity({ phase: 'reviewing', detail: 'Finding more job listings.' }, page);
         try { await searchMore(); }
@@ -727,7 +831,7 @@ async function main() {
       if (qualified < candidateCap && evaluated < config.limits.maxEvaluations) reviewStopped = false;
       workChanged();
     };
-    const reviewDone = () => reviewStopped || (!hasUnreviewed() && !searchesLeft());
+    const reviewDone = () => reviewStopped || (!hasUnreviewed() && !pendingTriage.size && !discoveryLeft());
     /** Nothing left to review and no fit check still out. */
     const reviewExhausted = () => reviewDone() && !pendingFits.length && !activeReviews.size;
 
@@ -944,6 +1048,7 @@ async function main() {
     /** Moves review on by one step: answered fit checks first, then the next listing, then a check still out. */
     const advanceReview = async (reviewPage: Page = page, accept: (job: JobListing) => boolean = () => true, waitForOther = true): Promise<boolean> => {
       assertApplicationProviderReady();
+      if (discoveryFailure) throw discoveryFailure;
       try {
         await settleAnswered();
         if (!reviewDone() && (hasUnreviewed(accept) || !hasUnreviewed())) {
@@ -1112,6 +1217,7 @@ async function main() {
     const runWorker = async (applicationPage: Page, accept: (job: JobListing) => boolean) => {
       for (;;) {
         assertApplicationProviderReady();
+        if (applied + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : 0) >= config.limits.maxApplicationsPerRun) break;
         // An application deadline retires its outstanding browser work. Start
         // the next review/attempt in this same isolated worker session.
         if (agentOnly) {
@@ -1141,6 +1247,11 @@ async function main() {
           break;
         }
         busyWorkers++;
+        // Ranking and public-feed discovery can run while this worker applies.
+        // Browser-backed discovery stays demand-driven on its dedicated page.
+        if (progressive && !discoveryStopped && !prefetch && (pendingTriage.size || progressiveStreamsLeft().some(stream => stream.adapter.apiDiscovery))) {
+          prefetch = refillReviews(true).catch(error => { discoveryFailure = error; workChanged(); }).finally(() => { prefetch = undefined; });
+        }
         try {
           const { job, score, reasons } = next;
           const platformId = job.platform ?? 'seek';
@@ -1299,6 +1410,7 @@ async function main() {
             switch (outcome.status) {
               case 'applied':
                 applied++;
+                if (progressive && applied >= config.limits.maxApplicationsPerRun) { discoveryStopped = true; reviewStopped = true; workChanged(); }
                 if (job.applicationMode === 'external') externalSubmitted++;
                 if (applied === 1) metric('first-submission', performance.now() - startedAt);
                 frictionStreak.set(platformId, 0);
@@ -1429,6 +1541,8 @@ async function main() {
         if (failed?.status === 'rejected') throw failed.reason;
       } else await runWorker(page, () => true);
     } finally {
+      discoveryStopped = true;
+      await prefetch;
       await Promise.allSettled(contexts.map(context => context.close()));
       journal?.close();
     }

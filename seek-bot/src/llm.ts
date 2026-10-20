@@ -1093,6 +1093,7 @@ priority does not reject the job. Return JSON.`;
 export async function rankJobsForReview(
   jobs: JobListing[],
   profile: CandidateProfile,
+  options: { batchSize?: number; concurrency?: number } = {},
 ): Promise<Map<string, ReviewPriority>> {
   const ranked = new Map<string, ReviewPriority>();
   const rank = async (batch: JobListing[]): Promise<void> => {
@@ -1119,15 +1120,23 @@ export async function rankJobsForReview(
       await rank(batch.slice(middle));
     }
   };
-  for (let start = 0; start < jobs.length; start += 20) {
-    try {
-      await rank(jobs.slice(start, start + 20));
-    } catch (error) {
-      // Celeris itself is failing. Rankings already made are still good; only the rest go in search order.
-      if (!ranked.size) throw error;
-      console.warn(`  ! ranking stopped after ${ranked.size} of ${jobs.length} jobs: ${(error as Error).message}`);
-      break;
+  const batchSize = Math.max(1, Math.min(20, Math.floor(options.batchSize || 20)));
+  const concurrency = Math.max(1, Math.min(4, Math.floor(options.concurrency || 1)));
+  let cursor = 0;
+  let failure: unknown;
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.ceil(jobs.length / batchSize)) }, async () => {
+    while (!failure && cursor < jobs.length) {
+      const start = cursor;
+      cursor += batchSize;
+      try { await rank(jobs.slice(start, start + batchSize)); }
+      catch (error) { failure = error; }
     }
+  }));
+  // Drain requests already in flight before reporting an outage, so no model
+  // calls or cache writes outlive the ranking operation that owns them.
+  if (failure) {
+    if (!ranked.size) throw failure;
+    console.warn(`  ! ranking stopped after ${ranked.size} of ${jobs.length} jobs: ${(failure as Error).message}`);
   }
   return ranked;
 }

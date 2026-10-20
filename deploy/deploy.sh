@@ -94,6 +94,7 @@ as_app "cd $APP/seek-bot && node --test dist/application-model.test.js dist/agen
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/direct-external.test.js"
 as_app "cd $APP/seek-bot && node dist/fit-contract.test.js && node dist/application-evidence.test.js && node dist/application-model-cache.test.js"
 as_app "cd $APP/seek-bot && node dist/assessment-reuse.test.js"
+as_app "cd $APP/seek-bot && node --test dist/progressive-triage.test.js dist/progressive-ranking.test.js"
 as_app "cd $APP/seek-bot && node scripts/test-ranking.mjs"
 as_app "cd $APP/seek-bot && TEST_APPLICATION_MODEL=haiku node scripts/test-ranking.mjs"
 as_app "cd $APP/seek-bot && node --test dist/profile-salary.test.js"
