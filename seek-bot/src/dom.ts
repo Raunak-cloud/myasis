@@ -417,7 +417,7 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string, m
     return;
   }
   const deepFill = async () => {
-    const outcome = await page.evaluate(({ ref, kind, wanted, options }) => {
+    const outcome = await page.evaluate(({ ref, kind, wanted }) => {
       const deepElements = (root: Document | ShadowRoot = document): Element[] => {
         const found = [...root.querySelectorAll('*')];
         for (const element of [...found]) {
@@ -426,15 +426,6 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string, m
         return found;
       };
       const all = deepElements();
-      if (kind === 'radio') {
-        const index = (options ?? []).findIndex((option) => option.toLowerCase().trim() === wanted.toLowerCase().trim());
-        const fallback = index;
-        const radio = all.find((element) => element.getAttribute('data-field-id') === `${ref}:${fallback}`) as HTMLInputElement | undefined;
-        if (!radio || fallback < 0) return false;
-        radio.click();
-        radio.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-        return true;
-      }
       const element = all.find((candidate) => candidate.getAttribute('data-field-id') === ref) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | undefined;
       if (!element) return false;
       if (kind === 'checkbox') {
@@ -453,12 +444,14 @@ async function fillFieldUnchecked(page: Page, field: FormField, value: string, m
       element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
       element.dispatchEvent(new FocusEvent('blur', { bubbles: true, composed: true }));
       return true;
-    }, { ref: field.ref, kind: field.kind, wanted: value, options: field.options });
+    }, { ref: field.ref, kind: field.kind, wanted: value });
     if (!outcome) throw new Error(`could not find ${field.ref} inside the form components`);
   };
 
   const direct = page.locator(`[data-field-id="${field.ref}"]`);
-  if (!(await direct.count())) {
+  // Native radio groups stamp each option as fN:index, never fN. They must
+  // reach the label/check path below, including radios inside shadow roots.
+  if (field.kind !== 'radio' && !(await direct.count())) {
     await deepFill();
     if (field.autocomplete) {
       await page

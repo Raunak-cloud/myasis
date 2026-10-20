@@ -50,7 +50,10 @@ export type AgentTermination =
   | { status: 'already-applied'; reason: string }
   | { status: 'skipped'; reason: string };
 
-export type ToolResult = { kind: 'ok'; message: string; disposition?: 'invalid-arguments' } | { kind: 'terminal'; outcome: AgentTermination };
+/** Expected handoffs need a fresh observation, not expensive failure recovery.
+ * Keep this separate from prose, which can quote arbitrary form wording. */
+export type ToolDisposition = 'completed' | 'reobserve' | 'failed' | 'invalid-arguments';
+export type ToolResult = { kind: 'ok'; message: string; disposition?: ToolDisposition } | { kind: 'terminal'; outcome: AgentTermination };
 
 export interface ToolContext {
   /** Counts tool calls; a call past its time limit is retired and can no longer change the page (tool-run.ts). */
@@ -101,7 +104,7 @@ export interface ToolContext {
 
 export { abandoned } from '../../tool-run.js';
 
-export const ok = (message: string, disposition?: 'invalid-arguments'): ToolResult => ({ kind: 'ok', message, ...(disposition ? { disposition } : {}) });
+export const ok = (message: string, disposition?: ToolDisposition): ToolResult => ({ kind: 'ok', message, ...(disposition ? { disposition } : {}) });
 
 /** Records a side effect once per kind and site, and says so in the run log. */
 export function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {

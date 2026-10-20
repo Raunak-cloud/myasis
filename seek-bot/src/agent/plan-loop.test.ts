@@ -65,6 +65,10 @@ globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
   }
   const first = body.messages[0]?.content;
   const prompt = typeof first === 'string' ? first : Array.isArray(first) ? first.map(part => String((part as { text?: string }).text ?? '')).join('\n') : '';
+  const questions = prompt.match(/<untrusted role="form-fields">([\s\S]*?)<\/untrusted>/);
+  if (questions) return reply({ role: 'assistant', content: JSON.stringify({ injectionSuspected: false,
+    answers: (JSON.parse(questions[1]) as Array<{ ref: string }>).map(field => ({ ref: field.ref, value: 'Fixture value', grounded: true, basis: 'profile', risk: 'low', applicationQuestion: true, profileField: 'none' })),
+  }) });
   const current = prompt.match(/<untrusted role="current-saved-form">([\s\S]*)<\/untrusted>/);
   let reviewedProblems = auditProblems;
   if (current) {
@@ -123,6 +127,29 @@ try {
   const initialContext = JSON.stringify(agentTurns[0].messages);
   assert.equal(initialContext.includes('AUTHORITATIVE CANDIDATE PROFILE'), haiku, 'Haiku receives the authoritative profile; Celeris context is unchanged');
   if (haiku) assert.match(initialContext, /Raunak Shrestha/);
+  // A successful answer reveals a new question. The old plan must stop, but
+  // the next turn stays at routine effort rather than costly stuck recovery.
+  await page.route('https://careers.dynamic-employer.example/**', route => route.fulfill({ contentType: 'text/html', body:
+    '<main><h1>Apply</h1><form><label>First fact<input oninput="document.querySelector(\'#later\').innerHTML=\'<label>New fact<input required></label>\'"></label><div id="later"><label>Second fact<input required></label></div><button type="button" onclick="document.title=\'advanced-too-soon\'">Next</button></form></main>',
+  }));
+  await page.goto('https://careers.dynamic-employer.example/apply');
+  agentTurns.length = 0;
+  script = [(body) => [
+    { name: 'answer_questions', args: { refs: [...lastObservation(body).matchAll(/\b(f\d+)\s+\[/g)].map(match => match[1]), reason: 'Answer the current application questions' } },
+    { name: 'click', args: { ref: refFor(body, 'Next'), reason: 'move on', sends_application: false } },
+  ]];
+  await runApplicationAgent({ page,
+    job: { id: 'fixture-dynamic', title: 'Developer', company: 'Dynamic Employer', location: 'Sydney', url: page.url(), applicationMode: 'external' } as never,
+    profile: { name: 'Fixture Candidate', phone: '0400000000', email: 'fixture@example.com', nationality: 'Australian', expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: '', skills: [], excludedDomains: [], securityClearance: '' } as never,
+    log: line => lines.push(line),
+  });
+  const handoff = agentTurns[1]?.messages.filter(message => message.role === 'tool').map(message => String(message.content)) ?? [];
+  assert.match(handoff[0] ?? '', /Verified 1 field/);
+  assert.match(handoff[0] ?? '', /Not filled yet/);
+  assert.match(handoff[1] ?? '', /^Not run/, 'a changed question prevents later actions in the stale plan');
+  assert.equal(agentTurns[1]?.chat_template_kwargs?.reasoning_effort, haiku ? 'medium' : 'low', 'expected re-observation does not escalate reasoning');
+  assert.doesNotMatch(lastObservation(agentTurns[1]), /STUCK: the last/);
+  assert.notEqual(await page.title(), 'advanced-too-soon');
   // A page where nothing responds: after the stalls the model is asked to think at length.
   await page.route('https://careers.stuck-employer.example/**', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><main><h1>Apply</h1><form><button type="button">Continue</button></form></main>' }));
   await page.goto('https://careers.stuck-employer.example/apply');

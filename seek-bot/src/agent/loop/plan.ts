@@ -1,4 +1,5 @@
 import type { Page } from 'patchright';
+import type { ToolResult } from '../tools/context.js';
 
 // Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
 
@@ -15,11 +16,21 @@ export const MAX_PLAN = 6;
 /** A tool reporting that its step did not go as intended: the rest of a plan waits for a fresh look. */
 export const SURPRISE = /\b(not accepted|could not|couldn't|refused|invalid refs?|do not advance|withheld|failed|no longer on the page|not filled yet|did not|no option matches|choose a current|choose the visible|give a ref|none of those refs|that point targets|use answer_questions|unavailable|not identified|is a site control|not run)\b/i;
 
+export function toolReaction(result: ToolResult): { reobserve: boolean; failed: boolean } {
+  if (result.kind === 'terminal') return { reobserve: false, failed: false };
+  if (result.disposition) return {
+    reobserve: result.disposition !== 'completed',
+    failed: result.disposition === 'failed' || result.disposition === 'invalid-arguments',
+  };
+  const failed = SURPRISE.test(result.message);
+  return { reobserve: failed, failed };
+}
+
 /** Observation refs (a3, f12) a planned call names that are no longer on the page. Snapshot refs are left to their tool. */
 export async function missingRefs(page: Page, args: Record<string, unknown>): Promise<string[]> {
   const named = [args.ref, args.field_ref, ...(Array.isArray(args.refs) ? args.refs : [])]
     .map((value) => String(value ?? '')).filter((ref) => /^[af]\d+$/.test(ref));
   if (!named.length) return [];
   return page.evaluate((refs) => refs.filter((ref) =>
-    !document.querySelector(`[data-ref-id="${ref}"], [data-field-id="${ref}"]`)), named).catch(() => []);
+    !document.querySelector(`[data-ref-id="${ref}"], [data-field-id="${ref}"], [data-field-id^="${ref}:"]`)), named).catch(() => []);
 }

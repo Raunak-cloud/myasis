@@ -25,7 +25,7 @@ import { looksUnrendered, observe, waitForApplicationSurface } from './observe.j
 import { executeTool, pageConfirmsSubmission, toolSchemas, type AgentTermination, type ToolContext, type ToolResult } from './tools.js';
 import { embeddedSurface, watchTab } from './raw-tools.js';
 import { systemPrompt } from './loop/prompt.js';
-import { LOOK_ONLY_TOOLS, MAX_PLAN, SURPRISE, missingRefs } from './loop/plan.js';
+import { LOOK_ONLY_TOOLS, MAX_PLAN, toolReaction, missingRefs } from './loop/plan.js';
 import { TraceStep, pathOf, hostOf, describeCall, TRACE_DIR, loadSiteHints, persistTrace, captureBlockedField } from './loop/trace.js';
 import { browserTranscript, observationMessage, embeddedForms } from './loop/transcript.js';
 import { confirmAuthentication } from './loop/accounts.js';
@@ -690,6 +690,9 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
         result = { kind: 'ok', message: `${call.name} failed: ${message}. Re-observe the page and try a different way to reach the same goal.` };
       }
 
+      // Classify the tool outcome before adding untrusted page text. A field
+      // label or a site's message containing "failed" is not a tool failure.
+      const reaction = toolReaction(result);
       // What the action really did, recorded in the page, goes with what the tool said.
       let changes: PageChanges | null = null;
       if (result.kind === 'ok' && !looking && startedAt && ctx.page === page && !page.isClosed()) {
@@ -729,9 +732,9 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
       }
       replies.push({ id: call.id, content: result.message });
 
-      const surprise = call.name === 'inspect_interaction' || SURPRISE.test(result.message) || Boolean(changes?.navigated) || ctx.page !== page
+      const surprise = call.name === 'inspect_interaction' || reaction.reobserve || Boolean(changes?.navigated) || ctx.page !== page
         || Boolean(changes?.appeared.some((entry) => entry.startsWith('[')));
-      if (SURPRISE.test(result.message)) lastFailed = true;
+      if (reaction.failed) lastFailed = true;
       if (surprise && index < plan.length - 1) {
         for (const skipped of plan.slice(index + 1)) {
           replies.push({ id: skipped.id, content: 'Not run: the step before did not go as planned. Look at what happened and plan again from the fresh observation.' });

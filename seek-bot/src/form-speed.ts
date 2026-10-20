@@ -41,8 +41,9 @@ export class FormAnswerCache {
   }
 }
 
-/** Detect control replacement even when the number of fields stays the same.
- * Values/check states are excluded, so normal filling does not end a batch. */
+/** Detect changed questions even when the number of fields stays the same.
+ * Values/check states and our observation stamps are excluded: a framework
+ * replacing an otherwise identical input is not a different question. */
 export async function currentFormStructure(page: Page): Promise<string> {
   const structures: unknown[] = [];
   for (const frame of page.frames()) {
@@ -62,7 +63,7 @@ export async function currentFormStructure(page: Page): Promise<string> {
         const root = el.getRootNode() as Document | ShadowRoot;
         const labelled = (el.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean)
           .map(id => root.getElementById(id) ?? document.getElementById(id)).map(node => node ? wording(node) : '');
-        controls.push([el.tagName, el.getAttribute('data-field-id'), el.id, input.name, input.type,
+        controls.push([el.tagName, el.id, input.name, input.type,
           el.getAttribute('role'), el.getAttribute('aria-label'), el.getAttribute('aria-labelledby'), labelled,
           [...(input.labels ?? [])].map(wording), input.required, input.disabled, input.readOnly,
           el instanceof HTMLSelectElement ? [...el.options].map(option => [option.value, option.textContent]) : null]);

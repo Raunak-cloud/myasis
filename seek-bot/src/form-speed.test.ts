@@ -136,6 +136,50 @@ try {
     const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
     assert.equal(await page.locator('input[name=changed]').inputValue(), '');
     assert.equal(ctx.captured.length, 1); assert.match(JSON.stringify(result), /Not filled yet/);
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve', 'a changing form requires a fresh look, not failure reasoning');
+  });
+  await check('unchanged replacement controls keep one grounded answer batch', async () => {
+    config.formSpeed = true;
+    await page.setContent('<main>' + Array.from({ length: 6 }, (_, i) =>
+      `<label>Stable fact ${i}<input name="stable${i}" required oninput="for(const el of document.querySelectorAll('input'))if(el!==this){const next=el.cloneNode(true);next.removeAttribute('data-field-id');el.replaceWith(next)}"></label>`).join('') + '</main>');
+    const ctx = await context(), before = calls, start = performance.now();
+    const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
+    assert.deepEqual(await page.locator('input').evaluateAll(nodes => nodes.map(n => (n as HTMLInputElement).value)), Array(6).fill(answerValue));
+    assert.equal(calls - before, 1, 'unchanged re-rendered questions use the already grounded batch');
+    assert.equal(ctx.captured.length, 6); assert.equal(ctx.guards.pendingFields.size, 0);
+    assert.equal(result.kind === 'ok' && result.disposition, 'completed');
+    timing.replacedControls = { answerCalls: calls - before, ms: performance.now() - start };
+  });
+  await check('ambiguous replacement questions wait for a fresh observation', async () => {
+    await page.setContent('<main><label>Trigger<input oninput="for(const el of document.querySelectorAll(\'input[required]\'))el.removeAttribute(\'data-field-id\')"></label><label>Duplicate fact<input required></label><label>Duplicate fact<input required></label></main>');
+    const ctx = await context();
+    const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
+    assert.deepEqual(await page.locator('input[required]').evaluateAll(nodes => nodes.map(n => (n as HTMLInputElement).value)), ['', '']);
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve');
+  });
+  await check('an unresolved required fact stops the plan without pretending browser recovery can answer it', async () => {
+    await page.setContent('<main><label>Unknown critical personal fact<input required></label></main>');
+    const ctx = await context();
+    grounded = false;
+    let result;
+    try { result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) }); }
+    finally { grounded = true; }
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve');
+    assert.equal(await page.locator('input').inputValue(), '');
+    assert(ctx.guards.ungrounded.includes('Unknown critical personal fact'));
+  });
+  await check('a rejected native radio remains an actual fill failure, not a disappeared question', async () => {
+    await page.setContent('<main><fieldset><legend>Radio fact *</legend><input id="yes" type="radio" name="fact" required onclick="event.preventDefault()"><label for="yes">Yes</label><input id="no" type="radio" name="fact"><label for="no">No</label></fieldset></main>');
+    const ctx = await context(), previous = answerValue;
+    answerValue = 'Yes';
+    let result;
+    try { result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) }); }
+    finally { answerValue = previous; }
+    assert.equal(result.kind === 'ok' && result.disposition, 'failed');
+    assert.doesNotMatch(result.kind === 'ok' ? result.message : '', /no longer on the page/);
+    assert(ctx.guards.pendingFields.has('Radio fact *'));
+    assert.equal(await page.locator('#yes').isChecked(), false);
+    assert.ok(await checkSavedForm(ctx), 'the actual required blank still blocks advance');
   });
   await check('shadow-root changes are included in batch structure checks', async () => {
     await page.setContent('<main><div id="host"></div></main>');

@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import { jitter } from '../../browser.js';
-import { fillField, setChecked } from '../../dom.js';
+import { extractFields, fillField, setChecked } from '../../dom.js';
 import { answerFields, isRequiredConsent } from '../../llm.js';
 import type { FormField } from '../../types.js';
 import { locate } from '../raw-tools.js';
@@ -193,7 +193,7 @@ async function formShape(page: Page): Promise<number> {
 export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const refs = Array.isArray(args.refs) ? [...new Set(args.refs.map(String))] : [];
   if (!refs.length || refs.some(ref => !ctx.observation.fields.some(field => field.ref === ref))) {
-    return ok('Invalid refs: provide exact current FIELD refs, e.g. ["f0", "f1"]. Re-observe rather than guessing.');
+    return ok('Invalid refs: provide exact current FIELD refs, e.g. ["f0", "f1"]. Re-observe rather than guessing.', 'invalid-arguments');
   }
   const requiredRefs = Array.isArray(args.required_refs) && typeof args.reason === 'string' && args.reason.trim() ? args.required_refs.map(String) : [];
   /**
@@ -316,6 +316,18 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
   };
   const readShape = () => config.formSpeed ? currentFormStructure(ctx.page) : formShape(ctx.page);
   let shape = wanted.length > 1 ? await readShape() : -1;
+  // Frameworks may replace unchanged controls and drop our stamps while a
+  // preceding answer saves. Rebind only to a unique, identical question;
+  // new wording/options/requirements still stop the batch above/below.
+  const questionIdentity = ({ ref: _ref, currentValue: _value, validationError: _error, ...question }: FormField) => JSON.stringify(question);
+  const liveField = async (field: FormField): Promise<FormField | null> => {
+    if (await ctx.page.locator(`[data-field-id="${field.ref}"], [data-field-id^="${field.ref}:"]`).count()) return field;
+    const observed = ctx.observation.fields.find(candidate => candidate.ref === field.ref);
+    if (!observed) return null;
+    const identity = questionIdentity(observed);
+    const matches = (await extractFields(ctx.page)).filter(candidate => questionIdentity(candidate) === identity);
+    return matches.length === 1 ? { ...field, ref: matches[0].ref } : null;
+  };
   let fills = 0;
   // Answers are applied in page order, not the order the model listed them.
   const ordered = wanted
@@ -358,17 +370,19 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
     }
 
     const value = answer.value;
+    const target = await liveField(field);
+    if (!target) { deferRest(index); break; }
     // Once a write is attempted, optional answers need the same readback as
     // required ones. A failed or unsupported value must never slip through.
     ctx.guards.pendingFields.add(field.label);
     // A person's pause between one question and the next, as the separate turns used to give.
     if (fills++ && !config.formSpeed) await jitter(350, 900);
     try {
-      const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
+      const input = ctx.page.locator(`[data-field-id="${target.ref}"]`).first();
       const selected = field.autocomplete && !field.validationError && field.currentValue?.trim() === value.trim()
         && await input.getAttribute('aria-expanded').catch(() => null) === 'false';
       const interaction = args.interaction === 'type' ? 'type' : args.interaction === 'search' || field.autocomplete ? 'search' : 'type';
-      if (!selected) await fillField(ctx.page, field, value, interaction);
+      if (!selected) await fillField(ctx.page, target, value, interaction);
       if (interaction === 'search' && field.autocomplete && !selected) {
         searched.push(field.label);
         // Its suggestions need choosing before anything else on the form is touched.
@@ -383,7 +397,7 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
        * submit for a field that was never wrong, and the agent went back to
        * chase it until the attempt died.
        */
-      const gone = (await ctx.page.locator(`[data-field-id="${field.ref}"]`).count().catch(() => 0)) === 0;
+      const gone = (await ctx.page.locator(`[data-field-id="${field.ref}"], [data-field-id^="${field.ref}:"]`).count().catch(() => 0)) === 0;
       if (gone) {
         ctx.guards.pendingFields.delete(field.label);
         ctx.guards.resolveGrounding(field.label);
@@ -432,5 +446,6 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
       (ungroundedNow
         ? `\nWARNING: ${ungroundedNow} answer(s) could not be grounded in the candidate profile. This application cannot be submitted; finish with status "needs_human" once you have nothing else useful to do.`
         : ''),
+    failed.length ? 'failed' : deferred.length || budgetDeferred.length || searched.length || ungroundedNow ? 'reobserve' : 'completed',
   );
 }

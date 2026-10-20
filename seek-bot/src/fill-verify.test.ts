@@ -29,6 +29,21 @@ try {
   // Ordinary text is still compared as text.
   assert.equal(await accepts('<main><label>Employer<input></label></main>', 'Self-employed'), true);
 
+  // Radio options have fN:index stamps, not a standalone group stamp. Styled
+  // forms keep state in the label handler, so a synthetic input click is not
+  // equivalent to the visible action a person takes.
+  for (const shadow of [false, true]) {
+    const radios = '<fieldset><legend>Available in Sydney?</legend><input id="yes" type="radio" name="city" value="yes" style="display:none"><label for="yes" onclick="document.title=\'accepted-label\'">Yes</label><input id="no" type="radio" name="city" value="no" style="display:none"><label for="no">No</label></fieldset>';
+    await page.setContent(shadow ? '<main><div id="host"></div></main>' : `<main>${radios}</main>`);
+    if (shadow) await page.locator('#host').evaluate((el, html) => el.attachShadow({ mode: 'open' }).innerHTML = html, radios);
+    const field = (await observe(page)).fields.find(field => field.kind === 'radio')!;
+    assert.ok(field, 'a styled radio group is observed');
+    await page.evaluate(() => document.title = 'unanswered');
+    await fillField(page, field, 'Yes');
+    assert.equal(await page.title(), 'accepted-label', 'the actual visible label handler ran');
+    assert.equal(await page.locator('#yes').isChecked(), true);
+  }
+
   // What must still be refused.
   assert.equal(await accepts('<main><label>Salary expectation *<input oninput="this.value=\'90000\'"></label></main>', '$80,000'), false, 'a different amount is a rejection');
   assert.equal(await accepts('<main><div><label>Country Phone Code *<input onchange="this.value=\'\'; this.nextElementSibling.textContent=\'Select one\'"><span></span></label></div><label>Phone<input></label></main>', '+61'), false, 'a cleared picker showing nothing chosen is a rejection');

@@ -63,6 +63,23 @@ try {
   assert.notEqual(await page.title(), 'SENT', 'what the agent says is the submit is gated as one');
   assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed');
   assert.equal(modelCalls - before, 1, 'the declared submit needs one saved-form review, with no extra submit-classifier call');
+
+  // Enter accepting an owned combobox option is not the form's submit, even
+  // if other required answers are still blank. Closing the picker restores
+  // normal submit protection for Enter in the same input.
+  html = '<!doctype html><main><form onsubmit="event.preventDefault();document.title=\'SENT\'"><label>Country<input id="country" role="combobox" aria-expanded="true" aria-controls="countries" aria-activedescendant="au" onkeydown="if(event.key===\'Enter\' && this.getAttribute(\'aria-expanded\')===\'true\'){event.preventDefault();this.value=\'Australia\';this.setAttribute(\'aria-expanded\',\'false\')}"></label><div role="listbox" id="countries"><div role="option" id="au">Australia</div></div><label>Required later<input required></label><button type="submit">Submit application</button></form></main>';
+  await page.goto('https://career2.successfactors-fixture.example/portalcareer');
+  ctx.observation = await observe(page);
+  ctx.captured = [];
+  const pickerRef = ctx.observation.fields.find(field => field.label === 'Country')!.ref;
+  const beforePicker = modelCalls;
+  result = await executeTool(ctx, 'press_key', { ref: pickerRef, key: 'Enter', sends_application: false });
+  assert.equal(await page.locator('#country').inputValue(), 'Australia');
+  assert.equal(modelCalls, beforePicker, 'committing a picker choice adds no saved-form reviewer call');
+  assert.equal(result.kind, 'ok');
+  result = await executeTool(ctx, 'press_key', { ref: pickerRef, key: 'Enter', sends_application: true });
+  assert.notEqual(await page.title(), 'SENT', 'Enter outside an open picker still cannot submit during a rehearsal');
+  assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed');
   console.log("PASS: a control that opened a form is still gated as the submit once the form is filled, the agent's own submit judgement is used without another model call, and a rehearsal never sends");
 } finally {
   await browser.close();

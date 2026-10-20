@@ -787,13 +787,24 @@ export async function pressWatched(ctx: ToolContext, key: string, run: () => Pro
   if (!/(^|\+)(Enter|NumpadEnter| |Space)$/.test(key)) return run();
   const focus = await ctx.page.evaluate(() => {
     let element: Element | null = document.activeElement;
-    // Follow focus into same-origin frames.
-    while (element instanceof HTMLIFrameElement && element.contentDocument?.activeElement) element = element.contentDocument.activeElement;
+    // Follow focus into same-origin frames and web components.
+    while (element) {
+      const inner = element instanceof HTMLIFrameElement ? element.contentDocument?.activeElement : element.shadowRoot?.activeElement;
+      if (!inner) break;
+      element = inner;
+    }
     if (!element || element === document.body) return null;
     const form = (element as HTMLInputElement).form ?? element.closest('form');
     const submitter = form?.querySelector('button[type="submit"], input[type="submit"], button:not([type])') as HTMLElement | null;
     const compact = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
+    const root = element.getRootNode() as Document | ShadowRoot;
+    const activeOption = root.getElementById(element.getAttribute('aria-activedescendant') ?? '');
+    const ownedLists = (element.getAttribute('aria-controls') ?? element.getAttribute('aria-owns') ?? '').split(/\s+/)
+      .map(id => root.getElementById(id)).filter((node): node is HTMLElement => Boolean(node));
+    const choosingOption = element.getAttribute('role') === 'combobox' && element.getAttribute('aria-expanded') === 'true'
+      && activeOption?.getAttribute('role') === 'option' && ownedLists.some(list => list.contains(activeOption) && list.getBoundingClientRect().height > 0);
     return {
+      choosingOption,
       control: compact(element.getAttribute('aria-label') || (element as HTMLElement).innerText || element.getAttribute('name')).slice(0, 120),
       button: element.matches('button, [role="button"], input[type="submit"], a') ,
       submitter: submitter ? compact(submitter.innerText || (submitter as HTMLInputElement).value).slice(0, 120) : '',
@@ -802,7 +813,10 @@ export async function pressWatched(ctx: ToolContext, key: string, run: () => Pro
   // A key that presses a button is that button; Enter in a field is the form's own submit.
   const label = focus?.button ? focus.control : focus?.submitter ?? '';
   return watched(ctx, `press ${key}${label ? ` on "${label}"` : ''}`, async () => {
-    if (label) {
+    // Enter on the highlighted option of an owned, open combobox commits
+    // that choice. It is not an attempt to advance the whole application.
+    // watched() still intercepts any actual form submission by the handler.
+    if (label && (!focus?.choosingOption || ctx.declaredSubmit)) {
       const gate = await gateAdvance(ctx, label, focus?.button ? undefined : `Enter pressed in "${focus?.control ?? ''}"`);
       if (!gate.proceed) return gate.result;
     }
