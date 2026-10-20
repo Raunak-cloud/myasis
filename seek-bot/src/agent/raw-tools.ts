@@ -816,7 +816,8 @@ export async function pressWatched(ctx: ToolContext, key: string, run: () => Pro
     // Enter on the highlighted option of an owned, open combobox commits
     // that choice. It is not an attempt to advance the whole application.
     // watched() still intercepts any actual form submission by the handler.
-    if (label && (!focus?.choosingOption || ctx.declaredSubmit)) {
+    const commitsOption = /^(Enter|NumpadEnter)$/.test(key) && focus?.choosingOption;
+    if (label && (!commitsOption || ctx.declaredSubmit)) {
       const gate = await gateAdvance(ctx, label, focus?.button ? undefined : `Enter pressed in "${focus?.control ?? ''}"`);
       if (!gate.proceed) return gate.result;
     }

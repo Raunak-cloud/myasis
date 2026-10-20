@@ -80,6 +80,12 @@ try {
   result = await executeTool(ctx, 'press_key', { ref: pickerRef, key: 'Enter', sends_application: true });
   assert.notEqual(await page.title(), 'SENT', 'Enter outside an open picker still cannot submit during a rehearsal');
   assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed');
+  await page.locator('#country').evaluate(el => el.setAttribute('aria-expanded', 'true'));
+  ctx.captured.push({ question: 'Country', answer: 'Australia' });
+  const beforeShortcut = modelCalls;
+  result = await executeTool(ctx, 'press_key', { ref: pickerRef, key: 'Control+Enter', sends_application: false });
+  assert.equal(result.kind === 'terminal' && result.outcome.status, 'rehearsed', 'modified Enter remains a potential submit even with an open picker');
+  assert.equal(modelCalls - beforeShortcut, 1, 'submit shortcuts keep the saved-form reviewer');
   console.log("PASS: a control that opened a form is still gated as the submit once the form is filled, the agent's own submit judgement is used without another model call, and a rehearsal never sends");
 } finally {
   await browser.close();
