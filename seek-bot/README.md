@@ -107,6 +107,24 @@ than `MAX_AGE_DAYS`.
 
 ### Apply engine: Celeris browser agent
 
+Job-search and application calls share a FIFO request queue across Node processes
+on the VPS, including dashboard search suggestions and resume parsing. It holds
+at most two requests in flight by default and spaces starts by 100 ms. Configure
+`CELERIS_MAX_CONCURRENT_REQUESTS` and `CELERIS_MIN_INTERVAL_MS` against the actual
+workspace allowance; these defaults are local pacing, not a provider quota.
+Every key for a workspace must use the same `CELERIS_WORKSPACE_ID` and
+`CELERIS_QUEUE_FILE` (defaults group the API origin in `data/celeris-queue.sqlite`).
+The file contains only opaque tickets and timestamps, never keys or candidate data.
+It coordinates one server; multiple hosts would need a shared queue service.
+
+A 429 publishes a cooldown for all queued application workers. Retries honor
+`Retry-After` (seconds or HTTP date), add exponential jitter, and stay within the
+request deadline. A delay longer than the remaining deadline fails without sending
+an early retry. Queue entries expire after abandoned waits or crashed processes;
+an unavailable/full queue fails closed. Rejected 429s are recorded as zero cost,
+while a network timeout remains an unknown possible charge. Marketing research
+is outside this queue. Haiku's provider and request handling are unchanged.
+
 Every SEEK application is driven by a browser agent on
 [Celeris](https://docs.celeris.ai). The hand-written state machine that used to
 live in `apply.ts` is gone — there is no toggle and no second path.

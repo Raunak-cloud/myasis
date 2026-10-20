@@ -2,7 +2,8 @@ import { metric } from '../pipeline.js';
 import { applicationModelEnvironment, applicationModelIdentity } from '../application-model.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
-import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost } from '../cost-ledger.js';
+import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost, recordCost } from '../cost-ledger.js';
+import { acquireCelerisPermit, celerisRetryDelay, waitForCelerisRetry, type CelerisPermit } from '../../../shared/celeris-queue.mjs';
 
 /**
  * Minimal client for Celeris' OpenAI-compatible chat API.
@@ -218,9 +219,18 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     let costRecorded = false;
-    const endCostRequest = beginCostRequest('Celeris', request.model);
+    let endCostRequest = () => {};
+    let permit: CelerisPermit | undefined;
+    let sent = false;
+    let retryMs: number | undefined;
+    let responseStatus: number | undefined;
     try {
-      if (Date.now() >= deadline) throw new Error('Model request deadline exceeded');
+      const queuedAt = performance.now();
+      permit = await acquireCelerisPermit({ endpoint: endpointFor(request.model), deadline, leaseMs: config.celeris.timeoutMs,
+        env: { ...process.env, ...applicationModelEnvironment() } });
+      metric('model-queue', performance.now() - queuedAt, { model: request.model });
+      endCostRequest = beginCostRequest('Celeris', request.model);
+      sent = true;
       const response = await fetch(endpointFor(request.model), {
         method: 'POST',
         headers: {
@@ -230,12 +240,23 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(Math.max(1, Math.min(config.celeris.timeoutMs, deadline - Date.now()))),
       });
+      responseStatus = response.status;
 
       if (!response.ok) {
+        if (response.status === 429 || response.status >= 500) {
+          retryMs = celerisRetryDelay(response.headers.get('retry-after'), attempt);
+          if (response.status === 429) {
+            permit.defer(retryMs);
+            metric('model-throttle', 0, { model: request.model, attempt: attempt + 1, retryAfterMs: retryMs });
+          }
+        }
         const detail = await response.text().catch(() => '');
         let reportedUsage: unknown;
         try { reportedUsage = JSON.parse(detail).usage; } catch { /* No token accounting in this error. */ }
-        recordCelerisCost(request.model, reportedUsage);
+        if ([401, 402, 404, 413, 429, 502, 503].includes(response.status)) {
+          recordCost({ provider: 'Celeris', model: request.model, amountUsd: 0, basis: 'provider',
+            detail: `HTTP ${response.status}: rejected request or server failure; not charged by Celeris.` });
+        } else recordCelerisCost(request.model, reportedUsage);
         costRecorded = true;
         endCostRequest();
         if (response.status === 400 && /response_format could not be satisfied/i.test(detail)) {
@@ -289,8 +310,11 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         message: { role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls },
       };
     } catch (error) {
-      if (!costRecorded) recordCelerisCost(request.model, null);
+      if (sent && !costRecorded) recordCelerisCost(request.model, null);
       endCostRequest();
+      // Release before sleeping: another worker may use the allowance while
+      // this call backs off. A workspace 429 cooldown is already shared.
+      permit?.release();
       lastError = error;
       if (error instanceof ReplyUnusableError) {
         if (attempt !== 0) throw error;
@@ -301,11 +325,13 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         continue;
       }
       const detail = (error as Error).message ?? String(error);
-      const transient = /\b429\b|\b5\d\d\b|econnreset|etimedout|fetch failed|aborted|timeout/i.test(detail);
+      const transient = responseStatus === 429 || (responseStatus !== undefined && responseStatus >= 500 && responseStatus < 600)
+        || ((responseStatus === undefined || responseStatus < 400) && /econnreset|etimedout|fetch failed|aborted|timeout/i.test(detail));
       if (!transient || attempt === 2) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
+      await waitForCelerisRetry(retryMs ?? celerisRetryDelay(null, attempt), deadline);
     } finally {
       endCostRequest();
+      permit?.release();
     }
   }
   throw lastError;

@@ -2,6 +2,7 @@ import { listResumes, previewText } from './files.js';
 import { accountApplicationEnvironment, readEnv } from './runner.js';
 import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
 import { replaceSearchTermsIfUnchanged } from './settings.js';
+import { acquireCelerisPermit, celerisRetryDelay, waitForCelerisRetry, type CelerisPermit } from '../../shared/celeris-queue.mjs';
 
 const MAX_RESUME_CHARS = 18_000;
 const MAX_COMBINED_RESUME_CHARS = 60_000;
@@ -167,42 +168,58 @@ export async function askCelerisForJson(
   const env = readEnv();
   const base = (process.env.CELERIS_BASE_URL ?? env.CELERIS_BASE_URL ?? 'https://inference.celeris.ai').replace(/\/+$/, '');
   const model = 'celeris-1-magnus';
-  try {
-    const response = await fetch(`${base}/${model}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: `${prompt}\n\nReturn only a JSON object.` },
-        ],
-        temperature: temperature ?? 0,
-        // Magnus includes reasoning in this budget. The serving endpoint caps
-        // output at 16,384 even though its context window is 131,072.
-        max_tokens: Math.min(16_384, Math.max(8_192, (limits.maxOutputTokens ?? 4_096) * 4)),
-        chat_template_kwargs: { enable_thinking: true, reasoning_effort: 'low' },
-        ...(responseSchema
-          ? { response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema: strictSchema(lowerSchemaTypes(responseSchema)) } } }
-          : {}),
-      }),
-      signal: AbortSignal.timeout(Math.max(limits.timeoutMs ?? 0, 120_000)),
-    });
-    if (!response.ok) {
-      const message = await response.text();
-      return {
-        ok: false,
-        error: `Celeris returned HTTP ${response.status}: ${message.slice(0, 400)}`,
-        tokenLimitReached: response.status === 400 && /output token limit|max_tokens[^.]*exceed/i.test(message),
-      };
+  const timeoutMs = Math.max(limits.timeoutMs ?? 0, 120_000);
+  const deadline = Date.now() + timeoutMs;
+  for (let attempt = 0; ; attempt++) {
+    let permit: CelerisPermit | undefined;
+    try {
+      permit = await acquireCelerisPermit({ endpoint: base, deadline, leaseMs: timeoutMs, env: { ...env, ...process.env } });
+      const response = await fetch(`${base}/${model}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: `${prompt}\n\nReturn only a JSON object.` },
+          ],
+          temperature: temperature ?? 0,
+          // Magnus includes reasoning in this budget. The serving endpoint caps
+          // output at 16,384 even though its context window is 131,072.
+          max_tokens: Math.min(16_384, Math.max(8_192, (limits.maxOutputTokens ?? 4_096) * 4)),
+          chat_template_kwargs: { enable_thinking: true, reasoning_effort: 'low' },
+          ...(responseSchema
+            ? { response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema: strictSchema(lowerSchemaTypes(responseSchema)) } } }
+            : {}),
+        }),
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+      });
+      if (!response.ok) {
+        const retryable = response.status === 429 || response.status >= 500;
+        const retryMs = retryable ? celerisRetryDelay(response.headers.get('retry-after'), attempt) : 0;
+        if (response.status === 429) permit.defer(retryMs);
+        const message = await response.text();
+        if (retryable && attempt < 2) {
+          permit.release();
+          await waitForCelerisRetry(retryMs, deadline);
+          continue;
+        }
+        return {
+          ok: false,
+          error: `Celeris returned HTTP ${response.status}: ${message.slice(0, 400)}`,
+          tokenLimitReached: response.status === 400 && /output token limit|max_tokens[^.]*exceed/i.test(message),
+        };
+      }
+      const payload = await response.json() as { choices?: Array<{ finish_reason?: string; message?: { content?: string | null } }> };
+      const choice = payload.choices?.[0];
+      if (choice?.finish_reason === 'length') return { ok: false, error: 'Celeris reached its 16,384-token output limit.', tokenLimitReached: true };
+      const value = parseJsonObject(choice?.message?.content?.trim() ?? '');
+      return value ? { ok: true, value } : { ok: false, error: 'Celeris returned invalid JSON.' };
+    } catch (error) {
+      return { ok: false, error: `Celeris request failed: ${(error as Error).message}` };
+    } finally {
+      permit?.release();
     }
-    const payload = await response.json() as { choices?: Array<{ finish_reason?: string; message?: { content?: string | null } }> };
-    const choice = payload.choices?.[0];
-    if (choice?.finish_reason === 'length') return { ok: false, error: 'Celeris reached its 16,384-token output limit.', tokenLimitReached: true };
-    const value = parseJsonObject(choice?.message?.content?.trim() ?? '');
-    return value ? { ok: true, value } : { ok: false, error: 'Celeris returned invalid JSON.' };
-  } catch (error) {
-    return { ok: false, error: `Celeris request failed: ${(error as Error).message}` };
   }
 }
 

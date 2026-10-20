@@ -6,6 +6,7 @@ import test from 'node:test';
 import { ProgressiveTriage } from './progressive-triage.js';
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'owtomate-progressive-ranking-'));
+process.env.CELERIS_QUEUE_FILE = join(process.env.DATA_DIR, 'queue.sqlite');
 process.env.CELERIS_API_KEY = 'fixture-only';
 const { rankJobsForReview } = await import('./llm.js');
 const profile = { name: 'Fixture', phone: '', email: '', nationality: '', expectedSalary: '', noticePeriod: '',
