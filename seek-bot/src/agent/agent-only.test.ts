@@ -191,6 +191,134 @@ try {
       APPLICATION_AGENT_MODE_AUTHORIZED: undefined }, () => runApplicationAgent({ page, job, profile, log: () => {} }));
     assert.equal(normal.outcome.status, 'skipped', 'ordinary accounts and stale settings use the same sole engine');
   }
+  // A removed observed button must retire this plan immediately, then permit
+  // the agent to choose the replacement from the refreshed page.
+  await page.goto(url);
+  script = [body => {
+    const ref = /(a\d+)\s+\[button\]\s+Submit\b/.exec(observation(body))?.[1];
+    assert.ok(ref, 'the first plan uses the actually observed Submit ref');
+    return [
+      { name: 'browser_action', args: { action: 'script', script: `document.querySelector('#submit').remove();const replacement=document.createElement('button');replacement.id='replacement';replacement.textContent='New continue';replacement.onclick=()=>replacement.textContent='Recovered';document.querySelector('main').append(replacement);` } },
+      { name: 'browser_action', args: { action: 'click', ref, sends_application: true } },
+      { name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Must not run' } },
+    ];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /is no longer on the page/);
+    assert.match(JSON.stringify(body.messages), /Not run: inspect the fresh observation/);
+    assert.match(observation(body), /New continue/);
+    assert.equal(effort(body), 'medium', 'a stale ref is a page change, not a reasoning failure');
+    const ref = /(a\d+)\s+\[button\]\s+New continue\b/.exec(observation(body))?.[1];
+    assert.ok(ref);
+    return [{ name: 'browser_action', args: { action: 'click', ref } }];
+  }, body => {
+    assert.match(observation(body), /Recovered/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Recovered from a removed button', evidence: 'Replacement button shows Recovered' } }];
+  }];
+  const staleStart = performance.now();
+  const recovered = await runApplicationAgent({ page, job: { ...job, id: 'agent-stale-recovery' }, profile, log: () => {} });
+  const staleRecoveryMs = Math.round(performance.now() - staleStart);
+  assert.ok(staleRecoveryMs < 3000, `stale recovery took ${staleRecoveryMs}ms; it must not wait out the 8s action timeout`);
+  assert.equal(Boolean(recovered.submitPressed), false, 'a missing target is rejected before recording a possible send');
+  assert.equal(await page.inputValue('#name'), '', 'later writes in a stale plan never execute');
+
+  // All ref-targeted actions share the same fast handoff, including refs from
+  // accessibility snapshots and frames which have since disappeared.
+  for (const [index, call] of ([
+    { name: 'browser_action', args: { action: 'fill', ref: 'f999999', value: 'No' } },
+    { name: 'browser_action', args: { action: 'select', ref: 'f999999', value: 'No' } },
+    { name: 'browser_action', args: { action: 'check', ref: 'f999999', value: 'true' } },
+    { name: 'browser_action', args: { action: 'press', ref: 'f999999', value: 'Enter' } },
+    { name: 'browser_action', args: { action: 'hover', ref: 'a999999' } },
+    { name: 'browser_action', args: { action: 'check', ref: 'f999999:0', value: 'true' } },
+    { name: 'browser_action', args: { action: 'click', ref: 'e999999' } },
+    { name: 'browser_action', args: { action: 'click', ref: 'f999999e1' } },
+    { name: 'browser_action', args: { action: 'click', ref: 'r1f999999e1' } },
+    { name: 'take_snapshot', args: { ref: 'a999999' } },
+    { name: 'upload_document', args: { ref: 'f999999', document_id: 'cv-1' } },
+  ] satisfies Call[]).entries()) {
+    await page.goto(url);
+    script = [() => [call], body => {
+      assert.match(JSON.stringify(body.messages), /is no longer on the page/);
+      assert.equal(effort(body), 'medium');
+      return [{ name: 'finish', args: { status: 'skipped', reason: 'Stale ref observed', evidence: 'Fresh application form' } }];
+    }];
+    const started = performance.now();
+    const result = await runApplicationAgent({ page, job: { ...job, id: `agent-stale-tool-${index}` }, profile, log: () => {} });
+    assert.ok(performance.now() - started < 2500, `${call.name}/${call.args.action ?? ''} must not wait for a disappeared target`);
+    assert.equal(result.captured.length, 0);
+    assert.equal(result.resumeUsed, undefined, 'an absent uploader does not record a chosen document');
+  }
+
+  // Existing-but-disabled refs and not-yet-rendered CSS targets still use
+  // browser auto-waiting. Explicit selector targets keep priority over refs.
+  await page.goto(url);
+  script = [body => {
+    const ref = /(a\d+)\s+\[button\]\s+Submit\b/.exec(observation(body))?.[1];
+    assert.ok(ref);
+    return [
+      { name: 'browser_action', args: { action: 'script', script: `const b=document.querySelector('#submit');b.disabled=true;b.type='button';b.onclick=()=>b.textContent='Ready clicked';setTimeout(()=>b.disabled=false,250);` } },
+      { name: 'browser_action', args: { action: 'click', ref } },
+      { name: 'browser_action', args: { action: 'script', script: `setTimeout(()=>document.querySelector('main').insertAdjacentHTML('beforeend','<label>Later input<input id="later"></label>'),250);` } },
+      { name: 'browser_action', args: { action: 'fill', ref: 'f999999', selector: '#later', value: 'Waited correctly' } },
+    ];
+  }, body => {
+    assert.match(observation(body), /Ready clicked/);
+    assert.match(observation(body), /Waited correctly/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Legitimate waits preserved', evidence: 'Button and late input accepted their actions' } }];
+  }];
+  await runApplicationAgent({ page, job: { ...job, id: 'agent-stale-legitimate-waits' }, profile, log: () => {} });
+
+  await page.goto(url);
+  await page.locator('main').evaluate(el => { el.innerHTML = '<div id="shadow-host"></div>'; el.querySelector('#shadow-host')!.attachShadow({ mode: 'open' }).innerHTML = '<label>Shadow field<input id="shadow-input"></label><fieldset><legend>Available</legend><label><input type="radio" name="available">Yes</label><label><input type="radio" name="available">No</label></fieldset>'; });
+  script = [body => {
+    const field = /(f\d+)\s+\[text\]/.exec(observation(body))?.[1];
+    const radio = /(f\d+)\s+\[radio\]/.exec(observation(body))?.[1];
+    assert.ok(field && radio);
+    return [
+      { name: 'browser_action', args: { action: 'fill', ref: field, value: 'Shadow value' } },
+      { name: 'browser_action', args: { action: 'check', ref: `${radio}:0`, value: 'true' } },
+    ];
+  }, body => {
+    assert.match(observation(body), /Shadow value/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Shadow and radio refs retained', evidence: 'Saved field value and radio choice' } }];
+  }];
+  await runApplicationAgent({ page, job: { ...job, id: 'agent-stale-shadow-radio' }, profile, log: () => {} });
+  assert.equal(await page.locator('#shadow-input').inputValue(), 'Shadow value');
+  assert.equal(await page.locator('input[type=radio]').first().isChecked(), true);
+
+  // Snapshot refs resolve in their own frame; a page-wide CSS-only existence
+  // check would wrongly treat a live iframe ref as stale.
+  await page.goto(url);
+  await page.locator('main').evaluate(el => { const frame = document.createElement('iframe'); frame.srcdoc = '<button>Frame action</button>'; el.replaceChildren(frame); });
+  await page.frameLocator('iframe').locator('button').waitFor();
+  await page.frames()[1].locator('button').evaluate(el => el.addEventListener('click', () => { el.textContent = 'Frame clicked'; }));
+  script = [() => [{ name: 'take_snapshot', args: {} }], body => {
+    const all = JSON.stringify(body.messages);
+    const ref = /button \\"Frame action\\" \[ref=(f\d+e\d+)\]/.exec(all)?.[1];
+    assert.ok(ref, 'a real iframe snapshot ref was returned');
+    return [{ name: 'browser_action', args: { action: 'click', ref } }];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /Action executed: click/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Live iframe ref retained', evidence: 'Frame button clicked' } }];
+  }];
+  await runApplicationAgent({ page, job: { ...job, id: 'agent-stale-live-frame' }, profile, log: () => {} });
+  assert.equal(await page.frames()[1].locator('button').innerText(), 'Frame clicked');
+  await page.goto(url);
+  await page.locator('#submit').evaluate(el => { (el as HTMLButtonElement).type = 'button'; el.addEventListener('click', () => { el.textContent = 'Coordinate clicked'; }); });
+  const point = await page.locator('#submit').boundingBox();
+  assert.ok(point);
+  script = [() => [
+    { name: 'browser_action', args: { action: 'click', ref: 'a999999', x: point.x + point.width / 2, y: point.y + point.height / 2 } },
+    { name: 'browser_action', args: { action: 'script', ref: 'a999999', script: 'document.querySelector("#name").focus();' } },
+    { name: 'browser_action', args: { action: 'press', value: 'A' } },
+  ], body => {
+    assert.match(observation(body), /Coordinate clicked/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Untargeted actions preserved', evidence: 'Coordinate click, script and focused keyboard action worked' } }];
+  }];
+  await runApplicationAgent({ page, job: { ...job, id: 'agent-stale-untargeted-actions' }, profile, log: () => {} });
+  assert.equal(await page.inputValue('#name'), 'A');
+  console.log(JSON.stringify({ staleRecoveryMs, staleToolCases: 11, preserved: ['selector waits', 'enabled waits', 'shadow roots', 'radio refs', 'iframe snapshot refs', 'coordinate/script/keyboard actions'] }));
+
   await page.goto(url);
   const modelFetch = globalThis.fetch;
   let requests = 0;

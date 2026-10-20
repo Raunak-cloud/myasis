@@ -83,6 +83,32 @@ function target(ctx: ToolContext, args: Record<string, unknown>): Locator {
   return found;
 }
 
+class StaleObservedRefError extends Error {
+  constructor(ref: string) {
+    super(`Observed ref ${ref} is no longer on the page. No action was attempted for that ref. Inspect the fresh observation and choose the current target.`);
+  }
+}
+
+/** Refs describe something already observed, so an absent ref needs a new
+ * observation, not an action timeout. CSS selectors retain normal auto-waiting
+ * for controls that have not rendered yet. Existing refs retain actionability
+ * waits too (for example, a disabled Continue button becoming enabled). */
+async function assertCurrentRef(ctx: ToolContext, args: Record<string, unknown>): Promise<void> {
+  if (args.selector) return; // Same selector-over-ref precedence as target().
+  const ref = String(args.ref ?? '');
+  if (!/^(?:[af]\d+|f\d+:\d+|(?:f\d+)?e\d+|r\d+f\d+e\d+)$/.test(ref)) return;
+  const locator = /^f\d+:\d+$/.test(ref) ? ctx.page.locator(`[data-field-id="${ref}"]`) : locate(ctx.page, ref);
+  if (locator) {
+    try { if (await locator.count()) return; }
+    catch (error) {
+      // Patchright reports a removed accessibility-snapshot iframe as an
+      // invalid frame rather than a zero count. Other browser errors propagate.
+      if (!/^f\d+e\d+$/.test(ref) || !/Invalid frame in aria-ref selector/.test((error as Error).message)) throw error;
+    }
+  }
+  throw new StaleObservedRefError(ref);
+}
+
 export async function runAgentOnlyApplication(options: AgentRunOptions): Promise<AgentRunResult> {
 
   const isolated = options.simulation === 'isolated-form';
@@ -163,6 +189,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     if (name === 'read_application_history') return ok(applicationHistory(String(args.query ?? ''), Number(args.offset ?? 0)));
     if (name === consultationToolSchema.name) return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, remainingMs, applicationHistory: applicationHistory(options.job.id) });
     if (name === 'take_snapshot') {
+      await assertCurrentRef(ctx, args);
       screenshot = args.screenshot === true;
       const snapshot = args.ref || args.selector ? await target(ctx, args).ariaSnapshot({ mode: 'ai', timeout: 15_000 })
         : await ctx.page.ariaSnapshot({ mode: 'ai', timeout: 15_000 });
@@ -185,6 +212,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       return ok('Recorded the agent-observed authentication outcome.');
     }
     if (name === 'upload_document') {
+      await assertCurrentRef(ctx, args);
       const input = target(ctx, args);
       let file: string | null = null;
       if (args.document_id) {
@@ -208,6 +236,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     }
     if (name === 'fill_fields') return fillObservedFields(ctx, args.fields as FieldWrite[]);
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
+    const coordinateClick = args.action === 'click' && typeof args.x === 'number' && typeof args.y === 'number';
+    if (!coordinateClick && ['click', 'fill', 'select', 'check', 'press', 'hover'].includes(String(args.action))) await assertCurrentRef(ctx, args);
     let actionLabel = ctx.observation.fields.find(field => field.ref === args.ref || String(args.ref ?? '').startsWith(field.ref + ':'))?.label
       ?? ctx.observation.actions.find(action => action.ref === args.ref)?.text ?? '';
     if (!actionLabel && (args.ref || args.selector)) {
@@ -297,12 +327,13 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       highEffort = false;
       lastNote = 'Inspect saved values and the current page before choosing the next action.';
       let interrupted = false;
+      let interruptionNote = 'Not run: the prior action failed, finished or exhausted the resource budget.';
       let planActions = 0;
       for (const call of reply.toolCalls) {
         let result: ToolResult;
         const tool = agentOnlyTools.find(item => item.name === call.name);
         if (interrupted || remainingMs() <= 0 || meter.exhausted || planActions >= 16) {
-          result = ok('Not run: the prior action failed, finished or exhausted the resource budget.');
+          result = ok(interruptionNote);
         } else {
           planActions++;
           try {
@@ -311,7 +342,11 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
               interrupted = true;
               result = ok('Not run: the browser changed. Read the fresh employer form before acting.');
             } else result = await act(call.name, call.args);
-          } catch (error) { result = ok(`Browser/tool error: ${(error as Error).message}`, 'failed'); }
+          } catch (error) {
+            result = error instanceof StaleObservedRefError
+              ? ok(error.message, 'reobserve')
+              : ok(`Browser/tool error: ${(error as Error).message}`, 'failed');
+          }
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });
@@ -320,7 +355,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         else if (result.disposition === 'failed') { highEffort = true; interrupted = true; lastNote = 'The last action failed. Reason through the current evidence, then recover or finish honestly.'; }
         else if (call.name === 'fill_fields' || result.disposition === 'reobserve') {
           interrupted = true;
-          lastNote = 'Read the batch write observations and fresh saved form before choosing another action. Unattempted fields still need your attention.';
+          interruptionNote = 'Not run: inspect the fresh observation and last tool result before replanning the remaining actions.';
+          lastNote = call.name === 'fill_fields'
+            ? 'Read the batch write observations and fresh saved form before choosing another action. Unattempted fields still need your attention.'
+            : 'Inspect the fresh observation and last tool result. Choose current refs before replanning; remaining actions in the prior plan were not run.';
         }
       }
       try { mkdirSync(TRACE_DIR(), { recursive: true }); writeFileSync(resolve(TRACE_DIR(), `${options.job.id}.live.json`), JSON.stringify({ jobId: options.job.id, title: options.job.title, company: options.job.company,

@@ -371,3 +371,11 @@ Run `npm run test:field-batch` for browser regression fixtures and the active
 application-loop integration tests. Account-local `pipeline-metrics.jsonl`
 records batch duration/counts without adding field values to metrics. Local
 fixture timings do not establish live application speed improvements.
+
+Observed refs used by individual actions, scoped snapshots and uploads are checked
+for existence before their action timeout starts. A missing ref retires the rest
+of that plan and returns to a fresh observation at normal reasoning effort.
+Explicit CSS selectors retain normal auto-waiting for controls that render later;
+existing refs still wait for visibility and enabled state. Radio option refs,
+shadow roots and iframe snapshot refs use their original targeting paths. The
+active-loop regression tests in `npm run test:agent` cover these handoffs.
