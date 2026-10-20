@@ -65,8 +65,8 @@ export const fetchJobDetail = async (_page, job) => {
 import { record } from './boundary.mjs';
 import { currentApplicationWorker } from ${JSON.stringify(new URL('./application-workers.js', import.meta.url).href)};
 export const launchBrowser = async () => ({});
-export const applicationWorkerContexts = async () => [0,1].map(worker => ({newPage:async()=>({worker}),close:async()=>{}}));
-export const getPage = async () => ({worker:'discovery'});
+export const applicationWorkerContexts = async () => [0,1].map(worker => ({newPage:async()=>({worker,isClosed:()=>false}),close:async()=>{}}));
+export const getPage = async () => ({worker:'discovery',isClosed:()=>false});
 export const closeBrowser = async () => {};
 export const ensureSignedIn = async page => {if(${options.failedParallelSignin === true} && typeof page.worker === 'number') throw Error('Fixture isolated session expired');};
 export const ensureIndeedSignedIn = async () => {};
@@ -90,12 +90,13 @@ export const assessFit = async job => {
 `);
     writeFileSync(join(directory, 'apply.mjs'), `
 import { record } from './boundary.mjs';
-import { authorizeReservedSubmission } from ${JSON.stringify(new URL('./application-reservations.js', import.meta.url).href)};
+import { applicationAllowance } from ${JSON.stringify(new URL('./application-allowance.js', import.meta.url).href)};
+import { isExternalApplicationUrl } from ${JSON.stringify(new URL('./job-board-url.js', import.meta.url).href)};
 export const applyToJobWithAgent = async (_page,job) => {
   record('apply',job.id);
   await new Promise(done=>setTimeout(done,job.delayMs||0));
   if(job.preSendFailure) return {status:'error',jobId:job.id,error:'Fixture failure before send'};
-  if(job.formUrl && !authorizeReservedSubmission(job.formUrl)) { record('denied',job.id); return {status:'needs-human',jobId:job.id,reason:'Exact same form'}; }
+  if(job.formUrl && !(await applicationAllowance(isExternalApplicationUrl(job.formUrl)))) { record('denied',job.id); return {status:'needs-human',jobId:job.id,reason:'Application allowance unavailable'}; }
   record('finish',job.id);
   if(job.uncertain) return {status:'error',jobId:job.id,error:'Fixture uncertain response',submitPressed:true};
   return job.lateApplied ? {status:'already-applied',jobId:job.id,reason:'Already recorded by the employer'}
@@ -181,11 +182,10 @@ test('a free account with one application left cannot send a second application'
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);
 });
 
-for (const platform of ['seek', 'indeed'] as const) test(`${platform} applied markers are skipped before fit review and leave the one-review slot for a new job`, () => {
+for (const platform of ['seek', 'indeed'] as const) test(`${platform} applied markers remain advisory during review without manufacturing a history record`, () => {
   const result = run([job('old', { platform, detailApplied: true }), job('new', { platform })], { platform });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);
-  assert.match(result.output, /skipped \(already applied\): Developer old/);
-  assert.ok(result.history.some(record => record.jobId === 'old' && record.submittedByMyasis === false));
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['old']);
+  assert.equal(result.history.length, 0, 'a board marker is advisory until the applying agent judges it');
 });
 
 test('a different listing remains eligible even when the vacancy metadata matches previous history', () => {
@@ -204,10 +204,11 @@ test('an unusable fit review does not exhaust the review budget', () => {
   assert.match(result.output, /✓ 90 · Developer new/);
 });
 
-test('an applied marker first revealed by a loading retry is also skipped before fit', () => {
+test('an applied marker revealed by a loading retry still reaches review as advisory evidence', () => {
   const result = run([job('old', { detailApplied: true, loadingFirst: true }), job('new')]);
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['old']);
   assert.equal(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length, 2);
+  assert.equal(result.history.length, 0);
 });
 
 test('duplicates found only by the employer restore the slot and allow the next new job', () => {
@@ -291,7 +292,7 @@ test('a verification wall on one board leaves the other platform reviewing and a
   assert.match(result.output, /SEEK is left out for the rest of this run/);
 });
 
-for (const fault of ['detailError', 'detailApplied', 'fitError'] as const) test(`parallel ${fault} returns the final review slot and wakes the other platform`, () => {
+for (const fault of ['detailError', 'fitError'] as const) test(`parallel ${fault} returns the final review slot and wakes the other platform`, () => {
   const result = run([
     job('seek-unusable', { [fault]: true, detailDelayMs: 30 }),
     job('indeed-fresh', { platform: 'indeed' }),
@@ -299,6 +300,17 @@ for (const fault of ['detailError', 'detailApplied', 'fitError'] as const) test(
   assert.equal(result.events.filter(event => event.stage === 'apply').length, 1);
   assert.ok(result.history.some(record => record.jobId === 'indeed-fresh' && record.submittedByMyasis));
   assert.equal(result.events.filter(event => event.stage === 'fit' && event.id === 'indeed-fresh').length, 1);
+});
+
+test('an agent-confirmed duplicate restores the review slot after advisory board metadata reaches full review', () => {
+  const result = run([
+    job('seek-duplicate', { detailApplied: true, lateApplied: true, detailDelayMs: 30 }),
+    job('indeed-fresh', { platform: 'indeed' }),
+  ], { apply: true, workers: 2, cap: 1, reviews: 1, concurrency: 3 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['seek-duplicate', 'indeed-fresh']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['seek-duplicate', 'indeed-fresh']);
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);
+  assert.ok(result.history.some(record => record.jobId === 'indeed-fresh' && record.submittedByMyasis));
 });
 
 test('an idle platform exits cleanly while the other platform reviews its remaining jobs', () => {
@@ -318,21 +330,22 @@ test('parallel workers resume fallback discovery once and share its new listings
   assert.equal(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length, 1);
   assert.ok(result.history.some(record => record.jobId === 'fallback' && record.submittedByMyasis));
 });
-test('a shared employer destination is sent once, while different platform forms for the same vacancy remain allowed', () => {
+test('the coordinator defers shared-destination decisions to the agent and permits cross-platform applications', () => {
   const result = run([
     job('seek-one', { formUrl: 'https://employer.fixture.invalid/apply?job=1', delayMs: 80 }),
     job('indeed-one', { platform: 'indeed', formUrl: 'https://employer.fixture.invalid/apply?job=1', delayMs: 100 }),
     job('indeed-other', { platform: 'indeed', formUrl: 'https://employer.fixture.invalid/other-form?job=1' }),
   ].map(item => ({...item,title:'The same vacancy'})), { apply: true, workers: 2, cap: 3, reviews: 10 });
-  assert.equal(result.events.filter(event => event.stage === 'denied').length, 1);
-  assert.equal(result.history.filter(record => record.submittedByMyasis).length, 2);
+  assert.equal(result.events.filter(event => event.stage === 'denied').length, 0);
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, 3);
 });
-test('an uncertain result consumes the shared allowance; another worker cannot exceed a one-application cap', () => {
+test('an unconfirmed result leaves the allowance available while confirmed sends still obey the shared cap', () => {
   const result = run([job('seek-one', { uncertain: true, delayMs: 50 }), job('indeed-one', { platform: 'indeed' })],
     { apply: true, workers: 2, cap: 1, reviews: 10 });
-  assert.equal(result.events.filter(event => event.stage === 'apply').length, 1);
+  assert.equal(result.events.filter(event => event.stage === 'apply').length, 2);
   assert.equal(result.history.length, 1);
-  assert.equal(result.history[0].submittedByMyasis, false);
+  assert.equal(result.history[0].submittedByMyasis, true);
+  assert.equal(result.history[0].jobId, 'indeed-one');
 });
 test('a known pre-send failure leaves the shared slot available for the other platform', () => {
   const result = run([job('seek-one', { preSendFailure: true, delayMs: 50 }), job('indeed-one', { platform: 'indeed' })],
