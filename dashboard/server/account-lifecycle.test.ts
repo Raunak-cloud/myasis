@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { beginAccountDeletion, accountUnavailable } from './account-lifecycle.js';
+import { RunPool } from './runner.js';
+import { startSignin } from './signin.js';
+import { checkSignin } from './seek-check.js';
+
+test('deletion excludes new work, drains only its own worker and releases a failed deletion for retry', async () => {
+  const pool = new RunPool();
+  const owner = '72001';
+  const peer = '72002';
+  let completed!: () => void;
+  const completion = new Promise<void>(done => { completed = done; });
+  const stopped: string[] = [];
+  const fake = (id: string, finish: Promise<void>) => ({ state: { running: true }, stop() { stopped.push(id); }, waitForFinish: () => finish });
+  const runs = new Map([[owner, fake(owner, completion)], [peer, fake(peer, Promise.resolve())]]);
+  Object.assign(pool, { runs });
+  const release = beginAccountDeletion(owner);
+  assert.equal(pool.claimStart(owner), false);
+  assert.equal((await pool.start('live', {}, owner)).ok, false);
+  assert.equal((await pool.startQueue(owner)).ok, false);
+  assert.equal((await startSignin(owner)).ok, false);
+  assert.equal(await checkSignin(owner, 'seek'), null);
+  assert.throws(() => beginAccountDeletion(owner), /already in progress/);
+  let drained = false;
+  const stopping = pool.stopForAccountDeletion(owner).then(() => { drained = true; });
+  await Promise.resolve();
+  assert.equal(drained, false, 'deletion must await worker/browser persistence cleanup');
+  assert.deepEqual(stopped, [owner]);
+  completed(); await stopping;
+  assert.equal(runs.has(owner), false, 'private in-memory run logs are released');
+  assert.equal(runs.has(peer), true, 'another account stays untouched');
+  release(false);
+  assert.equal(accountUnavailable(owner), false, 'a failed deletion can be retried');
+  const retry = beginAccountDeletion(owner); retry(true);
+  assert.equal(accountUnavailable(owner), true, 'stale work cannot recreate a deleted account');
+  assert.throws(() => beginAccountDeletion('../72002'), /Invalid account/);
+});

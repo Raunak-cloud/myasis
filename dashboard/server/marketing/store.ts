@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { getPool, one, query } from '../db/index.js';
+import { accountUnavailable } from '../account-lifecycle.js';
 import { readEnv } from '../runner.js';
 import { isAdmin } from '../billing.js';
 import type { MarketingJob, MarketingPost, MarketingSite, MarketingTopic, MarketingWorkspace } from '../../src/marketingTypes.js';
@@ -175,4 +176,4 @@ export async function saveMetrics(userId: string, siteId: string, postId: string
   if (!updated) throw new MarketingError('Published post not found.',404);
 }
 
-export async function ownerIsAdmin(userId: string): Promise<boolean> { const owner = await one<{email:string}>('SELECT email FROM users WHERE id=$1',[userId]); return isAdmin(owner?.email); }
+export async function ownerIsAdmin(userId: string): Promise<boolean> { if (accountUnavailable(userId)) return false; const owner = await one<{email:string}>('SELECT email FROM users WHERE id=$1',[userId]); return isAdmin(owner?.email); }

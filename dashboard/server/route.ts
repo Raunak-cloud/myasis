@@ -439,6 +439,11 @@ export class RouteSwitch {
 
 const switches = new Map<string, RouteSwitch>();
 
+export function forgetAccountRoute(userId: string): void {
+  switches.get(userId)?.close();
+  switches.delete(userId);
+}
+
 /** A changed setting takes effect with the account's next browser; one already open keeps the switch it started on. */
 function forget(userId: string): void {
   switches.get(userId)?.retire();

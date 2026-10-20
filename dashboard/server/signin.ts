@@ -11,6 +11,7 @@ import { releaseChromeProfile } from './chrome-profile.js';
 import { SigninInputFilter } from './signin-input.js';
 import { SigninDesktop } from './signin-desktop.js';
 import { SigninSessions, type SigninTarget } from './signin-sessions.js';
+import { accountUnavailable } from './account-lifecycle.js';
 
 const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
@@ -55,6 +56,7 @@ export const stopSignin = (userId: string) => desktops.stop(userId);
 export const stopAllSignins = () => desktops.stopAll();
 
 export async function startSignin(userId: string, target: SigninTarget = 'seek', options: { assist?: boolean; expiresAt?: number } = {}) {
+  if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
   if (!signinSupported()) return { ok: false, error: 'Remote sign-in is only available on the Linux server. On this machine, use the local Chrome sign-in instead.' };
   return desktops.start(userId, target, options.assist !== false, options.expiresAt);
 }

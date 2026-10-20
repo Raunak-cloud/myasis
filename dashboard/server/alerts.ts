@@ -9,6 +9,7 @@ import { readEnv } from './runner.js';
 import { readSiteState } from './seek-state.js';
 import { accountSetupChecks } from './setup.js';
 import { PAID_PLANS } from '../src/pricing.js';
+import { accountUnavailable } from './account-lifecycle.js';
 
 /**
  * Emails about the things that stop an account working.
@@ -199,8 +200,9 @@ const EMAIL_ALERTS_KEY = 'EMAIL_ALERTS';
 
 /** On unless the account has switched them off. */
 export async function alertsEnabled(userId: string): Promise<boolean> {
+  if (accountUnavailable(userId)) return false;
   const row = await one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, EMAIL_ALERTS_KEY]);
-  return row?.value !== 'off';
+  return !accountUnavailable(userId) && row?.value !== 'off';
 }
 
 export async function setAlertsEnabled(userId: string, enabled: boolean): Promise<void> {

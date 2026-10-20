@@ -15,6 +15,7 @@ import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import { applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentModeForAccount } from './application-agent-policy.js';
+import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -656,6 +657,16 @@ export class RunPool {
     return Promise.all([...this.runs.values()].map((run) => run.waitForFinish())).then(() => {});
   }
 
+  async stopForAccountDeletion(userId: string): Promise<void> {
+    if (this.starting.has(userId) || this.preparing.has(userId) || browserBenchmarkInProgress(userId)) {
+      throw new AccountDeletionError('A run or browser check is being prepared. Please try deleting your account again shortly.');
+    }
+    const run = this.runs.get(userId);
+    if (run?.state.running) run.stop();
+    await run?.waitForFinish();
+    this.runs.delete(userId);
+  }
+
   activeCount(): number {
     let n = 0;
     for (const run of this.runs.values()) if (run.occupiesSlot) n += run.workerSlots;
@@ -697,7 +708,7 @@ export class RunPool {
 
   /** A run is starting or holds this account's browser; nothing else may open it. */
   inUse(userId: string): boolean {
-    return this.starting.has(userId) || Boolean(this.runs.get(userId)?.occupiesSlot) || browserBenchmarkInProgress(userId);
+    return accountUnavailable(userId) || this.starting.has(userId) || Boolean(this.runs.get(userId)?.occupiesSlot) || browserBenchmarkInProgress(userId);
   }
 
   browserPortFor(userId: string): number | null {
@@ -739,6 +750,7 @@ export class RunPool {
     runStartId?: string | null,
     keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {
+    if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
     this.sweep();
     const full = this.atCapacity(userId);
     if (full) return { ok: false, error: full };
@@ -762,6 +774,7 @@ export class RunPool {
   }
 
   async startQueue(userId: string, overrides: Record<string, string> = {}, runStartId?: string | null): Promise<{ ok: boolean; error?: string }> {
+    if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
     this.sweep();
     const full = this.atCapacity(userId);
     if (full) return { ok: false, error: full };

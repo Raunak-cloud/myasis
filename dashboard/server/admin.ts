@@ -4,7 +4,9 @@ import { previewOperatorAlerts } from './operator-alerts.js';
 import { homeRoutePort, proxySummary, routeStatus, setHomeRoutePort, setProxy, type RouteStatus } from './route.js';
 import { pooledProxyFor, poolEnabled, poolReport, reconcilePool, syncPool } from './proxy-pool.js';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { deleteAccount } from './account-deletion.js';
+import { AccountDeletionError } from './account-lifecycle.js';
 import { basename, resolve } from 'node:path';
 import { getPool, one, query } from './db/index.js';
 import { currentUser, type SessionUser } from './auth.js';
@@ -403,30 +405,6 @@ async function setBlocked(user: UserRecord, blocked: boolean): Promise<void> {
   await query('UPDATE users SET blocked_at = $2 WHERE id = $1', [user.id, blocked ? new Date() : null]);
 }
 
-/**
- * Removes an account and everything it owns, for good.
- *
- * The database rows go with the user row (every table cascades), the visit
- * records that named the account go too, and its directory — resumes,
- * knowledge, run logs, traces, the Chrome profile with its job-board
- * sessions — is destroyed rather than moved aside. Earlier deletions parked
- * their files under `deleted/`; any left there for this account are removed
- * as well, so nothing of it remains on the machine.
- */
-async function deleteAccount(user: UserRecord): Promise<void> {
-  await cutOff(user);
-  await query('DELETE FROM page_views WHERE user_id = $1', [user.id]);
-  await query('DELETE FROM users WHERE id = $1', [user.id]);
-  const dir = userDir(user.id);
-  rmSync(dir, { recursive: true, force: true });
-  const bin = resolve(dir, '..', '..', 'deleted');
-  if (existsSync(bin)) {
-    for (const entry of readdirSync(bin)) {
-      if (entry.startsWith(`${user.id}-`)) rmSync(resolve(bin, entry), { recursive: true, force: true });
-    }
-  }
-}
-
 /** A saved run log, or the live lines of a run still going. */
 async function runLog(runId: string): Promise<{ lines: Array<{ stream: string; text: string; ts: string }>; live: boolean; userId: string } | null> {
   if (!/^\d+$/.test(runId)) return null;
@@ -718,6 +696,6 @@ export async function handleAdminRequest(
         return send({ error: 'Unknown admin action.' }, 404);
     }
   } catch (error) {
-    return send({ error: (error as Error).message }, 500);
+    return send({ error: (error as Error).message }, error instanceof AccountDeletionError ? error.status : 500);
   }
 }

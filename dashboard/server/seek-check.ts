@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, openSync, statSync, truncateSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BOT_DIR, readEnv, runner, MAX_CONCURRENT } from './runner.js';
@@ -9,6 +9,7 @@ import { browserRoute } from './route.js';
 import { chromeGoogleAccounts } from './chrome-accounts.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
+import { accountUnavailable } from './account-lifecycle.js';
 
 /**
  * Finds out whether an account is really signed in to SEEK.
@@ -35,10 +36,17 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 const CHECK_TIMEOUT_MS = 240_000;
 const LOCK_WAIT_MS = 6_000;
 const inFlight = new Map<string, Promise<SeekState | null>>();
+const probes = new Map<string, ChildProcess>();
 let nextPortOffset = 0;
 
 export function seekCheckInProgress(userId: string, site: SigninSite = 'seek'): boolean {
   return inFlight.has(`${userId}:${site}`);
+}
+
+export async function stopSigninChecks(userId: string): Promise<void> {
+  const prefix = `${userId}:`;
+  for (const [key, child] of probes) if (key.startsWith(prefix)) child.kill('SIGKILL');
+  await Promise.all([...inFlight.entries()].filter(([key]) => key.startsWith(prefix)).map(([, task]) => task.catch(() => null)));
 }
 
 /** Wait until this account's sign-in probes have released its Chrome profile. */
@@ -131,6 +139,7 @@ function checkPort(): number {
  * that cannot run leaves the prompt where it was, which is the safe outcome.
  */
 export function checkSignin(userId: string, site: SigninSite, repair = true): Promise<SeekState | null> {
+  if (accountUnavailable(userId)) return Promise.resolve(null);
   const key = `${userId}:${site}`;
   const running = inFlight.get(key);
   if (running) return running;
@@ -149,6 +158,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
 
     // The same route a run would take: a session checked from one address and used from another is its own red flag.
     const route = await browserRoute(userId);
+    if (accountUnavailable(userId)) return known();
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
@@ -168,6 +178,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
 
     await new Promise<void>((done) => {
       const child = spawn(process.execPath, ['dist/check-signin.js'], { cwd: BOT_DIR, env, stdio: ['ignore', logFile, logFile] });
+      probes.set(key, child);
       const timer = setTimeout(() => child.kill('SIGKILL'), repair ? CHECK_TIMEOUT_MS : 30_000);
       child.on('error', () => {
         clearTimeout(timer);
@@ -177,7 +188,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
         clearTimeout(timer);
         done();
       });
-    }).finally(() => closeSync(logFile));
+    }).finally(() => { probes.delete(key); closeSync(logFile); });
     return known();
   })().finally(() => inFlight.delete(key));
 

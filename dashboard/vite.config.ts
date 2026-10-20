@@ -54,6 +54,9 @@ import { handleAdminRequest } from './server/admin.js';
 import { routeStatus } from './server/route.js';
 import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
 import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
+import { dailySummaryEnabled, setDailySummaryEnabled } from './server/email-preferences.js';
+import { deleteAccount } from './server/account-deletion.js';
+import { AccountDeletionError } from './server/account-lifecycle.js';
 import { setUpFromResume } from './server/quick-setup.js';
 import { startRun, expectedSalaryRefusal } from './server/start-run.js';
 import { runDeviceFromHeaders } from './src/run-device.js';
@@ -496,6 +499,43 @@ function dataApi(): Plugin {
             await setAlertsEnabled(userId, body.enabled);
           }
           return send({ enabled: await alertsEnabled(userId) });
+        });
+      }
+
+      // ---- daily email preference and self-service account removal ----
+      case '/api/daily-summary': {
+        if (req.method !== 'GET' && req.method !== 'POST') return send({ error: 'GET or POST required.' }, 405);
+        return withUser(async (userId) => {
+          if (req.method === 'POST') {
+            if (!upgradeOriginAllowed(req)) return send({ error: 'Use Settings on this website to change email preferences.' }, 403);
+            const body = await readBody();
+            if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether the emails should be on or off.' }, 400);
+            await setDailySummaryEnabled(userId, body.enabled);
+          }
+          return send({ enabled: await dailySummaryEnabled(userId) });
+        });
+      }
+      case '/api/account': {
+        if (req.method !== 'GET' && req.method !== 'DELETE') return send({ error: 'GET or DELETE required.' }, 405);
+        return currentUser(req.headers.cookie).then(async (user) => {
+          if (!user) return send({ error: 'Sign in required.' }, 401);
+          if (req.method === 'GET') return send({ email: user.email });
+          if (!upgradeOriginAllowed(req) || !req.headers['content-type']?.startsWith('application/json')) {
+            return send({ error: 'Use Settings on this website to delete your account.' }, 403);
+          }
+          const body = await readBody();
+          if (typeof body?.confirmEmail !== 'string' || body.confirmEmail.trim().toLowerCase() !== user.email.toLowerCase()) {
+            return send({ error: 'Type your account email to confirm deletion.' }, 400);
+          }
+          try {
+            await deleteAccount(user);
+            res.setHeader('Set-Cookie', await logout(req.headers.cookie));
+            return send({ ok: true });
+          } catch (error) {
+            if (error instanceof AccountDeletionError) return send({ error: error.message }, error.status);
+            console.warn('[account-deletion] failed:', (error as Error).message);
+            return send({ error: 'Your account could not be fully deleted. Please retry or contact support.' }, 503);
+          }
         });
       }
 

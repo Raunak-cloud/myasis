@@ -3,6 +3,7 @@ import { query } from './db/index.js';
 import { readEnv } from './runner.js';
 import { loadAttention } from './attention.js';
 import { RUN_TIME_ZONE } from './entitlements.js';
+import { dailySummaryEnabled, DAILY_SUMMARY_KEY } from './email-preferences.js';
 
 /** The evening summary goes out from this local hour. Runs happen at any hour; the email should not. */
 const DIGEST_HOUR = 21;
@@ -168,8 +169,9 @@ export async function sendDailyDigests(now: Date = new Date()): Promise<string[]
     `SELECT u.id::text AS id, u.email, u.name
        FROM users u
        LEFT JOIN daily_digests d ON d.user_id = u.id AND d.day = $1::date
-      WHERE d.user_id IS NULL AND u.blocked_at IS NULL`,
-    [day],
+      WHERE d.user_id IS NULL AND u.blocked_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM settings s WHERE s.user_id = u.id AND s.key = $2 AND s.value = 'off')`,
+    [day, DAILY_SUMMARY_KEY],
   );
   if (!users.length) return [];
 
@@ -195,6 +197,12 @@ export async function sendDailyDigests(now: Date = new Date()): Promise<string[]
 
     const { subject, text, html } = renderDigest(digest, config.dashboardUrl);
     try {
+      // Recheck after gathering/claiming: an opt-out or deletion may have
+      // happened since the scheduler selected this account.
+      if (!await dailySummaryEnabled(user.id)) {
+        await query('DELETE FROM daily_digests WHERE user_id = $1 AND day = $2::date', [user.id, day]);
+        continue;
+      }
       const result = await resend.emails.send({ from: config.from, to: user.email, subject, text, html });
       if (result.error) throw new Error(result.error.message);
       sent.push(user.email);

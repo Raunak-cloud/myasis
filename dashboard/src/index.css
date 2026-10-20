@@ -471,6 +471,8 @@ tbody tr.clickable { cursor: pointer; }
 .run-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .btn-danger { border-color: var(--bad); color: var(--bad); }
 .btn-danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+.account-deletion { border-color: var(--bad); padding: 20px; }
+.account-deletion .confirm-actions { flex-wrap: wrap; }
 .banner-bad { border-color: var(--bad); background: var(--bad-soft); }
 .banner-ok { border-color: var(--ok); background: var(--ok-soft); }
 

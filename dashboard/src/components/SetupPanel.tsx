@@ -1,4 +1,5 @@
-import { EmailAlertsToggle } from './EmailAlertsToggle';
+import { EmailAlertsToggle, DailySummaryToggle } from './EmailAlertsToggle';
+import { DeleteAccount } from './DeleteAccount';
 import { useEffect, useState } from 'react';
 import { GmailConnect } from './GmailConnect';
 import { FilesPanel } from './FilesPanel';
@@ -365,7 +366,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
         )}
       </div>}
 
-      {!inline && <EmailAlertsToggle />}
+      {!inline && <><EmailAlertsToggle /><DailySummaryToggle /><DeleteAccount /></>}
 
       {dirty && (
         <div className="save-bar">

@@ -1,6 +1,7 @@
 import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { query, one } from './db/index.js';
 import { readEnv } from './runner.js';
+import { accountUnavailable } from './account-lifecycle.js';
 
 /**
  * Google sign-in and sessions.
@@ -226,12 +227,13 @@ export async function handleGoogleCallback(
 export async function currentUser(cookieHeader?: string): Promise<SessionUser | null> {
   const token = parseCookies(cookieHeader)[SESSION_COOKIE];
   if (!token) return null;
-  return one<SessionUser>(
+  const user = await one<SessionUser>(
     `SELECT u.id::text AS id, u.email, u.name, u.avatar_url AS "avatarUrl"
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token = $1 AND s.expires_at > now() AND u.blocked_at IS NULL`,
     [token],
   );
+  return user && !accountUnavailable(user.id) ? user : null;
 }
 
 export async function logout(cookieHeader?: string): Promise<string> {
