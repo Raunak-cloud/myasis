@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
@@ -8,9 +8,10 @@ import type { JobListing } from '../types.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-agent-only-'));
 process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
 process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
-Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only',
-  APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false' });
+Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_CORPUS_DIR: join(directory, 'form-corpus'),
+  ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false' });
 process.env.APPLICATION_AI_MODEL = 'celeris';
+const { applicationFailureContext } = await import('../application-diagnostics.js');
 writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Availability', answer: 'Weekends only' }]));
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Private candidate CV evidence: pharmacy placement.');
@@ -81,6 +82,7 @@ try {
   const effort = (body: Body) => body.chat_template_kwargs?.reasoning_effort;
   assert.equal(effort(turns[0]), 'medium'); assert.equal(effort(turns[2]), 'xhigh');
   assert.match(readFileSync(join(directory, 'traces', 'agent-only-retry.json'), 'utf8'), /ABC123/);
+  assert.ok(existsSync(join(directory, 'form-corpus')), 'the sole agent retains private form replay recording');
   assert.equal(JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8')).length, 1, 'driver does not mutate history or reserve duplicate claims');
 
   await page.goto(url);
@@ -128,13 +130,29 @@ try {
   assert.equal(dryRun.outcome.status, 'rehearsed'); assert.equal(await page.evaluate('window.presses ?? 0', undefined, undefined, false), 0);
   script = [() => [{ name: 'finish', args: { status: 'applied', reason: 'Pretend', evidence: 'No actual receipt' } }]];
   assert.equal((await runApplicationAgent({ page, job: { ...job, id: 'agent-dry-finish' } as never, profile, log: () => {} })).outcome.status, 'rehearsed');
-  const before = turns.length;
-  await assert.rejects(withApplicationModel({ ...process.env, APPLICATION_AGENT_MODE_AUTHORIZED: 'false' }, async () => {
-    const { runAgentOnlyApplication } = await import('./agent-only.js');
-    return runAgentOnlyApplication({ page, job, profile });
-  }), /trusted admin/);
-  assert.equal(turns.length, before);
   config.dryRun = false;
+  for (const legacyMode of [undefined, 'protected', 'agent-only']) {
+    script = [body => {
+      const names = (body.tools ?? []).map(tool => (tool as { function: { name: string } }).function.name);
+      assert.ok(names.includes('browser_action') && !names.includes('answer_questions'));
+      return [{ name: 'finish', args: { status: 'skipped', reason: 'Default engine checked', evidence: 'Fixture page' } }];
+    }];
+    const normal = await withApplicationModel({ ...process.env, APPLICATION_AGENT_MODE: legacyMode,
+      APPLICATION_AGENT_MODE_AUTHORIZED: undefined }, () => runApplicationAgent({ page, job, profile, log: () => {} }));
+    assert.equal(normal.outcome.status, 'skipped', 'ordinary accounts and stale settings use the same sole engine');
+  }
+  await page.goto(url);
+  const modelFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async (...args) => ++requests === 1 ? modelFetch(...args) : new Response('{}', { status: 401 });
+  script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } }]];
+  try {
+    await assert.rejects(() => runApplicationAgent({ page, job: { ...job, id: 'agent-provider-failure' }, profile, log: () => {} }), error => {
+      assert.equal(applicationFailureContext(error)?.submitPressed, true, 'failure reporting retains possible-send evidence without adding a veto');
+      return error instanceof Error && /401/.test(error.message);
+    });
+  } finally { globalThis.fetch = modelFetch; }
+  assert.ok(readFileSync(join(directory, 'traces', 'agent-provider-failure.failures.jsonl'), 'utf8').includes('"submitPressed":true'));
   const maxMs = config.celeris.maxTotalMs;
   config.celeris.maxTotalMs = 1500;
   await page.goto(url);
@@ -145,5 +163,5 @@ try {
   assert.equal(page.isClosed(), true, 'outstanding script cannot continue into the next application');
   assert.ok(Date.now() - started < 8000, 'resource deadline retires an indefinitely pending browser script');
   config.celeris.maxTotalMs = maxMs;
-  console.log(`Agent-only ${'Celeris'}: retry/receipt, full evidence, direct scripts, medium/high effort, quota, dry-run and authorization fixtures passed.`);
+  console.log(`Agent-only ${'Celeris'}: retry/receipt, full evidence, direct scripts, medium/high effort, quota, dry-run and default-account fixtures passed.`);
 } finally { await browser.close(); rmSync(directory, { recursive: true, force: true }); }

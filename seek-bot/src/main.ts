@@ -1,61 +1,55 @@
-import { measured, metric } from './pipeline.js';
-import { applicationFailureContext } from './application-diagnostics.js';
-import { pickResumeForJob } from './resume.js';
-import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey, ruleConflict, type FitAssessment } from './llm.js';
-import { applicationKeys } from './application-identity.js';
-import { ApplicationReservations, withApplicationAttempt } from './application-reservations.js';
-import { ApplicationSlots, AsyncMutex, withApplicationWorker } from './application-workers.js';
-import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
-import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
-import { config, loadProfile } from './config.js';
-import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
-import { isAgentOnlyApplication } from './application-agent-mode.js';
-import { withApplicationAllowance } from './application-allowance.js';
-import { applicationWorkerPage } from './application-worker-page.js';
-import {
-  launchBrowser,
-  applicationWorkerContexts,
-  closeBrowser,
-  getPage,
-  ensureSignedIn,
-  ensureIndeedSignedIn,
-  workingIn,
-  showLiveActivity,
-  jitter,
-} from './browser.js';
-import { judgePage, WALL_STATES } from './blocker.js';
-import { recommended, search, fetchJobDetail } from './discovery.js';
-import {
-  recommended as recommendedIndeed,
-  search as searchIndeed,
-  fetchJobDetail as fetchJobDetailIndeed,
-} from './discovery-indeed.js';
-import { scoreJob, deterministicExclusion, meetsMinimumScore } from './scoring.js';
-import { SitePacer } from './pacing.js';
-import { settleReviews } from './agent/lessons.js';
-import { applyToIndeedJob } from './apply-indeed.js';
-import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
-import { AppliedIndex, logOutcome, recentReviewFeedback, saveRunSummary, syncFromSeek } from './store.js';
-import { savedAnswerTimes } from './knowledge.js';
-import { waitingForAnswers } from './answer-gate.js';
-import { countHealth } from './run-health.js';
-import { enabledPlatforms, type PlatformId } from './platforms.js';
-import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import type { BrowserContext, Page } from 'patchright';
-import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
-import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
-import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
-import { runDirectExternalApplication } from './direct-external.js';
-import { SmartRecruitersDiscovery, SMARTRECRUITERS_PAGE_SIZE } from './smartrecruiters.js';
-import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
-import { EmployerFeedDiscovery, EMPLOYER_FEED_PAGE_SIZE } from './employer-feeds.js';
+import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
+import { settleReviews } from './agent/lessons.js';
+import { withApplicationAllowance } from './application-allowance.js';
+import { applicationFailureContext } from './application-diagnostics.js';
+import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
+import { applicationWorkerPage } from './application-worker-page.js';
+import { ApplicationSlots, AsyncMutex, withApplicationWorker } from './application-workers.js';
+import { applyToIndeedJob } from './apply-indeed.js';
+import { judgePage, WALL_STATES } from './blocker.js';
 import {
-  DISCOVERY_PRIORITY_FLOOR,
-  discoveryTarget as calculateDiscoveryTarget,
-  nextLowYieldStreak,
-  shouldStopDiscovery,
+applicationWorkerContexts,
+closeBrowser,
+ensureIndeedSignedIn,
+ensureSignedIn,
+getPage,
+jitter,
+launchBrowser,
+showLiveActivity,
+workingIn,
+} from './browser.js';
+import { config, loadProfile } from './config.js';
+import { runDirectExternalApplication } from './direct-external.js';
+import {
+fetchJobDetail as fetchJobDetailIndeed,
+recommended as recommendedIndeed,
+search as searchIndeed,
+} from './discovery-indeed.js';
+import {
+discoveryTarget as calculateDiscoveryTarget,
+DISCOVERY_PRIORITY_FLOOR,
+nextLowYieldStreak,
+shouldStopDiscovery,
 } from './discovery-policy.js';
+import { fetchJobDetail, recommended, search } from './discovery.js';
+import { EMPLOYER_FEED_PAGE_SIZE, EmployerFeedDiscovery } from './employer-feeds.js';
+import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
+import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
+import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
+import { assessFit, rankJobsForReview, reviewKey, ruleConflict, type FitAssessment } from './llm.js';
+import { SitePacer } from './pacing.js';
+import { measured, metric } from './pipeline.js';
+import { enabledPlatforms, type PlatformId } from './platforms.js';
+import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
+import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
+import { countHealth } from './run-health.js';
+import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
+import { deterministicExclusion, meetsMinimumScore, scoreJob } from './scoring.js';
+import { SMARTRECRUITERS_PAGE_SIZE, SmartRecruitersDiscovery } from './smartrecruiters.js';
+import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
+import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -138,7 +132,6 @@ if (employerFeedsEnabled(process.env)) {
 
 async function main() {
   const startedAt = performance.now();
-  const agentOnly = isAgentOnlyApplication();
   const profile = loadProfile();
   const directExternalUrl = process.env.DIRECT_EXTERNAL_JOB_URL
     ? await assertExternalJobUrl(process.env.DIRECT_EXTERNAL_JOB_URL)
@@ -189,11 +182,6 @@ async function main() {
       submittedByMyasis: false,
     });
   };
-  const previousApplication = (job: JobListing): string | null => agentOnly ? null : job.alreadyApplied
-    ? job.appliedNote || 'The job board confirms an earlier application to this role.'
-    : index.hasApplication(job)
-      ? 'An application through this listing or form is already recorded.'
-      : null;
   const already = index.appliedToday();
   console.log(`Known applications: ${index.all.length} (${already} today)`);
 
@@ -256,8 +244,6 @@ async function main() {
       console.log(`
 ⚠ ${adapter.label}: ${(error as Error).message} ${adapter.label} is left out for the rest of this run; the other board(s) carry on.`);
     };
-    const feedback = recentReviewFeedback();
-    const answeredAt = savedAnswerTimes();
 
     /** Keep enough backups for unavailable/already-applied listings. */
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
@@ -273,17 +259,8 @@ async function main() {
         if (seen.has(key)) continue;
         seen.set(key, job);
 
-        const appliedReason = previousApplication(job);
-        if (appliedReason) {
-          bump('already applied');
-          if (job.alreadyApplied) rememberExistingApplication(job, appliedReason);
-          continue;
-        }
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
-        if (!agentOnly && waitingForAnswers(feedback.get(JSON.stringify([job.id, job.title, job.company])), answeredAt)) {
-          bump('waiting for your answer');
-          continue;
-        }
+
         const prior = reviewCache.suppression(job, reviewContext);
         if (prior) {
           bump(`recent ${prior.disposition}`);
@@ -733,15 +710,6 @@ async function main() {
 
     /** Reviews the next listing in the pre-ranked queue. */
     const jobLabel = (job: JobListing) => `${job.title} @ ${job.company}`;
-    const skipPreviousApplication = (job: JobListing): boolean => {
-      const reason = previousApplication(job);
-      if (!reason) return false;
-      rememberExistingApplication(job, reason);
-      bump('already applied');
-      console.log(`  – skipped (already applied): ${jobLabel(job)}`);
-      logOutcome({ status: 'already-applied', jobId: job.id, reason, title: job.title, company: job.company });
-      return true;
-    };
     const reviewNext = async (reviewPage: Page, accept: (job: JobListing) => boolean): Promise<void> => {
       if (reviewDone()) return;
       if (qualified >= candidateCap) {
@@ -763,7 +731,6 @@ async function main() {
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id) || abortedPlatforms.has(adapter.id)) return;
       // History may have changed since discovery while another application was sent.
-      if (skipPreviousApplication(stub)) return;
       if (stub.applicationMode && stub.applicationMode !== 'unknown' && outsideScope(stub.applicationMode)) {
         bump('outside run scope');
         return;
@@ -806,7 +773,6 @@ async function main() {
           // Board history includes applications made by hand or on another device.
           // Check it before reading pauses and fit/model calls; an early return
           // gives the temporary evaluation reservation back to the run.
-          if (skipPreviousApplication(job)) return;
 
           // Resolve run scope as soon as the listing CTA is known. In particular,
           // do not make a page-judgement model call or simulate reading time for an
@@ -877,13 +843,7 @@ async function main() {
               job = await measured('detail-retry', () => adapter.fetchJobDetail(reviewPage, stub), { jobId: stub.id });
               if (!job.description) verdict = await judgePage(reviewPage, expected);
             }
-            if (!agentOnly && verdict.state === 'already-applied') {
-              console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
-              bump('already applied');
-              rememberExistingApplication(job, verdict.reason);
-              logOutcome({ status: 'already-applied', jobId: job.id, reason: verdict.reason, title: job.title, company: job.company });
-              return;
-            }
+
             if (!job.description) {
               if (WALL_STATES.has(verdict.state)) {
                 const reason = `${verdict.state === 'captcha' ? 'CAPTCHA' : verdict.state === 'login' ? 'Login wall' : 'Verification gate'} before AI fit review — ${verdict.reason}`;
@@ -901,7 +861,6 @@ async function main() {
           }
 
           // A loading retry can be the first read to reveal the board's applied marker.
-          if (skipPreviousApplication(job)) return;
 
           // Both reviewers share the same model concurrency ceiling. Recheck after
           // every await before starting another call; page reading stays parallel.
@@ -1037,38 +996,16 @@ async function main() {
       );
       return;
     }
-
-    /**
-     * Prepare the next job's checked letter during the pause.
-     */
-    const prepare = (job: JobListing) => {
-      if (agentOnly) return;
-      void finishedCoverLetterForJob(job, profile).catch(() => {});
-      void pickResumeForJob(job, profile).catch(() => {});
-    };
     /**
      * A pause spent reviewing. A listing takes about ten seconds (the page and
      * its reading pause), so a new one is only started while at least that
      * much of the pause is left; whatever remains is then waited out.
-     *
-     * The next job's letter starts as soon as there is a next job. It used to
-     * start only if one had already qualified when the pause began, and
-     * usually none had: the one applied for next qualified during the pause,
-     * so its letter was written inside the form, 21–44 s of every application
-     * (1 Oct, all seven). Checked again after each listing reviewed.
      */
     const REVIEW_STEP_MS = 10_000;
-    const pauseWhileReviewing = async (minMs: number, maxMs: number, prepareNext: boolean, reviewPage: Page, accept: (job: JobListing) => boolean) => {
+    const pauseWhileReviewing = async (minMs: number, maxMs: number, reviewPage: Page, accept: (job: JobListing) => boolean) => {
       const until = Date.now() + Math.floor(minMs + Math.random() * (maxMs - minMs));
-      let prepared: JobListing | undefined;
-      const prepareBest = () => {
-        const best = prepareNext ? bestCandidate(accept)?.job : undefined;
-        if (best && best !== prepared) prepare((prepared = best));
-      };
-      prepareBest();
       while (Date.now() < until - REVIEW_STEP_MS && !reviewExhausted()) {
         if (!await advanceReview(reviewPage, accept, false)) break;
-        prepareBest();
       }
       const left = until - Date.now();
       if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
@@ -1077,12 +1014,11 @@ async function main() {
      * The pause before the next application. A cooldown only protects the
      * next interaction, so a run with nothing left to do does not wait it out.
      */
-    const cooldown = async (full: boolean, prepareNext: boolean, reviewPage: Page, accept: (job: JobListing) => boolean) => {
+    const cooldown = async (full: boolean, reviewPage: Page, accept: (job: JobListing) => boolean) => {
       if (reviewExhausted() && !bestCandidate(accept)) return;
       await pauseWhileReviewing(
         full ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
         full ? config.limits.maxDelayMs : config.limits.maxNonSubmitDelayMs,
-        prepareNext,
         reviewPage,
         accept,
       );
@@ -1093,13 +1029,10 @@ async function main() {
 
     /** Employer-site applications actually SUBMITTED today, across runs. Failures cost model calls but not allowance. */
     let externalSubmitted = config.limits.externalAttemptsToday;
-    const attemptedForms = new Set<string>();
-    const journal = agentOnly ? null : new ApplicationReservations(config.dataDir);
-    const recovered = journal?.unrecordedToday(index.all) ?? { applications: 0, external: 0 };
     const slots = new ApplicationSlots({ run: config.limits.maxApplicationsPerRun,
       day: config.limits.maxApplicationsPerDay, external: config.limits.maxExternalPerDay,
-      appliedToday: () => index.appliedToday() + recovered.applications,
-      externalToday: config.limits.externalAttemptsToday + recovered.external });
+      appliedToday: () => index.appliedToday(),
+      externalToday: config.limits.externalAttemptsToday });
     const parallel = process.env.APPLICATION_WORKERS === '2' && active.some(adapter => adapter.id === 'seek')
       && active.some(adapter => adapter.id === 'indeed');
     const contexts: BrowserContext[] = [];
@@ -1113,7 +1046,7 @@ async function main() {
         if (applied + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : 0) >= config.limits.maxApplicationsPerRun) break;
         // An application deadline retires its outstanding browser work. Start
         // the next review/attempt in this same isolated worker session.
-        if (agentOnly) {
+        {
           const previousPage = applicationPage;
           applicationPage = await applicationWorkerPage(previousPage);
           // Single-worker fallback discovery shares this page. Keep that
@@ -1154,18 +1087,7 @@ async function main() {
           }
 
           // Check this exact listing/form again: another attempt may have finished since discovery.
-          if (previousApplication(job)) {
-            restoreReviewSlot(job, true);
-            console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
-            logOutcome({ status: 'skipped', jobId: job.id, reason: 'already applied through this listing or form', title: job.title, company: job.company });
-            continue;
-          }
-          const forms = applicationKeys(job);
-          if (!agentOnly && forms.some(key => attemptedForms.has(key))) {
-            restoreReviewSlot(job, true);
-            logOutcome({ status: 'skipped', jobId: job.id, reason: 'This exact application form was already attempted this run.', title: job.title, company: job.company });
-            continue;
-          }
+
           if (job.applicationMode === 'external') {
             if (externalSubmitted >= config.limits.maxExternalPerDay) {
               console.log(`  – skipped (daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached): ${job.title} @ ${job.company}`);
@@ -1200,36 +1122,16 @@ async function main() {
             console.log('Shared application allowance is reached; this worker is finished.');
             break;
           }
-          let attemptId: string | null = null;
-          try { attemptId = journal?.acquire(job) ?? null; }
-          catch (error) { slot.finish(false); throw error; }
-          if (!agentOnly && !attemptId) {
-            slot.finish(false);
-            restoreReviewSlot(job, true);
-            console.log(`  \u2013 skipped (same form reserved or previously sent): ${job.title} @ ${job.company}`);
-            logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company,
-              reason: 'This exact form is reserved, previously submitted, or awaiting confirmation after an interrupted attempt.' });
-            continue;
-          }
-          if (!agentOnly) for (const key of forms) attemptedForms.add(key);
+
           let finalOutcome: ApplyOutcome | undefined;
           let finalized = false;
           const finalize = () => {
             if (finalized) return;
             finalized = true;
-            if (agentOnly) {
-              slot.finish(finalOutcome?.status === 'applied');
-              return;
-            }
-            let mayHaveSent = true;
-            try { mayHaveSent = journal!.finish(attemptId!, finalOutcome); }
-            finally { slot.finish(mayHaveSent || (config.dryRun && process.env.REHEARSE === 'true' && finalOutcome?.status === 'rehearsed')); }
+            slot.finish(finalOutcome?.status === 'applied');
           };
           try {
             console.log(`\n→ Applying: ${job.title} @ ${job.company}`);
-            // The letter is written while the listing opens and the form's first steps are filled,
-            // not when the agent reaches the letter box. Already under way for every job but a run's first.
-            prepare(job);
 
             /**
              * A dead browser must not take the whole run's reporting with it. It is
@@ -1238,29 +1140,20 @@ async function main() {
              * trace — and has to be explicit that this job was NOT submitted.
              */
             let outcome: ApplyOutcome;
-            let candidateHitFriction = false;
             // Applying opens the board's listing again: a search just made there still has its gap to run out.
             await showLiveActivity({ phase: 'waiting', detail: 'Pausing before opening this application.' });
             await sitePacer.ready(platformId);
             await showLiveActivity({ phase: 'applying', detail: `${job.title} at ${job.company}` }, applicationPage);
             try {
               const apply = () => measured('application', () => adapter.apply(applicationPage, job, profile, {
-                onFriction: () => {
-                  if (agentOnly) return;
-                  candidateHitFriction = true;
-                  frictionStreak.set(platformId, (frictionStreak.get(platformId) ?? 0) + 1);
-                },
+                onFriction: () => {},
               }), { jobId: job.id, platform: platformId });
-              outcome = agentOnly ? await withApplicationAllowance(slot.beforeSubmit, apply)
-                : await withApplicationAttempt({ journal: journal!, id: attemptId!, job, beforeSubmit: slot.beforeSubmit }, apply);
+              outcome = await withApplicationAllowance(slot.beforeSubmit, apply);
             } catch (err) {
               const msg = (err as Error).message;
               const submitPressed = applicationFailureContext(err)?.submitPressed === true;
               finalOutcome = { status: 'error', jobId: job.id, error: msg, submitPressed };
-              if (submitPressed && !agentOnly) {
-                countHealth('unconfirmedSubmits');
-                rememberExistingApplication(job, 'Submit was pressed before an application error; receipt is uncertain and it will not be retried automatically.');
-              }
+
               if (/Target page, context or browser has been closed|browser has disconnected|Target closed/i.test(msg)) {
                 console.log(
                   `\n🛑 The browser closed mid-run — "${job.title} @ ${job.company}" submission was not confirmed.\n` +
@@ -1280,7 +1173,7 @@ async function main() {
               console.log(`  ✗ unexpected error: ${msg}`);
               logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company });
               // It may have failed halfway through the board's form, so the next request still keeps its distance.
-              await cooldown(candidateHitFriction, !candidateHitFriction, applicationPage, accept);
+              await cooldown(false, applicationPage, accept);
               continue;
             }
             finalOutcome = outcome;
@@ -1290,11 +1183,6 @@ async function main() {
             if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');
             if (outcome.status === 'applied') countHealth('applied');
             if (outcome.status === 'needs-human') countHealth('needsHuman');
-            if (!agentOnly && outcome.submitPressed && outcome.status !== 'applied' && outcome.status !== 'rehearsed') {
-              countHealth('unconfirmedSubmits');
-              rememberExistingApplication(job, 'Submit was pressed on the employer form, so it may have been received; not retried automatically.');
-              console.log('  ℹ submit was pressed on this form, so it will not be retried automatically');
-            }
 
             switch (outcome.status) {
               case 'applied':
@@ -1356,18 +1244,6 @@ async function main() {
             }
 
             finalize();
-            const streak = frictionStreak.get(platformId) ?? 0;
-            if (!agentOnly && streak >= config.limits.frictionAbortThreshold) {
-              abortedPlatforms.add(platformId);
-              console.log(
-                `\n🛑 [${adapter.label}] ${streak} anti-bot challenges in a row. Stopping ${adapter.label} for this run — ` +
-                  `that account is being rate-limited.` +
-                  (active.length > abortedPlatforms.size
-                    ? ` Continuing with the other platform(s); let ${adapter.label} cool down before including it again.`
-                    : ' Let it cool down before running again.'),
-              );
-              if (abortedPlatforms.size >= active.length) break; // every active platform has hit the wall
-            }
 
             const completedAfter = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : applied;
             if (completedAfter >= config.limits.maxApplicationsPerRun) {
@@ -1382,7 +1258,7 @@ async function main() {
              */
             await showLiveActivity({ phase: 'cooldown', detail: outcome.status === 'applied'
               ? 'Application submitted. Pausing before the next job.' : 'Pausing before the next job.' });
-            await cooldown(outcome.status === 'applied' || candidateHitFriction || Boolean(outcome.submitPressed), !candidateHitFriction, applicationPage, accept);
+            await cooldown(outcome.status === 'applied' || Boolean(outcome.submitPressed), applicationPage, accept);
           } finally {
             finalize();
           }
@@ -1431,7 +1307,6 @@ async function main() {
       } else await runWorker(page, () => true);
     } finally {
       await Promise.allSettled(contexts.map(context => context.close()));
-      journal?.close();
     }
 
     printSummary();

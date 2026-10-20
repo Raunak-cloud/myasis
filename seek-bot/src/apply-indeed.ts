@@ -1,15 +1,11 @@
 import type { Page } from 'patchright';
-import { config } from './config.js';
-import { waitForChallengeToClear, waitForInteractiveSurface, workingIn } from './browser.js';
-import { judgePage, WALL_STATES } from './blocker.js';
 import type { ApplyDeps } from './agent/apply-agent.js';
 import { runApplicationAgent } from './agent/loop.js';
 import { outcomeFromRun } from './agent/outcome.js';
-import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
+import { workingIn } from './browser.js';
+import { config } from './config.js';
 import { outsideScope, scopeSkipReason } from './run-scope.js';
-import { isAgentOnlyApplication } from './application-agent-mode.js';
-
-const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
+import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 /**
  * Indeed applications, driven by the same agent that drives SEEK's.
@@ -36,46 +32,6 @@ function byName(page: Page, pattern: RegExp) {
     .or(page.getByRole('link', { name: pattern }));
 }
 
-async function detectAlreadyApplied(page: Page): Promise<boolean> {
-  const count = await page
-    .locator('text=/you applied|already applied|application submitted/i')
-    .count()
-    .catch(() => 0);
-  return count > 0;
-}
-
-/** The wizard lives here; a click that lands anywhere else did not open it. */
-const APPLY_FLOW_URL = /smartapply\.indeed\.com|\/indeedapply\//i;
-/** An employer's site is anywhere that is not Indeed; the search page with a changed query string is not it. */
-const OFF_INDEED_URL = /^https?:\/\/(?![^/]*\bindeed\.com)/i;
-
-/**
- * Opens an apply CTA and returns the page the flow landed on, or null when
- * nothing opened. "Apply with Indeed" opens a new tab; an employer's own site
- * may open a tab or replace this one. The result is checked against
- * `expected` before it is trusted: a click that opened nothing once left the
- * search page to be read as an application form.
- */
-async function openApplyFlow(page: Page, applyCta: ReturnType<typeof byName>, expected: RegExp): Promise<Page | null> {
-  const popupPromise = page.context().waitForEvent('page', { timeout: 12_000 }).catch(() => null);
-  await applyCta.first().scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
-  const clicked = await applyCta.first().click({ timeout: 8_000 }).then(() => true).catch(() => false);
-  if (!clicked) return null;
-  const popup = await popupPromise;
-  const target = popup ?? page;
-  await target.waitForLoadState('domcontentloaded').catch(() => {});
-  const landed = await target
-    .waitForURL((url) => expected.test(url.href) || /secure\.indeed\.com\/auth/i.test(url.href), { timeout: 15_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!landed) {
-    if (popup) await popup.close().catch(() => {});
-    return null;
-  }
-  await waitForInteractiveSurface(target);
-  return target;
-}
-
 export async function applyToIndeedJob(
   page: Page,
   job: JobListing,
@@ -100,7 +56,7 @@ export async function applyToIndeedJob(
     waitUntil: 'domcontentloaded',
   });
 
-  if (isAgentOnlyApplication()) {
+  {
     const hosted = await byName(page, /^(apply now|apply with indeed|continue application)/i).count() > 0;
     const external = await byName(page, /^apply on company site/i).count() > 0;
     if (hosted) job.applicationMode = 'hosted';
@@ -116,112 +72,4 @@ export async function applyToIndeedJob(
     // owns the listing, form, recovery and final outcome in this experiment.
     return runFrom(page);
   }
-
-  // Never interpret a Cloudflare interstitial as a listing. The visual judge
-  // can still see stale listing content behind the overlay, so this explicit
-  // gate must run before deciding which apply control the page contains.
-  if (!(await waitForChallengeToClear(page, 60_000))) {
-    deps.onFriction('captcha');
-    return {
-      status: 'needs-human',
-      jobId: job.id,
-      reason: 'Indeed security verification did not clear automatically — the application was not submitted.',
-      url: page.url(),
-    };
-  }
-
-  const readySignals = [
-    page.getByRole('heading', { name: /job post$/i }).first(),
-    page.locator('#jobDescriptionText').first(),
-    page.locator('[data-testid="jobsearch-ViewjobPane"]').first(),
-    page.locator('[data-testid="primary-apply-action"], [data-testid="viewjob-indeed-apply"]').first(),
-    byName(page, /^(apply now|apply with indeed|continue application|apply on company site)/i).first(),
-  ];
-  const panelReady = await Promise.any(
-    readySignals.map((signal) => signal.waitFor({ state: 'visible', timeout: 20_000 })),
-  ).then(() => true).catch(() => false);
-  if (!panelReady) {
-    /**
-     * Say what the page is rather than guessing. A whole run once skipped
-     * every listing as "did not load" and nothing in the log said whether
-     * Indeed was slow, the job had gone, or Cloudflare had stepped in. A
-     * wall is friction, and repeated friction stops Indeed for the run.
-     */
-    const verdict = await judgePage(page, `the Indeed listing "${job.title}"`).catch(() => null);
-    console.log(`  · listing panel did not appear at ${page.url()}: ${verdict ? `${verdict.state} — ${verdict.reason}` : 'page could not be judged'}`);
-    if (verdict && WALL_STATES.has(verdict.state)) {
-      deps.onFriction(verdict.state as 'captcha' | 'identity' | 'login');
-      return { status: 'needs-human', jobId: job.id, reason: `${verdict.state === 'captcha' ? 'CAPTCHA' : 'Verification'} challenge — ${verdict.reason}`, url: page.url() };
-    }
-    // Indeed removed the old "Job post" heading from its current results
-    // layout. When the visual page judge can see the requested listing and
-    // its controls, trust that model assessment and continue instead of
-    // turning a harmless selector change into a skipped application.
-    if (verdict?.state !== 'ok') {
-      return {
-        status: 'skipped',
-        jobId: job.id,
-        reason: verdict?.state === 'removed' ? `Listing unavailable: ${verdict.reason}` : 'listing panel did not load in time (expired, removed, or a slow page load)',
-      };
-    }
-    console.log('  ↪ listing is visible; continuing from the model-verified page');
-  }
-
-  if (await detectAlreadyApplied(page)) {
-    // The same words appear inside job ads ("once you have applied…"); the page
-    // judge decides. If it cannot answer, the skip stands: a missed application
-    // costs less than a duplicate.
-    const verdict = await judgePage(page, `the Indeed listing "${job.title}"`).catch(() => null);
-    if (!verdict || verdict.state === 'already-applied') {
-      return { status: 'skipped', jobId: job.id, reason: 'Indeed reports already applied' };
-    }
-  }
-
-  // "Continue application" is what Indeed shows once a flow was started and left; same wizard, resumed.
-  // Indeed's current AU listing panel labels its hosted flow "Apply now";
-  // older sessions still say "Apply with Indeed", and an interrupted form
-  // says "Continue application". All three lead to the same hosted wizard.
-  const indeedApplyCta = byName(page, /^(apply now|apply with indeed|continue application)/i);
-  const externalCta = byName(page, /^apply on company site/i);
-  const hosted = (await indeedApplyCta.count()) > 0;
-  const external = (await externalCta.count()) > 0;
-  // The panel's own button is the truth about where the form lives; discovery only guesses, and cannot when Indeed's data is absent.
-  if (hosted) job.applicationMode = 'hosted';
-  else if (external) job.applicationMode = 'external';
-  else {
-    return {
-      status: 'needs-human',
-      jobId: job.id,
-      reason: 'Indeed showed the listing but no application control was available — the application was not submitted.',
-      url: page.url(),
-    };
-  }
-  if (outsideScope(job.applicationMode)) {
-    return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
-  }
-  if (!hosted) {
-    if (!config.allowExternalApply) {
-      const label = clean((await externalCta.first().innerText().catch(() => '')) || 'Apply on company site');
-      return { status: 'off-platform', jobId: job.id, redirectedTo: `${label} → ${job.applicationUrl ?? job.url}` };
-    }
-  }
-
-  if (config.dryRun && process.env.REHEARSE !== 'true') {
-    return { status: 'skipped', jobId: job.id, reason: 'DRY_RUN (set REHEARSE=true to fill forms)' };
-  }
-
-  const cta = hosted ? indeedApplyCta : externalCta;
-  const expected = hosted ? APPLY_FLOW_URL : OFF_INDEED_URL;
-  // One more try after a scroll before giving up: the panel's button sits under a sticky header on some listings.
-  const applyPage = (await openApplyFlow(page, cta, expected)) ?? (await openApplyFlow(page, cta, expected));
-  if (!applyPage) {
-    return {
-      status: 'needs-human',
-      jobId: job.id,
-      reason: `Indeed's "${hosted ? 'Apply with Indeed' : 'Apply on company site'}" button did not open the application form.`,
-      url: page.url(),
-    };
-  }
-
-  return runFrom(applyPage);
 }

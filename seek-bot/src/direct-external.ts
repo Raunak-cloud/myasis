@@ -1,14 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { Page } from 'patchright';
-import { waitForApplicationSurface } from './agent/observe.js';
 import { runApplicationAgent } from './agent/loop.js';
+import { waitForApplicationSurface } from './agent/observe.js';
 import { outcomeFromRun } from './agent/outcome.js';
-import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
-import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
 import { applicationFailureContext } from './application-diagnostics.js';
 import { config } from './config.js';
-import { ApplicationReservations, withApplicationAttempt } from './application-reservations.js';
-import { isAgentOnlyApplication } from './application-agent-mode.js';
+import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
+import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 interface PageIdentity {
   title: string;
@@ -54,7 +52,6 @@ export async function runDirectExternalApplication(
   navigationBlocked: () => string | null,
   test?: { runAgent: typeof runApplicationAgent },
 ): Promise<void> {
-  const agentOnly = isAgentOnlyApplication();
   if (test && (!config.dryRun || !new URL(url).hostname.endsWith('.invalid'))) {
     throw new Error('Direct application dependency overrides require an isolated dry-run fixture.');
   }
@@ -82,7 +79,7 @@ export async function runDirectExternalApplication(
     platform: 'external',
   };
   const index = new AppliedIndex();
-  if (agentOnly && (!config.allowExternalApply || config.limits.maxApplicationsPerRun < 1
+  if ((!config.allowExternalApply || config.limits.maxApplicationsPerRun < 1
     || index.appliedToday() >= config.limits.maxApplicationsPerDay
     || config.limits.externalAttemptsToday >= config.limits.maxExternalPerDay)) {
     saveRunSummary(0);
@@ -92,39 +89,18 @@ export async function runDirectExternalApplication(
     console.log('\n=== Run complete: 0 new application(s) ===');
     return;
   }
-  if (!agentOnly && index.hasApplication(job)) {
-    saveRunSummary(0);
-    logOutcome({ status: 'already-applied', jobId: job.id, reason: 'This exact job is already in the account application history.', title: job.title, company: job.company });
-    console.log(`Already applied: ${job.title} @ ${job.company}`);
-    console.log('\n=== Run complete: 0 new application(s) ===');
-    return;
-  }
 
-  const journal = agentOnly ? null : new ApplicationReservations(config.dataDir);
-  const attemptId = journal?.acquire(job) ?? null;
-  if (!agentOnly && !attemptId) {
-    journal!.close();
-    saveRunSummary(0);
-    logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company,
-      reason: 'This exact form is reserved, previously submitted, or awaiting confirmation after an interrupted attempt.' });
-    console.log('This exact form cannot be retried automatically until its previous attempt is checked.');
-    console.log('\n=== Run complete: 0 new application(s) ===');
-    return;
-  }
   saveRunSummary(1);
   console.log(`Direct website job: ${job.title} @ ${job.company}`);
   let outcome: ApplyOutcome | undefined;
   try {
     const apply = () => (test?.runAgent ?? runApplicationAgent)({ page, job, profile, log: (line: string) => console.log(line) });
-    const run = agentOnly ? await apply() : await withApplicationAttempt({ journal: journal!, id: attemptId!, job }, apply);
+    const run = await apply();
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
     outcome = outcomeFromRun(run, job.id, page.url());
   } catch (error) {
     outcome = { status: 'error', jobId: job.id, error: (error as Error).message,
       submitPressed: applicationFailureContext(error)?.submitPressed === true };
-  } finally {
-    try { if (journal && attemptId) journal.finish(attemptId, outcome); }
-    finally { journal?.close(); }
   }
   logOutcome({ ...outcome, title: job.title, company: job.company });
   for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
@@ -148,15 +124,6 @@ export async function runDirectExternalApplication(
       submittedByMyasis: true,
     });
     console.log('  ✅ submitted [external] (1/1)');
-  } else if (!agentOnly && outcome.submitPressed && outcome.status !== 'rehearsed' && !index.hasApplication(job)) {
-    // The employer may have received it; the same URL is never sent again automatically.
-    index.add({
-      jobId: job.id, title: job.title, company: job.company, location: job.location, url: job.url,
-      appliedAt: new Date().toISOString(), score: 0, platform: 'external',
-      scoreReasons: ['Submit was pressed on the employer form, so it may have been received; not retried automatically.'],
-      external: true, submittedByMyasis: false,
-    });
-    console.log(`  – ${outcome.status}; submit was pressed on this form, so it will not be retried automatically`);
   } else if (outcome.status === 'needs-human') {
     console.log(`  ⏸ needs you: ${outcome.reason}`);
   } else if (outcome.status === 'already-applied') {

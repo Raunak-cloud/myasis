@@ -75,9 +75,11 @@ try {
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).waitFor();
     assert.equal(await page.getByRole('combobox', { name: 'Saved application model', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('combobox', { name: 'Saved application decisions', exact: true }).count(), 0);
     await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).click({ timeout: 15_000 });
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
+    assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
     if (admin) {
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0, 'account choices cannot bypass server browser routing');
@@ -117,6 +119,7 @@ try {
       const settingsWrites = writes.filter(write => write.path === '/api/settings').length;
       await page.getByRole('button', { name: 'Start auto apply', exact: true }).click();
       await dialog.waitFor();
+    assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
       await dialog.getByLabel('SmartRecruiters employer identifiers').fill('ALDIStores,MedHealth3');
       for (const source of EMPLOYER_SOURCES.filter(source => source.id !== 'smartrecruiters')) await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       await dialog.getByRole('button', { name: 'Test without applying', exact: true }).click();
@@ -141,6 +144,7 @@ try {
       await page.reload();
       await page.getByRole('button', { name: 'Start auto apply', exact: true }).click();
       await dialog.waitFor();
+    assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
       await dialog.locator('[data-field=MAX_EVALUATIONS]').fill('2');
       await dialog.getByRole('button', { name: 'Test without applying', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });

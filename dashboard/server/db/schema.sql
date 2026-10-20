@@ -67,6 +67,11 @@ CREATE TABLE IF NOT EXISTS settings (
 UPDATE settings SET value = 'celeris'
 WHERE key = 'APPLICATION_AI_MODEL' AND value <> 'celeris';
 
+-- The applying agent is the sole decision engine for every account.
+UPDATE settings SET value = 'agent-only'
+WHERE key = 'APPLICATION_AGENT_MODE' AND value <> 'agent-only';
+DELETE FROM settings WHERE key = 'APPLICATION_AGENT_MODE_AUTHORIZED';
+
 CREATE TABLE IF NOT EXISTS resumes (
   id          BIGSERIAL PRIMARY KEY,
   user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

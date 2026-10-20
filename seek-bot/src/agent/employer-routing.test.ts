@@ -14,7 +14,7 @@ const originalRoute = EmployerBrowserRouter.prototype.route;
 const originalFetch = globalThis.fetch;
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
-  for (const mode of ['protected', 'agent-only']) {
+  for (const mode of ['agent-only']) {
     const local = await browser.newContext();
     const privateContext = await browser.newContext();
     await local.addCookies([{ name: 'board-session', value: 'must-stay-local', url: 'https://www.seek.com.au' }]);
@@ -35,14 +35,9 @@ try {
       const body = JSON.parse(String(init?.body));
       if (!body.tools?.length) return Response.json({ choices: [{ message: { role: 'assistant', content: '{}' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
       const text = JSON.stringify(body.messages.filter((message: { role: string }) => message.role === 'user').at(-1)?.content);
-      const ref = text.match(/(a\d+)\s+\[button\][^\n]*Open employer form/)?.[1] ?? 'missing';
-      const calls: Array<{ name: string; args: Record<string, unknown> }> = ++turns === 1 ? [mode === 'agent-only'
-        ? { name: 'browser_action', args: { action: 'click', selector: 'button' } }
-        : { name: 'click', args: { ref, reason: 'Open the specified employer application' } }]
-        : [{ name: 'finish', args: mode === 'agent-only'
-          ? { status: 'skipped', reason: 'Fixture complete', evidence: 'Private employer form observed' }
-          : { status: 'cannot_complete', reason: 'Fixture complete' } }];
-      if (turns === 1 && mode === 'agent-only') calls.push({ name: 'browser_action', args: { action: 'fill', selector: 'input', value: 'stale plan must not run' } });
+        const calls: Array<{ name: string; args: Record<string, unknown> }> = ++turns === 1 ? [{ name: 'browser_action', args: { action: 'click', selector: 'button' } }]
+        : [{ name: 'finish', args: { status: 'skipped', reason: 'Fixture complete', evidence: 'Private employer form observed' } }];
+      if (turns === 1) calls.push({ name: 'browser_action', args: { action: 'fill', selector: 'input', value: 'stale plan must not run' } });
       if (turns > 1) assert.match(text, /PRIVATE EMPLOYER FORM/, `${mode} must observe the routed page before acting`);
       return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, i) => ({ id: `t${turns}-${i}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
     };
@@ -55,7 +50,7 @@ try {
     assert.deepEqual(await privateContext.cookies(), [], 'job-board cookies never cross contexts');
     await local.close(); await privateContext.close();
   }
-  console.log('PASS: both agent engines route board handoffs before observing employer forms; board cookies stay local.');
+  console.log('PASS: the application agent routes board handoffs before observing employer forms; board cookies stay local.');
 } finally {
   EmployerBrowserRouter.prototype.route = originalRoute; globalThis.fetch = originalFetch;
   await browser.close(); rmSync(directory, { recursive: true, force: true });

@@ -44,7 +44,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
-    APPLICATION_AGENT_MODE: agentMode, APPLICATION_AGENT_MODE_AUTHORIZED: String(admin && agentMode === 'agent-only'),
+    APPLICATION_AGENT_MODE: agentMode,
     CELERIS_API_KEY: serverEnv.CELERIS_API_KEY };
 }
 
@@ -404,7 +404,7 @@ class Run {
     this.push('sys', `▶ starting ${mode} run`);
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
     this.push('sys', '  application AI: Celeris Magnus');
-    this.push('sys', `  application decisions: ${accountOverrides.APPLICATION_AGENT_MODE === 'agent-only' ? 'agent-only (admin experiment)' : 'protected'}`);
+    this.push('sys', '  application decisions: Agent-only');
     const shown = Object.entries(overrides)
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
@@ -479,7 +479,7 @@ class Run {
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
     this.push('sys', '  application AI: Celeris Magnus');
-    this.push('sys', `  application decisions: ${accountOverrides.APPLICATION_AGENT_MODE === 'agent-only' ? 'agent-only (admin experiment)' : 'protected'}`);
+    this.push('sys', '  application decisions: Agent-only');
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
     this.keywordRenewal = null;

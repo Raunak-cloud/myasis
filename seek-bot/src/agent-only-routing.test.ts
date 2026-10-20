@@ -41,7 +41,7 @@ test('SEEK and Indeed hand listing problems to the same applying agent before le
   };
   try {
     await withApplicationModel({ DATA_DIR: directory, CELERIS_API_KEY: 'synthetic-key', APPLICATION_AI_MODEL: 'celeris',
-      APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' }, async () => {
+ }, async () => {
       const page = await context.newPage();
       for (const [platform, apply] of [['seek', applyToJobWithAgent], ['indeed', applyToIndeedJob]] as const) {
         const outcome = await apply(page, { id: `fixture-${platform}`, title: 'Fictional vacancy', company: 'Fixture employer', location: '',

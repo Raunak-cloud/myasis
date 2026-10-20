@@ -9,24 +9,25 @@ import { startRun } from './start-run.js';
 
 after(async () => { await getPool().end(); });
 
-test('only admins may select supported decision modes and no caller may supply authorization', () => {
-  for (const mode of ['protected', 'agent-only']) {
+test('legacy settings accept only Agent-only and no caller may supply authorization', () => {
+  for (const mode of ['agent-only']) {
     assert.equal(applicationAgentSettingsError({ APPLICATION_AGENT_MODE: mode }, true), null);
     assert.equal(applicationAgentSettingsError({ APPLICATION_AGENT_MODE: mode }, false)?.status, 403);
   }
   assert.equal(applicationAgentSettingsError({ APPLICATION_AGENT_MODE: 'other' }, true)?.status, 400);
+  assert.equal(applicationAgentSettingsError({ APPLICATION_AGENT_MODE: 'protected' }, true)?.status, 400);
   for (const admin of [true, false]) assert.equal(applicationAgentSettingsError({ APPLICATION_AGENT_MODE_AUTHORIZED: 'true' }, admin)?.status, 403);
   assert.equal(mayEditRunSetting('APPLICATION_AGENT_MODE', { tier: 'admin', fineTune: true, advancedFilters: true }), true);
   assert.equal(mayEditRunSetting('APPLICATION_AGENT_MODE', { tier: 'intensive', fineTune: true, advancedFilters: true }), false);
   assert.equal((USER_SETTABLE_SETTINGS_KEYS as readonly string[]).includes('APPLICATION_AGENT_MODE_AUTHORIZED'), false);
 });
 
-test('account access overrides stale saved modes and strips forged authorization', () => {
-  for (const value of ['agent-only', 'protected', undefined, 'retired']) assert.equal(applicationAgentModeForAccount(value, false), 'protected');
+test('all accounts use Agent-only despite stale saved modes and strips forged authorization', () => {
+  for (const value of ['agent-only', 'protected', undefined, 'retired']) assert.equal(applicationAgentModeForAccount(value, false), 'agent-only');
   assert.equal(applicationAgentModeForAccount('agent-only', true), 'agent-only');
   const customer = { PLATFORMS: 'seek', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' };
   applyJobSourceAccess(customer, false);
-  assert.equal(customer.APPLICATION_AGENT_MODE, 'protected');
+  assert.equal(customer.APPLICATION_AGENT_MODE, 'agent-only');
   assert.equal('APPLICATION_AGENT_MODE_AUTHORIZED' in customer, false);
   const admin = { PLATFORMS: 'seek', APPLICATION_AGENT_MODE: 'agent-only' };
   applyJobSourceAccess(admin, true);
