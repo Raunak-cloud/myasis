@@ -83,9 +83,7 @@ try {
       assert.equal(await modelChoice.inputValue(), 'celeris');
       assert.deepEqual(await Promise.all((await modelChoice.locator('option').all()).map(option => option.getAttribute('value'))), ['celeris', 'haiku']);
       await modelChoice.selectOption('haiku');
-      const browserChoice = dialog.getByRole('combobox', { name: 'Employer browser', exact: true });
-      assert.equal(await browserChoice.inputValue(), 'local');
-      await browserChoice.selectOption('brightdata');
+      assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0, 'account choices cannot bypass server browser routing');
       assert.match(await dialog.textContent() ?? '', /Bright Data receives your resume/);
       await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).waitFor();
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES] input').inputValue(), 'Canva,KPMGAustralia1,Colliers');
@@ -112,10 +110,9 @@ try {
     const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
-    assert.equal('EMPLOYER_BROWSER_PROVIDER' in submitted.overrides, admin);
+    assert.equal('EMPLOYER_BROWSER_PROVIDER' in submitted.overrides, false);
     assert.equal('APPLICATION_AI_MODEL' in submitted.overrides, admin);
     if (admin) assert.equal(submitted.overrides.APPLICATION_AI_MODEL, 'haiku');
-    if (admin) assert.equal(submitted.overrides.EMPLOYER_BROWSER_PROVIDER, 'brightdata');
     for (const source of EMPLOYER_SOURCES) assert.equal(source.key in submitted.overrides, admin);
     assert.equal(submitted.mode, 'live');
     assert.equal(submitted.confirm, true);
