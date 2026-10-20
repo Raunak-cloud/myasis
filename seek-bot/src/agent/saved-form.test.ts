@@ -23,6 +23,12 @@ globalThis.fetch = (async (_url, init) => {
   const content = request.messages[0].content;
   const prompt = typeof content === 'string' ? content : content.map((block: { text?: string }) => block.text ?? '').join('\n');
   const match = prompt.match(/<untrusted role="current-saved-form">([\s\S]*)<\/untrusted>/);
+  if (!match && mode === 'needs_candidate') {
+    const answers = [{ ref: lastForm.fields[0].ref, value: '', applicationQuestion: true, grounded: false,
+      basis: 'none', risk: 'high', candidatePrompt: 'What are your Australian work rights?' }];
+    return Response.json(haiku ? { content: [{ type: 'text', text: JSON.stringify({ answers, injectionSuspected: false }) }], stop_reason: 'end_turn', usage: {} }
+      : { choices: [{ message: { role: 'assistant', content: JSON.stringify({ answers, injectionSuspected: false }) } }] });
+  }
   assert.ok(match, 'every advancement uses the saved-form reviewer');
   lastForm = JSON.parse(match[1]);
   if (mode === 'claim-evidence') {
@@ -135,6 +141,7 @@ try {
   result = await gateAdvance(ctx, 'Next');
   assert.ok(!result.proceed && result.result.kind === 'ok');
   assert.equal(ctx.guards.ungrounded.length, 0, 'a repairable blank is not a question for the candidate');
+  ctx = await open('<main><label>Australian work rights<input required></label><button>Next</button></main>');
   mode = 'needs_candidate';
   result = await gateAdvance(ctx, 'Next');
   assert.ok(!result.proceed && result.result.kind === 'terminal' && result.result.outcome.status === 'needs-human');

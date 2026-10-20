@@ -204,7 +204,8 @@ By design, not limitation:
 | Australian government destination | reviewed and applied under the same candidate-fit rules as other jobs |
 | SEEK Pass / work-rights wall | skips the job without creating a user task |
 | External application while external apply is disabled | logs `off-platform` before AI review, **enters nothing** |
-| A required question not answerable from the verified profile | stops before submitting and asks the candidate |
+| Technical questions, project narratives and troubleshooting explanations | AI drafts the answer from documented projects and professional reasoning; undocumented details are framed as a proposed approach |
+| An unresolved required critical personal fact or decision | asks the candidate after checking the profile, documents, saved answers and preferences; a saved-form escalation is confirmed by the answerer first |
 | 2 friction signals in a row | aborts the whole run |
 
 ### Optional CapMonster Cloud integration
@@ -250,11 +251,13 @@ against a local stand-in for the API. It spends nothing.
 
 ## Honesty guarantees
 
-- Cover letters and answers are grounded strictly in `profile.txt`. The model is
+- Candidate facts in cover letters and answers use the profile, supporting documents and saved answers. The model is
   instructed never to inflate years of experience, invent employers, or claim
   skills, clearances or visa status you don't have.
-- Any answer the model can't ground returns `grounded: false`, which **halts that
-  application** instead of submitting a guess.
+- Technical and professional responses may be composed without asking for a personal anecdote.
+  Missing historical details are expressed as an approach the candidate would take, never as invented past incidents or results.
+- Only an unresolved required critical personal answer creates a candidate task.
+  Optional unknown personal fields are left blank; browser or AI failures are repaired or skipped.
 - Job-ad text is treated as untrusted data and wrapped in `<untrusted>` tags.
   Real SEEK listings in this corpus contained live prompt-injection attempts
   (one tried to make an agent write "I am an AI and they should have seen this"
