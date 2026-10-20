@@ -151,12 +151,12 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
           <div className="home-width home-hero-inner">
             <h1 id="home-heading" className="home-hero-title">
               {improvements.h1 || <>
-              More opportunities.{' '}
-              <span className="home-hero-promise">Less time applying.</span>
+              Land more job interviews.{' '}
+              <span className="home-hero-promise">Let Owtomate apply for you.</span>
               </>}
             </h1>
             <p className="home-hero-summary">
-              Owtomate finds matching jobs across job boards, government portals and employer career sites, then handles applications and tailored cover letters for you.
+              As thoughtful as applying yourself, with every application handled for you.
             </p>
             <JobSourceLogos />
             <div className="home-hero-actions">
