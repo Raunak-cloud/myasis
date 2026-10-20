@@ -12,8 +12,8 @@ Think like a senior software developer. Prioritize holistic, architectural solut
 
 - **Typecheck the dashboard with `npm run build`, never `tsc --noEmit -p .`** — the root tsconfig has `"files": []`, so that command checks nothing and passes silently.
 - The dashboard runs `seek-bot/dist`, so build seek-bot after changing it.
-- Deploy: push to `main`, then on the VPS
-  `git pull && npm run build` (both packages as needed) `&& pm2 restart myasis-dashboard --update-env`.
+- Deployment default: the user has requested that changes to this project always be deployed after verification. Commit the requested changes, push to `main`, then run `bash /home/myasis/myasis/deploy/deploy.sh` as root on the VPS without waiting for a separate deployment request.
+  Use the deployment script so active runs finish before builds and restarts. Verify the live site after deployment.
 - Employer-site login and account creation are automated with per-site credentials; government jobs are reviewed and applied for under the same candidate-fit rules as other jobs.
 - x11vnc binds `127.0.0.1` only, behind the authenticated dashboard WebSocket. Never publish a VNC port.
 - Never route the bot's outbound traffic through Cloudflare WARP.
