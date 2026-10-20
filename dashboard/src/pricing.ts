@@ -78,7 +78,6 @@ export const PLAN_PRESENTATION = {
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced match and listing-age filters',
-      'Priority processing',
     ],
   },
   'intensive-pass': {
@@ -92,7 +91,7 @@ export const PLAN_PRESENTATION = {
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',
       'Employer-site applications',
-      'Priority processing and support',
+      'Priority support',
     ],
   },
 } as const;
