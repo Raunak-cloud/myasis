@@ -55,6 +55,11 @@ test('failed employer connection or navigation cannot fall back locally and is c
   const router = new EmployerBrowserRouter({ open: async () => ({ page: remote.page, close: async () => { closes++; } }), guard: async () => { throw new Error('blocked destination'); } });
   await assert.rejects(router.route(local.page), /blocked destination/);
   await router.close(); assert.equal(closes, 1);
+  let retired = 0;
+  const disconnected = new EmployerBrowserRouter({ open: async () => ({ page: remote.page, close: async () => { retired++; throw new Error('already disconnected'); } }), guard: async () => ({ blocked: () => null, stop: async () => { throw new Error('context closed'); } }) });
+  await disconnected.route(local.page);
+  await disconnected.close(); await disconnected.close();
+  assert.equal(retired, 1, 'disconnect cleanup is idempotent and cannot replace a completed outcome');
   process.env.BRIGHTDATA_BROWSER_ENABLED = 'false'; process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
   assert.equal(await failed.route(local.page), local.page);
 });

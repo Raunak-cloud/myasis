@@ -40,6 +40,7 @@ export class EmployerBrowserRouter {
     try {
       this.guard = await this.dependencies.guard(this.owned.page.context());
       await this.owned.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+      this.pending.clear();
       return this.owned.page;
     } catch (error) {
       await this.close();
@@ -48,7 +49,10 @@ export class EmployerBrowserRouter {
   }
 
   async close(): Promise<void> {
-    try { await this.guard?.stop(); }
-    finally { await this.owned?.close(); this.guard = undefined; this.owned = undefined; }
+    const guard = this.guard, owned = this.owned;
+    this.guard = undefined; this.owned = undefined; this.pending.clear();
+    // Cleanup after a disconnected browser must not overwrite receipt evidence.
+    try { await guard?.stop(); } catch { /* Browser may already be disconnected. */ }
+    try { await owned?.close(); } catch { /* The attempt result remains authoritative. */ }
   }
 }
