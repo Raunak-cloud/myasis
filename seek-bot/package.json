@@ -42,7 +42,8 @@
     "test:headless-fixtures": "tsc && node scripts/test-headless-fixtures.mjs",
     "test:form-speed": "tsc && node dist/form-speed.test.js",
     "test:recovery-sim": "node simulations/magnus-recovery/run.mjs",
-    "test:saved-form": "tsc && node dist/agent/saved-form.test.js"
+    "test:saved-form": "tsc && node dist/agent/saved-form.test.js",
+    "test:field-batch": "tsc && node dist/agent/field-batch.test.js && node dist/agent/agent-only.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

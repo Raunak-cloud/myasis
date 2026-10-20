@@ -86,6 +86,56 @@ try {
   assert.equal(JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8')).length, 1, 'driver does not mutate history or reserve duplicate claims');
 
   await page.goto(url);
+  const beforeBatch = turns.length;
+  script = [body => {
+    assert.match(JSON.stringify(body.tools), /fill_fields/);
+    return [
+      { name: 'fill_fields', args: { fields: [{ ref: 'f0', value: 'Rinu Fixture' }, { ref: 'f1', value: 'fixture@example.invalid' }, { ref: 'f2', value: letter }, { ref: 'f3', value: 'Company website' }] } },
+      { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
+    ];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /Wrote 4 fields in one batch/);
+    assert.equal(effort(body), 'medium', 'successful batching does not trigger expensive failure reasoning');
+    assert.match(observation(body), /Rinu Fixture/);
+    return [{ name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } }];
+  }, body => {
+    assert.match(observation(body), /Receipt ABC123/);
+    return [{ name: 'finish', args: { status: 'applied', reason: 'Batched fields saved then receipt inspected', evidence: 'Receipt ABC123' } }];
+  }];
+  const batched = await runApplicationAgent({ page, job: { ...job, id: 'agent-field-batch' }, profile, log: () => {} });
+  assert.equal(batched.outcome.status, 'applied');
+  assert.equal(turns.length - beforeBatch, 3, 'four answers are authored and written in a single model turn, then observed before sending');
+  assert.equal(await page.evaluate('window.presses', undefined, undefined, false), 1, 'a submission in the batch turn waits for the next observation');
+  assert.equal(batched.coverLetter, letter);
+  assert.equal(batched.captured.length, 4);
+
+  config.dryRun = true;
+  await page.goto(url);
+  script = [() => [{ name: 'fill_fields', args: { fields: [{ ref: 'f0', value: 'Must stay empty' }] } }]];
+  assert.equal((await runApplicationAgent({ page, job: { ...job, id: 'agent-batch-dry' }, profile, log: () => {} })).outcome.status, 'rehearsed');
+  assert.equal(await page.inputValue('#name'), '', 'production dry-run prevents batched mutations too');
+  config.dryRun = false;
+  script = [() => [{ name: 'fill_fields', args: { fields: [{ ref: 'f0', value: 'Must stay empty' }] } }]];
+  assert.equal((await withApplicationAllowance(async () => false, () => runApplicationAgent({ page, job: { ...job, id: 'agent-batch-quota' }, profile, log: () => {} }))).outcome.status, 'skipped');
+  assert.equal(await page.inputValue('#name'), '', 'account quota applies to the new batch tool');
+
+  await page.goto(url);
+  await page.locator('#name').evaluate(el => el.addEventListener('blur', () => { document.querySelector('#email')!.setAttribute('disabled', ''); }));
+  script = [() => [
+    { name: 'fill_fields', args: { fields: [{ ref: 'f0', value: 'Rinu Fixture' }, { ref: 'f1', value: 'fixture@example.invalid' }] } },
+    { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
+  ], body => {
+    assert.equal(effort(body), 'medium', 'a dynamic form handoff is not a reasoning failure');
+    assert.match(JSON.stringify(body.messages), /Remaining fields were not written/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Dynamic form handoff observed', evidence: 'Name saved, email disabled' } }];
+  }];
+  const handoff = await runApplicationAgent({ page, job: { ...job, id: 'agent-batch-handoff' }, profile, log: () => {} });
+  assert.equal(handoff.outcome.status, 'skipped');
+  assert.equal(Boolean(handoff.submitPressed), false);
+  assert.equal(await page.inputValue('#email'), '');
+  assert.equal(await page.evaluate('window.presses ?? 0', undefined, undefined, false), 0, 'a partial batch cannot run a queued submit');
+
+  await page.goto(url);
   script = [() => [{ name: 'browser_action', args: { action: 'script', script: '() => { document.querySelector("#name").value = "Scripted"; return document.querySelector("#name").value; }' } }],
     body => { assert.match(observation(body), /Scripted/); return [{ name: 'finish', args: { status: 'skipped', reason: 'Script exercised', evidence: 'Saved name Scripted' } }]; }];
   assert.equal((await runApplicationAgent({ page, job: { ...job, id: 'agent-script' } as never, profile, log: () => {} })).outcome.status, 'skipped');

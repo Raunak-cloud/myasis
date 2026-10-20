@@ -355,3 +355,19 @@ Validation: `npm run test:pipeline` uses browser fixtures and a stub model;
 `npm run test:fit-live` uses synthetic profiles with real model calls (API cost,
 no applications). `npm run test:agent` exercises the browser agent on a local form.
 The historical benchmark numbers above are not measurements of this new pipeline.
+
+### Form section batching
+
+The active Agent-only runner exposes `fill_fields` for up to 16 ordinary observed
+fields per call. The applying agent authors each value from candidate evidence.
+Native browser actions run sequentially, commit blur handlers and report saved
+values. A changed question, replaced control, navigation, rejected value or
+validation error stops the remaining writes. Custom pickers, address suggestions,
+radio groups, credentials and uploads retain individual interaction. Every batch
+returns to a fresh observation before navigation or submission; dry-run, account
+scope, quotas and the existing reasoning effort remain in force.
+
+Run `npm run test:field-batch` for browser regression fixtures and the active
+application-loop integration tests. Account-local `pipeline-metrics.jsonl`
+records batch duration/counts without adding field values to metrics. Local
+fixture timings do not establish live application speed improvements.
