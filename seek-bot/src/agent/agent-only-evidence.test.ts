@@ -193,3 +193,18 @@ test('custom cover letter preferences remain available and old application histo
     assert.ok(found);
   });
 });
+
+test('compound history queries combine fields and use an explicit posting id rather than falsely returning no records', () => {
+  const record = owner('COMPOUND_HISTORY');
+  writeFileSync(join(record.dir, 'applied.json'), JSON.stringify([
+    { jobId: '95360736', title: 'Platform Engineer', company: 'Example Bank', appliedAt: new Date().toISOString() },
+    { jobId: '95360000', title: 'Platform Engineer', company: 'Example Bank', appliedAt: new Date().toISOString() },
+  ]));
+  withApplicationModel(record.env, () => {
+    const exact = applicationHistory('95360736 Example Bank Platform Engineer');
+    assert.match(exact, /95360736/); assert.doesNotMatch(exact, /95360000/);
+    assert.match(applicationHistory('history for Platform Engineer at Example Bank'), /95360736/);
+    assert.match(applicationHistory('Example Bank Platform Engineer'), /95360000/);
+    assert.match(applicationHistory('No such employer'), /"applied":\[\]/);
+  });
+});

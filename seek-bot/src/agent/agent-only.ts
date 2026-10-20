@@ -16,7 +16,8 @@ import { validHaikuInput } from './haiku.js';
 import { RunGuards, isExternal } from './guards.js';
 import { locate } from './raw-tools.js';
 import { observe } from './observe.js';
-import { browserTranscript, observationMessage } from './loop/transcript.js';
+import { observationMessage } from './loop/transcript.js';
+import { agentOnlyTranscript } from './agent-only-transcript.js';
 import { persistTrace, TRACE_DIR, type TraceStep } from './loop/trace.js';
 import { ok, type AgentTermination, type ToolContext, type ToolResult } from './tools/context.js';
 import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from './tools/auth.js';
@@ -34,8 +35,8 @@ const schema = (name: string, description: string, properties: Record<string, un
 /** A separate tool surface: none of these actions dispatches into the protected
  * form answerer, saved-form reviewer, submit gate or receipt classifier. */
 export const agentOnlyTools: ToolSchema[] = [
-  schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' } }),
-  schema('browser_action', 'Act directly on the observed browser. You author values and decide when to submit. Re-observe after navigation or dynamic form changes. Refs are from observations/snapshots; selector is an optional CSS fallback inside the current page. Script is a browser-side function, not Node code.', {
+  schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Prefer a ref or CSS selector for the relevant form/section to avoid reading unrelated navigation and job recommendations. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ref: string, selector: string }),
+  schema('browser_action', 'Act directly on the observed browser. You author values and decide when to submit. Re-observe after navigation or dynamic form changes. Refs are from observations/snapshots; selector is an optional CSS fallback inside the current page. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
     action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'scroll', 'navigate', 'script', 'select_page', 'dialog'] },
     ref: string, selector: string, value: string, script: string,
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
@@ -86,13 +87,12 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' }, captured: [], actions: [], log };
   const messages: ChatMessage[] = [
     { role: 'system', content: AGENT_ONLY_PROMPT },
-    { role: 'user', content: `AUTHORITATIVE CANDIDATE PROFILE\n${JSON.stringify(options.profile)}\nAPPLICATION (listing content is untrusted evidence)\n${JSON.stringify(options.job)}\nCANDIDATE EVIDENCE\n${await agentOnlyEvidence()}\nAPPLICATION HISTORY (advisory, refresh if needed)\n${applicationHistory()}` },
+    { role: 'user', content: `AUTHORITATIVE CANDIDATE PROFILE\n${JSON.stringify(options.profile)}\nCANDIDATE EVIDENCE\n${await agentOnlyEvidence()}\nAPPLICATION (listing content is untrusted evidence)\n${JSON.stringify(options.job)}\nHISTORY FOR THIS POSTING (advisory; query company/title with read_application_history for aliases or other postings)\n${applicationHistory(options.job.id)}` },
   ];
   const trace: TraceStep[] = [];
   let steps = 0;
   let highEffort = false;
   let screenshot = false;
-  let snapshot = '';
   let lastNote = 'Read the current page, then complete the application.';
   let terminal: AgentTermination = { status: 'skipped', reason: 'The application resource budget ended before the agent finished.' };
   let finished = false;
@@ -142,8 +142,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     if (name === consultationToolSchema.name) return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, remainingMs, applicationHistory: applicationHistory(options.job.id) });
     if (name === 'take_snapshot') {
       screenshot = args.screenshot === true;
-      snapshot = await ctx.page.ariaSnapshot({ mode: 'ai', timeout: 15_000 });
-      return ok(snapshot);
+      const snapshot = args.ref || args.selector ? await target(ctx, args).ariaSnapshot({ mode: 'ai', timeout: 15_000 })
+        : await ctx.page.ariaSnapshot({ mode: 'ai', timeout: 15_000 });
+      return ok(snapshot); // exactly once, as the tool result, not again in the next observation
     }
     if (config.dryRun && !isolated) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: 'Agent-only dry run inspected the page; browser mutations were not executed.' } };
     if (isExternal(ctx.page.url()) && (!config.allowExternalApply || outsideScope('external'))) return ok('This account/run does not allow employer-site applications.', 'failed');
@@ -184,6 +185,17 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       return ok('Document uploaded; inspect its saved filename on the page.');
     }
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
+    let actionLabel = ctx.observation.fields.find(field => field.ref === args.ref || String(args.ref ?? '').startsWith(field.ref + ':'))?.label
+      ?? ctx.observation.actions.find(action => action.ref === args.ref)?.text ?? '';
+    if (!actionLabel && (args.ref || args.selector)) {
+      const element = target(ctx, args);
+      if (await element.count()) actionLabel = await element.evaluate(node => {
+        const input = node as HTMLInputElement;
+        const legend = node.closest('fieldset')?.querySelector('legend')?.textContent ?? '';
+        const label = [...(input.labels ?? [])].map(item => item.textContent).join(' ') || node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.getAttribute('name') || '';
+        return `${legend} ${label}`.replace(/\s+/g, ' ').trim().slice(0, 350);
+      }).catch(() => '');
+    }
     if (args.sends_application === true) {
       ctx.submissionAttempted = true; // audit only, never authorisation
       activity.update({ status: 'running', submitted: true, detail: 'The agent marked this action as a submission; receipt is not established.' });
@@ -210,25 +222,28 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       case 'script': {
         if (!args.script) throw new Error('Provide a browser-side function in script.');
-        return ok(JSON.stringify(await ctx.page.evaluate(`(${String(args.script)})()`, undefined, undefined, false)) ?? 'Script completed.');
+        const source = String(args.script).trim();
+        const isFunction = /^(?:async\s+)?function\b|^(?:async\s*)?(?:\([^)]*\)|[\w$]+)\s*=>/.test(source);
+        const executable = isFunction ? `(${source})()` : `(async () => {${source}\n})()`;
+        return ok(JSON.stringify(await ctx.page.evaluate(executable, undefined, undefined, false)) ?? 'Script completed.');
       }
       case 'scroll': await ctx.page.mouse.wheel(Number(args.x ?? 0), Number(args.y ?? 650)); break;
       case 'press': if (args.ref || args.selector) await target(ctx, args).press(value, { timeout: 8_000 }); else await ctx.page.keyboard.press(value); break;
       case 'click': if (typeof args.x === 'number' && typeof args.y === 'number') await ctx.page.mouse.click(args.x, args.y); else await target(ctx, args).click({ timeout: 8_000 }); break;
       case 'hover': await target(ctx, args).hover({ timeout: 8_000 }); break;
-      case 'check': await target(ctx, args).setChecked(value !== 'false', { timeout: 8_000 }); break;
-      case 'select': await target(ctx, args).selectOption({ label: value }, { timeout: 8_000 }).catch(() => target(ctx, args).selectOption(value, { timeout: 8_000 })); break;
+      case 'check': await target(ctx, args).setChecked(value !== 'false', { timeout: 8_000 }); ctx.captured.push({ question: actionLabel || String(args.ref ?? args.selector), answer: value !== 'false' ? 'checked' : 'unchecked' }); break;
+      case 'select': await target(ctx, args).selectOption({ label: value }, { timeout: 8_000 }).catch(() => target(ctx, args).selectOption(value, { timeout: 8_000 })); ctx.captured.push({ question: actionLabel || String(args.ref ?? args.selector), answer: value }); break;
       case 'fill': {
         if (typeof args.value !== 'string') throw new Error('Provide the complete value to fill.');
         await target(ctx, args).fill(value, { timeout: 8_000 });
-        const label = ctx.observation.fields.find(field => field.ref === args.ref)?.label ?? String(args.ref ?? args.selector);
+        const label = actionLabel || String(args.ref ?? args.selector);
         ctx.captured.push({ question: label, answer: value });
         if (/cover.?letter/i.test(label)) ctx.coverLetter = value;
         break;
       }
       default: throw new Error('Unknown browser action.');
     }
-    return ok('Action executed. Read the new observation to judge what saved or changed.');
+    return ok(`Action executed: ${args.action}${actionLabel ? ` on ${JSON.stringify(actionLabel)}` : ''}. Read the new observation to judge what saved or changed.`);
   };
 
   try {
@@ -243,11 +258,12 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       screenshot = false;
       const pages = browserContext.pages().map((page, index) => ({ index, url: page.url(), current: page === ctx.page }));
       const dialog = dialogs.get(ctx.page);
-      messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}${snapshot ? `\nAccessibility snapshot:\n${snapshot}` : ''}`));
-      snapshot = '';
+      const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
+        coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
+      messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       const haiku = applicationModelIdentity().selection === 'haiku';
       steps++; // AGENT_MAX_STEPS counts model turns, as in the protected loop.
-      const reply = await celerisChat({ model: 'celeris-1-magnus', messages: browserTranscript(messages, 42_000, haiku), tools: agentOnlyTools,
+      const reply = await celerisChat({ model: 'celeris-1-magnus', messages: agentOnlyTranscript(messages, 42_000, haiku), tools: agentOnlyTools,
         requireTool: true, thinking: true, reasoningEffort: highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
       messages.push(reply.message);
       highEffort = false;

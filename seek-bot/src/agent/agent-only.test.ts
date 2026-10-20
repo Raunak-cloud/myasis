@@ -53,7 +53,8 @@ try {
   const letter = 'Dear team,\n\nI would like to apply for the pharmacy assistant role.\n\nKind regards,\nRinu';
   script = [body => {
     const all = JSON.stringify(body);
-    assert.match(all, /Rinu Fixture/); assert.match(all, /Weekends only/); assert.match(all, /pharmacy placement/); assert.match(all, /old-job/);
+    assert.match(all, /Rinu Fixture/); assert.match(all, /Weekends only/); assert.match(all, /pharmacy placement/);
+    assert.match(all, /read_application_history/); // unrelated history is available on demand, not duplicated in every prompt
     return [
       { name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Rinu Fixture' } },
       { name: 'browser_action', args: { action: 'fill', selector: '#email', value: 'fixture@example.invalid' } },
@@ -90,6 +91,19 @@ try {
     body => { assert.match(observation(body), /Scripted/); return [{ name: 'finish', args: { status: 'skipped', reason: 'Script exercised', evidence: 'Saved name Scripted' } }]; }];
   assert.equal((await runApplicationAgent({ page, job: { ...job, id: 'agent-script' } as never, profile, log: () => {} })).outcome.status, 'skipped');
   assert.equal(await page.inputValue('#name'), 'Scripted');
+
+  await page.goto(url);
+  script = [() => [{ name: 'take_snapshot', args: { selector: 'form' } }], body => {
+    const texts = body.messages.flatMap(message => typeof message.content === 'string' ? [message.content]
+      : Array.isArray(message.content) ? message.content.map(part => String((part as { text?: string; content?: string }).text ?? (part as { content?: string }).content ?? '')) : []);
+    assert.equal(texts.filter(text => /button "Submit" \[ref=/.test(text)).length, 1, 'a snapshot appears once as a tool result');
+    return [{ name: 'browser_action', args: { action: 'script', script: 'await new Promise(resolve => setTimeout(resolve, 1)); document.querySelector("#name").value = "Async body"; return document.querySelector("#name").value;' } }];
+  }, body => {
+    assert.match(observation(body), /Async body/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Async body and scoped snapshot exercised', evidence: 'Saved name Async body' } }];
+  }];
+  await runApplicationAgent({ page, job: { ...job, id: 'agent-snapshot-once' }, profile, log: () => {} });
+  assert.equal(await page.inputValue('#name'), 'Async body');
 
   await page.goto(url);
   script = [() => [

@@ -131,7 +131,16 @@ export async function agentOnlyEvidence(query = '', offset = 0): Promise<string>
 /** Advisory history only. Reading does not acquire/release claims, reserve
  * application slots, modify the journal, or decide what the agent may do. */
 export function applicationHistory(query = '', offset = 0): string {
-  const matches = (record: Record<string, unknown>) => !query.trim() || ['id', 'jobId', 'job_id', 'title', 'company', 'url'].some(key => String(record[key] ?? '').toLowerCase().includes(query.toLowerCase().trim()));
+  const terms = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  // Agents naturally combine an id, company and title. Comparing that whole
+  // sentence to each individual field incorrectly returned an empty history.
+  // Prefer a precise posting id when supplied; otherwise search across fields.
+  const ids = terms.filter(term => /^(?:\d{6,}|[a-f0-9]{24,})$/.test(term));
+  const words = terms.filter(term => term.length > 2 && !['history', 'application', 'applications', 'job', 'for', 'the', 'and'].includes(term));
+  const matches = (record: Record<string, unknown>) => {
+    const text = ['id', 'jobId', 'job_id', 'title', 'company', 'url'].map(key => String(record[key] ?? '')).join(' ').toLowerCase();
+    return ids.length ? ids.some(id => text.includes(id)) : words.every(word => text.includes(word));
+  };
   const applied = records('applied.json').map(record => Object.fromEntries(['id', 'jobId', 'title', 'company', 'platform', 'url', 'appliedAt', 'external', 'site', 'submittedByMyasis']
     .filter(key => record[key] !== undefined).map(key => [key, record[key]])))
     .filter(matches).sort((a, b) => String(b.appliedAt ?? '').localeCompare(String(a.appliedAt ?? '')));
