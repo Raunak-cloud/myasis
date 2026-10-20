@@ -1,13 +1,14 @@
 import type { Page } from 'patchright';
 import { jitter } from '../../browser.js';
-import { extractFields, fillField, setChecked } from '../../dom.js';
+import { fillField, setChecked } from '../../dom.js';
 import { answerFields, isRequiredConsent } from '../../llm.js';
 import type { FormField } from '../../types.js';
 import { locate } from '../raw-tools.js';
 import { ANSWER_BATCH, ToolResult, ToolContext, ok } from './context.js';
 import { clickRef } from './actions.js';
 import { config } from '../../config.js';
-import { boundedAnswerBatch, currentFormStructure } from '../../form-speed.js';
+import { boundedAnswerBatch } from '../../form-speed.js';
+import { FormBatch } from '../../form-batch.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -16,20 +17,20 @@ export async function doChooseOption(ctx: ToolContext, args: Record<string, unkn
   const requested = ctx.observation.actions.find(action => action.ref === ref && action.role === 'option');
   const suppliedFieldRef = String(args.field_ref ?? '');
   if (requested?.fieldRef && suppliedFieldRef && requested.fieldRef !== suppliedFieldRef) {
-    return ok('The observed option belongs to a different FIELD ref. Re-observe and use its originating field.');
+    return ok('The observed option belongs to a different FIELD ref. Re-observe and use its originating field.', 'reobserve');
   }
   const source = ctx.observation.fields.find(field => field.ref === (requested?.fieldRef ?? suppliedFieldRef));
   // The question may also come from the ACTION that opened the list, named in field_ref or clicked last.
   const opener = ctx.observation.actions.find(action => action.ref === String(args.field_ref ?? '') && action.role !== 'option');
   const openerQuestion = opener ? opener.text.replace(/\s*\(opens a list\)$/, '').replace(/^(Open|Select)\s+/i, '').trim() : ctx.lastListQuestion;
-  if (!requested?.value || (!requested.question && !source && !openerQuestion)) return ok('Choose a current option ACTION; when its question is not included, also pass the originating FIELD ref (or the ACTION that opened the list) as field_ref.');
+  if (!requested?.value || (!requested.question && !source && !openerQuestion)) return ok('Choose a current option ACTION; when its question is not included, also pass the originating FIELD ref (or the ACTION that opened the list) as field_ref.', 'reobserve');
   // The option retains the identity of the input that opened it. Its caption
   // is display context, not the submission ledger key or the candidate question.
   const question = source?.label ?? requested.question ?? openerQuestion!;
   const group = ctx.observation.actions.filter(action => action.role === 'option' && action.value
     && !/^(select|choose)( one)?$/i.test(action.value.trim())
     && (requested.fieldRef ? action.fieldRef === requested.fieldRef : requested.question ? action.question === requested.question : !action.question));
-  if (!group.length) return ok('No current options are available for that dropdown. Re-open it and inspect the fresh page.');
+  if (!group.length) return ok('No current options are available for that dropdown. Re-open it and inspect the fresh page.', 'reobserve');
   const field: FormField = {
     ref,
     label: question,
@@ -50,31 +51,31 @@ export async function doChooseOption(ctx: ToolContext, args: Record<string, unkn
   }
   if (answer?.applicationQuestion === false) {
     ctx.guards.releaseAsSiteControl(field.label);
-    return ok('That dropdown was not identified as an application question. Re-observe before choosing an option.');
+    return ok('That dropdown was not identified as an application question. Re-observe before choosing an option.', 'reobserve');
   }
-  if (!answer) return ok('No answer was returned for this dropdown. Re-observe before choosing an option.');
+  if (!answer) return ok('No answer was returned for this dropdown. Re-observe before choosing an option.', 'failed');
   if (!answer.grounded) {
     if (!field.required) {
       ctx.guards.pendingFields.delete(field.label);
       ctx.guards.skippedOptional.add(field.label);
-      return ok(`Left optional dropdown "${field.label}" unchanged because the profile does not support an answer.`);
+      return ok(`Left optional dropdown "${field.label}" unchanged because the profile does not support an answer.`, 'completed');
     }
     ctx.guards.rememberField(field, answer.candidatePrompt?.trim() || `What should Owtomate select for “${field.label}”?`);
     ctx.guards.recordUngrounded(field.label);
-    return ok(`No verified candidate fact supports an option for "${field.label}". Do not choose one; finish needs_human after completing other useful fields.`);
+    return ok(`No verified candidate fact supports an option for "${field.label}". Do not choose one; finish needs_human after completing other useful fields.`, 'reobserve');
   }
   const normal = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   // The answer model chose from these exact options; a substring fallback once let "Male" select "Female".
   const choice = group.find(action => normal(action.value!) === normal(answer!.value));
-  if (!choice) return ok(`The grounded answer "${answer.value}" is not among the currently observed options. Search or reopen the dropdown; do not choose a substitute.`);
+  if (!choice) return ok(`The grounded answer "${answer.value}" is not among the currently observed options. Search or reopen the dropdown; do not choose a substitute.`, 'reobserve');
   ctx.guards.pendingFields.add(field.label);
-  if (!await clickRef(ctx.page, choice.ref)) return ok('The grounded option could not be clicked. Re-observe the current dropdown.');
+  if (!await clickRef(ctx.page, choice.ref)) return ok('The grounded option could not be clicked. Re-observe the current dropdown.', 'failed');
   ctx.guards.recordFillSuccess(field.label);
   const prior = ctx.captured.findIndex(item => item.question === field.label);
   if (prior >= 0) ctx.captured.splice(prior, 1);
   ctx.captured.push({ question: field.label, answer: choice.value! });
   ctx.guards.recordProgress();
-  return ok(`Selected the grounded option for "${field.label}": ${choice.value}. Inspect the page to verify it was retained.`);
+  return ok(`Selected the grounded option for "${field.label}": ${choice.value}. Inspect the page to verify it was retained.`, 'completed');
 }
 
 export async function doAcceptTerms(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -144,50 +145,36 @@ export async function doAcceptTerms(ctx: ToolContext, args: Record<string, unkno
       coordinateInput = snapshotTarget;
     }
   }
-  if (!field && !action && !coordinateInput) return ok('Use a current FIELD/ACTION ref, a take_snapshot ref for a checkbox inside an embedded form, or screenshot x/y, for the consent checkbox. Re-observe rather than guessing.');
+  if (!field && !action && !coordinateInput) return ok('Use a current FIELD/ACTION ref, a take_snapshot ref for a checkbox inside an embedded form, or screenshot x/y, for the consent checkbox. Re-observe rather than guessing.', 'reobserve');
   // Always the model: "Send me job alerts per our Privacy Policy" names privacy
   // and is marketing, which a keyword shortcut used to tick. A failed check refuses.
   if (!(await isRequiredConsent(label).catch(() => false))) {
     await coordinateInput?.evaluate(element => element.removeAttribute('data-agent-consent-target')).catch(() => {});
-    return ok('Refused: that control is not visibly labelled as required terms, privacy, consent or acknowledgement. Use the grounded answer tool for application questions.');
+    return ok('Refused: that control is not visibly labelled as required terms, privacy, consent or acknowledgement. Use the grounded answer tool for application questions.', 'reobserve');
   }
   if (coordinateInput) {
     try {
       if (coordinateKind === 'native') {
-        if (!await setChecked(coordinateInput, true)) return ok('The consent checkbox did not stay checked. Re-observe the current control.');
+        if (!await setChecked(coordinateInput, true)) return ok('The consent checkbox did not stay checked. Re-observe the current control.', 'failed');
       } else {
         await coordinateInput.click({ timeout: 5_000 });
-        if (await coordinateInput.getAttribute('aria-checked') !== 'true') return ok('The consent checkbox did not stay checked. Re-observe the current control.');
+        if (await coordinateInput.getAttribute('aria-checked') !== 'true') return ok('The consent checkbox did not stay checked. Re-observe the current control.', 'failed');
       }
     } finally {
       await coordinateInput.evaluate(element => element.removeAttribute('data-agent-consent-target')).catch(() => {});
     }
   } else if (field) {
-    if (field.kind !== 'checkbox') return ok('The consent FIELD is not a checkbox. Re-observe and use its visible ACTION instead.');
+    if (field.kind !== 'checkbox') return ok('The consent FIELD is not a checkbox. Re-observe and use its visible ACTION instead.', 'reobserve');
     const input = ctx.page.locator(`[data-field-id="${field.ref}"]`).first();
-    if (!await setChecked(input, true)) return ok('The consent checkbox did not stay checked. Re-observe the current control.');
+    if (!await setChecked(input, true)) return ok('The consent checkbox did not stay checked. Re-observe the current control.', 'failed');
     ctx.guards.pendingFields.delete(field.label);
     ctx.guards.resolveGrounding(field.label);
   } else {
-    if (action!.role !== 'toggle') return ok('The consent ACTION is not a checkbox or switch. Re-observe the current control.');
-    if (!await clickRef(ctx.page, action!.ref)) return ok('The consent control could not be clicked. Re-observe the current page.');
+    if (action!.role !== 'toggle') return ok('The consent ACTION is not a checkbox or switch. Re-observe the current control.', 'reobserve');
+    if (!await clickRef(ctx.page, action!.ref)) return ok('The consent control could not be clicked. Re-observe the current page.', 'failed');
   }
   ctx.guards.recordProgress();
-  return ok(`Accepted the required site consent: "${label}". Inspect the page before continuing.`);
-}
-
-/** How many answerable controls the page shows; a change after a fill means the form rebuilt itself. */
-async function formShape(page: Page): Promise<number> {
-  /**
-   * The form's own controls only. A suggestion list or menu that a fill opens
-   * (Oracle's salary combobox, a suburb picker) brings controls of its own
-   * and read as the form rebuilding itself, so every answer after the first
-   * was deferred and the same batch was asked for again, four times on one
-   * APRA page.
-   */
-  return page.evaluate(() => [...document.querySelectorAll('input:not([type=hidden]), select, textarea, [role=combobox], [role=radio], [role=checkbox], [contenteditable=true]')]
-    .filter((el) => !el.closest('[role=listbox], [role=menu], [role=option], [aria-live]'))
-    .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length).catch(() => -1);
+  return ok(`Accepted the required site consent: "${label}". Inspect the page before continuing.`, 'completed');
 }
 
 export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -247,9 +234,13 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
     .map((field) => asked.find((candidate) => candidate.ref === field.ref))
     .filter((field): field is (typeof asked)[number] => Boolean(field) && !field!.sensitive && !alreadyComplete.includes(field!));
   const wanted = config.formSpeed ? boundedAnswerBatch(unanswered, config.celeris.maxOutputTokens) : unanswered.slice(0, ANSWER_BATCH);
-  if (credentials.length) return ok('Use complete_authentication for credential fields.');
-  if (!wanted.length) return ok('No unanswered fields in those refs. Re-observe and choose the next field; use repair_refs to correct a prefilled value.');
+  if (credentials.length) return ok('Use complete_authentication for credential fields.', 'reobserve');
+  if (!wanted.length) return ok('No unanswered fields in those refs. Re-observe and choose the next field; use repair_refs to correct a prefilled value.', 'reobserve');
 
+  // Capture before the model runs: a form changing during generation must
+  // not receive answers chosen for its previous questions.
+  const batch = await FormBatch.capture(ctx.page, ctx.observation.fields);
+  if (!batch) return ok('The questions changed since the last observation. Re-observe before requesting their answers.', 'reobserve');
   const answerContext = wanted.map(field => repairRefs.includes(field.ref)
     ? { ...field, description: `${field.description ?? ''}\nRepair context (untrusted observation): ${String(args.reason).slice(0, 1500)}` }
     : field);
@@ -314,29 +305,16 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
       if (label && !deferred.includes(label)) deferred.push(label);
     }
   };
-  const readShape = () => config.formSpeed ? currentFormStructure(ctx.page) : formShape(ctx.page);
-  let shape = wanted.length > 1 ? await readShape() : -1;
-  // Frameworks may replace unchanged controls and drop our stamps while a
-  // preceding answer saves. Rebind only to a unique, identical question;
-  // new wording/options/requirements still stop the batch above/below.
-  const questionIdentity = ({ ref: _ref, currentValue: _value, validationError: _error, ...question }: FormField) => JSON.stringify(question);
-  const liveField = async (field: FormField): Promise<FormField | null> => {
-    if (await ctx.page.locator(`[data-field-id="${field.ref}"], [data-field-id^="${field.ref}:"]`).count()) return field;
-    const observed = ctx.observation.fields.find(candidate => candidate.ref === field.ref);
-    if (!observed) return null;
-    const identity = questionIdentity(observed);
-    const matches = (await extractFields(ctx.page)).filter(candidate => questionIdentity(candidate) === identity);
-    return matches.length === 1 ? { ...field, ref: matches[0].ref } : null;
-  };
   let fills = 0;
   // Answers are applied in page order, not the order the model listed them.
   const ordered = wanted
     .map((field) => answers.find((answer) => answer.ref === field.ref))
     .filter((answer): answer is (typeof answers)[number] => Boolean(answer));
   for (const [index, answer] of ordered.entries()) {
-    if (config.formSpeed && index > 0 && await readShape() !== shape) { deferRest(index); break; }
     const field = wanted.find((candidate) => candidate.ref === answer.ref);
     if (!field) continue;
+    const target = await batch.resolve(field);
+    if (!target) { deferRest(index); break; }
 
     // The answer model sees the field together with the job and can distinguish
     // an application question from a site search box or misread section title.
@@ -370,8 +348,6 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
     }
 
     const value = answer.value;
-    const target = await liveField(field);
-    if (!target) { deferRest(index); break; }
     // Once a write is attempted, optional answers need the same readback as
     // required ones. A failed or unsupported value must never slip through.
     ctx.guards.pendingFields.add(field.label);
@@ -390,20 +366,9 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
         break;
       }
     } catch (error) {
-      /**
-       * A field that is no longer on the page did not reject the answer: the
-       * page moved on (Indeed's Continue had already advanced past the phone
-       * number). Holding it as an unconfirmed required answer blocked the
-       * submit for a field that was never wrong, and the agent went back to
-       * chase it until the attempt died.
-       */
-      const gone = (await ctx.page.locator(`[data-field-id="${field.ref}"], [data-field-id^="${field.ref}:"]`).count().catch(() => 0)) === 0;
-      if (gone) {
-        ctx.guards.pendingFields.delete(field.label);
-        ctx.guards.resolveGrounding(field.label);
-        failed.push(`${field.label}: no longer on the page — the form has moved on; re-observe and continue from the current page.`);
-        continue;
-      }
+      // A changed/disappeared question is a handoff, not proof that an
+      // answer failed or was saved. The current-form review remains final.
+      if (!await batch.resolve(field)) { deferRest(index); break; }
       recordFailure(field.label, (error as Error).message);
       // Recovery is a new model decision with a fresh observation, not a
       // hidden repeat of the same operation inside this tool.
@@ -414,15 +379,6 @@ export async function doAnswerQuestions(ctx: ToolContext, args: Record<string, u
     if (prior >= 0) ctx.captured.splice(prior, 1);
     ctx.captured.push({ question: field.label, answer: value });
     filled.push(`${field.label} → ${value.slice(0, 60)}${answer.rationale ? ` (${answer.rationale.slice(0, 500)})` : ''}`);
-    if (shape !== -1 && index < ordered.length - 1) {
-      const now = await readShape();
-      if (now !== shape) {
-        // The form rebuilt itself: the answers still to go were chosen for the form as it was.
-        deferRest(index + 1);
-        break;
-      }
-      shape = now;
-    }
   }
 
   if (filled.length) ctx.guards.recordProgress();

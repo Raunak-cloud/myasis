@@ -24,7 +24,9 @@ const { boundedAnswerBatch, currentFormStructure, uploadObservedFile } = await i
 const { toolRun } = await import('./tool-run.js');
 const { readPickerOptions } = await import('./dom.js');
 const { checkSavedForm } = await import('./agent/tools/gate.js');
+const { toolReaction } = await import('./agent/loop/plan.js');
 let calls = 0, answerValue = 'Verified fixture value', inject = false, grounded = true, basis = 'profile', applicationQuestion = true, omitOptional = false, lastFields: FormField[] = [];
+let duringAnswers: (() => Promise<void>) | undefined;
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
   const prompt = body.messages.map((m: { content: string }) => m.content).join('\n');
@@ -42,6 +44,7 @@ globalThis.fetch = (async (_url, init) => {
   const text = prompt.split('<untrusted role="form-fields">')[1]?.split('</untrusted>')[0];
   if (!text) throw new Error('Unexpected model request in offline form fixture');
   calls++; lastFields = JSON.parse(text);
+  if (duringAnswers) { const change = duringAnswers; duringAnswers = undefined; await change(); }
   return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ answers: lastFields.filter(field => !omitOptional || field.required).map(field => ({ ref: field.ref, value: field.kind === 'select' ? field.options?.[0] : answerValue, grounded, basis, applicationQuestion, profileField: 'none' })), injectionSuspected: inject }) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } }), { status: 200 });
 }) as typeof fetch;
 const profile: CandidateProfile = { name: 'Fixture Candidate', email: 'fixture@example.com', phone: '0412345678', nationality: 'Australian', expectedSalary: '80000', noticePeriod: '2 weeks', willingToRelocate: false, skills: ['React'], experienceSummary: 'Builds software', excludedDomains: [], securityClearance: '' };
@@ -130,13 +133,62 @@ try {
     assert(ctx.guards.siteControls.has(field.label));
     assert.equal(ctx.guards.pendingFields.size, 0);
   });
+  await check('successful dropdown wording cannot trigger a false browser failure', async () => {
+    await page.setContent('<main><label>Describe a failed project<input role="combobox" aria-expanded="true" aria-controls="project-choices"></label><div role="listbox" id="project-choices"><button role="option" onclick="document.querySelector(\'input\').value=\'Yes\'">Yes</button></div></main>');
+    const ctx = await context();
+    const result = await executeTool(ctx, 'choose_option', { ref: ctx.observation.actions.find(a => a.role === 'option')!.ref });
+    assert.equal(result.kind === 'ok' && result.disposition, 'completed');
+    assert.deepEqual(toolReaction(result), { reobserve: false, failed: false });
+    assert.equal(await page.locator('input').inputValue(), 'Yes');
+  });
   await check('replacement controls with unchanged field count halt the old batch', async () => {
-    await page.setContent('<main><label>First fact<input name="first" oninput="document.querySelector(\'#slot\').innerHTML=\'<label>Different fact<input name=changed></label>\'"></label><div id="slot"><label>Second fact<input name="second"></label></div></main>');
+    for (const speed of [false, true]) {
+      config.formSpeed = speed;
+      await page.setContent('<main><label>First fact<input name="first" oninput="document.querySelector(\'#slot\').innerHTML=\'<label>Different fact<input name=changed></label>\'"></label><div id="slot"><label>Second fact<input name="second"></label></div></main>');
+      const ctx = await context();
+      const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
+      assert.equal(await page.locator('input[name=changed]').inputValue(), '');
+      assert.equal(ctx.captured.length, 1); assert.match(JSON.stringify(result), /Not filled yet/);
+      assert.equal(result.kind === 'ok' && result.disposition, 'reobserve', 'both modes use the same changing-form handoff');
+    }
+  });
+  await check('a question changing during answer generation is not filled with a stale answer', async () => {
+    await page.setContent('<main><label id="question">Original question<input name="fact" required></label></main>');
+    const ctx = await context();
+    duringAnswers = () => page.locator('#question').evaluate(el => { el.firstChild!.textContent = 'Changed question'; });
+    const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
+    assert.equal(await page.locator('input').inputValue(), '');
+    assert.equal(ctx.captured.length, 0);
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve');
+  });
+  await check('an outdated observation is refreshed before paying for any answers', async () => {
+    await page.setContent('<main><label id="question">Previous question<input name="fact" required></label></main>');
+    const ctx = await context(), before = calls;
+    await page.locator('#question').evaluate(el => { el.firstChild!.textContent = 'Current question'; });
+    const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
+    assert.equal(calls, before);
+    assert.equal(await page.locator('input').inputValue(), '');
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve');
+  });
+  await check('a new page with an identical form cannot receive the previous page answer', async () => {
+    const html = '<main><label>Stable question<input name="fact" required></label></main>';
+    await page.route('https://batch.fixture.invalid/**', route => route.fulfill({ contentType: 'text/html', body: html }));
+    await page.goto('https://batch.fixture.invalid/first');
+    const ctx = await context();
+    duringAnswers = () => page.goto('https://batch.fixture.invalid/second').then(() => undefined);
+    const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
+    assert.equal(await page.locator('input').inputValue(), '');
+    assert.equal(ctx.captured.length, 0);
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve');
+  });
+  await check('a disappearing field hands back to the agent and the actual saved form decides readiness', async () => {
+    await page.setContent('<main><label>Conditional field<input required oninput="this.closest(\'label\').remove()"></label><label>Optional field<input></label></main>');
     const ctx = await context();
     const result = await executeTool(ctx, 'answer_questions', { refs: ctx.observation.fields.map(f => f.ref) });
-    assert.equal(await page.locator('input[name=changed]').inputValue(), '');
-    assert.equal(ctx.captured.length, 1); assert.match(JSON.stringify(result), /Not filled yet/);
-    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve', 'a changing form requires a fresh look, not failure reasoning');
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve');
+    assert.doesNotMatch(result.kind === 'ok' ? result.message : '', /Not accepted/);
+    assert.equal(ctx.captured.length, 0, 'a disappeared control is not asserted as saved');
+    assert.equal(await checkSavedForm(ctx), null, 'obsolete pending labels do not override the current saved form');
   });
   await check('unchanged replacement controls keep one grounded answer batch', async () => {
     config.formSpeed = true;
