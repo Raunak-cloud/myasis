@@ -120,6 +120,7 @@ async function publish(remote: RemoteSession): Promise<void> {
 
 /** One owned cloud connection per application, never a shared context or copied job-board session. */
 export async function openEmployerBrowser(localPage: Page, connect: (endpoint: string, options: { timeout: number }) => Promise<Browser> = chromium.connectOverCDP.bind(chromium)): Promise<{ page: Page; close: () => Promise<void> }> {
+  if (applicationBrowserName(localPage) === 'brightdata') return { page: localPage, close: async () => {} };
   if (employerBrowserProvider(process.env) === 'local') return { page: localPage, close: async () => {} };
   const endpoint = brightDataBrowserEndpoint(process.env);
   const endCostRequest = beginCostRequest('Bright Data');
@@ -134,10 +135,19 @@ export async function openEmployerBrowser(localPage: Page, connect: (endpoint: s
     const remote: RemoteSession = { browser, page, sessionId: randomUUID(), worker: currentApplicationWorker(), timer: undefined!, publishing: false, closed: false, captchaControls: new Map() };
     remoteSessions.set(context, remote);
     await captchaControl(remote, page);
+    // New tabs must establish manual solver ownership before their first
+    // document loads; provider defaults can otherwise submit a form itself.
+    await context.route('**/*', async route => {
+      if (route.request().isNavigationRequest()) {
+        try { await captchaControl(remote, route.request().frame().page()); }
+        catch { await route.abort(); return; }
+      }
+      await route.fallback();
+    });
     remote.timer = setInterval(() => void publish(remote), 2_000);
     remote.timer.unref();
     await publish(remote);
-    console.log('  Browser: Bright Data administrator pilot · a fresh session for this application');
+    console.log('  Browser: Bright Data · a fresh private session for this employer application');
     return { page, close: async () => {
       remote.closed = true;
       clearInterval(remote.timer);

@@ -6,6 +6,8 @@ import { chromium } from 'patchright';
 import type { JobListing } from '../types.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-agent-only-'));
+process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
+process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', ANTHROPIC_API_KEY: 'fixture-only',
   APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false' });
 const haiku = process.env.TEST_APPLICATION_MODEL === 'haiku';

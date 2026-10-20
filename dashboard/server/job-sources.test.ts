@@ -43,8 +43,8 @@ test('old saved settings and server environment cannot enable the feed on custom
   applyJobSourceAccess(settings, false);
   assert.equal(settings.PLATFORMS, 'seek');
   assert.equal(settings.SMARTRECRUITERS_ADMIN_ENABLED, 'false');
-  assert.equal((settings as Record<string, string>).EMPLOYER_BROWSER_PROVIDER, 'local');
-  assert.equal((settings as Record<string, string>).BRIGHTDATA_ADMIN_ENABLED, 'false');
+  assert.equal((settings as Record<string, string>).EMPLOYER_BROWSER_PROVIDER, undefined);
+  assert.equal((settings as Record<string, string>).BRIGHTDATA_ADMIN_ENABLED, undefined);
   for (const source of EMPLOYER_SOURCES) assert.equal((settings as Record<string, string>)[source.key], '');
   const only = { PLATFORMS: 'smartrecruiters' };
   applyJobSourceAccess(only, false);

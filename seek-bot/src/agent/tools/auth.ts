@@ -15,7 +15,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   // This pilot authorizes public application data, not employer credentials.
   // Browser API also requires separate provider approval for password entry.
   if (applicationBrowserName(ctx.page) === 'brightdata') {
-    return { kind: 'terminal', outcome: { status: 'needs-human', reason: 'This employer requires sign-in. The Bright Data pilot supports public application forms; use the existing browser for this application.' } };
+    return { kind: 'terminal', outcome: { status: 'needs-human', reason: 'This employer requires sign-in. The private employer browser supports public application forms; employer credentials have not been enabled for it.' } };
   }
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));

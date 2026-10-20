@@ -29,8 +29,9 @@ const providerSessionId = '12345678-1234-1234-1234-123456789abc';
 const controls: EventEmitter[] = [];
 const autoSolveChoices: boolean[] = [];
 try {
-  process.env.BRIGHTDATA_ADMIN_ENABLED = 'false';
-  await assert.rejects(openEmployerBrowser(localPage, async () => { throw new Error('Unauthorized connection reached provider'); }), /administrator pilot/);
+  process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
+  await assert.rejects(openEmployerBrowser(localPage, async () => { throw new Error('Disabled connection reached provider'); }), /not enabled/);
+  process.env.BRIGHTDATA_BROWSER_ENABLED = 'true';
   process.env.BRIGHTDATA_ADMIN_ENABLED = 'true';
   await assert.rejects(openEmployerBrowser(localPage, async endpoint => { throw new Error(endpoint); }), error => {
     assert.ok(error instanceof Error); assert.match(error.message, /connection failed/);
@@ -119,8 +120,17 @@ try {
   assert.equal(frame.url, 'https://fixture.example.test');
   assert.ok(!JSON.stringify(frame).includes('private-token'));
   assert.ok(Buffer.from(frame.data!, 'base64').length > 100);
+  const reused = await openEmployerBrowser(remote.page, async () => { throw new Error('Nested connection must not be opened'); });
+  assert.equal(reused.page, remote.page);
+  await reused.close();
+  assert.equal(applicationBrowserName(remote.page), 'brightdata', 'nested callers cannot close the attempt-owned session');
+  // Navigation guards compose with the solver's ownership route on new tabs.
+  await remote.page.context().route('**/*', route => route.fallback());
+  const popup = await remote.page.context().newPage();
+  await popup.goto('https://fixture.example.test/application-next-step');
+  assert.deepEqual(autoSolveChoices, [false, false], 'new tabs disable provider auto-submit before loading their first document');
   await remote.close(); remote = undefined;
-  for (const event of ['Captcha.detected', 'Captcha.waitForSolve', 'Captcha.solveFinished', 'Captcha.solveFailed']) assert.equal(controls[0].listenerCount(event), 0, 'closing the cloud browser removes provider listeners');
+  for (const control of controls) for (const event of ['Captcha.detected', 'Captcha.waitForSolve', 'Captcha.solveFinished', 'Captcha.solveFailed']) assert.equal(control.listenerCount(event), 0, 'closing the cloud browser removes provider listeners');
   assert.equal(existsSync(join(directory, REMOTE_PREVIEW_FILE)), false);
   assert.equal((await localContext.cookies())[0]?.value, 'local-only');
   console.log('PASS: provider diagnostics retain errors and redact credentials; sessions isolate cookies; remote document bytes upload; owned live preview omits URL tokens; close removes preview');

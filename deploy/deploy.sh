@@ -111,7 +111,7 @@ as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/delayed-receipt.test.js"
 as_app "cd $APP/seek-bot && node --test dist/form-replay-compare.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/form-replay.test.js"
-as_app "cd $APP/seek-bot && node --test dist/employer-browser-config.test.js dist/remote-browser-preview.test.js"
+as_app "cd $APP/seek-bot && node --test dist/employer-browser-config.test.js dist/employer-browser-router.test.js dist/remote-browser-preview.test.js"
 as_app "cd $APP/seek-bot && node --test dist/captcha/retry.test.js dist/captcha/diagnostics.test.js"
 as_app "cd $APP/seek-bot && node dist/employer-browser.test.js"
 as_app "cd $APP/seek-bot && node --test dist/smartrecruiters.test.js dist/employer-feeds.test.js dist/agent/apply-employer-job.test.js dist/agent/choose-option.test.js"

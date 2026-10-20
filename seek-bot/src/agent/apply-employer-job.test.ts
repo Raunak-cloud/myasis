@@ -5,6 +5,8 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { chromium, type Page } from 'patchright';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-smartrecruiters-fixture-'));
+process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
+process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 process.env.ALLOW_EXTERNAL_APPLY = 'true';

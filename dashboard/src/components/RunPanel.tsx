@@ -42,7 +42,6 @@ const RUN_DEFAULTS: Record<string, string> = {
   KEYWORDS: '',
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
-  EMPLOYER_BROWSER_PROVIDER: 'local',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',
   SEARCH_RADIUS_KM: '0',
@@ -1205,12 +1204,8 @@ export function RunPanel({
                 {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">Admin pilot. No job-board sign-in required. The selected employer feeds share your normal fit checks and application limits. Test without applying checks one page per search term and up to 10 jobs, without saving drafts or opening application forms.</p>}
                 {isAdmin && platforms.some(isEmployerSource) && (
                   <div className="field run-review-wide">
-                    <FieldLabel label="Employer browser" help="Choose the browser used for employer application forms." />
-                    <select aria-label="Employer browser" value={val('EMPLOYER_BROWSER_PROVIDER')} onChange={event => setEdit('EMPLOYER_BROWSER_PROVIDER', event.target.value)}>
-                      <option value="local">Existing browser</option>
-                      <option value="brightdata">Bright Data (admin pilot)</option>
-                    </select>
-                    <span className="field-help">Bright Data receives your resume and application answers through its cloud browser. Usage consumes your Bright Data credits. Each application uses a separate session. Public application forms only; choose the existing browser for jobs requiring employer sign-in.</span>
+                    <FieldLabel label="Employer forms" help="Employer forms use the server-configured private browser automatically." />
+                    <span className="field-help">When Bright Data is enabled, employer forms use a separate private session with automatic security verification. Bright Data receives your resume and application answers. SEEK and Indeed sign-ins stay in their existing browsers. Employer forms requiring sign-in may need attention.</span>
                   </div>
                 )}
                 <p className="job-meta recommended-first-note">

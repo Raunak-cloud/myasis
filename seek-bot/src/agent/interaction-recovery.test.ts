@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 import { chromium } from 'patchright';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-recovery-fixture-'));
+process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
+process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 process.env.ALLOW_EXTERNAL_APPLY = 'true';

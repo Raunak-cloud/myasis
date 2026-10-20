@@ -150,7 +150,7 @@ const GROUPS: GroupSpec[] = [
       { key: 'ADMIN_FORM_SPEED', label: 'Admin form speed pilot', help: 'Larger bounded question batches, exact account/job-scoped answer reuse, and immediate verified fills. Admin-owned runs only; existing truth and submission checks remain active. Takes effect on the next run.', kind: 'boolean' },
       { key: 'BROWSER_CONNECT_CDP', label: 'Attach to a shared browser', help: 'Keep off: each run needs its own Chrome on its own profile.', kind: 'boolean' },
       { key: 'CDP_HOST', label: 'CDP host', help: 'Only used when attaching to a shared browser.', kind: 'text' },
-      { key: 'BRIGHTDATA_BROWSER_ENABLED', label: 'Bright Data admin pilot', help: 'Allows administrator accounts to opt into a fresh cloud browser for each employer-feed application. Job-board browsers stay local.', kind: 'boolean' },
+      { key: 'BRIGHTDATA_BROWSER_ENABLED', label: 'Bright Data employer forms', help: 'Routes employer forms through fresh private cloud sessions, including direct links and SEEK/Indeed handoffs. Job-board sessions and login cookies stay local.', kind: 'boolean' },
       { key: 'BRIGHTDATA_BROWSER_USERNAME', label: 'Bright Data browser username', help: 'From the Browser API zone, not the account API key.', kind: 'text' },
       { key: 'BRIGHTDATA_BROWSER_PASSWORD', label: 'Bright Data browser password', help: 'Zone credential. Kept on the server; never included in run preferences.', kind: 'secret' },
     ],

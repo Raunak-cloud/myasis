@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { brightDataBrowserEndpoint, employerBrowserProvider } from './employer-browser-config.js';
 
-test('cloud browser requires account choice, server pilot and admin authorization', () => {
+test('server employer-browser policy cannot be bypassed by stale local choices or account role', () => {
   assert.equal(employerBrowserProvider({}), 'local');
   const env = { EMPLOYER_BROWSER_PROVIDER: 'brightdata', BRIGHTDATA_ADMIN_ENABLED: 'true', BRIGHTDATA_BROWSER_ENABLED: 'true' };
   assert.equal(employerBrowserProvider(env), 'brightdata');
-  assert.throws(() => employerBrowserProvider({ ...env, BRIGHTDATA_ADMIN_ENABLED: 'false' }));
+  assert.equal(employerBrowserProvider({ ...env, BRIGHTDATA_ADMIN_ENABLED: 'false', EMPLOYER_BROWSER_PROVIDER: 'local' }), 'brightdata');
   assert.throws(() => employerBrowserProvider({ ...env, BRIGHTDATA_BROWSER_ENABLED: 'false' }));
-  assert.throws(() => employerBrowserProvider({ ...env, EMPLOYER_BROWSER_PROVIDER: 'arbitrary' }));
+  assert.equal(employerBrowserProvider({ ...env, EMPLOYER_BROWSER_PROVIDER: 'arbitrary' }), 'brightdata');
+  assert.throws(() => employerBrowserProvider({ EMPLOYER_BROWSER_PROVIDER: 'arbitrary' }));
 });
 
 test('zone credentials go only to the fixed service; validation errors do not contain them', () => {

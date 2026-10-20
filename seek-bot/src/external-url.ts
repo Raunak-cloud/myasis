@@ -54,10 +54,10 @@ export async function guardExternalNavigations(context: BrowserContext): Promise
   let blocked: string | null = null;
   const handler: Parameters<BrowserContext['route']>[1] = async (route) => {
     const request = route.request();
-    if (request.resourceType() !== 'document') return route.continue();
+    if (request.resourceType() !== 'document') return route.fallback();
     try {
       await assertExternalJobUrl(request.url());
-      return route.continue();
+      return route.fallback();
     } catch (error) {
       blocked = (error as Error).message;
       return route.abort('blockedbyclient');

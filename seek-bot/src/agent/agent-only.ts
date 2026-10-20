@@ -1,13 +1,14 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import type { Locator, Page, Route } from 'patchright';
+import type { BrowserContext, Locator, Page, Route } from 'patchright';
 import { config } from '../config.js';
 import { applicationModelIdentity } from '../application-model.js';
 import { isAgentOnlyApplication } from '../application-agent-mode.js';
 import { WORK_RIGHTS_EVIDENCE_RULES } from '../application-answer-policy.js';
 import { applicationAllowance } from '../application-allowance.js';
-import { applicationUpload, selectRemotePage } from '../employer-browser.js';
+import { applicationBrowserName, applicationUpload, selectRemotePage } from '../employer-browser.js';
+import { hasCaptchaSurface } from '../captcha/detect.js';
 import { documentFor } from '../resume.js';
 import { outsideScope } from '../run-scope.js';
 import { workingIn, waitForChallengeToClear } from '../browser.js';
@@ -110,7 +111,21 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   listen(ctx.page);
   const onPage = (page: Page) => listen(page);
   const browserContext = options.page.context();
-  browserContext.on('page', onPage);
+  const contexts = new Set<BrowserContext>();
+  const watchContext = (context: BrowserContext) => {
+    if (contexts.has(context)) return;
+    contexts.add(context); context.on('page', onPage);
+    for (const page of context.pages()) listen(page);
+  };
+  watchContext(browserContext);
+  const routeEmployer = async () => {
+    const page = await options.routeEmployerPage?.(ctx.page) ?? ctx.page;
+    if (page === ctx.page) return false;
+    ctx.page = page; watchContext(page.context());
+    selectRemotePage(page); await workingIn(page);
+    lastNote = 'The employer form is in a fresh private browser. Read the new page and use its refs.';
+    return true;
+  };
   // Test fixtures may mutate their intercepted invalid-domain page, but can
   // never send a request to a real website. Production dry-run is read-only.
   const sandbox = async (route: Route) => {
@@ -211,7 +226,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         await ctx.page.goto(value, { waitUntil: 'domcontentloaded', timeout: 30_000 }); break;
       }
       case 'select_page': {
-        const page = browserContext.pages()[Number(args.page_index)];
+        const page = ctx.page.context().pages()[Number(args.page_index)];
         if (!page || page.isClosed()) throw new Error('Choose an open page_index from the observation.');
         ctx.page = page; selectRemotePage(page); await workingIn(page); break;
       }
@@ -251,14 +266,19 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   try {
     while (!finished && steps < config.celeris.maxSteps && remainingMs() > 0 && !meter.exhausted) {
       if (ctx.page.isClosed()) {
-        const open = browserContext.pages().filter(page => !page.isClosed());
+        const open = ctx.page.context().pages().filter(page => !page.isClosed());
         if (!open.length) { terminal = { status: 'skipped', reason: 'The application browser closed.' }; break; }
         ctx.page = open.at(-1)!;
+      }
+      await routeEmployer();
+      if (applicationBrowserName(ctx.page) === 'brightdata' && await hasCaptchaSurface(ctx.page)) {
+        const cleared = await waitForChallengeToClear(ctx.page, Math.min(60_000, remainingMs()));
+        lastNote += ` Bright Data verification: ${cleared ? 'surface cleared' : 'surface remains; do not treat this as a receipt'}.`;
       }
       ctx.observation = await observe(ctx.page, { screenshot });
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
       screenshot = false;
-      const pages = browserContext.pages().map((page, index) => ({ index, url: page.url(), current: page === ctx.page }));
+      const pages = ctx.page.context().pages().map((page, index) => ({ index, url: page.url(), current: page === ctx.page }));
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
@@ -281,7 +301,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
           planActions++;
           try {
             if (!tool || !validHaikuInput(call.args, tool.parameters)) throw new Error('Invalid tool input. Read the schema and retry with the correct arguments.');
-            result = await act(call.name, call.args);
+            if (await routeEmployer()) {
+              interrupted = true;
+              result = ok('Not run: the browser changed. Read the fresh employer form before acting.');
+            } else result = await act(call.name, call.args);
           } catch (error) { result = ok(`Browser/tool error: ${(error as Error).message}`, 'failed'); }
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
@@ -305,7 +328,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   } finally {
     activity.close();
     clearTimeout(deadline);
-    browserContext.off('page', onPage);
+    for (const context of contexts) context.off('page', onPage);
     for (const page of watched) { page.off('dialog', onDialog); await dialogs.get(page)?.dismiss().catch(() => {}); }
     if (isolated) await browserContext.unroute('**/*', sandbox);
   }

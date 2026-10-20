@@ -1,6 +1,8 @@
 import { hostOf as siteHost } from '../site-auth.js';
 import { recordWall, walledHost } from '../site-walls.js';
 import { applicationBrowserName } from '../employer-browser.js';
+import { EmployerBrowserRouter } from '../employer-browser-router.js';
+import { outsideScope } from '../run-scope.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
 import { recordFormPage } from '../form-corpus.js';
 import { changedAnything, describeChanges, movedByAction, readChanges, startRecording, type PageChanges } from './page-changes.js';
@@ -61,11 +63,19 @@ export interface AgentRunOptions {
   job: JobListing;
   profile: CandidateProfile;
   log?: (line: string) => void;
+  /** Internal attempt-owned routing, shared by both agent engines. */
+  routeEmployerPage?: (page: Page) => Promise<Page>;
 }
 
 export function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
-  return withJobCost(options.job.id, () => isAgentOnlyApplication()
-    ? runAgentOnlyApplication(options) : runApplicationAgentScoped(options));
+  return withJobCost(options.job.id, async () => {
+    const router = new EmployerBrowserRouter();
+    const routeEmployerPage = (page: Page) => options.simulation || !config.allowExternalApply || outsideScope('external') ? Promise.resolve(page) : router.route(page);
+    try {
+      const routed = { ...options, page: await routeEmployerPage(options.page), routeEmployerPage };
+      return await (isAgentOnlyApplication() ? runAgentOnlyApplication(routed) : runApplicationAgentScoped(routed));
+    } finally { await router.close(); }
+  });
 }
 async function runApplicationAgentScoped(options: AgentRunOptions): Promise<AgentRunResult> {
   const { job, profile } = options;
@@ -342,6 +352,13 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
       // A tab that closes itself hands the application back to the one that opened it.
       page = tabsLeft.pop()!;
     }
+    const routedPage = await options.routeEmployerPage?.(page) ?? page;
+    if (routedPage !== page) {
+      page = routedPage;
+      for (const tab of page.context().pages()) tabsBefore.add(tab);
+      tabsLeft.length = 0;
+      note = 'The employer form is now in a fresh private browser. Re-read it before acting; previous page refs do not apply.';
+    }
     if (ctx.page !== page) {
       ctx.page = page;
       await workingIn(page);
@@ -614,6 +631,16 @@ async function runApplicationAgentScoped(options: AgentRunOptions): Promise<Agen
     let ended: ToolResult | null = null;
 
     for (const [index, call] of plan.entries()) {
+      const routed = index > 0 ? await options.routeEmployerPage?.(ctx.page) : undefined;
+      if (routed && routed !== ctx.page) {
+        page = ctx.page = routed;
+        tabsLeft.length = 0;
+        for (const tab of page.context().pages()) tabsBefore.add(tab);
+        await workingIn(page);
+        watchTab(page, ctx);
+        for (const skipped of plan.slice(index)) replies.push({ id: skipped.id, content: 'Not run: the application moved to its private employer browser. Read the fresh observation before acting.' });
+        break;
+      }
       // A delayed employer receipt can share a page with other drafts and
       // their Continue buttons. Verify the current application's receipt
       // before any next action can navigate away from that evidence.

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
+process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

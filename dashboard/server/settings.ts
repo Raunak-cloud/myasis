@@ -89,7 +89,6 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   EXCLUDED_COMPANIES: '',
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
-  EMPLOYER_BROWSER_PROVIDER: 'local',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   JOB_TYPES: '',
   ONSITE_CITY: 'Sydney',

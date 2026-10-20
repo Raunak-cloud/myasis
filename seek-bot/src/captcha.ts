@@ -17,7 +17,7 @@ const attempts = new WeakMap<Page, { instance: string; time: number }>();
 const chain = (): Solver[] =>
   (process.env.CAPTCHA_SOLVER ?? '').split(',').flatMap(name => SOLVERS[name.trim().toLowerCase()] ?? []);
 
-export const captchaEnabled = () => chain().length > 0 || (process.env.BRIGHTDATA_ADMIN_ENABLED === 'true' && process.env.BRIGHTDATA_BROWSER_ENABLED === 'true');
+export const captchaEnabled = () => chain().length > 0 || process.env.BRIGHTDATA_BROWSER_ENABLED === 'true';
 
 type CaptchaHandling = 'none' | 'solved' | 'blocked';
 

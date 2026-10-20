@@ -3,15 +3,13 @@ export const EMPLOYER_BROWSER_PROVIDERS = ['local', 'brightdata'] as const;
 type EmployerBrowserProvider = typeof EMPLOYER_BROWSER_PROVIDERS[number];
 type Environment = Record<string, string | undefined>;
 
-/** A private browser provider is an explicit account choice and a server-authorized pilot. */
+/** Server policy applies to every employer form; stale account choices cannot bypass it. */
 export function employerBrowserProvider(env: Environment): EmployerBrowserProvider {
+  if (env.BRIGHTDATA_BROWSER_ENABLED === 'true') return 'brightdata';
   const selected = env.EMPLOYER_BROWSER_PROVIDER || 'local';
   if (!EMPLOYER_BROWSER_PROVIDERS.includes(selected as EmployerBrowserProvider)) throw new Error('Choose a supported employer browser.');
   if (selected === 'local') return 'local';
-  if (env.BRIGHTDATA_ADMIN_ENABLED !== 'true' || env.BRIGHTDATA_BROWSER_ENABLED !== 'true') {
-    throw new Error('Bright Data employer browsers are available only in the enabled administrator pilot.');
-  }
-  return 'brightdata';
+  throw new Error('Bright Data employer browsers are not enabled on this server.');
 }
 
 /** The endpoint is fixed; neither a client nor a saved setting can choose a secret recipient. */

@@ -5,6 +5,7 @@ import {join,resolve,sep} from 'node:path';
 import {chromium} from 'patchright';
 import type {Page} from 'patchright';
 const directory=mkdtempSync(join(tmpdir(),'owtomate-delayed-receipt-'));
+process.env.BRIGHTDATA_BROWSER_ENABLED='false';process.env.EMPLOYER_BROWSER_PROVIDER='local';
 process.env.DATA_DIR=directory;process.env.CELERIS_API_KEY='fixture-only';process.env.ALLOW_EXTERNAL_APPLY='true';process.env.FORM_SPEED_PILOT='true';process.env.DRY_RUN='false';process.env.RESUME_ALLOW_UPLOAD='true';
 mkdirSync(join(directory,'resumes'));writeFileSync(join(directory,'resumes','cv.txt'),'Fixture candidate CV');
 writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'fixture',label:'Fixture CV',fileName:'cv.txt',isDefault:true}]));

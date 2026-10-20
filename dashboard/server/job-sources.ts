@@ -35,8 +35,9 @@ export function applyJobSourceAccess(settings: Record<string, string>, targetIsA
   settings.PLATFORMS = platforms.join(',') || 'seek';
   settings.EMPLOYER_FEEDS_ADMIN_ENABLED = targetIsAdmin ? 'true' : 'false';
   settings.SMARTRECRUITERS_ADMIN_ENABLED = targetIsAdmin ? 'true' : 'false';
-  settings.BRIGHTDATA_ADMIN_ENABLED = targetIsAdmin ? 'true' : 'false';
-  settings.EMPLOYER_BROWSER_PROVIDER = targetIsAdmin ? settings.EMPLOYER_BROWSER_PROVIDER || 'local' : 'local';
+  // Employer browser routing is a server policy, never an account opt-out.
+  delete settings.BRIGHTDATA_ADMIN_ENABLED;
+  delete settings.EMPLOYER_BROWSER_PROVIDER;
   for (const source of EMPLOYER_SOURCES) settings[source.key] = targetIsAdmin ? employerTargets(source.id, settings[source.key] || source.defaults).join(',') : '';
 }
 
