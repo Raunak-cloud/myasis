@@ -8,7 +8,7 @@ import { AGENT_ONLY_PROMPT } from '../dist/agent/agent-only.js';
 
 const cases = [
   { name: 'saved Australian citizen', profile: { workRights: 'Citizen', workRightsCountry: 'Australia' }, answer: 'Yes' },
-  { name: 'saved Australian permanent resident', profile: { workRights: 'Permanent resident', workRightsCountry: 'Australia' }, answer: 'Yes' },
+  { name: 'saved Australian permanent resident', profile: { workRights: 'Permanent resident', workRightsCountry: 'Australia' }, question: 'Do you have unrestricted working rights in Australia?', answer: 'Yes' },
   { name: 'full-rights visa with explicit visa exclusion', profile: { workRights: 'Visa with full work rights', workRightsCountry: 'Australia' }, answer: 'No' },
   { name: 'foreign citizenship is not Australian permission', profile: { workRights: 'Citizen', workRightsCountry: 'Canada' }, answer: 'needs-human' },
   { name: 'nationality alone is not work permission', profile: { nationality: 'Nepali' }, answer: 'needs-human' },
@@ -23,7 +23,7 @@ await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'haiku', COST
     const start = performance.now();
     const reply = await celerisChat({ model: 'celeris-1-magnus', requireTool: true, reasoningEffort: 'medium', tools, meter,
       messages: [{ role: 'system', content: AGENT_ONLY_PROMPT }, { role: 'user', content:
-        `Inert independent synthetic form test. No browser exists; use record_test_answer once instead of browser actions or finish. All candidate evidence is supplied here: ${JSON.stringify({ name: 'Synthetic Candidate', nationality: 'Not stated', ...fixture.profile })}. Required question: "Do you have full working rights in Australia? Please select NO, if you're on a visa." There are no other saved answers or documents. Record Yes, No or needs-human using the production evidence rules.` }] });
+        `Inert independent synthetic form test. No browser exists; use record_test_answer once instead of browser actions or finish. All candidate evidence is supplied here: ${JSON.stringify({ name: 'Synthetic Candidate', nationality: 'Not stated', ...fixture.profile })}. Required question: ${JSON.stringify(fixture.question ?? "Do you have full working rights in Australia? Please select NO, if you're on a visa.")}. There are no other saved answers or documents. Record Yes, No or needs-human using the production evidence rules.` }] });
     const call = reply.toolCalls[0];
     console.log(JSON.stringify({ case: fixture.name, pass: call?.args.answer === fixture.answer,
       seconds: +(performance.now() - start).toFixed(2), answer: call?.args.answer, reason: call?.args.reason }));
