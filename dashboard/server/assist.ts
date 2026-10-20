@@ -94,7 +94,9 @@ async function bot() {
 function toBotProfile(p: CandidateProfile) {
   return {
     name: p.fullName || 'Unknown',
-    nationality: p.workRights || 'Not stated',
+    nationality: 'Not stated',
+    workRights: p.workRights || undefined,
+    workRightsCountry: 'Australia',
     driving: p.hasDriverLicence ? 'Yes' : undefined,
     phone: p.phone,
     email: p.email,

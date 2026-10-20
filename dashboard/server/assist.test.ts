@@ -37,7 +37,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
     if (/FROM users/i.test(sql)) return { rows: [{ id: account }] };
     assert.match(sql, /WHERE user_id = \$1/i);
     if (/FROM profiles/i.test(sql)) {
-      const profile = { ...EMPTY_PROFILE, fullName: account, skills: 'Fixture skill' };
+      const profile = { ...EMPTY_PROFILE, fullName: account, skills: 'Fixture skill', workRights: 'Citizen' };
       return { rows: [Object.fromEntries(Object.entries(profile).map(([key, value]) => [
         key.replace(/[A-Z]/g, (letter) => '_' + letter.toLowerCase()), value,
       ]))] };
@@ -78,6 +78,8 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
     assert.equal(results[index].answers?.[0].value, banks[account][0] ?? '');
     const prompt = prompts.find((text) => text.includes(`Name: ${account}\n`));
     assert.ok(prompt);
+    assert.match(prompt, /Work rights \(Australia\): Citizen/);
+    assert.match(prompt, /Nationality: Not stated/);
     assert.match(prompt, account === 'Alice' ? /"arrangements":\["remote"\],"onsiteCity":"Melbourne"/ : /"arrangements":\["hybrid","onsite"\],"onsiteCity":"Sydney"/);
     assert.ok(!prompt.includes(sharedAnswer), 'dashboard must never read the process-wide bank');
     for (const [owner, answers] of Object.entries(banks)) {

@@ -69,6 +69,8 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
     name: find('name') ?? 'Unknown',
     dob: find('date of birth'),
     nationality: find('nationality') ?? 'Not stated',
+    workRights: kv.get('australian work rights') ?? kv.get('work rights'),
+    workRightsCountry: kv.has('australian work rights') ? 'Australia' : kv.get('work rights country'),
     driving: find('driving'),
     phone: find('phone') ?? '',
     email: find('email') ?? '',

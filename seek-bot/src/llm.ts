@@ -110,7 +110,8 @@ function profileBlock(p: CandidateProfile): string {
   return [
     `Name: ${p.name}`,
     `Location: ${[p.suburb, p.state, p.postcode].filter(Boolean).join(' ')}`,
-    `Citizenship / work rights: ${p.nationality}`,
+    `Nationality: ${p.nationality}`,
+    p.workRights ? `Work rights (${p.workRightsCountry || 'jurisdiction not stated'}): ${p.workRights}` : '',
     `Phone: ${p.phone}`,
     `Email: ${p.email}`,
     p.linkedin ? `LinkedIn: ${p.linkedin}` : '',

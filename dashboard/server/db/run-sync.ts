@@ -30,18 +30,18 @@ import { syncCostJournal } from '../application-costs.js';
 /**
  * Renders the profile in the same `key: value` text format seek-bot's own
  * `loadProfile()` (config.ts) parses — the format `profile.txt` has always
- * used. Reuses that exact vocabulary (not a new one) so the parser's
- * substring matching (`k.includes(needle)`) resolves every field correctly.
+ * used. Work permission carries its own jurisdiction-aware label; it must
+ * never be exported as nationality.
  */
-function profileToLegacyText(p: CandidateProfile): string {
+export function profileToLegacyText(p: CandidateProfile): string {
   const lines: Array<[string, string]> = [
     ['Full name', p.fullName],
     ['Email', p.email],
     ['Phone', p.phone],
-    // seek-bot's own `nationality` field has no dashboard equivalent —
-    // work rights is the closest thing collected, and is a reasonable
-    // stand-in for what that field is actually used for (eligibility).
-    ['Nationality', p.workRights],
+    // This form collects Australian work permission, not a country of
+    // nationality. Preserve its jurisdiction instead of sending "Citizen"
+    // under an unrelated label and forcing the applying model to guess.
+    ['Australian work rights', p.workRights],
     ['Driving', p.hasDriverLicence ? 'Yes' : 'No'],
     ['Suburb', p.suburb],
     ['State', p.state],

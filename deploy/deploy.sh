@@ -138,6 +138,7 @@ as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-b
 as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable SIGNIN_RECOVERY_ROUNDS=1 ../seek-bot/node_modules/.bin/tsx scripts/test-signin-recovery.mts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/answers.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-environment.test.ts server/assist.test.ts server/skipped.test.ts server/run-watchdog.test.ts server/chrome-profile.test.ts server/run-completion.test.ts server/salary.test.ts server/run-device.test.ts server/market-scout.test.ts server/blog/*.test.ts server/marketing/*.test.ts"
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/profile-export.test.ts"
 as_app "cd $APP/market-scout && npm exec tsc -- -p . && npm test"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.

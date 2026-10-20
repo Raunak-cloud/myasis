@@ -4,6 +4,10 @@ export interface CandidateProfile {
   name: string;
   dob?: string;
   nationality: string;
+  /** Candidate-declared work permission, separate from nationality. */
+  workRights?: string;
+  /** Jurisdiction of the declared work permission; never inferred from address. */
+  workRightsCountry?: string;
   driving?: string;
   phone: string;
   email: string;

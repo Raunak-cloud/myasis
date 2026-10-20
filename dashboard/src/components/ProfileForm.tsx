@@ -129,7 +129,7 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
         <h4 className="fieldset-h">Work</h4>
         <div className="grid-2">
           <label className="field">
-            <span className="field-label">Work rights</span>
+            <span className="field-label">Australian work rights</span>
             <select className="input" value={p.workRights} onChange={(e) => set('workRights', e.target.value)}>
               <option value="">Select…</option>
               {WORK_RIGHTS.map((w) => (
