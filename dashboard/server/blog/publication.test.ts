@@ -21,7 +21,7 @@ const article: Article = {
 };
 const verdict = (approved: boolean) => Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ approved, issues: [] }) }] } }] });
 
-test('direct publication preserves Gemini prose and never calls a humanizer', async (t) => {
+test('direct publication preserves Gemini prose with one source-review call', async (t) => {
   const calls: string[] = [];
   t.mock.method(globalThis, 'fetch', async (url: unknown) => {
     calls.push(String(url));
@@ -32,7 +32,6 @@ test('direct publication preserves Gemini prose and never calls a humanizer', as
   assert.equal(calls.length, 1);
   assert.deepEqual(result.article, article);
   assert.notEqual(result.article, article);
-  assert.equal(result.humanization, null);
 });
 
 test('direct publication still refuses an unapproved source review', async (t) => {

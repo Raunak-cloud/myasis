@@ -638,7 +638,7 @@
     color: var(--accent); background: none; border: 0;
     border-bottom: 1px solid currentColor; cursor: pointer;
   }
-  /* The top-up and Humanizer note is small print about what happens after you
+  /* The top-up note is small print about what happens after you
      buy, and both are said again in-app. On a phone it is four mono lines
      between the last price and the questions, so it stays in the markup for
      wide screens and search engines and is dropped from the phone layout. */

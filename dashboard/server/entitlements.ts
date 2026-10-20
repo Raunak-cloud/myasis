@@ -15,9 +15,9 @@ export { SCHEDULED_MIN_SCORE };
  * Intensive users can still tune how those scheduled runs search.
  *
  * Every gate in the app reads this module rather than re-deriving the rule
- * from `isAdmin` and a pass flag, because the same rule is enforced in five
- * places (starting a run, saving settings, the rewriting tool,
- * the scheduler) and five copies would drift.
+ * from `isAdmin` and a pass flag, because the same rule is enforced in several
+ * places (starting a run, saving settings,
+ * the scheduler) and separate copies would drift.
  */
 
 export type Tier = 'admin' | 'intensive' | 'standard';
@@ -55,15 +55,12 @@ const AUTO_APPLY_PAUSED_KEY = 'AUTO_APPLY_PAUSED';
  */
 const ADMIN_EVALUATIONS_OVERRIDE_KEY = 'ADMIN_EVALUATIONS_OVERRIDE';
 const ADMIN_MAX_APPS_OVERRIDE_KEY = 'ADMIN_MAX_APPS_OVERRIDE';
-const ADMIN_HUMANIZER_OVERRIDE_KEY = 'ADMIN_HUMANIZER_OVERRIDE';
 
 interface AdminOverrides {
   /** Listings a run reviews. Null means the account's plan decides. */
   evaluationsPerRun: number | null;
   /** Applications one run may submit. Null means the account's own setting or plan default decides. */
   maxApplicationsPerRun: number | null;
-  /** Force humanizer access on or off. Null means the account's plan decides. */
-  humanizer: boolean | null;
 }
 
 function parsePositiveInt(value: string | undefined): number | null {
@@ -76,17 +73,12 @@ function parsePositiveInt(value: string | undefined): number | null {
 export async function adminOverridesFor(userId: string): Promise<AdminOverrides> {
   const rows = await query<{ key: string; value: string }>(
     `SELECT key, value FROM settings WHERE user_id = $1 AND key = ANY($2)`,
-    [userId, [ADMIN_EVALUATIONS_OVERRIDE_KEY, ADMIN_MAX_APPS_OVERRIDE_KEY, ADMIN_HUMANIZER_OVERRIDE_KEY]],
+    [userId, [ADMIN_EVALUATIONS_OVERRIDE_KEY, ADMIN_MAX_APPS_OVERRIDE_KEY]],
   );
   const byKey = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     evaluationsPerRun: parsePositiveInt(byKey[ADMIN_EVALUATIONS_OVERRIDE_KEY]),
     maxApplicationsPerRun: parsePositiveInt(byKey[ADMIN_MAX_APPS_OVERRIDE_KEY]),
-    humanizer: byKey[ADMIN_HUMANIZER_OVERRIDE_KEY] === 'true'
-      ? true
-      : byKey[ADMIN_HUMANIZER_OVERRIDE_KEY] === 'false'
-        ? false
-        : null,
   };
 }
 
@@ -99,7 +91,7 @@ export async function adminOverridesFor(userId: string): Promise<AdminOverrides>
  */
 export async function setAdminOverrides(
   userId: string,
-  overrides: { evaluationsPerRun?: number | null; maxApplicationsPerRun?: number | null; humanizer?: boolean | null },
+  overrides: { evaluationsPerRun?: number | null; maxApplicationsPerRun?: number | null },
   options: { targetIsAdmin?: boolean } = {},
 ): Promise<void> {
   const clamp = (value: number | null | undefined, ceiling: number) => value === null || value === undefined
@@ -112,13 +104,6 @@ export async function setAdminOverrides(
   if (overrides.maxApplicationsPerRun !== undefined) {
     const clamped = clamp(overrides.maxApplicationsPerRun, RUN_LIMITS.MAX_APPS_PER_RUN);
     await upsertSettingRow(userId, ADMIN_MAX_APPS_OVERRIDE_KEY, clamped ? String(clamped) : '');
-  }
-  if (overrides.humanizer !== undefined) {
-    await upsertSettingRow(
-      userId,
-      ADMIN_HUMANIZER_OVERRIDE_KEY,
-      overrides.humanizer === null ? '' : String(overrides.humanizer),
-    );
   }
 }
 
@@ -199,7 +184,7 @@ export function applyRunPolicy(
   settings: Record<string, string>,
   entitlement: Pick<
     Entitlements,
-    'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'humanizer' | 'maxApplicationsPerRunOverride'
+    'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'maxApplicationsPerRunOverride'
   >,
   trigger: 'manual' | 'auto',
   /** Whether the account picked its boards itself (see effectivePlatforms). */
@@ -230,12 +215,6 @@ export function applyRunPolicy(
   if (entitlement.maxApplicationsPerRunOverride !== null) {
     resolved.MAX_APPS_PER_RUN = String(entitlement.maxApplicationsPerRunOverride);
   }
-  /**
-   * The humanizer is part of a paid pass. A free run sends the grounded,
-   * fact-checked draft as written and never queues for the rewriting model,
-   * which also keeps paying accounts' letters from waiting behind it.
-   */
-  if (!entitlement.humanizer) resolved.HUMANIZER_MODE = 'off';
   if (trigger === 'auto' && entitlement.tier !== 'admin') {
     const requestedScore = Number(resolved.MIN_SCORE);
     resolved.MIN_SCORE = String(entitlement.advancedFilters && Number.isFinite(requestedScore)
@@ -284,14 +263,10 @@ export interface Entitlements {
   fineTune: boolean;
   /** May refine match score and listing age without receiving Intensive's direct run controls. */
   advancedFilters: boolean;
-  /** May use the rewriting tool. */
-  rewriteText: boolean;
   /** May limit a run to employer-site or board-hosted applications, to test one flow. */
   runScopes: boolean;
   /** May search and apply to jobs hosted on Indeed as well as SEEK. */
   indeedApplications: boolean;
-  /** Cover letters are rewritten by the humanizer. Active Search, Intensive, admins, or an explicit admin override. */
-  humanizer: boolean;
   /**
    * Search-term suggestions from resumes left. Null means no limit. The free
    * plan gets one: enough to see what it does, and the reason to buy a pass
@@ -477,11 +452,8 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     maxApplicationsPerRunOverride: overrides.maxApplicationsPerRun,
     fineTune: tier !== 'standard',
     advancedFilters: tier !== 'standard' || billing.paid.hasActiveJobSearchPass,
-    rewriteText: tier === 'admin',
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
-    humanizer: overrides.humanizer
-      ?? (tier === 'admin' || billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass),
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,
   };
@@ -515,12 +487,6 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     overrides,
     searchTermSuggestionsLeft: suggestionsLeft,
   });
-}
-
-/** Whether this account's cover letters go through the humanizer, for callers that only know the account id. */
-export async function humanizerAllowed(userId: string): Promise<boolean> {
-  const user = await one<{ email: string | null }>('SELECT email FROM users WHERE id = $1', [userId]);
-  return (await entitlementsFor(userId, user?.email ?? null)).humanizer;
 }
 
 /** Switches this account's automatic runs off or back on. Callers check `canPauseAutoApply` first. */

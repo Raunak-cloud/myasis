@@ -115,29 +115,11 @@ Admin → Server shows the limit in use.
 > disables `myasis-chrome.service`. Leaving it on would ignore the per-account
 > profiles and send every account's applications from one SEEK session.
 
-## 3c. The AuthorMist humanizer
+## 3c. Application writing
 
-Served by [Featherless](https://featherless.ai): set these in Admin → Config →
-Humanizer (or `seek-bot/.env`), and nothing has to run on the server.
-
-    HUMANIZER_URL=https://api.featherless.ai
-    HUMANIZER_API_KEY=<your Featherless key>
-    HUMANIZER_MODEL=authormist/authormist-originality
-
-    curl -s http://127.0.0.1:5180/api/humanizer # {"configured":true,"online":true}
-
-Admin → Server shows whether the key is accepted and the model is warm.
-
-The installer can also set up `myasis-humanizer.service`: llama.cpp serving the
-same model on `127.0.0.1:8091`, CPU only (about five seconds for a short
-rewrite on two cores, ~1.8GB of model). With the hosted API in use nothing
-calls it, so stop it and give the memory and cores back to runs:
-
-    sudo systemctl disable --now myasis-humanizer
-
-Applications do not depend on the humanizer unless `HUMANIZER_REQUIRED=true`;
-with it off, a humanizer that is down costs you the Rewrite text tab and
-nothing else.
+Cover letters and form answers are written directly by the selected application
+model. Shared instructions require plain, natural wording without em dashes,
+metaphors or stock AI phrasing. Factual checks still run before submission.
 
 ## 3d. Visitor locations
 

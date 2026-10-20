@@ -1,4 +1,3 @@
-import { humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
 import { open, readdir, readFile, stat, statfs } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { cpus, homedir } from 'node:os';
@@ -241,12 +240,6 @@ async function serviceChecks(): Promise<ServerHealth['services']> {
 
   const database = await one<{ ok: number }>('SELECT 1 AS ok').then(() => true).catch(() => false);
   checks.push({ name: 'Database', ok: database, detail: database ? 'answering' : 'not answering' });
-
-  const humanizer = await humanizerEndpoint();
-  if (humanizer) {
-    const { ready, detail } = await probeHumanizer(humanizer, 2_500);
-    checks.push({ name: 'Humanizer', ok: ready, detail: `${detail} · ${humanizer.base}` });
-  }
 
   const payments = paymentsState();
   checks.push({

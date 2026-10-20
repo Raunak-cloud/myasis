@@ -1,8 +1,5 @@
 export const FREE_APPLICATIONS = 5;
 
-/** Humanizer is a meaningful paid upgrade, not a safety feature. */
-export const HUMANIZER_NOTE = 'Humanizer is included with Active Search and Intensive Pass.';
-
 /** One-off, non-renewing products. Prices include GST where it applies. */
 export const PAID_PLANS = {
   'essential-pass': {
@@ -82,7 +79,6 @@ export const PLAN_PRESENTATION = {
       'SEEK and Indeed applications',
       'Advanced match and listing-age filters',
       'Priority processing',
-      'Humanizer rewrites cover letters in natural words',
     ],
   },
   'intensive-pass': {
@@ -97,7 +93,6 @@ export const PLAN_PRESENTATION = {
       'Advanced search controls and standing instructions',
       'Employer-site applications',
       'Priority processing and support',
-      'Humanizer rewrites cover letters in natural words',
     ],
   },
 } as const;

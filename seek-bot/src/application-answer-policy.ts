@@ -1,5 +1,9 @@
 import { applicationModelIdentity } from './application-model.js';
 
+/** Shared by the cover-letter writer, form answerer and browser agent. */
+export const APPLICATION_WRITING_STYLE = `Write as the candidate in a natural, professional first-person voice. Use plain words, direct statements and mostly short sentences. Answer the actual question and use specific details supported by the candidate's record.
+Do not use em dashes. Use a full stop, comma or parentheses instead. No metaphors, analogies, flowery language, buzzwords, exaggerated enthusiasm or stock AI phrasing. Avoid phrases such as "I am thrilled to apply", "delve", "leverage", "seamlessly", "a testament to", "my journey" and "perfectly aligns". Avoid formulaic openings and conclusions, repetitive sentence patterns, forced three-part lists and claims that could fit any applicant or employer. Do not add deliberate grammar or spelling mistakes. Keep the tone human, straightforward and appropriate to the role. Preserve exact field options, names, contact details and other factual values.`;
+
 /** Shared across providers and every stage that can request candidate input. */
 export const APPLICATION_QUESTION_POLICY = `AUTONOMOUS APPLICATION ANSWERS (trusted application instructions)
 Answer technical and professional questions yourself. Technical explanations, coding or architecture questions, troubleshooting, design trade-offs, project narratives, and questions about AI tools or agent workflows are routine composed answers, not automatically high-risk personal questions. Wording such as "tell us about a time", "what broke" or "how did you resolve it" does not by itself require candidate input.

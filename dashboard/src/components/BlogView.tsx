@@ -14,7 +14,7 @@ interface BlogReport {
   model: string | null;
   currentWeek: string;
   writing: boolean;
-  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; humanizedAt: string | null; humanizerModel: string | null; revisions: number; unavailable: string[] }>;
+  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
   attempts: Array<{ kind: 'weekly' | 'extra'; week: string; attempts: number; lastAttemptAt: string | null; lastError: string | null }>;
 }
 
@@ -106,7 +106,6 @@ export function BlogView() {
                       Published {when(post.publishedAt)}
                       {post.updatedAt !== post.publishedAt ? ` · rewritten ${when(post.updatedAt)}` : ''}
                       {` · ${post.revisions} fact-check revision(s)`}
-                      {post.humanizedAt ? ` · Previously humanized (${post.humanizerModel})` : ''}
                       {post.unavailable.length > 0 && ` · written without: ${post.unavailable.join('; ')}`}
                     </span>
                   </td>

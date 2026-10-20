@@ -3,7 +3,7 @@
 The rolling week ending 14 October 2026, 04:17 UTC recorded approximately
 US$15.44 of Celeris charges: 59% forms/browser/recovery, 32% job screening,
 8% cover letters and 1% other. Historical category attribution uses operation
-timings and is approximate; it excludes hosting, humanizer and browser services.
+timings and is approximate; it excludes hosting and browser services.
 About US$10.15 was uncached input, US$1.05 cached input and US$4.24 output.
 Changing only the letter-writing model cannot remove the main costs.
 

@@ -8,18 +8,13 @@ import { FormAnswerCache } from './form-speed.js';
 import { reviewContextFingerprint } from './review-cache.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { applicationModelIdentity } from './application-model.js';
-import { APPLICATION_EVIDENCE_RULES, APPLICATION_QUESTION_POLICY, CONTACT_IDENTITY_RULES } from './application-answer-policy.js';
+import { APPLICATION_WRITING_STYLE, APPLICATION_EVIDENCE_RULES, APPLICATION_QUESTION_POLICY, CONTACT_IDENTITY_RULES } from './application-answer-policy.js';
 import { workPreferenceEvidence, type ApplicationWorkPreferences } from './work-preferences.js';
 import { instructionRuleQuotes, validateInstructionVerdict, type InstructionVerdict, type InstructionInjectionSource } from './instruction-policy.js';
 import { buildKnowledgeContext, loadSavedAnswers, type SavedAnswer } from './knowledge.js';
 import { recentReviewFeedback } from './store.js';
 import { withJobCost } from './cost-ledger.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
-import {
-  humanizeCoverLetter,
-  MAX_COVER_LETTER_WORDS,
-  wordCount,
-} from './humanizer.js';
 
 /**
  * Spend on the non-navigation model calls (fit checks, answers, cover letters).
@@ -95,15 +90,9 @@ function jobEvaluationEvidence(job: JobListing, query: string, maxChars: number)
   return `<untrusted role="job-listing">${JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}</untrusted>`;
 }
 
-const APPLICANT_VOICE = `
-WRITING VOICE: For free-text responses, write in the first-person voice of a
-professional applicant from an Asian country who uses English as a second
-language. Use clear, direct wording, straightforward vocabulary and mostly
-simple sentence structures. Keep it natural and professional. Do not add
-deliberate grammar or spelling mistakes, use stereotypes, or mention the
-candidate's background or language ability unless the application explicitly
-asks and the answer is supported by the candidate profile.
-`.trim();
+const APPLICANT_VOICE = APPLICATION_WRITING_STYLE;
+const MAX_COVER_LETTER_WORDS = 250;
+const wordCount = (text: string) => text.trim() ? text.trim().split(/\s+/).length : 0;
 
 /** The run's hard preferences, stated once for every prompt that judges a job against them. */
 function constraintsBlock(p: CandidateProfile): string {
@@ -708,12 +697,7 @@ async function letterIsSupported(candidate: string, profile: CandidateProfile, k
   return (await letterEvidenceVerdict(candidate, profile, knowledge, job)).supported === true;
 }
 
-/**
- * The finished letter: the grounded draft, rewritten to read as a person
- * wrote it. Kept apart from drafting because the rewrite is the slow part
- * and most forms never ask for a letter; it runs only when one is about to
- * be entered.
- */
+/** Paragraph layout shared by drafting, repairs and shortening. */
 const COVER_LETTER_LAYOUT = `Use short, readable body paragraphs, each developing one idea, separated by a blank line. If you use a greeting, put it on its own line and leave a blank line before the body. Separate the closing from the body with a blank line, with the candidate's name on its own line. Preserve these paragraph breaks during revisions and shortening. Encode actual line breaks in the JSON string (\\n and \\n\\n), not literal backslash characters. Never return a full letter as one dense paragraph.`;
 
 /** The model chooses the breaks; validation permits whitespace changes only. */
@@ -744,27 +728,14 @@ export async function fitCoverLetterToLimit(letter: string, maxLength: number, j
     });
     const shortened = out.letter.trim();
     if (shortened && shortened.length <= maxLength && await letterIsSupported(shortened, profile, knowledge, job)) {
-      // Shortening is a model rewrite and undoes the humanizing; humanize the short version too when it still fits.
-      const humanized = applicationModelIdentity().selection === 'haiku'
-        ? await polishCoverLetter(shortened, job, profile, knowledge)
-        : await polishCoverLetter(shortened, job, profile, knowledge).catch(() => shortened);
-      if (humanized.length <= maxLength) return humanized;
-      // Blank lines count toward the form limit too. Ask for a shorter note
-      // rather than falling back to Haiku's unformatted version.
-      if (applicationModelIdentity().selection !== 'haiku') return shortened;
+      const formatted = applicationModelIdentity().selection === 'haiku' ? await formatCoverLetterParagraphs(shortened) : shortened;
+      if (formatted.length <= maxLength) return formatted;
     }
   }
   throw new Error(`Could not draft a supported cover note within the form's ${maxLength}-character limit.`);
 }
 
-/** @public Loaded from dist by dashboard/server/assist.ts. */
-export async function polishCoverLetter(draft: string, job: JobListing, profile: CandidateProfile, knowledgeOverride?: string): Promise<string> {
-  if (applicationModelIdentity().selection === 'haiku') return formatCoverLetterParagraphs(draft);
-  const knowledge = knowledgeOverride ?? (await buildKnowledgeContext(`${job.title} ${job.description ?? job.teaser ?? ""}`));
-  return humanizeCoverLetter(draft, (candidate) => letterIsSupported(candidate, profile, knowledge, job), true, [job.company, ...profile.skills]);
-}
-
-/** A grounded draft: written from the profile and documents, checked against them, not yet rewritten.
+/** A finished letter written from the profile and documents, checked against them.
  * @public Loaded from dist by dashboard/server/assist.ts. */
 export interface CoverLetterRevision { draft: string; feedback: string }
 export async function draftCoverLetter(
@@ -781,7 +752,7 @@ ${APPLICANT_VOICE}
 
 ${COVER_LETTER_LAYOUT}
 
-Write a vivid, specific cover letter. Freely choose the opening, greeting or lack of greeting,
+Write a clear, specific cover letter. Freely choose the opening, greeting or lack of greeting,
 structure, paragraph rhythm, tone, and sign-off that best suit this role and candidate. The complete letter,
 including its greeting and sign-off, must never exceed ${MAX_COVER_LETTER_WORDS} words.
 It must sound like a real person who deliberately chose this role. Let this job determine
@@ -916,27 +887,9 @@ async function coverLetterUncached(job: JobListing, profile: CandidateProfile): 
   return draftCoverLetter(job, profile);
 }
 
-const finishedLetters = new Map<string, Promise<string>>();
-
-/**
- * The letter as it will be entered: the draft from `coverLetterForJob`,
- * polished. A reusable letter is entered as written. Cached like the draft,
- * so a form with two letter boxes gets the same text in both.
- */
+/** The checked draft is the finished letter; reusable text is entered verbatim. */
 export function finishedCoverLetterForJob(job: JobListing, profile: CandidateProfile, revision?: CoverLetterRevision): Promise<string> {
-  return withJobCost(job.id, () => finishedCoverLetterForJobScoped(job, profile, revision));
-}
-async function finishedCoverLetterForJobScoped(job: JobListing, profile: CandidateProfile, revision?: CoverLetterRevision): Promise<string> {
-  const draft = await coverLetterForJob(job, profile, revision);
-  if (config.coverLetter.mode === 'reuse') return draft;
-  const key = JSON.stringify([applicationModelIdentity(), config.dataDir, job.id, draft, config.humanizer]);
-  let pending = finishedLetters.get(key);
-  if (!pending) {
-    pending = polishCoverLetter(draft, job, profile);
-    finishedLetters.set(key, pending);
-    void pending.catch(() => finishedLetters.delete(key));
-  }
-  return pending;
+  return coverLetterForJob(job, profile, revision);
 }
 
 /**

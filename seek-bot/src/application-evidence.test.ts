@@ -100,7 +100,7 @@ try {
   const verifyingFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const prompt = String(JSON.parse(String(init?.body)).messages[0].content);
-    if (prompt.includes('Write a vivid, specific cover letter.')) {
+    if (prompt.includes('Write a clear, specific cover letter.')) {
       return Response.json({ choices: [{ message: { content: JSON.stringify({ letter: `${letter}\nFixture Candidate` }) } }] });
     }
     return verifyingFetch(url, init);

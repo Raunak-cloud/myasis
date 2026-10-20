@@ -86,62 +86,7 @@ else
   warn "Xvfb did not come up. Check: sudo journalctl -u myasis-xvfb -n 40"
 fi
 
-say "5/8  AuthorMist humanizer"
-# The rewriter that makes generated application text read like a person wrote
-# it. It is a 3B model quantised to ~1.8GB, which is small enough to serve
-# from the CPU on a modest box — no GPU, and llama.cpp ships a prebuilt
-# static-ish binary, so there is nothing to compile here.
-LLAMA_BUILD=b10900
-LLAMA_DIR=/opt/llama.cpp
-MODEL_FILE="$LLAMA_DIR/models/authormist-originality.Q4_K_M.gguf"
-sudo apt-get install -y -qq libgomp1
-if [[ ! -x "$LLAMA_DIR/llama-$LLAMA_BUILD/llama-server" ]]; then
-  sudo mkdir -p "$LLAMA_DIR"
-  sudo curl -sSL -o /tmp/llama.tar.gz     "https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_BUILD/llama-$LLAMA_BUILD-bin-ubuntu-x64.tar.gz"
-  sudo tar xzf /tmp/llama.tar.gz -C "$LLAMA_DIR" && rm -f /tmp/llama.tar.gz
-fi
-if [[ ! -f "$MODEL_FILE" ]]; then
-  echo "    Downloading AuthorMist (~1.8GB, once)"
-  sudo mkdir -p "$LLAMA_DIR/models"
-  sudo curl -sSL --retry 3 -o "$MODEL_FILE"     'https://huggingface.co/mradermacher/authormist-originality-GGUF/resolve/main/authormist-originality.Q4_K_M.gguf?download=true'
-fi
-sudo tee /etc/systemd/system/myasis-humanizer.service >/dev/null <<UNIT
-[Unit]
-Description=Myasis humanizer (AuthorMist via llama.cpp, CPU)
-After=network.target
-
-[Service]
-Type=simple
-User=$USER
-Environment=LD_LIBRARY_PATH=$LLAMA_DIR/llama-$LLAMA_BUILD
-ExecStart=$LLAMA_DIR/llama-$LLAMA_BUILD/llama-server \
-  --model $MODEL_FILE \
-  --host 127.0.0.1 --port 8091 \
-  --ctx-size 8192 --threads $(nproc) --n-gpu-layers 0
-Restart=on-failure
-RestartSec=5
-# The browser automation is the product; a rewrite is not. Under memory
-# pressure the kernel should take this process rather than Chrome or the
-# dashboard, and it must yield CPU to a run instead of competing with it.
-OOMScoreAdjust=600
-Nice=10
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-sudo systemctl daemon-reload
-sudo systemctl enable -q --now myasis-humanizer
-for _ in $(seq 1 30); do
-  curl -sf -m 2 http://127.0.0.1:8091/health >/dev/null 2>&1 && break
-  sleep 2
-done
-if curl -sf -m 5 http://127.0.0.1:8091/health >/dev/null 2>&1; then
-  echo "    Humanizer answering on 127.0.0.1:8091"
-else
-  warn "Humanizer did not come up. Check: sudo journalctl -u myasis-humanizer -n 40"
-fi
-
-say "6/8  Application"
+say "5/8  Application"
 if [[ -d "$APP_DIR/seek-bot" ]]; then
   echo "    Found $APP_DIR — installing dependencies"
   ( cd "$APP_DIR/seek-bot" && npm ci --include=dev --silent && npm run build )
@@ -152,7 +97,7 @@ else
   echo "        ./seek-bot ./dashboard ./profile.txt ./ecosystem.config.cjs $USER@$(hostname -I | awk '{print $1}'):$APP_DIR/"
 fi
 
-say "7/8  Configuration"
+say "6/8  Configuration"
 ENV_FILE="$APP_DIR/seek-bot/.env"
 if [[ -f "$ENV_FILE" ]]; then
   set_env() {
@@ -173,14 +118,13 @@ if [[ -f "$ENV_FILE" ]]; then
   set_env CHROME_PROFILE_DIR "$PROFILE_DIR"
   set_env CHROME_PATH /usr/bin/google-chrome-stable
   set_env PROFILE_PATH "$APP_DIR/profile.txt"
-  set_env HUMANIZER_URL http://127.0.0.1:8091
   echo "    Updated $ENV_FILE"
   grep -q '^CELERIS_API_KEY=.\+' "$ENV_FILE" || warn "CELERIS_API_KEY is empty — set it before running."
 else
   warn "No .env yet — copy seek-bot/.env.example to .env and fill it in."
 fi
 
-say "8/8  Nightly backups and housekeeping"
+say "7/8  Nightly backups and housekeeping"
 # Postgres dump plus each account's resume/knowledge files, 14 days local,
 # then Chrome cache and old-trace cleanup — see deploy/maintenance.sh. Runs at
 # 03:15 (Sydney), outside the auto-run window. To copy backups off the box,

@@ -10,7 +10,6 @@ import type { ToolContext } from './agent/tools.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-model-forms-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
-process.env.HUMANIZER_MODE = 'off';
 process.env.RESUME_ALLOW_UPLOAD = 'true';
 process.env.DRY_RUN = 'true';
 process.env.ALLOW_EXTERNAL_APPLY = 'true';

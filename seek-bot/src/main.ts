@@ -37,7 +37,6 @@ import { savedAnswerTimes } from './knowledge.js';
 import { waitingForAnswers } from './answer-gate.js';
 import { countHealth } from './run-health.js';
 import { assertApplicationProviderReady } from './provider-availability.js';
-import { assertHumanizerHealthy } from './humanizer.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import type { BrowserContext, Page } from 'patchright';
@@ -153,10 +152,6 @@ async function main() {
       `Browser agent: ${applicationModelIdentity().model} ` +
         `(max ${config.celeris.maxSteps} steps, ${config.celeris.maxStepsPerPage} per page, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
     );
-  }
-  if (!searchOnly) {
-    await assertHumanizerHealthy();
-    console.log('Cover-letter rewriting service ready.');
   }
   console.log(
     `Cover letters: ${config.coverLetter.mode === 'reuse' ? 'reuse the provided letter' : 'AI-tailored for every job'}`,
@@ -1041,11 +1036,7 @@ async function main() {
     }
 
     /**
-     * The next job's letter is written and humanized during the pause, not
-     * inside the application: the humanizer pass used to run when the agent
-     * reached the letter box, about a tenth of an application's time spent
-     * waiting on the form. Same calls, made earlier; one candidate ahead only,
-     * and these functions share their in-flight results with the agent.
+     * Prepare the next job's checked letter during the pause.
      */
     const prepare = (job: JobListing) => {
       void finishedCoverLetterForJob(job, profile).catch(() => {});

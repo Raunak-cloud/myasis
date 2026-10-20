@@ -9,7 +9,7 @@ import { stopAllSignins } from './signin.js';
 /**
  * The installation's configuration, edited from the admin dashboard.
  *
- * Everything machine-level lives in seek-bot/.env: API keys, the humanizer,
+ * Everything machine-level lives in seek-bot/.env: API keys,
  * pacing, retention. Until now the only way to change any of it was a shell
  * on the server, which for a two-line change meant nano, a typo, and a
  * restart that may or may not have been needed. This is the same file behind
@@ -79,8 +79,7 @@ const GROUPS: GroupSpec[] = [
     keys: [
       { key: 'BRIGHTDATA_API_KEY', label: 'Bright Data management API key', help: 'Read final per-session bandwidth. Separate from Browser API connection credentials.', kind: 'secret' },
       { key: 'BRIGHTDATA_BROWSER_USD_PER_GB', label: 'Bright Data USD per GB', help: 'Default 8. Use your contracted effective rate; premium domains may differ.', kind: 'number' },
-      { key: 'HUMANIZER_USD_PER_REQUEST', label: 'Humanizer USD per request', help: 'Allocate the subscription fee over expected monthly requests. Set 0 only if included in worker overhead.', kind: 'number' },
-      { key: 'APPLICATION_INFRA_USD_PER_WORKER_HOUR', label: 'Other overhead USD per worker-hour', help: 'Hosting, proxies, storage, email and other fixed service fees divided by expected monthly worker-hours. Exclude separately metered Celeris, Bright Data and CAPTCHA charges, and any humanizer amount above.', kind: 'number' },
+      { key: 'APPLICATION_INFRA_USD_PER_WORKER_HOUR', label: 'Other overhead USD per worker-hour', help: 'Hosting, proxies, storage, email and other fixed service fees divided by expected monthly worker-hours. Exclude separately metered Celeris, Bright Data and CAPTCHA charges.', kind: 'number' },
     ],
   },
   {
@@ -123,24 +122,6 @@ const GROUPS: GroupSpec[] = [
       { key: 'AGENT_ESCALATE_AFTER', label: 'Escalate after stalls', help: 'Turns with no page change before switching to the reasoning model.', kind: 'number' },
       { key: 'AGENT_SCREENSHOTS', label: 'Screenshots on stall', help: 'Attach a screenshot once a step stalls.', kind: 'boolean' },
       { key: 'AGENT_MAX_TRANSCRIPT_TOKENS', label: 'Max transcript tokens', help: 'How much history the agent carries between steps.', kind: 'number' },
-    ],
-  },
-  {
-    key: 'humanizer',
-    title: 'Humanizer',
-    note: 'Rewrites cover letters in natural words. For Featherless: URL https://api.featherless.ai, model authormist/authormist-originality, and your API key. Blogs publish fact-checked Gemini prose directly.',
-    banner: humanizerBanner,
-    keys: [
-      { key: 'HUMANIZER_URL', label: 'Featherless URL', help: 'Use https://api.featherless.ai. Leave empty to disable rewriting.', kind: 'url' },
-      { key: 'HUMANIZER_API_KEY', label: 'Featherless API key', help: 'Required for Featherless rewriting and readiness checks.', kind: 'secret' },
-      { key: 'HUMANIZER_MODEL', label: 'Model name', help: 'As the endpoint knows it. On Featherless: authormist/authormist-originality.', kind: 'text' },
-      { key: 'HUMANIZER_MODE', label: 'Cover-letter mode', help: 'Empty for the selective pass, "always" to rewrite every letter, "off" to disable cover-letter rewriting. Blogs do not use this setting.', kind: 'text' },
-      { key: 'HUMANIZER_REQUIRED', label: 'Required', help: 'Refuse to start a writing run while the humanizer is down.', kind: 'boolean' },
-      { key: 'HUMANIZER_TIMEOUT_MS', label: 'Request timeout (ms)', help: 'One rewrite request.', kind: 'number' },
-      { key: 'HUMANIZER_REWRITE_BUDGET_MS', label: 'Rewrite budget (ms)', help: 'Total time allowed for all attempts on one letter.', kind: 'number' },
-      { key: 'HUMANIZER_REPETITION_PENALTY', label: 'Repetition penalty', help: 'How hard a rewrite is pushed off the draft wording. 1.0 is off and returns a near copy; higher rewrites more but misspells names more often. The default is 1.05.', kind: 'number' },
-      { key: 'HUMANIZER_TOP_K', label: 'Top-k', help: 'How many candidate words the rewrite chooses between. The default is 40.', kind: 'number' },
-      { key: 'HUMANIZER_MAX_CHARS', label: 'Max letter length (chars)', help: 'Letters longer than this are not rewritten.', kind: 'number' },
     ],
   },
   {
@@ -359,13 +340,6 @@ function paymentsBanner(): GroupBanner {
   return { tone: 'ok', text: 'LIVE mode. Real cards are charged.' };
 }
 
-/** A hosted endpoint without its key fails every rewrite quietly: letters simply go out un-rewritten. */
-function humanizerBanner(env: Record<string, string>): GroupBanner | undefined {
-  const url = process.env.HUMANIZER_URL ?? env.HUMANIZER_URL ?? '';
-  if (!url.startsWith('https://') || (process.env.HUMANIZER_API_KEY ?? env.HUMANIZER_API_KEY)) return undefined;
-  return { tone: 'warn', text: 'The humanizer URL is a hosted API but no API key is set. The Server tab shows whether it is answering.' };
-}
-
 /** Whether the pool is reaching Webshare, and whether any paying account is going without. */
 function proxyPoolBanner(env: Record<string, string>): GroupBanner | undefined {
   if (!(process.env.WEBSHARE_API_KEY ?? env.WEBSHARE_API_KEY)) return { tone: 'warn', text: 'Off. Paying accounts apply from the server\'s address.' };
@@ -396,12 +370,12 @@ export function envReport(): EnvReport {
 
   // Anything in the file the catalogue does not describe still has to be reachable.
   const other = Object.keys(env)
-    .filter((key) => !KNOWN.has(key) && !PER_ACCOUNT.has(key) && !RETIRED.has(key))
+    .filter((key) => !KNOWN.has(key) && !PER_ACCOUNT.has(key) && !RETIRED.has(key) && !key.startsWith('HUMANIZER_'))
     .sort()
     .map((key) => entryFor(key, undefined, env));
   if (other.length) groups.push({ key: 'other', title: 'Other', note: 'In the file but not described here.', entries: other });
 
-  const hidden = Object.keys(env).filter((key) => PER_ACCOUNT.has(key) || RETIRED.has(key)).length;
+  const hidden = Object.keys(env).filter((key) => PER_ACCOUNT.has(key) || RETIRED.has(key) || key.startsWith('HUMANIZER_')).length;
   return { groups, hidden, restartPending, file: resolve(BOT_DIR, '.env') };
 }
 
@@ -419,7 +393,7 @@ function normalise(key: string, spec: Spec | undefined, raw: unknown): string {
   switch (kind) {
     case 'number':
       if (!/^-?\d+(\.\d+)?$/.test(value)) throw new Error(`${key}: must be a number.`);
-      if (['BRIGHTDATA_BROWSER_USD_PER_GB', 'HUMANIZER_USD_PER_REQUEST', 'APPLICATION_INFRA_USD_PER_WORKER_HOUR'].includes(key) && (!Number.isFinite(Number(value)) || Number(value) < 0)) throw new Error(`${key}: must be a finite, non-negative USD rate.`);
+      if (['BRIGHTDATA_BROWSER_USD_PER_GB', 'APPLICATION_INFRA_USD_PER_WORKER_HOUR'].includes(key) && (!Number.isFinite(Number(value)) || Number(value) < 0)) throw new Error(`${key}: must be a finite, non-negative USD rate.`);
       return value;
     case 'boolean':
       if (value !== 'true' && value !== 'false') throw new Error(`${key}: must be true or false.`);
@@ -454,6 +428,7 @@ export function applyEnvChanges(changes: Record<string, unknown>, actor: string)
   const updates: Record<string, string> = {};
   for (const [key, raw] of Object.entries(changes)) {
     if (!KEY_NAME.test(key)) throw new Error(`"${key}" is not a valid setting name.`);
+    if (key.startsWith('HUMANIZER_')) throw new Error('The rewriting provider has been removed.');
     if (LOCKED[key]) throw new Error(`${key}: ${LOCKED[key]}`);
     if (PER_ACCOUNT.has(key)) throw new Error(`${key} is set per account, not here.`);
     if (process.env[key] !== undefined) {

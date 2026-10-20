@@ -16,7 +16,7 @@ test('worker environment excludes retired controls and unknown credentials witho
     BRIGHTDATA_BROWSER_PASSWORD: 'fixture-browser-password' };
   const before = { ...input };
   assert.deepEqual(applicationRunEnvironment(input), { PATH: 'fixture-path', DATA_DIR: '/owner/files',
-    CELERIS_API_KEY: 'fixture-key', HUMANIZER_API_KEY: 'fixture-rewriter', SITE_AUTH_SECRET: 'fixture-session',
+    CELERIS_API_KEY: 'fixture-key', SITE_AUTH_SECRET: 'fixture-session',
     BRIGHTDATA_BROWSER_PASSWORD: 'fixture-browser-password' });
   assert.deepEqual(input, before);
 });
@@ -57,7 +57,7 @@ test('runtime selection rechecks admin status and excludes the other provider cr
     assert.equal(admin.APPLICATION_AI_MODEL, 'haiku');
     assert.equal(admin.CELERIS_API_KEY, '');
     assert.equal(admin.ANTHROPIC_API_KEY, 'fictional-haiku');
-    assert.equal(admin.HUMANIZER_MODE, 'off');
+    assert.equal('HUMANIZER_MODE' in admin, false);
     assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
     assert.equal(customer.ANTHROPIC_API_KEY, '');
     assert.equal(customer.CELERIS_API_KEY, 'fictional-celeris');

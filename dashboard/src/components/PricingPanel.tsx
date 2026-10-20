@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { aud, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
+import { aud, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
@@ -280,11 +280,10 @@ export function PricingPanel() {
         </article>
         <article>
           <strong>Higher plans do more</strong>
-          <p>Upgrade for Indeed, Humanizer, more daily runs and advanced controls.</p>
+          <p>Upgrade for Indeed, more daily runs and advanced controls.</p>
         </article>
       </section>
 
-      <p className="job-meta pricing-footnote">{HUMANIZER_NOTE}</p>
     </div>
   );
 }

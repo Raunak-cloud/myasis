@@ -13,9 +13,9 @@ import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
  * value) — this module is the ongoing read/write path for it.
  *
  * Deliberately NOT included here: secrets and machine-level infrastructure
- * (CELERIS_API_KEY, STRIPE_*, CHROME_PROFILE_DIR, HUMANIZER_URL, DATABASE_URL,
+ * (CELERIS_API_KEY, STRIPE_*, CHROME_PROFILE_DIR, DATABASE_URL,
  * …). Those stay in `seek-bot/.env` via `readEnv`/`writeEnv` — this is one
- * local install with one Chrome automation profile and one humanizer server
+ * local installation
  * regardless of which account is signed in, so treating them as shared,
  * machine-level configuration (not per-user data) is intentional, not an
  * oversight.

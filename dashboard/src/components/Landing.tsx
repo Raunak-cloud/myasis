@@ -1,6 +1,6 @@
 import './Landing.css';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FREE_APPLICATIONS, HUMANIZER_NOTE, PAID_PLANS, PLAN_PRESENTATION, SCHEDULED_MIN_SCORE, aud } from '../pricing';
+import { FREE_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, SCHEDULED_MIN_SCORE, aud } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
@@ -243,7 +243,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               ))}
             </ol>
             <p className="home-price-foot">
-              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more successful applications. {HUMANIZER_NOTE}
+              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more successful applications.
             </p>
           </div>
         </section>

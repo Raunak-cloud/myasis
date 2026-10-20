@@ -1,9 +1,7 @@
 # Myasis
 
 Weekly, extra and rewritten blogs use Gemini for drafting and source checks, then
-publish the approved Gemini prose directly. Blog generation and showing a hidden
-post do not require Featherless or a humanizer. Existing humanization metadata is
-kept as history; published articles are not automatically rewritten by this change.
+publish the approved Gemini prose directly.
 
 Vite + React control panel for the `seek-bot` agent. Read-only viewer over the bot's
 own data files — it can display application history but never mutate it.
@@ -64,17 +62,16 @@ Plans are defined in `src/pricing.ts`. `PLAN_LIMITS` there is what the server en
 
 | Plan | Price | Allowance and access | Validity |
 |---|---:|---|---:|
-| Free | A$0 | 5 successful applications, 1 automatic run daily (any hour), up to 15 jobs reviewed per run, SEEK, no humanizer | Once per account |
+| Free | A$0 | 5 successful applications, 1 automatic run daily (any hour), up to 15 jobs reviewed per run, SEEK | Once per account |
 | Essential | A$9.90 | 50 successful applications, 1 automatic run daily, up to 25 jobs reviewed, SEEK, personalised cover letters | 30 days |
-| Active Search | A$24.90 | 200 successful applications, 4 automatic runs daily, up to 70 jobs reviewed per run, SEEK and Indeed, humanizer, priority processing | 60 days |
-| Intensive | A$59.90 | 400 successful applications, 4 automatic runs daily, up to 80 jobs reviewed per run, SEEK, Indeed, humanizer, advanced controls and 30 employer-site applications | 90 days |
+| Active Search | A$24.90 | 200 successful applications, 4 automatic runs daily, up to 70 jobs reviewed per run, SEEK and Indeed, priority processing | 60 days |
+| Intensive | A$59.90 | 400 successful applications, 4 automatic runs daily, up to 80 jobs reviewed per run, SEEK, Indeed, advanced controls and 30 employer-site applications | 90 days |
 | Application Pack | A$6.90 | 50 successful applications; inherits the active pass end date | Active pass end date |
 
 Passes are one-time payments and do not auto-renew. Existing no-expiry purchases remain grandfathered.
 
-The humanizer is a paid-pass feature. `applyRunPolicy` sets `HUMANIZER_MODE=off`
-for every run on the Free plan, so its cover letters are sent as drafted and
-verified and never wait for the rewriting model.
+Every plan uses the same natural-writing instructions for cover letters and form
+answers: plain language, no em dashes, no metaphors and no stock AI phrasing.
 
 External employer-site applications are enabled only while an Intensive Pass
 is active. The dashboard injects this entitlement on the server, so a browser

@@ -111,7 +111,6 @@ const PAGES: Record<string, string> = {
   run: 'Apply',
   attention: 'Needs attention',
   applications: 'Applications',
-  humanizer: 'Rewrite text',
   pricing: 'Pricing',
   setup: 'Settings',
   support: 'Support',

@@ -103,12 +103,11 @@ export const applyToJobWithAgent = async (_page,job) => {
 };
 export const applyToIndeedJob = applyToJobWithAgent;
 `);
-    writeFileSync(join(directory, 'humanizer.mjs'), 'export const assertHumanizerHealthy = async () => {};');
     writeFileSync(join(directory, 'blocker.mjs'), "export const WALL_STATES = new Set(['captcha','login','identity']); export const judgePage = async () => ({state:'loading',reason:'Fixture delayed listing'});");
     const overrides: Record<string, string> = {
       './config.js': 'config.mjs', './browser.js': 'browser.mjs', './llm.js': 'llm.mjs',
       './discovery.js': 'discovery.mjs', './discovery-indeed.js': 'discovery.mjs',
-      './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './humanizer.js': 'humanizer.mjs', './blocker.js': 'blocker.mjs',
+      './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './blocker.js': 'blocker.mjs',
     };
     const main = readFileSync(new URL('./main.js', import.meta.url), 'utf8').replace(
       /from ['"](\.\.?\/[^'"]+)['"]/g,
@@ -119,7 +118,7 @@ export const applyToIndeedJob = applyToJobWithAgent;
     const output = execFileSync(process.execPath, [join(directory, 'start.mjs'), ...(options.apply ? [] : ['--search-only'])], {
       encoding: 'utf8', timeout: 10_000,
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
-        CELERIS_API_KEY: 'fixture-only', HUMANIZER_MODE: 'off', COVER_LETTER_MODE: 'tailored',
+        CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
         APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

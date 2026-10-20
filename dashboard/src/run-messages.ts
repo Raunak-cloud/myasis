@@ -15,7 +15,6 @@ const PLAIN: Array<[RegExp, string]> = [
     "The site's security check could not be completed."],
   [/CELERIS_API_KEY|matching service is not configured|\bAPI[ _-]?key\b/i,
     'A service needed for this run is unavailable. Please try again later.'],
-  [/AuthorMist|humanizer/i, 'The cover letter service is unavailable. Please try again later.'],
   [/browser has disconnected|has been closed|Target closed/i,
     'The application stopped unexpectedly. Please try again.'],
   [/net::ERR|ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i,

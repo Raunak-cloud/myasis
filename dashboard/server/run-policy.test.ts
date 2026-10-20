@@ -21,11 +21,11 @@ const saved = {
   AI_INSTRUCTIONS_B64: 'ZG9udCBhcHBseSBmb3Igc2VuaW9yIHJvbGVz',
 };
 
-const freePolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, humanizer: false, maxApplicationsPerRunOverride: null };
-const essentialPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS['essential-pass'].evaluationsPerRun, humanizer: false, maxApplicationsPerRunOverride: null };
-const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, humanizer: true, maxApplicationsPerRunOverride: null };
-const intensivePolicy = { tier: 'intensive' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, humanizer: true, maxApplicationsPerRunOverride: null };
-const adminPolicy = { tier: 'admin' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: null, humanizer: true, maxApplicationsPerRunOverride: null };
+const freePolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null };
+const essentialPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS['essential-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
+const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
+const intensivePolicy = { tier: 'intensive' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
+const adminPolicy = { tier: 'admin' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: null, maxApplicationsPerRunOverride: null };
 
 const standardManual = applyRunPolicy(saved, freePolicy, 'manual');
 check('standard accounts keep their job preferences', standardManual.KEYWORDS === saved.KEYWORDS);
@@ -71,9 +71,6 @@ check('Active Search runs assess 70 jobs', jobSearchAuto.MAX_EVALUATIONS === '70
 check('Active Search keeps its advanced listing-age filter', jobSearchAuto.MAX_AGE_DAYS === '3');
 check('Active Search can raise its scheduled match threshold', activeFiltered.MIN_SCORE === '88');
 check('Active Search still cannot save Intensive standing instructions', jobSearchAuto.AI_INSTRUCTIONS_B64 === '');
-check('Free runs never use the humanizer', scheduled.HUMANIZER_MODE === 'off' && standardManual.HUMANIZER_MODE === 'off');
-check('Active Search runs keep the humanizer', jobSearchAuto.HUMANIZER_MODE !== 'off');
-check('Intensive runs keep the humanizer', intensive.HUMANIZER_MODE !== 'off');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Essential accounts receive one scheduled run', automaticRunsPerDay('standard', 'essential') === 1);
 check('Active Search accounts receive four scheduled runs', automaticRunsPerDay('standard', 'active') === 4);
@@ -94,7 +91,7 @@ const intensiveFacts = {
   autoRunsUsedToday: 0,
   autoApplyPaused: false,
   hasSuccessfulRun: true,
-  overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null, humanizer: null },
+  overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null },
   searchTermSuggestionsLeft: null,
 };
 const intensiveEntitlements = deriveEntitlements(intensiveFacts);
@@ -105,19 +102,9 @@ const freeEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRu
 });
 check('new free accounts receive 15 reviews per run and per scheduled day', freeEntitlements.evaluationsPerRun === 15 && freeEntitlements.scheduledJobsPerDay === 15);
 check('a failed empty free onboarding run remains retryable', freeEntitlements.firstRunRequired && manualRunRefusal(freeEntitlements) === null);
-check('free accounts keep their one daily run, SEEK-only access and no humanizer', freeEntitlements.autoRunsPerDay === 1 && !freeEntitlements.indeedApplications && !freeEntitlements.humanizer);
+check('free accounts keep their one daily run and SEEK-only access', freeEntitlements.autoRunsPerDay === 1 && !freeEntitlements.indeedApplications);
 check('customers cannot start runs manually', !intensiveEntitlements.manualRuns);
 check('administrators can start runs manually', adminEntitlements.manualRuns);
-check('administrators use the humanizer by default', adminEntitlements.humanizer);
-const essentialFacts = {
-  ...intensiveFacts,
-  billing: { paid: { ...intensiveFacts.billing.paid, hasActiveEssentialPass: true, hasActiveIntensivePass: false } },
-};
-check('Essential does not include the humanizer by default', !deriveEntitlements(essentialFacts).humanizer);
-check('an admin can enable the humanizer for one Essential account', deriveEntitlements({
-  ...essentialFacts,
-  overrides: { ...essentialFacts.overrides, humanizer: true },
-}).humanizer);
 const newCustomerEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRun: false });
 check('a new customer must start the first run', newCustomerEntitlements.firstRunRequired);
 check('the first successful run unlocks scheduling', !intensiveEntitlements.firstRunRequired);

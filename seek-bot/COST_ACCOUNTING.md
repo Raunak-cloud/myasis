@@ -18,18 +18,15 @@ at the configured per-GB rate (default $8). This is an estimate before credits,
 taxes and premium-domain adjustments, not a reconciled invoice. Missing
 credentials, delayed session data and interrupted sessions remain unknown;
 page sizes and concurrent account-balance deltas are never substituted.
-CapMonster task charges use the response's cost when supplied. The humanizer's
-subscription and other fixed services use optional allocations configured in
+CapMonster task charges use the response's cost when supplied. Fixed services use optional allocations configured in
 Admin > Config > Application cost accounting:
 
 - `BRIGHTDATA_API_KEY`: management key for session bandwidth, separate from
   browser connection credentials.
 - `BRIGHTDATA_BROWSER_USD_PER_GB`: contracted rate; defaults to 8.
-- `HUMANIZER_USD_PER_REQUEST`: monthly subscription divided by expected monthly
-  requests. Set 0 only when covered by the overhead allocation.
 - `APPLICATION_INFRA_USD_PER_WORKER_HOUR`: hosting, proxy, storage, email and
   other fixed service costs divided by expected monthly worker-hours. Exclude
-  the separately metered providers and separately allocated humanizer fee.
+  the separately metered providers.
 
 Missing costs display as unknown, never free. Each event saves the amount and
 its basis, so changing future rates does not rewrite recorded history. Journal

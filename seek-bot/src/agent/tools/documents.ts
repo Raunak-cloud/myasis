@@ -7,8 +7,6 @@ import { acceptsFormat, pickResumeForJob, resumeDirectory, documentFor } from '.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, extname } from 'node:path';
 import type { Observation } from '../observe.js';
-import { wasHumanized } from '../../humanizer.js';
-import { countHealth } from '../../run-health.js';
 import { hostOf } from '../../site-auth.js';
 import { locate } from '../raw-tools.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
@@ -79,13 +77,12 @@ export async function doAddCoverLetter(ctx: ToolContext, args: Record<string, un
   // Marked, so what the box holds when the form is sent can be read back as the letter that went (recordWhatWasSent).
   await target.evaluate((el) => el.setAttribute('data-owt-letter', '1')).catch(() => {});
   ctx.guards.recordFillSuccess(label);
-  if (config.humanizer.enabled) countHealth(wasHumanized(letter) ? 'humanizedLetters' : 'draftLetters');
-  ctx.log(`  ✓ ${wasHumanized(letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter added`);
+  ctx.log(`  ✓ Personalised cover letter added`);
   return ok(`Cover letter verified in ${field?.ref ?? String(args.ref)}. Re-observe the page and handle any remaining fields or validation before continuing.`);
 }
 
 /**
- * The same grounded, humanized letter, sent as a document to a form that
+ * The same grounded letter, sent as a document to a form that
  * only takes the cover letter as an upload (Oracle Recruiting Cloud, many
  * PageUp forms). Written as text, then converted to what the input accepts,
  * PDF when it does not say.
@@ -126,8 +123,7 @@ export async function coverLetterDocument(ctx: ToolContext, accept: string, revi
 export function coverLetterSent(ctx: ToolContext, document: { file: string; letter: string }): void {
   ctx.coverLetter = document.letter;
   ctx.guards.recordProgress();
-  if (config.humanizer.enabled) countHealth(wasHumanized(document.letter) ? 'humanizedLetters' : 'draftLetters');
-  ctx.log(`  ✓ ${wasHumanized(document.letter) ? 'humanized' : config.humanizer.enabled ? 'unhumanized (grounded draft)' : 'personalized'} cover letter uploaded as ${extname(document.file).slice(1).toUpperCase()}`);
+  ctx.log(`  ✓ Personalised cover letter uploaded as ${extname(document.file).slice(1).toUpperCase()}`);
 }
 
 /** The approved resume as a file this upload accepts, or why not. */

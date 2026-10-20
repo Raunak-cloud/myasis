@@ -240,7 +240,7 @@ const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'add_cover_letter',
     description:
-      'Write the grounded, humanized cover letter into the FIELD ref you selected. To reveal it, use click or pass the cover-letter radio/select FIELD ref and its exact writing option. When the form only takes the letter as a file, pass the cover-letter upload ACTION ref ([file]) instead: the letter is sent as a document. A writing box inside an embedded form takes its take_snapshot ref (e.g. f3e62); it replaces any text already there. Never targets the first textarea automatically.',
+      'Write the grounded cover letter into the FIELD ref you selected. To reveal it, use click or pass the cover-letter radio/select FIELD ref and its exact writing option. When the form only takes the letter as a file, pass the cover-letter upload ACTION ref ([file]) instead: the letter is sent as a document. A writing box inside an embedded form takes its take_snapshot ref (e.g. f3e62); it replaces any text already there. Never targets the first textarea automatically.',
     parameters: { type: 'object', properties: {
       ref: { type: 'string', description: 'Observed cover-letter FIELD ref, a take_snapshot ref for a writing box inside an embedded form, or its upload ACTION ref when the letter must be a file.' },
       option: { type: 'string', description: 'Exact option to reveal the cover-letter writing field, for radio/select controls only.' },

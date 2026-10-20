@@ -4,7 +4,6 @@ import { ensureUserDataDir, userDir } from './userdata.js';
 import { loadProfile } from './profile.js';
 import { fullContext } from './files.js';
 import { listAnswers } from './answers.js';
-import { humanizerAllowed } from './entitlements.js';
 import type { CandidateProfile } from './candidate-profile.js';
 import { accountApplicationEnvironment, readEnv } from './runner.js';
 import { loadUserSettings, RUN_SETTING_DEFAULTS } from './settings.js';
@@ -199,9 +198,7 @@ export async function answerForm(
         queued?.coverLetter && queuedLetterMatchesModel
           ? Promise.resolve(queued.coverLetter)
           : wantsLetter
-            ? (await humanizerAllowed(userId))
-              ? llm.draftCoverLetter(job, profile, knowledge).then((draft: string) => llm.polishCoverLetter(draft, job, profile, knowledge))
-              : llm.draftCoverLetter(job, profile, knowledge)
+            ? llm.draftCoverLetter(job, profile, knowledge)
             : Promise.resolve(undefined),
       ]);
 

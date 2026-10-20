@@ -4,7 +4,6 @@ import { isSubmitControl, reviewSavedApplicationForm, verifySubmissionEvidence }
 import { pickResumeForJob } from '../../resume.js';
 import { createHash } from 'node:crypto';
 import { isEntryAction } from '../guards.js';
-import { wasHumanized } from '../../humanizer.js';
 import { boardOf, ensureChosenResume, reopenIndeedResumeStep } from '../../resume-sync.js';
 import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
@@ -231,7 +230,7 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string): Promis
   // Letter presence is descriptive, not an advancement prerequisite. The
   // navigator handles documents from the actual form; an existing letter
   // need not have been drafted by this attempt to be valid.
-  if (ctx.coverLetter) ctx.log(`  cover letter included (${wasHumanized(ctx.coverLetter) ? 'humanized' : 'not humanized'})`);
+  if (ctx.coverLetter) ctx.log(`  cover letter included (checked)`);
   const reservation = reservedSubmissionDecision(ctx.page.url());
   if (!reservation.allowed) {
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'skipped',

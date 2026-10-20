@@ -10,7 +10,6 @@ const RunPanel = lazy(() => import('./components/RunPanel').then((m) => ({ defau
 const AttentionPanel = lazy(() => import('./components/AttentionPanel').then((m) => ({ default: m.AttentionPanel })));
 const ApplicationsPanel = lazy(() => import('./components/ApplicationsPanel').then((m) => ({ default: m.ApplicationsPanel })));
 const SetupPanel = lazy(() => import('./components/SetupPanel').then((m) => ({ default: m.SetupPanel })));
-const HumanizerPanel = lazy(() => import('./components/HumanizerPanel').then((m) => ({ default: m.HumanizerPanel })));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
 const PricingPanel = lazy(() => import('./components/PricingPanel').then((m) => ({ default: m.PricingPanel })));
 const SupportPanel = lazy(() => import('./components/SupportPanel').then((m) => ({ default: m.SupportPanel })));
@@ -31,7 +30,7 @@ import { captureRedditClickId, initRedditPixel, trackRedditEvent } from './reddi
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
-type Tab = 'run' | 'attention' | 'applications' | 'humanizer' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
+type Tab = 'run' | 'attention' | 'applications' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -60,10 +59,6 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   admin: {
     title: 'Admin',
     description: 'Every account, every run, and the controls for them.',
-  },
-  humanizer: {
-    title: 'Rewrite text',
-    description: 'Turn a stiff draft into clearer, more natural writing.',
   },
   pricing: {
     title: 'Plans & pricing',
@@ -126,15 +121,6 @@ export default function App() {
   const boards = useBoardsStatus();
   const route = useRouteStatus();
   const [boardsOpen, setBoardsOpen] = useState(false);
-  /**
-   * The rewriting tool is the operator's, so its tab is not offered. Landing
-   * on it by an old link or a stale tab falls back to Apply rather than
-   * rendering a page whose every request the server will refuse.
-   */
-  const canRewrite = entitlements?.rewriteText ?? false;
-  useEffect(() => {
-    if (entitlements && !canRewrite && tab === 'humanizer') setTab('run');
-  }, [entitlements, canRewrite, tab]);
   /** Operator pages are only offered to admins; their APIs enforce the same restriction. */
   const isAdmin = entitlements?.tier === 'admin';
   useEffect(() => {
@@ -317,19 +303,6 @@ export default function App() {
                 onClick={() => go('admin')}
               >
                 Admin dashboard
-              </button>
-            </>
-          )}
-
-          {canRewrite && (
-            <>
-              <span className="nav-label nav-label-tools">Tools</span>
-              <button
-                className={`side-link ${tab === 'humanizer' ? 'active' : ''}`}
-                aria-current={tab === 'humanizer' ? 'page' : undefined}
-                onClick={() => go('humanizer')}
-              >
-                Rewrite text
               </button>
             </>
           )}
@@ -551,7 +524,6 @@ export default function App() {
           {tab === 'applications' && (
             <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />
           )}
-          {tab === 'humanizer' && canRewrite && <HumanizerPanel />}
           {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'pricing' && <PricingPanel />}
           {tab === 'setup' && <SetupPanel />}

@@ -9,7 +9,7 @@ import { readEnv } from './runner.js';
  *
  * Account alerts (alerts.ts) tell a candidate what only they can fix. These
  * tell whoever runs Owtomate what only they can fix: applications mostly
- * failing, a provider out of credit, letters going out un-humanized, submits
+ * failing, a provider out of credit, submits
  * that may have reached an employer twice. Each problem on 25 Sep 2026 was
  * found hours late by reading logs; every one of them is one entry below.
  *
@@ -24,8 +24,6 @@ export interface OperatorFacts {
   /** Summed over runs that finished in the last 24 hours. */
   attempted: number;
   applied: number;
-  humanizedLetters: number;
-  draftLetters: number;
   unconfirmedSubmits: number;
   /** Providers any run of the last 6 hours found out of credit. */
   providersOutOfCredit: string[];
@@ -105,17 +103,6 @@ const KINDS: OperatorAlertKind[] = [
     } : null,
   },
   {
-    key: 'humanizer-fallback',
-    holdMinutes: 60,
-    applies: (f) => {
-      const letters = f.humanizedLetters + f.draftLetters;
-      return letters >= 4 && f.draftLetters / letters > 0.34 ? {
-        subject: `${pct(f.draftLetters, letters)} of cover letters went out un-humanized`,
-        paragraphs: [`${f.draftLetters} of ${letters} cover letters in the last day were sent as the plain draft because every humanized rewrite failed its checks.`],
-      } : null;
-    },
-  },
-  {
     key: 'runs-failing',
     holdMinutes: 30,
     applies: (f) => f.failedRunsInARow >= 3 ? {
@@ -178,8 +165,6 @@ async function gatherFacts(): Promise<OperatorFacts> {
   return {
     attempted: sum('attempted'),
     applied: sum('applied'),
-    humanizedLetters: sum('humanizedLetters'),
-    draftLetters: sum('draftLetters'),
     unconfirmedSubmits: sum('unconfirmedSubmits'),
     providersOutOfCredit: providers,
     failedRunsInARow,

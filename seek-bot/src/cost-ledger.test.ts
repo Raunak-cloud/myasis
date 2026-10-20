@@ -7,11 +7,11 @@ import { spawnSync } from 'node:child_process';
 // Isolated fixture APIs only: no real provider request, account, or application.
 process.env.DATA_DIR = mkdtempSync(resolve(tmpdir(), 'application-cost-test-'));
 process.env.COST_TRACKING = 'true';
+process.env.CELERIS_API_KEY = 'fixture-key';
 const { withJobCost, celerisUsage, recordCost, recordBrightDataCost, COST_LEDGER_FILE } = await import('./cost-ledger.js');
 const { config } = await import('./config.js');
 config.celeris.apiKey = 'fixture-key';
 const { celerisChat } = await import('./agent/celeris.js');
-const { chatCompletion } = await import('./humanizer-endpoint.js');
 const { solveTask } = await import('./captcha/capmonster.js');
 const originalFetch = globalThis.fetch;
 let attempt = 0;
@@ -20,7 +20,6 @@ globalThis.fetch = (async (url: string | URL | Request) => {
   if (address.includes('browser_sessions')) return Response.json({ session: { session_id: 'fixture-session', status: 'finished', bandwidth: 1_000_000_000 } });
   if (address.includes('capmonster') && address.endsWith('createTask')) return Response.json({ errorId: 0, taskId: 123 });
   if (address.includes('capmonster')) return Response.json({ errorId: 0, status: 'ready', solution: { token: 'fixture' }, cost: '0.002' });
-  if (address.includes('humanizer.invalid')) return Response.json({ choices: [{ message: { content: 'Fixture' } }] });
   attempt++;
   // A paid, unusable generation followed by a valid answer; both count.
   return Response.json({ usage: { prompt_tokens: 1000, completion_tokens: 100, prompt_tokens_details: { cached_tokens: 500 } },
@@ -39,7 +38,6 @@ try {
   await withJobCost('job-d', () => recordBrightDataCost('fixture-session'));
   delete process.env.BRIGHTDATA_API_KEY;
   await withJobCost('job-e', () => recordBrightDataCost('fixture-session'));
-  await withJobCost('job-f', () => chatCompletion({ base: 'https://humanizer.invalid', model: 'fixture', apiKey: 'fixture' }, {}, Date.now() + 10_000));
   await withJobCost('job-g', () => solveTask({ type: 'fixture' }, 5000));
   const events = readFileSync(resolve(config.dataDir, COST_LEDGER_FILE), 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.equal(events.find(e => e.provider === 'Fixture' && e.amountUsd === 1).jobId, 'job-a');
@@ -48,7 +46,6 @@ try {
   assert.equal(ai.length, 2); assert.ok(ai.every(e => e.jobId === 'job-c' && e.amountUsd === 0.00018));
   assert.equal(events.find(e => e.jobId === 'job-d').amountUsd, 8);
   assert.equal(events.find(e => e.jobId === 'job-e').amountUsd, null);
-  assert.equal(events.find(e => e.jobId === 'job-f').amountUsd, null);
   assert.equal(events.find(e => e.jobId === 'job-g').amountUsd, 0.002);
   assert.ok(!JSON.stringify(events).includes('fixture-key'));
   const interruptedDir = mkdtempSync(resolve(tmpdir(), 'application-cost-exit-'));
@@ -61,5 +58,5 @@ try {
   const exited = readFileSync(resolve(interruptedDir, COST_LEDGER_FILE), 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.ok(exited.some(e => e.jobId === 'interrupted' && e.provider === 'Celeris' && e.amountUsd === null));
   assert.ok(exited.some(e => e.provider === 'Infrastructure' && e.amountUsd >= 0 && e.unit === 'worker hours'));
-  console.log('Cost ledger: concurrent job attribution, retry billing, cached tokens, Bright Data session bytes, missing charges, humanizer and CAPTCHA passed.');
+  console.log('Cost ledger: concurrent job attribution, retry billing, cached tokens, Bright Data session bytes, missing charges, CAPTCHA passed.');
 } finally { globalThis.fetch = originalFetch; }

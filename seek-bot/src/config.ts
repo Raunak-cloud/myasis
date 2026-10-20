@@ -341,42 +341,6 @@ export const config = {
     rawTools: process.env.AGENT_RAW_TOOLS !== 'false',
   },
 
-  /**
-   * Optional AuthorMist post-processor served by Featherless.
-   * Its HUMANIZER_URL / _API_KEY / _MODEL settings are resolved
-   * variables by
-   * humanizer-endpoint.ts, which the dashboard shares.
-   */
-  humanizer: {
-    /** Off for plans without the humanizer: letters are sent as drafted and verified. */
-    enabled: process.env.HUMANIZER_MODE !== 'off',
-    required: process.env.HUMANIZER_REQUIRED === 'true',
-    timeoutMs: Number(process.env.HUMANIZER_TIMEOUT_MS ?? 120_000),
-    /**
-     * Total time one rewrite may take, across all its retry attempts, before
-     * the grounded original is sent instead.
-     *
-     * This is a budget, not a request timeout: it bounds how long an
-     * application will wait on a style pass. At the old hardcoded 15s every
-     * rewrite timed out on a CPU-only host — a 3B model writing 250 words on
-     * two threads cannot finish that fast — so every letter went out
-     * un-rewritten. Configurable because the right number is a property of
-     * whatever machine is serving the model, not of the code.
-     */
-    rewriteBudgetMs: Number(process.env.HUMANIZER_REWRITE_BUDGET_MS ?? 45_000),
-    /**
-     * Sent with every rewrite, because a hosted API applies only what it is
-     * sent. The model used to run under llama.cpp, whose defaults included a
-     * repetition penalty nobody had asked for, and that penalty was what pushed
-     * a rewrite off the draft's own wording. Without it a rewrite kept about
-     * 40% of the draft's four-word runs; at 1.05, about 10%. Stronger rewrites
-     * more (1.1 keeps 3%) but respells names such as "Node.js" more often, and
-     * the model is the only thing keeping those right.
-     */
-    repetitionPenalty: Number(process.env.HUMANIZER_REPETITION_PENALTY ?? 1.05),
-    topK: Number(process.env.HUMANIZER_TOP_K ?? 40),
-  },
-
   coverLetter: {
     /** Tailored is the safe default; reuse sends the user's text verbatim. */
     mode: process.env.COVER_LETTER_MODE === 'reuse' ? 'reuse' as const : 'tailored' as const,

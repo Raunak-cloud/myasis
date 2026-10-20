@@ -33,7 +33,7 @@ const server = createServer(async (req, res) => {
         autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true, autoRunsUsedToday: 0,
         scheduledMinScore: null, scheduledJobsPerDay: admin ? null : PLAN_LIMITS.free.evaluationsPerRun,
         evaluationsPerRun: admin ? null : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
-        fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin, humanizer: admin },
+        fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin },
       '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 },
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: null, hasActivePass: false } },
       '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },

@@ -15,9 +15,6 @@ interface RunHealth {
   attempted: number;
   applied: number;
   needsHuman: number;
-  /** Cover letters sent humanized, and sent as the plain grounded draft. */
-  humanizedLetters: number;
-  draftLetters: number;
   /** Attempts whose submit was pressed but that were not confirmed as sent. */
   unconfirmedSubmits: number;
   /**
@@ -34,7 +31,7 @@ interface RunHealth {
 
 const FILE = resolve(config.dataDir, 'run-health.json');
 const health: RunHealth = {
-  attempted: 0, applied: 0, needsHuman: 0, humanizedLetters: 0, draftLetters: 0, unconfirmedSubmits: 0,
+  attempted: 0, applied: 0, needsHuman: 0, unconfirmedSubmits: 0,
   captchaSolved: 0, captchaFailed: 0, captchaSelfCleared: 0, providerOutOfCredit: [],
 };
 

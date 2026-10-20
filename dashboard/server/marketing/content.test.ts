@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeContent } from './content.js';
 import type { MarketingSite, MarketingTopic } from '../../src/marketingTypes.js';
 
-test('marketing drafts use Gemini only, never humanize, and retain failed-review drafts without approving them',async()=>{
+test('marketing drafts use Gemini only, retain failed-review drafts without approving them',async()=>{
   const originalFetch=globalThis.fetch,oldKey=process.env.GEMINI_API_KEY,oldModel=process.env.BLOG_GEMINI_MODEL;
   process.env.GEMINI_API_KEY='marketing-test-key';process.env.BLOG_GEMINI_MODEL='gemini-test';
   const stamp=new Date().toISOString();

@@ -25,10 +25,8 @@ export interface Entitlements {
   maxApplicationsPerRunOverride: number | null;
   fineTune: boolean;
   advancedFilters: boolean;
-  rewriteText: boolean;
   runScopes: boolean;
   indeedApplications: boolean;
-  humanizer: boolean;
   /** Suggestions from resumes left; null means no limit. */
   searchTermSuggestionsLeft: number | null;
   timeZone: string;

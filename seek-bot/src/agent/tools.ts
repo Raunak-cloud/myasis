@@ -30,7 +30,7 @@ export * from './tools/finish.js';
  * The most any one tool may take. A tool that never returns (a page that
  * stops answering an evaluate, a navigation that never commits) must not
  * freeze the run: the agent is told and re-observes instead. Generous enough
- * for the slow legitimate cases — a humanized letter, an email arriving.
+ * for the slow legitimate cases — a checked cover letter, an email arriving.
  */
 const TOOL_TIME_LIMIT_MS: Record<string, number> = {
   add_cover_letter: 300_000,

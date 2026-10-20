@@ -403,7 +403,7 @@ async function autoRunTick(now: Date = new Date()): Promise<string[]> {
     .sort((a, b) => {
       const priority = (account: typeof a) => account.entitlements.tier === 'intensive'
         ? 2
-        : account.entitlements.humanizer
+        : account.entitlements.advancedFilters
           ? 1
           : 0;
       return a.done - b.done || priority(b) - priority(a) || a.dueAt - b.dueAt;

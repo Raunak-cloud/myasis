@@ -6,7 +6,7 @@ import { chromium } from 'patchright';
 import type { ToolContext } from './tools/context.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-letter-layout-'));
-Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'haiku', ANTHROPIC_API_KEY: 'fixture-only', COST_TRACKING: 'false', HUMANIZER_MODE: 'off' });
+Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'haiku', ANTHROPIC_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 const paragraphs = ['Dear Hiring Team,', 'I have four years of customer service experience, including payments and careful record keeping.', 'I would welcome the chance to bring those skills to Example Shop.', 'Kind regards,\nSynthetic Applicant'];
 const dense = paragraphs.join(' ').replace(/\n/g, ' ');
 const formatted = paragraphs.join('\n\n');

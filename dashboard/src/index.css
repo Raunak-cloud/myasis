@@ -807,26 +807,6 @@ tbody tr.clickable { cursor: pointer; }
 .signin-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .signin { padding: 34px 32px; width: min(400px, 100%); display: grid; gap: 18px; text-align: center; }
 
-/* ---------- humanizer playground ---------- */
-.humanizer-page { display: grid; gap: 16px; }
-.humanizer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.humanizer-editor { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 460px; }
-.humanizer-editor-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.humanizer-editor-head label { font-weight: 650; }
-.humanizer-textarea {
-  width: 100%; min-width: 0; min-height: 340px; flex: 1; resize: vertical;
-  font-family: inherit; font-size: 14px; line-height: 1.65; padding: 14px 15px;
-}
-.humanizer-textarea[readonly] { background: var(--bg); }
-.humanizer-actions { display: flex; gap: 8px; align-items: center; min-height: 40px; }
-.humanizer-actions .btn:disabled { opacity: .68; cursor: not-allowed; }
-.humanizer-note { margin: 0; }
-@media (max-width: 850px) {
-  .humanizer-grid { grid-template-columns: 1fr; }
-  .humanizer-editor { min-height: 360px; }
-  .humanizer-textarea { min-height: 240px; }
-}
-
 /* ---------- simplified application shell ---------- */
 body { letter-spacing: -.005em; }
 
@@ -1176,8 +1156,6 @@ button.metric-tile:hover strong { color: var(--accent); }
 .input, select.input { min-height: 38px; }
 
 /* The page header now supplies titles, so nested tool headings can stay quiet. */
-.humanizer-grid { gap: 16px; }
-
 /* The menu button belongs to the narrow layout; the full sidebar is always there above it. */
 .nav-toggle, .nav-scrim { display: none; }
 /* Likewise the activity log's own open and close buttons: it is only a modal on a phone. */
@@ -1530,9 +1508,6 @@ button.metric-tile:hover strong { color: var(--accent); }
 
 .status-dot.online { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .model-bar .btn { margin-left: 4px; min-height: 30px; padding-block: 4px; }
-.humanizer-editor { min-height: 410px; }
-.humanizer-textarea { min-height: 290px; }
-
 details.step > summary {
   list-style: none;
   cursor: pointer;
@@ -1910,8 +1885,6 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 @media (max-width: 640px) {
   .console-empty { min-height: 220px; }
-  .humanizer-editor { min-height: 330px; }
-  .humanizer-textarea { min-height: 220px; }
 }
 
 /* ---- run review validation -------------------------------------------- */

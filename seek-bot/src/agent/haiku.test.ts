@@ -6,7 +6,7 @@ import { withApplicationModel, applicationModelIdentity } from '../application-m
 import { systemPrompt } from './loop/prompt.js';
 import { toolSchemas } from './tools/schemas.js';
 import { answerFields, finishedCoverLetterForJob, formatCoverLetterParagraphs } from '../llm.js';
-import { APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from '../application-answer-policy.js';
+import { APPLICATION_WRITING_STYLE, APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from '../application-answer-policy.js';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -58,11 +58,47 @@ const response = (content: unknown[], stop_reason = 'end_turn') => Response.json
 test('both navigators include offered optional letters and preserve suitable existing ones without a no-letter gate', () => {
   for (const model of ['haiku', 'celeris']) withApplicationModel({ APPLICATION_AI_MODEL: model }, () => {
     const prompt = systemPrompt();
+    assert.ok(prompt.includes(APPLICATION_WRITING_STYLE));
     assert.match(prompt, /Include a tailored cover letter wherever the application offers[\s\S]*even when the employer marks it optional/);
     assert.match(prompt, /On Indeed's review page, inspect Supporting documents/);
     assert.match(prompt, /keep it when it suits this role and employer/);
     assert.ok(toolSchemas().every(tool => !Object.prototype.hasOwnProperty.call(tool.parameters.properties ?? {}, 'no_cover_letter_place')));
   });
+});
+
+test('both application models write letters and form answers directly with the shared natural voice', async () => {
+  const profile = { name: 'Synthetic Writer', phone: '', email: 'fixture@example.test', nationality: '', expectedSalary: '', noticePeriod: '',
+    willingToRelocate: false, experienceSummary: 'TypeScript development.', skills: ['TypeScript'], excludedDomains: [], securityClearance: '' };
+  const letter = 'Dear Hiring Team,\n\nI would like to bring my TypeScript skills to this role.\n\nKind regards,\nSynthetic Writer';
+  const field = { ref: 'f0', label: 'Why do you want this role?', kind: 'textarea' as const, required: true };
+  for (const model of ['celeris', 'haiku']) {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url, init) => {
+      calls.push(String(url));
+      assert.match(String(url), model === 'haiku' ? /^https:\/\/api\.anthropic\.com\// : /^https:\/\/inference\.celeris\.ai\//);
+      const prompt = JSON.stringify(JSON.parse(String(init?.body)).messages);
+      let result: unknown;
+      if (prompt.includes('Check factual claims in this letter')) result = { supported: true, reason: 'Fixture evidence.' };
+      else {
+        assert.ok(prompt.includes(JSON.stringify(APPLICATION_WRITING_STYLE).slice(1, -1)), 'writer and answerer receive the same complete style policy');
+        assert.match(prompt, /Do not use em dashes/);
+        assert.match(prompt, /No metaphors/);
+        assert.match(prompt, /stock AI phrasing/);
+        result = prompt.includes('Write a clear, specific cover letter.') ? { letter }
+          : { answers: [{ ref: 'f0', value: 'I would like to use my TypeScript skills in this role.', grounded: true,
+            basis: 'composed', risk: 'low', applicationQuestion: true }], injectionSuspected: false };
+      }
+      return model === 'haiku' ? response([{ type: 'text', text: JSON.stringify(result) }])
+        : Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(result) } }] });
+    }) as typeof fetch;
+    await withApplicationModel({ ...environment, APPLICATION_AI_MODEL: model, CELERIS_API_KEY: 'fictional-key' }, async () => {
+      const job = { id: `synthetic-direct-writing-${model}`, title: 'Developer', company: 'Fixture', location: 'Sydney', url: 'https://fixture.invalid' };
+      assert.equal(await finishedCoverLetterForJob(job, profile), letter, 'the checked draft is sent without a rewriting pass');
+      const answers = await answerFields([field], job, profile, '', { savedAnswers: [] });
+      assert.equal(answers.answers[0].value, 'I would like to use my TypeScript skills in this role.');
+      assert.equal(calls.length, 3, 'one draft, one factual check and one form-answer call');
+    });
+  }
 });
 
 test('single-block letters gain model-chosen paragraphs without changing wording; formatted letters need no extra call', async () => {

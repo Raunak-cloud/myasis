@@ -21,7 +21,6 @@ import { recommended, search, fetchJobDetail } from './discovery.js';
 import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex } from './store.js';
-import { assertHumanizerHealthy } from './humanizer.js';
 import { judgePage } from './blocker.js';
 import type { JobListing } from './types.js';
 import { ReviewCache, reviewContextFingerprint } from './review-cache.js';
@@ -72,8 +71,6 @@ async function build() {
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
   }
-  await assertHumanizerHealthy();
-  console.log('Cover-letter rewriting service ready.');
 
   const existing = loadQueue();
   const index = new AppliedIndex();

@@ -7,7 +7,7 @@ import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost } from '../
 /**
  * Minimal client for Celeris' OpenAI-compatible chat API.
  *
- * Raw `fetch` rather than the `openai` SDK, matching humanizer.ts: the surface
+ * Raw `fetch` rather than the `openai` SDK: the surface
  * we need is one endpoint, and this keeps the dependency list unchanged.
  */
 

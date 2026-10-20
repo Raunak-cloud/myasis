@@ -145,38 +145,12 @@ Two things that harness caught, both worth keeping in mind:
   installs a no-op shim; the compiled build never emits the call, so it is
   inert in production.
 
-### Optional AuthorMist cover-letter pass
+### Application writing
 
-Cover letters can be post-processed with `authormist-originality`, a
-Qwen2.5-3B model trained for meaning-preserving human-style rewriting. It is
-not used for fit decisions or application answers. Unchanged, truncated,
-expanded, or numerically altered rewrites are rejected.
-
-**Provider: [Featherless](https://featherless.ai/docs).** An
-OpenAI-compatible API that serves the model under its Hugging Face id:
-
-```
-HUMANIZER_URL=https://api.featherless.ai
-HUMANIZER_API_KEY=<your Featherless key>
-HUMANIZER_MODEL=authormist/authormist-originality
-```
-
-Readiness is one request to the model's own record, which refuses a bad key
-and says whether the model is warm; a cold model counts as not ready, because
-warming takes minutes. Featherless counts requests in flight against the plan
-(this 3B model costs 1 unit; the $25 plan has 4) and answers 429 above it, so
-a refused request waits and retries inside the rewrite's time budget, as do
-500 and 503. Featherless states it does not log prompts or completions.
-
-There is one endpoint and no fallback: when it cannot serve a rewrite, the
-grounded draft is sent as it is, which costs style and nothing else.
-
-Startup health is required only when `HUMANIZER_REQUIRED=true`. The default
-selective pass runs when the draft requests editing; `HUMANIZER_MODE=always`
-forces it. Rewrites get two attempts within `HUMANIZER_REWRITE_BUDGET_MS`. A
-failed rewrite or failed factual check falls back to the original checked draft.
-`src/humanizer-endpoint.ts` holds all of this and is shared with the dashboard;
-`npm run test:humanizer-endpoint` exercises it against a local stand-in.
+The selected application model writes cover letters and form answers directly.
+Shared instructions require plain, natural first-person wording with no em dashes,
+metaphors, buzzwords or stock AI phrasing. Claims still go through the existing
+evidence checks. There is no separate rewriting provider or rewriting service.
 
 ### Cover-letter strategy
 

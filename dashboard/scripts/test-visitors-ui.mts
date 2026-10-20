@@ -99,7 +99,6 @@ const server = createServer(async (req, res) => {
         advancedFilters: admin,
         indeedApplications: admin,
         runScopes: admin,
-        humanizer: admin,
       },
       '/api/billing/status': {
         configured: true,

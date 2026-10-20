@@ -1,5 +1,4 @@
 import { cpus, totalmem } from 'node:os';
-import { humanizerEndpoint, probeHumanizer } from './humanizer-endpoint.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -40,15 +39,14 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   if (!serverEnv[keyName]?.trim()) throw new Error(`${selected === 'haiku' ? 'Haiku' : 'Celeris'} is not configured. Add ${keyName} in Admin settings before starting a run.`);
   return { DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
-    ANTHROPIC_API_KEY: selected === 'haiku' ? serverEnv.ANTHROPIC_API_KEY! : '',
-    ...(selected === 'haiku' ? { HUMANIZER_MODE: 'off' } : {}) };
+    ANTHROPIC_API_KEY: selected === 'haiku' ? serverEnv.ANTHROPIC_API_KEY! : '' };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const credentials = new Set(['CELERIS_API_KEY', 'HUMANIZER_API_KEY', 'CAPMONSTER_API_KEY',
+  const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'BRIGHTDATA_API_KEY', 'BRIGHTDATA_BROWSER_PASSWORD', 'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('APPLICATION_AI_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('APPLICATION_AI_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 
@@ -175,7 +173,7 @@ function readQualifyingJobs(dataDir: string): number | null {
 
 /**
  * The bot's own account of how the run went (seek-bot/src/run-health.ts):
- * attempts, applications, letters humanized or not, unconfirmed submits and
+ * attempts, applications, cover letters, unconfirmed submits and
  * providers out of credit. Kept on the run's record for the operator alerts.
  */
 function readRunHealth(dataDir: string): Record<string, unknown> | null {
@@ -208,18 +206,6 @@ function applicationErrorCount(dataDir: string): number {
     // An unreadable outcome log is not evidence of a clean run.
     return 1;
   }
-}
-
-async function assertHumanizerHealthy(overrides: Record<string, string> = {}): Promise<void> {
-  const fileEnv = readEnv();
-  // A run whose plan does not include the humanizer never calls it, so its health is irrelevant.
-  if (overrides.HUMANIZER_MODE === 'off') return;
-  if ((overrides.HUMANIZER_REQUIRED ?? process.env.HUMANIZER_REQUIRED ?? fileEnv.HUMANIZER_REQUIRED) !== 'true') return;
-
-  const endpoint = await humanizerEndpoint(overrides);
-  if (!endpoint) throw new Error('The humanizer is required but HUMANIZER_URL is not configured. Set it in Admin → Config → Humanizer.');
-  const { ready, detail } = await probeHumanizer(endpoint);
-  if (!ready) throw new Error(`The humanizer is required but is not ready: ${detail}.`);
 }
 
 /**
@@ -350,7 +336,6 @@ class Run {
     let accountOverrides: Record<string, string>;
     try {
       accountOverrides = await accountApplicationEnvironment(userId, overrides);
-      if (accountOverrides.APPLICATION_AI_MODEL !== 'haiku') await assertHumanizerHealthy(overrides);
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
@@ -442,7 +427,6 @@ class Run {
     let accountOverrides: Record<string, string>;
     try {
       accountOverrides = await accountApplicationEnvironment(userId, overrides);
-      if (accountOverrides.APPLICATION_AI_MODEL !== 'haiku') await assertHumanizerHealthy(overrides);
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: (error as Error).message };

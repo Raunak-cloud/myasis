@@ -70,7 +70,7 @@ interface AdminUserRow {
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
   /** An operator's per-account overrides for control: how many jobs a run reviews, and how many it may apply to. Null means the plan decides. */
-  overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null; humanizer: boolean | null };
+  overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
   /**
    * Where this account's browsers go out: the loopback port its home tunnel
    * lands on, its proxy (never the password), and what the route is doing now.
@@ -630,8 +630,7 @@ export async function handleAdminRequest(
         const hasMaxApps = Object.prototype.hasOwnProperty.call(body ?? {}, 'maxApplicationsPerRun');
         const hasHomeRoute = Object.prototype.hasOwnProperty.call(body ?? {}, 'homeRoutePort');
         const hasProxy = Object.prototype.hasOwnProperty.call(body ?? {}, 'proxy');
-        const hasHumanizer = Object.prototype.hasOwnProperty.call(body ?? {}, 'humanizer');
-        if (!hasEvaluations && !hasMaxApps && !hasHomeRoute && !hasProxy && !hasHumanizer) return send({ error: 'Set at least one account override to change.' }, 400);
+        if (!hasEvaluations && !hasMaxApps && !hasHomeRoute && !hasProxy) return send({ error: 'Set at least one account override to change.' }, 400);
         if (hasHomeRoute && body.homeRoutePort !== null && !(Number.isInteger(body.homeRoutePort) && body.homeRoutePort >= 1024 && body.homeRoutePort <= 65535)) {
           return send({ error: 'The home route port must be a whole number from 1024 to 65535, or empty for none.' }, 400);
         }
@@ -648,13 +647,9 @@ export async function handleAdminRequest(
         if (hasMaxApps && invalid(body.maxApplicationsPerRun)) {
           return send({ error: 'Applications per run must be a positive number, or null to use the plan default.' }, 400);
         }
-        if (hasHumanizer && body.humanizer !== null && typeof body.humanizer !== 'boolean') {
-          return send({ error: 'Humanizer access must be enabled, disabled, or set to the plan default.' }, 400);
-        }
         await setAdminOverrides(target.id, {
           ...(hasEvaluations ? { evaluationsPerRun: body.evaluationsPerRun } : {}),
           ...(hasMaxApps ? { maxApplicationsPerRun: body.maxApplicationsPerRun } : {}),
-          ...(hasHumanizer ? { humanizer: body.humanizer } : {}),
         }, { targetIsAdmin: isAdmin(target.email) });
         return send({ ok: true, user: await userRow(target) });
       }

@@ -152,13 +152,13 @@ export function publishWeek(week: string, options: { replace?: boolean; addition
       const prepared = await prepareDirectPublication(written.article, brief, config);
       const slug = existing?.slug ?? await freeSlug(prepared.article.slug || prepared.article.title, week);
       await query(
-        `INSERT INTO blog_posts (week, slug, title, description, article, brief, model, revisions, kind, original_article, humanization)
-         VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO blog_posts (week, slug, title, description, article, brief, model, revisions, kind, original_article)
+         VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (week) WHERE kind = 'weekly' DO UPDATE SET
            title = EXCLUDED.title, description = EXCLUDED.description, article = EXCLUDED.article,
            brief = EXCLUDED.brief, model = EXCLUDED.model, revisions = EXCLUDED.revisions,
-           original_article = EXCLUDED.original_article, humanization = EXCLUDED.humanization, updated_at = now()`,
-        [week, slug, prepared.article.title, prepared.article.metaDescription, prepared.article, brief, written.model, JSON.stringify(written.revisions), options.additional ? 'extra' : 'weekly', written.article, prepared.humanization],
+           original_article = EXCLUDED.original_article, updated_at = now()`,
+        [week, slug, prepared.article.title, prepared.article.metaDescription, prepared.article, brief, written.model, JSON.stringify(written.revisions), options.additional ? 'extra' : 'weekly', written.article],
       );
       await query(`UPDATE ${attemptsTable} SET last_error = NULL WHERE week = $1::date`, [week]);
       const url = `${siteOrigin()}${postPath(slug)}`;
@@ -240,16 +240,15 @@ export interface BlogReport {
   model: string | null;
   currentWeek: string;
   writing: boolean;
-  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; humanizedAt: string | null; humanizerModel: string | null; revisions: number; unavailable: string[] }>;
+  posts: Array<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; url: string; hidden: boolean; publishedAt: string; updatedAt: string; revisions: number; unavailable: string[] }>;
   attempts: Array<{ kind: 'weekly' | 'extra'; week: string; attempts: number; lastAttemptAt: string | null; lastError: string | null }>;
 }
 
 export async function blogReport(): Promise<BlogReport> {
   const [posts, attempts] = await Promise.all([
-    query<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; hidden: boolean; published_at: Date; updated_at: Date; humanized_at: string | null; humanizer_model: string | null; revisions: number; unavailable: string[] | null }>(
+    query<{ id: string; kind: 'weekly' | 'extra'; week: string; slug: string; title: string; hidden: boolean; published_at: Date; updated_at: Date; revisions: number; unavailable: string[] | null }>(
       `SELECT id::text, kind, week::text, slug, title, hidden_at IS NOT NULL AS hidden, published_at, updated_at,
               jsonb_array_length(revisions) AS revisions,
-              humanization->>'completedAt' AS humanized_at, humanization->>'model' AS humanizer_model,
               ARRAY(SELECT jsonb_array_elements_text(brief->'unavailable')) AS unavailable
          FROM blog_posts ORDER BY published_at DESC LIMIT 100`,
     ),
@@ -270,7 +269,7 @@ export async function blogReport(): Promise<BlogReport> {
     writing: isBlogWriting(),
     posts: posts.map((p) => ({
       id: p.id, kind: p.kind, week: p.week, slug: p.slug, title: p.title, url: `${origin}${postPath(p.slug)}`, hidden: p.hidden,
-      publishedAt: p.published_at.toISOString(), updatedAt: p.updated_at.toISOString(), humanizedAt: p.humanized_at, humanizerModel: p.humanizer_model, revisions: p.revisions, unavailable: p.unavailable ?? [],
+      publishedAt: p.published_at.toISOString(), updatedAt: p.updated_at.toISOString(), revisions: p.revisions, unavailable: p.unavailable ?? [],
     })),
     attempts: attempts.map((a) => ({ kind: a.kind, week: a.week, attempts: a.attempts, lastAttemptAt: a.last_attempt_at?.toISOString() ?? null, lastError: a.last_error })),
   };
