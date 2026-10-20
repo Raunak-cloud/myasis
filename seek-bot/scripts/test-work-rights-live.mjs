@@ -26,7 +26,7 @@ await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'haiku', COST
         `Inert independent synthetic form test. No browser exists; use record_test_answer once instead of browser actions or finish. All candidate evidence is supplied here: ${JSON.stringify({ name: 'Synthetic Candidate', nationality: 'Not stated', ...fixture.profile })}. Required question: ${JSON.stringify(fixture.question ?? "Do you have full working rights in Australia? Please select NO, if you're on a visa.")}. There are no other saved answers or documents. Record Yes, No or needs-human using the production evidence rules.` }] });
     const call = reply.toolCalls[0];
     console.log(JSON.stringify({ case: fixture.name, pass: call?.args.answer === fixture.answer,
-      seconds: +(performance.now() - start).toFixed(2), answer: call?.args.answer, reason: call?.args.reason }));
+      seconds: +((performance.now() - start) / 1000).toFixed(2), answer: call?.args.answer, reason: call?.args.reason }));
     assert.equal(reply.toolCalls.length, 1);
     assert.equal(call.name, 'record_test_answer');
     assert.equal(call.args.answer, fixture.answer, fixture.name);
