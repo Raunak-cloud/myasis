@@ -31,9 +31,11 @@ pool.query = (async (sql: string, params: unknown[]) => {
 }) as typeof originalQuery;
 try {
   assert.equal(await recordRunStart('108', 'live', 'onboarding', null, 'mobile'), 'device-test');
-  assert.deepEqual(saved, ['108', 'live', 'onboarding', null, 'mobile']);
+  assert.deepEqual(saved, ['108', 'live', 'onboarding', null, 'mobile', false]);
   await recordRunStart('108', 'live', 'admin', '1', 'desktop');
-  assert.deepEqual(saved, ['108', 'live', 'admin', '1', 'desktop']);
+  assert.deepEqual(saved, ['108', 'live', 'admin', '1', 'desktop', false]);
+  await recordRunStart('108', 'live', 'manual', null, 'mobile', true);
+  assert.deepEqual(saved, ['108', 'live', 'manual', null, 'mobile', true], 'approved submissions retain their device without spending another run');
   await recordRunStart('108', 'live', 'auto', null, 'mobile');
   assert.equal(saved[4], null);
   await recordRunStart('108', 'live', 'admin');

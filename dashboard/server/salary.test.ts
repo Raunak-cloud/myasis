@@ -41,7 +41,10 @@ try {
     for (const trigger of ['manual', 'auto', 'admin', 'onboarding'] as const) {
       const modes: RunMode[] = trigger === 'manual' ? ['live'] : ['live', 'search'];
       for (const mode of modes) {
-        assert.deepEqual(await startRun({ userId: 'salary-test', mode, trigger }), { ok: false, status: 400, error: EXPECTED_SALARY_REQUIRED });
+        const result = await startRun({ userId: 'salary-test', mode, trigger });
+        if (trigger === 'auto') {
+          assert.ok(!result.ok && result.status === 403 && result.error.includes('require your action'), 'scheduled application starts are refused before setup checks');
+        } else assert.deepEqual(result, { ok: false, status: 400, error: EXPECTED_SALARY_REQUIRED });
         assert.equal(runner.inUse('salary-test'), false, 'refusal releases the start claim');
       }
     }
