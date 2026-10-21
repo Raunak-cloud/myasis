@@ -7,4 +7,9 @@
  * included: it limits search traffic, which the job boards see the same way
  * whoever is running.
  */
-export const MAX_SEARCH_TERMS = 4;
+export const MAX_SEARCH_TERMS = 3;
+
+/** Keep legacy saved lists and new edits within the same account-wide limit. */
+export function limitSearchTerms(value: string): string {
+  return value.split(',').map(term => term.trim()).filter(Boolean).slice(0, MAX_SEARCH_TERMS).join(', ');
+}

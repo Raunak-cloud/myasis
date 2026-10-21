@@ -8,12 +8,14 @@ import config from '../vite.config.js';
 import { getPool } from '../server/db/index.js';
 import { userDir, USERS_DIR } from '../server/userdata.js';
 import { accountRequest, accountUnavailable } from '../server/account-lifecycle.js';
+import { runSettingsSnapshotForUser, replaceSearchTermsIfUnchanged } from '../server/settings.js';
 
 const pool = getPool();
 const client = await pool.connect();
 const originalQuery = pool.query;
 const originalConnect = pool.connect;
 const originalOrigin = process.env.APP_BASE_URL;
+const originalAdmins = process.env.ADMIN_EMAILS;
 const schema = `account_settings_api_${randomUUID().replaceAll('-','')}`;
 const owner = `${Date.now()}01`, peer = `${Date.now()}02`;
 const paths = [owner,peer].map(id => userDir(id));
@@ -40,6 +42,24 @@ try {
     method,headers:{...(cookie?{cookie:`myasis_session=${cookie}`} : {}),...(requestOrigin?{origin:requestOrigin}:{}),...(body===undefined?{}:{'content-type':contentType})},
     ...(body===undefined?{}:{body:JSON.stringify(body)}),
   });
+  process.env.ADMIN_EMAILS = 'owner@example.test';
+  const oldTerms = 'AI Engineer, Web Developer, Python Developer, Frontend Developer';
+  const cappedTerms = 'AI Engineer, Web Developer, Python Developer';
+  for (const [id, cookie, unlimited] of [[owner, 'owner-token', true], [peer, 'peer-token', false]] as const) {
+    await client.query("INSERT INTO settings(user_id,key,value) VALUES($1,'KEYWORDS',$2)",[id,oldTerms]);
+    const shown = await (await request('/api/settings','GET',undefined,cookie)).json() as {KEYWORDS:string};
+    assert.equal(shown.KEYWORDS,cappedTerms,'legacy titles are capped in the editor for every tier');
+    const snapshot = await runSettingsSnapshotForUser(id,{unlimited});
+    assert.equal(snapshot.settings.KEYWORDS,cappedTerms,'manual and scheduled runs use three titles, including unlimited admins');
+    assert.equal(snapshot.saved.KEYWORDS,oldTerms,'retain exact saved value for concurrent-edit protection');
+    assert.equal(await replaceSearchTermsIfUnchanged(id,snapshot.saved.KEYWORDS,oldTerms),true,'renewal still compares against the original legacy value');
+    const response = await request('/api/settings','POST',{updates:{KEYWORDS:oldTerms}},cookie);
+    assert.equal(response.status,200);
+    const saved = await response.json() as {settings:{KEYWORDS:string}};
+    assert.equal(saved.settings.KEYWORDS,cappedTerms);
+    assert.equal((await client.query("SELECT value FROM settings WHERE user_id=$1 AND key='KEYWORDS'",[id])).rows[0].value,cappedTerms,'API saves cannot persist a fourth title');
+  }
+  if(originalAdmins===undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS=originalAdmins;
   for(const path of ['/api/daily-summary','/api/account']) assert.equal((await request(path,'GET',undefined,'')).status,401);
   assert.equal((await request('/api/daily-summary','DELETE')).status,405);
   assert.equal((await request('/api/account','POST',{})).status,405);
@@ -96,6 +116,7 @@ try {
   if(server) await new Promise<void>(done=>server!.close(()=>done()));
   pool.query=originalQuery; pool.connect=originalConnect;
   if(originalOrigin===undefined) delete process.env.APP_BASE_URL; else process.env.APP_BASE_URL=originalOrigin;
+  if(originalAdmins===undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS=originalAdmins;
   await client.query('ROLLBACK').catch(()=>{});
   await client.query('SET search_path TO public');
   await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

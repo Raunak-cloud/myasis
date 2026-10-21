@@ -27,6 +27,14 @@ const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, advancedFi
 const intensivePolicy = { tier: 'intensive' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
 const adminPolicy = { tier: 'admin' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: null, maxApplicationsPerRunOverride: null };
 
+for (const policy of [freePolicy, essentialPolicy, jobSearchPolicy, intensivePolicy, adminPolicy]) {
+  for (const trigger of ['manual', 'auto'] as const) {
+    check(`${policy.tier} ${trigger} overrides cannot exceed three search titles`,
+      applyRunPolicy({ ...saved, KEYWORDS: 'AI Engineer, Web Developer, Python Developer, Frontend Developer' }, policy, trigger).KEYWORDS
+      === 'AI Engineer, Web Developer, Python Developer');
+  }
+}
+
 const standardManual = applyRunPolicy(saved, freePolicy, 'manual');
 check('standard accounts keep their job preferences', standardManual.KEYWORDS === saved.KEYWORDS);
 check('standard accounts keep their excluded companies', standardManual.EXCLUDED_COMPANIES === saved.EXCLUDED_COMPANIES);

@@ -1,7 +1,7 @@
 import { EMPLOYER_SOURCE_DEFAULTS } from '../../seek-bot/src/employer-source-config.js';
 import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
-import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
+import { limitSearchTerms } from '../src/search-limits.js';
 
 /**
  * Per-run search/apply preferences (job titles, work arrangement, run
@@ -46,8 +46,7 @@ export const RUN_LIMITS: Record<string, number> = {
 
 function normalizeSetting(key: string, value: string): string {
   if (key === 'KEYWORDS') {
-    const terms = value.split(',').map((t) => t.trim()).filter(Boolean);
-    return terms.slice(0, MAX_SEARCH_TERMS).join(', ');
+    return limitSearchTerms(value);
   }
   if (key === 'EXCLUDED_COMPANIES') {
     const seen = new Set<string>();
@@ -171,7 +170,7 @@ export async function saveUserSettings(
   for (const [key, value] of Object.entries(updates)) {
     if (!KEEP_SET.has(key)) continue;
     const raw = String(value ?? '').slice(0, 20_000);
-    await upsertSettingRow(userId, key, key === 'EXCLUDED_COMPANIES' ? normalizeSetting(key, raw) : raw);
+    await upsertSettingRow(userId, key, key === 'EXCLUDED_COMPANIES' || key === 'KEYWORDS' ? normalizeSetting(key, raw) : raw);
   }
   return loadUserSettings(userId);
 }

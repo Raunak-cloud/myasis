@@ -5,6 +5,7 @@ import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAUL
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
 import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql } from './run-accounting.js';
+import { limitSearchTerms } from '../src/search-limits.js';
 
 export { SCHEDULED_MIN_SCORE };
 
@@ -191,6 +192,8 @@ export function applyRunPolicy(
   boardsChosen = false,
 ): Record<string, string> {
   const resolved = { ...settings };
+  // Search traffic has the same cap for posted overrides, scheduled runs and admins.
+  resolved.KEYWORDS = limitSearchTerms(resolved.KEYWORDS ?? '');
   // The field was removed. An old saved value or shared .env value must not
   // keep influencing runs after it disappears from the interface.
   resolved.TARGET_ROLE = RUN_SETTING_DEFAULTS.TARGET_ROLE;

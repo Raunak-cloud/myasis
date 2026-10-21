@@ -104,7 +104,7 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
 }
 
 /** Search terms honoured per run — see the note on `keywords` below. */
-const MAX_SEARCH_TERMS = 4;
+const MAX_SEARCH_TERMS = 3;
 
 export const config = {
   /**
@@ -163,7 +163,7 @@ export const config = {
      *
      * Ten terms at five pages is fifty result pages before a single job is
      * opened, and repeated runs at that volume are what triggered a Cloudflare
-     * challenge that blocked the account for everything. Four terms keeps a run
+     * challenge that blocked the account for everything. Three terms keeps a run
      * quiet enough to stay unremarkable, and the terms further down a list are
      * rarely the ones producing applications anyway. Operators included: the
      * limit is about how a run looks to the job board, not about a plan.

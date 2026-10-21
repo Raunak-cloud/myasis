@@ -44,6 +44,7 @@ import {
 } from './server/billing.js';
 import { isPaidPlanKey } from './src/pricing.js';
 import { generateSearchTerms } from './server/search-terms.js';
+import { limitSearchTerms } from './src/search-limits.js';
 import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { checkSignin, seekCheckInProgress, signOutOfBoard, waitForSigninChecks } from './server/seek-check.js';
@@ -440,12 +441,12 @@ function dataApi(): Plugin {
               await upsertSettingRow(userId, PLATFORMS_CHOSEN_KEY, '1');
             }
             const settings = await saveUserSettings(userId, updates);
-            return send({ ok: true, settings: { ...settings, PLATFORMS: effectivePlatforms(settings, entitlements) } });
+            return send({ ok: true, settings: { ...settings, KEYWORDS: limitSearchTerms(settings.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(settings, entitlements) } });
           }
           // What the run screen shows is what a run would use, not the raw saved value.
           const viewer = await currentUser(req.headers?.cookie);
           const saved = await loadUserSettings(userId);
-          return send({ ...saved, PLATFORMS: effectivePlatforms(saved, await entitlementsFor(userId, viewer?.email)) });
+          return send({ ...saved, KEYWORDS: limitSearchTerms(saved.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(saved, await entitlementsFor(userId, viewer?.email)) });
         });
       }
 

@@ -11,6 +11,7 @@ import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
 import { useEntitlements } from '../entitlements';
 import { TermsInput } from './TermsInput';
+import { MAX_SEARCH_TERMS } from '../search-limits';
 
 const ARRANGEMENTS = [
   { id: 'remote', label: 'Remote', hint: 'anywhere in Australia' },
@@ -191,12 +192,12 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       >
         <div className="field">
           <FieldLabel label="Job titles to search" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
-          <textarea
-            className="input mono-input"
-            rows={4}
-            placeholder="Enter job titles or search terms"
+          <TermsInput
+            id="setup-search-terms"
+            ariaLabel="Job titles to search"
+            max={MAX_SEARCH_TERMS}
             value={val('KEYWORDS')}
-            onChange={(e) => set('KEYWORDS', e.target.value)}
+            onChange={(terms) => set('KEYWORDS', terms)}
           />
           <SearchTermsGenerator
             currentTerms={val('KEYWORDS')}

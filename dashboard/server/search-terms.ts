@@ -299,7 +299,7 @@ export function searchTermsRequest(resumeBlock: string, excludedTerms: readonly 
   const prompt = `Create the job searches this candidate should actually type into an Australian job board.
 
 Rules:
-- Return 3 to ${MAX_TERMS} literal search-box queries, strongest first. Each query should usually be 1 to 4 words.
+- Return up to ${MAX_TERMS} literal search-box queries, strongest first. Each query should usually be 1 to 4 words.
 - Think like the candidate at the keyboard. Use the common wording a person would naturally search, such as "medical receptionist", "admin assistant" or "retail jobs", when supported. Do not copy a formal resume heading just because it appears in the document.
 - Ground every query in specific skills or experience stated in the selected resumes. The evidence must explain why the candidate could realistically apply for jobs found by that query today.
 - Include the candidate's strongest direct searches and useful nearby searches supported by transferable experience. Do not turn isolated skills into job searches.

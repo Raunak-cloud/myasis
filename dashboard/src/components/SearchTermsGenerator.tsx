@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useEntitlements } from '../entitlements';
+import { MAX_SEARCH_TERMS } from '../search-limits';
 
 interface ResumeOption {
   id: string;
@@ -91,7 +92,7 @@ export function SearchTermsGenerator({
       if (!response.ok || !Array.isArray(result.terms)) {
         throw new Error(typeof result.error === 'string' ? result.error : 'Could not generate search terms.');
       }
-      const terms = result.terms.filter((term): term is string => typeof term === 'string');
+      const terms = result.terms.filter((term): term is string => typeof term === 'string').slice(0, MAX_SEARCH_TERMS);
       const current = currentTerms.split(/[,;|\r\n]+/).map((term) => term.trim()).filter(Boolean);
       setPriorSuggestedTerms((previous) => (
         [...new Set([...previous, ...current, ...terms].map((term) => term.toLowerCase()))]

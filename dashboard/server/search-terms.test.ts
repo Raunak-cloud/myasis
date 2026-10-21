@@ -1,4 +1,4 @@
-import { normalizeGeneratedSearches, splitSearchTerms } from './search-terms.js';
+import { normalizeGeneratedSearches, splitSearchTerms, searchTermsRequest } from './search-terms.js';
 
 let failures = 0;
 const check = (name: string, ok: boolean) => {
@@ -31,6 +31,18 @@ check(
     generated('Reporting Analyst'),
   ]).join('|') === 'Data Analyst|Reporting Analyst',
 );
+check(
+  'oversized model output is limited to the first three valid distinct suggestions',
+  normalizeGeneratedSearches([
+    generated('AI Engineer'), generated('ai engineer'), generated(''),
+    generated('Web Developer'), generated('Python Developer'), generated('Frontend Developer'),
+  ]).join('|') === 'AI Engineer|Web Developer|Python Developer',
+);
+const request = searchTermsRequest('Fictional resume', []);
+check('model schema and prompt request no more than three titles',
+  (request.schema as { properties: { searches: { maxItems: number } } }).properties.searches.maxItems === 3
+  && request.prompt.includes('Return up to 3 literal search-box queries'));
+
 check(
   'work needing an Australian credential the resume does not show is never suggested',
   normalizeGeneratedSearches([
