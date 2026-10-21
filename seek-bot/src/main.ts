@@ -759,22 +759,6 @@ async function main() {
       reviewReservations.add(reviewReservationKey(stub));
       let retained = false;
       try {
-        // Instruction screening belongs to the same reserved review as the
-        // detail/fit check, not a background sweep of every discovered job.
-        // Feed descriptions go straight to their complete detail review.
-        if (!stub.description && stub.source !== 'chosen' && applicationModelAvailable() && config.aiInstructions.trim()) {
-          const cardRule = await ruleConflict(stub).catch(() => null);
-          if (cardRule?.decision === 'skip' && cardRule.conflict) {
-            const reason = `Your instructions rule this out ("${cardRule.conflict}"). ${cardRule.because}`;
-            console.log(`  ✗ ${jobLabel(stub)} — ${reason} (from the search result; not opened)`);
-            metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
-            bump('fit mismatch');
-            logOutcome({ status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company, url: stub.url,
-              reviewCache: reviewCacheMetadata(stub, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
-            retained = true;
-            return;
-          }
-        }
         await readPlatform(adapter.id, async () => {
           let job: JobListing;
           // A search just made on this board still has its gap to run out.
@@ -880,6 +864,24 @@ async function main() {
 
           // A loading retry can be the first read to reveal the board's applied marker.
           if (skipExistingApplication(job)) return;
+
+          // Board application history must be checked before even the cheaper
+          // instruction review, otherwise an old application rejected from its
+          // search card would still consume an evaluation. Feed descriptions go
+          // straight to their complete fit review as before.
+          if (!stub.description && stub.source !== 'chosen' && applicationModelAvailable() && config.aiInstructions.trim()) {
+            const cardRule = await ruleConflict(stub).catch(() => null);
+            if (cardRule?.decision === 'skip' && cardRule.conflict) {
+              const reason = `Your instructions rule this out ("${cardRule.conflict}"). ${cardRule.because}`;
+              console.log(`  ✗ ${jobLabel(stub)} — ${reason} (from the search result)`);
+              metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
+              bump('fit mismatch');
+              logOutcome({ status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company, url: stub.url,
+                reviewCache: reviewCacheMetadata(stub, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
+              retained = true;
+              return;
+            }
+          }
 
           // Both reviewers share the same model concurrency ceiling. Recheck after
           // every await before starting another call; page reading stays parallel.

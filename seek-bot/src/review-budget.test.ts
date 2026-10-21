@@ -141,12 +141,13 @@ test('a large discovered queue cannot spend instruction calls beyond its reserve
   assert.equal(result.events.filter(event => event.stage === 'fit').length, 2);
 });
 
-test('a card rejection consumes one shared review slot and never opens or applies to the excluded role', () => {
+test('a card rejection consumes one shared review slot after checking the listing for an existing application', () => {
   const result = run([job('excluded', { cardConflict: true }), job('other', { platform: 'indeed' })], {
     instructions: 'Avoid manager roles.', workers: 2, reviews: 1, apply: true,
   });
   assert.equal(result.events.filter(event => event.stage === 'instruction').length, 1);
-  assert.equal(result.events.filter(event => ['detail', 'fit', 'apply'].includes(event.stage)).length, 0);
+  assert.deepEqual(result.events.filter(event => event.stage === 'detail').map(event => event.id), ['excluded']);
+  assert.equal(result.events.filter(event => ['fit', 'apply'].includes(event.stage)).length, 0);
   assert.match(result.output, /Your instructions rule this out/);
   assert.equal(result.history.length, 0, 'a screening rejection must never become an application record');
 });
@@ -215,6 +216,14 @@ test('fifty known applications leave all one hundred evaluations available for f
 test('an applied marker already present during discovery skips instruction screening and detail reads', () => {
   const result = run([job('old', { alreadyApplied: true, cardConflict: true }), job('new')], { instructions: 'Avoid manager roles.' });
   for (const stage of ['instruction', 'detail', 'fit']) {
+    assert.deepEqual(result.events.filter(event => event.stage === stage).map(event => event.id), ['new']);
+  }
+  assert.equal(result.history[0].jobId, 'old');
+});
+
+for (const loadingFirst of [false, true]) test(`an applied marker is checked before a card rejection can spend the slot (loading retry: ${loadingFirst})`, () => {
+  const result = run([job('old', { detailApplied: true, cardConflict: true, loadingFirst }), job('new')], { instructions: 'Avoid manager roles.' });
+  for (const stage of ['instruction', 'fit']) {
     assert.deepEqual(result.events.filter(event => event.stage === stage).map(event => event.id), ['new']);
   }
   assert.equal(result.history[0].jobId, 'old');
