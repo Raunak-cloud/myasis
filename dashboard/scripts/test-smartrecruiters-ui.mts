@@ -20,6 +20,7 @@ let skippedFixture = false;
 let preparedFixture = false;
 let approvedFixture = false;
 let preparingFixture = false;
+let remainingCredits = 5;
 const approvedIds = new Set<string>();
 const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')).prepared : null;
 const preparedRows = () => e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
@@ -48,7 +49,7 @@ const server = createServer(async (req, res) => {
         scheduledMinScore: null, scheduledJobsPerDay: admin ? null : PLAN_LIMITS.free.evaluationsPerRun,
         evaluationsPerRun: admin ? null : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
         fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin },
-      '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 },
+      '/api/billing/status': { configured: true, totalRemaining: remainingCredits, free: { allowance: 5, used: 5 - remainingCredits, remaining: remainingCredits },
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: null, hasActivePass: false } },
       '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
@@ -123,7 +124,7 @@ try {
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       }
     } else {
-      await dialog.getByText('AI reviews up to 15 jobs this run. Only successful applications use your application allowance.', { exact: true }).waitFor();
+      await dialog.getByText('AI reviews up to 15 jobs this run. Each successfully submitted application uses one application credit.', { exact: true }).waitFor();
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0);
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);
@@ -193,6 +194,7 @@ try {
   }
   admin = false; preparedFixture = true; searchStarted = false;
   for (const width of [1280, 390]) {
+    remainingCredits = 5;
     approvedFixture = false;
     approvedIds.clear();
     const context = await browser.newContext({ viewport: { width, height: 900 } });
@@ -209,6 +211,7 @@ try {
     await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByText('This run fills applications and saves them for your review. Owtomate submits only the jobs you later confirm from the prepared list.', { exact: true }).waitFor();
+    await dialog.getByText('AI reviews up to 15 jobs this run. Each prepared application uses one application credit. Confirming it uses no additional credit.', { exact: true }).waitFor();
     await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     assert.equal(writes.filter(write => write.path === '/api/run').at(-1)!.body.applicationMode, 'semi-auto');
@@ -222,6 +225,9 @@ try {
     const preparedLink = navigation.getByRole('button', { name: /^Prepared Applications/ });
     const preparedBadge = page.locator('.side-link').filter({ hasText: 'Prepared Applications' }).locator('.nav-count');
     await preparedLink.click();
+    await page.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
+    remainingCredits = 0;
+    await page.goto(`${origin}/?tab=prepared`);
     await page.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
     await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
     assert.equal(await preparedBadge.textContent(), String(preparedRows().length), 'navigation counts applications ready for review');
@@ -250,6 +256,7 @@ try {
     await page.screenshot({ path: resolve(import.meta.dirname, `../../output/semi-auto-${width}.png`), fullPage: true });
     await context.close();
   }
+  remainingCredits = 5;
   preparedFixture = false;
   const emptyContext = await browser.newContext();
   const emptyPage = await emptyContext.newPage();

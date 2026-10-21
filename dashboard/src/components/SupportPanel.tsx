@@ -55,7 +55,7 @@ export function SupportPanel() {
         <div className="support-faq-list">
           <details>
             <summary>What counts toward my application allowance?</summary>
-            <p>Only applications that are successfully submitted count. Jobs that are skipped, rejected as a poor match or fail before submission do not reduce your allowance.</p>
+            <p>Auto apply uses one credit per successfully submitted application. Semi auto uses one credit per prepared application, with no extra charge when you confirm it. Skipping a prepared application does not return its credit. Jobs that are skipped or fail before an application is prepared or submitted do not reduce your allowance.</p>
           </details>
           <details>
             <summary>Why did a run finish without submitting anything?</summary>

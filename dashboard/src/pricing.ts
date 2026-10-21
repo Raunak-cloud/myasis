@@ -20,7 +20,7 @@ export const PAID_PLANS = {
   'application-top-up': {
     key: 'application-top-up', kind: 'application-top-up', name: 'Application Top-up', priceCents: 690,
     applications: 50, durationDays: 0, employerSiteApplications: 0,
-    description: 'Extra successful applications on an active paid pass.',
+    description: 'Extra application credits on an active paid pass.',
   },
 } as const;
 
@@ -47,7 +47,7 @@ export const PLAN_PRESENTATION = {
     label: 'Try it free',
     description: 'See Owtomate apply to well-matched SEEK roles before paying.',
     features: [
-      `${FREE_APPLICATIONS} successful applications`,
+      `${FREE_APPLICATIONS} application credits`,
       `${plural(FREE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${FREE.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
@@ -59,7 +59,7 @@ export const PLAN_PRESENTATION = {
     label: 'Affordable essentials',
     description: PAID_PLANS['essential-pass'].description,
     features: [
-      `${PAID_PLANS['essential-pass'].applications} successful applications`,
+      `${PAID_PLANS['essential-pass'].applications} application credits`,
       `${PAID_PLANS['essential-pass'].durationDays} days of access`,
       `${plural(ESSENTIAL.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ESSENTIAL.evaluationsPerRun} jobs each run`,
@@ -72,7 +72,7 @@ export const PLAN_PRESENTATION = {
     label: 'Broader search',
     description: PAID_PLANS['job-search-pass'].description,
     features: [
-      `${PAID_PLANS['job-search-pass'].applications} successful applications`,
+      `${PAID_PLANS['job-search-pass'].applications} application credits`,
       `${PAID_PLANS['job-search-pass'].durationDays} days of access`,
       `Up to ${plural(ACTIVE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
@@ -84,7 +84,7 @@ export const PLAN_PRESENTATION = {
     label: 'Maximum control',
     description: PAID_PLANS['intensive-pass'].description,
     features: [
-      `${PAID_PLANS['intensive-pass'].applications} successful applications`,
+      `${PAID_PLANS['intensive-pass'].applications} application credits`,
       `${PAID_PLANS['intensive-pass'].durationDays} days of access`,
       `Up to ${plural(INTENSIVE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,

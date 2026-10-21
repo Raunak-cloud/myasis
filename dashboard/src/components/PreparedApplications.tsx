@@ -70,6 +70,6 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
       <button type="button" className="btn" disabled={busy || running || !chosen.length} onClick={() => void decide('dismiss')}>Skip selected</button>
       <button type="button" className="btn primary" disabled={busy || running || !chosen.length} onClick={() => void decide('submit')}>{busy ? 'Saving…' : !chosen.length ? 'Confirm selected jobs' : `Confirm and apply to ${chosen.length} job${chosen.length === 1 ? '' : 's'}`}</button>
     </div>}
-    {reviews.length > 0 && <p className="job-meta">Owtomate rechecks each confirmed job. Changed forms return for review; closed jobs and other issues are reported here. Prepared applications use no application credits until successfully submitted.</p>}
+    {reviews.length > 0 && <p className="job-meta">Owtomate rechecks each confirmed job. Changed forms return for review; closed jobs and other issues are reported here. Each prepared application uses one application credit. Confirming it uses no additional credit.</p>}
   </section>;
 }

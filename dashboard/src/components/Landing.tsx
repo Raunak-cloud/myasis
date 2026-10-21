@@ -22,7 +22,7 @@ const QUESTIONS = [
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
-  { question: 'Is there a subscription?', answer: 'No. Paid passes are one-off purchases for 30, 60 or 90 days. They do not renew automatically, and only successfully submitted applications count. Prices are in Australian dollars.' },
+  { question: 'Is there a subscription?', answer: 'No. Paid passes are one-off purchases for 30, 60 or 90 days. They do not renew automatically, and a credit is used when an application is submitted in Auto apply or prepared in Semi auto, with no second charge on confirmation. Prices are in Australian dollars.' },
 ];
 
 const STEPS = [
@@ -243,7 +243,7 @@ export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
               ))}
             </ol>
             <p className="home-price-foot">
-              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more successful applications.
+              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more application credits.
             </p>
           </div>
         </section>

@@ -32,8 +32,9 @@ import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } fro
 import { loadProfile } from './profile.js';
 import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
 import type { RunDevice } from '../src/run-device.js';
-import { claimApplicationReviews, pendingReviewKeys, releaseApplicationReviews, reviewSelection, ApplicationReviewError } from './application-reviews.js';
+import { applicationsForConfirmation, claimApplicationReviews, pendingReviewKeys, releaseApplicationReviews, reviewSelection, ApplicationReviewError } from './application-reviews.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
+import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -120,7 +121,7 @@ export function runControlRefusal(trigger: StartRunRequest['trigger'], entitleme
 /** A live run needs at least one application left to spend. The free allowance is given once, so there is nothing to wait for. */
 export function allowanceRefusal(allowance: Pick<BillingStatus, 'totalRemaining'>): Refusal | null {
   return allowance.totalRemaining < 1
-    ? { ok: false, status: 402, error: 'No successful applications remain. Choose a pass to keep applying.' }
+    ? { ok: false, status: 402, error: 'No application credits remain. Choose a pass to keep applying.' }
     : null;
 }
 
@@ -238,6 +239,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   let selections;
   try { selections = request.approvals === undefined ? null : reviewSelection(request.approvals); }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
+  let prepaid: PreparedApplication[] = [];
+  try {
+    if (selections) prepaid = await applicationsForConfirmation(userId, selections);
+  } catch (error) { return { ok: false, status: 409, error: (error as Error).message }; }
+  const prepaidExternal = prepaid.filter(item => item.job.applicationMode === 'external' || isExternalApplicationUrl(item.formUrl)).length;
   if (request.oneTime?.maxApplications !== undefined) overrides.MAX_APPS_PER_RUN = String(request.oneTime.maxApplications);
   if (request.oneTime?.maxEvaluations !== undefined) overrides.MAX_EVALUATIONS = String(request.oneTime.maxEvaluations);
   /**
@@ -294,19 +300,19 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     try {
       const allowance = await billingStatus(userId, email);
       const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
-      const externalAvailable = allowance.paid.hasActiveIntensivePass
+      const externalAvailable = prepaidExternal > 0 || allowance.paid.hasActiveIntensivePass
         && allowance.paid.remaining > 0
         && allowance.paid.employerSiteRemaining > 0
         && externalUsedToday < INTENSIVE_EMPLOYER_SITES_PER_DAY;
       const externalCeiling = externalUsedToday + Math.min(
-        allowance.paid.employerSiteRemaining,
-        allowance.paid.remaining,
+        selections ? prepaidExternal : allowance.paid.employerSiteRemaining,
+        selections ? prepaidExternal : allowance.paid.remaining,
         Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
       );
       // Decided here, never from a supplied override. Employer-site support is
       // still in operator testing: an Intensive customer's own scheduled run
       // cannot reach it until the customer launch gate is deliberately opened.
-      const employerSitesAllowed = mayRunEmployerSiteApplications({
+      const employerSitesAllowed = prepaidExternal > 0 || mayRunEmployerSiteApplications({
         targetIsAdmin: admin,
         initiatedByAdmin: trigger === 'admin',
         hasIntensiveAllowance: externalAvailable,
@@ -330,12 +336,12 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       if (admin) {
         // No allowance check and no clamp: the operator runs at the size they configured.
       } else {
-        const refused = allowanceRefusal(allowance);
+        const refused = selections ? null : allowanceRefusal(allowance);
         if (refused) return refused;
         // Paid credits already receive a dedicated pooled address. Accounts
         // with only their free allowance borrow one until a submission lands.
-        borrowFreeProxy = allowance.paid.remaining < 1 && allowance.free.remaining > 0;
-        overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
+        borrowFreeProxy = allowance.paid.remaining < 1 && (allowance.free.remaining > 0 || Boolean(selections));
+        if (!selections) overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
       }
     } catch (error) {
       return { ok: false, status: 503, error: `Could not verify run allowance: ${(error as Error).message}` };
@@ -475,7 +481,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       mode,
       overrides,
       userId,
-      mode === 'live' && !admin
+      mode === 'live' && !admin && !selections
         ? async (external) => {
             let usageError: unknown = null;
             try {

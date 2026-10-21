@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, unlinkSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { query } from './index.js';
-import { saveApplicationReview, recordReviewedOutcome } from '../application-reviews.js';
+import { saveApplicationReview, recordReviewedOutcome, ApplicationReviewError } from '../application-reviews.js';
 import type { PreparedApplication } from '../../../seek-bot/src/application-review-types.js';
 import { insertApplicationRow, insertRunEventRow, upsertSiteAccount } from './records.js';
 import { ensureUserDataDir, userChromeDir } from '../userdata.js';
@@ -362,7 +362,8 @@ export async function syncRunResultsToDb(
           });
         }
         runEvents++;
-      } catch {
+      } catch (error) {
+        if (error instanceof ApplicationReviewError) throw error;
         /* skip an unparsable line rather than aborting the whole sync */
       }
     }

@@ -1141,7 +1141,7 @@ export function RunPanel({
               <div>
                 <h2 id="run-review-title">{applicationMode === 'semi-auto' ? 'Review Semi auto settings' : 'Review Auto apply settings'}</h2>
                 <p className="job-meta">Changes made here are saved before a live run starts.</p>
-                {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs this run. Only successful applications use your application allowance.</p>}
+                {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs this run. {applicationMode === 'semi-auto' ? 'Each prepared application uses one application credit. Confirming it uses no additional credit.' : 'Each successfully submitted application uses one application credit.'}</p>}
               </div>
               <span className="badge bad">
                 {applicationMode === 'semi-auto' ? 'Prepare for confirmation' : 'Apply to jobs'}{scope === 'external' ? ' · employer sites only' : scope === 'hosted' ? ' · job boards only' : ''}

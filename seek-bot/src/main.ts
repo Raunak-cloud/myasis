@@ -1167,7 +1167,7 @@ async function main() {
           const finalize = () => {
             if (finalized) return;
             finalized = true;
-            slot.finish(finalOutcome?.status === 'applied');
+            slot.finish(finalOutcome?.status === 'applied' || finalOutcome?.status === 'prepared');
           };
           try {
             console.log(`\n→ ${preparingApplications() ? 'Preparing' : 'Applying'}: ${job.title} @ ${job.company}`);
@@ -1226,6 +1226,7 @@ async function main() {
             switch (outcome.status) {
               case 'prepared':
                 prepared++;
+                if (job.applicationMode === 'external') externalSubmitted++;
                 console.log(`  Ready for confirmation: ${job.title} @ ${job.company}`);
                 break;
               case 'applied':

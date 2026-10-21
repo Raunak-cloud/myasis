@@ -71,9 +71,15 @@ CREATE TABLE IF NOT EXISTS application_reviews (
   payload JSONB NOT NULL,
   status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','approved','applied','failed','dismissed')),
   detail TEXT,
+  credit_consumed BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY(user_id,job_key)
 );
+
+-- Honor the earlier no-charge policy for drafts already prepared before this
+-- upgrade. New drafts spend a credit in the same transaction as their save.
+ALTER TABLE application_reviews ADD COLUMN IF NOT EXISTS credit_consumed BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE application_reviews ALTER COLUMN credit_consumed SET DEFAULT false;
 
 -- Application AI has one supported provider; migrate saved legacy selections.
 UPDATE settings SET value = 'celeris'
