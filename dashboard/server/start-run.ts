@@ -32,6 +32,8 @@ import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } fro
 import { loadProfile } from './profile.js';
 import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
 import type { RunDevice } from '../src/run-device.js';
+import { claimApplicationReviews, pendingReviewKeys, releaseApplicationReviews, reviewSelection, ApplicationReviewError } from './application-reviews.js';
+import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -64,6 +66,8 @@ interface StartRunRequest {
   userId: string;
   email?: string | null;
   mode: RunMode;
+  applicationMode?: 'auto' | 'semi-auto';
+  approvals?: unknown;
   /**
    * Who asked: the account holder, the scheduler, or an admin acting for the
    * account. An admin's run follows the account's plan exactly as a scheduled
@@ -97,10 +101,18 @@ export function expectedSalaryRefusal(profile: { expectedSalary: string }): Refu
     : null;
 }
 
-/** Why this account may not start a run by hand, or null for an administrator. */
+/** Every plan can expose Start; the separate daily quota still applies. */
 export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns' | 'firstRunRequired'>): Refusal | null {
   if (!entitlements.manualRuns && !entitlements.firstRunRequired) {
-    return { ok: false, status: 403, error: 'Only administrators can start runs manually.' };
+    return { ok: false, status: 403, error: 'This account cannot start an application run.' };
+  }
+  return null;
+}
+
+export function runControlRefusal(trigger: StartRunRequest['trigger'], entitlements: Pick<Entitlements, 'tier' | 'autoRunsUsedToday' | 'autoRunsPerDay'>, approvalOnly = false): Refusal | null {
+  if (trigger === 'auto') return { ok: false, status: 403, error: 'Start Auto apply or Semi auto from the Apply page. Application runs require your action.' };
+  if (entitlements.tier !== 'admin' && trigger === 'manual' && !approvalOnly && entitlements.autoRunsUsedToday >= entitlements.autoRunsPerDay) {
+    return { ok: false, status: 429, error: `You have used your ${entitlements.autoRunsPerDay} run${entitlements.autoRunsPerDay === 1 ? '' : 's'} for today. You can still confirm prepared applications.` };
   }
   return null;
 }
@@ -138,6 +150,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (sourceError) return { ok: false, ...sourceError };
   let borrowFreeProxy = false;
   const entitlements = await entitlementsFor(userId, email);
+  const controlRefused = runControlRefusal(trigger, entitlements, request.approvals !== undefined);
+  if (controlRefused) return controlRefused;
+  if (request.applicationMode !== undefined && !['auto', 'semi-auto'].includes(request.applicationMode)) return { ok: false, status: 400, error: 'Choose Auto apply or Semi auto.' };
+  if (request.approvals !== undefined && (trigger !== 'manual' || mode !== 'live' || request.applicationMode === 'semi-auto')) return { ok: false, status: 400, error: 'Confirmed applications must be submitted from the review list.' };
   const onboarding = trigger === 'manual' && !admin && entitlements.firstRunRequired;
   const effectiveTrigger = onboarding ? 'onboarding' : trigger;
   /** A search-only run never reaches an employer; a live run submits applications. */
@@ -216,7 +232,12 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */
-  const overrides = applyRunPolicy(settings, entitlements, effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1');
+  const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1');
+  overrides.APPLICATION_REVIEW_MODE = request.applicationMode === 'semi-auto' ? 'prepare' : '';
+  overrides.PENDING_APPLICATION_KEYS_JSON = JSON.stringify(await pendingReviewKeys(userId));
+  let selections;
+  try { selections = request.approvals === undefined ? null : reviewSelection(request.approvals); }
+  catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   if (request.oneTime?.maxApplications !== undefined) overrides.MAX_APPS_PER_RUN = String(request.oneTime.maxApplications);
   if (request.oneTime?.maxEvaluations !== undefined) overrides.MAX_EVALUATIONS = String(request.oneTime.maxEvaluations);
   /**
@@ -423,7 +444,25 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * an unsuccessful empty attempt remains eligible for a retry.
    */
   let started = false;
+  let approved: PreparedApplication[] = [];
   try {
+    if (selections) {
+      if (selections.length > Number(overrides.MAX_APPS_PER_RUN === 'none' ? 10 : overrides.MAX_APPS_PER_RUN)) {
+        return { ok: false, status: 400, error: `Confirm at most ${overrides.MAX_APPS_PER_RUN} applications in one run.` };
+      }
+      try { approved = await claimApplicationReviews(userId, selections); }
+      catch (error) {
+        if (error instanceof ApplicationReviewError) return { ok: false, status: 409, error: error.message };
+        throw error;
+      }
+      const permitted = new Set((overrides.PLATFORMS || 'seek').split(','));
+      if (approved.some(item => !permitted.has(item.job.platform ?? 'seek'))) return { ok: false, status: 403, error: 'One of these applications uses a job board outside your current settings or plan.' };
+      overrides.PLATFORMS = [...new Set(approved.map(item => item.job.platform ?? 'seek'))].join(',');
+      overrides.APPLICATION_REVIEW_MODE = 'approved';
+      overrides.APPROVED_APPLICATIONS_JSON = JSON.stringify(approved);
+      overrides.MAX_APPS_PER_RUN = String(approved.length);
+      overrides.MAX_EVALUATIONS = String(approved.length);
+    }
     // Decided as late as possible, so the run starts on the route that is up now rather than a minute ago.
     const route = await browserRoute(userId, borrowFreeProxy);
     if (route.proxyServer) {
@@ -431,7 +470,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
     }
 
-    const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice).catch(() => null);
+    const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections)).catch(() => null);
     const result = await runner.start(
       mode,
       overrides,
@@ -463,7 +502,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         : undefined,
       runStartId,
       // Diagnostic searches must not rewrite the account's next-run keywords.
-      mode === 'live' ? {
+      mode === 'live' && !selections ? {
         termsUsed: overrides.KEYWORDS ?? '',
         expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
       } : undefined,
@@ -476,6 +515,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     started = true;
     return { ok: true, mode };
   } finally {
+    if (!started && approved.length) await releaseApplicationReviews(userId, approved.map(item => item.id));
     // Route selection happens before the runner reserves a slot. Any failure
     // between those two points must return the loan as well.
     if (borrowFreeProxy && !started) await releaseFreeProxy(userId).catch(() => {});

@@ -15,13 +15,15 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
+function run(jobs: FixtureJob[], options: { prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
     writeFileSync(join(directory, 'profile.txt'), 'Full name: Fixture Candidate\n');
     writeFileSync(join(directory, 'applied.json'), JSON.stringify(options.history ?? []));
     writeFileSync(join(directory, 'jobs.json'), JSON.stringify(jobs));
+    writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(jobs.filter(item => options.approvedIds?.includes(item.id)).map(item => ({ job: item }))));
+    writeFileSync(join(directory, 'pending-application-keys.json'), JSON.stringify(options.pendingKeys ?? []));
     writeFileSync(join(directory, 'boundary.mjs'), `
 import { readFileSync, appendFileSync } from 'node:fs';
 export const jobs = JSON.parse(readFileSync(new URL('./jobs.json', import.meta.url)));
@@ -94,6 +96,7 @@ import { applicationAllowance } from ${JSON.stringify(new URL('./application-all
 import { isExternalApplicationUrl } from ${JSON.stringify(new URL('./job-board-url.js', import.meta.url).href)};
 export const applyToJobWithAgent = async (_page,job) => {
   record('apply',job.id);
+  if(process.env.APPLICATION_REVIEW_MODE === 'prepare') return {status:'prepared',jobId:job.id,draft:{job}};
   await new Promise(done=>setTimeout(done,job.delayMs||0));
   if(job.preSendFailure) return {status:'error',jobId:job.id,error:'Fixture failure before send'};
   if(job.formUrl && !(await applicationAllowance(isExternalApplicationUrl(job.formUrl)))) { record('denied',job.id); return {status:'needs-human',jobId:job.id,reason:'Application allowance unavailable'}; }
@@ -120,6 +123,7 @@ export const applyToIndeedJob = applyToJobWithAgent;
       encoding: 'utf8', timeout: 10_000,
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
         CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
+        APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '',
         APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -131,6 +135,25 @@ export const applyToIndeedJob = applyToJobWithAgent;
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+test('Semi auto fills only its run cap and records no submitted applications', () => {
+  const result = run([job('one'), job('two'), job('three')], { apply: true, prepare: true, cap: 2, reviews: 3 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['one', 'two']);
+  assert.equal(result.history.length, 0);
+  assert.match(result.output, /Semi auto complete: 2 application/);
+});
+
+test('confirmed execution visits only the selected prepared jobs and never discovers replacements', () => {
+  const result = run([job('selected'), job('unselected'), job('fresh', { searchOnlyJob: true })], { apply: true, approvedIds: ['selected'], reviews: 3 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['selected']);
+  assert.equal(result.events.filter(event => event.stage === 'search').length, 0);
+  assert.equal(result.events.filter(event => event.stage === 'fit').length, 0, 'the candidate already confirmed this curated job');
+});
+
+test('pending confirmation jobs do not consume future evaluation slots', () => {
+  const result = run([job('pending'), job('fresh')], { pendingKeys: ['listing:seek:pending'] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['fresh']);
+});
 
 test('a large discovered queue cannot spend instruction calls beyond its reserved review budget', () => {
   const result = run(Array.from({ length: 500 }, (_, index) => job(`queue-${index}`)), {

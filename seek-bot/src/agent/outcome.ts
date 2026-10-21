@@ -23,6 +23,8 @@ export function outcomeFromRun(
     ...(run.submitPressed ? { submitPressed: true } : {}),
   };
   switch (run.outcome.status) {
+    case 'prepared':
+      return { status: 'prepared', jobId, draft: run.outcome.draft, ...extras };
     case 'applied':
       return {
         status: 'applied',

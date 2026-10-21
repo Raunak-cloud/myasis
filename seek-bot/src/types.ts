@@ -145,6 +145,7 @@ export type ApplyOutcome = (
       answers: Array<{ question: string; answer: string }>;
       stoppedAt: string;
     }
+  | { status: 'prepared'; jobId: string; draft: import('./application-review-types.js').PreparedApplication }
   | { status: 'skipped'; jobId: string; reason: string }
   | { status: 'already-applied'; jobId: string; reason: string }
   | { status: 'off-platform'; jobId: string; redirectedTo: string }

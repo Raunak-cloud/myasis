@@ -48,7 +48,7 @@ export const PLAN_PRESENTATION = {
     description: 'See Owtomate apply to well-matched SEEK roles before paying.',
     features: [
       `${FREE_APPLICATIONS} successful applications`,
-      `${plural(FREE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `${plural(FREE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${FREE.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
       'SEEK applications',
@@ -60,8 +60,8 @@ export const PLAN_PRESENTATION = {
     description: PAID_PLANS['essential-pass'].description,
     features: [
       `${PAID_PLANS['essential-pass'].applications} successful applications`,
-      `${PAID_PLANS['essential-pass'].durationDays} days of automatic searching`,
-      `${plural(ESSENTIAL.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `${PAID_PLANS['essential-pass'].durationDays} days of access`,
+      `${plural(ESSENTIAL.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ESSENTIAL.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
       'SEEK applications',
@@ -73,8 +73,8 @@ export const PLAN_PRESENTATION = {
     description: PAID_PLANS['job-search-pass'].description,
     features: [
       `${PAID_PLANS['job-search-pass'].applications} successful applications`,
-      `${PAID_PLANS['job-search-pass'].durationDays} days of automatic searching`,
-      `Up to ${plural(ACTIVE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `${PAID_PLANS['job-search-pass'].durationDays} days of access`,
+      `Up to ${plural(ACTIVE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced match and listing-age filters',
@@ -85,8 +85,8 @@ export const PLAN_PRESENTATION = {
     description: PAID_PLANS['intensive-pass'].description,
     features: [
       `${PAID_PLANS['intensive-pass'].applications} successful applications`,
-      `${PAID_PLANS['intensive-pass'].durationDays} days of automatic searching`,
-      `Up to ${plural(INTENSIVE.autoRunsPerDay, 'automatic live run', 'automatic live runs')} each day`,
+      `${PAID_PLANS['intensive-pass'].durationDays} days of access`,
+      `Up to ${plural(INTENSIVE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',

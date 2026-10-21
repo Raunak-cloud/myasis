@@ -1,5 +1,5 @@
 import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, effectivePlatforms, PLATFORMS_CHOSEN_KEY, SCHEDULED_MIN_SCORE } from './entitlements.js';
-import { manualRunRefusal } from './start-run.js';
+import { manualRunRefusal, runControlRefusal } from './start-run.js';
 import { PLAN_LIMITS, PLAN_PRESENTATION } from '../src/pricing.js';
 
 let failures = 0;
@@ -111,13 +111,17 @@ const freeEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRu
 check('new free accounts receive 15 reviews per run and per scheduled day', freeEntitlements.evaluationsPerRun === 15 && freeEntitlements.scheduledJobsPerDay === 15);
 check('a failed empty free onboarding run remains retryable', freeEntitlements.firstRunRequired && manualRunRefusal(freeEntitlements) === null);
 check('free accounts keep their one daily run and SEEK-only access', freeEntitlements.autoRunsPerDay === 1 && !freeEntitlements.indeedApplications);
-check('customers cannot start runs manually', !intensiveEntitlements.manualRuns);
+check('customers start their runs manually', intensiveEntitlements.manualRuns);
 check('administrators can start runs manually', adminEntitlements.manualRuns);
 const newCustomerEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRun: false });
 check('a new customer must start the first run', newCustomerEntitlements.firstRunRequired);
-check('the first successful run unlocks scheduling', !intensiveEntitlements.firstRunRequired);
+check('a completed setup or first run never enables scheduling', intensiveEntitlements.autoApplyPaused && !intensiveEntitlements.canPauseAutoApply);
 check('a new customer is allowed to start that first run', manualRunRefusal(newCustomerEntitlements) === null);
-check('a customer cannot start more runs after onboarding', manualRunRefusal(intensiveEntitlements)?.status === 403);
+check('customers can start later runs within their daily allowance', manualRunRefusal(intensiveEntitlements) === null);
+check('the scheduler cannot start applications even after setup and first-run completion', runControlRefusal('auto', intensiveEntitlements)?.status === 403);
+check('a user-started run is allowed while a daily run remains', runControlRefusal('manual', intensiveEntitlements) === null);
+check('manual starts cannot exceed the plan daily run allowance', runControlRefusal('manual', { ...freeEntitlements, autoRunsUsedToday: 1 })?.status === 429);
+check('confirming prepared jobs does not spend another daily run', runControlRefusal('manual', { ...freeEntitlements, autoRunsUsedToday: 1 }, true) === null);
 
 // An operator's per-account override is a control, not a suggestion: it wins
 // over the free plan's own default and survives the fine-tuning reset that
@@ -161,9 +165,9 @@ check('a free account is never given Indeed', effectivePlatforms({ PLATFORMS: 's
 
 // Every number a plan advertises is the number the server enforces.
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
-check('Free says the runs and reviews it gets', said('free').includes(`${automaticRunsPerDay('standard')} automatic live run each day`) && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
-check('Active Search says the runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} automatic live runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Intensive says the automatic runs, reviews and employer-site applications', said('intensive-pass').includes('Up to 4 automatic live runs') && !/user-started|manual run/i.test(said('intensive-pass')) && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('Employer-site applications'));
+check('Free says the user-started runs and reviews it gets', said('free').includes(`${automaticRunsPerDay('standard')} user-started run each day`) && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
+check('Active Search says the user-started runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} user-started runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
+check('Intensive says user-started runs, both modes, reviews and employer-site applications', said('intensive-pass').includes('Up to 4 user-started runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('Employer-site applications'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 console.log(`\n${failures} failure(s)`);

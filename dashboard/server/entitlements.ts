@@ -12,8 +12,8 @@ export { SCHEDULED_MIN_SCORE };
 /**
  * What an account is allowed to do — decided in one place, for every caller.
  *
- * Only admins can drive runs. Customer applications go out on a schedule;
- * Intensive users can still tune how those scheduled runs search.
+ * Every account explicitly starts its runs. Plans limit daily runs and job
+ * reviews; Semi auto confirmations continue an existing preparation run.
  *
  * Every gate in the app reads this module rather than re-deriving the rule
  * from `isAdmin` and a pass flag, because the same rule is enforced in several
@@ -243,15 +243,15 @@ export function applyRunPolicy(
 
 export interface Entitlements {
   tier: Tier;
-  /** May start a run by hand. This is an administrator-only operation. */
+  /** Every account starts its own runs within its plan allowance. */
   manualRuns: boolean;
-  /** A customer must start and successfully finish one live run before automatic scheduling begins. */
+  /** Legacy onboarding indicator; completing it never enables scheduling. */
   firstRunRequired: boolean;
-  /** Automatic runs per local day. */
+  /** User-started runs per local day (wire name retained for older clients). */
   autoRunsPerDay: number;
-  /** The account has switched its automatic runs off; nothing is scheduled until it switches them back on. */
+  /** Always true: application runs are user-triggered. */
   autoApplyPaused: boolean;
-  /** May switch automatic runs off and on. */
+  /** Always false: recurring application schedules are unavailable. */
   canPauseAutoApply: boolean;
   autoRunsUsedToday: number;
   /** Fixed match floor for scheduled applications; null when this tier has no schedule. */
@@ -328,7 +328,7 @@ async function automaticRunsStartedToday(userId: string): Promise<number> {
     `SELECT count(*)::text AS n
        FROM run_starts r
       WHERE r.user_id = $1
-        AND r.trigger IN ('auto', 'onboarding')
+        AND r.trigger IN ('auto', 'onboarding', 'manual') AND NOT r.approval_only
         AND ${countedRunSql('r')}
         AND r.started_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
     [userId, RUN_TIME_ZONE],
@@ -373,10 +373,11 @@ export async function recordRunStart(
   trigger: 'manual' | 'auto' | 'admin' | 'onboarding',
   startedBy?: string | null,
   initiatorDevice?: RunDevice | null,
+  approvalOnly = false,
 ): Promise<string | null> {
   const row = await one<{ id: string }>(
-    `INSERT INTO run_starts (user_id, mode, trigger, started_by, initiator_device) VALUES ($1, $2, $3, $4, $5) RETURNING id::text AS id`,
-    [userId, mode, trigger, startedBy ?? null, trigger === 'auto' ? null : initiatorDevice ?? null],
+    `INSERT INTO run_starts (user_id, mode, trigger, started_by, initiator_device, approval_only) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text AS id`,
+    [userId, mode, trigger, startedBy ?? null, trigger === 'auto' ? null : initiatorDevice ?? null, approvalOnly],
   );
   return row?.id ?? null;
 }
@@ -413,7 +414,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
       ? 'essential'
       : 'free';
 
-  const manualRuns = tier === 'admin';
+  const manualRuns = true;
   const autoRunsPerDay = automaticRunsPerDay(tier, scheduledPlan);
   const firstRunRequired = tier !== 'admin' && autoRunsPerDay > 0 && !facts.hasSuccessfulRun;
   const planEvaluationsPerRun = tier === 'intensive'
@@ -424,7 +425,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
         ? ESSENTIAL_EVALUATIONS_PER_RUN
       : FREE_EVALUATIONS_PER_RUN;
   // Anyone with a schedule can switch it off — they found a job, or want a break — and back on.
-  const canPauseAutoApply = autoRunsPerDay > 0;
+  const canPauseAutoApply = false;
   /**
    * An operator's override wins over the plan's own number wherever one is
    * set, on an operator's own account as much as a customer's: a number typed
@@ -444,7 +445,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     autoRunsPerDay,
     autoRunsUsedToday: facts.autoRunsUsedToday,
     // Only an account allowed to switch automatic runs off can have them off.
-    autoApplyPaused: canPauseAutoApply && facts.autoApplyPaused,
+    autoApplyPaused: true,
     canPauseAutoApply,
     // Admins apply at their own saved threshold; the 75% floor is for accounts nobody is steering.
     scheduledMinScore: tier !== 'admin' && autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,

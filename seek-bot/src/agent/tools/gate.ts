@@ -9,6 +9,7 @@ import { boardFullOutcome, settleResume } from './resume-step.js';
 import { ToolResult, ToolContext, ok, abandoned } from './context.js';
 import { readSavedForm, savedFormSignature } from '../saved-form.js';
 import { reservedSubmissionDecision } from '../../application-reservations.js';
+import { applicationApprovalGate } from '../../application-review.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -222,6 +223,8 @@ async function authorizeFinalSubmission(ctx: ToolContext, label: string): Promis
   if (audit) return { proceed: false, result: audit };
   // What goes out is what is recorded, for a rehearsal as for a real submission.
   await recordWhatWasSent(ctx);
+  const approval = await applicationApprovalGate(ctx);
+  if (approval) return { proceed: false, result: approval };
   if (!verdict.allowed) {
     ctx.log(`  ✋ dry run — withheld "${label}"`);
     return { proceed: false, result: { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: ctx.page.url() } } };

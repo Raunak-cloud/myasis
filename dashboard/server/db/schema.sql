@@ -63,6 +63,18 @@ CREATE TABLE IF NOT EXISTS settings (
   PRIMARY KEY (user_id, key)
 );
 
+-- Filled applications wait durably for the account holder's explicit choice.
+CREATE TABLE IF NOT EXISTS application_reviews (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_key TEXT NOT NULL,
+  id UUID NOT NULL UNIQUE,
+  payload JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','approved','applied','failed','dismissed')),
+  detail TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY(user_id,job_key)
+);
+
 -- Application AI has one supported provider; migrate saved legacy selections.
 UPDATE settings SET value = 'celeris'
 WHERE key = 'APPLICATION_AI_MODEL' AND value <> 'celeris';
@@ -447,6 +459,7 @@ ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS stopped BOOLEAN NOT NULL DEFAULT
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS successful BOOLEAN NOT NULL DEFAULT false;
 -- The bot's own account of the run (seek-bot/src/run-health.ts), read by the operator alerts.
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS health JSONB;
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS approval_only BOOLEAN NOT NULL DEFAULT false;
 
 -- Operator alerts: one row per problem currently true across the whole service.
 -- Same bookkeeping as account_alerts: first sight starts the hold, a row is

@@ -2829,3 +2829,12 @@ textarea.run-instructions-input {
 .board-resumes-actions { display: flex; align-items: center; gap: 12px; }
 .board-resumes-actions a.btn { text-decoration: none; }
 .run-span:empty, .run-span:has(> :empty) { display: none; }
+.run-mode-choice { margin: 16px 0; }
+.prepared-applications { margin-top: 20px; padding: 20px; }
+.prepared-application { padding: 16px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.prepared-choice { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.prepared-choice input { margin-top: 5px; flex: 0 0 auto; }
+.prepared-application summary { cursor: pointer; padding: 6px 0; }
+.prepared-application dl > div { margin: 12px 0; }
+.prepared-application dt { font-weight: 600; }
+.prepared-application dd { margin: 4px 0 0; color: var(--text-muted); }

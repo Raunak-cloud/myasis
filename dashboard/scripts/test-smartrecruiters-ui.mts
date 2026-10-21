@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 
@@ -15,6 +16,11 @@ let adminBoards = 'smartrecruiters';
 let adminSeekSignedIn = false;
 let attentionFixture = false;
 let skippedFixture = false;
+let preparedFixture = false;
+let approvedFixture = false;
+const preparedRows = () => [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
+  application: { revision: String(index).repeat(64), job: { title: `Prepared Role ${index}`, company: 'Fixture Employer', location: 'Sydney', url: `https://fixture.invalid/job/${index}` },
+    resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }));
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
@@ -26,11 +32,12 @@ const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     if (req.method === 'POST') writes.push({ path, body: JSON.parse(body || '{}') });
+    if (path === '/api/application-reviews/submit' && req.method === 'POST') approvedFixture = true;
     if (path === '/api/run' && req.method === 'POST' && JSON.parse(body || '{}').mode === 'search') searchStarted = true;
     const payloads: Record<string, unknown> = {
       '/api/auth/me': { user: { id: 'fixture', email: 'fixture@example.test', name: 'Fixture Candidate' }, googleConfigured: true },
-      '/api/entitlements': { tier: admin ? 'admin' : 'standard', manualRuns: admin, firstRunRequired: !admin,
-        autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true, autoRunsUsedToday: 0,
+      '/api/entitlements': { tier: admin ? 'admin' : 'standard', manualRuns: true, firstRunRequired: !admin,
+        autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: false, autoRunsUsedToday: 0,
         scheduledMinScore: null, scheduledJobsPerDay: admin ? null : PLAN_LIMITS.free.evaluationsPerRun,
         evaluationsPerRun: admin ? null : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
         fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin },
@@ -47,6 +54,7 @@ const server = createServer(async (req, res) => {
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/settings': req.method === 'POST' ? { ok: true, settings: settings() } : settings(),
       '/api/run': { ok: true, mode: 'live' },
+      '/api/application-reviews': { applications: preparedFixture ? preparedRows() : [] },
     };
     if (path === '/api/run/stream') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -75,7 +83,7 @@ try {
     await page.route('**/api/resumes', route => route.fulfill({contentType:'application/json',body:JSON.stringify([{id:'fixture-resume',label:'Fixture resume'}])}));
     await page.route('**/api/search-terms/generate', route => route.fulfill({contentType:'application/json',body:JSON.stringify({terms:['AI Engineer','Web Developer','Python Developer','Frontend Developer'],resumeLabel:'Fixture resume'})}));
     await page.goto(`${origin}/?tab=run`);
-    await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Start Auto apply', exact: true }).waitFor();
     const searchCard = page.locator('.saved-search-card');
     await searchCard.locator('#saved-search-terms').fill('Web Developer,Python Developer');
     await searchCard.locator('#saved-search-terms').press('Enter');
@@ -89,7 +97,7 @@ try {
     assert.equal(await searchCard.getByRole('button',{name:'Remove Frontend Developer',exact:true}).count(),0);
     assert.equal(await page.getByRole('combobox', { name: 'Saved application model', exact: true }).count(), 0);
     assert.equal(await page.getByRole('combobox', { name: 'Saved application decisions', exact: true }).count(), 0);
-    await page.getByRole('button', { name: admin ? 'Start auto apply' : 'Start first run', exact: true }).click({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Start Auto apply', exact: true }).click({ timeout: 15_000 });
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
     assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
@@ -117,7 +125,7 @@ try {
       }
       assert.equal(await dialog.getByRole('button', { name: 'Test without applying', exact: true }).count(), 0);
     }
-    await dialog.getByRole('button', { name: admin ? 'Save and apply' : 'Start first run', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Start Auto apply', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
@@ -130,7 +138,7 @@ try {
     assert.equal(submitted.confirm, true);
     if (admin) {
       const settingsWrites = writes.filter(write => write.path === '/api/settings').length;
-      await page.getByRole('button', { name: 'Start auto apply', exact: true }).click();
+      await page.getByRole('button', { name: 'Start Auto apply', exact: true }).click();
       await dialog.waitFor();
     assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
       await dialog.getByLabel('SmartRecruiters employer identifiers').fill('ALDIStores,MedHealth3');
@@ -155,7 +163,7 @@ try {
       adminBoards = 'seek';
       adminSeekSignedIn = true;
       await page.reload();
-      await page.getByRole('button', { name: 'Start auto apply', exact: true }).click();
+      await page.getByRole('button', { name: 'Start Auto apply', exact: true }).click();
       await dialog.waitFor();
     assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
       await dialog.locator('[data-field=MAX_EVALUATIONS]').fill('2');
@@ -174,6 +182,41 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
+  admin = false; preparedFixture = true; searchStarted = false;
+  for (const width of [1280, 390]) {
+    approvedFixture = false;
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const before = writes.filter(write => write.path === '/api/run').length;
+    await page.goto(`${origin}/?tab=run`);
+    await page.getByRole('button', { name: 'Start Auto apply', exact: true }).waitFor();
+    assert.equal(writes.filter(write => write.path === '/api/run').length, before, 'complete setup never starts a run');
+    assert.equal(await page.getByRole('switch', { name: 'Automatic runs', exact: true }).count(), 0);
+    await page.getByRole('button', { name: 'Semi auto', exact: true }).click();
+    await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByText('This run fills applications and saves them for your review. Owtomate submits only the jobs you later confirm from the prepared list.', { exact: true }).waitFor();
+    await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(writes.filter(write => write.path === '/api/run').at(-1)!.body.applicationMode, 'semi-auto');
+    await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
+    const card = page.locator('.prepared-application').first();
+    await card.getByText('Review application', { exact: true }).click();
+    await card.getByText('Two weeks', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Confirm and apply to 1 job', exact: true }).click();
+    await page.getByText('Confirmed · submission in progress', { exact: true }).waitFor();
+    const approval = writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body;
+    assert.deepEqual(approval, { confirm: true, applications: [{ id: preparedRows()[0].id, revision: '1'.repeat(64) }] });
+    assert.equal(await page.getByLabel('Select Prepared Role 2 at Fixture Employer', { exact: true }).isChecked(), false);
+    assert.equal(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
+    assert.deepEqual(errors, []);
+    mkdirSync(resolve(import.meta.dirname, '../../output'), { recursive: true });
+    await page.screenshot({ path: resolve(import.meta.dirname, `../../output/semi-auto-${width}.png`), fullPage: true });
+    await context.close();
+  }
+  preparedFixture = false;
   admin = true;
   attentionFixture = true; searchStarted = false;
   const answerContext = await browser.newContext();

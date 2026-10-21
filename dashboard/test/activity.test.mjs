@@ -5,6 +5,13 @@ import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 
+test('Semi auto reports prepared applications without claiming submission', () => {
+  const lines = log(['→ Preparing: Developer @ Fixture', 'Ready for confirmation: Developer @ Fixture', '=== Semi auto complete: 1 application(s) ready for confirmation ===']);
+  assert.equal(activitySummary(lines).submitted, 0);
+  assert.match(activitySummary(lines).outcomeSummary, /1 application ready for your confirmation. Nothing submitted/);
+  assert.ok(activityEvents(lines).some(event => event.title === 'Ready for confirmation: Developer'));
+});
+
 test('interleaved workers keep application outcomes, durations and active indicators separate', () => {
   const lines = timedLog([
     [0, 'Application workers: 2 (isolated sessions)'],

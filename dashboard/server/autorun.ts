@@ -448,7 +448,7 @@ export function startAutoRunner(): void {
   // Node keeps a process alive for timers; this one must not be the reason it stays up.
   timer.unref?.();
   console.log(
-    `[autorun] around the clock (${RUN_TIME_ZONE}), times vary daily, ${MAX_CONCURRENT} at a time`,
+    '[autorun] application scheduling disabled; account alerts and daily digests remain enabled',
   );
   tick();
 }

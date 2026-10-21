@@ -60,6 +60,7 @@ import { deleteAccount } from './server/account-deletion.js';
 import { AccountDeletionError, accountRequest } from './server/account-lifecycle.js';
 import { setUpFromResume } from './server/quick-setup.js';
 import { startRun, expectedSalaryRefusal } from './server/start-run.js';
+import { listApplicationReviews, dismissApplicationReviews, reviewSelection, recoverApplicationReviews } from './server/application-reviews.js';
 import { runDeviceFromHeaders } from './src/run-device.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
@@ -1025,7 +1026,7 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           const user = await currentUser(req.headers?.cookie);
           const entitlements = await entitlementsFor(userId, user?.email);
-          if (!entitlements.canPauseAutoApply) return send({ error: 'Your plan has no automatic runs to switch off.' }, 403);
+          if (!entitlements.canPauseAutoApply) return send({ error: 'Application runs now start only when you press Start Auto apply or Start Semi auto.' }, 403);
           const body = await readBody();
           if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether automatic runs should be on or off.' }, 400);
           await setAutoApplyPaused(userId, !body.enabled);
@@ -1056,8 +1057,8 @@ function dataApi(): Plugin {
           const queueUser = await currentUser(req.headers?.cookie);
           const entitlements = await entitlementsFor(userId, queueUser?.email);
           // Queue scans are manual operations and therefore administrator-only.
-          if (!entitlements.manualRuns) {
-            return send({ error: 'Only administrators can start runs manually.' }, 403);
+          if (entitlements.tier !== 'admin') {
+            return send({ error: 'Use Semi auto on the Apply page to prepare applications for review.' }, 403);
           }
           const salaryRefused = expectedSalaryRefusal(await loadCandidate(userId));
           if (salaryRefused) return send({ error: salaryRefused.error }, salaryRefused.status);
@@ -1112,8 +1113,43 @@ function dataApi(): Plugin {
             initiatorDevice: runDeviceFromHeaders(req.headers),
             clientOverrides: body?.overrides ?? {},
             scope: body?.scope,
+            applicationMode: body?.applicationMode,
           });
           return send(result.ok ? { ok: true, mode: result.mode } : { error: result.error }, result.ok ? 200 : result.status);
+        });
+      }
+
+      case '/api/application-reviews': {
+        if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
+        return withUser(async userId => {
+          if (!runner.inUse(userId)) {
+            // Recover completed/partially written results after a restart;
+            // uncertain sends never become a fresh automatic retry.
+            await recoverApplicationReviews(userId);
+          }
+          return send({ applications: await listApplicationReviews(userId) });
+        });
+      }
+
+      case '/api/application-reviews/dismiss': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async userId => {
+          const body = await readBody();
+          try { await dismissApplicationReviews(userId, reviewSelection(body?.applications)); }
+          catch (error) { return send({ error: (error as Error).message }, 400); }
+          return send({ ok: true });
+        });
+      }
+
+      case '/api/application-reviews/submit': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async userId => {
+          const body = await readBody();
+          if (body?.confirm !== true) return send({ error: 'Confirm the selected applications before submitting.' }, 400);
+          const user = await currentUser(req.headers?.cookie);
+          const result = await startRun({ userId, email: user?.email, mode: 'live', trigger: 'manual',
+            approvals: body?.applications ?? [], initiatorDevice: runDeviceFromHeaders(req.headers) });
+          return send(result.ok ? { ok: true } : { error: result.error }, result.ok ? 200 : result.status);
         });
       }
 

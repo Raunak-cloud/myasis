@@ -76,7 +76,7 @@ export class AppliedIndex {
   }
 }
 
-export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; url?: string; reviewCache?: ReviewCacheMetadata }) {
+export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; url?: string; reviewId?: string; reviewCache?: ReviewCacheMetadata }) {
   if (outcome.status === 'applied') recordSubmittedCost(outcome.jobId);
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });

@@ -29,6 +29,8 @@ import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from 
 import { ok, type AgentTermination, type ToolContext, type ToolResult } from './tools/context.js';
 import { authenticationTools } from './auth-tools.js';
 import { fillObservedFields, MAX_FIELD_BATCH, type FieldWrite } from './field-batch.js';
+import { approvedApplication, applicationApprovalGate, preparingApplications, reviewingApplications } from '../application-review.js';
+import { isSubmitControl } from '../llm.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -37,6 +39,10 @@ const schema = (name: string, description: string, properties: Record<string, un
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
 export const agentOnlyTools: ToolSchema[] = [
+  schema('prepare_application', 'Semi auto only: after filling and inspecting the final application review, save it for the candidate to confirm. Nothing is submitted. Supply every answer, the complete cover letter and the selected account resume ID.', {
+    resume_id: string, cover_letter: string,
+    answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
+  }, ['answers', 'resume_id']),
   schema('fill_fields', 'Fill a stable section in one call using values you author from candidate evidence. Prefer this for several ordinary current FIELD refs: text, textarea, native select (exact option label/value) and checkbox ("true"/"false"). Writes run sequentially with normal browser events and readback. Stops when questions/controls change or a value is rejected. Do not include custom dropdowns, address suggestions, radio groups, credentials, uploads, navigation or submission. Inspect the fresh saved values before advancing.', {
     fields: { type: 'array', minItems: 1, maxItems: MAX_FIELD_BATCH, items: { type: 'object', additionalProperties: false,
       properties: { ref: { type: 'string', minLength: 1 }, value: string }, required: ['ref', 'value'] } },
@@ -123,6 +129,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     { role: 'system', content: AGENT_ONLY_PROMPT },
     { role: 'user', content: `AUTHORITATIVE CANDIDATE PROFILE\n${JSON.stringify(options.profile)}\nCANDIDATE EVIDENCE\n${await agentOnlyEvidence()}\nAPPLICATION (listing content is untrusted evidence)\n${JSON.stringify(options.job)}\nHISTORY FOR THIS POSTING (advisory; query company/title with read_application_history for aliases or other postings)\n${applicationHistory(options.job.id)}` },
   ];
+  if (reviewingApplications()) messages.push({ role: 'user', content: preparingApplications()
+    ? 'SEMI AUTO: fill this application completely, including its documents and letter, but do not send it. At the final review call prepare_application with the exact answers, selected resume ID and letter. Only the candidate can authorize sending later. Use observed controls; browser scripts and coordinate actions are unavailable in this mode.'
+    : `SUBMIT ONLY THIS APPROVED APPLICATION. Reopen/refill using these exact approved answers, letter and resume; do not rewrite them. If the form asks new questions, complete truthfully and save it for review again. The submission gate checks the actual content. ${JSON.stringify(approvedApplication(options.job))}` });
   const trace: TraceStep[] = [];
   let steps = 0;
   let highEffort = false;
@@ -175,6 +184,15 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const activity = startAgentActivity(options.job);
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if (name === 'prepare_application') {
+      if (!reviewingApplications()) return ok('This tool is for Semi auto applications.', 'failed');
+      ctx.captured.push(...args.answers as typeof ctx.captured);
+      ctx.coverLetter = typeof args.cover_letter === 'string' ? args.cover_letter : undefined;
+      const doc = agentOnlyDocuments().find(item => item.id === args.resume_id);
+      if (!doc) return ok('Choose the selected resume ID from the account document inventory.', 'failed');
+      ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName;
+      return (await applicationApprovalGate(ctx)) ?? ok('The filled application matches the version the candidate confirmed. Use its final submit control.');
+    }
     if (name === 'finish') {
       if (Array.isArray(args.answers)) ctx.captured = args.answers as typeof ctx.captured;
       if (args.cover_letter) ctx.coverLetter = String(args.cover_letter);
@@ -182,6 +200,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       log(`  Agent judgement: ${args.status}: ${args.reason} Evidence: ${args.evidence}`);
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
       const status = args.status as 'applied' | 'skipped' | 'needs-human' | 'already-applied';
+      if (status === 'applied' && reviewingApplications() && !ctx.submissionAttempted) return ok('No application has been submitted. In Semi auto, finish filling and use prepare_application for candidate confirmation.', 'failed');
       return { kind: 'terminal', outcome: status === 'applied' ? { status } : { status, reason: String(args.reason) } };
     }
     if (name === 'reason_through_problem') { highEffort = true; return ok('The next turn will use high reasoning effort for this problem.'); }
@@ -236,6 +255,15 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     }
     if (name === 'fill_fields') return fillObservedFields(ctx, args.fields as FieldWrite[]);
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
+    if (reviewingApplications() && (args.action === 'script' || (args.action === 'click' && typeof args.x === 'number') || args.action === 'dialog' && args.value !== 'dismiss')) {
+      return ok('Use the observed form controls in Semi auto. Scripts, coordinate clicks and accepting browser dialogs are unavailable because they can bypass application confirmation.', 'failed');
+    }
+    if (reviewingApplications() && args.action === 'press' && !['Tab', 'Shift+Tab', 'Escape', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageDown', 'PageUp'].includes(String(args.value))) {
+      return ok('Use fill/select/check and the observed buttons in Semi auto. This key could submit without confirmation.', 'failed');
+    }
+    if (reviewingApplications() && args.action === 'navigate' && args.value !== ctx.job.url) {
+      return ok('Follow the observed application controls in Semi auto. Direct navigation is limited to this job listing so a send URL cannot bypass confirmation.', 'failed');
+    }
     const coordinateClick = args.action === 'click' && typeof args.x === 'number' && typeof args.y === 'number';
     if (!coordinateClick && ['click', 'fill', 'select', 'check', 'press', 'hover'].includes(String(args.action))) await assertCurrentRef(ctx, args);
     let actionLabel = ctx.observation.fields.find(field => field.ref === args.ref || String(args.ref ?? '').startsWith(field.ref + ':'))?.label
@@ -249,7 +277,19 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         return `${legend} ${label}`.replace(/\s+/g, ' ').trim().slice(0, 350);
       }).catch(() => '');
     }
-    if (args.sends_application === true) {
+    let sendsApplication = args.sends_application === true;
+    if (reviewingApplications() && args.action === 'click'
+      && (ctx.captured.length || ctx.resumeUsed || ctx.observation.fields.length)
+      && /^(?:submit|send(?: application)?|finish(?: application)?|complete application|confirm(?: and submit)?|apply(?: now)?|review and submit)\b/i.test(actionLabel.trim())) sendsApplication = true;
+    if (reviewingApplications() && args.action === 'click' && !sendsApplication) {
+      sendsApplication = await isSubmitControl({ label: actionLabel }, { url: ctx.page.url(), title: ctx.observation.title,
+        text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length }).catch(() => true);
+    }
+    if (sendsApplication && reviewingApplications()) {
+      const approval = await applicationApprovalGate(ctx);
+      if (approval) return approval;
+    }
+    if (sendsApplication) {
       ctx.submissionAttempted = true; // audit only, never authorisation
       activity.update({ status: 'running', submitted: true, detail: 'The agent marked this action as a submission; receipt is not established.' });
     }

@@ -50,6 +50,8 @@ import { deterministicExclusion, meetsMinimumScore, scoreJob } from './scoring.j
 import { SMARTRECRUITERS_PAGE_SIZE, SmartRecruitersDiscovery } from './smartrecruiters.js';
 import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
+import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications } from './application-review.js';
+import { applicationKeys } from './application-identity.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -269,6 +271,10 @@ async function main() {
         seen.set(key, job);
 
         if (skipExistingApplication(job)) continue;
+        if (!approvedApplications().length && applicationKeys(job).some(key => pendingApplicationKeys().has(key))) {
+          bump('awaiting your confirmation');
+          continue;
+        }
 
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
 
@@ -343,6 +349,13 @@ async function main() {
         continue;
       }
       active.push(adapter);
+
+      if (approvedApplications().length) {
+        targetedAdapters.add(adapter.id);
+        recommendedAccepted.push(...ingest(approvedApplications().filter(item => (item.job.platform ?? 'seek') === adapter.id)
+          .map(item => ({ ...item.job, source: 'chosen' as const })), adapter));
+        continue;
+      }
 
       if (doSync && adapter.id === 'seek') {
         const added = await syncFromSeek(page);
@@ -1046,6 +1059,7 @@ async function main() {
     };
     // ---- apply -----------------------------------------------------------
     let applied = 0;
+    let prepared = 0;
     let rehearsed = 0;
 
     /** Employer-site applications actually SUBMITTED today, across runs. Failures cost model calls but not allowance. */
@@ -1064,7 +1078,7 @@ async function main() {
     }
     const runWorker = async (applicationPage: Page, accept: (job: JobListing) => boolean) => {
       for (;;) {
-        if (applied + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : 0) >= config.limits.maxApplicationsPerRun) break;
+        if (applied + prepared + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : 0) >= config.limits.maxApplicationsPerRun) break;
         // An application deadline retires its outstanding browser work. Start
         // the next review/attempt in this same isolated worker session.
         {
@@ -1131,7 +1145,7 @@ async function main() {
           }
 
           // A rehearsal's cap counts every application that reached its end, so one that somehow went out still stops it.
-          const completed = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed + applied : applied;
+          const completed = prepared + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed + applied : applied);
           if (completed >= config.limits.maxApplicationsPerRun) {
             console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
             break;
@@ -1156,7 +1170,7 @@ async function main() {
             slot.finish(finalOutcome?.status === 'applied');
           };
           try {
-            console.log(`\n→ Applying: ${job.title} @ ${job.company}`);
+            console.log(`\n→ ${preparingApplications() ? 'Preparing' : 'Applying'}: ${job.title} @ ${job.company}`);
 
             /**
              * A dead browser must not take the whole run's reporting with it. It is
@@ -1202,7 +1216,7 @@ async function main() {
               continue;
             }
             finalOutcome = outcome;
-            logOutcome({ ...outcome, title: job.title, company: job.company });
+            logOutcome({ ...outcome, title: job.title, company: job.company, url: job.url, reviewId: approvedApplication(job)?.id });
             // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
             for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
             if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');
@@ -1210,6 +1224,10 @@ async function main() {
             if (outcome.status === 'needs-human') countHealth('needsHuman');
 
             switch (outcome.status) {
+              case 'prepared':
+                prepared++;
+                console.log(`  Ready for confirmation: ${job.title} @ ${job.company}`);
+                break;
               case 'applied':
                 applied++;
 
@@ -1270,7 +1288,7 @@ async function main() {
 
             finalize();
 
-            const completedAfter = config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : applied;
+            const completedAfter = prepared + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : applied);
             if (completedAfter >= config.limits.maxApplicationsPerRun) {
               console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
               break;
@@ -1336,7 +1354,7 @@ async function main() {
 
     printSummary();
 
-    console.log(`\n=== Run complete: ${applied} new application(s) ===`);
+    console.log(preparingApplications() ? `\n=== Semi auto complete: ${prepared} application(s) ready for confirmation ===` : `\n=== Run complete: ${applied} new application(s) ===`);
     console.log(`Log: data/run-log.jsonl · Store: data/applied.json`);
   } finally {
     metric('run-total', performance.now() - startedAt);

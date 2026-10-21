@@ -37,6 +37,7 @@ export const ANSWER_BATCH = 6;
 
 export type AgentTermination =
   | { status: 'applied' }
+  | { status: 'prepared'; draft: import('../../application-review-types.js').PreparedApplication }
   | { status: 'rehearsed'; stoppedAt: string }
   | {
       status: 'needs-human';

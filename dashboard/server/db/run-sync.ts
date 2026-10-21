@@ -1,6 +1,8 @@
 import { writeFileSync, existsSync, unlinkSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { query } from './index.js';
+import { saveApplicationReview, recordReviewedOutcome } from '../application-reviews.js';
+import type { PreparedApplication } from '../../../seek-bot/src/application-review-types.js';
 import { insertApplicationRow, insertRunEventRow, upsertSiteAccount } from './records.js';
 import { ensureUserDataDir, userChromeDir } from '../userdata.js';
 import { chromeGoogleAccounts } from '../chrome-accounts.js';
@@ -322,11 +324,20 @@ export async function syncRunResultsToDb(
 
   let runEvents = 0;
   const logPath = resolve(dir, 'run-log.jsonl');
+  let approvals: PreparedApplication[] = [];
+  const approvalsPath = resolve(dir, 'approved-applications.json');
+  if (existsSync(approvalsPath)) approvals = JSON.parse(readFileSync(approvalsPath, 'utf8')) as PreparedApplication[];
   if (existsSync(logPath)) {
     for (const line of readFileSync(logPath, 'utf8').split(/\r?\n/)) {
       if (!line.trim()) continue;
       try {
         const e = JSON.parse(line) as Record<string, any>;
+        if (e.status === 'prepared') await saveApplicationReview(userId, e.draft);
+        else {
+          const matches = approvals.filter(item => item.job.id === e.jobId);
+          const reviewId = e.reviewId ?? (matches.length === 1 ? matches[0].id : undefined);
+          if (reviewId) await recordReviewedOutcome(userId, reviewId, e.status, e.reason ?? e.error ?? e.redirectedTo);
+        }
         await insertRunEventRow(userId, {
           jobId: e.jobId ?? null,
           status: e.status ?? 'unknown',

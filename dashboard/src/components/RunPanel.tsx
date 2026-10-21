@@ -7,6 +7,7 @@ import { SetupChecklist } from './SetupChecklist';
 import { useSetupStatus } from '../setupStatus';
 import { BoardResumesNote } from './BoardResumesNote';
 import { ResumeSourceNote } from './ResumeSourceNote';
+import { PreparedApplications } from './PreparedApplications';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
@@ -176,11 +177,7 @@ export function RunPanel({
    * where the log has its own column and is always visible.
    */
   const [activityOpen, setActivityOpen] = useState(false);
-  /**
-   * A standard account does not drive runs: it saves what work it wants and
-   * Owtomate applies on a schedule. So it gets a statement of what is happening
-   * rather than controls that would be refused.
-   */
+  /** Every account explicitly starts Auto apply or Semi auto. */
   const entitlements = useEntitlements();
   const billing = useBillingStatus();
   const boards = useBoardsStatus();
@@ -192,10 +189,12 @@ export function RunPanel({
   const isAdmin = entitlements?.tier === 'admin';
   const jobBoards = isAdmin ? ADMIN_JOB_BOARDS : JOB_BOARDS;
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
+  const outOfRuns = Boolean(entitlements && !isAdmin && entitlements.autoRunsUsedToday >= entitlements.autoRunsPerDay);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [applicationMode, setApplicationMode] = useState<'auto' | 'semi-auto'>('auto');
   /** A sign-in check has the account's Chrome profile open; a run waits for it, so the button does too. */
   const [verifyingSignIn, setVerifyingSignIn] = useState(false);
   const [autoToggling, setAutoToggling] = useState(false);
@@ -634,7 +633,7 @@ export function RunPanel({
       const runResponse = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, ...(mode === 'live' ? { confirm: true } : {}), overrides: runUpdates, scope: mode === 'search' && platforms.every(isEmployerSource) ? 'external' : scope }),
+        body: JSON.stringify({ mode, applicationMode: mode === 'live' ? applicationMode : undefined, ...(mode === 'live' ? { confirm: true } : {}), overrides: runUpdates, scope: mode === 'search' && platforms.every(isEmployerSource) ? 'external' : scope }),
       });
       if (runResponse.status === 402) {
         setConfirming(false);
@@ -668,7 +667,7 @@ export function RunPanel({
     }
   }
 
-  const showAutoApply = entitlements && entitlements.autoRunsPerDay !== 0;
+  const showAutoApply = entitlements && entitlements.canPauseAutoApply;
   const lastRunSummary = !running && (lastRunAt || status?.finishedAt)
     ? `Last run ${fmtDateTime(lastRunAt ?? status!.finishedAt!)}${status?.finishedAt ? ` · ${status.applied} submitted` : ''}`
     : null;
@@ -697,11 +696,19 @@ export function RunPanel({
         */}
         {outOfAllowance && (
           <div className="banner banner-bad out-of-applications" role="status">
-            <span><strong>You're out of applications.</strong> Auto apply has stopped and will pick up again as soon as you get a pass.</span>
+            <span><strong>You're out of applications.</strong> Get a pass, then start a run when you're ready.</span>
             <button type="button" className="btn primary" onClick={onGoPricing}>View plans</button>
           </div>
         )}
 
+        {!running && <div className="run-mode-choice">
+          <div className="chips" role="group" aria-label="Application mode">
+            <button type="button" className={`chip${applicationMode === 'auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'auto'} onClick={() => setApplicationMode('auto')}>Auto apply</button>
+            <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} onClick={() => setApplicationMode('semi-auto')}>Semi auto</button>
+          </div>
+          <p className="job-meta">{applicationMode === 'auto' ? 'You start the run. Owtomate finds suitable jobs, fills their forms and submits applications.' : 'You start the run. Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} Nothing starts automatically when you finish setup.</p>
+          {entitlements && !isAdmin && <p className="job-meta">{Math.max(0, entitlements.autoRunsPerDay - entitlements.autoRunsUsedToday)} of {entitlements.autoRunsPerDay} runs available today. Confirming prepared applications continues their original run.</p>}
+        </div>}
         <div className="run-actions" ref={runBar}>
           {/* Beside the run button on a phone; the desktop layout hides it. */}
           <button
@@ -731,11 +738,11 @@ export function RunPanel({
               <ResumeSourceNote />
               <button
                 className="btn primary lg"
-                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
-                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
+                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance || outOfRuns}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : outOfRuns ? 'You have used today’s runs. You can still confirm prepared applications.' : undefined}
                 onClick={() => { setScope('all'); setConfirming(true); }}
               >
-                {firstRun ? 'Start first run' : 'Start auto apply'}
+                {applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
               </button>
               {entitlements?.runScopes && (
                 <div className="run-scope-actions">
@@ -765,12 +772,11 @@ export function RunPanel({
               {!accountSetupIncomplete && signedOutEverywhere && (
                 <span className="job-meta">{isAdmin ? 'Choose employer feeds in run settings, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
               )}
-              {firstRun && !accountSetupIncomplete && !signedOutEverywhere && (
-                <span className="job-meta">Automatic runs begin only after this run completes successfully.</span>
-              )}
             </>
           )}
         </div>
+
+        <PreparedApplications running={running} onStarted={() => { setLines([]); window.dispatchEvent(new Event('entitlements-refresh')); }} />
 
         {showAutoApply && (
           <div className={`run-auto-row${entitlements.autoApplyPaused || signedOutEverywhere ? ' paused' : ''}`}>
@@ -1129,18 +1135,18 @@ export function RunPanel({
           >
             <div className="run-review-head">
               <div>
-                <h2 id="run-review-title">{firstRun ? 'Review your first run' : 'Review run settings'}</h2>
+                <h2 id="run-review-title">{applicationMode === 'semi-auto' ? 'Review Semi auto settings' : 'Review Auto apply settings'}</h2>
                 <p className="job-meta">Changes made here are saved before a live run starts.</p>
                 {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs this run. Only successful applications use your application allowance.</p>}
               </div>
               <span className="badge bad">
-                Live run{scope === 'external' ? ' · employer sites only' : scope === 'hosted' ? ' · job boards only' : ''}
+                {applicationMode === 'semi-auto' ? 'Prepare for confirmation' : 'Apply to jobs'}{scope === 'external' ? ' · employer sites only' : scope === 'hosted' ? ' · job boards only' : ''}
               </span>
             </div>
 
             <div className="run-review-body">
               <div className="banner banner-bad run-review-warning">
-                {isAdmin && platforms.some(isEmployerSource)
+                {applicationMode === 'semi-auto' ? 'This run fills applications and saves them for your review. Owtomate submits only the jobs you later confirm from the prepared list.' : isAdmin && platforms.some(isEmployerSource)
                   ? 'Save and apply submits applications to employers. Test without applying only searches and reviews jobs. Submitted applications cannot be withdrawn here.'
                   : 'This run submits applications to employers. Submitted applications cannot be withdrawn here.'}
               </div>
@@ -1462,7 +1468,7 @@ export function RunPanel({
                 disabled={starting}
                 onClick={() => void saveAndStart('live')}
               >
-                {starting ? 'Saving and starting…' : firstRun ? 'Start first run' : 'Save and apply'}
+                {starting ? 'Saving and starting…' : applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
               </button>
             </div>
           </div>

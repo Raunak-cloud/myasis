@@ -31,7 +31,7 @@ function lastMatch(lines: LogLine[], pattern: RegExp): RegExpMatchArray | null {
   return null;
 }
 
-const cardRejection = /^\s*✗\s+.+\(from the search result; not opened\)$/;
+const cardRejection = /^\s*✗\s+.+\(from the search result(?:; not opened)?\)$/;
 
 export function activitySummary(lines: LogLine[]) {
   const originalLines = lines;
@@ -254,10 +254,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       if (index >= 0) matchedJobs.splice(index, 1);
       latestMatch = matchedJobs.at(-1) ?? '';
       if (review) review.detail = reviewDetail();
-    } else if ((match = text.match(/→ Applying:\s*(.+?)\s+@\s+(.+)/i))) {
+    } else if ((match = text.match(/→ (?:Applying|Preparing):\s*(.+?)\s+@\s+(.+)/i))) {
       currentJob = `${match[1]} at ${match[2]}`;
       application = {
-        event: add(line, `Applying to ${match[1]}`, 'neutral', match[2], true),
+        event: add(line, `${/→ Preparing:/i.test(text) ? 'Preparing' : 'Applying to'} ${match[1]}`, 'neutral', match[2], true),
         title: match[1], company: match[2], steps: [],
         startedAtMs: line.ts ? Date.parse(line.ts) : Number.NaN,
       };
@@ -363,6 +363,16 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       explained = true;
     } else if ((match = text.match(/Could not record application usage:\s*(.*)/i))) {
       add(line, 'An application was sent but not counted', 'warn', readableError(match[1]));
+    } else if ((match = text.match(/^Ready for confirmation:\s*(.+?)\s+@\s+(.+)/i))) {
+      if (application) {
+        application.event.title = `Ready for confirmation: ${match[1]}`;
+        application.event.tone = 'done';
+        application.event.detail = `${match[2]} · The form is filled. Choose it in Prepared applications to confirm submission.`;
+        finishApplication(line);
+      } else add(line, `Ready for confirmation: ${match[1]}`, 'done', match[2]);
+    } else if ((match = text.match(/=== Semi auto complete:\s*(\d+) application/i))) {
+      finished = true;
+      add(line, 'Run complete', 'done', `${match[1]} application${match[1] === '1' ? '' : 's'} ready for your confirmation. Nothing submitted.`);
     } else if ((match = text.match(/=== Run complete:\s*(\d+) new application/i))) {
       finished = true;
       add(

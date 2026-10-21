@@ -16,6 +16,7 @@ import { loadUserSettings } from './settings.js';
 import { applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentModeForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
+import { finishApplicationReviews } from './application-reviews.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -363,6 +364,8 @@ class Run {
     }
 
     const args = ['dist/main.js'];
+    writeFileSync(resolve(dataDir, 'approved-applications.json'), overrides.APPROVED_APPLICATIONS_JSON || '[]', { mode: 0o600 });
+    writeFileSync(resolve(dataDir, 'pending-application-keys.json'), overrides.PENDING_APPLICATION_KEYS_JSON || '[]', { mode: 0o600 });
     if (mode === 'search') args.push('--search-only');
 
     const env: NodeJS.ProcessEnv = {
@@ -378,6 +381,10 @@ class Run {
       CDP_PORT: String(cdpPort),
       // Only a live run may submit; a search-only run never opens a form.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
+      APPLICATION_REVIEW_MODE: overrides.APPLICATION_REVIEW_MODE || '',
+      APPROVED_APPLICATIONS_JSON: undefined,
+      PENDING_APPLICATION_KEYS_JSON: undefined,
+      ...(overrides.APPLICATION_REVIEW_MODE === 'prepare' ? { APPLICATION_WORKERS: '1' } : {}),
       // Always last: no override may point a run at another account's files.
       DATA_DIR: dataDir,
       COST_TRACKING: 'true',
@@ -406,10 +413,13 @@ class Run {
     this.push('sys', '  application AI: Celeris Magnus');
     this.push('sys', '  application decisions: Agent-only');
     const shown = Object.entries(overrides)
+      .filter(([key]) => !['APPROVED_APPLICATIONS_JSON', 'PENDING_APPLICATION_KEYS_JSON'].includes(key))
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
     if (shown) this.push('sys', `  overrides: ${shown}`);
-    if (mode === 'live') this.push('sys', '  ⚠ LIVE: applications will be submitted');
+    if (mode === 'live') this.push('sys', overrides.APPLICATION_REVIEW_MODE === 'prepare'
+      ? '  Semi auto: forms will be filled and saved for your confirmation. Nothing will be submitted.'
+      : '  Auto apply: this user-started run will submit applications.');
 
     this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, detached: process.platform !== 'win32' }), userId, dataDir, 'run');
     return { ok: true };
@@ -540,6 +550,7 @@ class Run {
       // into userId's Postgres rows. The sync is idempotent, so retries cannot
       // double-count an application or event.
       syncRunResultsToDb(userId, dataDir)
+        .then(async result => { await finishApplicationReviews(userId); return result; })
         .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
         .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`)),
     ];
