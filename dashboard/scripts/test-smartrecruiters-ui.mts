@@ -266,6 +266,13 @@ try {
     await page.reload();
     if (width < 768) await page.getByRole('button', { name: 'Activity', exact: true }).click();
     await page.locator('.active-mode-label').filter({ hasText: /^Preparing$/ }).waitFor();
+    await page.routeWebSocket('**/ws/screencast*', socket => {
+      socket.send(JSON.stringify({ type: 'activity', activity: { phase: 'applying', detail: 'Preparing a fixture application.' } }));
+    });
+    await page.getByRole('button', { name: 'View live action', exact: true }).click();
+    const viewer = page.getByRole('dialog', { name: 'Live action', exact: true });
+    await viewer.locator('.live-action-worker-status').getByText('Preparing', { exact: true }).waitFor();
+    assert.equal(await viewer.getByText('Applying', { exact: true }).count(), 0);
     await context.close();
   }
   preparingFixture = false;

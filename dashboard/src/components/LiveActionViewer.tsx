@@ -8,7 +8,7 @@ const ACTIVITY_LABEL = {
 };
 
 /** Independent, view-only pictures of this account's application workers. */
-export function LiveActionViewer({ onClose, activity }: { onClose: () => void; activity?: string }) {
+export function LiveActionViewer({ onClose, activity, preparing = false }: { onClose: () => void; activity?: string; preparing?: boolean }) {
   const [workers, updateView] = useReducer(liveWorkersState, initialLiveWorkers);
   const [attempt, setAttempt] = useState(0);
   const liveCount = workers.filter(worker => worker.view.phase === 'live').length;
@@ -45,7 +45,7 @@ export function LiveActionViewer({ onClose, activity }: { onClose: () => void; a
             const live = view.phase === 'live';
             const disconnected = view.phase === 'disconnected';
             const finished = view.phase === 'finished';
-            const activityLabel = workerActivity ? ACTIVITY_LABEL[workerActivity.phase] : null;
+            const activityLabel = workerActivity ? workerActivity.phase === 'applying' && preparing ? 'Preparing' : ACTIVITY_LABEL[workerActivity.phase] : null;
             const pageLess = workerActivity && workerActivity.phase !== 'applying' && workerActivity.phase !== 'reviewing';
             return (
               <section className="live-action-worker" key={id} aria-label={label}>
