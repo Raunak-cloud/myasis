@@ -14,7 +14,7 @@ export const PAID_PLANS = {
   },
   'intensive-pass': {
     key: 'intensive-pass', kind: 'pass', name: 'Intensive Pass', priceCents: 5990,
-    applications: 400, durationDays: 90, employerSiteApplications: 30,
+    applications: 400, durationDays: 60, employerSiteApplications: 30,
     description: 'Maximum capacity and advanced controls.',
   },
   'application-top-up': {
