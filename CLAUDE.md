@@ -10,6 +10,7 @@ Think like a senior software developer. Prioritize holistic, architectural solut
 
 # Project notes
 
+- Interface preference: keep pages professional and visually clear without adding extra information, explanatory text or controls unless explicitly requested.
 - **Typecheck the dashboard with `npm run build`, never `tsc --noEmit -p .`** — the root tsconfig has `"files": []`, so that command checks nothing and passes silently.
 - The dashboard runs `seek-bot/dist`, so build seek-bot after changing it.
 - Deployment default: the user has requested that changes to this project always be deployed after verification. Commit the requested changes, push to `main`, then run `bash /home/myasis/myasis/deploy/deploy.sh` as root on the VPS without waiting for a separate deployment request.
