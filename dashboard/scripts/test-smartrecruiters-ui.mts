@@ -25,10 +25,13 @@ let remainingCredits = 5;
 const approvedIds = new Set<string>();
 const letterEdits = new Map<string, any>();
 let letterInstructions = '';
+let failedLetterFixture = false;
 const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')).prepared : null;
 const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
   application: { revision: String(index).repeat(64), job: { title: `Prepared Role ${index}`, company: 'Fixture Employer', location: 'Sydney', url: `https://fixture.invalid/job/${index}` },
-    resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }))).map((row: any) => ({ ...row, application: letterEdits.get(row.id) ?? row.application }));
+    resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }))).map((row: any, index: number) => ({ ...row,
+      ...(failedLetterFixture && index === 0 ? { status: 'failed', detail: 'Fixture submission was not confirmed.' } : {}),
+      application: letterEdits.get(row.id) ?? row.application }));
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
@@ -303,6 +306,23 @@ try {
     await context.close();
   }
   remainingCredits = 5;
+  failedLetterFixture = true; approvedFixture = false; approvedIds.clear(); letterEdits.clear();
+  const failedContext = await browser.newContext();
+  const failedPage = await failedContext.newPage();
+  await failedPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  await failedPage.goto(`${origin}/?tab=prepared`);
+  const failedCard = failedPage.locator('.prepared-application').first();
+  await failedCard.getByText('Review application', { exact: true }).click();
+  assert.equal(await failedCard.getByRole('checkbox').isDisabled(), true);
+  await failedCard.getByRole('button', { name: 'Edit cover letter', exact: true }).click();
+  await failedCard.getByRole('textbox').fill('Revised failed application letter.');
+  await failedCard.getByRole('button', { name: 'Save cover letter', exact: true }).click();
+  await failedCard.getByRole('textbox').waitFor({ state: 'hidden' });
+  await failedCard.getByText('Revised failed application letter.', { exact: true }).waitFor();
+  await failedCard.getByText('Could not submit', { exact: true }).waitFor();
+  await failedCard.getByText('Fixture submission was not confirmed.', { exact: true }).waitFor();
+  assert.equal(await failedCard.getByRole('checkbox').isDisabled(), true, 'editing a failed application cannot authorize a retry');
+  await failedContext.close(); failedLetterFixture = false;
   preparedFixture = false;
   const emptyContext = await browser.newContext();
   const emptyPage = await emptyContext.newPage();

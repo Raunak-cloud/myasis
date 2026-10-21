@@ -14,6 +14,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
   process.env.DATA_DIR = directory;
   process.env.CELERIS_API_KEY = 'fixture-only';
   process.env.ADMIN_EMAILS = 'admin-fixture@example.test';
+  const { applicationModelEnvironment } = await import(new URL('../../seek-bot/dist/application-model.js', import.meta.url).href) as typeof import('../../seek-bot/src/application-model.js');
   const sharedAnswer = 'SHARED_WORKER_ANSWER_MUST_NOT_ENTER_DASHBOARD';
   writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Availability?', answer: sharedAnswer }]));
   const pool = getPool();
@@ -46,6 +47,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
     if (/FROM settings/i.test(sql)) return { rows: [
       { key: 'WORK_ARRANGEMENTS', value: account === 'Alice' ? 'remote' : 'hybrid,onsite' },
       { key: 'ONSITE_CITY', value: account === 'Alice' ? 'Melbourne' : 'Sydney' },
+      { key: 'COVER_LETTER_INSTRUCTIONS', value: `${account} cover letter style` },
     ] };
     assert.match(sql, /FROM saved_answers/i);
     if (account === 'Failure') throw new Error('Fixture answer-bank failure');
@@ -60,6 +62,7 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
     const prompt = typeof content === 'string' ? content : content.filter((block: { type: string }) => block.type === 'text').map((block: { text: string }) => block.text).join('\n');
     prompts.push(prompt);
     const account = /Name: ([^\n]+)\n/.exec(prompt)?.[1] ?? '';
+    assert.equal(applicationModelEnvironment().COVER_LETTER_INSTRUCTIONS, account in banks ? `${account} cover letter style` : undefined, 'extension cover-letter helpers receive only this account’s saved preferences');
     routedModels.set(account, body.model);
     const value = /<candidate-answers>\s*Q: Availability\?\s*A: ([^\n]+)/.exec(prompt)?.[1] ?? '';
     const answer = JSON.stringify({

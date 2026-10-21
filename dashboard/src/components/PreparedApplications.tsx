@@ -70,7 +70,8 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
       if (!response.ok) throw new Error(data.error || 'Could not save the cover letter.');
       setReviews(previous => previous.map(item => item.id === editing.id ? { ...item, application: data.application } : item));
       setSelected(previous => { const next = new Set(previous); next.delete(editing.id); return next; });
-      setEditing(null); setNotice('Cover letter saved. Select the application when you are ready to apply.');
+      const ready = reviews.find(item => item.id === editing.id)?.status === 'ready';
+      setEditing(null); setNotice(ready ? 'Cover letter saved. Select the application when you are ready to apply.' : 'Cover letter saved. The submission status is unchanged.');
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
   }
@@ -119,7 +120,7 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
         <div className="prepared-content">
         <p className="job-meta">Resume: {item.application.resume || 'No resume recorded'}</p>
         {/^https?:\/\//i.test(item.application.job.url) && <p><a href={item.application.job.url} target="_blank" rel="noreferrer">View job listing ↗</a></p>}
-        <div className="prepared-letter-heading"><h3>Cover letter</h3>{item.status === 'ready' && editing?.id !== item.id && <button type="button" className="btn" disabled={running || busy || Boolean(editing)}
+        <div className="prepared-letter-heading"><h3>Cover letter</h3>{['ready', 'failed'].includes(item.status) && editing?.id !== item.id && <button type="button" className="btn" disabled={running || busy || Boolean(editing)}
           onClick={() => { setEditing({ id: item.id, revision: item.application.revision, text: item.application.coverLetter ?? '' }); setNotice(''); }}>Edit cover letter</button>}</div>
         {editing?.id === item.id ? <div className="prepared-letter-editor">
           <textarea aria-label={`Cover letter for ${item.application.job.title} at ${item.application.job.company}`} rows={18} maxLength={20_000} value={editing.text}

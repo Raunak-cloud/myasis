@@ -7,6 +7,7 @@ import { listAnswers } from './answers.js';
 import type { CandidateProfile } from './candidate-profile.js';
 import { accountApplicationEnvironment, readEnv } from './runner.js';
 import { loadUserSettings, RUN_SETTING_DEFAULTS } from './settings.js';
+import { cleanCoverLetter } from '../../seek-bot/src/cover-letter-policy.js';
 
 /**
  * Backend for the browser extension.
@@ -155,9 +156,11 @@ export async function answerForm(
 }> {
   try {
     const { llm, model } = await bot();
+    const settings = await loadUserSettings(userId);
     const applicationEnvironment = {
       ...readEnv(),
       ...process.env,
+      COVER_LETTER_INSTRUCTIONS: settings.COVER_LETTER_INSTRUCTIONS ?? '',
       ...await accountApplicationEnvironment(userId),
       DATA_DIR: userDir(userId),
     };
@@ -176,10 +179,9 @@ export async function answerForm(
         description: input.description ?? queued?.fitReason ?? '',
       };
 
-      const [context, savedAnswers, settings] = await Promise.all([
+      const [context, savedAnswers] = await Promise.all([
         fullContext(userId),
         input.fields.length ? listAnswers(userId) : Promise.resolve([]),
-        loadUserSettings(userId),
       ]);
       const knowledge = context.ok ? (context.text ?? '') : '';
 
@@ -198,7 +200,7 @@ export async function answerForm(
             } })
           : Promise.resolve({ answers: [], injectionSuspected: false }),
         queued?.coverLetter && queuedLetterMatchesModel
-          ? Promise.resolve(queued.coverLetter)
+          ? Promise.resolve(cleanCoverLetter(queued.coverLetter))
           : wantsLetter
             ? llm.draftCoverLetter(job, profile, knowledge)
             : Promise.resolve(undefined),

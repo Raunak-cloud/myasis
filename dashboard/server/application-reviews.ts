@@ -97,9 +97,13 @@ export async function editApplicationCoverLetter(userId: string, selection: Revi
     await connection.query('BEGIN');
     const result = await connection.query<ConfirmationRow>(
       'SELECT id::text,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2 FOR UPDATE', [userId, selection.id]);
-    const [current] = confirmedVersions(result.rows, [selection]);
+    const row = result.rows[0];
+    if (!row || !['ready', 'failed'].includes(row.status) || !row.credit_consumed || row.payload.revision !== selection.revision) {
+      throw new ApplicationReviewError('An application changed or is no longer editable. Reload and review it again.');
+    }
+    const current = row.payload;
     const application = withCoverLetter(current, value);
-    await connection.query("UPDATE application_reviews SET payload=$3,detail=NULL,updated_at=now() WHERE user_id=$1 AND id=$2 AND status='ready'",
+    await connection.query("UPDATE application_reviews SET payload=$3,detail=CASE WHEN status='ready' THEN NULL ELSE detail END,updated_at=now() WHERE user_id=$1 AND id=$2 AND status IN ('ready','failed')",
       [userId, selection.id, JSON.stringify(application)]);
     await connection.query('COMMIT');
     return application;
