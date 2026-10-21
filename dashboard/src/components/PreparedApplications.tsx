@@ -44,7 +44,11 @@ export function PreparedApplications({ running, onStarted }: { running: boolean;
     <p className="job-meta">Semi auto fills the forms for you. Review the answers and documents, then confirm the jobs you want Owtomate to apply to. Unselected jobs stay here.</p>
     {error && <div className="banner banner-bad" role="alert">{error}</div>}
     {!reviews.length && <p>No prepared applications yet. Choose Semi auto on the <a href="/?tab=run">Apply page</a> and start a run to curate jobs and fill their forms.</p>}
-    {reviews.map(item => <article className="prepared-application" key={item.id}>
+    {reviews.map(item => {
+      const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim();
+      const coverLetter = normalizeText(item.application.coverLetter || '');
+      const answers = item.application.answers.filter(answer => !coverLetter || normalizeText(answer.answer) !== coverLetter);
+      return <article className="prepared-application" key={item.id}>
       <label className="prepared-choice"><input type="checkbox" aria-label={`Select ${item.application.job.title} at ${item.application.job.company}`}
         disabled={item.status !== 'ready' || running || busy} checked={selected.has(item.id)}
         onChange={event => setSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })}/>
@@ -55,10 +59,11 @@ export function PreparedApplications({ running, onStarted }: { running: boolean;
       <details><summary>Review application</summary>
         {/^https?:\/\//i.test(item.application.job.url) && <p><a href={item.application.job.url} target="_blank" rel="noreferrer">View job listing ↗</a></p>}
         {item.application.coverLetter && <><h3>Cover letter</h3><p style={{ whiteSpace: 'pre-wrap' }}>{item.application.coverLetter}</p></>}
-        <h3>Answers</h3>
-        <dl>{item.application.answers.map((answer, index) => <div key={index}><dt>{answer.question}</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{answer.answer}</dd></div>)}</dl>
+        {answers.length > 0 && <><h3>Answers</h3>
+        <dl>{answers.map((answer, index) => <div key={index}><dt>{answer.question}</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{answer.answer}</dd></div>)}</dl></>}
       </details>
-    </article>)}
+    </article>;
+    })}
     {reviews.some(item => item.status === 'ready') && <div className="confirm-actions">
       <button type="button" className="btn" disabled={busy || running || !chosen.length} onClick={() => void decide('dismiss')}>Skip selected</button>
       <button type="button" className="btn primary" disabled={busy || running || !chosen.length} onClick={() => void decide('submit')}>{busy ? 'Saving…' : !chosen.length ? 'Confirm selected jobs' : `Confirm and apply to ${chosen.length} job${chosen.length === 1 ? '' : 's'}`}</button>
