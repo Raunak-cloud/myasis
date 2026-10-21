@@ -198,7 +198,11 @@ export function searchUrl(keywords: string, pageNum = 1): string {
   const params = new URLSearchParams({ keywords, sortmode: 'ListedDate' });
   const { location, radiusKm } = config.search;
   if (location && radiusKm > 0) {
-    params.set('where', location);
+    // SEEK rejects a city combined with another suburb's postcode (for
+    // example "Sydney NSW 2141") as an unknown location and returns no jobs.
+    // A supplied Australian postcode resolves the radius centre on its own.
+    const postcode = location.trim().match(/(?:^|\s)(\d{4})$/)?.[1];
+    params.set('where', postcode ?? location);
     params.set('distance', String(radiusKm));
   }
   // Listings older than the candidate allows used to fill result pages and be opened only to be dropped.

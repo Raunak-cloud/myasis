@@ -131,6 +131,13 @@ try {
     assert.equal(url.searchParams.get('distance'), '25');
     assert.equal(url.searchParams.get('daterange'), '14');
     assert.equal(url.searchParams.get('page'), '2');
+    const previousLocation = config.search.location;
+    try {
+      for (const [location, expected] of [['Sydney NSW 2141', '2141'], ['Sydney NSW 2000', '2000'], ['Darwin NT 0800', '0800'], ['Melbourne VIC', 'Melbourne VIC']]) {
+        config.search.location = location;
+        assert.equal(new URL(searchUrl('Web developer')).searchParams.get('where'), expected);
+      }
+    } finally { config.search.location = previousLocation; }
   });
   await check('real search reader extracts unicode, fields and dates', async () => {
     const jobs = await searchViaDom(page, 'normal');
