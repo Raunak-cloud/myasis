@@ -229,13 +229,15 @@ try {
     remainingCredits = 0;
     await page.goto(`${origin}/?tab=prepared`);
     await page.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
+    assert.equal(await page.locator('.prepared-actions').count(), 0, 'actions appear only after selecting an application');
     await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
     assert.equal(await preparedBadge.textContent(), String(preparedRows().length), 'navigation counts applications ready for review');
     const card = page.locator('.prepared-application').first();
+    assert.equal(await card.locator('.prepared-content').isVisible(), false, 'documents and answers stay inside the review disclosure');
     await card.getByText('Review application', { exact: true }).click();
     await card.getByText('Two weeks', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Confirm and apply to 1 job', exact: true }).click();
-    await page.getByText('Confirmed · submission in progress', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Apply to 1 job', exact: true }).click();
+    await page.getByText('Submitting', { exact: true }).waitFor();
     assert.equal(await preparedBadge.textContent(), String(preparedRows().length - 1), 'confirming an application reduces the prepared count');
     const approval = writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body;
     assert.deepEqual(approval, { confirm: true, applications: [{ id: preparedRows()[0].id, revision: preparedRows()[0].application.revision }] });
@@ -243,12 +245,12 @@ try {
     if (e2eDrafts) {
       assert.equal(e2eDrafts.length, 5);
       for (let index = 2; index <= 5; index++) await page.getByLabel(`Select Prepared Role ${index} at Fixture Employer`, { exact: true }).check();
-      await page.getByRole('button', { name: 'Confirm and apply to 4 jobs', exact: true }).click();
-      await page.getByRole('button', { name: 'Confirm and apply to 4 jobs', exact: true }).waitFor({ state: 'hidden' });
+      await page.getByRole('button', { name: 'Apply to 4 jobs', exact: true }).click();
+      await page.getByRole('button', { name: 'Apply to 4 jobs', exact: true }).waitFor({ state: 'hidden' });
       assert.deepEqual(writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body.applications,
         e2eDrafts.slice(1).map((draft: any) => ({ id: draft.id, revision: draft.revision })));
-      await page.getByText('Confirmed · submission in progress', { exact: true }).nth(4).waitFor();
-      assert.equal(await page.getByText('Confirmed · submission in progress', { exact: true }).count(), 5);
+      await page.getByText('Submitting', { exact: true }).nth(4).waitFor();
+      assert.equal(await page.getByText('Submitting', { exact: true }).count(), 5);
     }
     assert.equal(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
     assert.deepEqual(errors, []);
