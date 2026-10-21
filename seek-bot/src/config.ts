@@ -172,7 +172,7 @@ export const config = {
 
   /** seek.md rules, as data. */
   rules: {
-    maxAgeDays: Number(process.env.MAX_AGE_DAYS ?? 14),
+    maxAgeDays: Number(process.env.MAX_AGE_DAYS ?? 20),
     minSalary: Number(process.env.MIN_SALARY ?? 70_000),
     minHourlyRate: Number(process.env.MIN_HOURLY_RATE ?? 0),
     minScore: Number(process.env.MIN_SCORE ?? 60),

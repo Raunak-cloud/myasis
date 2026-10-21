@@ -16,7 +16,7 @@ if (!Number.isInteger(trialCount) || trialCount < 1 || trialCount > 40) throw ne
 const env = { ...dotenv.parse(readFileSync(resolve(root, '.env'))), ...process.env };
 const directory = resolve(root, 'data/browser-benchmarks', `${Date.now()}-${live ? 'live' : 'fixture'}`);
 mkdirSync(directory, { recursive: true, mode: 0o700 });
-let preferences = { KEYWORDS: 'Software Engineer', SEARCH_RADIUS_KM: '0', SEARCH_LOCATION: '', MAX_AGE_DAYS: '14' };
+let preferences = { KEYWORDS: 'Software Engineer', SEARCH_RADIUS_KM: '0', SEARCH_LOCATION: '', MAX_AGE_DAYS: '20' };
 let chrome;
 const lock = resolve(root, '../.deploying');
 let locked = false;

@@ -45,7 +45,7 @@ const RUN_DEFAULTS: Record<string, string> = {
   SEARCH_RADIUS_KM: '0',
   MIN_SALARY: '70000',
   MIN_HOURLY_RATE: '0',
-  MAX_AGE_DAYS: '14',
+  MAX_AGE_DAYS: '20',
   MAX_APPS_PER_RUN: '5',
   MAX_EVALUATIONS: '40',
   MIN_SCORE: '60',
