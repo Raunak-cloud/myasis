@@ -5,6 +5,7 @@ import { outsideScope, scopeSkipReason } from '../run-scope.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from '../types.js';
 import { runApplicationAgent } from './loop.js';
 import { outcomeFromRun } from './outcome.js';
+import { approvedSeekReviewUrl } from '../application-review.js';
 
 /**
  * Agent-driven replacement for `applyToJob`.
@@ -44,7 +45,14 @@ export async function applyToJobWithAgent(
       await workingIn(page);
     }
   };
-  await page.goto(job.url, { waitUntil: 'domcontentloaded' });
+  const reviewUrl = (!config.dryRun || process.env.REHEARSE === 'true') && !outsideScope('hosted')
+    ? approvedSeekReviewUrl(job) : undefined;
+  await page.goto(reviewUrl ?? job.url, { waitUntil: 'domcontentloaded' });
+  if (reviewUrl) {
+    // The agent inspects the saved form and retains the exact-content gate.
+    // An expired draft can still fall back to the original listing normally.
+    return runFrom(page);
+  }
   await page
     .waitForFunction(
       () =>

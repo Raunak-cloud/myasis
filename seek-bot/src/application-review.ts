@@ -27,6 +27,20 @@ export function approvedApplication(job: JobListing): PreparedApplication | unde
   return approvedApplications().find(item => item.job.id === job.id && (item.job.platform ?? 'seek') === (job.platform ?? 'seek'));
 }
 
+/** SEEK binds its review route to a vacancy. Indeed's shared review-module
+ * address does not identify a job and must still be reopened from its listing. */
+export function approvedSeekReviewUrl(job: JobListing): string | undefined {
+  if ((job.platform ?? 'seek') !== 'seek' || job.applicationMode === 'external' || !/^\d{6,12}$/.test(job.id)) return;
+  const saved = approvedApplication(job);
+  if (!saved) return;
+  try {
+    const url = new URL(saved.formUrl);
+    if (url.protocol === 'https:' && /^(?:www\.|au\.)?seek\.com(?:\.au)?$/.test(url.hostname)
+      && !url.username && !url.password && !url.port && !url.search && !url.hash
+      && url.pathname === `/job/${job.id}/apply/review`) return url.href;
+  } catch { /* An unavailable saved target uses the normal listing flow. */ }
+}
+
 const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 /** Persist the exact candidate-visible answers, rather than a browser session

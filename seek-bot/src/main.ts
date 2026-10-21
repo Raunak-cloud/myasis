@@ -312,7 +312,7 @@ async function main() {
 
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
-      if (!jobs.length || !rankingAvailable) return;
+      if (!jobs.length || !rankingAvailable || approvedApplications().length) return;
       try {
         for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
       } catch (error) {
@@ -836,7 +836,7 @@ async function main() {
            * fifteen minutes, and Cloudflare challenges are partly rate-based — the
            * one that blocked a run appeared on a plain search page.
            */
-          if (!adapter.apiDiscovery) await jitter(5000, 8000);
+          if (!adapter.apiDiscovery && !approvedApplication(stub)) await jitter(5000, 8000);
 
           /**
            * The page verdict is for a listing whose description did not come

@@ -17,7 +17,7 @@ process.env.FORM_CORPUS_DIR = join(directory, 'form-corpus');
 process.env.APPLICATION_REVIEW_MODE = 'prepare';
 process.env.COVER_LETTER_INSTRUCTIONS = 'Use a direct greeting and concise paragraphs.';
 const { config } = await import('./config.js');
-const { applicationApprovalGate, applicationContent } = await import('./application-review.js');
+const { applicationApprovalGate, applicationContent, approvedSeekReviewUrl } = await import('./application-review.js');
 const { runAgentOnlyApplication } = await import('./agent/agent-only.js');
 const { RunGuards } = await import('./agent/guards.js');
 const { CostMeter } = await import('./agent/celeris.js');
@@ -49,6 +49,19 @@ try {
   assert.deepEqual(draft.answers, [{ question: 'Name', answer: 'Fixture Applicant' }]);
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([draft]));
   process.env.APPLICATION_REVIEW_MODE = 'approved';
+  const seekJob = { ...job, id: '95364080', url: 'https://www.seek.com.au/job/95364080' };
+  const seekDraft = { ...draft, job: seekJob, formUrl: 'https://au.seek.com/job/95364080/apply/review' };
+  writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([seekDraft]));
+  assert.equal(approvedSeekReviewUrl(seekJob), seekDraft.formUrl);
+  for (const formUrl of ['https://au.seek.com/job/99999999/apply/review', 'https://au.seek.com/job/95364080/apply/success',
+    'https://au.seek.com/job/95364080/apply/review?submit=true', 'https://seek.com.evil.invalid/job/95364080/apply/review',
+    'http://au.seek.com/job/95364080/apply/review', 'https://smartapply.indeed.com/beta/indeedapply/form/review-module']) {
+    writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([{ ...seekDraft, formUrl }]));
+    assert.equal(approvedSeekReviewUrl(seekJob), undefined, `cannot directly resume ${formUrl}`);
+  }
+  writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([seekDraft]));
+  assert.equal(approvedSeekReviewUrl({ ...seekJob, applicationMode: 'external' }), undefined, 'a changed external listing cannot reuse a hosted draft');
+  writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([draft]));
   assert.equal(await applicationApprovalGate(ctx), null, 'only the exact confirmed application can send');
   await page.locator('input').fill('Changed applicant');
   const changed = await applicationApprovalGate(ctx);
@@ -70,6 +83,12 @@ try {
   const result = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(result.outcome.status, 'prepared', 'the actual agent returns a filled application for review');
   assert.equal(requests, 0, 'an agent-marked send is held before the browser action');
+  calls = [{ name: 'browser_action', args: { action: 'click', selector: 'input[type="radio"][value="Missing saved CV"]' } },
+    { name: 'finish', args: { status: 'skipped', reason: 'Missing target', evidence: 'Fresh form inspected' } }] as typeof calls;
+  const missingStart = performance.now();
+  await runAgentOnlyApplication({ page, job, profile, log: () => {} });
+  assert.ok(performance.now() - missingStart < 4500, 'submit-control inspection must not wait out the 30-second default for a missing selector');
+  assert.equal(requests, 0);
   calls = [{ name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } }] as typeof calls;
   await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(requests, 0, 'a raw send attempt cannot bypass preparation');
@@ -102,6 +121,7 @@ try {
   let classifierCalls = 0;
   let expectedControlSends = false;
   let expectedApproved: PreparedApplication | undefined;
+  let changedReview = false;
   await page.context().unroute('**/*');
   await page.context().route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -113,6 +133,11 @@ try {
       return route.fulfill({ contentType: 'text/html', body: '<main><h1>Application received</h1></main>' });
     }
     const listing = url.pathname.startsWith('/jobs/');
+    if (!listing && id === '5' && process.env.APPLICATION_REVIEW_MODE === 'approved') {
+      const saved = drafts.find(draft => draft.job.id === id)!;
+      const escaped = saved.coverLetter!.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      return route.fulfill({ contentType: 'text/html', body: `<main><h1>Review Prepared Role 5</h1><p>Name: Fixture Applicant. Availability: Two weeks. Resume: Fixture CV.txt</p><form method="post"><input type="hidden" name="letter" value="${escaped}">${changedReview ? '<label>Availability<input value="Three weeks"></label>' : ''}<button id="send">Send application</button></form></main>` });
+    }
     const label = ['Apply on company site', 'Apply now', 'Apply', 'Continue application', 'Apply on company site'][Number(id) - 1];
     return route.fulfill({ contentType: 'text/html', body: listing
       ? `<main><h1>Prepared Role ${id}</h1><label>Search jobs<input type="search"></label><a id="entry" href="https://employer.fixture.invalid/apply/${id}" ${Number(id) % 2 ? 'target="_blank"' : ''}>${label}</a></main>`
@@ -133,6 +158,7 @@ try {
       assert.ok(expectedApproved);
       assert.ok(body.messages[1].content.includes(JSON.stringify(expectedApproved)), 'the exact approved application survives observation compaction on every model turn');
       assert.match(body.messages[1].content, /SUBMIT ONLY THIS APPROVED APPLICATION/);
+      assert.doesNotMatch(body.messages[1].content, /SOURCE 1, character/, 'approved runs load the document inventory; full evidence remains available on demand');
     }
     assert.ok(call, 'the browser completes within the planned turns');
     if (call.name === 'fill_fields') {
@@ -199,15 +225,30 @@ try {
     if (index === 1) writes[2] = { name: 'fill_fields', args: { fields: [{ ref: 'fixture-letter', value: rewritten }] } };
     calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send' } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', cover_letter: rewritten } }];
+    if (index === 4) calls = [
+      { name: 'prepare_application', args: { answers: [], resume_id: 'cv' } },
+      { name: 'browser_action', args: { action: 'click', selector: '#send' } },
+      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', answers: [] } },
+    ];
     const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
     assert.equal(result.outcome.status, 'applied');
     assert.equal(result.coverLetter, drafts[index].coverLetter, 'a model cannot rewrite the approved letter in the result audit');
+    assert.ok(result.captured.some(answer => answer.question === 'Availability' && answer.answer === 'Two weeks'), 'earlier approved answers survive a resumed review and an abbreviated finish');
     assert.equal(calls.length, 0);
   }
   assert.equal(attempted, 5, 'the worker must drain all five approved jobs, including the final settled review');
   assert.deepEqual(submissions, ['1', '2', '3', '4', '5'], 'each unchanged confirmed application sends exactly once');
   assert.deepEqual(sentLetters, drafts.map(draft => draft.coverLetter), 'the actual posted forms preserve every approved letter, including the user edit');
   assert.equal(sentLetters.some(text => text.includes('\u2014')), false, 'no submitted cover letter contains an em dash');
+  changedReview = true;
+  expectedApproved = drafts[4];
+  await page.goto(drafts[4].formUrl);
+  calls = [{ name: 'prepare_application', args: { answers: [], resume_id: 'cv' } }];
+  const changedSaved = await runAgentOnlyApplication({ page, job: fixtures[4], profile, log: () => {} });
+  assert.equal(changedSaved.outcome.status, 'prepared', 'retaining earlier answers must never hide a changed actual saved value');
+  assert.ok(changedSaved.outcome.status === 'prepared');
+  assert.ok(changedSaved.outcome.draft.answers.some(answer => answer.question === 'Availability' && answer.answer === 'Three weeks'));
+  assert.equal(submissions.length, 5, 'a changed saved review cannot send under the previous approval');
   const reportDir = resolve(import.meta.dirname, '../../output');
   mkdirSync(reportDir, { recursive: true });
   writeFileSync(join(reportDir, 'semi-auto-e2e.json'), JSON.stringify({ prepared: drafts, submissions }, null, 2));
