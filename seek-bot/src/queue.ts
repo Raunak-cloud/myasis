@@ -121,7 +121,9 @@ async function build() {
           location: item.location,
           url: item.url,
         } as JobListing);
-        const verdict = await judgePage(page, `the SEEK job listing "${item.title}" at ${item.company}`);
+        const verdict = check.alreadyApplied
+          ? { state: 'already-applied', reason: check.appliedNote || 'SEEK shows an existing application.' }
+          : await judgePage(page, `the SEEK job listing "${item.title}" at ${item.company}`);
         if (verdict.state === 'already-applied') {
           item.status = 'applied';
           item.decidedAt = new Date().toISOString();
@@ -186,22 +188,24 @@ async function build() {
     let evaluated = 0;
 
     for (const stub of shortlist) {
+      if (index.hasApplication(stub)) continue;
       if (evaluated >= config.limits.maxEvaluations) {
         console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
         break;
       }
-      evaluated++;
-
       const job = await fetchJobDetail(page, stub);
       await jitter(900, 2000);
 
-      const verdict = await judgePage(page, `the SEEK job listing "${job.title}" at ${job.company}`);
+      const verdict = job.alreadyApplied
+        ? { state: 'already-applied', reason: job.appliedNote || 'SEEK shows an existing application.' }
+        : await judgePage(page, `the SEEK job listing "${job.title}" at ${job.company}`);
       if (verdict.state === 'already-applied') {
         console.log(`  ↩ ${job.title} @ ${job.company} — ${verdict.reason}`);
         bump('already applied on SEEK');
         rememberExistingApplication(job, verdict.reason);
         continue;
       }
+      evaluated++;
 
       const excluded = deterministicExclusion(job);
       if (excluded) {

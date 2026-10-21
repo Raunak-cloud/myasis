@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
+function run(jobs: FixtureJob[], options: { externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -110,12 +110,12 @@ export const applyToIndeedJob = applyToJobWithAgent;
       './discovery.js': 'discovery.mjs', './discovery-indeed.js': 'discovery.mjs',
       './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './blocker.js': 'blocker.mjs',
     };
-    const main = readFileSync(new URL('./main.js', import.meta.url), 'utf8').replace(
+    const main = readFileSync(new URL(options.queue ? './queue.js' : './main.js', import.meta.url), 'utf8').replace(
       /from ['"](\.\.?\/[^'"]+)['"]/g,
       (_match, specifier: string) => `from ${JSON.stringify(overrides[specifier] ? url(overrides[specifier]) + (specifier === './discovery.js' ? '?platform=seek' : specifier === './discovery-indeed.js' ? '?platform=indeed' : '') : new URL(specifier, import.meta.url).href)}`,
     );
     writeFileSync(join(directory, 'main.mjs'), main);
-    writeFileSync(join(directory, 'start.mjs'), `globalThis.fetch=async()=>{throw Error('HTTP is forbidden by this offline fixture');}; await import('./main.mjs');`);
+    writeFileSync(join(directory, 'start.mjs'), `globalThis.fetch=async()=>{throw Error('HTTP is forbidden by this offline fixture');}; ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs');`);
     const output = execFileSync(process.execPath, [join(directory, 'start.mjs'), ...(options.apply ? [] : ['--search-only'])], {
       encoding: 'utf8', timeout: 10_000,
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
@@ -182,10 +182,52 @@ test('a free account with one application left cannot send a second application'
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);
 });
 
-for (const platform of ['seek', 'indeed'] as const) test(`${platform} applied markers remain advisory during review without manufacturing a history record`, () => {
+for (const platform of ['seek', 'indeed'] as const) test(`${platform} applied markers skip fit review and leave the slot for a new job`, () => {
   const result = run([job('old', { platform, detailApplied: true }), job('new', { platform })], { platform });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['old']);
-  assert.equal(result.history.length, 0, 'a board marker is advisory until the applying agent judges it');
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);
+  assert.equal(result.history.length, 1);
+  assert.equal(result.history[0].jobId, 'old');
+  assert.equal(result.history[0].submittedByMyasis, false, 'existing applications are remembered without counting as new submissions');
+});
+
+test('the extension review queue leaves its evaluation slot for a fresh job after an applied marker', () => {
+  const result = run([job('old', { detailApplied: true }), job('new')], { queue: true });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);
+  assert.equal(result.history[0].jobId, 'old');
+  assert.match(result.output, /1 added/);
+});
+
+test('fifty known applications leave all one hundred evaluations available for fresh jobs', () => {
+  const old = Array.from({ length: 50 }, (_, i) => job(`old-${i}`, { cardConflict: true }));
+  const fresh = Array.from({ length: 100 }, (_, i) => job(`fresh-${i}`));
+  const result = run([...old, ...fresh], {
+    reviews: 100, cap: 100, instructions: 'Avoid manager roles.',
+    history: old.map(item => ({ jobId: item.id, title: item.title, company: item.company,
+      location: item.location, url: item.url, appliedAt: new Date().toISOString(), platform: 'seek',
+      score: 0, scoreReasons: [], submittedByMyasis: false })),
+  });
+  for (const stage of ['instruction', 'detail', 'fit']) {
+    assert.deepEqual(result.events.filter(event => event.stage === stage).map(event => event.id), fresh.map(item => item.id));
+  }
+  assert.equal(result.history.length, 50);
+});
+
+test('an applied marker already present during discovery skips instruction screening and detail reads', () => {
+  const result = run([job('old', { alreadyApplied: true, cardConflict: true }), job('new')], { instructions: 'Avoid manager roles.' });
+  for (const stage of ['instruction', 'detail', 'fit']) {
+    assert.deepEqual(result.events.filter(event => event.stage === stage).map(event => event.id), ['new']);
+  }
+  assert.equal(result.history[0].jobId, 'old');
+});
+
+test('known application destinations are excluded even under a different listing ID', () => {
+  const old = job('original');
+  const result = run([job('mirror', { applicationUrl: old.url }), job('new')], {
+    history: [{ jobId: old.id, title: old.title, company: old.company, location: old.location, url: old.url,
+      appliedAt: new Date().toISOString(), platform: 'seek', score: 0, scoreReasons: [], submittedByMyasis: false }],
+  });
+  assert.deepEqual(result.events.filter(event => event.stage === 'detail').map(event => event.id), ['new']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);
 });
 
 test('a different listing remains eligible even when the vacancy metadata matches previous history', () => {
@@ -204,11 +246,21 @@ test('an unusable fit review does not exhaust the review budget', () => {
   assert.match(result.output, /✓ 90 · Developer new/);
 });
 
-test('an applied marker revealed by a loading retry still reaches review as advisory evidence', () => {
+test('an applied marker revealed by a loading retry returns the slot before fit review', () => {
   const result = run([job('old', { detailApplied: true, loadingFirst: true }), job('new')]);
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['old']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);
   assert.equal(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length, 2);
-  assert.equal(result.history.length, 0);
+  assert.equal(result.history.length, 1);
+  assert.equal(result.history[0].jobId, 'old');
+});
+
+test('parallel applied-marker discovery returns the final slot for the other platform', () => {
+  const result = run([job('old', { detailApplied: true, detailDelayMs: 30 }), job('new', { platform: 'indeed' })], {
+    apply: true, workers: 2, reviews: 1,
+  });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['new']);
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);
 });
 
 test('duplicates found only by the employer restore the slot and allow the next new job', () => {
@@ -302,13 +354,13 @@ for (const fault of ['detailError', 'fitError'] as const) test(`parallel ${fault
   assert.equal(result.events.filter(event => event.stage === 'fit' && event.id === 'indeed-fresh').length, 1);
 });
 
-test('an agent-confirmed duplicate restores the review slot after advisory board metadata reaches full review', () => {
+test('a board-confirmed duplicate never reaches the application agent', () => {
   const result = run([
     job('seek-duplicate', { detailApplied: true, lateApplied: true, detailDelayMs: 30 }),
     job('indeed-fresh', { platform: 'indeed' }),
   ], { apply: true, workers: 2, cap: 1, reviews: 1, concurrency: 3 });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['seek-duplicate', 'indeed-fresh']);
-  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['seek-duplicate', 'indeed-fresh']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['indeed-fresh']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['indeed-fresh']);
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);
   assert.ok(result.history.some(record => record.jobId === 'indeed-fresh' && record.submittedByMyasis));
 });

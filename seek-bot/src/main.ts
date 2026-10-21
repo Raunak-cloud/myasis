@@ -160,7 +160,7 @@ async function main() {
     );
   }
 
-  const index = new AppliedIndex();
+  let index = new AppliedIndex();
   const reviewCache = new ReviewCache({
     // External listings are valid in a normal run, but known misses in a
     // hosted-only run. Normal runs still ignore this scoped suppression.
@@ -228,6 +228,15 @@ async function main() {
     };
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
+    const skipExistingApplication = (job: JobListing): boolean => {
+      if (!job.alreadyApplied && !index.hasApplication(job)) return false;
+      const reason = job.appliedNote || 'An application to this role is already recorded.';
+      if (job.alreadyApplied) rememberExistingApplication(job, reason);
+      bump('already applied');
+      console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
+      logOutcome({ status: 'already-applied', jobId: job.id, reason, title: job.title, company: job.company, url: job.url });
+      return true;
+    };
     /**
      * Boards whose security check could not be passed this run. One board's
      * wall used to end the whole run: an Indeed Cloudflare check that
@@ -258,6 +267,8 @@ async function main() {
         const key = `${adapter.id}:${job.id}`;
         if (seen.has(key)) continue;
         seen.set(key, job);
+
+        if (skipExistingApplication(job)) continue;
 
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
 
@@ -335,6 +346,7 @@ async function main() {
 
       if (doSync && adapter.id === 'seek') {
         const added = await syncFromSeek(page);
+        index = new AppliedIndex();
         console.log(`Seeded ${added} existing applications from SEEK history.`);
       }
 
@@ -609,6 +621,10 @@ async function main() {
       workChanged();
       if (qualified >= candidateCap) return;
       const { job, score, scoreReasons, adapter } = item;
+      if (skipExistingApplication(job)) {
+        restoreReviewSlot(job, false);
+        return;
+      }
       if (error) {
         restoreReviewSlot(job, false);
         console.warn(`  ! fit check failed for ${job.company}: ${error}`);
@@ -731,6 +747,7 @@ async function main() {
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id) || abortedPlatforms.has(adapter.id)) return;
       // History may have changed since discovery while another application was sent.
+      if (skipExistingApplication(stub)) return;
       if (stub.applicationMode && stub.applicationMode !== 'unknown' && outsideScope(stub.applicationMode)) {
         bump('outside run scope');
         return;
@@ -773,6 +790,7 @@ async function main() {
           // Board history includes applications made by hand or on another device.
           // Check it before reading pauses and fit/model calls; an early return
           // gives the temporary evaluation reservation back to the run.
+          if (skipExistingApplication(job)) return;
 
           // Resolve run scope as soon as the listing CTA is known. In particular,
           // do not make a page-judgement model call or simulate reading time for an
@@ -861,6 +879,7 @@ async function main() {
           }
 
           // A loading retry can be the first read to reveal the board's applied marker.
+          if (skipExistingApplication(job)) return;
 
           // Both reviewers share the same model concurrency ceiling. Recheck after
           // every await before starting another call; page reading stays parallel.
@@ -1087,6 +1106,10 @@ async function main() {
           }
 
           // Check this exact listing/form again: another attempt may have finished since discovery.
+          if (skipExistingApplication(job)) {
+            restoreReviewSlot(job, true);
+            continue;
+          }
 
           if (job.applicationMode === 'external') {
             if (externalSubmitted >= config.limits.maxExternalPerDay) {
