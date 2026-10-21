@@ -237,6 +237,7 @@ try {
       await page.getByRole('button', { name: 'Confirm and apply to 4 jobs', exact: true }).waitFor({ state: 'hidden' });
       assert.deepEqual(writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body.applications,
         e2eDrafts.slice(1).map((draft: any) => ({ id: draft.id, revision: draft.revision })));
+      await page.getByText('Confirmed · submission in progress', { exact: true }).nth(4).waitFor();
       assert.equal(await page.getByText('Confirmed · submission in progress', { exact: true }).count(), 5);
     }
     assert.equal(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
