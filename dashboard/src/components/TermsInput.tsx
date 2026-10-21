@@ -98,7 +98,7 @@ export function TermsInput({
         value={draft}
         disabled={disabled}
         aria-describedby={full ? `${id}-limit` : undefined}
-        placeholder={full ? `Limit of ${max} reached` : terms.length ? 'Add another' : emptyPlaceholder ?? `Type a ${itemLabel} and press Enter`}
+        placeholder={full ? '' : terms.length ? 'Add another' : emptyPlaceholder ?? `Type a ${itemLabel} and press Enter`}
         onChange={(event) => {
           // At the limit the box stays usable, so Backspace can still remove a tag; new text is refused out loud.
           if (full) return setLimitError(event.target.value.trim() ? overLimit : '');
