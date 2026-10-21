@@ -668,6 +668,11 @@ export function RunPanel({
     }
   }
 
+  const showAutoApply = entitlements && entitlements.autoRunsPerDay !== 0;
+  const lastRunSummary = !running && (lastRunAt || status?.finishedAt)
+    ? `Last run ${fmtDateTime(lastRunAt ?? status!.finishedAt!)}${status?.finishedAt ? ` · ${status.applied} submitted` : ''}`
+    : null;
+
   return (
     <div className="run-layout">
       <div className="run-span run-notes">
@@ -767,13 +772,14 @@ export function RunPanel({
           )}
         </div>
 
-        {entitlements && entitlements.autoRunsPerDay !== 0 && (
+        {showAutoApply && (
           <div className={`run-auto-row${entitlements.autoApplyPaused || signedOutEverywhere ? ' paused' : ''}`}>
             <span className="run-auto-label">
               <span className="auto-apply-dot" aria-hidden="true" />
               Auto apply
             </span>
-            <span className="job-meta">
+            {lastRunSummary && <span className="job-meta run-auto-last" title={lastRunSummary}>{lastRunSummary}</span>}
+            <span className="job-meta run-auto-status">
               {entitlements.autoApplyPaused
                 ? 'off'
                 : autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
@@ -824,11 +830,8 @@ export function RunPanel({
           </>
         )}
 
-        {!running && (lastRunAt || status?.finishedAt) && (
-          <p className="job-meta last-run-line">
-            Last run {fmtDateTime(lastRunAt ?? status!.finishedAt!)}
-            {status?.finishedAt ? ` · ${status.applied} submitted` : ''}
-          </p>
+        {!showAutoApply && lastRunSummary && (
+          <p className="job-meta last-run-line">{lastRunSummary}</p>
         )}
         </div>
       </div>
