@@ -6,7 +6,7 @@ import { withApplicationAllowance } from './application-allowance.js';
 import { applicationFailureContext } from './application-diagnostics.js';
 import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import { applicationWorkerPage } from './application-worker-page.js';
-import { ApplicationSlots, AsyncMutex, withApplicationWorker } from './application-workers.js';
+import { ApplicationSlots, AsyncMutex, nextApplicationCandidate, withApplicationWorker } from './application-workers.js';
 import { applyToIndeedJob } from './apply-indeed.js';
 import { judgePage, WALL_STATES } from './blocker.js';
 import {
@@ -1091,11 +1091,8 @@ async function main() {
         await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
         // Each worker reads and applies on its own isolated page. Only fallback
         // discovery uses the persistent page; queue claims and budgets are shared.
-        let next = takeCandidate(accept);
-        while (!next && !reviewExhausted()) {
-          if (!await advanceReview(applicationPage, accept)) break;
-          next = takeCandidate(accept);
-        }
+        const next = await nextApplicationCandidate(() => takeCandidate(accept), reviewExhausted,
+          () => advanceReview(applicationPage, accept));
         if (!next) {
           // Another application may restore a review slot or produce new
           // candidates during its cooldown. Stay available until all are idle.

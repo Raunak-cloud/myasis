@@ -6,6 +6,7 @@ import { chromium } from 'patchright';
 import type { PreparedApplication } from './application-review-types.js';
 import { cleanCoverLetter } from './cover-letter-policy.js';
 import { withCoverLetter } from './application-review-content.js';
+import { nextApplicationCandidate } from './application-workers.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-application-review-'));
 process.env.DATA_DIR = directory;
@@ -166,7 +167,19 @@ try {
   assert.notEqual(drafts[0].revision, beforeEdit, 'editing the letter invalidates the earlier review');
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(drafts));
   process.env.APPLICATION_REVIEW_MODE = 'approved';
-  for (const [index, fixture] of fixtures.entries()) {
+  // Use the production worker handoff: the last completed review publishes a
+  // candidate and reports exhaustion together (the live one-job failure).
+  const ready: typeof fixtures = [];
+  let reviewed = 0;
+  let attempted = 0;
+  for (;;) {
+    const fixture = await nextApplicationCandidate(() => ready.shift(), () => reviewed === fixtures.length, async () => {
+      ready.push(fixtures[reviewed++]);
+      return reviewed < fixtures.length;
+    });
+    if (!fixture) break;
+    const index = fixtures.indexOf(fixture);
+    attempted++;
     await page.goto(drafts[index].formUrl);
     expectedControlSends = true;
     calls = [...fill(drafts[index].coverLetter), { name: 'browser_action', args: { action: 'click', selector: '#send' } },
@@ -175,6 +188,7 @@ try {
     assert.equal(result.outcome.status, 'applied');
     assert.equal(calls.length, 0);
   }
+  assert.equal(attempted, 5, 'the worker must drain all five approved jobs, including the final settled review');
   assert.deepEqual(submissions, ['1', '2', '3', '4', '5'], 'each unchanged confirmed application sends exactly once');
   assert.deepEqual(sentLetters, drafts.map(draft => draft.coverLetter), 'the actual posted forms preserve every approved letter, including the user edit');
   assert.equal(sentLetters.some(text => text.includes('\u2014')), false, 'no submitted cover letter contains an em dash');

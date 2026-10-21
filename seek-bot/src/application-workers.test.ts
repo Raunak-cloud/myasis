@@ -1,6 +1,31 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ApplicationSlots, AsyncMutex } from './application-workers.js';
+import { ApplicationSlots, AsyncMutex, nextApplicationCandidate } from './application-workers.js';
+
+test('the final approved job reaches the worker when its review ends in the same step', async () => {
+  const ready: string[] = [];
+  let done = false;
+  const next = await nextApplicationCandidate(() => ready.shift(), () => done, async () => {
+    ready.push('approved-job'); done = true; return false;
+  });
+  assert.equal(next, 'approved-job');
+  assert.equal(await nextApplicationCandidate(() => ready.shift(), () => done, async () => {
+    throw new Error('finished reviews must not restart');
+  }), undefined);
+});
+
+test('empty review steps continue and final rejected reviews do not create an application', async () => {
+  let reviews = 0;
+  assert.equal(await nextApplicationCandidate(() => undefined, () => reviews === 3, async () => ++reviews < 3), undefined);
+  assert.equal(reviews, 3);
+});
+
+test('already queued work is drained even after review exhaustion', async () => {
+  const ready = ['first', 'last'];
+  const advance = async () => { throw new Error('no more review work'); };
+  assert.equal(await nextApplicationCandidate(() => ready.shift(), () => true, advance), 'first');
+  assert.equal(await nextApplicationCandidate(() => ready.shift(), () => true, advance), 'last');
+});
 
 const limits = (extra = {}) => ({ run: 2, day: 10, external: 2, appliedToday: () => 0, externalToday: 0, ...extra });
 test('two concurrent applications consume the shared run allowance; a third cannot overrun it', async () => {

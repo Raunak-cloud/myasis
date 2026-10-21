@@ -1,6 +1,17 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { LiveWorkerId } from './live-workers.js';
 
+/** A review can publish its final candidate while reporting no further review work. */
+export async function nextApplicationCandidate<T>(take: () => T | undefined, exhausted: () => boolean, advance: () => Promise<boolean>): Promise<T | undefined> {
+  let next = take();
+  while (!next && !exhausted()) {
+    const advanced = await advance();
+    next = take();
+    if (!advanced) break;
+  }
+  return next;
+}
+
 /** One process owns shared files and counters; application browser contexts are isolated. */
 export class AsyncMutex {
   private tail: Promise<unknown> = Promise.resolve();
