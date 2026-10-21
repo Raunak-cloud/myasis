@@ -67,12 +67,12 @@ export function InfoTip({ label, help }: { label: string; help: string }) {
       onMouseLeave={hide}
       onFocus={place}
       onBlur={hide}
-      onClick={() => (box ? hide() : place())}
+      onClick={place}
       onKeyDown={(event) => {
         if (event.key === 'Escape') hide();
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          if (box) hide(); else place();
+          place();
         }
       }}
     >

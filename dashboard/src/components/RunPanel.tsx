@@ -851,7 +851,10 @@ export function RunPanel({
           </div>
           <div className="field">
             <div className="saved-search-label">
-              <label className="field-label" htmlFor="saved-search-terms">Job titles</label>
+              <div className="field-label-with-info">
+                <label className="field-label" htmlFor="saved-search-terms">Job titles</label>
+                <InfoTip label="Job titles" help="Owtomate uses these titles to find jobs." />
+              </div>
               <span className={`job-meta${termCount >= MAX_SEARCH_TERMS ? ' at-limit' : ''}`}>
                 {`${termCount} of ${MAX_SEARCH_TERMS}`}
               </span>
