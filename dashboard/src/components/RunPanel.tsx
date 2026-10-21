@@ -733,7 +733,7 @@ export function RunPanel({
                 {firstRun ? 'Start first run' : 'Start auto apply'}
               </button>
               {entitlements?.runScopes && (
-                <>
+                <div className="run-scope-actions">
                   <button
                     type="button"
                     className="run-scope-link"
@@ -752,7 +752,7 @@ export function RunPanel({
                   >
                     Employer sites only <span className="beta-flag">Beta</span>
                   </button>
-                </>
+                </div>
               )}
               {accountSetupIncomplete && (
                 <span className="job-meta">Finish the setup steps above to start a run.</span>

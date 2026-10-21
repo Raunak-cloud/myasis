@@ -2155,28 +2155,51 @@ textarea.run-instructions-input {
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* ---------- Apply tab, lean ---------- */
-.run-dashboard .dashboard-metrics { gap: 6px 32px; margin-bottom: 18px; }
-.run-dashboard .metric-tile { display: flex; align-items: baseline; gap: 6px; }
-.run-dashboard .metric-tile strong { font-size: 20px; }
-.run-dashboard .page-header { margin-bottom: 12px; }
-.run-dashboard .panel-body { padding: 16px; gap: 14px; }
+/* ---------- Apply workspace ---------- */
+.run-dashboard {
+  --border: color-mix(in srgb, var(--text) 13%, var(--surface));
+  --surface-2: color-mix(in srgb, var(--text) 4%, var(--surface));
+  background: color-mix(in srgb, var(--text) 2.5%, var(--surface));
+}
+.run-dashboard .dashboard-metrics { gap: 12px 28px; margin-bottom: 28px; }
+.run-dashboard .metric-tile { display: flex; align-items: baseline; gap: 8px; }
+.run-dashboard .metric-tile strong { font-size: 22px; font-weight: 650; letter-spacing: -.03em; }
+.run-dashboard .page-header { margin-bottom: 16px; }
+.run-dashboard .run-layout { grid-template-columns: minmax(400px, 520px) minmax(0, 1fr); gap: 20px; }
+.run-dashboard .run-side { gap: 20px; }
+.run-dashboard .card { box-shadow: 0 2px 8px rgb(0 0 0 / .025); }
+.run-dashboard .panel-body { padding: 22px; gap: 20px; }
 .run-dashboard .run-controls-card,
 .run-dashboard .saved-search-card { min-height: 0; }
 .run-dashboard .console-card { min-height: 0; }
-.run-dashboard .console-empty { min-height: 180px; }
+.run-dashboard .console-head { min-height: 62px; padding: 18px 24px; background: var(--surface); }
+.run-dashboard .console-empty { min-height: 260px; gap: 6px; }
+.run-dashboard .console-empty strong { color: var(--text); font-weight: 600; }
+.run-dashboard .console-status > .dim { padding: 3px 9px; border-radius: 6px; background: var(--surface-2); }
+.run-dashboard .field { gap: 8px; }
+.run-dashboard .field-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.run-dashboard .saved-search-head { padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.run-dashboard .saved-search-head h2 { font-size: 15px; }
+.run-dashboard .saved-search-label .at-limit { color: var(--text-dim); font-weight: 500; }
+.run-dashboard .terms-input { padding: 9px; gap: 7px; }
+.run-dashboard .terms-chip { padding: 5px 5px 5px 10px; border-radius: 6px; background: var(--surface-2); }
+.run-dashboard .run-actions { gap: 12px; }
+.run-dashboard .run-actions .btn.lg { min-height: 46px; border-radius: 8px; }
+.run-dashboard .run-actions .resume-line { flex-wrap: wrap; row-gap: 2px; }
 .run-dashboard .last-run-line { margin: 0; padding-top: 0; border-top: 0; }
 
+.run-scope-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 12px; }
 .run-scope-link {
-  justify-self: center; padding: 2px 6px; border: 0; background: transparent;
-  color: var(--text-dim); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+  min-height: 34px; padding: 5px 6px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text-dim); font-size: 12px; cursor: pointer;
 }
-.run-scope-link:hover:not(:disabled) { color: var(--text); }
+.run-scope-link:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
 .run-scope-link:disabled { opacity: .6; cursor: default; }
+.run-dashboard .run-actions > .run-scope-actions { grid-column: 1 / -1; }
 
 .run-auto-row {
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 5px 8px;
-  padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+  padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
 }
 .run-auto-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--text); }
 .run-auto-row .job-meta { grid-column: 1 / -1; grid-row: 2; margin: 0; line-height: 1.4; }
@@ -2191,7 +2214,18 @@ textarea.run-instructions-input {
   opacity: 1; border-color: var(--border); background: var(--surface-2); color: var(--text-faint); box-shadow: none;
 }
 .run-dashboard .run-controls-card .last-run-line {
-  padding-top: 12px; border-top: 1px solid var(--border); color: var(--text-faint);
+  padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-faint);
+}
+
+@media (min-width: 901px) and (max-width: 1120px) {
+  .run-dashboard .run-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .run-dashboard .run-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .run-dashboard .saved-search-card .panel-body { padding: 18px; gap: 20px; }
+  .run-dashboard .run-actions { gap: 4px 8px; }
+  .run-scope-actions { gap: 0 4px; }
 }
 
 /* A scheduled run that could not start, and the admin note in the run settings. */
