@@ -219,14 +219,17 @@ try {
     await navigation.getByRole('button', { name: /^Submitted Applications/ }).click();
     await page.getByRole('heading', { name: 'Submitted Applications', exact: true }).waitFor();
     if (width < 768) await page.getByRole('button', { name: 'Menu', exact: true }).click();
-    await navigation.getByRole('button', { name: 'Prepared Applications', exact: true }).click();
+    const preparedLink = navigation.getByRole('button', { name: /^Prepared Applications/ });
+    await preparedLink.click();
     await page.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
     await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
+    assert.equal(await preparedLink.locator('.nav-count').textContent(), String(preparedRows().length), 'navigation counts applications ready for review');
     const card = page.locator('.prepared-application').first();
     await card.getByText('Review application', { exact: true }).click();
     await card.getByText('Two weeks', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Confirm and apply to 1 job', exact: true }).click();
     await page.getByText('Confirmed · submission in progress', { exact: true }).waitFor();
+    assert.equal(await preparedLink.locator('.nav-count').textContent(), String(preparedRows().length - 1), 'confirming an application reduces the prepared count');
     const approval = writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body;
     assert.deepEqual(approval, { confirm: true, applications: [{ id: preparedRows()[0].id, revision: preparedRows()[0].application.revision }] });
     assert.equal(await page.getByLabel('Select Prepared Role 2 at Fixture Employer', { exact: true }).isChecked(), false);
