@@ -3,9 +3,11 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { getPool } from '../server/db/index.js';
 import { claimApplicationReviews, dismissApplicationReviews, finishApplicationReviews, listApplicationReviews,
-  applicationsForConfirmation, pendingReviewKeys, recordReviewedOutcome, releaseApplicationReviews, reviewSelection, saveApplicationReview } from '../server/application-reviews.js';
+  applicationsForConfirmation, editApplicationCoverLetter, pendingReviewKeys, recordReviewedOutcome, releaseApplicationReviews, reviewSelection, saveApplicationReview } from '../server/application-reviews.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 import { FREE_APPLICATIONS } from '../src/pricing.js';
+import { loadUserSettings, saveUserSettings, runSettingsForUser } from '../server/settings.js';
+import { applyRunPolicy } from '../server/entitlements.js';
 
 // Real transaction and row-lock checks in an isolated, disposable schema.
 // Only synthetic account IDs and fixture.invalid jobs exist in this schema.
@@ -47,7 +49,7 @@ try {
   await pool.query('INSERT INTO review_credit_legacy (id) VALUES (2)');
   await pool.query(upgrade);
   assert.deepEqual((await pool.query('SELECT credit_consumed FROM review_credit_legacy ORDER BY id')).rows.map(row => row.credit_consumed), [true, false]);
-  for (const table of ['application_reviews','billing_purchases','application_credit_grants','employer_site_credit_grants','monthly_application_usage']) {
+  for (const table of ['application_reviews','billing_purchases','application_credit_grants','employer_site_credit_grants','monthly_application_usage','settings']) {
     await pool.query(schemaSql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n\\);`))![0]);
   }
   await grant('1', 50);
@@ -87,6 +89,34 @@ try {
   assert.equal((await listApplicationReviews('1')).find(item => item.id === changed.id)?.status, 'failed', 'interrupted sends cannot silently retry');
   assert.throws(() => reviewSelection([select(first), select(first)]), /Reload/);
   assert.throws(() => reviewSelection([]), /Select/);
+
+  const fifty = Array.from({ length: 50 }, (_, index) => `word${index}`).join(' ');
+  await saveUserSettings('1', { COVER_LETTER_INSTRUCTIONS: fifty });
+  await assert.rejects(saveUserSettings('1', { KEYWORDS: 'must not be saved', COVER_LETTER_INSTRUCTIONS: fifty + ' extra' }), /50 words/);
+  assert.equal((await loadUserSettings('1')).KEYWORDS, undefined, 'invalid instructions cannot partially save other settings');
+  const resolved = await runSettingsForUser('1');
+  const policy = applyRunPolicy(resolved, { tier: 'standard', fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: 15, maxApplicationsPerRunOverride: null }, 'manual');
+  assert.equal(policy.COVER_LETTER_INSTRUCTIONS, fifty, 'saved instructions survive ordinary plan policy and reach future runs');
+  assert.equal((await runSettingsForUser('2')).COVER_LETTER_INSTRUCTIONS, '', 'another account cannot inherit instructions');
+
+  const editable = { ...draft('editable'), coverLetter: 'Original letter', answers: [{ question: 'Write a cover letter', answer: 'Original letter' }, { question: 'Availability', answer: 'Two weeks' }] };
+  const editingUsage = await used();
+  await saveApplicationReview('1', editable);
+  await assert.rejects(editApplicationCoverLetter('2', select(editable), 'Another letter'), /no longer ready/);
+  const edited = await editApplicationCoverLetter('1', select(editable), 'Edited letter — with my wording.\n\nFixture Applicant');
+  assert.equal(edited.coverLetter, 'Edited letter, with my wording.\n\nFixture Applicant');
+  assert.equal(edited.answers[0].answer, edited.coverLetter, 'editing updates the actual cover letter form answer as well as the document');
+  assert.equal(edited.answers[1].answer, 'Two weeks');
+  assert.notEqual(edited.revision, editable.revision);
+  await assert.rejects(claimApplicationReviews('1', [select(editable)]), /no longer ready/);
+  await assert.rejects(editApplicationCoverLetter('1', select(editable), 'Stale edit'), /no longer ready/);
+  await saveApplicationReview('1', editable);
+  assert.equal((await listApplicationReviews('1')).find(row => row.id === edited.id)?.application.coverLetter, edited.coverLetter, 'replaying the old worker journal never overwrites the user edit');
+  await claimApplicationReviews('1', [select(edited)]);
+  await assert.rejects(editApplicationCoverLetter('1', select(edited), 'Too late'), /no longer ready/);
+  await recordReviewedOutcome('1', edited.id, 'applied');
+  assert.equal(await used(), editingUsage + 1, 'edits and confirmation never charge an additional credit');
+  console.log('PASS: editable letters preserve other answers, reject stale/foreign edits, invalidate old approvals and keep credits unchanged; 50-word preferences persist for all plans.');
 
   await pool.query("INSERT INTO monthly_application_usage VALUES (4,date_trunc('month',now())::date,$1)", [FREE_APPLICATIONS - 1]);
   const lastA = draft('last-a'), lastB = draft('last-b');

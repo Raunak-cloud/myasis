@@ -2,6 +2,7 @@ import { EMPLOYER_SOURCE_DEFAULTS } from '../../seek-bot/src/employer-source-con
 import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { limitSearchTerms } from '../src/search-limits.js';
+import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
 
 /**
  * Per-run search/apply preferences (job titles, work arrangement, run
@@ -26,7 +27,7 @@ export const KEEP_SETTINGS_KEYS = [
   'SEARCH_RADIUS_KM',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
   'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
-  'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64',
+  'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64', 'COVER_LETTER_INSTRUCTIONS',
   // The account's own standing instructions ("no manager roles"). Stored here
   // since launch but missing from this list, so it never reached a run.
   'AI_INSTRUCTIONS_B64',
@@ -101,6 +102,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   MAX_EVALUATIONS: '40',
   PAGES_PER_KEYWORD: '1',
   COVER_LETTER_MODE: 'tailored',
+  COVER_LETTER_INSTRUCTIONS: '',
   AI_INSTRUCTIONS_B64: '',
   COVER_LETTER_TEXT_B64: '',
 };
@@ -167,6 +169,9 @@ export async function saveUserSettings(
   userId: string,
   updates: Record<string, string>,
 ): Promise<Record<string, string>> {
+  if (updates.COVER_LETTER_INSTRUCTIONS !== undefined) {
+    updates = { ...updates, COVER_LETTER_INSTRUCTIONS: validateCoverLetterInstructions(updates.COVER_LETTER_INSTRUCTIONS) };
+  }
   for (const [key, value] of Object.entries(updates)) {
     if (!KEEP_SET.has(key)) continue;
     const raw = String(value ?? '').slice(0, 20_000);

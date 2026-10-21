@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { COVER_LETTER_INSTRUCTION_WORD_LIMIT, instructionWordCount } from '../../../seek-bot/src/cover-letter-policy.js';
 interface Review {
   id: string; status: string; detail: string | null;
   application: {
@@ -12,24 +13,69 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const load = async () => {
-    const response = await fetch('/api/application-reviews');
+  const [editing, setEditing] = useState<{ id: string; revision: string; text: string } | null>(null);
+  const [instructions, setInstructions] = useState('');
+  const [savedInstructions, setSavedInstructions] = useState('');
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [savingInstructions, setSavingInstructions] = useState(false);
+  const [notice, setNotice] = useState('');
+  const words = instructionWordCount(instructions);
+  useEffect(() => {
+    let alive = true;
+    void fetch('/api/settings').then(async response => {
+      if (!response.ok) throw new Error('Could not load cover letter instructions.');
+      const data = await response.json();
+      if (alive) { setInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setSavedInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setPreferencesLoaded(true); }
+    }).catch(reason => { if (alive) setError(reason.message); });
+    return () => { alive = false; };
+  }, []);
+  const load = async (signal?: AbortSignal) => {
+    const response = await fetch('/api/application-reviews', { signal });
     if (!response.ok) throw new Error('Could not load prepared applications.');
     const data = await response.json();
     const applications: Review[] = Array.isArray(data.applications) ? data.applications : [];
+    if (signal?.aborted) return;
     setReviews(applications);
     onCountChange(applications.filter(item => item.status === 'ready').length);
   };
   useEffect(() => {
-    let alive = true;
-    const refresh = () => { if (alive) void load().catch(reason => { if (alive) setError(reason.message); }); };
+    if (editing || busy) return;
+    const controller = new AbortController();
+    const refresh = () => { void load(controller.signal).catch(reason => { if (!controller.signal.aborted) setError(reason.message); }); };
     refresh();
     const timer = window.setInterval(refresh, 10000);
-    return () => { alive = false; window.clearInterval(timer); };
-  }, [running, onCountChange]);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [running, onCountChange, Boolean(editing), busy]);
   const chosen = reviews.filter(item => item.status === 'ready' && selected.has(item.id));
+  async function saveInstructions() {
+    if (savingInstructions || !preferencesLoaded || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT) return;
+    setSavingInstructions(true); setError(''); setNotice('');
+    try {
+      const response = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: { COVER_LETTER_INSTRUCTIONS: instructions } }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not save cover letter instructions.');
+      const saved = data.settings?.COVER_LETTER_INSTRUCTIONS ?? instructions.trim();
+      setInstructions(saved); setSavedInstructions(saved); setNotice('Instructions saved for future cover letters.');
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setSavingInstructions(false); }
+  }
+  async function saveLetter() {
+    if (!editing || busy || running || !editing.text.trim()) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const response = await fetch('/api/application-reviews/cover-letter', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editing.id, revision: editing.revision, coverLetter: editing.text }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not save the cover letter.');
+      setReviews(previous => previous.map(item => item.id === editing.id ? { ...item, application: data.application } : item));
+      setSelected(previous => { const next = new Set(previous); next.delete(editing.id); return next; });
+      setEditing(null); setNotice('Cover letter saved. Select the application when you are ready to apply.');
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setBusy(false); }
+  }
   async function decide(action: 'submit' | 'dismiss') {
-    if (busy || running || !chosen.length) return;
+    if (busy || running || editing || !chosen.length) return;
     setBusy(true); setError('');
     try {
       const response = await fetch(`/api/application-reviews/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -43,8 +89,19 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
     finally { setBusy(false); }
   }
   return <section className="card prepared-applications" aria-label="Prepared applications">
+    <details className="prepared-letter-preferences"><summary>Cover letter instructions</summary>
+      <form onSubmit={event => { event.preventDefault(); void saveInstructions(); }}>
+        <label htmlFor="cover-letter-instructions">Instructions for all future cover letters</label>
+        <textarea id="cover-letter-instructions" rows={3} maxLength={2000} value={instructions} disabled={!preferencesLoaded || savingInstructions}
+          aria-describedby="cover-letter-instructions-count" aria-invalid={words > COVER_LETTER_INSTRUCTION_WORD_LIMIT}
+          onChange={event => { setInstructions(event.target.value); setNotice(''); }}/>
+        <div className="prepared-editor-actions"><span className="job-meta" id="cover-letter-instructions-count">{words} / {COVER_LETTER_INSTRUCTION_WORD_LIMIT} words</span>
+          <button className="btn" type="submit" disabled={!preferencesLoaded || savingInstructions || instructions === savedInstructions || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT}>{savingInstructions ? 'Saving…' : 'Save instructions'}</button></div>
+      </form>
+    </details>
     {reviews.length > 0 && <p className="job-meta prepared-intro">Review and select the jobs you want to apply to.</p>}
     {error && <div className="banner banner-bad" role="alert">{error}</div>}
+    {notice && <p className="job-meta prepared-notice" role="status">{notice}</p>}
     {!reviews.length && <div className="prepared-empty"><p>No prepared applications yet.</p><a className="btn" href="/?tab=run">Apply page</a></div>}
     {reviews.map(item => {
       const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim();
@@ -62,16 +119,23 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
         <div className="prepared-content">
         <p className="job-meta">Resume: {item.application.resume || 'No resume recorded'}</p>
         {/^https?:\/\//i.test(item.application.job.url) && <p><a href={item.application.job.url} target="_blank" rel="noreferrer">View job listing ↗</a></p>}
-        {item.application.coverLetter && <><h3>Cover letter</h3><p style={{ whiteSpace: 'pre-wrap' }}>{item.application.coverLetter}</p></>}
+        <div className="prepared-letter-heading"><h3>Cover letter</h3>{item.status === 'ready' && editing?.id !== item.id && <button type="button" className="btn" disabled={running || busy || Boolean(editing)}
+          onClick={() => { setEditing({ id: item.id, revision: item.application.revision, text: item.application.coverLetter ?? '' }); setNotice(''); }}>Edit cover letter</button>}</div>
+        {editing?.id === item.id ? <div className="prepared-letter-editor">
+          <textarea aria-label={`Cover letter for ${item.application.job.title} at ${item.application.job.company}`} rows={18} maxLength={20_000} value={editing.text}
+            disabled={busy || running} onChange={event => setEditing({ ...editing, text: event.target.value })}/>
+          <div className="prepared-editor-actions"><button type="button" className="btn" disabled={busy} onClick={() => setEditing(null)}>Cancel</button>
+            <button type="button" className="btn primary" disabled={busy || running || !editing.text.trim()} onClick={() => void saveLetter()}>{busy ? 'Saving…' : 'Save cover letter'}</button></div>
+        </div> : item.application.coverLetter ? <p style={{ whiteSpace: 'pre-wrap' }}>{item.application.coverLetter}</p> : <p className="job-meta">No cover letter recorded.</p>}
         {answers.length > 0 && <><h3>Answers</h3>
         <dl>{answers.map((answer, index) => <div key={index}><dt>{answer.question}</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{answer.answer}</dd></div>)}</dl></>}
         </div>
       </details>
     </article>;
     })}
-    {chosen.length > 0 && <div className="prepared-actions">
-      <button type="button" className="btn" disabled={busy || running || !chosen.length} onClick={() => void decide('dismiss')}>Skip selected</button>
-      <button type="button" className="btn primary" disabled={busy || running || !chosen.length} onClick={() => void decide('submit')}>{busy ? 'Saving…' : `Apply to ${chosen.length} job${chosen.length === 1 ? '' : 's'}`}</button>
+    {chosen.length > 0 && !editing && <div className="prepared-actions">
+      <button type="button" className="btn" disabled={busy || running || Boolean(editing) || !chosen.length} onClick={() => void decide('dismiss')}>Skip selected</button>
+      <button type="button" className="btn primary" disabled={busy || running || Boolean(editing) || !chosen.length} onClick={() => void decide('submit')}>{busy ? 'Saving…' : `Apply to ${chosen.length} job${chosen.length === 1 ? '' : 's'}`}</button>
     </div>}
   </section>;
 }

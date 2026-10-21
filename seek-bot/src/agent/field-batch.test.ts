@@ -35,6 +35,14 @@ try {
     assert.equal(ctx.coverLetter, undefined);
     assert.equal(ctx.captured.length, 4);
   });
+  await check('cover letter batches normalize em dashes in the actual field and recorded answer', async () => {
+    const ctx = await setup('<label>Cover letter<textarea id=letter></textarea></label>');
+    assert.equal(disposition(await batch(ctx, ['Dear team,\n\nFull-stack work — including APIs.'])), 'completed');
+    const expected = 'Dear team,\n\nFull-stack work, including APIs.';
+    assert.equal(await page.inputValue('#letter'), expected);
+    assert.equal(ctx.coverLetter, expected);
+    assert.equal(ctx.captured[0].answer, expected);
+  });
   await check('unchanged input replacement stops before targeting the replacement', async () => {
     const ctx = await setup(`<label>First<input onblur="const old=document.querySelector('#second');old.replaceWith(old.cloneNode())"></label><label>Second<input id=second></label>`);
     assert.equal(disposition(await batch(ctx, ['First value', 'Must stay empty'])), 'reobserve');

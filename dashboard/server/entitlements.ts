@@ -132,6 +132,7 @@ const BASIC_SETTINGS_KEYS = [
   'ONSITE_CITY',
   'MIN_SALARY',
   'MIN_HOURLY_RATE',
+  'COVER_LETTER_INSTRUCTIONS',
 ] as const;
 
 /** Plain strings: callers test keys arriving from a request against this. */

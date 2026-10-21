@@ -30,6 +30,7 @@ function owner(marker: string) {
     platform: 'seek', url: 'https://jobs.example.invalid/' + marker, coverLetter: 'UNNEEDED_PRIVATE_HISTORY_LETTER' }]));
   return { dir, env: { DATA_DIR: dir, CELERIS_API_KEY: `SECRET_${marker}`, RETIRED_PROVIDER_API_KEY: `OTHER_SECRET_${marker}`,
     TARGET_ROLE: `${marker} target role`, ONSITE_CITY: `${marker} city`, WORK_ARRANGEMENTS: 'hybrid,onsite',
+    COVER_LETTER_INSTRUCTIONS: `${marker} use concise paragraphs`,
     AI_INSTRUCTIONS_B64: Buffer.from(`${marker} no overnight work`).toString('base64') } };
 }
 
@@ -50,6 +51,7 @@ test('owner evidence includes approved full records and preferences while isolat
     assert.ok(evidence.includes(`${marker} authoritative work limits`));
     assert.ok(evidence.includes(`${marker}@example.invalid`));
     assert.ok(evidence.includes(`${marker} no overnight work`));
+    assert.ok(evidence.includes(`${marker} use concise paragraphs`));
     assert.ok(evidence.includes(`${marker} city`));
     assert.ok(!evidence.includes('DISABLED_RECORD_MUST_NOT_APPEAR'));
     assert.ok(!evidence.includes('SECRET_'));

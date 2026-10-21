@@ -4,6 +4,7 @@ import { extractFields } from '../dom.js';
 import { metric } from '../pipeline.js';
 import type { FormField } from '../types.js';
 import type { ToolContext, ToolResult } from './tools/context.js';
+import { cleanCoverLetter, isCoverLetterField } from '../cover-letter-policy.js';
 
 export const MAX_FIELD_BATCH = 16;
 export type FieldWrite = { ref: string; value: string };
@@ -27,6 +28,7 @@ export async function fillObservedFields(ctx: ToolContext, writes: readonly Fiel
   if (fields.some(field => !field || field.sensitive || field.autocomplete || !['text', 'textarea', 'select', 'checkbox'].includes(field.kind))) {
     return reply('Batch only ordinary observed fields. Use browser_action or authentication tools for custom widgets, radio groups or credentials.', 'reobserve');
   }
+  writes = writes.map((write, index) => isCoverLetterField(fields[index]!.label) ? { ...write, value: cleanCoverLetter(write.value) } : write);
   const baseline = JSON.stringify(ctx.observation.fields.map(identity));
   const unchanged = async () => JSON.stringify((await extractFields(ctx.page)).map(identity)) === baseline;
   const batch = await FormBatch.capture(ctx.page, ctx.observation.fields);
@@ -82,7 +84,7 @@ export async function fillObservedFields(ctx: ToolContext, writes: readonly Fiel
       const prior = ctx.captured.findIndex(item => item.question === field.label);
       if (prior >= 0) ctx.captured.splice(prior, 1);
       ctx.captured.push({ question: field.label, answer: write.value });
-      if (/cover.?letter/i.test(field.label)) ctx.coverLetter = write.value;
+      if (isCoverLetterField(field.label)) ctx.coverLetter = write.value;
       if (!saved.connected || !await unchanged() || !await batch.resolve(field)) {
         return reply('The form changed after a write. Remaining fields were not written; re-observe.', 'reobserve');
       }

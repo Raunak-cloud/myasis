@@ -1,5 +1,6 @@
 import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 import { PLAN_LIMITS } from '../src/pricing.js';
+import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
@@ -22,14 +23,17 @@ let approvedFixture = false;
 let preparingFixture = false;
 let remainingCredits = 5;
 const approvedIds = new Set<string>();
+const letterEdits = new Map<string, any>();
+let letterInstructions = '';
 const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')).prepared : null;
-const preparedRows = () => e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
+const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
   application: { revision: String(index).repeat(64), job: { title: `Prepared Role ${index}`, company: 'Fixture Employer', location: 'Sydney', url: `https://fixture.invalid/job/${index}` },
-    resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }));
+    resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }))).map((row: any) => ({ ...row, application: letterEdits.get(row.id) ?? row.application }));
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
+  COVER_LETTER_INSTRUCTIONS: letterInstructions,
   MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40', PAGES_PER_KEYWORD: '1' });
 const server = createServer(async (req, res) => {
   const path = new URL(req.url!, 'http://fixture').pathname;
@@ -37,6 +41,17 @@ const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     if (req.method === 'POST') writes.push({ path, body: JSON.parse(body || '{}') });
+    if (path === '/api/settings' && req.method === 'POST' && JSON.parse(body || '{}').updates?.COVER_LETTER_INSTRUCTIONS !== undefined) {
+      letterInstructions = JSON.parse(body).updates.COVER_LETTER_INSTRUCTIONS.trim();
+    }
+    let editedLetter;
+    if (path === '/api/application-reviews/cover-letter' && req.method === 'POST') {
+      const request = JSON.parse(body);
+      const row = preparedRows().find((row: any) => row.id === request.id)!;
+      assert.equal(request.revision, row.application.revision);
+      editedLetter = withCoverLetter(row.application, request.coverLetter);
+      letterEdits.set(request.id, editedLetter);
+    }
     if (path === '/api/application-reviews/submit' && req.method === 'POST') {
       approvedFixture = true;
       for (const item of JSON.parse(body).applications) approvedIds.add(item.id);
@@ -63,6 +78,7 @@ const server = createServer(async (req, res) => {
       '/api/settings': req.method === 'POST' ? { ok: true, settings: settings() } : settings(),
       '/api/run': { ok: true, mode: 'live' },
       '/api/application-reviews': { applications: preparedFixture ? preparedRows() : [] },
+      '/api/application-reviews/cover-letter': { ok: true, application: editedLetter },
     };
     if (path === '/api/run/stream') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -195,6 +211,7 @@ try {
   admin = false; preparedFixture = true; searchStarted = false;
   for (const width of [1280, 390]) {
     remainingCredits = 5;
+    letterEdits.clear(); letterInstructions = '';
     approvedFixture = false;
     approvedIds.clear();
     const context = await browser.newContext({ viewport: { width, height: 900 } });
@@ -230,12 +247,39 @@ try {
     await page.goto(`${origin}/?tab=prepared`);
     await page.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
     assert.equal(await page.locator('.prepared-actions').count(), 0, 'actions appear only after selecting an application');
+    await page.locator('.prepared-letter-preferences > summary').click();
+    const instructionInput = page.getByLabel('Instructions for all future cover letters', { exact: true });
+    await instructionInput.fill(Array.from({ length: 51 }, () => 'word').join(' '));
+    assert.equal(await page.getByRole('button', { name: 'Save instructions', exact: true }).isDisabled(), true);
+    assert.equal(await instructionInput.getAttribute('aria-invalid'), 'true');
+    const instructions = 'Use short paragraphs. Focus on relevant experience. Keep the tone direct.';
+    await instructionInput.fill(instructions);
+    await page.getByRole('button', { name: 'Save instructions', exact: true }).click();
+    await page.getByText('Instructions saved for future cover letters.', { exact: true }).waitFor();
+    await page.reload();
+    await page.locator('.prepared-letter-preferences > summary').click();
+    await instructionInput.waitFor();
+    assert.equal(await instructionInput.inputValue(), instructions, 'cover letter preferences survive a reload');
     await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
     assert.equal(await preparedBadge.textContent(), String(preparedRows().length), 'navigation counts applications ready for review');
     const card = page.locator('.prepared-application').first();
     assert.equal(await card.locator('.prepared-content').isVisible(), false, 'documents and answers stay inside the review disclosure');
     await card.getByText('Review application', { exact: true }).click();
     await card.getByText('Two weeks', { exact: true }).waitFor();
+    await card.getByRole('button', { name: 'Edit cover letter', exact: true }).click();
+    const letterInput = card.getByRole('textbox', { name: 'Cover letter for Prepared Role 1 at Fixture Employer', exact: true });
+    await letterInput.fill('Dear team,\n\nMy edited letter — use this exact wording.\n\nFixture Applicant');
+    assert.equal(await page.locator('.prepared-actions').count(), 0, 'unsaved edits cannot be submitted');
+    assert.equal(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true, 'the cover letter editor fits the viewport');
+    await letterInput.scrollIntoViewIfNeeded();
+    mkdirSync(resolve(import.meta.dirname, '../../output'), { recursive: true });
+    await page.screenshot({ path: resolve(import.meta.dirname, `../../output/cover-letter-editor-${width}.png`) });
+    await card.getByRole('button', { name: 'Save cover letter', exact: true }).click();
+    await letterInput.waitFor({ state: 'hidden' });
+    await card.getByText('Dear team,\n\nMy edited letter, use this exact wording.\n\nFixture Applicant', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).isChecked(), false, 'an edited letter requires a fresh selection');
+    await card.getByText('Two weeks', { exact: true }).waitFor();
+    await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
     await page.getByRole('button', { name: 'Apply to 1 job', exact: true }).click();
     await page.getByText('Submitting', { exact: true }).waitFor();
     assert.equal(await preparedBadge.textContent(), String(preparedRows().length - 1), 'confirming an application reduces the prepared count');

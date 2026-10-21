@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
 import type { PreparedApplication } from './application-review-types.js';
+import { cleanCoverLetter } from './cover-letter-policy.js';
+import { withCoverLetter } from './application-review-content.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-application-review-'));
 process.env.DATA_DIR = directory;
@@ -12,6 +14,7 @@ process.env.COST_TRACKING = 'false';
 process.env.RESUME_SELECT = '';
 process.env.FORM_CORPUS_DIR = join(directory, 'form-corpus');
 process.env.APPLICATION_REVIEW_MODE = 'prepare';
+process.env.COVER_LETTER_INSTRUCTIONS = 'Use a direct greeting and concise paragraphs.';
 const { config } = await import('./config.js');
 const { applicationApprovalGate, applicationContent } = await import('./application-review.js');
 const { runAgentOnlyApplication } = await import('./agent/agent-only.js');
@@ -78,6 +81,15 @@ try {
   const sent = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(requests, 1, 'an unchanged application sends only after its exact version was confirmed');
   assert.equal(sent.outcome.status, 'applied');
+  process.env.APPLICATION_REVIEW_MODE = 'prepare';
+  await page.goto(job.url);
+  await page.locator('form').evaluate(form => {
+    const label = document.createElement('label'); label.textContent = 'Cover letter';
+    const input = document.createElement('textarea'); input.value = 'Actual letter — still has an em dash';
+    label.append(input); form.append(label);
+  });
+  const unclean = await applicationApprovalGate({ ...ctx, coverLetter: 'Actual letter, still has an em dash' });
+  assert.ok(unclean?.kind === 'ok' && unclean.disposition === 'failed', 'actual unsanitized form text blocks preparation even when the recorded letter looks clean');
   // Reproduce the production failure: listing search fields plus an Apply
   // entry link must not be mistaken for a filled application's final send.
   // Exercise five real browser forms, including employer popups and a final
@@ -85,6 +97,7 @@ try {
   config.celeris.maxSteps = 8;
   const drafts: PreparedApplication[] = [];
   const submissions: string[] = [];
+  const sentLetters: string[] = [];
   let classifierCalls = 0;
   let expectedControlSends = false;
   await page.context().unroute('**/*');
@@ -94,6 +107,7 @@ try {
     const id = url.pathname.split('/').at(-1)!;
     if (route.request().method() === 'POST') {
       submissions.push(id);
+      sentLetters.push((new URLSearchParams(route.request().postData() ?? '').get('letter') ?? '').replace(/\r\n?/g, '\n'));
       return route.fulfill({ contentType: 'text/html', body: '<main><h1>Application received</h1></main>' });
     }
     const listing = url.pathname.startsWith('/jobs/');
@@ -110,16 +124,19 @@ try {
       return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: expectedControlSends }) } }] });
     }
     const call = calls.shift();
+    assert.match(body.messages[0].content, /Use a direct greeting and concise paragraphs\./, 'saved preferences are always in the active agent system prompt');
+    assert.match(body.messages[0].content, /Never use em dashes/);
     assert.ok(call, 'the browser completes within the planned turns');
     return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `e2e-${++turn}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
   }) as typeof fetch;
-  const letter = 'Dear employer,\n\nI am interested in this developer role.\n\nFixture Applicant';
-  const fill = () => [
+  const authoredLetter = 'Dear employer,\n\nI am interested in this developer role — I build reliable software.\n\nFixture Applicant';
+  const letter = cleanCoverLetter(authoredLetter);
+  const fill = (text = authoredLetter) => [
     { name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Fixture Applicant' } },
     { name: 'browser_action', args: { action: 'fill', selector: '#availability', value: 'Two weeks' } },
-    { name: 'browser_action', args: { action: 'fill', selector: '#letter', value: letter } },
+    { name: 'browser_action', args: { action: 'fill', selector: '#letter', value: text } },
     { name: 'upload_document', args: { selector: '#cv', document_id: 'cv' } },
-    { name: 'prepare_application', args: { resume_id: 'cv', cover_letter: letter, answers: [{ question: 'Name', answer: 'Fixture Applicant' }, { question: 'Availability', answer: 'Two weeks' }] } },
+    { name: 'prepare_application', args: { resume_id: 'cv', cover_letter: text, answers: [{ question: 'Name', answer: 'Fixture Applicant' }, { question: 'Availability', answer: 'Two weeks' }] } },
   ];
   const fixtures = Array.from({ length: 5 }, (_, index) => ({ ...job, id: String(index + 1), title: `Prepared Role ${index + 1}`, company: 'Fixture Employer', url: `https://listing.fixture.invalid/jobs/${index + 1}` }));
   for (const fixture of fixtures) {
@@ -137,24 +154,30 @@ try {
     const draft = result.outcome.draft;
     assert.ok(draft.answers.some(answer => answer.question === 'Availability' && answer.answer === 'Two weeks'));
     assert.equal(draft.coverLetter, letter);
+    assert.equal(draft.answers.some(answer => answer.answer.includes('\u2014')), false);
     assert.equal(draft.resumeId, 'cv');
     assert.ok(draft.resumeHash);
     drafts.push(draft);
     for (const tab of page.context().pages()) if (tab !== page) await tab.close();
   }
   assert.equal(classifierCalls, 5, 'all five form-entry links are classified, not rejected by a broad Apply prefix');
+  const beforeEdit = drafts[0].revision;
+  drafts[0] = withCoverLetter(drafts[0], 'Dear team,\n\nThis is my edited cover letter — please use my exact wording.\n\nFixture Applicant');
+  assert.notEqual(drafts[0].revision, beforeEdit, 'editing the letter invalidates the earlier review');
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(drafts));
   process.env.APPLICATION_REVIEW_MODE = 'approved';
   for (const [index, fixture] of fixtures.entries()) {
     await page.goto(drafts[index].formUrl);
     expectedControlSends = true;
-    calls = [...fill(), { name: 'browser_action', args: { action: 'click', selector: '#send' } },
+    calls = [...fill(drafts[index].coverLetter), { name: 'browser_action', args: { action: 'click', selector: '#send' } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received' } }];
     const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
     assert.equal(result.outcome.status, 'applied');
     assert.equal(calls.length, 0);
   }
   assert.deepEqual(submissions, ['1', '2', '3', '4', '5'], 'each unchanged confirmed application sends exactly once');
+  assert.deepEqual(sentLetters, drafts.map(draft => draft.coverLetter), 'the actual posted forms preserve every approved letter, including the user edit');
+  assert.equal(sentLetters.some(text => text.includes('\u2014')), false, 'no submitted cover letter contains an em dash');
   const reportDir = resolve(import.meta.dirname, '../../output');
   mkdirSync(reportDir, { recursive: true });
   writeFileSync(join(reportDir, 'semi-auto-e2e.json'), JSON.stringify({ prepared: drafts, submissions }, null, 2));

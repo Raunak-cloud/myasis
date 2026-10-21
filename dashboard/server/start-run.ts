@@ -35,6 +35,7 @@ import type { RunDevice } from '../src/run-device.js';
 import { applicationsForConfirmation, claimApplicationReviews, pendingReviewKeys, releaseApplicationReviews, reviewSelection, ApplicationReviewError } from './application-reviews.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
+import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -154,6 +155,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   const controlRefused = runControlRefusal(trigger, entitlements, request.approvals !== undefined);
   if (controlRefused) return controlRefused;
   if (request.applicationMode !== undefined && !['auto', 'semi-auto'].includes(request.applicationMode)) return { ok: false, status: 400, error: 'Choose Auto apply or Semi auto.' };
+  try {
+    if (request.clientOverrides?.COVER_LETTER_INSTRUCTIONS !== undefined) validateCoverLetterInstructions(request.clientOverrides.COVER_LETTER_INSTRUCTIONS);
+  } catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   if (request.approvals !== undefined && (trigger !== 'manual' || mode !== 'live' || request.applicationMode === 'semi-auto')) return { ok: false, status: 400, error: 'Confirmed applications must be submitted from the review list.' };
   const onboarding = trigger === 'manual' && !admin && entitlements.firstRunRequired;
   const effectiveTrigger = onboarding ? 'onboarding' : trigger;

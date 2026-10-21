@@ -4,6 +4,7 @@ import type { PreparedApplication } from '../../seek-bot/src/application-review-
 import { consumeApplicationCredit } from './application-credits.js';
 import { isAdmin } from './admin-access.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
+import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
 
 export interface ReviewSelection { id: string; revision: string }
 export class ApplicationReviewError extends Error {}
@@ -85,6 +86,25 @@ export async function applicationsForConfirmation(userId: string, selections: Re
     'SELECT id::text,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=ANY($2::uuid[])',
     [userId, selections.map(item => item.id)]);
   return confirmedVersions(rows, selections);
+}
+
+/** An edit replaces the reviewed version and its matching form answer without spending another credit. */
+export async function editApplicationCoverLetter(userId: string, selection: ReviewSelection, value: unknown): Promise<PreparedApplication> {
+  reviewSelection([selection]);
+  if (typeof value !== 'string' || !value.trim() || value.length > 20_000) throw new ApplicationReviewError('Enter a cover letter of 1 to 20,000 characters.');
+  const connection = await getPool().connect();
+  try {
+    await connection.query('BEGIN');
+    const result = await connection.query<ConfirmationRow>(
+      'SELECT id::text,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2 FOR UPDATE', [userId, selection.id]);
+    const [current] = confirmedVersions(result.rows, [selection]);
+    const application = withCoverLetter(current, value);
+    await connection.query("UPDATE application_reviews SET payload=$3,detail=NULL,updated_at=now() WHERE user_id=$1 AND id=$2 AND status='ready'",
+      [userId, selection.id, JSON.stringify(application)]);
+    await connection.query('COMMIT');
+    return application;
+  } catch (error) { await connection.query('ROLLBACK'); throw error; }
+  finally { connection.release(); }
 }
 
 /** Lock, validate the version the user saw, and consume each approval once. */

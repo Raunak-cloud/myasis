@@ -75,7 +75,7 @@ function preferenceEvidence(): string {
   const instructions = env.AI_INSTRUCTIONS_B64 ? Buffer.from(env.AI_INSTRUCTIONS_B64, 'base64').toString('utf8') : '';
   const keys = ['TARGET_ROLE', 'KEYWORDS', 'SEARCH_LOCATION', 'SEARCH_RADIUS_KM', 'MAX_AGE_DAYS', 'MIN_SALARY',
     'MIN_HOURLY_RATE', 'MIN_SCORE', 'ONSITE_CITY', 'WORK_ARRANGEMENTS', 'EXCLUDED_COMPANIES', 'EXCLUDED_DOMAINS', 'RESUME_SELECT'];
-  const letter = { mode: env.COVER_LETTER_MODE ?? 'tailored', reusableText: env.COVER_LETTER_TEXT_B64 ? Buffer.from(env.COVER_LETTER_TEXT_B64, 'base64').toString('utf8') : '' };
+  const letter = { mode: env.COVER_LETTER_MODE ?? 'tailored', instructions: env.COVER_LETTER_INSTRUCTIONS ?? '', reusableText: env.COVER_LETTER_TEXT_B64 ? Buffer.from(env.COVER_LETTER_TEXT_B64, 'base64').toString('utf8') : '' };
   return 'COVER LETTER PREFERENCES\n' + JSON.stringify(letter) + '\n' + workPreferenceEvidence(env.WORK_ARRANGEMENTS !== undefined || env.ONSITE_CITY !== undefined || instructions
     ? { arrangements: (env.WORK_ARRANGEMENTS ?? '').split(',').map(item => item.trim()).filter(Boolean), onsiteCity: env.ONSITE_CITY ?? '', instructions }
     : null) + '\nSEARCH AND APPLICATION SETTINGS\n' + JSON.stringify(Object.fromEntries(keys.filter(key => env[key] !== undefined).map(key => [key, env[key]])));

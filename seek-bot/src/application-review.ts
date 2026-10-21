@@ -2,7 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
-import { applicationKeys, applicationFormKey } from './application-identity.js';
+import { applicationRevision } from './application-review-content.js';
+import { isCoverLetterField, cleanCoverLetter } from './cover-letter-policy.js';
+export { applicationContent } from './application-review-content.js';
 import { readSavedForm } from './agent/saved-form.js';
 import { agentOnlyResumePath } from './agent/agent-only-evidence.js';
 import type { ToolContext, ToolResult } from './agent/tools/context.js';
@@ -26,11 +28,6 @@ export function approvedApplication(job: JobListing): PreparedApplication | unde
 }
 
 const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
-export function applicationContent(application: Pick<PreparedApplication, 'job' | 'formUrl' | 'answers' | 'coverLetter' | 'resumeHash' | 'resume'>): string {
-  const answers = application.answers.map(item => [normal(item.question), normal(item.answer)]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  const posting = Object.fromEntries(['title', 'company', 'location', 'description', 'salary'].map(key => [key, normal(String(application.job[key as keyof JobListing] ?? ''))]));
-  return JSON.stringify({ target: applicationKeys(application.job), posting, form: applicationFormKey(application.job, application.formUrl), answers, coverLetter: normal(application.coverLetter ?? ''), resume: application.resume ?? '', resumeHash: application.resumeHash ?? '' });
-}
 
 /** Persist the exact candidate-visible answers, rather than a browser session
  * that may expire while its owner is deciding. Reopening may require filling
@@ -38,12 +35,15 @@ export function applicationContent(application: Pick<PreparedApplication, 'job' 
 export async function applicationApprovalGate(ctx: ToolContext): Promise<ToolResult | null> {
   if (!reviewingApplications()) return null;
   const form = await readSavedForm(ctx.page);
+  if (ctx.coverLetter?.includes('\u2014') || form.fields.some(field => isCoverLetterField(field.label) && field.currentValue?.includes('\u2014'))) {
+    return { kind: 'ok', disposition: 'failed', message: 'Replace em dashes in the actual cover letter with commas, full stops or parentheses, then inspect the saved form again.' };
+  }
   if (form.fields.some(field => field.validationError || field.invalid === 'true' || field.required && !field.currentValue?.trim())) {
     return { kind: 'ok', disposition: 'failed', message: 'The form still has missing or invalid required fields. Complete and inspect them before saving it for confirmation.' };
   }
   if (!ctx.resumeName) return { kind: 'ok', disposition: 'failed', message: 'Inspect the selected resume and call prepare_application with its account resume ID, complete answers and cover letter before the final send.' };
   const answers = new Map(ctx.captured.filter(item => !/password|verification.?code|one.?time|\botp\b/i.test(item.question))
-    .map(item => [normal(item.question), { question: item.question, answer: item.answer }]));
+    .map(item => [normal(item.question), { question: item.question, answer: isCoverLetterField(item.question) ? cleanCoverLetter(item.answer) : item.answer }]));
   for (const field of form.fields) {
     if (field.currentValue !== undefined && field.currentValue !== '' && !field.sensitive) {
       answers.set(normal(field.label), { question: field.label, answer: field.currentValue });
@@ -56,7 +56,7 @@ export async function applicationApprovalGate(ctx: ToolContext): Promise<ToolRes
     coverLetter: ctx.coverLetter, resume: ctx.resumeName, resumeId: ctx.resumeUsed,
     resumeHash: resumePath ? createHash('sha256').update(readFileSync(resumePath)).digest('hex') : undefined,
   };
-  draft.revision = createHash('sha256').update(applicationContent(draft)).digest('hex');
+  draft.revision = applicationRevision(draft);
   const approved = approvedApplication(ctx.job);
   if (!preparingApplications() && approved?.revision === draft.revision) return null;
   ctx.log(`  Ready for your confirmation: ${ctx.job.title} @ ${ctx.job.company}${approved ? ' (the application changed)' : ''}`);

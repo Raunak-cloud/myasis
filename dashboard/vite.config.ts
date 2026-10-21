@@ -60,7 +60,8 @@ import { deleteAccount } from './server/account-deletion.js';
 import { AccountDeletionError, accountRequest } from './server/account-lifecycle.js';
 import { setUpFromResume } from './server/quick-setup.js';
 import { startRun, expectedSalaryRefusal } from './server/start-run.js';
-import { listApplicationReviews, dismissApplicationReviews, reviewSelection, recoverApplicationReviews } from './server/application-reviews.js';
+import { listApplicationReviews, dismissApplicationReviews, reviewSelection, recoverApplicationReviews, editApplicationCoverLetter } from './server/application-reviews.js';
+import { validateCoverLetterInstructions } from '../seek-bot/src/cover-letter-policy.js';
 import { runDeviceFromHeaders } from './src/run-device.js';
 import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
@@ -421,6 +422,10 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           if (req.method === 'POST') {
             const body = await readBody();
+            if (body?.updates?.COVER_LETTER_INSTRUCTIONS !== undefined) {
+              try { validateCoverLetterInstructions(body.updates.COVER_LETTER_INSTRUCTIONS); }
+              catch (error) { return send({ error: (error as Error).message }, 400); }
+            }
             /**
              * The fine-tuning settings decide how a run behaves, and belong
              * to the tiers that drive runs. The form hides them; this is what
@@ -1128,6 +1133,21 @@ function dataApi(): Plugin {
             await recoverApplicationReviews(userId);
           }
           return send({ applications: await listApplicationReviews(userId) });
+        });
+      }
+
+      case '/api/application-reviews/cover-letter': {
+        if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
+        return withUser(async userId => {
+          const body = await readBody();
+          let selection;
+          try { [selection] = reviewSelection([{ id: body?.id, revision: body?.revision }]); }
+          catch (error) { return send({ error: (error as Error).message }, 400); }
+          if (runner.inUse(userId)) return send({ error: 'Wait for the current run to finish before editing this application.' }, 409);
+          try {
+            const application = await editApplicationCoverLetter(userId, selection, body?.coverLetter);
+            return send({ ok: true, application });
+          } catch (error) { return send({ error: (error as Error).message }, 409); }
         });
       }
 
