@@ -47,7 +47,15 @@ function captchaControl(remote: RemoteSession, page: Page): Promise<CaptchaContr
     const session = await page.context().newCDPSession(page);
     const secrets = captchaDiagnosticSecrets(process.env);
     const listeners = ['Captcha.detected', 'Captcha.waitForSolve', 'Captcha.solveFinished', 'Captcha.solveFailed'].map(event => {
-      const listener = (payload: unknown) => logCaptcha(remote, page, `event ${event}`, { event, details: safeCaptchaDiagnostic(payload, secrets) });
+      const listener = (payload: unknown) => {
+        logCaptcha(remote, page, `event ${event}`, { event, details: safeCaptchaDiagnostic(payload, secrets) });
+        // A challenge can pause page evaluation before DOM detection returns.
+        // Start the retained, single-flight solver from the provider event;
+        // submit_form remains false throughout, including in Semi auto.
+        if ((event === 'Captcha.detected' || event === 'Captcha.waitForSolve') && !remote.closed) {
+          void solveRemoteCaptcha(page).catch(() => {});
+        }
+      };
       session.on(event as never, listener);
       return { event, listener };
     });

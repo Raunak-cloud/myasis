@@ -129,6 +129,19 @@ try {
   const popup = await remote.page.context().newPage();
   await popup.goto('https://fixture.example.test/application-next-step');
   assert.deepEqual(autoSolveChoices, [false, false], 'new tabs disable provider auto-submit before loading their first document');
+  solverError = undefined;
+  const callsBeforeEvent = solverCalls;
+  const evaluate = popup.evaluate;
+  let reads = 0;
+  popup.evaluate = (() => { reads++; return new Promise(() => {}); }) as typeof popup.evaluate;
+  try {
+    controls[1].emit('Captcha.detected', { type: 'hcaptcha' });
+    const deadline = Date.now() + 3000;
+    while (solverCalls === callsBeforeEvent && Date.now() < deadline) await new Promise(done => setTimeout(done, 10));
+    assert.equal(solverCalls, callsBeforeEvent + 1, 'a provider event starts solving even when page evaluation is paused');
+    assert.equal(await solveRemoteCaptcha(popup), true, 'an agent callback shares the event-started solver');
+    assert.equal(reads, 0, 'the event handoff never waits for a DOM read before solving');
+  } finally { popup.evaluate = evaluate; }
   await remote.close(); remote = undefined;
   for (const control of controls) for (const event of ['Captcha.detected', 'Captcha.waitForSolve', 'Captcha.solveFinished', 'Captcha.solveFailed']) assert.equal(control.listenerCount(event), 0, 'closing the cloud browser removes provider listeners');
   assert.equal(existsSync(join(directory, REMOTE_PREVIEW_FILE)), false);
