@@ -26,3 +26,21 @@ test('Celeris retains candidate facts, authored actions and current state while 
   assert.ok(payload.length < before.length / 10, 'large superseded trees no longer inflate every turn');
   assert.equal(JSON.stringify(messages), before, 'original audit conversation is unchanged');
 });
+
+test('durable approval content survives both superseded observations and token-budget trimming', () => {
+  const approval = 'SUBMIT ONLY THIS APPROVED APPLICATION ' + JSON.stringify({ revision: 'immutable-version', coverLetter: 'Exact user-edited letter', answers: [{ question: 'Exact recorded question', answer: 'Approved answer' }] });
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'Sole applying agent' },
+    { role: 'user', content: `AUTHORITATIVE CANDIDATE PROFILE\n${approval}` },
+    ...Array.from({ length: 10 }, (_, index): ChatMessage[] => [
+      { role: 'user', content: `URL: https://fixture.invalid/${index}\n${'Old DOM '.repeat(2000)}` },
+      { role: 'assistant', content: 'Old reasoning '.repeat(2000) },
+    ]).flat(),
+    { role: 'user', content: 'URL: https://fixture.invalid/final\nCURRENT_STATE' },
+  ];
+  const transcript = agentOnlyTranscript(messages, 1000);
+  assert.equal(transcript[1].content, messages[1].content);
+  assert.ok(String(transcript[1].content).includes(approval));
+  assert.match(JSON.stringify(transcript), /earlier steps omitted/);
+  assert.match(JSON.stringify(transcript), /CURRENT_STATE/);
+});

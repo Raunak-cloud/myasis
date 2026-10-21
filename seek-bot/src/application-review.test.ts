@@ -101,6 +101,7 @@ try {
   const sentLetters: string[] = [];
   let classifierCalls = 0;
   let expectedControlSends = false;
+  let expectedApproved: PreparedApplication | undefined;
   await page.context().unroute('**/*');
   await page.context().route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -127,7 +128,17 @@ try {
     const call = calls.shift();
     assert.match(body.messages[0].content, /Use a direct greeting and concise paragraphs\./, 'saved preferences are always in the active agent system prompt');
     assert.match(body.messages[0].content, /Never use em dashes/);
+    if (process.env.APPLICATION_REVIEW_MODE === 'prepare') assert.match(body.messages[1].content, /SEMI AUTO: fill this application completely/);
+    else {
+      assert.ok(expectedApproved);
+      assert.ok(body.messages[1].content.includes(JSON.stringify(expectedApproved)), 'the exact approved application survives observation compaction on every model turn');
+      assert.match(body.messages[1].content, /SUBMIT ONLY THIS APPROVED APPLICATION/);
+    }
     assert.ok(call, 'the browser completes within the planned turns');
+    if (call.name === 'fill_fields') {
+      const fields = call.args.fields as Array<{ ref: string; value: string }>;
+      fields[0].ref = (await page.locator('#letter').getAttribute('data-field-id'))!;
+    }
     return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `e2e-${++turn}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
   }) as typeof fetch;
   const authoredLetter = 'Dear employer,\n\nI am interested in this developer role — I build reliable software.\n\nFixture Applicant';
@@ -180,12 +191,17 @@ try {
     if (!fixture) break;
     const index = fixtures.indexOf(fixture);
     attempted++;
+    expectedApproved = drafts[index];
     await page.goto(drafts[index].formUrl);
     expectedControlSends = true;
-    calls = [...fill(drafts[index].coverLetter), { name: 'browser_action', args: { action: 'click', selector: '#send' } },
-      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received' } }];
+    const rewritten = 'MODEL_REWRITE_MUST_NOT_REPLACE_THE_APPROVED_LETTER';
+    const writes: typeof calls = fill(index < 2 ? rewritten : drafts[index].coverLetter);
+    if (index === 1) writes[2] = { name: 'fill_fields', args: { fields: [{ ref: 'fixture-letter', value: rewritten }] } };
+    calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send' } },
+      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', cover_letter: rewritten } }];
     const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
     assert.equal(result.outcome.status, 'applied');
+    assert.equal(result.coverLetter, drafts[index].coverLetter, 'a model cannot rewrite the approved letter in the result audit');
     assert.equal(calls.length, 0);
   }
   assert.equal(attempted, 5, 'the worker must drain all five approved jobs, including the final settled review');

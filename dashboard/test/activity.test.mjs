@@ -13,6 +13,35 @@ test('Semi auto reports prepared applications without claiming submission', () =
   assert.ok(activityEvents(lines).some(event => event.title === 'Ready for confirmation: Developer'));
 });
 
+test('an approved application returned for review is counted as prepared, not blocked by an application limit', () => {
+  const lines = log([
+    'overrides: APPLICATION_REVIEW_MODE=approved',
+    '✓ 100 · Junior Software Engineer @ Tyree Group (Sydney) [SEEK]',
+    '→ Applying: Junior Software Engineer @ Tyree Group',
+    'Ready for confirmation: Junior Software Engineer @ Tyree Group',
+    'Run cap of 1 reached.',
+    '=== Run complete: 0 new application(s) ===',
+  ]);
+  const summary = activitySummary(lines);
+  assert.equal(summary.submitted, 0);
+  assert.equal(summary.prepared, 1);
+  assert.equal(summary.outcomeSummary, '1 profile match · 0 applications submitted · 1 application awaits your confirmation.');
+  const events = activityEvents(lines);
+  assert.match(events.find(event => event.title.startsWith('Ready for confirmation:')).detail, /application changed after confirmation/);
+  assert.ok(events.some(event => event.title === 'Applications saved for review'));
+  assert.ok(events.every(event => event.title !== 'This run reached its limit'));
+});
+
+test('prepared and submitted outcomes leave only genuinely unattempted matches in the remainder', () => {
+  const lines = log([
+    ...['Sent', 'Prepared', 'Unattempted'].map(title => `✓ 90 · ${title} @ Employer (Sydney) [SEEK]`),
+    '→ Applying: Sent @ Employer', '✅ submitted (1/2)',
+    '→ Applying: Prepared @ Employer', 'Ready for confirmation: Prepared @ Employer',
+    'Run cap of 2 reached.', '=== Run complete: 1 new application(s) ===',
+  ]);
+  assert.equal(activitySummary(lines).outcomeSummary, '3 profile matches · 1 application submitted · 1 application awaits your confirmation · 1 matched job not submitted: the application limit was reached.');
+});
+
 test('interleaved workers keep application outcomes, durations and active indicators separate', () => {
   const lines = timedLog([
     [0, 'Application workers: 2 (isolated sessions)'],

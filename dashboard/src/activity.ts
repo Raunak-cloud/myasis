@@ -8,7 +8,7 @@ export interface LogLine {
 }
 
 type ActivityTone = 'done' | 'neutral' | 'warn' | 'bad';
-type ActivityOutcome = 'already-applied' | 'skipped' | 'needs-human' | 'failed';
+type ActivityOutcome = 'already-applied' | 'skipped' | 'needs-human' | 'failed' | 'prepared';
 type OutcomeCounts = Record<ActivityOutcome, number>;
 
 interface ActivityEvent {
@@ -137,7 +137,8 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   const events: ActivityEvent[] = [];
   // Several listings can share one visible entry. Count each logged outcome
   // independently so merging entries cannot create an unexplained remainder.
-  const outcomes: OutcomeCounts = { 'already-applied': 0, skipped: 0, 'needs-human': 0, failed: 0 };
+  const outcomes: OutcomeCounts = { 'already-applied': 0, skipped: 0, 'needs-human': 0, failed: 0, prepared: 0 };
+  const confirming = lines.some(line => /APPLICATION_REVIEW_MODE=approved\b/.test(line.text));
   const recordOutcome = (event: ActivityEvent, outcome: ActivityOutcome) => {
     outcomes[outcome]++;
     event.outcome = outcome;
@@ -331,7 +332,9 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
       explained = true;
     } else if ((match = text.match(/Run cap of (\d+) reached/i))) {
-      add(line, 'This run reached its limit', 'done', `${match[1]} applications is the most one run sends.`);
+      if (outcomes.prepared === Number(match[1])) {
+        add(line, 'Applications saved for review', 'done', 'Prepared applications still need your confirmation before submission.');
+      } else add(line, 'This run reached its limit', 'done', `This run can prepare or submit up to ${match[1]} applications.`);
     } else if ((match = text.match(/evaluation cap \((\d+)\) reached/i))) {
       add(line, 'Review limit reached', 'warn', `This run used its ${match[1]} job reviews. Other listings may remain unreviewed; zero submissions does not mean there are no suitable jobs.`);
     } else if ((match = text.match(/✗\s+(?:unexpected )?error:\s*(.*)/i))) {
@@ -368,9 +371,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       if (application) {
         application.event.title = `Ready for confirmation: ${match[1]}`;
         application.event.tone = 'done';
-        application.event.detail = `${match[2]} · The form is filled. Choose it in Prepared applications to confirm submission.`;
+        application.event.detail = `${match[2]} · ${confirming ? 'The application changed after confirmation. Review the updated version in Prepared Applications before confirming again.' : 'The form is filled. Choose it in Prepared applications to confirm submission.'}`;
+        recordOutcome(application.event, 'prepared');
         finishApplication(line);
-      } else add(line, `Ready for confirmation: ${match[1]}`, 'done', match[2]);
+      } else recordOutcome(add(line, `Ready for confirmation: ${match[1]}`, 'done', match[2]), 'prepared');
     } else if ((match = text.match(/=== Semi auto complete:\s*(\d+) application/i))) {
       finished = true;
       add(line, 'Run complete', 'done', `${match[1]} application${match[1] === '1' ? '' : 's'} ready for your confirmation. Nothing submitted.`);
@@ -419,6 +423,7 @@ function completionDetail(lines: LogLine[], suitable: number, submitted: number,
   const skipped = outcomes.skipped;
   const needsHuman = outcomes['needs-human'];
   const failed = outcomes.failed;
+  const prepared = outcomes.prepared;
   const parts = [
     ...(suitable > 0 ? [`${suitable} profile ${suitable === 1 ? 'match' : 'matches'}`] : []),
     `${submitted} ${submitted === 1 ? 'application' : 'applications'} submitted`,
@@ -426,8 +431,9 @@ function completionDetail(lines: LogLine[], suitable: number, submitted: number,
     ...(skipped ? [`${skipped} skipped for other reasons`] : []),
     ...(needsHuman ? [`${needsHuman} ${needsHuman === 1 ? 'needs' : 'need'} your attention`] : []),
     ...(failed ? [`${failed} ${failed === 1 ? 'application' : 'applications'} failed`] : []),
+    ...(prepared ? [`${prepared} ${prepared === 1 ? 'application awaits' : 'applications await'} your confirmation`] : []),
   ];
-  const remaining = Math.max(0, suitable - submitted - alreadyApplied - skipped - needsHuman - failed);
+  const remaining = Math.max(0, suitable - submitted - alreadyApplied - skipped - needsHuman - failed - prepared);
   if (remaining) {
     const reason = lastMatch(lines, /(?:Run|Daily) cap of \d+ (?:already )?reached|Shared application allowance is reached/i)
       ? 'the application limit was reached'
