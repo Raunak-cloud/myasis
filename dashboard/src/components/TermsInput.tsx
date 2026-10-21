@@ -93,14 +93,14 @@ export function TermsInput({
         id={id}
         ref={inputRef}
         data-field={dataField}
-        className="terms-entry"
+        className={`terms-entry${full ? ' sr-only' : ''}`}
         aria-label={ariaLabel}
         value={draft}
         disabled={disabled}
         aria-describedby={full ? `${id}-limit` : undefined}
         placeholder={full ? '' : terms.length ? 'Add another' : emptyPlaceholder ?? `Type a ${itemLabel} and press Enter`}
         onChange={(event) => {
-          // At the limit the box stays usable, so Backspace can still remove a tag; new text is refused out loud.
+          // The collapsed input keeps keyboard removal available at the limit.
           if (full) return setLimitError(event.target.value.trim() ? overLimit : '');
           const next = event.target.value;
           if (next.includes(',')) commit(next);
