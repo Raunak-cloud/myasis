@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
+import { WebSocketServer } from 'ws';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 
 // Serve only the built frontend and fixture APIs: no database, worker or employer is contacted.
@@ -75,6 +76,8 @@ const server = createServer(async (req, res) => {
     res.end(data);
   } catch { res.writeHead(404); res.end(); }
 });
+const liveSockets = new WebSocketServer({ server, path: '/ws/screencast' });
+liveSockets.on('connection', socket => socket.send(JSON.stringify({ type: 'activity', activity: { phase: 'applying', detail: 'Preparing a fixture application.' } })));
 await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
@@ -266,9 +269,6 @@ try {
     await page.reload();
     if (width < 768) await page.getByRole('button', { name: 'Activity', exact: true }).click();
     await page.locator('.active-mode-label').filter({ hasText: /^Preparing$/ }).waitFor();
-    await page.routeWebSocket('**/ws/screencast*', socket => {
-      socket.send(JSON.stringify({ type: 'activity', activity: { phase: 'applying', detail: 'Preparing a fixture application.' } }));
-    });
     await page.getByRole('button', { name: 'View live action', exact: true }).click();
     const viewer = page.getByRole('dialog', { name: 'Live action', exact: true });
     await viewer.locator('.live-action-worker-status').getByText('Preparing', { exact: true }).waitFor();
@@ -309,5 +309,6 @@ try {
   console.log('PASS: application controls, employer feeds, search-only tests, candidate answers and skipped retention notice; fixture APIs only');
 } finally {
   await browser.close();
+  await new Promise<void>(done => liveSockets.close(() => done()));
   await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
 }
