@@ -149,7 +149,7 @@ const IDLE_STATE: RunState = {
   ownerUserId: null,
 };
 
-/** A clean run that submitted applications completed its work, even when the
+/** A clean run that submitted or prepared applications completed its work, even when the
  * application cap ended it before the search could review every listing.
  * Review completeness still controls search-term renewal separately. */
 export function runSucceeded(facts: {
@@ -157,12 +157,13 @@ export function runSucceeded(facts: {
   stoppedByPerson: boolean;
   kind: 'run' | 'scan';
   applied: number;
+  prepared?: number;
   qualifyingJobs: number | null;
   applicationErrors: number;
   timedOut?: boolean;
 }): boolean {
   return facts.exitCode === 0 && !facts.stoppedByPerson && !facts.timedOut && (
-    facts.kind === 'scan' || facts.applied > 0 ||
+    facts.kind === 'scan' || facts.applied > 0 || (facts.prepared ?? 0) > 0 ||
     (facts.qualifyingJobs !== null && facts.applicationErrors === 0)
   );
 }
@@ -601,7 +602,7 @@ class Run {
       // count. Its confirmed submissions still make it a completed run.
       const applicationErrors = kind === 'run' ? applicationErrorCount(dataDir) : 0;
       const successful = runSucceeded({ exitCode: code, stoppedByPerson: this.stoppedByPerson, kind,
-        applied: this.state.applied, qualifyingJobs, applicationErrors, timedOut: this.timedOut });
+        applied: this.state.applied, prepared: this.state.prepared, qualifyingJobs, applicationErrors, timedOut: this.timedOut });
       await this.recordFinish(userId, code, successful, kind === 'run' ? readRunHealth(dataDir) : null);
     } catch (error) {
       this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
