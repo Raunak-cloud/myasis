@@ -215,8 +215,8 @@ export default function App() {
 
   const primaryNav: Array<{ id: Tab; label: string; badge?: number }> = [
     { id: 'run', label: 'Apply' },
-    { id: 'prepared', label: 'Prepared Applications' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
+    { id: 'prepared', label: 'Prepared Applications' },
     { id: 'applications', label: 'Submitted Applications', badge: apps.length },
   ];
   if (isAdmin) primaryNav.push({ id: 'marketing', label: 'Marketing' });
