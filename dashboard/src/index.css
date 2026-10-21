@@ -2830,7 +2830,7 @@ textarea.run-instructions-input {
 .board-resumes-actions a.btn { text-decoration: none; }
 .run-span:empty, .run-span:has(> :empty) { display: none; }
 .run-mode-choice { margin: 16px 0; }
-.prepared-applications { margin-top: 20px; padding: 20px; }
+.prepared-applications { padding: 20px; }
 .prepared-application { padding: 16px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .prepared-choice { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
 .prepared-choice input { margin-top: 5px; flex: 0 0 auto; }

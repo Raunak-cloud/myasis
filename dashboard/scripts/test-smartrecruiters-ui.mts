@@ -193,6 +193,7 @@ try {
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: 'Start Auto apply', exact: true }).waitFor();
     assert.equal(writes.filter(write => write.path === '/api/run').length, before, 'complete setup never starts a run');
+    assert.equal(await page.getByRole('region', { name: 'Prepared applications', exact: true }).count(), 0, 'prepared applications have their own page');
     assert.equal(await page.getByRole('switch', { name: 'Automatic runs', exact: true }).count(), 0);
     await page.getByRole('button', { name: 'Semi auto', exact: true }).click();
     await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
@@ -201,6 +202,15 @@ try {
     await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     assert.equal(writes.filter(write => write.path === '/api/run').at(-1)!.body.applicationMode, 'semi-auto');
+    assert.equal(await page.locator('.prepared-applications').count(), 0);
+    if (width < 768) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: 'Main navigation', exact: true });
+    assert.equal(await navigation.getByRole('button', { name: 'Applications', exact: true }).count(), 0);
+    await navigation.getByRole('button', { name: /^Submitted Applications/ }).click();
+    await page.getByRole('heading', { name: 'Submitted Applications', exact: true }).waitFor();
+    if (width < 768) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    await navigation.getByRole('button', { name: 'Prepared Applications', exact: true }).click();
+    await page.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
     await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
     const card = page.locator('.prepared-application').first();
     await card.getByText('Review application', { exact: true }).click();
@@ -217,6 +227,17 @@ try {
     await context.close();
   }
   preparedFixture = false;
+  const emptyContext = await browser.newContext();
+  const emptyPage = await emptyContext.newPage();
+  await emptyPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  await emptyPage.goto(`${origin}/?tab=prepared`);
+  await emptyPage.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
+  await emptyPage.getByRole('link', { name: 'Apply page', exact: true }).click();
+  await emptyPage.getByRole('heading', { name: 'Apply for jobs', exact: true }).waitFor();
+  await emptyPage.getByRole('button', { name: 'Semi auto', exact: true }).click();
+  await emptyPage.getByRole('link', { name: 'Prepared Applications', exact: true }).click();
+  await emptyPage.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
+  await emptyContext.close();
   admin = true;
   attentionFixture = true; searchStarted = false;
   const answerContext = await browser.newContext();

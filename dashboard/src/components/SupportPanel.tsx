@@ -79,7 +79,7 @@ export function SupportPanel() {
           </details>
           <details>
             <summary>Where can I see what was submitted?</summary>
-            <p>Open Applications to see each role, its status and the information sent with the application.</p>
+              <p>Open Submitted Applications to see each role, its status and the information sent with the application.</p>
           </details>
         </div>
       </section>

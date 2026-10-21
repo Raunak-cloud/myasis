@@ -7,7 +7,6 @@ import { SetupChecklist } from './SetupChecklist';
 import { useSetupStatus } from '../setupStatus';
 import { BoardResumesNote } from './BoardResumesNote';
 import { ResumeSourceNote } from './ResumeSourceNote';
-import { PreparedApplications } from './PreparedApplications';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
@@ -707,6 +706,7 @@ export function RunPanel({
             <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} onClick={() => setApplicationMode('semi-auto')}>Semi auto</button>
           </div>
           <p className="job-meta">{applicationMode === 'auto' ? 'You start the run. Owtomate finds suitable jobs, fills their forms and submits applications.' : 'You start the run. Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} Nothing starts automatically when you finish setup.</p>
+          {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{Math.max(0, entitlements.autoRunsPerDay - entitlements.autoRunsUsedToday)} of {entitlements.autoRunsPerDay} runs available today. Confirming prepared applications continues their original run.</p>}
         </div>}
         <div className="run-actions" ref={runBar}>
@@ -776,7 +776,6 @@ export function RunPanel({
           )}
         </div>
 
-        <PreparedApplications running={running} onStarted={() => { setLines([]); window.dispatchEvent(new Event('entitlements-refresh')); }} />
 
         {showAutoApply && (
           <div className={`run-auto-row${entitlements.autoApplyPaused || signedOutEverywhere ? ' paused' : ''}`}>

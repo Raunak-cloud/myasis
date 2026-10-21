@@ -9,6 +9,7 @@ import type { AttentionItem } from './components/AttentionPanel';
 const RunPanel = lazy(() => import('./components/RunPanel').then((m) => ({ default: m.RunPanel })));
 const AttentionPanel = lazy(() => import('./components/AttentionPanel').then((m) => ({ default: m.AttentionPanel })));
 const ApplicationsPanel = lazy(() => import('./components/ApplicationsPanel').then((m) => ({ default: m.ApplicationsPanel })));
+const PreparedApplications = lazy(() => import('./components/PreparedApplications').then((m) => ({ default: m.PreparedApplications })));
 const SetupPanel = lazy(() => import('./components/SetupPanel').then((m) => ({ default: m.SetupPanel })));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
 const PricingPanel = lazy(() => import('./components/PricingPanel').then((m) => ({ default: m.PricingPanel })));
@@ -30,7 +31,7 @@ import { captureRedditClickId, initRedditPixel, trackRedditEvent } from './reddi
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
-type Tab = 'run' | 'attention' | 'applications' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
+type Tab = 'run' | 'prepared' | 'attention' | 'applications' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -52,8 +53,12 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
     title: 'Needs attention',
     description: 'Resolve anything the automation could not finish on its own.',
   },
+  prepared: {
+    title: 'Prepared Applications',
+    description: '',
+  },
   applications: {
-    title: 'Applications',
+    title: 'Submitted Applications',
     description: 'Track what was sent and record employer responses.',
   },
   admin: {
@@ -210,8 +215,9 @@ export default function App() {
 
   const primaryNav: Array<{ id: Tab; label: string; badge?: number }> = [
     { id: 'run', label: 'Apply' },
+    { id: 'prepared', label: 'Prepared Applications' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
-    { id: 'applications', label: 'Applications', badge: apps.length },
+    { id: 'applications', label: 'Submitted Applications', badge: apps.length },
   ];
   if (isAdmin) primaryNav.push({ id: 'marketing', label: 'Marketing' });
 
@@ -520,6 +526,7 @@ export default function App() {
             />
           )}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
+          {tab === 'prepared' && <PreparedApplications running={running} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
             <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />

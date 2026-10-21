@@ -41,10 +41,9 @@ export function PreparedApplications({ running, onStarted }: { running: boolean;
     finally { setBusy(false); }
   }
   return <section className="card prepared-applications" aria-label="Prepared applications">
-    <h2>Prepared applications</h2>
     <p className="job-meta">Semi auto fills the forms for you. Review the answers and documents, then confirm the jobs you want Owtomate to apply to. Unselected jobs stay here.</p>
     {error && <div className="banner banner-bad" role="alert">{error}</div>}
-    {!reviews.length && <p>No prepared applications yet. Choose Semi auto and start a run to curate jobs and fill their forms.</p>}
+    {!reviews.length && <p>No prepared applications yet. Choose Semi auto on the <a href="/?tab=run">Apply page</a> and start a run to curate jobs and fill their forms.</p>}
     {reviews.map(item => <article className="prepared-application" key={item.id}>
       <label className="prepared-choice"><input type="checkbox" aria-label={`Select ${item.application.job.title} at ${item.application.job.company}`}
         disabled={item.status !== 'ready' || running || busy} checked={selected.has(item.id)}
