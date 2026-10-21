@@ -8,6 +8,7 @@ const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 test('Semi auto reports prepared applications without claiming submission', () => {
   const lines = log(['→ Preparing: Developer @ Fixture', 'Ready for confirmation: Developer @ Fixture', '=== Semi auto complete: 1 application(s) ready for confirmation ===']);
   assert.equal(activitySummary(lines).submitted, 0);
+  assert.equal(activitySummary(lines).prepared, 1);
   assert.match(activitySummary(lines).outcomeSummary, /1 application ready for your confirmation. Nothing submitted/);
   assert.ok(activityEvents(lines).some(event => event.title === 'Ready for confirmation: Developer'));
 });
@@ -150,7 +151,7 @@ test('seven matches and five submissions explain both previously hidden duplicat
     '7 qualifying jobs.',
     '=== Run complete: 5 new application(s) ===',
   ]);
-  assert.deepEqual(activitySummary(lines), { found: 395, reviewed: 7, suitable: 7, submitted: 5, outcomeSummary: completion(lines), shortfall: null });
+  assert.deepEqual(activitySummary(lines), { found: 395, reviewed: 7, suitable: 7, submitted: 5, prepared: 0, outcomeSummary: completion(lines), shortfall: null });
   for (const title of ['Product Engineer', 'Applications Specialist']) {
     const event = activityEvents(lines).find((event) => event.title === `Already applied to ${title}`);
     assert.equal(event.tone, 'neutral');

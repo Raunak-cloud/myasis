@@ -475,10 +475,12 @@ export function RunPanel({
     setEdit('PLATFORMS', [...next].join(','));
   };
   const summary = useMemo(() => activitySummary(lines), [lines]);
+  const preparing = status?.applicationMode === 'semi-auto';
   const events = useMemo(() => activityEvents(lines, 14, isAdmin), [lines, isAdmin]);
   /** The one thing the run is doing now, for the card above the feed. */
   const liveEvent = events.find((event) => event.live);
   const currentHeading = liveEvent?.title.startsWith('Applying') ? 'Applying now'
+    : liveEvent?.title.startsWith('Preparing') ? 'Preparing now'
     : liveEvent?.title.startsWith('Reviewing') ? 'Reviewing jobs'
       : liveEvent?.title.startsWith('Searching') ? 'Searching for more jobs'
         : summary.found ? 'Reviewing jobs' : 'Finding jobs';
@@ -668,7 +670,7 @@ export function RunPanel({
 
   const showAutoApply = entitlements && entitlements.canPauseAutoApply;
   const lastRunSummary = !running && (lastRunAt || status?.finishedAt)
-    ? `Last run ${fmtDateTime(lastRunAt ?? status!.finishedAt!)}${status?.finishedAt ? ` · ${status.applied} submitted` : ''}`
+    ? `Last run ${fmtDateTime(lastRunAt ?? status!.finishedAt!)}${status?.finishedAt ? preparing ? ` · ${status.prepared ?? summary.prepared} prepared` : ` · ${status.applied} submitted` : ''}`
     : null;
 
   return (
@@ -940,7 +942,7 @@ export function RunPanel({
             <span className={`badge ${running ? 'bad' : 'muted'}`}>
               {running ? (
                 <span className="in-progress-label">
-                  <strong className="active-mode-label">{status?.mode === 'search' ? 'Search test' : 'Applying'}</strong>
+                  <strong className="active-mode-label">{status?.mode === 'search' ? 'Search test' : preparing ? 'Preparing' : 'Applying'}</strong>
                   <span>In progress</span>
                   {elapsedMs !== null && (
                     <time className="run-elapsed" aria-label={`Running for ${formatRunDuration(elapsedMs)}`}>
@@ -985,8 +987,8 @@ export function RunPanel({
             <div><strong><CountUp value={summary.suitable} /></strong><span>Profile matches</span></div>
             <div>
               {/* Whichever knows more: the live counter mid-run, the log once it has ended. */}
-              <strong><CountUp value={Math.max(summary.submitted, status?.applied ?? 0)} /></strong>
-              <span>Submitted</span>
+              <strong><CountUp value={preparing ? Math.max(summary.prepared, status?.prepared ?? 0) : Math.max(summary.submitted, status?.applied ?? 0)} /></strong>
+              <span>{preparing ? 'Prepared' : 'Submitted'}</span>
             </div>
           </div>
         )}

@@ -201,7 +201,7 @@ export default function App() {
     if (typeof runStatus.startedAt === 'string') setLastRunAt(runStatus.startedAt);
     if (wasRunning.current && !runStatus.running) {
       void load();
-      setToast(`Run finished${runStatus.applied ? `, ${runStatus.applied} submitted` : ''}`);
+      setToast(runStatus.applicationMode === 'semi-auto' ? `Preparation finished, ${runStatus.prepared ?? 0} ready for review` : `Run finished${runStatus.applied ? `, ${runStatus.applied} submitted` : ''}`);
       window.setTimeout(() => setToast(null), 6000);
     }
     wasRunning.current = Boolean(runStatus.running);
@@ -482,7 +482,7 @@ export default function App() {
             {PAGE_COPY[tab].description && <p>{PAGE_COPY[tab].description}</p>}
           </div>
           <div className="toolbar">
-            {running && <span className="badge ok">Running</span>}
+            {running && <span className="badge ok">{runStatus?.applicationMode === 'semi-auto' ? 'Preparing' : 'Running'}</span>}
           </div>
         </header>
 

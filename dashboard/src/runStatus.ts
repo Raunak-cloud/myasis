@@ -17,10 +17,12 @@ import { useEffect, useState } from 'react';
 interface RunStatus {
   running: boolean;
   mode: string | null;
+  applicationMode: 'auto' | 'semi-auto' | null;
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
   applied: number;
+  prepared: number;
   hasKey: boolean;
   /** false when a run is active but belongs to a different account — the server withholds every other field then. */
   isOwner: boolean;

@@ -88,10 +88,12 @@ interface LogLine {
 interface RunState {
   running: boolean;
   mode: RunMode | null;
+  applicationMode: 'auto' | 'semi-auto' | null;
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
   applied: number;
+  prepared: number;
   /**
    * Which account's run this is. Kept on the state even though runs are now
    * per-account, because the finished-run summary lingers after the child
@@ -138,10 +140,12 @@ export const MAX_CONCURRENT = Number.isInteger(configuredRuns) && configuredRuns
 const IDLE_STATE: RunState = {
   running: false,
   mode: null,
+  applicationMode: null,
   startedAt: null,
   finishedAt: null,
   exitCode: null,
   applied: 0,
+  prepared: 0,
   ownerUserId: null,
 };
 
@@ -266,6 +270,7 @@ class Run {
       if (this.lines.length > MAX_LINES) this.lines.shift();
       // Cheap progress signal for the UI without re-reading applied.json.
       const submitted = raw.match(/✅ submitted(?: \[(external)\])?/);
+      if (/^\s*Ready for confirmation:/.test(raw)) this.state.prepared++;
       if (submitted) {
         this.state.applied++;
         if (this.onApplicationSubmitted) {
@@ -401,10 +406,12 @@ class Run {
     this.state = {
       running: true,
       mode,
+      applicationMode: mode === 'live' ? overrides.APPLICATION_REVIEW_MODE === 'prepare' ? 'semi-auto' : 'auto' : null,
       startedAt: new Date().toISOString(),
       finishedAt: null,
       exitCode: null,
       applied: 0,
+      prepared: 0,
       ownerUserId: userId,
     };
 
@@ -467,10 +474,12 @@ class Run {
     this.state = {
       running: true,
       mode: 'search',
+      applicationMode: null,
       startedAt: new Date().toISOString(),
       finishedAt: null,
       exitCode: null,
       applied: 0,
+      prepared: 0,
       ownerUserId: userId,
     };
     this.push('sys', '▶ scanning SEEK for new matches');

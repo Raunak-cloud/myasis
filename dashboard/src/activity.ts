@@ -51,8 +51,9 @@ export function activitySummary(lines: LogLine[]) {
    * Submitted" beside a log that plainly listed four.
    */
   const submitted = lines.filter((line) => /✅\s*submitted/i.test(line.text)).length;
+  const prepared = lines.filter((line) => /^\s*Ready for confirmation:/i.test(line.text)).length;
   const outcomeSummary = activityEvents(originalLines, Infinity).find((event) => event.title === 'Run complete')?.detail ?? null;
-  return { found, reviewed, suitable, submitted, outcomeSummary, shortfall: reviewShortfall(lines, reviewed) };
+  return { found, reviewed, suitable, submitted, prepared, outcomeSummary, shortfall: reviewShortfall(lines, reviewed) };
 }
 
 /**

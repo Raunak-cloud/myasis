@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 
@@ -18,7 +18,10 @@ let attentionFixture = false;
 let skippedFixture = false;
 let preparedFixture = false;
 let approvedFixture = false;
-const preparedRows = () => [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
+let preparingFixture = false;
+const approvedIds = new Set<string>();
+const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')).prepared : null;
+const preparedRows = () => e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
   application: { revision: String(index).repeat(64), job: { title: `Prepared Role ${index}`, company: 'Fixture Employer', location: 'Sydney', url: `https://fixture.invalid/job/${index}` },
     resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }));
 const writes: Array<{ path: string; body: any }> = [];
@@ -32,7 +35,10 @@ const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     if (req.method === 'POST') writes.push({ path, body: JSON.parse(body || '{}') });
-    if (path === '/api/application-reviews/submit' && req.method === 'POST') approvedFixture = true;
+    if (path === '/api/application-reviews/submit' && req.method === 'POST') {
+      approvedFixture = true;
+      for (const item of JSON.parse(body).applications) approvedIds.add(item.id);
+    }
     if (path === '/api/run' && req.method === 'POST' && JSON.parse(body || '{}').mode === 'search') searchStarted = true;
     const payloads: Record<string, unknown> = {
       '/api/auth/me': { user: { id: 'fixture', email: 'fixture@example.test', name: 'Fixture Candidate' }, googleConfigured: true },
@@ -45,7 +51,7 @@ const server = createServer(async (req, res) => {
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: null, hasActivePass: false } },
       '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
-      '/api/run/status': { running: searchStarted, mode: searchStarted ? 'search' : null, startedAt: searchStarted ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
+      '/api/run/status': { running: searchStarted || preparingFixture, mode: searchStarted ? 'search' : preparingFixture ? 'live' : null, applicationMode: preparingFixture ? 'semi-auto' : null, prepared: 0, startedAt: searchStarted || preparingFixture ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
       '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [],
       '/api/attention': attentionFixture ? [{ jobId: 'handoff-fixture', title: 'Fixture Developer', company: 'Fixture Employer', kind: 'question', reason: 'Your answer is needed', at: new Date().toISOString(), url: 'https://fixture.invalid', questions: [{ question: 'Country of birth', kind: 'select', options: ['Australia', 'Canada'] }, { question: 'Audit services', kind: 'select', options: ['Unrelated skill'] }] }] : [],
@@ -185,6 +191,7 @@ try {
   admin = false; preparedFixture = true; searchStarted = false;
   for (const width of [1280, 390]) {
     approvedFixture = false;
+    approvedIds.clear();
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     const page = await context.newPage();
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
@@ -218,8 +225,17 @@ try {
     await page.getByRole('button', { name: 'Confirm and apply to 1 job', exact: true }).click();
     await page.getByText('Confirmed · submission in progress', { exact: true }).waitFor();
     const approval = writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body;
-    assert.deepEqual(approval, { confirm: true, applications: [{ id: preparedRows()[0].id, revision: '1'.repeat(64) }] });
+    assert.deepEqual(approval, { confirm: true, applications: [{ id: preparedRows()[0].id, revision: preparedRows()[0].application.revision }] });
     assert.equal(await page.getByLabel('Select Prepared Role 2 at Fixture Employer', { exact: true }).isChecked(), false);
+    if (e2eDrafts) {
+      assert.equal(e2eDrafts.length, 5);
+      for (let index = 2; index <= 5; index++) await page.getByLabel(`Select Prepared Role ${index} at Fixture Employer`, { exact: true }).check();
+      await page.getByRole('button', { name: 'Confirm and apply to 4 jobs', exact: true }).click();
+      await page.getByRole('button', { name: 'Confirm and apply to 4 jobs', exact: true }).waitFor({ state: 'hidden' });
+      assert.deepEqual(writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body.applications,
+        e2eDrafts.slice(1).map((draft: any) => ({ id: draft.id, revision: draft.revision })));
+      assert.equal(await page.getByText('Confirmed · submission in progress', { exact: true }).count(), 5);
+    }
     assert.equal(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
     assert.deepEqual(errors, []);
     mkdirSync(resolve(import.meta.dirname, '../../output'), { recursive: true });
@@ -238,6 +254,21 @@ try {
   await emptyPage.getByRole('link', { name: 'Prepared Applications', exact: true }).click();
   await emptyPage.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
   await emptyContext.close();
+  preparingFixture = true;
+  for (const width of [1280, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    await page.goto(`${origin}/?tab=run`);
+    if (width < 768) await page.getByRole('button', { name: 'Activity', exact: true }).click();
+    await page.locator('.active-mode-label').filter({ hasText: /^Preparing$/ }).waitFor();
+    assert.equal(await page.locator('.active-mode-label').filter({ hasText: /^Applying$/ }).count(), 0, 'a reopened Semi auto run is Preparing');
+    await page.reload();
+    if (width < 768) await page.getByRole('button', { name: 'Activity', exact: true }).click();
+    await page.locator('.active-mode-label').filter({ hasText: /^Preparing$/ }).waitFor();
+    await context.close();
+  }
+  preparingFixture = false;
   admin = true;
   attentionFixture = true; searchStarted = false;
   const answerContext = await browser.newContext();

@@ -55,6 +55,19 @@ try {
   assert.equal((await listApplicationReviews('1')).find(item => item.id === changed.id)?.status, 'failed', 'interrupted sends cannot silently retry');
   assert.throws(() => reviewSelection([select(first), select(first)]), /Reload/);
   assert.throws(() => reviewSelection([]), /Select/);
+  if (process.env.SEMI_AUTO_E2E_REPORT) {
+    const report = JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')) as { prepared: PreparedApplication[] };
+    assert.equal(report.prepared.length, 5);
+    for (const application of report.prepared) await saveApplicationReview('1', application);
+    const ready = (await listApplicationReviews('1')).filter(row => row.status === 'ready');
+    assert.equal(ready.length, 5, 'the five browser-filled drafts survive persistence');
+    const selected = report.prepared.map(select);
+    assert.equal((await claimApplicationReviews('1', selected)).length, 5);
+    await assert.rejects(claimApplicationReviews('1', selected), /no longer ready/);
+    for (const application of report.prepared) await recordReviewedOutcome('1', application.id, 'applied');
+    assert.equal((await listApplicationReviews('1')).filter(row => report.prepared.some(draft => draft.id === row.id) && row.status === 'applied').length, 5);
+    console.log('PASS: all five browser-prepared applications persist, are claimed once by their owner and record their confirmed outcomes.');
+  }
   console.log('PASS: prepared application ownership, immutable versions, concurrent single-use approvals, selected-only execution, changed forms, dismissal and interrupted-send recovery.');
 } finally {
   await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

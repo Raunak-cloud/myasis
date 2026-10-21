@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
+import type { PreparedApplication } from './application-review-types.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-application-review-'));
 process.env.DATA_DIR = directory;
@@ -77,6 +78,87 @@ try {
   const sent = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(requests, 1, 'an unchanged application sends only after its exact version was confirmed');
   assert.equal(sent.outcome.status, 'applied');
+  // Reproduce the production failure: listing search fields plus an Apply
+  // entry link must not be mistaken for a filled application's final send.
+  // Exercise five real browser forms, including employer popups and a final
+  // "Apply now" control that does need confirmation.
+  config.celeris.maxSteps = 8;
+  const drafts: PreparedApplication[] = [];
+  const submissions: string[] = [];
+  let classifierCalls = 0;
+  let expectedControlSends = false;
+  await page.context().unroute('**/*');
+  await page.context().route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (!url.hostname.endsWith('.invalid')) return route.abort();
+    const id = url.pathname.split('/').at(-1)!;
+    if (route.request().method() === 'POST') {
+      submissions.push(id);
+      return route.fulfill({ contentType: 'text/html', body: '<main><h1>Application received</h1></main>' });
+    }
+    const listing = url.pathname.startsWith('/jobs/');
+    const label = ['Apply on company site', 'Apply now', 'Apply', 'Continue application', 'Apply on company site'][Number(id) - 1];
+    return route.fulfill({ contentType: 'text/html', body: listing
+      ? `<main><h1>Prepared Role ${id}</h1><label>Search jobs<input type="search"></label><a id="entry" href="https://employer.fixture.invalid/apply/${id}" ${Number(id) % 2 ? 'target="_blank"' : ''}>${label}</a></main>`
+      : `<main><h1>Prepared Role ${id}</h1><form method="post"><label>Name<input id="name" name="name" required></label><label>Availability<input id="availability" name="availability" required></label><label>Cover letter<textarea id="letter" name="letter"></textarea></label><label>Resume<input type="file" id="cv" name="cv"></label><button id="send">${id === '5' ? 'Apply now' : 'Send application'}</button></form></main>` });
+  });
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    if (!body.tools?.length) {
+      classifierCalls++;
+      assert.match(JSON.stringify(body.messages), /as opposed to opening the form/);
+      return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: expectedControlSends }) } }] });
+    }
+    const call = calls.shift();
+    assert.ok(call, 'the browser completes within the planned turns');
+    return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `e2e-${++turn}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
+  }) as typeof fetch;
+  const letter = 'Dear employer,\n\nI am interested in this developer role.\n\nFixture Applicant';
+  const fill = () => [
+    { name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Fixture Applicant' } },
+    { name: 'browser_action', args: { action: 'fill', selector: '#availability', value: 'Two weeks' } },
+    { name: 'browser_action', args: { action: 'fill', selector: '#letter', value: letter } },
+    { name: 'upload_document', args: { selector: '#cv', document_id: 'cv' } },
+    { name: 'prepare_application', args: { resume_id: 'cv', cover_letter: letter, answers: [{ question: 'Name', answer: 'Fixture Applicant' }, { question: 'Availability', answer: 'Two weeks' }] } },
+  ];
+  const fixtures = Array.from({ length: 5 }, (_, index) => ({ ...job, id: String(index + 1), title: `Prepared Role ${index + 1}`, company: 'Fixture Employer', url: `https://listing.fixture.invalid/jobs/${index + 1}` }));
+  for (const fixture of fixtures) {
+    process.env.APPLICATION_REVIEW_MODE = 'prepare';
+    expectedControlSends = false;
+    await page.goto(fixture.url);
+    calls = [{ name: 'browser_action', args: { action: 'click', selector: '#entry' } },
+      ...(Number(fixture.id) % 2 ? [{ name: 'browser_action', args: { action: 'select_page', page_index: 1 } }] : []), ...fill()];
+    const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
+    assert.equal(result.outcome.status, 'prepared', `${fixture.title} is filled and held for review`);
+    assert.ok(result.outcome.status === 'prepared');
+    assert.equal(result.submitPressed, false);
+    assert.equal(submissions.length, 0, 'preparing five applications never sends any of them');
+    assert.equal(calls.length, 0);
+    const draft = result.outcome.draft;
+    assert.ok(draft.answers.some(answer => answer.question === 'Availability' && answer.answer === 'Two weeks'));
+    assert.equal(draft.coverLetter, letter);
+    assert.equal(draft.resumeId, 'cv');
+    assert.ok(draft.resumeHash);
+    drafts.push(draft);
+    for (const tab of page.context().pages()) if (tab !== page) await tab.close();
+  }
+  assert.equal(classifierCalls, 5, 'all five form-entry links are classified, not rejected by a broad Apply prefix');
+  writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(drafts));
+  process.env.APPLICATION_REVIEW_MODE = 'approved';
+  for (const [index, fixture] of fixtures.entries()) {
+    await page.goto(drafts[index].formUrl);
+    expectedControlSends = true;
+    calls = [...fill(), { name: 'browser_action', args: { action: 'click', selector: '#send' } },
+      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received' } }];
+    const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
+    assert.equal(result.outcome.status, 'applied');
+    assert.equal(calls.length, 0);
+  }
+  assert.deepEqual(submissions, ['1', '2', '3', '4', '5'], 'each unchanged confirmed application sends exactly once');
+  const reportDir = resolve(import.meta.dirname, '../../output');
+  mkdirSync(reportDir, { recursive: true });
+  writeFileSync(join(reportDir, 'semi-auto-e2e.json'), JSON.stringify({ prepared: drafts, submissions }, null, 2));
+  console.log('PASS: five applications opened via listing links (including popups), filled, uploaded and prepared with zero sends; all five exact approved versions then submitted to isolated fixture forms.');
   console.log('PASS: Semi auto cannot send without confirmation; changed answers, target URLs and resume bytes invalidate approval.');
 } finally {
   globalThis.fetch = originalFetch;

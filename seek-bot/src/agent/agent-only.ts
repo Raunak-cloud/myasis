@@ -280,9 +280,17 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     let sendsApplication = args.sends_application === true;
     if (reviewingApplications() && args.action === 'click'
       && (ctx.captured.length || ctx.resumeUsed || ctx.observation.fields.length)
-      && /^(?:submit|send(?: application)?|finish(?: application)?|complete application|confirm(?: and submit)?|apply(?: now)?|review and submit)\b/i.test(actionLabel.trim())) sendsApplication = true;
+      && /^(?:submit|send application|finish application|complete application|confirm and submit|review and submit)\b/i.test(actionLabel.trim())) sendsApplication = true;
     if (reviewingApplications() && args.action === 'click' && !sendsApplication) {
-      sendsApplication = await isSubmitControl({ label: actionLabel }, { url: ctx.page.url(), title: ctx.observation.title,
+      // "Apply on company site" and "Apply now" can open a form. Search
+      // inputs on a listing are not evidence that an application is filled.
+      // Let the semantic check distinguish entry/navigation from a final send.
+      const control = await target(ctx, args).evaluate(node => {
+        const element = node as HTMLElement;
+        return JSON.stringify({ tag: element.tagName, href: element.getAttribute('href'), target: element.getAttribute('target'),
+          type: element.getAttribute('type'), form: element.closest('form')?.getAttribute('action') });
+      });
+      sendsApplication = await isSubmitControl({ label: actionLabel, context: control }, { url: ctx.page.url(), title: ctx.observation.title,
         text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length }).catch(() => true);
     }
     if (sendsApplication && reviewingApplications()) {
