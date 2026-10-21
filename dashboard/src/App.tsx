@@ -114,6 +114,7 @@ export default function App() {
   }, []);
   const [apps, setApps] = useState<Application[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
+  const [preparedCount, setPreparedCount] = useState(0);
   const [running, setRunning] = useState(false);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [today, setToday] = useState<TodayStats>({ runs: 0, reviewed: 0, submitted: 0 });
@@ -167,14 +168,18 @@ export default function App() {
   }, [authLoading, user]);
 
   const load = useCallback(async () => {
-    const [a, n, lastRun, todayStats] = await Promise.all([
+    const [a, n, lastRun, todayStats, prepared] = await Promise.all([
       fetch('/api/applications').then((response) => response.json()).catch(() => []),
       fetch('/api/attention').then((response) => response.json()).catch(() => []),
       fetch('/api/run/last').then((response) => response.json()).catch(() => ({ startedAt: null })),
       fetch('/api/today').then((response) => response.json()).catch(() => null),
+      fetch('/api/application-reviews').then((response) => response.ok ? response.json() : null).catch(() => null),
     ]);
     setApps(Array.isArray(a) ? a : []);
     setAttention(Array.isArray(n) ? n : []);
+    if (Array.isArray(prepared?.applications)) {
+      setPreparedCount(prepared.applications.filter((item: { status: string }) => item.status === 'ready').length);
+    }
     setLastRunAt(typeof lastRun?.startedAt === 'string' ? lastRun.startedAt : null);
     if (todayStats && typeof todayStats.runs === 'number') setToday(todayStats as TodayStats);
   }, []);
@@ -216,7 +221,7 @@ export default function App() {
   const primaryNav: Array<{ id: Tab; label: string; badge?: number }> = [
     { id: 'run', label: 'Apply' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
-    { id: 'prepared', label: 'Prepared Applications' },
+    { id: 'prepared', label: 'Prepared Applications', badge: preparedCount },
     { id: 'applications', label: 'Submitted Applications', badge: apps.length },
   ];
   if (isAdmin) primaryNav.push({ id: 'marketing', label: 'Marketing' });
@@ -526,7 +531,7 @@ export default function App() {
             />
           )}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
-          {tab === 'prepared' && <PreparedApplications running={running} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
+          {tab === 'prepared' && <PreparedApplications running={running} onCountChange={setPreparedCount} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
             <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />

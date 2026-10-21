@@ -7,7 +7,7 @@ interface Review {
   };
 }
 
-export function PreparedApplications({ running, onStarted }: { running: boolean; onStarted: () => void }) {
+export function PreparedApplications({ running, onStarted, onCountChange }: { running: boolean; onStarted: () => void; onCountChange: (count: number) => void }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -16,7 +16,9 @@ export function PreparedApplications({ running, onStarted }: { running: boolean;
     const response = await fetch('/api/application-reviews');
     if (!response.ok) throw new Error('Could not load prepared applications.');
     const data = await response.json();
-    setReviews(Array.isArray(data.applications) ? data.applications : []);
+    const applications: Review[] = Array.isArray(data.applications) ? data.applications : [];
+    setReviews(applications);
+    onCountChange(applications.filter(item => item.status === 'ready').length);
   };
   useEffect(() => {
     let alive = true;
@@ -24,7 +26,7 @@ export function PreparedApplications({ running, onStarted }: { running: boolean;
     refresh();
     const timer = window.setInterval(refresh, 10000);
     return () => { alive = false; window.clearInterval(timer); };
-  }, [running]);
+  }, [running, onCountChange]);
   const chosen = reviews.filter(item => item.status === 'ready' && selected.has(item.id));
   async function decide(action: 'submit' | 'dismiss') {
     if (busy || running || !chosen.length) return;
