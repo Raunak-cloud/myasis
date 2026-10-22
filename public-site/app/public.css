@@ -1,0 +1,18 @@
+:root { --bg:#f4f8fc; --surface:#fff; --surface-2:#eaf1f8; --border:#cbd9e7; --text:#14243d; --text-dim:#52647a; --text-faint:#6e7f92; --accent:#2563a6; --accent-soft:rgba(37,99,166,.12); --ok:#0f7250; --warn:#805700; --bad:#b4233d; --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace; }
+* { box-sizing:border-box; }
+html,body { margin:0; }
+body { background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5;letter-spacing:-.005em;-webkit-font-smoothing:antialiased; }
+button { font:inherit;color:inherit;cursor:pointer; }
+a { color:var(--accent);text-decoration:none; }
+button:focus-visible,a:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
+.wordmark { font-family:'Pacifico','Brush Script MT',cursive;font-weight:400;letter-spacing:.01em;line-height:1.25;color:var(--text);white-space:nowrap; }
+.wordmark-ow { color:var(--wordmark-accent,var(--accent)); }
+.wordmark .wordmark-owl { display:inline-block;width:.92em;height:1.1em;margin-right:-.06em;vertical-align:-.16em;color:var(--wordmark-accent,var(--accent));transform:rotate(6deg);transform-origin:50% 60%; }
+.mascot-logo { display:block;flex:0 0 auto;overflow:visible; }
+.mascot-head { transform-origin:32px 34px; }
+.mascot-pupils { transform-box:fill-box;transform-origin:center; }
+.home-brand:hover .mascot-head { animation:mascot-wiggle 1.15s ease-in-out infinite; }
+.home-brand:hover .mascot-pupils { animation:mascot-look-around 1.15s ease-in-out infinite; }
+@keyframes mascot-look-around { 0%,10%,90%,100% {transform:translateX(0)} 25%,42% {transform:translateX(-3px)} 58%,75% {transform:translateX(3px)} }
+@keyframes mascot-wiggle { 0%,10%,90%,100% {transform:rotate(0)} 25%,42% {transform:rotate(-2deg)} 58%,75% {transform:rotate(2deg)} }
+@media(prefers-reduced-motion:reduce) { .home-brand:hover .mascot-head,.home-brand:hover .mascot-pupils {animation:none} }

@@ -71,6 +71,8 @@ import { startBlogScheduler } from './server/blog/index.js';
 import { handleMarketing } from './server/marketing/api.js';
 import { startMarketingWorker, stopMarketingWorker } from './server/marketing/worker.js';
 import { blogPages } from './server/blog/pages.js';
+import { publicWebsiteContent } from './server/public-website-content.js';
+import { publicWebsiteProxy } from './server/public-website-proxy.js';
 import { improvedStaticPages } from './server/marketing/page-publisher.js';
 import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
@@ -1192,6 +1194,13 @@ function dataApi(): Plugin {
         });
       }
 
+      case '/api/public/website': {
+        if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
+        return publicWebsiteContent(url.searchParams.get('path') ?? '/', import.meta.dirname)
+          .then(document => send(document ?? { error: 'Not found' }, document ? 200 : 404))
+          .catch(() => send({ error: 'Public content is temporarily unavailable.' }, 503));
+      }
+
       case '/api/run/stream': {
         return currentUser(req.headers?.cookie).then((user) => {
           if (!user) return send({ error: 'Sign in required.' }, 401);
@@ -1227,6 +1236,7 @@ function dataApi(): Plugin {
     // Braces matter: an arrow body would return `Server`, but the hook is void.
     configureServer(server) {
       server.middlewares.use(handler);
+      server.middlewares.use(publicWebsiteProxy(process.env.PUBLIC_SITE_URL));
       server.middlewares.use(improvedStaticPages(import.meta.dirname,(url,html)=>server.transformIndexHtml(url,html)));
       server.middlewares.use(blogPages(resolve(import.meta.dirname, 'blog.html')));
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }
@@ -1237,6 +1247,7 @@ function dataApi(): Plugin {
      */
     configurePreviewServer(server) {
       server.middlewares.use(handler);
+      server.middlewares.use(publicWebsiteProxy(process.env.PUBLIC_SITE_URL));
       server.middlewares.use(improvedStaticPages(resolve(import.meta.dirname,'dist')));
       server.middlewares.use(blogPages(resolve(import.meta.dirname, 'dist', 'blog.html')));
       if (server.httpServer) { attachScreencast(server.httpServer); attachSigninVnc(server.httpServer); }

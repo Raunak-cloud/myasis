@@ -7,6 +7,21 @@ const host = process.env.HOST || '127.0.0.1';
 module.exports = {
   apps: [
     {
+      name: 'owtomate-public-site',
+      cwd: path.join(appRoot, 'public-site'),
+      script: path.join(appRoot, 'public-site', 'scripts', 'start.mjs'),
+      interpreter: process.execPath,
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '400M',
+      kill_timeout: 10_000,
+      restart_delay: 2_000,
+      time: true,
+      env: { NODE_ENV: 'production', HOSTNAME: '127.0.0.1', PORT: '5190', DASHBOARD_ORIGIN: 'http://127.0.0.1:5180' },
+    },
+    {
       name: 'market-scout',
       cwd: path.join(appRoot, 'market-scout'),
       script: path.join(appRoot, 'market-scout', 'dist', 'cli.js'),
@@ -52,6 +67,7 @@ module.exports = {
          * for. Sign-in sessions open their own displays from :100 upward.
          */
         DISPLAY: process.env.DISPLAY || ':99',
+        PUBLIC_SITE_URL: 'http://127.0.0.1:5190',
         /**
          * Accounts that may run at once. Left unset, the dashboard works it out
          * from the machine's cores and memory (dashboard/server/runner.ts).

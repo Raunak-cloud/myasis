@@ -1,5 +1,5 @@
-# Lives at /etc/caddy/Caddyfile on the VPS. Nothing deploys it: deploy.sh
-# builds the app, not the edge. Copy it across by hand and reload:
+# Lives at /etc/caddy/Caddyfile on the VPS. deploy/public-site.sh validates and
+# installs changes before activating the Next.js public website. To inspect:
 #   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 #   systemctl reload caddy
 # Owtomate: the only public entrance. The app itself stays on 127.0.0.1:5180,
@@ -20,7 +20,9 @@ owtomate.com {
 		# Reddit is here for ad measurement: the pixel script, the beacon it posts to,
 		# and pixel-config, which the pixel fetches and no Reddit document mentions —
 		# it only showed up as a blocked request in the browser console.
-		Content-Security-Policy "default-src 'self'; script-src 'self' https://www.redditstatic.com https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.googleusercontent.com https://alb.reddit.com https://www.facebook.com; media-src 'self' blob:; connect-src 'self' https://owtomate.com wss://owtomate.com https://alb.reddit.com https://pixel-config.reddit.com https://www.facebook.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		# Public Next.js responses supply a per-request nonce policy. Other routes
+		# retain this policy; inline executable scripts remain blocked there.
+		?Content-Security-Policy "default-src 'self'; script-src 'self' https://www.redditstatic.com https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.googleusercontent.com https://alb.reddit.com https://www.facebook.com; media-src 'self' blob:; connect-src 'self' https://owtomate.com wss://owtomate.com https://alb.reddit.com https://pixel-config.reddit.com https://www.facebook.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 		-Server
 	}
 

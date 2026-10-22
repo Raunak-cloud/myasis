@@ -120,6 +120,7 @@ as_app "cd $APP/seek-bot && node --test dist/captcha/retry.test.js dist/captcha/
 as_app "cd $APP/seek-bot && node dist/employer-browser.test.js"
 as_app "cd $APP/seek-bot && node --test dist/smartrecruiters.test.js dist/employer-feeds.test.js dist/agent/apply-employer-job.test.js dist/agent/choose-option.test.js"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/public-website-proxy.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/search-terms.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/run-accounting.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/run-policy.test.ts"
@@ -159,6 +160,7 @@ as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-d
 # resetting maintenance.sh's execute bit. Keep installed scheduling in sync.
 bash "$APP/deploy/maintenance.test.sh"
 install -m 644 "$APP/deploy/myasis.cron" /etc/cron.d/myasis
+bash "$APP/deploy/public-site.sh"
 # pm2 remembers the environment a process was started with, and --update-env only
 # adds what the calling shell has. So the run limit is changed by giving it to this
 # script (MAX_CONCURRENT_RUNS=3 bash deploy.sh): it is handed to pm2 on the restart
@@ -166,5 +168,14 @@ install -m 644 "$APP/deploy/myasis.cron" /etc/cron.d/myasis
 RUN_LIMIT=""
 if [[ "${MAX_CONCURRENT_RUNS:-}" =~ ^[1-9][0-9]?$ ]]; then RUN_LIMIT="MAX_CONCURRENT_RUNS=$MAX_CONCURRENT_RUNS "; fi
 # The dashboard closes its browsers on SIGINT; pm2 waits for it before forcing.
-as_app "${RUN_LIMIT}pm2 restart myasis-dashboard --update-env --kill-timeout 30000 > /dev/null && pm2 save > /dev/null && echo restarted"
+as_app "${RUN_LIMIT}PUBLIC_SITE_URL=http://127.0.0.1:5190 pm2 restart myasis-dashboard --update-env --kill-timeout 30000 > /dev/null && pm2 save > /dev/null && echo restarted"
 as_app "cd $APP && pm2 startOrReload ecosystem.config.cjs --only market-scout --update-env > /dev/null && pm2 save > /dev/null && echo 'market research restarted'"
+# Fail the release if the public bridge is missing or serves a broken page.
+for attempt in {1..30}; do
+  if curl -fsS -D /tmp/myasis-public-headers -o /dev/null http://127.0.0.1:5180/ && grep -qi '^x-public-site: nextjs' /tmp/myasis-public-headers; then
+    echo 'Next.js public website verified'
+    break
+  fi
+  if [ "$attempt" = 30 ]; then echo 'public website bridge failed health check' >&2; exit 1; fi
+  sleep 1
+done

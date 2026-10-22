@@ -1,5 +1,12 @@
 # Deploy Myasis with PM2 on a VPS
 
+Public pages are served by the standalone Next.js process `owtomate-public-site`
+on loopback port 5190, behind the existing dashboard gateway. The dashboard,
+OAuth/API routes, database and application workers remain on their existing
+runtime. `deploy/deploy.sh` also builds/tests and activates isolated public-site
+releases, preserves old chunks during builds, and validates the nonce-aware CSP
+change in Caddy. See `public-site/README.md` for development and rollback.
+
 Myasis is a stateful Node application, not only a static Vite site. The dashboard
 serves API routes, starts the SEEK worker, talks to PostgreSQL, and connects to a
 persistent Chrome profile. Run one dashboard instance only.

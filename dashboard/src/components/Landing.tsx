@@ -106,9 +106,9 @@ function PriceRow({ row, cta }: { row: PriceRowSpec; cta: ReactNode }) {
   );
 }
 
-export function Landing({ googleConfigured }: { googleConfigured: boolean }) {
-  const [improvements]=useState(landingImprovements);
-  const [error] = useState(() => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('auth_error')));
+export function Landing({ googleConfigured, initialImprovements, initialAuthError }: { googleConfigured: boolean; initialImprovements?: WebsitePatch; initialAuthError?: string | null }) {
+  const [improvements]=useState(() => initialImprovements ?? landingImprovements());
+  const [error] = useState(() => initialAuthError !== undefined ? initialAuthError : (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('auth_error')));
   const [playError, setPlayError] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const autoPlayed = useRef(false);

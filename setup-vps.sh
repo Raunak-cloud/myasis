@@ -31,7 +31,7 @@ sudo apt-get install -y -qq curl wget git ca-certificates gnupg xvfb x11vnc font
 sudo timedatectl set-timezone Australia/Sydney || true
 
 say "2/8  Node.js 22 and PM2"
-if ! command -v node >/dev/null || [[ "$(node -v | cut -c2- | cut -d. -f1)" -lt 20 ]]; then
+if ! command -v node >/dev/null || [[ "$(node -v | cut -c2- | cut -d. -f1)" -lt 22 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
   sudo apt-get install -y -qq nodejs
 fi
@@ -91,10 +91,11 @@ if [[ -d "$APP_DIR/seek-bot" ]]; then
   echo "    Found $APP_DIR — installing dependencies"
   ( cd "$APP_DIR/seek-bot" && npm ci --include=dev --silent && npm run build )
   ( cd "$APP_DIR/dashboard" && npm ci --include=dev --silent && npm run build )
+  ( cd "$APP_DIR/public-site" && npm ci --include=dev --silent && npm run build )
 else
   warn "No app at $APP_DIR yet. Copy it up, then re-run this script:"
   echo "      rsync -av --exclude node_modules --exclude dist \\"
-  echo "        ./seek-bot ./dashboard ./profile.txt ./ecosystem.config.cjs $USER@$(hostname -I | awk '{print $1}'):$APP_DIR/"
+  echo "        ./seek-bot ./dashboard ./public-site ./profile.txt ./ecosystem.config.cjs $USER@$(hostname -I | awk '{print $1}'):$APP_DIR/"
 fi
 
 say "6/8  Configuration"
