@@ -129,6 +129,21 @@ try {
   assert.equal(failedRow.application.coverLetter, failedEdit.coverLetter);
   await assert.rejects(claimApplicationReviews('1', [select(failedEdit)]), /no longer ready/);
   assert.equal(await used(), failedUsage);
+  const retrySelection = { ...select(failedEdit), retry: true };
+  assert.throws(() => reviewSelection([{ ...retrySelection, retry: 'true' }]), /Reload/);
+  await assert.rejects(claimApplicationReviews('2', [retrySelection]), /no longer ready/);
+  await assert.rejects(claimApplicationReviews('1', [{ ...retrySelection, revision: failedLetter.revision }]), /no longer ready/);
+  assert.deepEqual(await applicationsForConfirmation('1', [retrySelection]), [failedEdit], 'explicit retries reuse the exact edited draft');
+  const retryClaims = await Promise.allSettled([claimApplicationReviews('1', [retrySelection]), claimApplicationReviews('1', [retrySelection])]);
+  assert.equal(retryClaims.filter(result => result.status === 'fulfilled').length, 1, 'concurrent retries can claim a failed draft only once');
+  await releaseApplicationReviews('1', [failedEdit.id], [retrySelection]);
+  assert.equal((await listApplicationReviews('1')).find(row => row.id === failedEdit.id)?.status, 'failed', 'a refused retry stays failed and requires another explicit retry');
+  await assert.rejects(claimApplicationReviews('1', [select(failedEdit)]), /no longer ready/);
+  await claimApplicationReviews('1', [retrySelection]);
+  await recordReviewedOutcome('1', failedEdit.id, 'already-applied', 'The board confirms the previous submission.');
+  assert.equal((await listApplicationReviews('1')).find(row => row.id === failedEdit.id)?.status, 'applied', 'an existing receipt reconciles the retry without a second send');
+  await assert.rejects(claimApplicationReviews('1', [retrySelection]), /no longer ready/);
+  assert.equal(await used(), failedUsage, 'retry claims, refused starts and recovered receipts spend no additional credits');
   console.log('PASS: editable letters preserve other answers, reject stale/foreign edits, invalidate old approvals and keep credits unchanged; 50-word preferences persist for all plans.');
 
   await pool.query("INSERT INTO monthly_application_usage VALUES (4,date_trunc('month',now())::date,$1)", [FREE_APPLICATIONS - 1]);
@@ -142,6 +157,11 @@ try {
   assert.equal((await applicationsForConfirmation('4', [select(paidPreparation)])).length, 1, 'confirmation is allowed at zero balance');
   await claimApplicationReviews('4', [select(paidPreparation)]);
   await recordReviewedOutcome('4', paidPreparation.id, 'error');
+  const exhaustedRetry = { ...select(paidPreparation), retry: true };
+  assert.equal((await applicationsForConfirmation('4', [exhaustedRetry])).length, 1, 'a prepaid failed application can retry at zero balance');
+  await claimApplicationReviews('4', [exhaustedRetry]);
+  await recordReviewedOutcome('4', paidPreparation.id, 'needs-human');
+  assert.equal(await used('4'), FREE_APPLICATIONS, 'another failed retry spends no extra credit');
   const retry = { ...paidPreparation, id: randomUUID(), preparedAt: '2027-01-01T00:00:00.000Z' };
   await saveApplicationReview('4', retry);
   assert.equal(await used('4'), FREE_APPLICATIONS, 'retrying a paid job after failure does not charge again');

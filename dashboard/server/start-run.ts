@@ -525,7 +525,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     started = true;
     return { ok: true, mode };
   } finally {
-    if (!started && approved.length) await releaseApplicationReviews(userId, approved.map(item => item.id));
+    if (!started && approved.length) await releaseApplicationReviews(userId, approved.map(item => item.id), selections ?? []);
     // Route selection happens before the runner reserves a slot. Any failure
     // between those two points must return the loan as well.
     if (borrowFreeProxy && !started) await releaseFreeProxy(userId).catch(() => {});

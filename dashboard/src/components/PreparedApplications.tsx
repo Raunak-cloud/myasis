@@ -75,12 +75,14 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
     } catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
   }
-  async function decide(action: 'submit' | 'dismiss') {
-    if (busy || running || editing || !chosen.length) return;
-    setBusy(true); setError('');
+  async function decide(action: 'submit' | 'dismiss', retry?: Review) {
+    const applications = retry ? [{ id: retry.id, revision: retry.application.revision, retry: true }]
+      : chosen.map(item => ({ id: item.id, revision: item.application.revision }));
+    if (busy || running || editing || !applications.length || retry && (action !== 'submit' || retry.status !== 'failed')) return;
+    setBusy(true); setError(''); setNotice('');
     try {
       const response = await fetch(`/api/application-reviews/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: action === 'submit', applications: chosen.map(item => ({ id: item.id, revision: item.application.revision })) }) });
+        body: JSON.stringify({ confirm: action === 'submit', applications }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save your choice.');
       setSelected(new Set());
@@ -116,6 +118,8 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
       </label>
       <span className={`prepared-status ${item.status}`}>{item.status === 'ready' ? 'Ready' : item.status === 'approved' ? 'Submitting' : item.status === 'applied' ? 'Submitted' : item.status === 'dismissed' ? 'Skipped' : 'Could not submit'}</span>
       {item.detail && <p className="job-meta prepared-detail">{item.detail}</p>}
+      {item.status === 'failed' && <button type="button" className="btn prepared-retry" disabled={running || busy || Boolean(editing)}
+        onClick={() => void decide('submit', item)}>Retry application</button>}
       <details><summary>Review application</summary>
         <div className="prepared-content">
         <p className="job-meta">Resume: {item.application.resume || 'No resume recorded'}</p>

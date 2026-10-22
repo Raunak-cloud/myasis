@@ -30,7 +30,7 @@ const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(pro
 const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
   application: { revision: String(index).repeat(64), job: { title: `Prepared Role ${index}`, company: 'Fixture Employer', location: 'Sydney', url: `https://fixture.invalid/job/${index}` },
     resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }))).map((row: any, index: number) => ({ ...row,
-      ...(failedLetterFixture && index === 0 ? { status: 'failed', detail: 'Fixture submission was not confirmed.' } : {}),
+      ...(failedLetterFixture && index === 0 && !approvedIds.has(row.id) ? { status: 'failed', detail: 'Fixture submission was not confirmed.' } : {}),
       application: letterEdits.get(row.id) ?? row.application }));
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
@@ -305,7 +305,7 @@ try {
     await page.screenshot({ path: resolve(import.meta.dirname, `../../output/semi-auto-${width}.png`), fullPage: true });
     await context.close();
   }
-  remainingCredits = 5;
+  remainingCredits = 0;
   failedLetterFixture = true; approvedFixture = false; approvedIds.clear(); letterEdits.clear();
   const failedContext = await browser.newContext();
   const failedPage = await failedContext.newPage();
@@ -314,7 +314,12 @@ try {
   const failedCard = failedPage.locator('.prepared-application').first();
   await failedCard.getByText('Review application', { exact: true }).click();
   assert.equal(await failedCard.getByRole('checkbox').isDisabled(), true);
+  const beforeRetry = writes.filter(write => write.path === '/api/application-reviews/submit').length;
+  assert.equal(await failedCard.getByRole('button', { name: 'Retry application', exact: true }).isEnabled(), true, 'a prepaid failure can retry at zero balance');
+  mkdirSync(resolve(import.meta.dirname, '../../output'), { recursive: true });
+  await failedPage.screenshot({ path: resolve(import.meta.dirname, '../../output/prepared-retry.png') });
   await failedCard.getByRole('button', { name: 'Edit cover letter', exact: true }).click();
+  assert.equal(await failedCard.getByRole('button', { name: 'Retry application', exact: true }).isDisabled(), true, 'unsaved edits cannot be retried');
   await failedCard.getByRole('textbox').fill('Revised failed application letter.');
   await failedCard.getByRole('button', { name: 'Save cover letter', exact: true }).click();
   await failedCard.getByRole('textbox').waitFor({ state: 'hidden' });
@@ -322,7 +327,17 @@ try {
   await failedCard.getByText('Could not submit', { exact: true }).waitFor();
   await failedCard.getByText('Fixture submission was not confirmed.', { exact: true }).waitFor();
   assert.equal(await failedCard.getByRole('checkbox').isDisabled(), true, 'editing a failed application cannot authorize a retry');
+  assert.equal(writes.filter(write => write.path === '/api/application-reviews/submit').length, beforeRetry, 'editing alone never submits a failed application');
+  const retryRow = preparedRows()[0];
+  await failedCard.getByRole('button', { name: 'Retry application', exact: true }).click();
+  await failedCard.getByText('Submitting', { exact: true }).waitFor();
+  await failedCard.getByRole('button', { name: 'Retry application', exact: true }).waitFor({ state: 'hidden' });
+  assert.deepEqual(writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body,
+    { confirm: true, applications: [{ id: retryRow.id, revision: retryRow.application.revision, retry: true }] }, 'retry submits only the failed row and its current edited version');
+  assert.equal(writes.filter(write => write.path === '/api/application-reviews/submit').length, beforeRetry + 1);
+  assert.equal(remainingCredits, 0);
   await failedContext.close(); failedLetterFixture = false;
+  remainingCredits = 5;
   preparedFixture = false;
   const emptyContext = await browser.newContext();
   const emptyPage = await emptyContext.newPage();
@@ -384,7 +399,7 @@ try {
     await skippedPage.getByText(skippedFixture ? 'Skipped Fixture Role' : 'Nothing skipped lately', { exact: true }).waitFor();
   }
   await skippedContext.close();
-  console.log('PASS: application controls, employer feeds, search-only tests, candidate answers and skipped retention notice; fixture APIs only');
+  console.log('PASS: application controls, prepared retries, employer feeds, search-only tests, candidate answers and skipped retention notice; fixture APIs only');
 } finally {
   await browser.close();
   await new Promise<void>(done => liveSockets.close(() => done()));

@@ -6,7 +6,7 @@ import { isAdmin } from './admin-access.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
 
-export interface ReviewSelection { id: string; revision: string }
+export interface ReviewSelection { id: string; revision: string; retry?: boolean }
 export class ApplicationReviewError extends Error {}
 const recovered = new Set<string>();
 
@@ -22,7 +22,8 @@ export async function recoverApplicationReviews(userId: string): Promise<void> {
 export function reviewSelection(value: unknown): ReviewSelection[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 10) throw new ApplicationReviewError('Select between 1 and 10 prepared applications.');
   if (!value.every(item => item && typeof item.id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(item.id)
-    && typeof item.revision === 'string' && /^[a-f0-9]{64}$/i.test(item.revision))
+    && typeof item.revision === 'string' && /^[a-f0-9]{64}$/i.test(item.revision)
+    && (item.retry === undefined || typeof item.retry === 'boolean'))
     || new Set(value.map(item => item.id)).size !== value.length) throw new ApplicationReviewError('Reload the prepared applications and select them again.');
   return value;
 }
@@ -73,8 +74,12 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
 
 interface ConfirmationRow { id: string; status: string; payload: PreparedApplication; credit_consumed: boolean }
 function confirmedVersions(rows: ConfirmationRow[], selections: ReviewSelection[]): PreparedApplication[] {
-  if (rows.length !== selections.length || rows.some(row => row.status !== 'ready' || !row.credit_consumed
-    || row.payload.revision !== selections.find(item => item.id === row.id)?.revision)) {
+  const selected = new Map(selections.map(item => [item.id, item]));
+  if (rows.length !== selections.length || rows.some(row => {
+    const selection = selected.get(row.id);
+    return row.status !== (selection?.retry === true ? 'failed' : 'ready') || !row.credit_consumed
+      || row.payload.revision !== selection?.revision;
+  })) {
     throw new ApplicationReviewError('An application changed or is no longer ready. Reload and review it again.');
   }
   return selections.map(item => rows.find(row => row.id === item.id)!.payload);
@@ -127,8 +132,12 @@ export async function claimApplicationReviews(userId: string, selections: Review
   finally { connection.release(); }
 }
 
-export async function releaseApplicationReviews(userId: string, ids: string[]): Promise<void> {
-  await query("UPDATE application_reviews SET status='ready',updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[]) AND status='approved'", [userId, ids]);
+export async function releaseApplicationReviews(userId: string, ids: string[], selections: ReviewSelection[] = []): Promise<void> {
+  const retries = selections.filter(item => item.retry === true).map(item => item.id);
+  await query(`UPDATE application_reviews SET
+    status=CASE WHEN id=ANY($3::uuid[]) THEN 'failed' ELSE 'ready' END,
+    detail=CASE WHEN id=ANY($3::uuid[]) THEN 'The retry did not start. You can retry this application again.' ELSE detail END,
+    updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[]) AND status='approved'`, [userId, ids, retries]);
 }
 
 export async function dismissApplicationReviews(userId: string, selections: ReviewSelection[]): Promise<void> {
@@ -146,6 +155,6 @@ export async function recordReviewedOutcome(userId: string, reviewId: string, st
 
 export async function finishApplicationReviews(userId: string): Promise<void> {
   await query(`UPDATE application_reviews SET status='failed',
-    detail='The run ended before submission was confirmed. Check the activity before preparing this job again.',updated_at=now()
+    detail='Submission was not confirmed. You can retry this application.',updated_at=now()
     WHERE user_id=$1 AND status='approved'`, [userId]);
 }

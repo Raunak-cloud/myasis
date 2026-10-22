@@ -236,7 +236,8 @@ async function main() {
       if (job.alreadyApplied) rememberExistingApplication(job, reason);
       bump('already applied');
       console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
-      logOutcome({ status: 'already-applied', jobId: job.id, reason, title: job.title, company: job.company, url: job.url });
+      logOutcome({ status: 'already-applied', jobId: job.id, reason, title: job.title, company: job.company, url: job.url,
+        reviewId: approvedApplication(job)?.id });
       return true;
     };
     /**
@@ -278,7 +279,7 @@ async function main() {
 
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
 
-        const prior = reviewCache.suppression(job, reviewContext);
+        const prior = approvedApplication(job) ? undefined : reviewCache.suppression(job, reviewContext);
         if (prior) {
           bump(`recent ${prior.disposition}`);
           continue;
