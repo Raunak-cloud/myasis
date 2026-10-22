@@ -133,7 +133,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const coverLetterForRun = (text: string) => approved?.coverLetter ?? cleanCoverLetter(text);
   const reviewInstruction = !reviewingApplications() ? '' : preparingApplications()
     ? 'SEMI AUTO: fill this application completely, including its documents and letter, but do not send it. At the final review call prepare_application with the exact answers, selected resume ID and letter. Only the candidate can authorize sending later. Use observed controls; browser scripts and coordinate actions are unavailable in this mode.'
-    : `SUBMIT ONLY THIS APPROVED APPLICATION. The browser is already at its allowed entry point. Inspect the actual saved answers, letter and resume; keep matching values instead of refilling them or re-uploading unchanged documents. If the saved review is unavailable, follow observed application controls; do not navigate to formUrl yourself (some boards share that address across different jobs). Reopen/refill only missing or different fields using these exact approved answers, letter and resume; do not rewrite or paraphrase the recorded question labels or answers. Call prepare_application with the selected resume ID after inspecting it; answers from earlier steps are retained, so only supply additions/corrections using actual question labels. If the form asks new questions, complete truthfully and save it for review again. The submission gate checks the actual content. ${JSON.stringify(approved)}`;
+    : `SUBMIT ONLY THIS APPROVED APPLICATION. The browser is already at its allowed entry point. Inspect the actual saved answers, letter and resume; keep matching values instead of refilling them or re-uploading unchanged documents. At a complete final review, compare the saved content in place, call prepare_application, then submit. Do not open an optional employer preview or revisit completed steps unless needed to resolve missing or mismatched content. If the saved review is unavailable, follow observed application controls; do not navigate to formUrl yourself (some boards share that address across different jobs). Reopen/refill only missing or different fields using these exact approved answers, letter and resume; do not rewrite or paraphrase the recorded question labels or answers. Call prepare_application with the selected resume ID after inspecting it; answers from earlier steps are retained, so only supply additions/corrections using actual question labels. If the form asks new questions, complete truthfully and save it for review again. The submission gate checks the actual content. ${JSON.stringify(approved)}`;
   const messages: ChatMessage[] = [
     { role: 'system', content: `${AGENT_ONLY_PROMPT}\n${APPLICATION_WRITING_STYLE}\n${coverLetterInstructionPrompt(applicationModelEnvironment().COVER_LETTER_INSTRUCTIONS)}` },
     // The first two messages survive both observation compaction and budget
@@ -150,10 +150,15 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const remainingMs = () => config.celeris.maxTotalMs - (Date.now() - started);
   const watched = new Set<Page>();
   const dialogs = new Map<Page, import('patchright').Dialog>();
+  const popups = new Map<Page, Page[]>();
+  const popupListeners = new Map<Page, (popup: Page) => void>();
   const listen = (page: Page) => {
     if (watched.has(page)) return;
     watched.add(page);
     page.on('dialog', onDialog);
+    const opened = (popup: Page) => { popups.set(page, [...(popups.get(page) ?? []), popup]); };
+    popupListeners.set(page, opened);
+    page.on('popup', opened);
   };
   const onDialog = (dialog: import('patchright').Dialog) => { const page = dialog.page(); if (page) dialogs.set(page, dialog); };
   listen(ctx.page);
@@ -166,6 +171,17 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     for (const page of context.pages()) listen(page);
   };
   watchContext(browserContext);
+  const followPopup = async (): Promise<boolean> => {
+    const opened = (popups.get(ctx.page) ?? []).filter(page => !page.isClosed());
+    popups.delete(ctx.page);
+    // Follow only a unique child of this attempt's current page. Other tabs
+    // and ambiguous multi-window flows remain for the agent to inspect.
+    if (opened.length !== 1) return false;
+    ctx.page = opened[0];
+    listen(ctx.page);
+    selectRemotePage(ctx.page); await workingIn(ctx.page);
+    return true;
+  };
   const routeEmployer = async () => {
     const page = await options.routeEmployerPage?.(ctx.page) ?? ctx.page;
     if (page === ctx.page) return false;
@@ -354,7 +370,20 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       case 'scroll': await ctx.page.mouse.wheel(Number(args.x ?? 0), Number(args.y ?? 650)); break;
       case 'press': if (args.ref || args.selector) await target(ctx, args).press(value, { timeout: 8_000 }); else await ctx.page.keyboard.press(value); break;
-      case 'click': if (typeof args.x === 'number' && typeof args.y === 'number') await ctx.page.mouse.click(args.x, args.y); else await target(ctx, args).click({ timeout: 8_000 }); break;
+      case 'click': {
+        if (typeof args.x === 'number' && typeof args.y === 'number') await ctx.page.mouse.click(args.x, args.y);
+        else {
+          const element = target(ctx, args);
+          const opensTab = await element.evaluate(node => node.closest('a')?.target === '_blank', undefined, { timeout: 2500 }).catch(() => false);
+          // An explicit new-tab link can return from click before its first
+          // response creates the popup. Await that event only for such links;
+          // ordinary controls incur no speculative popup timeout.
+          const opened = opensTab ? ctx.page.waitForEvent('popup', { timeout: 8_000 }).catch(() => null) : undefined;
+          await element.click({ timeout: 8_000 });
+          if (opened) await opened;
+        }
+        break;
+      }
       case 'hover': await target(ctx, args).hover({ timeout: 8_000 }); break;
       case 'check': await target(ctx, args).setChecked(value !== 'false', { timeout: 8_000 }); ctx.captured.push({ question: actionLabel || String(args.ref ?? args.selector), answer: value !== 'false' ? 'checked' : 'unchecked' }); break;
       case 'select': await target(ctx, args).selectOption({ label: value }, { timeout: 8_000 }).catch(() => target(ctx, args).selectOption(value, { timeout: 8_000 })); ctx.captured.push({ question: actionLabel || String(args.ref ?? args.selector), answer: value }); break;
@@ -368,6 +397,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       default: throw new Error('Unknown browser action.');
     }
+    if (args.action === 'click' && await followPopup()) {
+      return ok('The clicked control opened a new tab. Switched to that tab; inspect its fresh observation before continuing.', 'reobserve');
+    }
     return ok(`Action executed: ${args.action}${actionLabel ? ` on ${JSON.stringify(actionLabel)}` : ''}. Read the new observation to judge what saved or changed.`);
   };
 
@@ -378,6 +410,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         if (!open.length) { terminal = { status: 'skipped', reason: 'The application browser closed.' }; break; }
         ctx.page = open.at(-1)!;
       }
+      if (await followPopup()) lastNote = 'The previous control opened a new tab. Read the new page before acting.';
       await routeEmployer();
       if (applicationBrowserName(ctx.page) === 'brightdata' && await hasCaptchaSurface(ctx.page)) {
         const cleared = await waitForChallengeToClear(ctx.page, Math.min(60_000, remainingMs()));
@@ -460,7 +493,11 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     activity.close();
     clearTimeout(deadline);
     for (const context of contexts) context.off('page', onPage);
-    for (const page of watched) { page.off('dialog', onDialog); await dialogs.get(page)?.dismiss().catch(() => {}); }
+    for (const page of watched) {
+      page.off('dialog', onDialog);
+      const opened = popupListeners.get(page); if (opened) page.off('popup', opened);
+      await dialogs.get(page)?.dismiss().catch(() => {});
+    }
     if (isolated) await browserContext.unroute('**/*', sandbox);
   }
 }

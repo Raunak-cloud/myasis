@@ -158,6 +158,7 @@ try {
       assert.ok(expectedApproved);
       assert.ok(body.messages[1].content.includes(JSON.stringify(expectedApproved)), 'the exact approved application survives observation compaction on every model turn');
       assert.match(body.messages[1].content, /SUBMIT ONLY THIS APPROVED APPLICATION/);
+      assert.match(body.messages[1].content, /Do not open an optional employer preview/);
       assert.doesNotMatch(body.messages[1].content, /SOURCE 1, character/, 'approved runs load the document inventory; full evidence remains available on demand');
     }
     assert.ok(call, 'the browser completes within the planned turns');
@@ -165,7 +166,10 @@ try {
       const fields = call.args.fields as Array<{ ref: string; value: string }>;
       fields[0].ref = (await page.locator('#letter').getAttribute('data-field-id'))!;
     }
-    return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `e2e-${++turn}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
+    // A stale plan may repeat Apply before noticing its popup. The handoff
+    // must cancel that second click and require a fresh form observation.
+    const plan = call.args.selector === '#entry' && /\/jobs\/[135]$/.test(page.url()) ? [call, call] : [call];
+    return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: plan.map(item => ({ id: `e2e-${++turn}`, type: 'function', function: { name: item.name, arguments: JSON.stringify(item.args) } })) } }] });
   }) as typeof fetch;
   const authoredLetter = 'Dear employer,\n\nI am interested in this developer role — I build reliable software.\n\nFixture Applicant';
   const letter = cleanCoverLetter(authoredLetter);
@@ -181,14 +185,14 @@ try {
     process.env.APPLICATION_REVIEW_MODE = 'prepare';
     expectedControlSends = false;
     await page.goto(fixture.url);
-    calls = [{ name: 'browser_action', args: { action: 'click', selector: '#entry' } },
-      ...(Number(fixture.id) % 2 ? [{ name: 'browser_action', args: { action: 'select_page', page_index: 1 } }] : []), ...fill()];
+    calls = [{ name: 'browser_action', args: { action: 'click', selector: '#entry' } }, ...fill()];
     const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
     assert.equal(result.outcome.status, 'prepared', `${fixture.title} is filled and held for review`);
     assert.ok(result.outcome.status === 'prepared');
     assert.equal(result.submitPressed, false);
     assert.equal(submissions.length, 0, 'preparing five applications never sends any of them');
     assert.equal(calls.length, 0);
+    assert.equal(page.context().pages().length, Number(fixture.id) % 2 ? 2 : 1, 'popup forms open once and are followed without another Apply click or model tab-selection turn');
     const draft = result.outcome.draft;
     assert.ok(draft.answers.some(answer => answer.question === 'Availability' && answer.answer === 'Two weeks'));
     assert.equal(draft.coverLetter, letter);
