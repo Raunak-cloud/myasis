@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { getPool, one, query } from './db/index.js';
 import { resolveStored } from './files.js';
-import { gmailConnection, gmailRequest } from './gmail-connection.js';
+import { gmailRequest } from './gmail-connection.js';
 import { applicationRevision } from '../../seek-bot/src/application-review-content.js';
 import { applicationEmailMessage, applicationEmailMessageId } from '../../seek-bot/src/application-email-message.js';
 import { GmailServiceError } from '../../seek-bot/src/gmail-mcp-service.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 import type { EmailReceipt } from '../../seek-bot/src/gmail-mcp-client.js';
+import { gmailAccess } from './gmail-access.js';
+import { withGmailBrowser, sendBrowserApplication } from '../../seek-bot/src/gmail-browser.js';
 
 interface SendRow { status: string; message_id: string | null; thread_id: string | null }
 async function recordReceipt(userId: string, draft: PreparedApplication, receipt: EmailReceipt): Promise<EmailReceipt> {
@@ -30,7 +32,7 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
     'SELECT status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2', [userId, reviewId]);
   if (!row || !['approved', 'applied'].includes(row.status) || !row.credit_consumed || !row.payload.email
     || row.payload.revision !== revision || applicationRevision(row.payload) !== revision) throw new GmailServiceError('unapproved', 'Review and confirm this exact email application.');
-  const draft = row.payload, connection = await gmailConnection(userId);
+  const draft = row.payload, connection = await gmailAccess(userId);
   if (!connection.connected || !connection.account) throw new GmailServiceError('reconnect', 'Connect Gmail in Setup.');
   const owner = await one<{ email: string }>('SELECT email FROM profiles WHERE user_id=$1', [userId]);
   if (owner?.email.toLowerCase() !== connection.account.toLowerCase()) throw new GmailServiceError('reconnect', 'Connect the Gmail address in your application profile.');
@@ -55,6 +57,9 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
       throw error;
     });
   const reconcile = async (): Promise<EmailReceipt | null> => {
+    // A browser send without a definite receipt remains blocked for review.
+    // Do not infer successful delivery or resend from matching subject text.
+    if (connection.provider === 'browser') return null;
     const found = await gmailRequest<{ messages?: Array<{ id: string; threadId: string }> }>(userId, 'messages', {
       params: { q: `in:sent rfc822msgid:${applicationEmailMessageId(reviewId, revision)}`, maxResults: 2 } });
     const message = found.messages?.[0];
@@ -66,7 +71,9 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
     throw new GmailServiceError('uncertain', 'A prior email send is still uncertain. Check Sent before retrying.');
   }
   try {
-    const sent = await gmailRequest<{ id: string; threadId?: string }>(userId, 'messages/send', { method: 'POST', data: { raw } });
+    const sent: { id: string; threadId?: string } = connection.provider === 'browser'
+      ? await withGmailBrowser(userId, page => sendBrowserApplication(page, draft, connection.account!, resume, stored.fileName))
+      : await gmailRequest<{ id: string; threadId?: string }>(userId, 'messages/send', { method: 'POST', data: { raw } });
     if (!sent.id) throw new GmailServiceError('uncertain', 'No email receipt returned.');
     return await recordReceipt(userId, draft, { messageId: sent.id, threadId: sent.threadId });
   } catch (error) {

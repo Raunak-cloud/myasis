@@ -33,7 +33,7 @@ export class GmailMcpClient {
         fetch: async (input, init) => {
           const headers = new Headers(init?.headers);
           headers.set('Authorization', `Bearer ${this.connection.token}`);
-          const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(25_000)]) : AbortSignal.timeout(25_000);
+          const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000);
           return this.network(input, { ...init, headers, signal, redirect: 'error' });
         }, requestInit: { redirect: 'error' },
       });
@@ -44,7 +44,7 @@ export class GmailMcpClient {
   }
   private async call(name: 'search_threads' | 'get_thread' | 'send_application_email', args: Record<string, unknown>): Promise<Record<string, unknown>> {
     try {
-      const result = await (await this.connected()).callTool({ name, arguments: args }, undefined, { timeout: 25_000 });
+      const result = await (await this.connected()).callTool({ name, arguments: args }, undefined, { timeout: name === 'send_application_email' ? 120_000 : 60_000 });
       if (result.isError) {
         const code = (result.structuredContent as Record<string, unknown> | undefined)?.code;
         if (code === 'reconnect') throw new GmailConnectionError('Reconnect Gmail in Setup. Mailbox authorization is unavailable.');

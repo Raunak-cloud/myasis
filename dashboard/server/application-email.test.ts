@@ -19,7 +19,8 @@ test('production email backend validates exact approvals and attachments; uncert
   const resume = Buffer.from('Exact fixture resume bytes');
   assert.equal(resolve(directory).startsWith(resolve(USERS_DIR) + (process.platform === 'win32' ? '\\' : '/')), true);
   mkdirSync(join(directory, 'resumes'), { recursive: true }); writeFileSync(join(directory, 'resumes', 'CV.txt'), resume);
-  const originals = { query: pool.query, connect: pool.connect, request: OAuth2Client.prototype.request, key: process.env.GMAIL_TOKEN_ENCRYPTION_KEY };
+  const originals = { query: pool.query, connect: pool.connect, request: OAuth2Client.prototype.request, key: process.env.GMAIL_TOKEN_ENCRYPTION_KEY, public: process.env.GMAIL_MCP_PUBLIC_ENABLED };
+  process.env.GMAIL_MCP_PUBLIC_ENABLED = 'true';
   process.env.GMAIL_TOKEN_ENCRYPTION_KEY = 'fixture-only-encryption-key';
   const encrypted = encryptGmailToken(owner, 'private-fixture-refresh');
   const reviews = new Map<string, { status: string; payload: PreparedApplication; credit_consumed: boolean }>();
@@ -28,6 +29,8 @@ test('production email backend validates exact approvals and attachments; uncert
   const applied = new Set<string>(), delivered = new Map<string, { id: string; threadId: string }>();
   let attempts = 0, mode: 'success' | 'uncertain-sent' | 'uncertain-unsent' | 'rejected' = 'success';
   const sql = async (statement: string, params: any[] = []) => {
+    if (statement.startsWith('SELECT u.email,p.email')) return { rows: [{ email: 'candidate@fixture.invalid', profile_email: 'candidate@fixture.invalid' }] };
+    if (statement.startsWith('SELECT key,value FROM settings')) return { rows: [] };
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [] };
     if (statement.includes('FROM application_reviews')) return { rows: params[0] === owner && reviews.has(params[1]) ? [reviews.get(params[1])] : [] };
     if (statement.startsWith('SELECT gmail_email')) return { rows: [{ current: true, same_address: true, gmail_email: 'candidate@fixture.invalid', scope: `${GMAIL_READ_SCOPE} ${GMAIL_SEND_SCOPE}`, last_error: null }] };
@@ -112,6 +115,7 @@ test('production email backend validates exact approvals and attachments; uncert
   } finally {
     pool.query = originals.query; pool.connect = originals.connect; OAuth2Client.prototype.request = originals.request;
     if (originals.key === undefined) delete process.env.GMAIL_TOKEN_ENCRYPTION_KEY; else process.env.GMAIL_TOKEN_ENCRYPTION_KEY = originals.key;
+    if (originals.public === undefined) delete process.env.GMAIL_MCP_PUBLIC_ENABLED; else process.env.GMAIL_MCP_PUBLIC_ENABLED = originals.public;
     rmSync(directory, { recursive: true, force: true });
   }
 });

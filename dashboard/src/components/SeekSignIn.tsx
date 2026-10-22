@@ -32,7 +32,7 @@ type Status = {
   checking?: boolean;
 };
 
-const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed' } as const;
+const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed', gmail: 'Gmail' } as const;
 
 export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVerifyingChange }: {
   indeedEnabled?: boolean;
@@ -78,7 +78,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
           setStatus(current => current?.session ? {...current, session: {...current.session, state: 'recovering', message: 'Restoring your sign-in window after the connection stopped...'}} : current);
           try {
             const restored = await fetch('/api/signin/session', { method: 'POST', headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({target: previous.target ?? 'seek', manual: true, resumeUntil: previous.expiresAt}) });
+              body: JSON.stringify({target: previous.target ?? 'seek', manual: true, resumeUntil: previous.expiresAt, ...(previous.target === 'gmail' ? { consent: true } : {})}) });
             const result = await restored.json();
             if (epoch !== requestEpoch.current) return;
             if (restored.ok && result.session) { setStatus({...body, session: result.session}); return; }
@@ -125,7 +125,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     return () => clearInterval(tick);
   }, [activeSession, refresh]);
 
-  async function open(target: 'seek' | 'indeed' = 'seek', manual = false) {
+  async function open(target: 'seek' | 'indeed' | 'gmail' = 'seek', manual = false) {
     if (acting.current) return;
     acting.current = true;
     requestEpoch.current++;
@@ -138,7 +138,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
       const response = await fetch(path, {
         method: 'POST',
         headers: status?.supported ? { 'Content-Type': 'application/json' } : undefined,
-        body: status?.supported ? JSON.stringify({ target, manual }) : undefined,
+        body: status?.supported ? JSON.stringify({ target, manual, ...(target === 'gmail' ? { consent: true } : {}) }) : undefined,
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? 'Could not open the browser.');
@@ -167,6 +167,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
       setStatus({ supported: true, session: null, seek, indeed });
       window.dispatchEvent(new Event(BOARDS_CHANGED));
       // Only the site that was just checked can say anything new.
+      if (target === 'gmail') window.dispatchEvent(new Event('gmail-connection-changed'));
       if (verifySignIn && (target === 'seek' || target === 'indeed')) {
         const site = target === 'seek' ? seek : indeed;
         const name = SITE_NAME[target];
@@ -281,7 +282,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
         <div className="seek-window-bar">
           <span className={`seek-dot ${connected ? 'on' : ''}`} aria-hidden="true" />
           <span className="seek-window-title">
-            {status.session.target === 'indeed' ? 'Indeed sign-in' : 'SEEK sign-in'}
+            {`${SITE_NAME[status.session.target ?? 'seek']} sign-in`}
           </span>
           <span className="job-meta seek-window-time">{minutesLeft} min left</span>
           <button className="btn btn-small" disabled={busy} onClick={() => void close(false)}>

@@ -53,16 +53,29 @@ The bot uses their email, a private site-specific password and connected Gmail
 for emailed codes. Government jobs follow the same candidate-fit rules as other
 jobs. Payment destinations stay blocked.
 
-Gmail access is through Owtomate's private MCP service only. Candidates connect
-the Gmail address in their profile from Setup using Google OAuth. The OAuth
+Gmail has two explicit connection methods in Settings. While
+`GMAIL_MCP_PUBLIC_ENABLED=false`, normal users authorize their own saved Chrome
+Gmail session; admins can select browser Gmail or Google OAuth/MCP. Never
+enable public OAuth access before Google approves the requested scopes.
+After approval, `GMAIL_MCP_PUBLIC_ENABLED=true` offers normal users OAuth/MCP;
+they must explicitly consent in Google before it is used. No silent fallback
+between methods occurs. Browser consent is separate from Google SSO on a board.
+Both backends run behind the same private per-run MCP gateway, with exact
+approval and account isolation enforced on the server. Browser operations
+attach only to that account's run's loopback Chrome port, including when an
+employer form runs in a separate browser. They close their mailbox tabs after
+each operation. Verification bodies are parsed locally, without an AI request.
+The OAuth
 project needs Gmail API enabled and `gmail.readonly` plus `gmail.send` consent;
 Google's verification requirements still apply. The connection reuses the
 existing Google sign-in callback. Set `GMAIL_TOKEN_ENCRYPTION_KEY` once on the
 server; refresh tokens stay encrypted in Postgres and never reach a worker.
 Each run receives a short-lived MCP capability for its own account. Email-only
 applications save the recipient, subject, letter and resume for review. Confirmed
-emails send through MCP without launching Chrome or repeating model turns.
-Unknown send outcomes are reconciled against Sent and never blindly resent.
+OAuth emails send without launching Chrome or repeating model turns; browser
+emails use a deterministic compose/upload/send flow in the saved session.
+Unknown OAuth sends are reconciled against Sent. An unknown browser send is
+held for inspection. Neither path blindly resends an uncertain application.
 
 ## Use
 

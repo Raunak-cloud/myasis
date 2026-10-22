@@ -36,7 +36,7 @@ import { applicationsForConfirmation, claimApplicationReviews, pendingReviewKeys
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
-import { gmailConnection } from './gmail-connection.js';
+import { gmailAccess } from './gmail-access.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -250,7 +250,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   } catch (error) { return { ok: false, status: 409, error: (error as Error).message }; }
   const prepaidExternal = prepaid.filter(item => item.job.applicationMode === 'external' || isExternalApplicationUrl(item.formUrl)).length;
   const emailOnly = prepaid.length > 0 && prepaid.every(item => item.email);
-  if (prepaid.some(item => item.email) && !(await gmailConnection(userId)).connected) return { ok: false, status: 409, error: 'Connect Gmail in Setup before confirming email applications.' };
+  const gmail = await gmailAccess(userId);
+  const needsBrowser = !emailOnly || gmail.provider === 'browser';
+  if (prepaid.some(item => item.email) && !gmail.connected) return { ok: false, status: 409, error: 'Connect Gmail in Settings before confirming email applications.' };
   if (request.oneTime?.maxApplications !== undefined) overrides.MAX_APPS_PER_RUN = String(request.oneTime.maxApplications);
   if (request.oneTime?.maxEvaluations !== undefined) overrides.MAX_EVALUATIONS = String(request.oneTime.maxEvaluations);
   /**
@@ -398,13 +400,13 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * checks already going are waited for; only then is anything else holding
    * the profile a browser nobody is using any more.
    */
-  if (!emailOnly && sessionFor(userId)) {
+  if (needsBrowser && sessionFor(userId)) {
     // Only the account holder pressing Start ends their own sign-in; nobody else closes a window they are using.
     if (trigger !== 'manual') return { ok: false, status: 409, error: 'A sign-in is in progress for this account.' };
     await stopSignin(userId);
   }
 
-  if (!emailOnly) {
+  if (needsBrowser) {
     const browserReady = await waitForSigninChecks(userId);
     if (!browserReady.ok) return { ok: false, status: 409, error: browserReady.error };
   }
@@ -479,7 +481,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       overrides.MAX_EVALUATIONS = String(approved.length);
     }
     // Decided as late as possible, so the run starts on the route that is up now rather than a minute ago.
-    if (!emailOnly) {
+    if (needsBrowser) {
       const route = await browserRoute(userId, borrowFreeProxy);
       if (route.proxyServer) {
         overrides.BROWSER_PROXY_SERVER = route.proxyServer;

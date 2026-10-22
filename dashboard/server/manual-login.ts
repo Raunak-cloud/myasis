@@ -23,7 +23,7 @@ export function openSeekManualLogin(
    * or worse, finds somebody else's.
    */
   chromeProfileDir?: string,
-  target: 'seek' | 'indeed' = 'seek',
+  target: 'seek' | 'indeed' | 'gmail' = 'seek',
 ): Promise<ManualLoginResult> {
   if (env.BROWSER_CONNECT_CDP === 'true') {
     return Promise.resolve({
@@ -73,7 +73,7 @@ export function openSeekManualLogin(
         '--new-window',
         '--no-first-run',
         '--no-default-browser-check',
-        target === 'indeed'
+        target === 'gmail' ? 'https://mail.google.com/' : target === 'indeed'
           ? 'https://secure.indeed.com/account/login?hl=en_AU&co=AU'
           : 'https://www.seek.com.au/',
       ],

@@ -49,8 +49,9 @@ import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { checkSignin, seekCheckInProgress, signOutOfBoard, waitForSigninChecks } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
-import { beginGmailConnection, finishGmailConnection, gmailConnection, disconnectGmail, clearGmailCookie } from './server/gmail-connection.js';
+import { beginGmailConnection, finishGmailConnection, disconnectGmail, clearGmailCookie } from './server/gmail-connection.js';
 import { checkGmailMcp } from './server/gmail-mcp.js';
+import { gmailAccess, selectGmailProvider, allowBrowserGmail, disableBrowserGmail } from './server/gmail-access.js';
 import { GmailConnectionError } from '../seek-bot/src/gmail-mcp-client.js';
 import { GmailServiceError } from '../seek-bot/src/gmail-mcp-service.js';
 import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
@@ -681,11 +682,19 @@ function dataApi(): Plugin {
             }
             // Same window, same profile; only the page it opens on differs.
             const body = await readBody();
-            if (body?.target === 'gmail') return send({ error: 'Gmail browser sign-in has been removed. Connect Gmail from Setup.' }, 410);
-            const target = body?.target === 'indeed' ? 'indeed' : 'seek';
+            const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'indeed' ? 'indeed' : 'seek';
+            if (target === 'gmail') {
+              const access = await gmailAccess(userId);
+              if (!access.providers.includes('browser')) return send({ error: 'Browser Gmail is unavailable for this account.' }, 403);
+              if (body?.consent !== true) return send({ error: 'Confirm Gmail mailbox access before connecting.' }, 400);
+              const owner = await currentUser(req.headers?.cookie);
+              const allowance = await billingStatus(userId, owner?.email);
+              if (!isAdmin(owner?.email) && !allowance.paid.hasActiveIntensivePass) return send({ error: 'Gmail access requires an Intensive plan.' }, 403);
+            }
             const result = await startSignin(userId, target, { assist: body?.manual !== true,
               expiresAt: typeof body?.resumeUntil === 'number' ? body.resumeUntil : undefined });
             if (!result.ok) return send({ error: result.error }, 409);
+            if (target === 'gmail') await allowBrowserGmail(userId);
             return send({ ok: true, supported: true, session: result.session });
           }
           if (req.method === 'DELETE') {
@@ -757,7 +766,11 @@ function dataApi(): Plugin {
           if (runner.stateFor(userId).running) {
             return send({ error: 'Stop your current run before opening a job-board sign-in window.' }, 409);
           }
-          const target = url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
+          const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
+          if (target === 'gmail') {
+            if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
+            await allowBrowserGmail(userId);
+          }
           const result = await openSeekManualLogin(readEnv(), userChromeDir(userId), target);
           return send(result.ok ? { ok: true } : { error: result.error }, result.ok ? 200 : 409);
         });
@@ -816,7 +829,9 @@ function dataApi(): Plugin {
             if (!user) throw new GmailServiceError('unapproved', 'Sign in to Owtomate before connecting Gmail.');
             const allowance = await billingStatus(user.id, user.email);
             if (!isAdmin(user.email) && !allowance.paid.hasActiveIntensivePass) throw new GmailServiceError('unapproved', 'Gmail access requires an Intensive plan.');
+            if (!(await gmailAccess(user.id)).providers.includes('mcp')) throw new GmailServiceError('unapproved', 'Gmail MCP is awaiting verification. Use browser Gmail in Settings.');
             await finishGmailConnection(user.id, url, req.headers?.cookie);
+            await selectGmailProvider(user.id, 'mcp');
             await checkGmailMcp(user.id);
           } catch (reason) { error = reason instanceof GmailServiceError || reason instanceof GmailConnectionError ? reason.message : 'Gmail connection could not complete. Retry from Setup.'; }
           res.statusCode = 302;
@@ -969,19 +984,30 @@ function dataApi(): Plugin {
       case '/api/gmail/status':
         return withUser(async (userId) => {
           const user = await currentUser(req.headers?.cookie);
-          if (url.pathname === '/api/gmail/connection' && req.method === 'DELETE') { await disconnectGmail(userId); return send({ ok: true }); }
+          if (url.pathname === '/api/gmail/connection' && req.method === 'DELETE') {
+            if (runner.inUse(userId)) return send({ error: 'Stop your run before changing Gmail access.' }, 409);
+            if ((await gmailAccess(userId)).provider === 'browser') await disableBrowserGmail(userId); else await disconnectGmail(userId);
+            return send({ ok: true });
+          }
+          if (url.pathname === '/api/gmail/connection' && req.method === 'PATCH') {
+            if (runner.inUse(userId)) return send({ error: 'Stop your run before changing Gmail access.' }, 409);
+            try { await selectGmailProvider(userId, (await readBody())?.provider); return send({ ok: true }); }
+            catch (error) { return send({ error: (error as Error).message }, 403); }
+          }
           const allowance = await billingStatus(userId, user?.email);
           const eligible = isAdmin(user?.email) || allowance.paid.hasActiveIntensivePass;
           if (url.pathname === '/api/gmail/connect') {
             if (req.method !== 'POST') return send({ error: 'POST required.' }, 405);
             if (!eligible) return send({ error: 'Gmail access requires an Intensive plan.' }, 403);
+            if (!(await gmailAccess(userId)).providers.includes('mcp')) return send({ error: 'Gmail MCP is awaiting verification. Use browser Gmail in Settings.' }, 403);
+            if (runner.inUse(userId)) return send({ error: 'Stop your run before changing Gmail access.' }, 409);
             try {
               const result = await beginGmailConnection(userId);
               res.setHeader('Set-Cookie', result.cookie); return send({ url: result.url });
             } catch (error) { return send({ error: error instanceof GmailServiceError ? error.message : 'Gmail could not connect. Try again shortly.' }, 503); }
           }
           if (url.pathname !== '/api/gmail/status' || req.method !== 'GET') return send({ error: 'Method not allowed.' }, 405);
-          return send({ ...await gmailConnection(userId), eligible, needed: eligible, provider: 'mcp' });
+          return send({ ...await gmailAccess(userId), eligible, needed: eligible });
         });
 
       case '/api/answers': {

@@ -1523,59 +1523,6 @@ export interface VerificationEmail {
 }
 
 /**
- * Picks the credential a site just emailed: the code to type, or the link to
- * open. Read by the model because emails vary without end; checked against
- * the message itself, so a code must appear verbatim in that email and a link
- * must be one of its own links. Returns null when no email answers the ask.
- *
- * The site's email is returned even when it carries the other kind (a code
- * where the agent waited for a link): the caller tells the agent at once,
- * instead of waiting out the whole budget for a link that will never come.
- */
-export async function readVerificationEmails(
-  emails: VerificationEmail[],
-  ask: { site: string; hint: string; want: 'code' | 'link' | 'either'; deadline?: number },
-): Promise<{ kind: 'code' | 'link'; value: string; subject: string } | null> {
-  const listed = emails.map((email, index) => ({
-    email: index,
-    newest_rank: email.position,
-    subject: email.subject,
-    text: email.text,
-    links: email.links.map((link, linkIndex) => ({ link: linkIndex, text: link.text, url: link.url.slice(0, 200) })),
-  }));
-  const wanted = ask.want === 'either' ? 'a verification code or a verification/activation/sign-in link' : ask.want === 'code' ? 'a verification code' : 'a verification, activation, confirmation or password-reset link';
-  const verdict = await json<{ email: number; kind: string; code: string; link: number }>(`${GUARD}
-A job application on ${ask.site || 'an employer site'}${ask.hint ? ` (sender likely "${ask.hint}")` : ''} is waiting for ${wanted} that was just emailed to the candidate.
-Choose the email that belongs to that site and request. Prefer the newest (lowest newest_rank) when several match; ignore job alerts, newsletters and other companies.
-For a code, copy it exactly as written in that email's text (keep letters, digits and any hyphen; drop spaces between digit groups only if the page would need them joined).
-For a link, give the index of the link that verifies/activates/confirms the account or resets the password — never unsubscribe, privacy, help or marketing links.
-If that site's email carries the other kind instead (a code where a link was expected, or a link where a code was expected), return it with its real kind.
-If no email belongs to that site and request, return email -1.
-Return JSON {"email": index or -1, "kind": "code" | "link", "code": "..." or "", "link": index or -1}.
-<untrusted>${JSON.stringify(listed)}</untrusted>`, {
-    type: 'OBJECT',
-    properties: { email: { type: 'INTEGER' }, kind: { type: 'STRING' }, code: { type: 'STRING' }, link: { type: 'INTEGER' } },
-    required: ['email', 'kind', 'code', 'link'],
-  }, 'celeris-1-magnus', undefined, undefined, ask.deadline);
-  const email = emails[verdict.email];
-  if (!email) return null;
-  if (verdict.kind === 'code') {
-    const code = verdict.code.trim();
-    const compact = (value: string) => value.replace(/\s+/g, '');
-    // Grounding: the code must be in the message, allowing only for spacing between groups.
-    if (code && (email.text.includes(code) || compact(email.text).includes(compact(code)))) {
-      return { kind: 'code', value: compact(code), subject: email.subject };
-    }
-    return null;
-  }
-  if (verdict.kind === 'link') {
-    const link = email.links[verdict.link];
-    return link ? { kind: 'link', value: link.url, subject: email.subject } : null;
-  }
-  return null;
-}
-
-/**
  * Whether a checkbox is the site's condition for accepting the application —
  * terms, privacy, data storage or handling, declarations of truth — rather
  * than a marketing, alert or optional preference. Sites word this every way

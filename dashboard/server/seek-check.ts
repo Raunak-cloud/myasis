@@ -159,7 +159,8 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
     // The same route a run would take: a session checked from one address and used from another is its own red flag.
     const route = await browserRoute(userId);
     if (accountUnavailable(userId)) return known();
-    const gmail = await gmailRunConnection(userId);
+    const browserPort = checkPort();
+    const gmail = await gmailRunConnection(userId, [], browserPort);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
@@ -167,7 +168,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
       SIGNIN_REPAIR: repair ? 'true' : 'false',
       ...gmail.env,
       CHROME_PROFILE_DIR: profileDir,
-      CDP_PORT: String(checkPort()),
+      CDP_PORT: String(browserPort),
       DATA_DIR: userDir(userId),
     };
 

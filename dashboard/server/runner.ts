@@ -18,6 +18,7 @@ import { applicationAgentModeForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
 import { finishApplicationReviews } from './application-reviews.js';
 import { gmailRunConnection } from './gmail-mcp.js';
+import { gmailAccess } from './gmail-access.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -343,7 +344,7 @@ class Run {
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
     const approvals = JSON.parse(overrides.APPROVED_APPLICATIONS_JSON || '[]') as Array<{ id: string; email?: unknown }>;
-    const emailOnly = approvals.length > 0 && approvals.every(item => item.email);
+    const emailOnly = approvals.length > 0 && approvals.every(item => item.email) && (await gmailAccess(userId)).provider === 'mcp';
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
     if (deploying()) return { ok: false, error: DEPLOYING_MESSAGE };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'main.js'))) {
@@ -371,7 +372,7 @@ class Run {
       const exported = await exportUserForRun(userId);
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
-      const lease = await gmailRunConnection(userId, mode === 'live' ? approvals.map(item => item.id) : []);
+      const lease = await gmailRunConnection(userId, mode === 'live' ? approvals.map(item => item.id) : [], cdpPort);
       this.revokeGmail = lease.revoke;
       profileOverrides = { ...profileOverrides, ...lease.env };
     } catch (error) {

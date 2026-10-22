@@ -1,6 +1,7 @@
 import { parseHTML } from 'linkedom';
 import { GmailMcpClient, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
-import { readVerificationEmails, type VerificationEmail } from './llm.js';
+import type { VerificationEmail } from './llm.js';
+import { readVerificationEmailsLocally } from './verification-email-local.js';
 import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
 import { config } from './config.js';
@@ -45,7 +46,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
       messages.sort((a, b) => Date.parse(b.date || '') - Date.parse(a.date || ''));
       const fresh = messages.filter(message => !examined.has(message.id)).slice(0, 10);
       if (fresh.length) {
-        const found = await readVerificationEmails(fresh.map(verificationMessage), { hint: options.hint || '', site: options.site || '', want: options.want || 'either', deadline });
+        const found = readVerificationEmailsLocally(fresh.map(verificationMessage), { hint: options.hint || '', site: options.site || '', want: options.want || 'either' });
         for (const message of fresh) examined.add(message.id);
         if (found) { options.log?.(`  Read the verification ${found.kind} through Gmail MCP.`); return found; }
       }
@@ -67,7 +68,7 @@ export async function submitApprovedEmail(draft: PreparedApplication): Promise<A
   const client = gmailClient();
   try {
     const receipt = await client.sendApproved(draft.id, draft.revision);
-    console.log(`  Gmail MCP confirmed the application email${receipt.alreadySent ? ' (already sent; no duplicate)' : ''}.`);
+    console.log(`  Gmail ${process.env.GMAIL_ACCESS_MODE === 'browser' ? 'browser' : 'MCP'} confirmed the application email${receipt.alreadySent ? ' (already sent; no duplicate)' : ''}.`);
     return { status: 'applied', jobId: draft.job.id, at: new Date().toISOString(), submitPressed: true,
       coverLetter: draft.coverLetter, answers: draft.answers, resume: draft.resume, site: draft.email?.to.split('@')[1] };
   } catch (error) { return { status: 'needs-human', jobId: draft.job.id, url: draft.job.url, reason: safeGmailError(error).message }; }

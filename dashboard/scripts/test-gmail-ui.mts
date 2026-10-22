@@ -20,7 +20,8 @@ try {
   mkdirSync(resolve(dashboard, '../output'), { recursive: true });
   for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 1100 } }), page = await context.newPage();
-    let connected = false, connects = 0, disconnects = 0;
+    let connected = false, connects = 0, disconnects = 0, browserOpens = 0;
+    let provider: 'browser' | 'mcp' = 'mcp', admin = false;
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/*', async route => {
@@ -29,10 +30,17 @@ try {
       if (url.pathname === '/authorize-fixture') return route.fulfill({ contentType: 'text/html', body: '<h1>Google authorization fixture</h1>' });
       if (!url.pathname.startsWith('/api/')) return route.continue();
       const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
-      if (url.pathname === '/api/signin/session') throw new Error('Gmail must never open a browser sign-in session');
-      if (url.pathname === '/api/gmail/status') return json({ connected, configured: true, account: connected ? 'candidate@fixture.invalid' : null, eligible: true });
+      if (url.pathname === '/api/signin/session') {
+        assert.equal(provider, 'browser');
+        if (route.request().method() === 'POST') { const body = route.request().postDataJSON(); assert.equal(body.target, 'gmail'); assert.equal(body.consent, true); browserOpens++; }
+        return json({ supported: true, session: null });
+      }
+      if (url.pathname === '/api/gmail/status') return json({ connected, configured: true, account: connected ? 'candidate@fixture.invalid' : null, eligible: true, provider, admin, providers: admin ? ['browser','mcp'] : [provider] });
       if (url.pathname === '/api/gmail/connect') { assert.equal(route.request().method(), 'POST'); connects++; return json({ url: origin + '/authorize-fixture' }); }
-      if (url.pathname === '/api/gmail/connection') { assert.equal(route.request().method(), 'DELETE'); connected = false; disconnects++; return json({ ok: true }); }
+      if (url.pathname === '/api/gmail/connection') {
+        if (route.request().method() === 'PATCH') { assert.equal(admin, true); provider = route.request().postDataJSON().provider; return json({ ok: true }); }
+        assert.equal(route.request().method(), 'DELETE'); connected = false; disconnects++; return json({ ok: true });
+      }
       if (url.pathname === '/api/settings') return json({ COVER_LETTER_INSTRUCTIONS: '' });
       if (url.pathname === '/api/application-reviews') return json({ applications: [{ id: 'review-fixture', status: 'ready', detail: null,
         application: { revision: 'a'.repeat(64), job: { title: 'Email Developer', company: 'Fixture', location: 'Sydney', url: 'https://jobs.fixture.invalid' },
@@ -55,7 +63,20 @@ try {
     await page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor(); assert.equal(disconnects, 1);
     await page.goto(origin + '/gmail-fixture.html?gmail=error&gmail_error=Authorization%20was%20denied');
     await page.getByRole('alert').filter({ hasText: 'Authorization was denied' }).waitFor();
+    provider = 'browser'; await page.goto(origin + '/gmail-fixture.html');
+    await page.getByRole('button', { name: 'Connect browser Gmail', exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Gmail connection method').count(), 0, 'normal users have no MCP selector');
+    await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.getByRole('button', { name: 'Connect browser Gmail', exact: true }).click()]);
+    assert.equal(browserOpens, 1);
+    admin = true; await page.reload();
+    await page.getByLabel('Gmail connection method').selectOption('mcp');
+    await page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
+    await page.getByLabel('Gmail connection method').selectOption('browser');
+    await page.getByRole('button', { name: 'Connect browser Gmail', exact: true }).waitFor();
+    assert.ok(await page.getByText('The browser session can access the entire mailbox.', { exact: false }).isVisible());
+    assert.ok(await page.evaluate('document.documentElement.scrollWidth<=innerWidth'));
+    await page.screenshot({ path: resolve(dashboard, `../output/gmail-dual-${width}.png`), fullPage: true });
     assert.deepEqual(errors, []); await context.close();
   }
-  console.log('PASS: Gmail OAuth connect/disconnect, callback errors, visible email recipient/subject/attachments, mobile/desktop layout; no Gmail browser-session requests and no real mail.');
+  console.log('PASS: normal browser Gmail consent/sign-in, admin provider switching, OAuth connect/disconnect, callback errors, visible email recipient/subject/attachments, mobile/desktop layout; no real mail.');
 } finally { await browser.close(); await server.close(); }
