@@ -5,7 +5,6 @@ import { saveApplicationReview, recordReviewedOutcome, ApplicationReviewError } 
 import type { PreparedApplication } from '../../../seek-bot/src/application-review-types.js';
 import { insertApplicationRow, insertRunEventRow, upsertSiteAccount } from './records.js';
 import { ensureUserDataDir, userChromeDir } from '../userdata.js';
-import { chromeGoogleAccounts } from '../chrome-accounts.js';
 import { normaliseQuestions } from '../attention.js';
 import { loadProfile } from '../profile.js';
 import { listResumes, listKnowledge } from '../files.js';
@@ -258,15 +257,6 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
        * trusted server override rather than a browser-supplied setting.
        */
       RESUME_ALLOW_UPLOAD: 'true',
-      /**
-       * The mailbox the run can read in its own browser, when there is one.
-       *
-       * The API route above needs Google's restricted `gmail.readonly` scope,
-       * which an unverified app cannot have. A dedicated Gmail signed in to
-       * this profile's Chrome gets to the same codes with no scope at all, so
-       * the run is told the address exists and reads it from the session.
-       */
-      GMAIL_BROWSER_ACCOUNT: chromeGoogleAccounts(userId)[0] ?? '',
       /**
        * This account's own Chrome profile, holding its own SEEK sign-in.
        * Without it every run shares one profile, which Chrome locks against

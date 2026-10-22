@@ -14,10 +14,9 @@ process.env.BRIGHTDATA_ADMIN_ENABLED = 'true';
 process.env.BRIGHTDATA_BROWSER_ENABLED = 'true';
 process.env.BRIGHTDATA_BROWSER_USERNAME = 'brd-customer-fixture-zone-admin';
 process.env.BRIGHTDATA_BROWSER_PASSWORD = 'fixture-only-private-password';
-process.env.GMAIL_BROWSER_ACCOUNT = 'fixture@example.invalid';
 const { openEmployerBrowser, applicationBrowserName, applicationUpload, selectRemotePage, solveRemoteCaptcha } = await import('./employer-browser.js');
 const { readRemoteBrowserPreview, LIVE_VIEW_REQUEST_FILE, REMOTE_PREVIEW_FILE } = await import('./remote-browser-preview.js');
-const { doCompleteAuthentication, doOpenEmailedLink, doEnterEmailedCode } = await import('./agent/tools/auth.js');
+const { doCompleteAuthentication } = await import('./agent/tools/auth.js');
 const launch = () => chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
 const localBrowser = await launch();
 const localContext = await localBrowser.newContext();
@@ -75,13 +74,6 @@ try {
   assert.deepEqual(autoSolveChoices, [false], 'manual ownership is established before any employer navigation');
   const credentialsRefused = await doCompleteAuthentication({ page: remote.page } as Parameters<typeof doCompleteAuthentication>[0], { refs: ['password'], purpose: 'sign_in' });
   assert.equal(credentialsRefused.kind, 'terminal', 'cloud pilot stops before accessing any private employer credential');
-  const missingMailbox = { page: remote.page, job: { company: 'Fixture' }, observation: { fields: [{ ref: 'code' }] } } as Parameters<typeof doEnterEmailedCode>[0];
-  const pagesBeforeEmail = remote.page.context().pages().length;
-  for (const result of [await doOpenEmailedLink(missingMailbox, {}), await doEnterEmailedCode(missingMailbox, { ref: 'code' })]) {
-    assert.equal(result.kind, 'ok');
-    assert.match(JSON.stringify(result), /candidate Gmail browser session is unavailable/);
-  }
-  assert.equal(remote.page.context().pages().length, pagesBeforeEmail, 'missing candidate mailbox never opens Gmail in a cloud browser');
   assert.equal((await remote.page.context().cookies()).length, 0);
   await remote.page.goto('https://fixture.example.test/apply?candidate=private-token');
   const fixtureDocument = join(directory, 'Fixture resume.txt');

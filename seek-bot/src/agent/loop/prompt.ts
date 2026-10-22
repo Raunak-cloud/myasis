@@ -1,5 +1,5 @@
 import { config } from '../../config.js';
-import { browserGmailAvailable } from '../../browser-gmail.js';
+import { gmailAvailable } from '../../gmail-mailbox.js';
 import { WORK_PREFERENCE_POLICY } from '../../work-preferences.js';
 import { APPLICATION_WRITING_STYLE, APPLICATION_QUESTION_POLICY, CONTACT_IDENTITY_RULES } from '../../application-answer-policy.js';
 
@@ -225,7 +225,7 @@ export function systemPrompt(): string {
   sections.push(APPLICATION_WRITING_STYLE, APPLICATION_QUESTION_POLICY, CONTACT_IDENTITY_RULES);
   if (config.celeris.rawTools) sections.push(BROWSER_TOOLS_PROMPT);
   if (config.formSpeed && config.celeris.rawTools) sections.push(LIVE_RECOVERY_PROMPT);
-  if (browserGmailAvailable()) sections.push(EMAIL_PROMPT);
+  if (gmailAvailable()) sections.push(EMAIL_PROMPT);
   return sections.join('\n\n');
 }
 
@@ -276,7 +276,7 @@ evidence and stop within the existing attempt limits.`;
 
 const EMAIL_PROMPT = `
 EMAILED CODES AND LINKS
-The candidate's inbox is readable. When a site says it has emailed a code
+The candidate's inbox is readable through Gmail MCP only. Never open Gmail in the browser. When a site says it has emailed a code
 (verification code, one-time passcode, sign-in code): make sure the email has
 been requested — click the send/next control if it has not — then call
 enter_emailed_code with the ref of the code FIELD. When it says it emailed a

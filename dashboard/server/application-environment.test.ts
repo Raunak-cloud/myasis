@@ -14,6 +14,7 @@ test('worker environment excludes retired controls and unknown credentials witho
     APPLICATION_AI_MODEL: 'retired', APPLICATION_AI_FORM_REVIEW_MODE: 'retired',
     APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true',
     RETIRED_PROVIDER_API_KEY: 'must-not-inherit', RETIRED_PROVIDER_KEY: 'must-not-inherit', UNRELATED_SECRET: 'must-not-inherit',
+    GMAIL_MCP_TOKEN: 'foreign-mailbox-capability', GMAIL_MCP_URL: 'http://foreign.invalid', GMAIL_MCP_ACCOUNT: 'foreign@fixture.invalid',
     BRIGHTDATA_BROWSER_PASSWORD: 'fixture-browser-password' };
   const before = { ...input };
   assert.deepEqual(applicationRunEnvironment(input), { PATH: 'fixture-path', DATA_DIR: '/owner/files',

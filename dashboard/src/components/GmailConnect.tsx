@@ -1,129 +1,59 @@
 import { useEffect, useState } from 'react';
 
-/**
- * The mailbox a run reads one-time codes from.
- *
- * This is a browser session, not an API connection. Gmail's API needs the
- * `gmail.readonly` scope, which Google classes as restricted: granting it to
- * a production app requires a paid third-party security assessment, so for an
- * unverified app OAuth just returns access_denied. A mailbox signed in to the
- * account's own Chrome needs no scope, no token and no review — and the run
- * already drives that browser, so the code is one tab away.
- *
- * It must be a Gmail made for this, never a real inbox: everything in that
- * mailbox is readable by the agent for as long as it stays signed in.
- *
- * Two shapes. The numbered card belongs in Setup, where an account is set up
- * once. The compact row sits on the Apply page and disappears once a mailbox
- * is in place — it exists to catch the person about to run without one, not
- * to take up space forever.
- */
-
-interface GmailStatus {
-  /** Only administrators may use verification-email access during employer-site testing. */
-  eligible?: boolean;
-  /**
-   * Whether this account has any reason to be asked for a mailbox at all.
-   * Only administrators currently reach employer sites, and those are the only
-   * things that email a code. The server decides; this component obeys.
-   */
-  needed?: boolean;
-  /** The Google account signed in to this profile's Chrome, if any. */
-  browserAccount?: string | null;
-}
-
-const WHY =
-  'Many employer sites email a one-time code before an application can be sent. With a mailbox it can read, the agent enters that code itself instead of stopping to ask you.';
-
-const SEPARATE =
-  'Create a new Gmail account just for this at gmail.com, not your real inbox. Everything in it is readable by the agent for as long as it stays signed in.';
-
+interface GmailStatus { eligible?: boolean; needed?: boolean; connected: boolean; configured: boolean; account: string | null; error?: string | null }
 export function GmailConnect({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<GmailStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
+  async function load() {
+    const response = await fetch('/api/gmail/status');
+    if (!response.ok) throw new Error('Could not load the Gmail connection.');
+    setStatus(await response.json());
+  }
   useEffect(() => {
-    fetch('/api/gmail/status')
-      .then((r) => r.json())
-      .then(setStatus)
-      .catch(() => setStatus({ browserAccount: null }));
+    void load().catch(reason => setError(reason.message));
+    const result = new URLSearchParams(location.search);
+    if (result.get('gmail') === 'error') setError(result.get('gmail_error') || 'Gmail could not connect.');
   }, []);
-
-  /**
-   * Opens the same private browser window the SEEK sign-in uses, on Google's
-   * account chooser. Reloading afterwards is what brings that window up: the
-   * viewer component reads the session when it mounts.
-   */
-  async function openGmailWindow() {
+  async function connect() {
     if (busy) return;
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError('');
     try {
-      const response = await fetch('/api/signin/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: 'gmail' }),
-      });
+      const response = await fetch('/api/gmail/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? 'Could not open the browser.');
-      location.reload();
-    } catch (reason) {
-      setError((reason as Error).message);
-      setBusy(false);
-    }
+      if (!response.ok) throw new Error(body.error || 'Gmail could not connect.');
+      window.location.assign(body.url);
+    } catch (reason) { setError((reason as Error).message); setBusy(false); }
   }
-
-  if (!status || status.eligible === false) return null;
-  const signedIn = Boolean(status.browserAccount);
-
-  if (compact) {
-    if (signedIn && !error) return null;
-    if (status.needed === false && !error) return null;
-    return (
-      <div className="seek-connect">
-        {error && <div className="banner banner-bad">{error}</div>}
-        <div className="seek-connect-row">
-          <div>
-            <h3>Verification emails</h3>
-            <p className="job-meta">{SEPARATE}</p>
-          </div>
-          <button className="btn" disabled={busy} onClick={openGmailWindow}>
-            {busy ? 'Opening…' : 'Sign in to Gmail'}
-          </button>
-        </div>
-      </div>
-    );
+  async function disconnect() {
+    setBusy(true); setError('');
+    try {
+      const response = await fetch('/api/gmail/connection', { method: 'DELETE' });
+      if (!response.ok) throw new Error('Gmail could not disconnect.');
+      await load();
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setBusy(false); }
   }
-
-  return (
-    <div className="card step">
-      <div className="step-head">
-        <span className={`step-n ${signedIn ? 'done' : ''}`}>{signedIn ? '✓' : '5'}</span>
-        <div>
-          <h3 className="step-title">Verification emails</h3>
-          <p className="job-meta step-blurb">{WHY} {SEPARATE}</p>
-        </div>
-      </div>
-      {error && <div className="banner banner-bad">{error}</div>}
-      <div className="step-body gmail-actions">
-        {signedIn ? (
-          <>
-            <span className="job-meta">Reading codes from {status.browserAccount}, signed in to your browser.</span>
-            <button className="btn" disabled={busy} onClick={openGmailWindow}>
-              {busy ? 'Opening…' : 'Change account'}
-            </button>
-          </>
-        ) : status.needed === false ? (
-          <span className="job-meta">
-            Not needed on your plan.
-          </span>
-        ) : (
-          <button className="btn primary" disabled={busy} onClick={openGmailWindow}>
-            {busy ? 'Opening…' : 'Sign in to Gmail'}
-          </button>
-        )}
-      </div>
-    </div>
-  );
+  if (status?.eligible === false && !status.connected) return null;
+  if (compact && status?.connected && !status.error && !error) return null;
+  const controls = <>
+    {status?.account && <span className="job-meta">{status.connected ? 'Connected' : 'Gmail'}: {status.account}</span>}
+    {status?.error && <p className="job-meta">{status.error}</p>}
+    <button className={`btn ${status?.connected ? '' : 'primary'}`} disabled={busy || !status?.configured || status.eligible === false} onClick={() => void connect()}>
+      {busy ? 'Please wait…' : status?.account ? 'Reconnect Gmail' : 'Connect Gmail'}
+    </button>
+    {status?.account && <button className="btn" disabled={busy} onClick={() => void disconnect()}>Disconnect</button>}
+    {status && !status.configured && <span className="job-meta">Gmail connections are not configured yet.</span>}
+  </>;
+  const description = 'Connect the Gmail address used in your profile. Owtomate reads verification emails and sends only the email applications you confirm.';
+  if (compact) return <div className="seek-connect">
+    {error && <div className="banner banner-bad" role="alert">{error}</div>}
+    <div className="seek-connect-row"><div><h3>Gmail</h3><p className="job-meta">{description}</p></div><div className="gmail-actions">{controls}</div></div>
+  </div>;
+  return <div className="card step">
+    <div className="step-head"><span className={`step-n ${status?.connected ? 'done' : ''}`}>{status?.connected ? '✓' : '5'}</span>
+      <div><h3 className="step-title">Gmail</h3><p className="job-meta step-blurb">{description}</p></div></div>
+    {error && <div className="banner banner-bad" role="alert">{error}</div>}
+    <div className="step-body gmail-actions">{controls}</div>
+  </div>;
 }

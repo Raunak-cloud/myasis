@@ -152,6 +152,8 @@ export interface CelerisRequest {
    * a fraction of a second instead of generating to the installation's limit.
    */
   maxTokens?: number;
+  /** An enclosing read-only operation may have a shorter remaining budget. */
+  deadline?: number;
   meter?: CostMeter;
 }
 
@@ -210,7 +212,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: request.reasoningEffort ?? 'low' } : {}) };
 
   const startedAt = performance.now();
-  const deadline = Date.now() + 60_000;
+  const deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     let costRecorded = false;

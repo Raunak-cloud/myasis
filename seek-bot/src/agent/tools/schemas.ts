@@ -1,7 +1,7 @@
 import { AUTHENTICATION_TOOL, EMAILED_CODE_TOOL, EMAILED_LINK_TOOL } from '../auth-tools.js';
 import { config } from '../../config.js';
 import type { ToolSchema } from '../celeris.js';
-import { browserGmailAvailable } from '../../browser-gmail.js';
+import { gmailAvailable } from '../../gmail-mailbox.js';
 import { RAW_TOOL_SCHEMAS } from '../raw-tools.js';
 import { ANSWER_BATCH } from './context.js';
 import { MAX_ANSWER_BATCH } from '../../form-speed.js';
@@ -30,7 +30,7 @@ const CLICK_POINT_TOOL: ToolSchema = {
 export function toolSchemas(options: { vision?: boolean } = {}): ToolSchema[] {
   return [
     ...TOOL_SCHEMAS,
-    ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
+    ...(gmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : []),
     ...(config.celeris.rawTools ? RAW_TOOL_SCHEMAS.filter(tool => tool.name !== 'inspect_interaction' || config.formSpeed) : []),
     ...(options.vision ? [CLICK_POINT_TOOL] : []),
   ].map(withPressJudgement).map(tool => tool).map(tool => tool);

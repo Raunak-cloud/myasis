@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from 'patchright';
+import type { Page } from 'patchright';
 import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../../types.js';
 import type { Observation } from '../observe.js';
 import { RunGuards } from '../guards.js';
@@ -60,8 +60,6 @@ export interface ToolContext {
   /** Counts tool calls; a call past its time limit is retired and can no longer change the page (tool-run.ts). */
   toolGeneration?: number;
   page: Page;
-  /** Original candidate mailbox session, independent of the current employer form. */
-  mailboxContext?: BrowserContext;
   job: JobListing;
   profile: CandidateProfile;
   guards: RunGuards;

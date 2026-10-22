@@ -53,6 +53,17 @@ The bot uses their email, a private site-specific password and connected Gmail
 for emailed codes. Government jobs follow the same candidate-fit rules as other
 jobs. Payment destinations stay blocked.
 
+Gmail access is through Owtomate's private MCP service only. Candidates connect
+the Gmail address in their profile from Setup using Google OAuth. The OAuth
+project needs Gmail API enabled and `gmail.readonly` plus `gmail.send` consent;
+Google's verification requirements still apply. The connection reuses the
+existing Google sign-in callback. Set `GMAIL_TOKEN_ENCRYPTION_KEY` once on the
+server; refresh tokens stay encrypted in Postgres and never reach a worker.
+Each run receives a short-lived MCP capability for its own account. Email-only
+applications save the recipient, subject, letter and resume for review. Confirmed
+emails send through MCP without launching Chrome or repeating model turns.
+Unknown send outcomes are reconciled against Sent and never blindly resent.
+
 ## Use
 
 ```bash

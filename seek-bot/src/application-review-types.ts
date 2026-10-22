@@ -11,4 +11,5 @@ export interface PreparedApplication {
   resume?: string;
   resumeId?: string;
   resumeHash?: string;
+  email?: { to: string; subject: string; attachCoverLetter?: boolean };
 }

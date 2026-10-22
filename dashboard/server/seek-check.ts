@@ -6,10 +6,10 @@ import { sessionFor, signinSessionCount } from './signin.js';
 import { readSiteState, type SeekState, type SigninSite } from './seek-state.js';
 import { userChromeDir, userDir } from './userdata.js';
 import { browserRoute } from './route.js';
-import { chromeGoogleAccounts } from './chrome-accounts.js';
 import { releaseChromeProfile } from './chrome-profile.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { accountUnavailable } from './account-lifecycle.js';
+import { gmailRunConnection } from './gmail-mcp.js';
 
 /**
  * Finds out whether an account is really signed in to SEEK.
@@ -159,13 +159,13 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
     // The same route a run would take: a session checked from one address and used from another is its own red flag.
     const route = await browserRoute(userId);
     if (accountUnavailable(userId)) return known();
+    const gmail = await gmailRunConnection(userId);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
       SIGNIN_SITE: site,
       SIGNIN_REPAIR: repair ? 'true' : 'false',
-      // Which of the browser's Google accounts is the person's, for signing back in and for reading an emailed code.
-      GMAIL_BROWSER_ACCOUNT: chromeGoogleAccounts(userId)[0] ?? '',
+      ...gmail.env,
       CHROME_PROFILE_DIR: profileDir,
       CDP_PORT: String(checkPort()),
       DATA_DIR: userDir(userId),
@@ -188,7 +188,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
         clearTimeout(timer);
         done();
       });
-    }).finally(() => { probes.delete(key); closeSync(logFile); });
+    }).finally(() => { gmail.revoke(); probes.delete(key); closeSync(logFile); });
     return known();
   })().finally(() => inFlight.delete(key));
 

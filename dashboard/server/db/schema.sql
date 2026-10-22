@@ -324,9 +324,8 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS external BOOLEAN NOT NULL DEFA
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by_myasis BOOLEAN NOT NULL DEFAULT true;
 UPDATE applications SET submitted_by_myasis = false WHERE score = 0 AND cover_letter IS NULL;
 
--- Read-only Gmail access, per account, so a run can pick up the one-time
--- codes employer sites email during an application. A secret: never served
--- to the browser, only handed to that account's own run.
+-- OAuth grants are encrypted per account. Only the private Gmail MCP service
+-- decrypts them for verification reads and candidate-confirmed email sends.
 CREATE TABLE IF NOT EXISTS google_connections (
   user_id       BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   refresh_token TEXT NOT NULL,
@@ -334,6 +333,26 @@ CREATE TABLE IF NOT EXISTS google_connections (
   scope         TEXT,
   connected_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE google_connections ADD COLUMN IF NOT EXISTS last_error TEXT;
+CREATE TABLE IF NOT EXISTS gmail_oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  verifier TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS application_email_sends (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  review_id UUID NOT NULL,
+  revision TEXT NOT NULL,
+  job_key TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('sending','sent','failed','uncertain')),
+  message_id TEXT,
+  thread_id TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY(user_id,review_id,revision)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS application_email_one_send_idx ON application_email_sends(user_id,job_key)
+  WHERE status IN ('sending','sent','uncertain');
 
 -- The candidate's answer bank: answered once in the dashboard, reused on
 -- every later form that asks the same thing.

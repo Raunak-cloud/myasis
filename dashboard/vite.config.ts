@@ -49,7 +49,10 @@ import { openSeekManualLogin } from './server/manual-login.js';
 import { startSignin, stopSignin, sessionFor, signinSupported, attachSigninVnc } from './server/signin.js';
 import { checkSignin, seekCheckInProgress, signOutOfBoard, waitForSigninChecks } from './server/seek-check.js';
 import { readSeekState, readSiteState, type SeekState } from './server/seek-state.js';
-import { chromeGoogleAccounts } from './server/chrome-accounts.js';
+import { beginGmailConnection, finishGmailConnection, gmailConnection, disconnectGmail, clearGmailCookie } from './server/gmail-connection.js';
+import { checkGmailMcp } from './server/gmail-mcp.js';
+import { GmailConnectionError } from '../seek-bot/src/gmail-mcp-client.js';
+import { GmailServiceError } from '../seek-bot/src/gmail-mcp-service.js';
 import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
 import { routeStatus } from './server/route.js';
@@ -676,14 +679,8 @@ function dataApi(): Plugin {
             }
             // Same window, same profile; only the page it opens on differs.
             const body = await readBody();
-            const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'indeed' ? 'indeed' : 'seek';
-            if (target === 'gmail') {
-              const user = await currentUser(req.headers?.cookie);
-              const allowance = await billingStatus(userId, user?.email);
-              if (!isAdmin(user?.email) && !allowance.paid.hasActiveIntensivePass) {
-                return send({ error: 'Verification email access requires an Intensive plan.' }, 403);
-              }
-            }
+            if (body?.target === 'gmail') return send({ error: 'Gmail browser sign-in has been removed. Connect Gmail from Setup.' }, 410);
+            const target = body?.target === 'indeed' ? 'indeed' : 'seek';
             const result = await startSignin(userId, target, { assist: body?.manual !== true,
               expiresAt: typeof body?.resumeUntil === 'number' ? body.resumeUntil : undefined });
             if (!result.ok) return send({ error: result.error }, 409);
@@ -810,6 +807,21 @@ function dataApi(): Plugin {
       }
 
       case '/api/auth/callback/google': {
+        if (url.searchParams.get('state')?.startsWith('gmail.')) return (async () => {
+          const user = await currentUser(req.headers?.cookie);
+          let error = '';
+          try {
+            if (!user) throw new GmailServiceError('unapproved', 'Sign in to Owtomate before connecting Gmail.');
+            const allowance = await billingStatus(user.id, user.email);
+            if (!isAdmin(user.email) && !allowance.paid.hasActiveIntensivePass) throw new GmailServiceError('unapproved', 'Gmail access requires an Intensive plan.');
+            await finishGmailConnection(user.id, url, req.headers?.cookie);
+            await checkGmailMcp(user.id);
+          } catch (reason) { error = reason instanceof GmailServiceError || reason instanceof GmailConnectionError ? reason.message : 'Gmail connection could not complete. Retry from Setup.'; }
+          res.statusCode = 302;
+          res.setHeader('Set-Cookie', clearGmailCookie());
+          res.setHeader('Location', '/?tab=setup&gmail=' + (error ? 'error&gmail_error=' + encodeURIComponent(error.slice(0, 250)) : 'connected'));
+          return res.end();
+        })();
         return handleGoogleCallback(url.searchParams.get('code'), url.searchParams.get('state'), req.headers?.cookie).then(
           (r) => {
             if (!r.ok) {
@@ -950,25 +962,24 @@ function dataApi(): Plugin {
           return send({ items: await loadSkipped(userId) });
         });
 
+      case '/api/gmail/connect':
+      case '/api/gmail/connection':
       case '/api/gmail/status':
         return withUser(async (userId) => {
-          /**
-           * Whether this account has any reason to be asked for Gmail access.
-           *
-           * Employer-site applications are currently limited to administrators;
-           * customers do not need mailbox access yet. And if the
-           * profile's Chrome is already signed in to a Google account, the
-           * agent can read the code in the browser it is already driving, so
-           * asking for OAuth on top of that buys nothing.
-           */
           const user = await currentUser(req.headers?.cookie);
-          const entitled = isAdmin(user?.email);
-          const browserAccounts = chromeGoogleAccounts(userId);
-          return send({
-            eligible: entitled,
-            needed: entitled && browserAccounts.length === 0,
-            browserAccount: browserAccounts[0] ?? null,
-          });
+          if (url.pathname === '/api/gmail/connection' && req.method === 'DELETE') { await disconnectGmail(userId); return send({ ok: true }); }
+          const allowance = await billingStatus(userId, user?.email);
+          const eligible = isAdmin(user?.email) || allowance.paid.hasActiveIntensivePass;
+          if (url.pathname === '/api/gmail/connect') {
+            if (req.method !== 'POST') return send({ error: 'POST required.' }, 405);
+            if (!eligible) return send({ error: 'Gmail access requires an Intensive plan.' }, 403);
+            try {
+              const result = await beginGmailConnection(userId);
+              res.setHeader('Set-Cookie', result.cookie); return send({ url: result.url });
+            } catch (error) { return send({ error: error instanceof GmailServiceError ? error.message : 'Gmail could not connect. Try again shortly.' }, 503); }
+          }
+          if (url.pathname !== '/api/gmail/status' || req.method !== 'GET') return send({ error: 'Method not allowed.' }, 405);
+          return send({ ...await gmailConnection(userId), eligible, needed: eligible, provider: 'mcp' });
         });
 
       case '/api/answers': {

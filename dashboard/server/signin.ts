@@ -16,7 +16,6 @@ import { accountUnavailable } from './account-lifecycle.js';
 const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
   indeed: 'https://secure.indeed.com/account/login?hl=en_AU&co=AU',
-  gmail: 'https://accounts.google.com/AddSession?service=mail',
 };
 
 /** Each account owns its profile, desktop processes, lease and recovery budget.

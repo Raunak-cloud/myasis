@@ -34,7 +34,7 @@ let requests = 0;
 await page.context().route('**/*', route => {
   if (!new URL(route.request().url()).hostname.endsWith('.invalid')) return route.abort();
   if (route.request().method() === 'POST') requests++;
-  return route.fulfill({ contentType: 'text/html', body: '<main><form method="post"><label>Name<input name="name" required value="Fixture Applicant"></label><button>Send application</button></form></main>' });
+  return route.fulfill({ contentType: 'text/html', body: '<main><form method="post"><label>Name<input name="name" required value="Fixture Applicant"></label><button id="send">Send application</button></form></main>' });
 });
 await page.goto(job.url);
 const ctx = { page, job, profile, log: () => {}, captured: [{ question: 'Name', answer: 'Fixture Applicant' }], resumeUsed: 'cv', resumeName: 'Fixture CV.txt',
@@ -74,7 +74,7 @@ try {
   assert.notEqual(applicationContent({ ...draft, job: { ...draft.job, description: 'The role requirements changed.' } }), applicationContent(draft), 'changed vacancy requirements invalidate confirmation');
   process.env.APPLICATION_REVIEW_MODE = 'prepare';
   let turn = 0;
-  let calls: Array<{ name: string; args: Record<string, unknown> }> = [{ name: 'prepare_application', args: { answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } }];
+  let calls: Array<{ name: string; args: Record<string, unknown> }> = [{ name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } }];
   globalThis.fetch = (async () => {
     const call = calls.shift() ?? { name: 'finish', args: { status: 'skipped', reason: 'Fixture complete', evidence: 'Fixture only' } };
     return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${++turn}`, type: 'function',
@@ -94,7 +94,7 @@ try {
   assert.equal(requests, 0, 'a raw send attempt cannot bypass preparation');
   process.env.APPLICATION_REVIEW_MODE = 'approved';
   calls = [
-    { name: 'prepare_application', args: { answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } },
+    { name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } },
     { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
     { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Fixture receipt' } },
   ] as typeof calls;
@@ -178,7 +178,7 @@ try {
     { name: 'browser_action', args: { action: 'fill', selector: '#availability', value: 'Two weeks' } },
     { name: 'browser_action', args: { action: 'fill', selector: '#letter', value: text } },
     { name: 'upload_document', args: { selector: '#cv', document_id: 'cv' } },
-    { name: 'prepare_application', args: { resume_id: 'cv', cover_letter: text, answers: [{ question: 'Name', answer: 'Fixture Applicant' }, { question: 'Availability', answer: 'Two weeks' }] } },
+    { name: 'prepare_application', args: { submit_selector: '#send', resume_id: 'cv', cover_letter: text, answers: [{ question: 'Name', answer: 'Fixture Applicant' }, { question: 'Availability', answer: 'Two weeks' }] } },
   ];
   const fixtures = Array.from({ length: 5 }, (_, index) => ({ ...job, id: String(index + 1), title: `Prepared Role ${index + 1}`, company: 'Fixture Employer', url: `https://listing.fixture.invalid/jobs/${index + 1}` }));
   for (const fixture of fixtures) {
@@ -230,7 +230,7 @@ try {
     calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send' } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', cover_letter: rewritten } }];
     if (index === 4) calls = [
-      { name: 'prepare_application', args: { answers: [], resume_id: 'cv' } },
+      { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
       { name: 'browser_action', args: { action: 'click', selector: '#send' } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', answers: [] } },
     ];
@@ -247,7 +247,7 @@ try {
   changedReview = true;
   expectedApproved = drafts[4];
   await page.goto(drafts[4].formUrl);
-  calls = [{ name: 'prepare_application', args: { answers: [], resume_id: 'cv' } }];
+  calls = [{ name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } }];
   const changedSaved = await runAgentOnlyApplication({ page, job: fixtures[4], profile, log: () => {} });
   assert.equal(changedSaved.outcome.status, 'prepared', 'retaining earlier answers must never hide a changed actual saved value');
   assert.ok(changedSaved.outcome.status === 'prepared');

@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { SigninDesktop } from './signin-desktop.js';
 import type { SigninAssistStatus } from './signin-assist.js';
 
-export type SigninTarget = 'seek' | 'indeed' | 'gmail';
+export type SigninTarget = 'seek' | 'indeed';
 export interface SigninSession {
   id: string;
   userId: string;

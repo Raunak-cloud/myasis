@@ -157,11 +157,13 @@ async function json<T>(
   model: CelerisModel = 'celeris-1-magnus',
   maxTokens?: number,
   reasoningEffort?: 'low' | 'medium' | 'xhigh',
+  deadline?: number,
 ): Promise<T> {
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
   const request = {
     model,
     reasoningEffort,
+    deadline,
     // Magnus can spend 75% of its output budget reasoning before the JSON.
     maxTokens: model === 'celeris-1-magnus' && maxTokens ? Math.max(config.celeris.maxOutputTokens, maxTokens * 4) : maxTokens,
     messages,
@@ -1532,7 +1534,7 @@ export interface VerificationEmail {
  */
 export async function readVerificationEmails(
   emails: VerificationEmail[],
-  ask: { site: string; hint: string; want: 'code' | 'link' | 'either' },
+  ask: { site: string; hint: string; want: 'code' | 'link' | 'either'; deadline?: number },
 ): Promise<{ kind: 'code' | 'link'; value: string; subject: string } | null> {
   const listed = emails.map((email, index) => ({
     email: index,
@@ -1554,7 +1556,7 @@ Return JSON {"email": index or -1, "kind": "code" | "link", "code": "..." or "",
     type: 'OBJECT',
     properties: { email: { type: 'INTEGER' }, kind: { type: 'STRING' }, code: { type: 'STRING' }, link: { type: 'INTEGER' } },
     required: ['email', 'kind', 'code', 'link'],
-  });
+  }, 'celeris-1-magnus', undefined, undefined, ask.deadline);
   const email = emails[verdict.email];
   if (!email) return null;
   if (verdict.kind === 'code') {

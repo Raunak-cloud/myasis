@@ -5,6 +5,7 @@ interface Review {
   application: {
     revision: string; job: { title: string; company: string; location: string; url: string };
     resume?: string; coverLetter?: string; answers: Array<{ question: string; answer: string }>;
+    email?: { to: string; subject: string; attachCoverLetter?: boolean };
   };
 }
 
@@ -122,6 +123,7 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
         onClick={() => void decide('submit', item)}>Retry application</button>}
       <details><summary>Review application</summary>
         <div className="prepared-content">
+        {item.application.email && <p className="job-meta">Email application<br/>To: {item.application.email.to}<br/>Subject: {item.application.email.subject}<br/>Attachments: resume{item.application.email.attachCoverLetter ? ' and cover letter' : ''}</p>}
         <p className="job-meta">Resume: {item.application.resume || 'No resume recorded'}</p>
         {/^https?:\/\//i.test(item.application.job.url) && <p><a href={item.application.job.url} target="_blank" rel="noreferrer">View job listing ↗</a></p>}
         <div className="prepared-letter-heading"><h3>Cover letter</h3>{['ready', 'failed'].includes(item.status) && editing?.id !== item.id && <button type="button" className="btn" disabled={running || busy || Boolean(editing)}

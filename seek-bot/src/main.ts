@@ -1,3 +1,5 @@
+import { submitApprovedEmail } from './gmail-mailbox.js';
+import { runApprovedEmailBatch } from './approved-email-run.js';
 import type { BrowserContext, Page } from 'patchright';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
@@ -134,6 +136,7 @@ if (employerFeedsEnabled(process.env)) {
 
 async function main() {
   const startedAt = performance.now();
+  if (!searchOnly && await runApprovedEmailBatch(approvedApplications())) return;
   const profile = loadProfile();
   const directExternalUrl = process.env.DIRECT_EXTERNAL_JOB_URL
     ? await assertExternalJobUrl(process.env.DIRECT_EXTERNAL_JOB_URL)
@@ -1182,10 +1185,9 @@ async function main() {
             await sitePacer.ready(platformId);
             await showLiveActivity({ phase: 'applying', detail: `${job.title} at ${job.company}` }, applicationPage);
             try {
-              const apply = () => measured('application', () => adapter.apply(applicationPage, job, profile, {
-                onFriction: () => {},
-                mailboxContext: ctx,
-              }), { jobId: job.id, platform: platformId });
+              const apply = () => measured('application', () => approvedApplication(job)?.email
+                ? submitApprovedEmail(approvedApplication(job)!)
+                : adapter.apply(applicationPage, job, profile, { onFriction: () => {} }), { jobId: job.id, platform: platformId });
               outcome = await withApplicationAllowance(slot.beforeSubmit, apply);
             } catch (err) {
               const msg = (err as Error).message;

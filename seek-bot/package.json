@@ -38,7 +38,7 @@
     "test:form-replay": "tsc && node dist/form-replay.test.js",
     "replay": "node dist/form-replay.js",
     "test:submit-gate": "tsc && node dist/agent/submit-gate.test.js",
-    "test:email-wait": "tsc && node dist/email-wait.test.js",
+    "test:email-wait": "tsc && node dist/gmail-mcp.test.js",
     "test:headless-fixtures": "tsc && node scripts/test-headless-fixtures.mjs",
     "test:form-speed": "tsc && node dist/form-speed.test.js",
     "test:recovery-sim": "node simulations/magnus-recovery/run.mjs",
@@ -46,11 +46,14 @@
     "test:field-batch": "tsc && node dist/agent/field-batch.test.js && node dist/agent/agent-only.test.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "dotenv": "^16.4.7",
+    "google-auth-library": "^11.3.1",
     "linkedom": "^0.18.13",
     "mammoth": "^1.12.3",
     "patchright": "^1.63.0",
-    "pdf-parse-fork": "^1.2.0"
+    "pdf-parse-fork": "^1.2.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

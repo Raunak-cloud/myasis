@@ -6,7 +6,7 @@ export interface BrowserSigninSession {
   startedAt: number;
   expiresAt: number;
   password: string;
-  target?: 'seek' | 'indeed' | 'gmail';
+  target?: 'seek' | 'indeed';
   state?: 'starting' | 'ready' | 'recovering' | 'failed' | 'closed';
   revision?: number;
   message?: string;

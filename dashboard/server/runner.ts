@@ -17,6 +17,7 @@ import { applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentModeForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
 import { finishApplicationReviews } from './application-reviews.js';
+import { gmailRunConnection } from './gmail-mcp.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -53,7 +54,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'BRIGHTDATA_API_KEY', 'BRIGHTDATA_BROWSER_PASSWORD', 'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 
@@ -231,6 +232,8 @@ function applicationErrorCount(dataDir: string): number {
  */
 class Run {
   private child: ChildProcess | null = null;
+  private revokeGmail: (() => void) | null = null;
+  private emailOnlyRun = false;
   private cdpPort: number | null = null;
   private onApplicationSubmitted: ((external: boolean) => void | Promise<void>) | null = null;
   /** Cleanup owned by the caller, such as returning a temporary free proxy. */
@@ -339,13 +342,16 @@ class Run {
     reserveExtraWorker?: () => boolean,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
+    const approvals = JSON.parse(overrides.APPROVED_APPLICATIONS_JSON || '[]') as Array<{ id: string; email?: unknown }>;
+    const emailOnly = approvals.length > 0 && approvals.every(item => item.email);
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
     if (deploying()) return { ok: false, error: DEPLOYING_MESSAGE };
     if (!existsSync(resolve(BOT_DIR, 'dist', 'main.js'))) {
       return { ok: false, error: 'seek-bot is not built. Run `npm run build` in seek-bot first.' };
     }
     this.workerSlots = 1;
-    this.cdpPort = cdpPort;
+    this.cdpPort = emailOnly ? null : cdpPort;
+    this.emailOnlyRun = emailOnly;
     let accountOverrides: Record<string, string>;
     try {
       accountOverrides = await accountApplicationEnvironment(userId, overrides);
@@ -359,11 +365,15 @@ class Run {
     let browserOverrides: Record<string, string>;
     try {
       browserOverrides = await accountBrowserEnvironment(userId, mode);
+      if (emailOnly) browserOverrides.APPLICATION_WORKERS = '1';
       if (browserOverrides.APPLICATION_WORKERS === '2' && !reserveExtraWorker?.()) browserOverrides.APPLICATION_WORKERS = '1';
       this.workerSlots = browserOverrides.APPLICATION_WORKERS === '2' ? 2 : 1;
       const exported = await exportUserForRun(userId);
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
+      const lease = await gmailRunConnection(userId, mode === 'live' ? approvals.map(item => item.id) : []);
+      this.revokeGmail = lease.revoke;
+      profileOverrides = { ...profileOverrides, ...lease.env };
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: `Could not prepare this account's data for the run: ${(error as Error).message}` };
@@ -417,9 +427,12 @@ class Run {
     };
 
     this.push('sys', `▶ starting ${mode} run`);
-    this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', '  application AI: Celeris Magnus');
-    this.push('sys', '  application decisions: Agent-only');
+    if (emailOnly) this.push('sys', '  Sending your confirmed email applications.');
+    else {
+      this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
+      this.push('sys', '  application AI: Celeris Magnus');
+      this.push('sys', '  application decisions: Agent-only');
+    }
     const shown = Object.entries(overrides)
       .filter(([key]) => !['APPROVED_APPLICATIONS_JSON', 'PENDING_APPLICATION_KEYS_JSON'].includes(key))
       .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
@@ -449,6 +462,7 @@ class Run {
     }
     this.workerSlots = 1;
     this.cdpPort = cdpPort;
+    this.emailOnlyRun = false;
     let accountOverrides: Record<string, string>;
     try {
       accountOverrides = await accountApplicationEnvironment(userId, overrides);
@@ -531,6 +545,7 @@ class Run {
   }
 
   private async finishChild(userId: string, dataDir: string, kind: 'run' | 'scan', code: number | null, child: ChildProcess, signal: NodeJS.Signals | null): Promise<void> {
+    this.revokeGmail?.(); this.revokeGmail = null;
     this.state.running = false;
     this.state.exitCode = code;
     this.state.finishedAt = new Date().toISOString();
@@ -547,7 +562,7 @@ class Run {
 
     // Keep this account's slot occupied until its browser and descendants are gone.
     try {
-      await releaseChromeProfile(userChromeDir(userId), (line) => this.push('sys', line));
+      if (!this.emailOnlyRun) await releaseChromeProfile(userChromeDir(userId), (line) => this.push('sys', line));
     } catch (error) {
       this.push('err', `Could not close this account's browser: ${(error as Error).message}`);
     }

@@ -36,6 +36,7 @@ import { applicationsForConfirmation, claimApplicationReviews, pendingReviewKeys
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
+import { gmailConnection } from './gmail-connection.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -248,6 +249,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (selections) prepaid = await applicationsForConfirmation(userId, selections);
   } catch (error) { return { ok: false, status: 409, error: (error as Error).message }; }
   const prepaidExternal = prepaid.filter(item => item.job.applicationMode === 'external' || isExternalApplicationUrl(item.formUrl)).length;
+  const emailOnly = prepaid.length > 0 && prepaid.every(item => item.email);
+  if (prepaid.some(item => item.email) && !(await gmailConnection(userId)).connected) return { ok: false, status: 409, error: 'Connect Gmail in Setup before confirming email applications.' };
   if (request.oneTime?.maxApplications !== undefined) overrides.MAX_APPS_PER_RUN = String(request.oneTime.maxApplications);
   if (request.oneTime?.maxEvaluations !== undefined) overrides.MAX_EVALUATIONS = String(request.oneTime.maxEvaluations);
   /**
@@ -261,7 +264,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   }
   try {
     applyJobSourceAccess(overrides, admin);
-    if (mode === 'live') {
+    if (mode === 'live' && !emailOnly) {
       const browserEnv = { ...readEnv(), ...process.env, ...overrides };
       if (employerBrowserProvider(browserEnv) === 'brightdata') brightDataBrowserEndpoint(browserEnv);
     }
@@ -395,14 +398,16 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * checks already going are waited for; only then is anything else holding
    * the profile a browser nobody is using any more.
    */
-  if (sessionFor(userId)) {
+  if (!emailOnly && sessionFor(userId)) {
     // Only the account holder pressing Start ends their own sign-in; nobody else closes a window they are using.
     if (trigger !== 'manual') return { ok: false, status: 409, error: 'A sign-in is in progress for this account.' };
     await stopSignin(userId);
   }
 
-  const browserReady = await waitForSigninChecks(userId);
-  if (!browserReady.ok) return { ok: false, status: 409, error: browserReady.error };
+  if (!emailOnly) {
+    const browserReady = await waitForSigninChecks(userId);
+    if (!browserReady.ok) return { ok: false, status: 409, error: browserReady.error };
+  }
 
   /**
    * Only boards this account is signed in to.
@@ -411,7 +416,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * is left out of the run and the run says so. With no signed-in board left there is
    * nothing to run, and the reason is given instead of an empty run.
    */
-  const boards = directExternalUrl
+  const boards = directExternalUrl || emailOnly
     ? []
     : (overrides.PLATFORMS || 'seek').split(',').map((board) => board.trim()).filter(Boolean);
   /**
@@ -433,14 +438,14 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (!directExternalUrl && usable.length && usable.every(isEmployerSource) && overrides.APPLY_ONLY === 'hosted') {
     return { ok: false, status: 400, error: 'Employer feeds use employer-site applications. Choose a normal or employer-sites run.' };
   }
-  if (consumes && !directExternalUrl && !usable.length) {
+  if (consumes && !directExternalUrl && !emailOnly && !usable.length) {
     return {
       ok: false,
       status: 428,
       error: `${listNames(unavailable.length ? unavailable : supportedBoards)} ${unavailable.length === 1 ? 'is' : 'are'} not confirmed signed in. Sign in on the Apply page, then start the run again.`,
     };
   }
-  if (!directExternalUrl) overrides.PLATFORMS = usable.join(',');
+  if (!directExternalUrl && !emailOnly) overrides.PLATFORMS = usable.join(',');
   if (unavailable.length) overrides.SKIPPED_BOARDS = unavailable.join(',');
 
   /**
@@ -474,10 +479,12 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       overrides.MAX_EVALUATIONS = String(approved.length);
     }
     // Decided as late as possible, so the run starts on the route that is up now rather than a minute ago.
-    const route = await browserRoute(userId, borrowFreeProxy);
-    if (route.proxyServer) {
-      overrides.BROWSER_PROXY_SERVER = route.proxyServer;
-      overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
+    if (!emailOnly) {
+      const route = await browserRoute(userId, borrowFreeProxy);
+      if (route.proxyServer) {
+        overrides.BROWSER_PROXY_SERVER = route.proxyServer;
+        overrides.BROWSER_ROUTE_NOTE = describeRoute(route.status);
+      }
     }
 
     const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections)).catch(() => null);

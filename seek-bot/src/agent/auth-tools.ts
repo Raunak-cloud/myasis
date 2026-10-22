@@ -1,4 +1,4 @@
-import { browserGmailAvailable } from '../browser-gmail.js';
+import { gmailAvailable } from '../gmail-mailbox.js';
 import type { ToolSchema } from './celeris.js';
 
 export const AUTHENTICATION_TOOL: ToolSchema = {
@@ -44,7 +44,7 @@ export const EMAILED_CODE_TOOL: ToolSchema = {
   description:
     'When the page asks for a code that was emailed to the candidate (verification code, one-time passcode, sign-in code), ' +
     "call this with the ref of the code FIELD after the email has been requested. The code is read from the candidate's " +
-    'inbox and typed into that field for you. For separate digit boxes, supply refs in visual reading order instead of ref. Never type a code yourself.',
+    'inbox through Gmail MCP and typed into that field for you. For separate digit boxes, supply refs in visual reading order instead of ref. Never type a code yourself.',
   parameters: {
     type: 'object',
     properties: {
@@ -61,7 +61,7 @@ export const EMAILED_LINK_TOOL: ToolSchema = {
   description:
     'When the page says a verification, activation, confirmation or password-reset LINK was emailed to the candidate ' +
     '(for example "check your email to verify your account"), call this after the email has been requested. The link is read ' +
-    "from the candidate's inbox and opened in a new tab, where the application continues. Never guess or type a link.",
+    "from the candidate's inbox through Gmail MCP and opened in a new tab, where the application continues. Never guess or type a link.",
   parameters: {
     type: 'object',
     properties: { sender_hint: { type: 'string', description: 'The site or company that sent the email, e.g. "Workday" or the employer.' } },
@@ -71,5 +71,5 @@ export const EMAILED_LINK_TOOL: ToolSchema = {
 
 /** Credential and connected-inbox helpers shared by the sole applying agent. */
 export function authenticationTools(): ToolSchema[] {
-  return [AUTHENTICATION_TOOL, ...(browserGmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : [])];
+  return [AUTHENTICATION_TOOL, ...(gmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : [])];
 }

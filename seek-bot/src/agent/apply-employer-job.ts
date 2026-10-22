@@ -24,7 +24,6 @@ export async function applyToEmployerJob(page: Page, job: JobListing, profile: C
   const listing = employerJobIdentity(job.platform, job.url);
   const destination = employerJobIdentity(job.platform, job.applicationUrl ?? job.url);
   if (listing.namespace !== destination.namespace || listing.posting !== destination.posting) throw new Error('The application address is for a different employer job.');
-  const mailboxContext = deps.mailboxContext ?? (applicationBrowserName(page) === 'local' ? page.context() : undefined);
   const browser = await (options.openBrowser ?? openEmployerBrowser)(page);
   page = browser.page;
   const before = new Set<Page>();
@@ -34,7 +33,7 @@ export async function applyToEmployerJob(page: Page, job: JobListing, profile: C
     guard = await (options.guard ?? guardExternalNavigations)(page.context());
     await page.goto(job.applicationUrl ?? job.url, { waitUntil: 'domcontentloaded', timeout: applicationBrowserName(page) === 'brightdata' ? 120_000 : 45_000 });
     await waitForApplicationSurface(page, 5_000).catch(() => false);
-    const run = await (options.runAgent ?? runApplicationAgent)({ page, job, profile, mailboxContext, log: line => console.log(line) });
+    const run = await (options.runAgent ?? runApplicationAgent)({ page, job, profile, log: line => console.log(line) });
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
     return outcomeFromRun(run, job.id, page.url(), deps.onFriction);
   } catch (error) {

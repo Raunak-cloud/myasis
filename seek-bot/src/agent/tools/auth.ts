@@ -1,8 +1,8 @@
-import type { BrowserContext, Page } from 'patchright';
+import type { Page } from 'patchright';
 import { fillField } from '../../dom.js';
 import type { Observation } from '../observe.js';
 import { isForbiddenDestination } from '../guards.js';
-import { browserGmailAvailable, findVerificationInBrowser } from '../../browser-gmail.js';
+import { gmailAvailable, findVerificationInGmail } from '../../gmail-mailbox.js';
 import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../../site-auth.js';
 import { storedCredential } from '../../site-credentials.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
@@ -112,26 +112,19 @@ export async function fillEmailedCode(page: Page, fields: Observation['fields'],
   return true;
 }
 
-function candidateMailbox(ctx: ToolContext): BrowserContext | undefined {
-  return ctx.mailboxContext ?? (applicationBrowserName(ctx.page) === 'local' ? ctx.page.context() : undefined);
-}
-
-const mailboxUnavailable = 'The candidate Gmail browser session is unavailable. Reconnect Gmail from the dashboard before retrying this application.';
-const cannotReadMailbox = (error: string) => /signed out|did not finish loading|could not open a Gmail tab/i.test(error);
+const cannotReadMailbox = (error: string) => /reconnect|authorization|MCP could not|connect Gmail/i.test(error);
 
 export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  if (!browserGmailAvailable()) {
-    return ok('No mailbox is signed in for this candidate. Try another authentication option; otherwise finish with "cannot_complete".');
+  if (!gmailAvailable()) {
+    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "cannot_complete".');
   }
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [String(args.ref ?? '')];
   const fields = refs.map(ref => ctx.observation.fields.find(candidate => candidate.ref === ref));
   if (!fields.length || fields.some(field => !field) || new Set(refs).size !== refs.length) return ok('Choose current code FIELD refs: ref for one input, or refs for all separate digit boxes in order.');
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
-  const mailbox = candidateMailbox(ctx);
-  if (!mailbox) return ok(mailboxUnavailable);
   ctx.log('  ✉ waiting for the emailed verification code');
 
-  const found = await findVerificationInBrowser(mailbox, { hint, site: hostOf(ctx.page.url()), want: 'code', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  const found = await findVerificationInGmail({ hint, site: hostOf(ctx.page.url()), want: 'code', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   if (!('error' in found) && found.kind !== 'code') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a link, not a code. Call open_emailed_link instead.`);
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
@@ -166,14 +159,12 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
 export const EMAIL_WAIT_MS = 120_000;
 
 export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  if (!browserGmailAvailable()) {
-    return ok('No mailbox is signed in for this candidate. Try another authentication option; otherwise finish with "cannot_complete".');
+  if (!gmailAvailable()) {
+    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "cannot_complete".');
   }
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
-  const mailbox = candidateMailbox(ctx);
-  if (!mailbox) return ok(mailboxUnavailable);
   ctx.log('  ✉ waiting for the emailed verification link');
-  const found = await findVerificationInBrowser(mailbox, { hint, site: hostOf(ctx.page.url()), want: 'link', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  const found = await findVerificationInGmail({ hint, site: hostOf(ctx.page.url()), want: 'link', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
     if (cannotReadMailbox(found.error)) return ok(`${found.error} Reconnect Gmail from the dashboard before retrying this application; resending the link will not reconnect the mailbox.`);

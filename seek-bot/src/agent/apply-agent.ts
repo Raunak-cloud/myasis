@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from 'patchright';
+import type { Page } from 'patchright';
 import { workingIn } from '../browser.js';
 import { config } from '../config.js';
 import { outsideScope, scopeSkipReason } from '../run-scope.js';
@@ -17,8 +17,6 @@ import { approvedSeekReviewUrl } from '../application-review.js';
 
 export interface ApplyDeps {
   onFriction: (kind: 'captcha' | 'identity' | 'login') => void;
-  /** Candidate's original browser, retained when application workers move to a cloud browser. */
-  mailboxContext?: BrowserContext;
 }
 
 /**
@@ -37,7 +35,7 @@ export async function applyToJobWithAgent(
   const tabsBefore = new Set(page.context().pages());
   const runFrom = async (flowPage: Page): Promise<ApplyOutcome> => {
     try {
-      const run = await runApplicationAgent({ page: flowPage, job, profile, mailboxContext: deps.mailboxContext, log: line => console.log(line) });
+      const run = await runApplicationAgent({ page: flowPage, job, profile, log: line => console.log(line) });
       console.log(`  agent: ${run.steps} steps · ${run.usage}`);
       return outcomeFromRun(run, job.id, flowPage.url(), deps.onFriction);
     } finally {

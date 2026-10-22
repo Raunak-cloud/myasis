@@ -1,7 +1,7 @@
 import type { Page } from 'patchright';
 import { celerisChat, CostMeter, type ChatMessage, type ToolSchema } from './agent/celeris.js';
 import { observe, renderObservation } from './agent/observe.js';
-import { browserGmailAccount, browserGmailAvailable, findCodeInBrowser } from './browser-gmail.js';
+import { gmailAccount, gmailAvailable, findCodeInGmail } from './gmail-mailbox.js';
 import { handleCaptchaWithCapMonster } from './captcha.js';
 import { fillField } from './dom.js';
 
@@ -108,7 +108,7 @@ const TOOLS: ToolSchema[] = [
 ];
 
 function systemPrompt(site: string, account: string): string {
-  return `You are signing a person back in to ${site}, in their own browser, because their session expired. They have used ${site} in this browser before${account ? `, and the browser is signed in to their Google account ${account}` : ''}.
+  return `You are signing a person back in to ${site}, in their own browser, because their session expired. They have used ${site} in this browser before${account ? `, and their connected Gmail address is ${account}` : ''}.
 
 Use what the browser already has, in this order of preference:
 - a button that continues as the person — "Continue as <name>", their name or address on a Google, Apple or site account chooser. If several accounts are listed, choose ${account || "the person's own"}.
@@ -180,7 +180,7 @@ export async function signInAutomatically(
   isSignedIn: () => Promise<boolean>,
   log: (line: string) => void = line => console.log(line),
 ): Promise<SigninAttempt> {
-  const stopAnswering = await answerBrowserSigninPrompts(page, browserGmailAccount(), log);
+  const stopAnswering = await answerBrowserSigninPrompts(page, gmailAccount(), log);
   try {
     // The prompt hook has to be in place before the sign-in page asks, so the page is loaded again under it.
     // Reloaded before any challenge is solved: a token lives in the page, and reloading after the solve threw it away and paid for a second.
@@ -200,7 +200,7 @@ async function drive(
   isSignedIn: () => Promise<boolean>,
   log: (line: string) => void = line => console.log(line),
 ): Promise<SigninAttempt> {
-  const account = browserGmailAccount();
+  const account = gmailAccount();
   const meter = new CostMeter(BUDGET_USD);
   const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(site, account) }];
   let note = `Sign in to ${site}. Begin with the page below.`;
@@ -327,11 +327,11 @@ async function drive(
         }
         case 'enter_emailed_code': {
           const field = observation.fields.find(candidate => candidate.ref === String(args.ref));
-          if (!browserGmailAvailable()) result = 'No mailbox is available to read a code from. Use another option, or give_up.';
+          if (!gmailAvailable()) result = 'No mailbox is available to read a code from. Use another option, or give_up.';
           else if (!field) result = 'No FIELD has that ref on this page.';
           else {
             log('  ↪ sign-in: waiting for the emailed code');
-            const found = await findCodeInBrowser(page.context(), { hint: site, timeoutMs: 90_000, log });
+            const found = await findCodeInGmail({ hint: site, timeoutMs: 90_000, log });
             if ('error' in found) result = `${found.error} If there is a resend control, click it and try once more; otherwise give_up.`;
             else {
               await fillField(target, field, found.code);

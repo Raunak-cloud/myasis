@@ -125,7 +125,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     return () => clearInterval(tick);
   }, [activeSession, refresh]);
 
-  async function open(target: 'seek' | 'indeed' | 'gmail' = 'seek', manual = false) {
+  async function open(target: 'seek' | 'indeed' = 'seek', manual = false) {
     if (acting.current) return;
     acting.current = true;
     requestEpoch.current++;
@@ -281,7 +281,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
         <div className="seek-window-bar">
           <span className={`seek-dot ${connected ? 'on' : ''}`} aria-hidden="true" />
           <span className="seek-window-title">
-            {status.session.target === 'gmail' ? 'Gmail sign-in' : status.session.target === 'indeed' ? 'Indeed sign-in' : 'SEEK sign-in'}
+            {status.session.target === 'indeed' ? 'Indeed sign-in' : 'SEEK sign-in'}
           </span>
           <span className="job-meta seek-window-time">{minutesLeft} min left</span>
           <button className="btn btn-small" disabled={busy} onClick={() => void close(false)}>
