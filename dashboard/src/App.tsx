@@ -292,6 +292,7 @@ export default function App() {
         </button>
 
         <nav className="side-nav" id="main-nav" aria-label="Main navigation">
+          <div className="nav-links">
           <span className="nav-label">Workspace</span>
           {primaryNav.map((item) => (
             <button
@@ -342,6 +343,8 @@ export default function App() {
             Support
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="m4 7 8 6 8-6" /></svg>
           </button>
+
+          </div>
 
           {/*
             Who is signed in, and how the app looks, live at the foot of the
@@ -399,7 +402,7 @@ export default function App() {
                 <button
                   type="button"
                   className="nav-row"
-                  onClick={() => setBoardsOpen(true)}
+                  onClick={() => { setMenuOpen(false); setBoardsOpen(true); }}
                   aria-haspopup="dialog"
                   aria-label="Job boards: which account is signed in, sign out, sign in."
                   title="See which account each job board is signed in with, sign out, or sign in yourself."
@@ -470,7 +473,7 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <button type="button" className="nav-signout" onClick={() => setConfirmSignOut(true)}>Sign out</button>
+                <button type="button" className="nav-signout" onClick={() => { setMenuOpen(false); setConfirmSignOut(true); }}>Sign out</button>
               </div>
             </div>
           </div>
