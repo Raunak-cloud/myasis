@@ -73,16 +73,17 @@ function level(percent: number): 'ok' | 'warn' | 'bad' {
   return 'ok';
 }
 
-function Meter({ label, percent, detail }: { label: string; percent: number; detail: string }) {
-  const tone = level(percent);
+function Meter({ label, percent, detail }: { label: string; percent: number | null; detail: string }) {
+  const value = percent !== null && Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
+  const tone = value === null ? null : level(value);
   return (
-    <div className={`server-meter tone-${tone}`}>
+    <div className={`server-meter${tone ? ` tone-${tone}` : ''}`}>
       <div className="server-meter-head">
         <span>{label}</span>
-        <strong>{Math.round(percent)}%</strong>
+        <strong>{value === null ? '—' : `${Math.round(value)}%`}</strong>
       </div>
       <div className="server-meter-track">
-        <span style={{ width: `${Math.max(1, Math.min(100, percent))}%` }} />
+        {value !== null && <span style={{ width: `${value}%` }} />}
       </div>
       <span className="job-meta">{detail}</span>
     </div>
@@ -224,12 +225,6 @@ export function ServerView() {
   }
 
   const { cpu, memory, swap, disk, storage, runs } = health;
-  /**
-   * Load average against cores is the honest measure of whether work is
-   * queueing: one core fully busy is 1.0, and anything above the core count
-   * means jobs are waiting for a turn.
-   */
-  const loadPercent = cpu.cores ? (cpu.loadAverage[0] / cpu.cores) * 100 : 0;
   const down = health.services.filter((service) => !service.ok);
 
   /** How long the disk lasts if it keeps filling at the rate the data implies. */
@@ -268,9 +263,9 @@ export function ServerView() {
         <Meter label="Disk" percent={disk.percent} detail={`${disk.usedGb} GB used · ${disk.freeGb} GB free`} />
         <Meter label="Memory" percent={memory.percent} detail={`${gb(memory.usedMb)} used · ${gb(memory.availableMb)} available`} />
         <Meter
-          label="CPU load"
-          percent={Math.min(100, loadPercent)}
-          detail={`1m ${cpu.loadAverage[0].toFixed(2)} · 5m ${cpu.loadAverage[1].toFixed(2)} · 15m ${cpu.loadAverage[2].toFixed(2)} across ${cpu.cores} cores`}
+          label="CPU usage"
+          percent={cpu.busyPercent ?? null}
+          detail={`Load: 1m ${cpu.loadAverage[0].toFixed(2)} · 5m ${cpu.loadAverage[1].toFixed(2)} · 15m ${cpu.loadAverage[2].toFixed(2)} across ${cpu.cores} cores`}
         />
         {swap.totalMb > 0 && <Meter label="Swap" percent={swap.percent} detail={`${gb(swap.usedMb)} of ${gb(swap.totalMb)}`} />}
       </section>
