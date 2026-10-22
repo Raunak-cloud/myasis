@@ -62,7 +62,26 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
     if (connection.provider === 'browser') return null;
     const found = await gmailRequest<{ messages?: Array<{ id: string; threadId: string }> }>(userId, 'messages', {
       params: { q: `in:sent rfc822msgid:${applicationEmailMessageId(reviewId, revision)}`, maxResults: 2 } });
-    const message = found.messages?.[0];
+    let message = found.messages?.[0];
+    if (!message?.id) {
+      // Gmail can replace the supplied RFC Message-ID. Find a preserved exact
+      // approval marker instead; matching subject/body alone cannot prove a send.
+      const after = Math.floor((Date.parse(draft.preparedAt) - 5 * 60_000) / 1000);
+      if (!Number.isFinite(after)) return null;
+      const recent = await gmailRequest<{ messages?: Array<{ id: string }> }>(userId, 'messages', {
+        params: { q: `in:sent to:${draft.email!.to} after:${after}`, maxResults: 100 } });
+      for (const candidate of recent.messages || []) {
+        const metadata = await gmailRequest<{ id: string; threadId?: string; labelIds?: string[]; payload?: { headers?: Array<{ name: string; value: string }> } }>(
+          userId, `messages/${encodeURIComponent(candidate.id)}`, { params: { format: 'metadata' } });
+        if (!metadata.labelIds?.includes('SENT')) continue;
+        const headers = metadata.payload?.headers || [];
+        const approval = headers.find(header => header.name.toLowerCase() === 'x-owtomate-approval')?.value;
+        const originalId = headers.find(header => header.name.toLowerCase() === 'x-google-original-message-id')?.value;
+        if (approval === `${draft.id}:${draft.revision}` || originalId === applicationEmailMessageId(reviewId, revision)) {
+          message = { id: metadata.id, threadId: metadata.threadId || '' }; break;
+        }
+      }
+    }
     return message?.id ? recordReceipt(userId, draft, { messageId: message.id, threadId: message.threadId, alreadySent: true }) : null;
   };
   if (!claimed.length) {

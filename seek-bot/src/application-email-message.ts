@@ -13,7 +13,8 @@ export function applicationEmailMessage(draft: PreparedApplication, from: string
   const boundary = `owtomate_${createHash('sha256').update(`${draft.id}:${draft.revision}`).digest('hex').slice(0, 40)}`;
   const lines = [`From: <${from}>`, `To: <${draft.email.to}>`,
     `Subject: =?UTF-8?B?${Buffer.from(draft.email.subject).toString('base64')}?=`,
-    `Message-ID: ${applicationEmailMessageId(draft.id, draft.revision)}`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0',
+    `Message-ID: ${applicationEmailMessageId(draft.id, draft.revision)}`,
+    `X-Owtomate-Approval: ${draft.id}:${draft.revision}`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`, '', `--${boundary}`,
     'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', base64Lines(Buffer.from(draft.coverLetter))];
   const attachment = (name: string, content: Buffer, mime: string) => {

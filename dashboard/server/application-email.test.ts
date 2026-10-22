@@ -27,7 +27,8 @@ test('production email backend validates exact approvals and attachments; uncert
   const outbox = new Map<string, { status: string; message_id?: string; thread_id?: string }>();
   const outboxJobs = new Map<string, string>();
   const applied = new Set<string>(), delivered = new Map<string, { id: string; threadId: string }>();
-  let attempts = 0, mode: 'success' | 'uncertain-sent' | 'uncertain-unsent' | 'rejected' = 'success';
+  const rewritten = new Map<string, { id: string; threadId: string; marker: string }>();
+  let attempts = 0, mode: 'success' | 'uncertain-sent' | 'uncertain-unsent' | 'uncertain-rewritten' | 'rejected' = 'success';
   const sql = async (statement: string, params: any[] = []) => {
     if (statement.startsWith('SELECT u.email,p.email')) return { rows: [{ email: 'candidate@fixture.invalid', profile_email: 'candidate@fixture.invalid' }] };
     if (statement.startsWith('SELECT key,value FROM settings')) return { rows: [] };
@@ -63,17 +64,27 @@ test('production email backend validates exact approvals and attachments; uncert
       attempts++;
       const mime = Buffer.from(request.data!.raw, 'base64url').toString('utf8');
       const messageId = /Message-ID: (.+)\r\n/.exec(mime)![1];
+      const marker = /X-Owtomate-Approval: (.+)\r\n/.exec(mime)![1];
       assert.match(mime, /To: <careers@fixture.invalid>/); assert.doesNotMatch(mime, /Bcc:/);
       assert.ok(mime.includes(resume.toString('base64')));
       if (mode === 'rejected') throw Object.assign(new Error('private provider details'), { response: { status: 403 } });
       const response = { id: `fixture-${attempts}`, threadId: `thread-${attempts}` };
-      if (mode !== 'uncertain-unsent') delivered.set(messageId, response);
+      if (mode === 'uncertain-rewritten') rewritten.set(response.id, { ...response, marker });
+      else if (mode !== 'uncertain-unsent') delivered.set(messageId, response);
       if (mode.startsWith('uncertain')) throw new Error('network disconnected after request');
       return { data: response };
     }
     if (request.url.endsWith('/messages')) {
+      if (request.params!.q.startsWith('in:sent to:')) return { data: { messages: [{ id: 'decoy' }, ...rewritten.values()] } };
       const key = request.params!.q.replace('in:sent rfc822msgid:', '');
       return { data: { messages: delivered.has(key) ? [delivered.get(key)] : [] } };
+    }
+    if (request.url.includes('/messages/')) {
+      const message = rewritten.get(request.url.split('/').pop()!);
+      return { data: { id: message?.id || 'decoy', threadId: message?.threadId, labelIds: ['SENT'], payload: { headers: [
+        { name: 'Message-ID', value: '<replaced@mail.gmail.com>' },
+        { name: 'X-Owtomate-Approval', value: message?.marker || 'another-approval:another-revision' },
+      ] } } };
     }
     throw new Error('No non-fixture Google endpoint may be called');
   }) as unknown as typeof originals.request;
@@ -111,6 +122,11 @@ test('production email backend validates exact approvals and attachments; uncert
     await assert.rejects(sendApprovedApplicationEmail(owner, refused.id, refused.revision), /request could not/);
     assert.equal(outbox.get(`${refused.id}:${refused.revision}`)!.status, 'failed');
     mode = 'success'; await sendApprovedApplicationEmail(owner, refused.id, refused.revision); assert.equal(attempts, 5);
+    const replacedId = create(); mode = 'uncertain-rewritten';
+    const recoveredReplacement = await sendApprovedApplicationEmail(owner, replacedId.id, replacedId.revision);
+    assert.equal(recoveredReplacement.alreadySent, true); assert.equal(recoveredReplacement.messageId, 'fixture-6');
+    assert.equal((await sendApprovedApplicationEmail(owner, replacedId.id, replacedId.revision)).alreadySent, true);
+    assert.equal(attempts, 6, 'Gmail rewriting Message-ID recovers only the exact approval, without resending');
     assert.equal(readFileSync(join(directory, 'resumes', 'CV.txt')).equals(resume), true);
   } finally {
     pool.query = originals.query; pool.connect = originals.connect; OAuth2Client.prototype.request = originals.request;
