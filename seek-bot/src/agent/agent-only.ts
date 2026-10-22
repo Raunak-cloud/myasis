@@ -127,6 +127,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const log = options.log ?? console.log;
   const approved = approvedApplication(options.job);
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile,
+    mailboxContext: options.mailboxContext ?? (applicationBrowserName(options.page) === 'local' ? options.page.context() : undefined),
     guards: new RunGuards({ ...config.celeris, meter }),
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' },
     captured: approved?.answers.map(answer => ({ ...answer })) ?? [], actions: [], log };

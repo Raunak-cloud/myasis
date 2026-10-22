@@ -114,6 +114,7 @@ try {
   };
   await applyToEmployerJob(page, job, profile, deps, { guard, openBrowser, runAgent: async options => {
     assert.notEqual(options.page.context(), context);
+    assert.equal(options.mailboxContext, context, 'employer feeds retain the original mailbox browser before opening the private form');
     await options.page.getByLabel('Resume').setInputFiles({ name: 'fixture.txt', mimeType: 'text/plain', buffer: Buffer.from('Fixture resume') });
     assert.equal(await options.page.getByLabel('Resume').evaluate((el: HTMLInputElement) => el.files?.[0]?.name), 'fixture.txt');
     return { outcome: { status: 'needs-human', reason: 'Fixture only' }, captured: [], actions: [], submitPressed: false, site: 'fixture', steps: 1, usage: 'no employer transmission' };

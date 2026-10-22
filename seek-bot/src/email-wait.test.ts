@@ -25,7 +25,8 @@ const gmail = `<!doctype html><body><div role="main" id="main"></div><script>
   addEventListener('hashchange', render); render();
 </script></body>`;
 
-const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH }
+  : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   // 1. The first navigation fails and leaves about:blank; the wait reopens Gmail and finds the code.
   let context = await browser.newContext();
@@ -56,7 +57,22 @@ try {
   assert.ok(Date.now() - started < 75_000, `gave up early (${Date.now() - started} ms)`);
   await context.close();
 
-  console.log('PASS: a failed Gmail navigation is retried, an email of the other kind is reported within the grace, and a Gmail that never loads is given up on early');
+  // 4. Persistent navigation failures retain the browser error without dumping auth URLs.
+  context = await browser.newContext();
+  const newPage = context.newPage.bind(context);
+  context.newPage = async () => {
+    const page = await newPage();
+    page.goto = async () => { throw new Error('page.goto: net::ERR_CONNECTION_FAILED at https://mail.google.com/?token=private-fixture-token'); };
+    return page;
+  };
+  const diagnostics: string[] = [];
+  found = await findVerificationInBrowser(context, { hint: 'Careers Fixture', site: 'careers.fixture.example', want: 'code', timeoutMs: 100, log: line => diagnostics.push(line) });
+  assert.ok('error' in found && /did not finish loading/.test(found.error));
+  assert.match(diagnostics.join('\n'), /net::ERR_CONNECTION_FAILED/);
+  assert.ok(!diagnostics.join('\n').includes('private-fixture-token'));
+  await context.close();
+
+  console.log('PASS: failed Gmail navigation retries with safe diagnostics; the other email kind is reported within the grace; a mailbox that never loads stops early.');
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });

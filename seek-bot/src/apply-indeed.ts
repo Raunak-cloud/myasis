@@ -41,7 +41,7 @@ export async function applyToIndeedJob(
   const tabsBefore = new Set(page.context().pages());
   const runFrom = async (applyPage: Page): Promise<ApplyOutcome> => {
     try {
-      const run = await runApplicationAgent({ page: applyPage, job, profile, log: line => console.log(line) });
+      const run = await runApplicationAgent({ page: applyPage, job, profile, mailboxContext: deps.mailboxContext, log: line => console.log(line) });
       console.log(`  agent: ${run.steps} steps · ${run.usage}`);
       return outcomeFromRun(run, job.id, applyPage.url(), deps.onFriction);
     } finally {

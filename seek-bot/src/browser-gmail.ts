@@ -4,14 +4,14 @@ import { readVerificationEmails, type VerificationEmail } from './llm.js';
 /**
  * Reading verification emails out of Gmail in the browser the run already drives.
  *
- * The alternative is the Gmail API, which needs the `gmail.readonly` scope —
- * a restricted scope Google will not grant a production app without a paid
- * third-party security assessment. That is a real cost and a months-long
- * process for the sake of one code or one link.
+ * A Gmail API integration would use per-user OAuth. Its restricted scopes
+ * require Google's verification and, depending on server-side data access,
+ * a security assessment: https://developers.google.com/workspace/gmail/api/auth/scopes
  *
  * So instead the candidate signs a dedicated Gmail account into the same
  * Chrome profile the run uses (see the dashboard's sign-in window), and this
- * reads from that session. No token, no scope, and nothing here ever sees a
+ * reads from that retained account session, even when the employer form has
+ * moved to a fresh cloud browser. No token, no scope, and nothing here ever sees a
  * password. It must be a dedicated account, not a real inbox: anything
  * visible in that browser is visible to the agent.
  *
@@ -64,11 +64,22 @@ export function browserGmailAccount(): string {
  * reload, a navigation that never commits), and an unbounded evaluate then
  * waits forever — which once froze a whole run for twenty minutes.
  */
-function bounded<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    work.catch(() => fallback),
-    new Promise<T>((done) => setTimeout(() => done(fallback), Math.max(0, ms))),
-  ]);
+async function bounded<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.catch(() => fallback),
+      new Promise<T>((done) => { timer = setTimeout(() => done(fallback), Math.max(0, ms)); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+/** Keep diagnostics useful without logging Gmail query strings or auth tokens. */
+function navigationFailure(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return /net::ERR_[A-Z_]+/.exec(text)?.[0]
+    ?? (/timeout/i.test(text) ? 'navigation timed out'
+      : /closed|disconnected/i.test(text) ? 'mailbox browser closed' : 'navigation failed');
 }
 
 async function state(page: Page): Promise<'mail' | 'signed-out' | 'loading'> {
@@ -156,7 +167,15 @@ export async function findVerificationInBrowser(
   if (!page) return { error: 'Could not open a Gmail tab in this browser profile.' };
   try {
     const started = Date.now();
-    const openInbox = () => bounded(page.goto(INBOX, { waitUntil: 'domcontentloaded', timeout: 20_000 }), Math.min(left(), 21_000), null);
+    let lastNavigationFailure = '';
+    const openInbox = async (reload = false) => {
+      const navigation = reload ? page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 })
+        : page.goto(INBOX, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+      const completed = await bounded(navigation.then(() => { lastNavigationFailure = ''; return true; }, error => {
+        lastNavigationFailure = navigationFailure(error); return false;
+      }), Math.min(left(), 21_000), false);
+      if (!completed && !lastNavigationFailure) lastNavigationFailure = 'navigation did not complete';
+    };
     await openInbox();
     let seenMail = false;
     let seenRows = false;
@@ -209,14 +228,16 @@ export async function findVerificationInBrowser(
       if (Date.now() >= nextReload && left() > 5_000) {
         nextReload = Date.now() + RELOAD_EVERY_MS;
         // Mail that arrives while waiting only shows after a reload; revisit rows whose text changed.
-        await bounded(page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 }), Math.min(left(), 21_000), null);
+        await openInbox(true);
       }
     }
 
     if (!seenMail) {
       // Say where the tab ended up: the next person to read the log should not have to guess.
       const title = await bounded(page.title(), 2_000, '');
-      log(`  ✉ Gmail tab after the wait: ${page.url().slice(0, 120)}${title ? ` ("${title.slice(0, 60)}")` : ''}`);
+      const url = new URL(page.url());
+      const address = url.protocol === 'about:' ? page.url() : `${url.origin}${url.pathname}`;
+      log(`  ✉ Gmail tab after the wait: ${address.slice(0, 120)}${title ? ` ("${title.slice(0, 60)}")` : ''}${lastNavigationFailure ? `; ${lastNavigationFailure}` : ''}`);
       return { error: 'Gmail did not finish loading in this browser profile.' };
     }
     if (otherKind) return otherKind;

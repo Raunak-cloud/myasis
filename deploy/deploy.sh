@@ -92,6 +92,8 @@ as_app "cd $APP/seek-bot && node --test dist/application-allowance.test.js dist/
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/agent-only.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/field-batch.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/employer-routing.test.js"
+as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/mailbox-routing.test.js"
+as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/email-wait.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/agent-only-routing.test.js dist/application-worker-page.test.js"
 as_app "cd $APP/seek-bot && node --test dist/application-model.test.js dist/agent/application-model-routing.test.js dist/agent/tool-input.test.js dist/agent/guards-budget.test.js dist/store-scope.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/direct-external.test.js"

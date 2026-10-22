@@ -1184,6 +1184,7 @@ async function main() {
             try {
               const apply = () => measured('application', () => adapter.apply(applicationPage, job, profile, {
                 onFriction: () => {},
+                mailboxContext: ctx,
               }), { jobId: job.id, platform: platformId });
               outcome = await withApplicationAllowance(slot.beforeSubmit, apply);
             } catch (err) {
