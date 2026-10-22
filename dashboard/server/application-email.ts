@@ -78,7 +78,7 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
     return await recordReceipt(userId, draft, { messageId: sent.id, threadId: sent.threadId });
   } catch (error) {
     const status = (error as { providerStatus?: number }).providerStatus;
-    const rejected = error instanceof GmailServiceError && error.code === 'reconnect' || status !== undefined && status >= 400 && status < 500;
+    const rejected = error instanceof GmailServiceError && ['reconnect', 'unapproved'].includes(error.code) || status !== undefined && status >= 400 && status < 500;
     await query('UPDATE application_email_sends SET status=$4,updated_at=now() WHERE user_id=$1 AND review_id=$2 AND revision=$3 AND status<>\'sent\'', [userId, reviewId, revision, rejected ? 'failed' : 'uncertain']);
     if (!rejected) {
       const found = await reconcile().catch(() => null); if (found) return found;

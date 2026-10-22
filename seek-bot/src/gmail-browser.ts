@@ -31,7 +31,11 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
       return await action(page);
     } finally { route.pages.delete(page); await page.close().catch(() => {}); }
   });
-  route.tail = work; return work;
+  route.tail = work;
+  return work.catch(error => {
+    if (error instanceof GmailServiceError) throw error;
+    throw new GmailServiceError('reconnect', 'The Gmail browser could not open. Reconnect browser Gmail in Settings and retry.');
+  });
 }
 export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {
   return withGmailBrowser(userId, async page => {
