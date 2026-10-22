@@ -6,7 +6,7 @@ shared with the existing site. The dashboard, OAuth, payments, browser streams,
 application worker and database remain in `dashboard` / `seek-bot`.
 
 The existing server is the same-origin gateway. Requests for public pages and
-`/_next/` assets go to Next.js on loopback port 5190. Session-bearing homepage
+`/_next/` assets go to Next.js on loopback port 5191. Session-bearing homepage
 requests and `/?tab=...` links keep the existing dashboard. APIs, uploaded files,
 public media and WebSockets keep their existing routes. Next.js reads only the
 allowlisted public-content endpoint, `/api/public/website`; it receives no account
@@ -16,7 +16,7 @@ continue to use the existing backend and appear without rebuilding Next.js.
 ## Local development
 
 Install dependencies in `seek-bot`, `dashboard`, and this directory. Start the
-backend with `PUBLIC_SITE_URL=http://127.0.0.1:5190 npm run dev` in `dashboard`,
+backend with `PUBLIC_SITE_URL=http://127.0.0.1:5191 npm run dev` in `dashboard`,
 then `npm run dev` here. Open the backend origin, normally port 5180. Public pages
 are proxied to Next.js; refresh after a change if the backend origin does not
 forward Next's development HMR connection.
@@ -38,7 +38,7 @@ restarted with `PUBLIC_SITE_URL` only after the public process is healthy.
 Public pages use request-specific CSP nonces. Deployment validates a minimal edit
 to the live Caddy configuration so Next.js can supply its nonce policy; all other
 responses retain the current default CSP. No inline-script exception is added to
-dashboard pages. Keep ports 5180 and 5190 bound to loopback.
+dashboard pages. Keep ports 5180 and 5191 bound to loopback.
 
 The existing Vite public templates remain as content sources and a compatibility
 fallback when the gateway is disabled; normal public requests use Next.js. To

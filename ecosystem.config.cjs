@@ -19,7 +19,7 @@ module.exports = {
       kill_timeout: 10_000,
       restart_delay: 2_000,
       time: true,
-      env: { NODE_ENV: 'production', HOSTNAME: '127.0.0.1', PORT: '5190', DASHBOARD_ORIGIN: 'http://127.0.0.1:5180' },
+      env: { NODE_ENV: 'production', HOSTNAME: '127.0.0.1', PORT: '5191', DASHBOARD_ORIGIN: 'http://127.0.0.1:5180' },
     },
     {
       name: 'market-scout',
@@ -67,7 +67,7 @@ module.exports = {
          * for. Sign-in sessions open their own displays from :100 upward.
          */
         DISPLAY: process.env.DISPLAY || ':99',
-        PUBLIC_SITE_URL: 'http://127.0.0.1:5190',
+        PUBLIC_SITE_URL: 'http://127.0.0.1:5191',
         /**
          * Accounts that may run at once. Left unset, the dashboard works it out
          * from the machine's cores and memory (dashboard/server/runner.ts).

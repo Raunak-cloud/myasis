@@ -13,6 +13,8 @@ restore_release() {
   if [ -n "$previous" ]; then
     as_app "ln -s '$previous' '$APP/public-site/.current.rollback' && mv -Tf '$APP/public-site/.current.rollback' '$APP/public-site/.current'"
     as_app "cd $APP && pm2 startOrReload ecosystem.config.cjs --only owtomate-public-site --update-env >/dev/null"
+  else
+    as_app "pm2 stop owtomate-public-site >/dev/null" || true
   fi
 }
 as_app "cd $APP && pm2 startOrReload ecosystem.config.cjs --only owtomate-public-site --update-env >/dev/null"
@@ -20,7 +22,7 @@ as_app "cd $APP && pm2 startOrReload ecosystem.config.cjs --only owtomate-public
 # asset here; the new content bridge is checked after the dashboard restarts.
 asset=$(as_app "cd $APP/public-site && find .next/static -type f -name '*.js' | head -1" | sed 's@^\.next/static/@@')
 for attempt in {1..30}; do
-  if curl -fsS -o /dev/null "http://127.0.0.1:5190/_next/static/$asset"; then break; fi
+  if curl -fsS -o /dev/null "http://127.0.0.1:5191/_next/static/$asset"; then break; fi
   if [ "$attempt" = 30 ]; then restore_release; echo 'Next.js failed its startup check' >&2; exit 1; fi
   sleep 1
 done

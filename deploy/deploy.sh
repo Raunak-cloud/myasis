@@ -168,7 +168,7 @@ bash "$APP/deploy/public-site.sh"
 RUN_LIMIT=""
 if [[ "${MAX_CONCURRENT_RUNS:-}" =~ ^[1-9][0-9]?$ ]]; then RUN_LIMIT="MAX_CONCURRENT_RUNS=$MAX_CONCURRENT_RUNS "; fi
 # The dashboard closes its browsers on SIGINT; pm2 waits for it before forcing.
-as_app "${RUN_LIMIT}PUBLIC_SITE_URL=http://127.0.0.1:5190 pm2 restart myasis-dashboard --update-env --kill-timeout 30000 > /dev/null && pm2 save > /dev/null && echo restarted"
+as_app "${RUN_LIMIT}PUBLIC_SITE_URL=http://127.0.0.1:5191 pm2 restart myasis-dashboard --update-env --kill-timeout 30000 > /dev/null && pm2 save > /dev/null && echo restarted"
 as_app "cd $APP && pm2 startOrReload ecosystem.config.cjs --only market-scout --update-env > /dev/null && pm2 save > /dev/null && echo 'market research restarted'"
 # Fail the release if the public bridge is missing or serves a broken page.
 for attempt in {1..30}; do

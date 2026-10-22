@@ -17,9 +17,11 @@ export function publicWebsiteProxy(origin: string | undefined) {
   if (origin && !/^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(origin)) throw new Error('PUBLIC_SITE_URL must be a loopback HTTP origin');
   return (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => {
     if (!origin || !['GET', 'HEAD'].includes(req.method ?? '') || !isPublicWebsiteRequest(req.url ?? '/')) return next();
+    const target = new URL(req.url ?? '/', origin);
+    if (target.origin !== origin) return next();
     const headers = Object.fromEntries(Object.entries(req.headers).filter(([key]) => !hop.has(key) && key !== 'host'));
     headers['x-forwarded-host'] = req.headers.host;
-    const upstream = request(new URL(req.url ?? '/', origin), { method: req.method, headers }, incoming => {
+    const upstream = request(target, { method: req.method, headers }, incoming => {
       res.statusCode = incoming.statusCode ?? 502;
       for (const [key, value] of Object.entries(incoming.headers)) if (value !== undefined && !hop.has(key)) res.setHeader(key, value);
       incoming.on('error', () => res.destroy());
