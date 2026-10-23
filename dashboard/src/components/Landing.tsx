@@ -156,7 +156,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
               </>}
             </h1>
             <p className="home-hero-summary">
-              As thoughtful as applying yourself, with every application handled for you.
+              Owtomate helps Australian job seekers prepare and submit applications on SEEK and Indeed.
             </p>
             <JobSourceLogos />
             <div className="home-hero-actions">
@@ -314,6 +314,8 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
             <a href="#questions">questions</a>
             <a href="/automate-job-applications-australia">automation guide</a>
             <a href="/blog">job market brief</a>
+            <a href="https://www.facebook.com/owtomate/" rel="me">Owtomate on Facebook</a>
+            <a href="https://www.reddit.com/user/owtomate/" rel="me">Owtomate on Reddit</a>
           </nav>
           <nav className="home-footer-col" aria-label="Legal">
             <p className="home-footer-label">paperwork</p>
