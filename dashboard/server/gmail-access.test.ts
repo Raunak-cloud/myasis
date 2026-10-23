@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
 import { getPool } from './db/index.js';
-import { gmailAccess, gmailProviderPolicy, selectGmailProvider } from './gmail-access.js';
+import { browserGmailStatus, browserGmailUrl, gmailAccess, gmailProviderPolicy, selectGmailProvider } from './gmail-access.js';
 const pool = getPool();
 after(async () => { await pool.end(); });
+test('browser Gmail explains mailbox mismatches and requires consent for the current profile email', () => {
+  const expected = 'candidate@gmail.com';
+  const wrong = browserGmailStatus(expected, ['other@gmail.com'], expected);
+  assert.equal(wrong.connected, false); assert.equal(wrong.account, null);
+  assert.match(wrong.error!, /candidate@gmail.com.*other@gmail.com/);
+  const changed = browserGmailStatus(expected, [expected], 'old@gmail.com');
+  assert.equal(changed.connected, false); assert.match(changed.error!, /allow mailbox access/);
+  const connected = browserGmailStatus(expected, [' Candidate@Gmail.com '], expected);
+  assert.equal(connected.connected, true); assert.equal(connected.account, expected); assert.equal(connected.error, null);
+  assert.equal(browserGmailStatus(null, [], undefined).connected, false);
+  assert.match(browserGmailStatus(null, []).error!, /profile email/);
+  assert.equal(browserGmailUrl(' Candidate+jobs@Gmail.com '), 'https://mail.google.com/mail/u/?authuser=candidate%2Bjobs%40gmail.com');
+});
 test('pending verification forces normal users to browser while admins can choose either; public release is explicit', async () => {
   assert.deepEqual(gmailProviderPolicy(false, false, 'mcp'), { provider: 'browser', providers: ['browser'] });
   assert.deepEqual(gmailProviderPolicy(true, false, 'mcp'), { provider: 'mcp', providers: ['browser', 'mcp'] });

@@ -50,6 +50,9 @@ export class SigninSessions {
 
   async start(userId: string, target: SigninTarget, assist = true, expiresAt?: number): Promise<{ok: boolean; session?: SigninSession; error?: string}> {
     let entry = this.entries.get(userId);
+    // A Gmail request must not silently return an already open job-board window.
+    // Wait for profile cleanup before launching the newly requested destination.
+    if (entry && entry.session.target !== target) { await this.stop(userId); return this.start(userId, target, assist, expiresAt); }
     if (entry?.desktop?.state === 'failed') { await this.stop(userId); return this.start(userId, target, assist, expiresAt); }
     if (!entry) {
       const now = Date.now();

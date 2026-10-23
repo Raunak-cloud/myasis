@@ -12,6 +12,8 @@ import { SigninInputFilter } from './signin-input.js';
 import { SigninDesktop } from './signin-desktop.js';
 import { SigninSessions, type SigninTarget } from './signin-sessions.js';
 import { accountUnavailable } from './account-lifecycle.js';
+import { one } from './db/index.js';
+import { browserGmailUrl } from './gmail-access.js';
 
 const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
@@ -30,12 +32,14 @@ const desktops = new SigninSessions(async (session, assist) => {
   if (!await releaseChromeProfile(profileDir)) throw new Error('The previous browser is still closing. Please retry shortly.');
   const route = await browserRoute(userId);
   const account = target === 'indeed' && assist ? chromeGoogleAccounts(userId)[0] : undefined;
+  const gmailProfile = target === 'gmail' ? await one<{ email: string }>('SELECT email FROM profiles WHERE user_id=$1', [userId]) : null;
+  if (target === 'gmail' && !gmailProfile?.email) throw new Error('Save your profile email before connecting Gmail.');
   if (target === 'indeed') session.assist = account
     ? { state: 'waiting', message: `Selecting ${account} with Google...` }
     : { state: 'unavailable', message: 'No Google account is available in this browser profile. Sign in manually.' };
   const desktop = new SigninDesktop({
     profileDir, chromePath: readEnv().CHROME_PATH?.trim() || '/usr/bin/google-chrome',
-    routeArgs: route.args, startUrl: START_URLS[target], password: session.password,
+    routeArgs: route.args, startUrl: gmailProfile ? browserGmailUrl(gmailProfile.email) : START_URLS[target], password: session.password,
     log: message => console.warn(`[signin ${id}] ${message}`),
     onReady: debugPort => {
       if (!account) return;

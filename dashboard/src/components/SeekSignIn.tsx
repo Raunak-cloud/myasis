@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN } from '../boards';
 import { SigninViewer, type BrowserSigninSession as Session } from './SigninViewer';
 
@@ -100,6 +101,14 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     // happens after the person presses Done; runs independently re-check and
     // repair expired sessions, so opening Apply never blocks on a browser.
     void refresh();
+    const changed = (event: Event) => {
+      // Use the successful open response immediately, even if an older status
+      // request is still in flight. Its late response must not hide the viewer.
+      requestEpoch.current++;
+      setStatus(current => ({ ...current, supported: true, session: (event as CustomEvent<Session>).detail }));
+    };
+    window.addEventListener('signin-session-changed', changed);
+    return () => window.removeEventListener('signin-session-changed', changed);
   }, [refresh]);
 
   // Before the first answer the check has been asked for but not reported, which is still verifying.
@@ -276,7 +285,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
    * losing a half-finished sign-in to a stray click would be worse than the
    * inconvenience of reaching for Done.
    */
-  return (
+  return createPortal(
     <div className="overlay center" role="dialog" aria-modal="true" aria-label="Browser sign-in">
       <div className="card seek-window">
         <div className="seek-window-bar">
@@ -305,6 +314,6 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
         <SigninViewer session={status.session} onConnectionChange={setConnected}
           onRetry={() => void open(status.session?.target ?? 'seek', true)} />
       </div>
-    </div>
+    </div>, document.body
   );
 }

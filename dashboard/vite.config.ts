@@ -769,9 +769,10 @@ function dataApi(): Plugin {
           const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
           if (target === 'gmail') {
             if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
-            await allowBrowserGmail(userId);
           }
-          const result = await openSeekManualLogin(readEnv(), userChromeDir(userId), target);
+          const gmailProfile = target === 'gmail' ? await one<{ email: string }>('SELECT email FROM profiles WHERE user_id=$1', [userId]) : null;
+          const result = await openSeekManualLogin(readEnv(), userChromeDir(userId), target, gmailProfile?.email);
+          if (result.ok && target === 'gmail') await allowBrowserGmail(userId);
           return send(result.ok ? { ok: true } : { error: result.error }, result.ok ? 200 : 409);
         });
       }

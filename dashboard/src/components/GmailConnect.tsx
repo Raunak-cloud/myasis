@@ -17,7 +17,11 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
     if (result.get('gmail') === 'error') setError(result.get('gmail_error') || 'Gmail could not connect.');
     const refresh = () => { void load().catch(reason => setError(reason.message)); };
     window.addEventListener('gmail-connection-changed', refresh);
-    return () => window.removeEventListener('gmail-connection-changed', refresh);
+    window.addEventListener('setup-status-changed', refresh);
+    return () => {
+      window.removeEventListener('gmail-connection-changed', refresh);
+      window.removeEventListener('setup-status-changed', refresh);
+    };
   }, []);
   async function connect() {
     if (busy) return;
@@ -29,7 +33,9 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'gmail', consent: true }) });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || 'Gmail could not open.');
-        if (state.supported) location.reload(); else { setError('Chrome opened on this computer. Sign in to your profile Gmail address, close Chrome, then refresh Settings.'); setBusy(false); }
+        if (state.supported) window.dispatchEvent(new CustomEvent('signin-session-changed', { detail: body.session }));
+        else setError('Chrome opened on this computer. Sign in to your profile Gmail address, close Chrome, then refresh Settings.');
+        setBusy(false);
         return;
       }
       const response = await fetch('/api/gmail/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

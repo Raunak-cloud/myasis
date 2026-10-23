@@ -7,6 +7,19 @@ import { upsertSettingRow } from './db/records.js';
 import { accountUnavailable } from './account-lifecycle.js';
 
 export type GmailProvider = 'browser' | 'mcp';
+export function browserGmailStatus(account: string | null, accounts: string[], consent?: string) {
+  const saved = accounts.map(email => email.trim().toLowerCase());
+  const matched = Boolean(account && saved.includes(account));
+  const connected = matched && consent === account;
+  const error = !account ? 'Save your profile email before connecting Gmail.'
+    : !matched && saved.length ? `Your profile uses ${account}, but this browser is signed in as ${saved.join(', ')}. Connect your profile Gmail address or update your profile email.`
+    : matched && consent !== account ? `Connect browser Gmail to allow mailbox access for ${account}.`
+    : null;
+  return { connected, account: matched ? account : null, configured: true, error };
+}
+export function browserGmailUrl(account: string) {
+  return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(account.trim().toLowerCase())}`;
+}
 export function gmailProviderPolicy(admin: boolean, publicEnabled: boolean, preferred?: string): { provider: GmailProvider; providers: GmailProvider[] } {
   const providers: GmailProvider[] = admin ? ['browser', 'mcp'] : publicEnabled ? ['mcp'] : ['browser'];
   return { providers, provider: providers.includes(preferred as GmailProvider) ? preferred as GmailProvider : providers.at(-1)! };
@@ -19,9 +32,7 @@ export async function gmailAccess(userId: string) {
   const admin = Boolean(owner && isAdmin(owner.email));
   const policy = gmailProviderPolicy(admin, publicEnabled, settings.GMAIL_PROVIDER || 'browser');
   const account = owner?.profile_email?.trim().toLowerCase() || null;
-  const browserAccount = account && chromeGoogleAccounts(userId).some(email => email.toLowerCase() === account) ? account : null;
-  const browser = { connected: Boolean(owner && browserAccount && settings.GMAIL_BROWSER_CONSENT === account), account: browserAccount,
-    configured: true, error: null as string | null };
+  const browser = browserGmailStatus(account, chromeGoogleAccounts(userId), settings.GMAIL_BROWSER_CONSENT);
   const mcp = policy.providers.includes('mcp') ? await gmailConnection(userId) : null;
   const selected = policy.provider === 'mcp' ? mcp! : browser;
   return { ...selected, connected: Boolean(owner && !accountUnavailable(userId) && selected.connected), ...policy, admin, publicEnabled, browser, mcp };

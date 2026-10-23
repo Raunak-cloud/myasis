@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { browserGmailUrl } from './gmail-access.js';
 
 interface ManualLoginResult {
   ok: boolean;
@@ -24,7 +25,9 @@ export function openSeekManualLogin(
    */
   chromeProfileDir?: string,
   target: 'seek' | 'indeed' | 'gmail' = 'seek',
+  gmailAccount?: string,
 ): Promise<ManualLoginResult> {
+  if (target === 'gmail' && !gmailAccount) return Promise.resolve({ ok: false, error: 'Save your profile email before connecting Gmail.' });
   if (env.BROWSER_CONNECT_CDP === 'true') {
     return Promise.resolve({
       ok: false,
@@ -73,7 +76,7 @@ export function openSeekManualLogin(
         '--new-window',
         '--no-first-run',
         '--no-default-browser-check',
-        target === 'gmail' ? 'https://mail.google.com/' : target === 'indeed'
+        target === 'gmail' ? browserGmailUrl(gmailAccount!) : target === 'indeed'
           ? 'https://secure.indeed.com/account/login?hl=en_AU&co=AU'
           : 'https://www.seek.com.au/',
       ],

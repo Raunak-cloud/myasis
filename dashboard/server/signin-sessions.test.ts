@@ -45,6 +45,24 @@ test('failed preparation can be retried without retaining a launch or capacity s
   assert.equal((await sessions.start('A', 'seek')).ok, true);
   await sessions.stopAll();
 });
+test('opening Gmail replaces a job-board window only after its browser releases the profile', async () => {
+  const cleanup = deferred(); const targets: string[] = [];
+  const sessions = new SigninSessions(async session => {
+    targets.push(session.target);
+    return desktop(undefined, session.target === 'seek' ? () => cleanup.promise : undefined);
+  });
+  const first = await sessions.start('A', 'seek');
+  const other = await sessions.start('B', 'indeed');
+  const gmail = sessions.start('A', 'gmail', false);
+  await new Promise(done => setImmediate(done));
+  assert.deepEqual(targets, ['seek', 'indeed']);
+  cleanup.resolve();
+  const result = await gmail;
+  assert.equal(result.ok, true); assert.equal(result.session?.target, 'gmail');
+  assert.notEqual(result.session?.id, first.session?.id);
+  assert.equal(sessions.sessionFor('B')?.id, other.session?.id, 'another account is unaffected');
+  await sessions.stopAll();
+});
 test('recovery revisions keep the same profile session and original expiry; failed desktops can be replaced', async () => {
   let current = desktop();
   const sessions = new SigninSessions(async () => current);

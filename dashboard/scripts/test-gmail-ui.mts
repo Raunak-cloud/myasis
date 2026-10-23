@@ -6,7 +6,7 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 const dashboard = resolve(import.meta.dirname, '..');
-const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main id="fixture"></main><script type="module">import React from "react";import{createRoot}from"react-dom/client";import{GmailConnect}from"/src/components/GmailConnect.tsx";import{PreparedApplications}from"/src/components/PreparedApplications.tsx";import"/src/index.css";createRoot(document.getElementById("fixture")).render(React.createElement(React.Fragment,null,React.createElement(GmailConnect),React.createElement(PreparedApplications,{running:false,onStarted:()=>{},onCountChange:()=>{}})));</script><style>#fixture{display:grid;gap:18px;max-width:850px;width:100%;padding:16px;box-sizing:border-box;margin:auto}body{margin:0}</style></body></html>';
+const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main id="fixture"></main><script type="module">import React from "react";import{createRoot}from"react-dom/client";import{GmailConnect}from"/src/components/GmailConnect.tsx";import{SeekSignIn}from"/src/components/SeekSignIn.tsx";import{PreparedApplications}from"/src/components/PreparedApplications.tsx";import"/src/index.css";createRoot(document.getElementById("fixture")).render(React.createElement(React.Fragment,null,React.createElement("details",null,React.createElement("summary",null,"Connect a job board"),React.createElement(SeekSignIn)),React.createElement(GmailConnect),React.createElement(PreparedApplications,{running:false,onStarted:()=>{},onCountChange:()=>{}})));</script><style>#fixture{display:grid;gap:18px;max-width:850px;width:100%;padding:16px;box-sizing:border-box;margin:auto}body{margin:0}</style></body></html>';
 const server = await createServer({ configFile: false, root: dashboard, plugins: [react(), { name: 'gmail-fixture', configureServer(server) {
   server.middlewares.use(async (req, res, next) => {
     if (req.url?.split('?')[0] !== '/gmail-fixture.html') return next();
@@ -22,6 +22,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 1100 } }), page = await context.newPage();
     let connected = false, connects = 0, disconnects = 0, browserOpens = 0;
     let provider: 'browser' | 'mcp' = 'mcp', admin = false;
+    let signin: object | null = null;
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/*', async route => {
@@ -31,9 +32,12 @@ try {
       if (!url.pathname.startsWith('/api/')) return route.continue();
       const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
       if (url.pathname === '/api/signin/session') {
-        assert.equal(provider, 'browser');
-        if (route.request().method() === 'POST') { const body = route.request().postDataJSON(); assert.equal(body.target, 'gmail'); assert.equal(body.consent, true); browserOpens++; }
-        return json({ supported: true, session: null });
+        if (route.request().method() === 'POST') {
+          assert.equal(provider, 'browser'); const body = route.request().postDataJSON(); assert.equal(body.target, 'gmail'); assert.equal(body.consent, true); browserOpens++;
+          signin = { id: 'gmail-fixture', target: 'gmail', state: 'starting', startedAt: Date.now(), expiresAt: Date.now() + 60_000, display: 0, password: 'fixture' };
+        }
+        if (route.request().method() === 'DELETE') { signin = null; connected = true; }
+        return json({ supported: true, session: signin, seek: { signedIn: true }, indeed: { signedIn: true } });
       }
       if (url.pathname === '/api/gmail/status') return json({ connected, configured: true, account: connected ? 'candidate@fixture.invalid' : null, eligible: true, provider, admin, providers: admin ? ['browser','mcp'] : [provider] });
       if (url.pathname === '/api/gmail/connect') { assert.equal(route.request().method(), 'POST'); connects++; return json({ url: origin + '/authorize-fixture' }); }
@@ -66,8 +70,16 @@ try {
     provider = 'browser'; await page.goto(origin + '/gmail-fixture.html');
     await page.getByRole('button', { name: 'Connect browser Gmail', exact: true }).waitFor();
     assert.equal(await page.getByLabel('Gmail connection method').count(), 0, 'normal users have no MCP selector');
-    await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.getByRole('button', { name: 'Connect browser Gmail', exact: true }).click()]);
+    await page.getByRole('button', { name: 'Connect browser Gmail', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Browser sign-in' }).waitFor({ state: 'visible' });
+    assert.ok(await page.getByText('Gmail sign-in', { exact: true }).isVisible(), 'Gmail viewer is visible despite collapsed job-board settings');
+    assert.equal(await page.locator('details').filter({ hasText: 'Connect a job board' }).getAttribute('open'), null);
+    await page.screenshot({ path: resolve(dashboard, `../output/gmail-browser-signin-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Browser sign-in' }).waitFor({ state: 'hidden' });
+    await page.getByText('Saved browser account: candidate@fixture.invalid', { exact: true }).waitFor();
     assert.equal(browserOpens, 1);
+    connected = false;
     admin = true; await page.reload();
     await page.getByLabel('Gmail connection method').selectOption('mcp');
     await page.getByRole('button', { name: 'Connect Gmail', exact: true }).waitFor();
