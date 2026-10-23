@@ -395,7 +395,7 @@ try {
   for (skippedFixture of [false, true]) {
     await skippedPage.goto(`${origin}/?tab=applications`);
     await skippedPage.getByRole('tab', { name: /^Skipped/ }).click();
-    await skippedPage.getByText('Only your latest 500 skipped-job records are stored. Older records are automatically deleted.', { exact: true }).waitFor();
+    await skippedPage.getByText('Your latest 500 skipped jobs are shown here. Older decisions are remembered so unchanged jobs do not use more reviews.', { exact: true }).waitFor();
     await skippedPage.getByText(skippedFixture ? 'Skipped Fixture Role' : 'Nothing skipped lately', { exact: true }).waitFor();
   }
   await skippedContext.close();

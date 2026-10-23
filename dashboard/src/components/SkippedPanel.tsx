@@ -41,7 +41,7 @@ const KIND: Record<SkipKind, { label: string; tone: string; what: string }> = {
 
 type Filter = SkipKind | 'all' | 'called';
 
-const RETENTION_NOTICE = 'Only your latest 500 skipped-job records are stored. Older records are automatically deleted.';
+const RETENTION_NOTICE = 'Your latest 500 skipped jobs are shown here. Older decisions are remembered so unchanged jobs do not use more reviews.';
 
 /** One skipped job: why, and the candidate's call on it. */
 function SkippedRow({ job, onChange }: { job: SkippedJob; onChange: (items: SkippedJob[]) => void }) {
