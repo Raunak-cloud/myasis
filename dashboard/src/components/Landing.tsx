@@ -225,7 +225,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
             </ol>
             <p className="home-how-foot">
               <span className="home-how-foot-mark" aria-hidden="true">*</span>
-              Owtomate will not invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours too.
+              Owtomate will not invent qualifications, stretch your experience or guess your work rights. Your name is on the application. The facts should be yours too. Read the <a href="/automate-job-applications-australia">job application automation guide</a> to compare Auto apply and Semi auto.
             </p>
           </div>
         </section>

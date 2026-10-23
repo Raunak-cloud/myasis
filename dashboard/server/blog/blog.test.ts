@@ -2,6 +2,9 @@ import { weekOf } from './index.js';
 import { renderPost, renderRss, renderSitemap, type StoredPost } from './render.js';
 import type { Brief } from './signals.js';
 import { structuralProblems, type Article } from './writer.js';
+import { publicPageDates } from '../public-pages.js';
+import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 /**
  * The weekly brief publishes with nobody watching, so the parts code is
@@ -94,6 +97,17 @@ check('structured data cannot close its script tag', !/<\/script>[\s\S]*<\/scrip
 const summary = [{ slug: post.slug, title: post.title, description: post.description, publishedAt: post.publishedAt, updatedAt: post.updatedAt }];
 const sitemap = renderSitemap(summary, 'https://owtomate.com');
 check('the sitemap lists the static pages, the blog and each post', ['https://owtomate.com/</loc>', '/privacy</loc>', '/blog</loc>', `/blog/${post.slug}</loc>`].every((s) => sitemap.includes(s)));
+check('unknown static modification dates are omitted rather than invented', !/<loc>https:\/\/owtomate.com\/privacy<\/loc>\s*<lastmod>/.test(sitemap));
+const dates = publicPageDates(resolve(import.meta.dirname, '../..'));
+const datedSitemap = renderSitemap(summary, 'https://owtomate.com', dates);
+check('static sitemap dates come from each actual content document', Object.entries(dates).length === 4 && Object.entries(dates).every(([path, date]) => datedSitemap.includes(`<loc>https://owtomate.com${path}</loc>\n    <lastmod>${date}</lastmod>`)));
+const guide = readFileSync(resolve(import.meta.dirname, '../../automate-job-applications-australia.html'), 'utf8');
+check('the guide has consistent visible, structured and sitemap modification dates', guide.includes(`"dateModified": "${dates['/automate-job-applications-australia']}"`) && guide.includes(`datetime="${dates['/automate-job-applications-australia']}"`));
+const updatedOlder = { ...summary[0], slug: 'updated-older-post', publishedAt: new Date('2026-09-01T00:00:00Z'), updatedAt: new Date('2026-10-23T01:00:00Z') };
+check('updating an older article refreshes the blog sitemap date', renderSitemap([...summary, updatedOlder], 'https://owtomate.com').includes('<loc>https://owtomate.com/blog</loc>\n    <lastmod>2026-10-23</lastmod>'));
+check('updating an older article refreshes the RSS build date', renderRss([...summary, updatedOlder], 'https://owtomate.com').includes('<lastBuildDate>Fri, 23 Oct 2026 01:00:00 GMT</lastBuildDate>'));
+const related = renderPost(post, 'https://owtomate.com', [...summary, { ...updatedOlder, title: 'AI jobs & training <guide>' }, { ...updatedOlder, slug: 'unrelated', title: 'Hospitality shift patterns' }]).body;
+check('articles link to the automation guide and relevant published articles, with escaped titles and no self-links', related.includes('href="/automate-job-applications-australia"') && related.includes('href="/blog/updated-older-post">AI jobs &amp; training &lt;guide&gt;') && !related.includes('href="/blog/unrelated"') && !related.includes(`href="/blog/${post.slug}"`));
 const rss = renderRss(summary, 'https://owtomate.com');
 check('the feed links each post', rss.includes(`<link>https://owtomate.com/blog/${post.slug}</link>`) && rss.includes('<pubDate>Mon, 21 Sep 2026 20:00:00 GMT</pubDate>'));
 

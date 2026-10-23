@@ -6,11 +6,8 @@ import { renderIndex, renderPost, renderRss, renderSitemap } from './blog/render
 import { publicPagePatch } from './marketing/page-publisher.js';
 import { applyPagePatch } from './marketing/page-edits.js';
 import type { WebsitePatch } from '../src/marketingTypes.js';
+import { STATIC_PUBLIC_PAGES as files, publicPageDates } from './public-pages.js';
 
-const files: Record<string, string> = {
-  '/': 'index.html', '/privacy': 'privacy.html', '/terms': 'terms.html',
-  '/automate-job-applications-australia': 'automate-job-applications-australia.html',
-};
 export function publicContentPath(path: string): boolean {
   return Object.hasOwn(files, path) || path === '/blog' || path === '/sitemap.xml'
     || path === '/blog/rss.xml' || /^\/blog\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(path);
@@ -22,7 +19,7 @@ export async function publicWebsiteContent(path: string, directory: string) {
   const origin = siteOrigin();
   if (path === '/sitemap.xml' || path === '/blog/rss.xml') {
     const posts = await publishedPosts();
-    return { status: 200, text: path === '/sitemap.xml' ? renderSitemap(posts, origin) : renderRss(posts, origin),
+    return { status: 200, text: path === '/sitemap.xml' ? renderSitemap(posts, origin, publicPageDates(directory)) : renderRss(posts, origin),
       contentType: path === '/sitemap.xml' ? 'application/xml' : 'application/rss+xml' };
   }
   let status = 200;
@@ -33,7 +30,7 @@ export async function publicWebsiteContent(path: string, directory: string) {
     if (path === '/blog') parts = renderIndex(await publishedPosts(), origin);
     else {
       const post = await publishedPost(path.slice('/blog/'.length));
-      if (post) parts = renderPost(post, origin);
+      if (post) parts = renderPost(post, origin, await publishedPosts());
       else {
         status = 404;
         parts = { head: '<title>Not found | Owtomate</title><meta name="robots" content="noindex" />',

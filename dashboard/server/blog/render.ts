@@ -1,5 +1,6 @@
 import { CITATION, refsIn, type Article } from './writer.js';
 import type { Brief, BriefSource } from './signals.js';
+import { STATIC_PUBLIC_PAGES } from '../public-pages.js';
 
 /**
  * The blog as HTML, RSS and sitemap.
@@ -32,14 +33,6 @@ export interface PostSummary {
 const SITE_NAME = 'Owtomate';
 const BLOG_TITLE = 'Owtomate Job Search Guides';
 const BLOG_DESCRIPTION = 'Practical job search guides and Australian job-market research, with sources you can check.';
-
-/** Content pages outside the blog, for the sitemap. Update lastmod when a page changes. */
-const STATIC_PAGES: Array<{ path: string; lastmod: string; changefreq: string; priority: string }> = [
-  { path: '/', lastmod: '2026-09-23', changefreq: 'weekly', priority: '1.0' },
-  { path: '/automate-job-applications-australia', lastmod: '2026-09-23', changefreq: 'monthly', priority: '0.8' },
-  { path: '/privacy', lastmod: '2026-09-18', changefreq: 'yearly', priority: '0.3' },
-  { path: '/terms', lastmod: '2026-09-18', changefreq: 'yearly', priority: '0.3' },
-];
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -100,12 +93,17 @@ function publisher(origin: string) {
   };
 }
 
-export function renderPost(post: StoredPost, origin: string): { head: string; body: string } {
+export function renderPost(post: StoredPost, origin: string, published: PostSummary[] = []): { head: string; body: string } {
   const { article, brief } = post;
   const url = `${origin}${postPath(post.slug)}`;
   const sources = new Map(brief.sources.map((s) => [s.ref, s]));
   const cited = new Set([...JSON.stringify(article).matchAll(CITATION)].flatMap((m) => refsIn(m[1])));
   const newThisWeek = new Set(brief.searches.filter((s) => s.isNew).map((s) => s.suggestion));
+  const words = (text: string) => new Set((text.toLowerCase().match(/[a-z]{2,}/g) ?? []).filter(word => !['the', 'and', 'for', 'how', 'in', 'to', 'of', 'as', 'an', 'on', 'at', 'by', 'is', 'or', 'jobs', 'australia', 'australian', 'what', 'with', 'that', 'this', 'from', 'your', 'find'].includes(word)));
+  const topic = words(`${post.title} ${article.focusKeyword}`);
+  const related = published.filter(item => item.slug !== post.slug).map(item => ({ item,
+    overlap: [...words(item.title)].filter(word => topic.has(word)).length,
+  })).filter(item => item.overlap > 0).sort((a, b) => b.overlap - a.overlap || b.item.publishedAt.getTime() - a.item.publishedAt.getTime()).slice(0, 3);
 
   const sections = article.sections.map((section) => [
     `<h2>${plain(section.heading)}</h2>`,
@@ -137,6 +135,11 @@ export function renderPost(post: StoredPost, origin: string): { head: string; bo
       <ul>${article.takeaways.map((t) => `<li>${prose(t, sources)}</li>`).join('')}</ul>
       <h2 id="sources">Sources</h2>
       <ol class="blog-sources">${sourceList}</ol>
+      <nav aria-label="Related guides">
+        <h2>Related guides</h2>
+        <ul><li><a href="/automate-job-applications-australia">How to automate job applications in Australia</a></li>
+        ${related.map(({ item }) => `<li><a href="${postPath(item.slug)}">${escapeHtml(item.title)}</a></li>`).join('\n')}</ul>
+      </nav>
       ${brief.marketing ? `<section class="legal-lead blog-cta" aria-label="Explore Owtomate"><p><a href="${escapeHtml(brief.marketing.ctaUrl)}"><strong>${escapeHtml(brief.marketing.ctaLabel)}</strong></a></p></section>` : `<section class="legal-lead blog-cta" aria-label="Try Owtomate">
         <p><strong>Spending your evenings on applications?</strong> Owtomate applies to jobs that match your resume on SEEK and Indeed, from your own account, and asks you whenever it cannot answer honestly.</p>
         <p><a href="/api/auth/google" rel="nofollow"><strong>Start free — five applications, no card</strong></a></p>
@@ -195,6 +198,7 @@ export function renderIndex(posts: PostSummary[], origin: string): { head: strin
 
   const body = `<h1>${BLOG_TITLE}</h1>
       <p class="legal-lead">${escapeHtml(BLOG_DESCRIPTION)} <a href="/blog/rss.xml">RSS feed</a>.</p>
+      <p>New to application automation? Read <a href="/automate-job-applications-australia">how to automate job applications in Australia</a>, including manual starts and reviewing prepared applications.</p>
       ${posts.length ? `<ol class="blog-list">${items}</ol>` : '<p>The first brief is on its way.</p>'}`;
 
   return {
@@ -240,26 +244,23 @@ export function renderRss(posts: PostSummary[], origin: string): string {
     <atom:link href="${origin}/blog/rss.xml" rel="self" type="application/rss+xml" />
     <description>${escapeXml(BLOG_DESCRIPTION)}</description>
     <language>en-au</language>
-${posts[0] ? `    <lastBuildDate>${posts[0].updatedAt.toUTCString()}</lastBuildDate>\n` : ''}${items}
+${posts.length ? `    <lastBuildDate>${new Date(Math.max(...posts.map(post => post.updatedAt.getTime()))).toUTCString()}</lastBuildDate>\n` : ''}${items}
   </channel>
 </rss>
 `;
 }
 
-export function renderSitemap(posts: PostSummary[], origin: string): string {
-  const entry = (path: string, lastmod: string, changefreq: string, priority: string) => `  <url>
+export function renderSitemap(posts: PostSummary[], origin: string, staticDates: Record<string, string> = {}): string {
+  const entry = (path: string, lastmod?: string) => `  <url>
     <loc>${escapeXml(`${origin}${path}`)}</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>${changefreq}</changefreq>
-    <priority>${priority}</priority>
-  </url>`;
-  const newest = posts[0] ? day(posts[0].updatedAt) : STATIC_PAGES[0].lastmod;
+${lastmod ? `    <lastmod>${escapeXml(lastmod)}</lastmod>\n` : ''}  </url>`;
+  const newest = posts.length ? day(new Date(Math.max(...posts.map(post => post.updatedAt.getTime())))) : undefined;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${[
-    ...STATIC_PAGES.map((page) => entry(page.path, page.lastmod, page.changefreq, page.priority)),
-    entry('/blog', newest, 'weekly', '0.7'),
-    ...posts.map((post) => entry(postPath(post.slug), day(post.updatedAt), 'yearly', '0.6')),
+    ...Object.keys(STATIC_PUBLIC_PAGES).map(path => entry(path, staticDates[path])),
+    entry('/blog', newest),
+    ...posts.map((post) => entry(postPath(post.slug), day(post.updatedAt))),
   ].join('\n')}
 </urlset>
 `;

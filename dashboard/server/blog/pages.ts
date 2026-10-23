@@ -1,4 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { publicPageDates } from '../public-pages.js';
 import { publishedPost, publishedPosts, siteOrigin } from './index.js';
 import { renderIndex, renderPost, renderRss, renderSitemap } from './render.js';
 import { publishPageHtml } from '../marketing/page-publisher.js';
@@ -60,7 +62,7 @@ export function blogPages(templateFile: string) {
         res.setHeader('Location', '/blog');
         return res.end();
       }
-      if (path === '/sitemap.xml') return send(res, 200, 'application/xml', renderSitemap(await publishedPosts(), origin), 3_600);
+      if (path === '/sitemap.xml') return send(res, 200, 'application/xml', renderSitemap(await publishedPosts(), origin, publicPageDates(dirname(templateFile))), 3_600);
       if (path === '/blog/rss.xml') return send(res, 200, 'application/rss+xml', renderRss(await publishedPosts(), origin), 3_600);
       if (path === '/blog') return page(res, 200, renderIndex(await publishedPosts(), origin),path);
 
@@ -73,7 +75,7 @@ export function blogPages(templateFile: string) {
           res.setHeader('Location', `/blog/${post.slug}`);
           return res.end();
         }
-        return page(res, 200, renderPost(post, origin),path);
+        return page(res, 200, renderPost(post, origin, await publishedPosts()),path);
       }
       return page(res, 404, {
         head: '<title>Not found | Owtomate</title>\n    <meta name="robots" content="noindex" />',
