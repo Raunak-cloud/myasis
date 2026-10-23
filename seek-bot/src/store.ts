@@ -81,6 +81,10 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });
   writeFileSync(outcomeLogPath(), line + '\n', { flag: 'a' });
+  if (outcome.reviewCache) writeFileSync(resolve(config.dataDir, 'review-cache.jsonl'), JSON.stringify({
+    ...outcome.reviewCache, jobId: outcome.jobId, title: outcome.title, company: outcome.company,
+    reason: 'reason' in outcome ? outcome.reason : outcome.status, reviewedAt: new Date().toISOString(),
+  }) + '\n', { flag: 'a' });
 }
 
 interface ReviewFeedback {

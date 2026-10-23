@@ -68,6 +68,8 @@ export interface JobListing {
   applicationUrl?: string;
   /** Populated once the detail page is opened. */
   description?: string;
+  /** Search-card identity retained when the detail page enriches fields. */
+  discoveryFingerprint?: string;
   /**
    * Annual minimum parsed from SEEK's structured payload, present even when the
    * advertiser hid the range. Used for filtering only — never quoted back as a

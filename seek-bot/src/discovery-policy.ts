@@ -10,8 +10,9 @@ export function discoveryTarget(maxEvaluations: number, candidateCap: number): n
   return Math.max(0, Math.min(maxEvaluations, candidateCap));
 }
 
-export function nextLowYieldStreak(previous: number, promisingJobsOnPage: number): number {
-  return promisingJobsOnPage > 0 ? 0 : previous + 1;
+export function nextLowYieldStreak(previous: number, promisingJobsOnPage: number, knownJobsOnPage = 0): number {
+  // A page full of known jobs is not evidence that later pages lack new jobs.
+  return promisingJobsOnPage > 0 || knownJobsOnPage > 0 ? 0 : previous + 1;
 }
 
 export function shouldStopDiscovery(input: {

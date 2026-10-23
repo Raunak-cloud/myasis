@@ -173,6 +173,61 @@ ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_disposition TEXT;
 ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_listing_fingerprint TEXT;
 ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_context_fingerprint TEXT;
 ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_expires_at TIMESTAMPTZ;
+ALTER TABLE run_events ADD COLUMN IF NOT EXISTS review_content_fingerprint TEXT;
+
+-- BEGIN durable job review memory
+-- Decision memory survives the 500-row Skipped display retention. New versions
+-- replace old ones per listing, and deleting an account removes its memory.
+CREATE TABLE IF NOT EXISTS job_review_decisions (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_id TEXT NOT NULL,
+  listing_fingerprint TEXT NOT NULL,
+  context_fingerprint TEXT NOT NULL,
+  content_fingerprint TEXT,
+  disposition TEXT NOT NULL CHECK (disposition IN ('fit-mismatch', 'below-score')),
+  title TEXT, company TEXT, reason TEXT,
+  reviewed_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY(user_id, job_id, listing_fingerprint)
+);
+CREATE OR REPLACE FUNCTION remember_job_review() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.review_disposition IN ('fit-mismatch', 'below-score')
+     AND NEW.job_id IS NOT NULL
+     AND NEW.review_listing_fingerprint ~ '^[a-f0-9]{64}$'
+     AND NEW.review_context_fingerprint ~ '^[a-f0-9]{64}$' THEN
+    INSERT INTO job_review_decisions(user_id, job_id, listing_fingerprint, context_fingerprint,
+      content_fingerprint, disposition, title, company, reason, reviewed_at)
+    VALUES(NEW.user_id, NEW.job_id, NEW.review_listing_fingerprint, NEW.review_context_fingerprint,
+      NEW.review_content_fingerprint, NEW.review_disposition, NEW.title, NEW.company, NEW.reason, NEW.ts)
+    ON CONFLICT(user_id, job_id, listing_fingerprint) DO UPDATE SET
+      context_fingerprint=EXCLUDED.context_fingerprint, content_fingerprint=EXCLUDED.content_fingerprint,
+      disposition=EXCLUDED.disposition, title=EXCLUDED.title, company=EXCLUDED.company,
+      reason=EXCLUDED.reason, reviewed_at=EXCLUDED.reviewed_at
+    WHERE job_review_decisions.reviewed_at <= EXCLUDED.reviewed_at;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS run_events_z_review_memory ON run_events;
+CREATE TRIGGER run_events_z_review_memory BEFORE INSERT OR UPDATE ON run_events
+  FOR EACH ROW EXECUTE FUNCTION remember_job_review();
+-- Backfill surviving decisions, including old seven-day decisions, once. A
+-- newer durable decision can never be replaced by replaying an older event.
+INSERT INTO job_review_decisions(user_id, job_id, listing_fingerprint, context_fingerprint,
+  content_fingerprint, disposition, title, company, reason, reviewed_at)
+SELECT DISTINCT ON (user_id, job_id, review_listing_fingerprint)
+  user_id, job_id, review_listing_fingerprint, review_context_fingerprint,
+  review_content_fingerprint, review_disposition, title, company, reason, ts
+FROM run_events WHERE review_disposition IN ('fit-mismatch', 'below-score') AND job_id IS NOT NULL
+  AND review_listing_fingerprint ~ '^[a-f0-9]{64}$' AND review_context_fingerprint ~ '^[a-f0-9]{64}$'
+ORDER BY user_id, job_id, review_listing_fingerprint, ts DESC, id DESC
+ON CONFLICT(user_id, job_id, listing_fingerprint) DO UPDATE SET
+  context_fingerprint=EXCLUDED.context_fingerprint, content_fingerprint=EXCLUDED.content_fingerprint,
+  disposition=EXCLUDED.disposition, title=EXCLUDED.title, company=EXCLUDED.company,
+  reason=EXCLUDED.reason, reviewed_at=EXCLUDED.reviewed_at
+WHERE job_review_decisions.reviewed_at < EXCLUDED.reviewed_at;
+-- END durable job review memory
 CREATE INDEX IF NOT EXISTS run_events_review_cache_idx
   ON run_events(user_id, review_expires_at DESC)
   WHERE review_disposition IS NOT NULL;

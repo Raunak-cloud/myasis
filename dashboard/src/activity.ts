@@ -70,7 +70,8 @@ function reviewShortfall(lines: LogLine[], reviewed: number): string | null {
   if (!limit || reviewed >= limit) return null;
 
   const groups: Array<[RegExp, string]> = [
-    [/^recent /, 'already checked in the last week'],
+    [/^unchanged rejection$|^recent fit-mismatch$|^recent below-score$/, 'previously rejected and unchanged'],
+    [/^recent /, 'recently checked'],
     [/^listing age$|^posted /, 'past your age limit'],
     [/outside run scope|external application disabled/, 'of an application type this run skipped'],
     [/^excluded company/, 'from companies you excluded'],
@@ -212,7 +213,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       add(line, 'An employer feed could not be searched', 'warn', 'The other employer feeds continue. An admin can check the run console for details.');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
       // A feed with nothing in it is not news.
-      if (Number(match[2]) > 0) add(line, `${match[1]} recommended ${match[2]} jobs for you`, 'done', 'These are reviewed first.');
+      if (Number(match[2]) > 0) add(line, `${match[1]} recommended ${match[2]} jobs for you`, 'done', 'New listings take priority over previously rejected jobs.');
     } else if ((match = text.match(/⚠ (SEEK|Indeed|SmartRecruiters|Lever|Greenhouse|PageUp|Workday):\s*(.*)/i))) {
       const accountActionNeeded = /sign(?:ed)? in|verification|cloudflare|captcha/i.test(text);
       const leftOut = /left out for the rest of this run/i.test(text);

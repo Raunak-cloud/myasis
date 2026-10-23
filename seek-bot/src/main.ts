@@ -44,7 +44,7 @@ import { assessFit, rankJobsForReview, reviewKey, ruleConflict, type FitAssessme
 import { SitePacer } from './pacing.js';
 import { measured, metric } from './pipeline.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
-import { REVIEW_TTL, ReviewCache, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
+import { REVIEW_TTL, ReviewCache, listingFingerprint, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
@@ -264,6 +264,8 @@ async function main() {
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
     const discoveryTarget = calculateDiscoveryTarget(config.limits.maxEvaluations, candidateCap);
     let rankingAvailable = applicationModelAvailable();
+    const priorRejections = new Set<string>();
+    const listingKey = (job: JobListing) => `${job.platform ?? 'seek'}:${job.id}`;
 
     /** Cheap checks run as each result page arrives, before more pages load. */
     const ingest = (jobs: JobListing[], adapter: PlatformAdapter): JobListing[] => {
@@ -273,6 +275,7 @@ async function main() {
         const key = `${adapter.id}:${job.id}`;
         if (seen.has(key)) continue;
         seen.set(key, job);
+        job.discoveryFingerprint = listingFingerprint(job);
 
         if (skipExistingApplication(job)) continue;
         if (!approvedApplications().length && applicationKeys(job).some(key => pendingApplicationKeys().has(key))) {
@@ -282,11 +285,12 @@ async function main() {
 
         // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
 
-        const prior = approvedApplication(job) ? undefined : reviewCache.suppression(job, reviewContext);
+        const prior = approvedApplication(job) || job.source === 'chosen' ? undefined : reviewCache.suppression(job, reviewContext);
         if (prior) {
           bump(`recent ${prior.disposition}`);
           continue;
         }
+        if (!approvedApplication(job) && job.source !== 'chosen' && reviewCache.prior(job, reviewContext)) priorRejections.add(key);
         if (job.applicationMode === 'external' && !config.allowExternalApply) {
           bump('external application disabled');
           logOutcome({
@@ -316,6 +320,7 @@ async function main() {
 
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
+      jobs = jobs.filter(job => !priorRejections.has(listingKey(job)));
       if (!jobs.length || !rankingAvailable || approvedApplications().length) return;
       try {
         for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
@@ -331,7 +336,7 @@ async function main() {
      * of them out as "outside run scope", so new search terms were never searched.
      */
     const isPromising = (job: JobListing): boolean =>
-      !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
+      !priorRejections.has(listingKey(job)) && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
       && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
     const promisingCount = (): number => shortlist.filter(isPromising).length;
 
@@ -445,6 +450,9 @@ async function main() {
     const reviewOrder = (a: JobListing, b: JobListing) => {
       const scoped = scopeRank(a) - scopeRank(b);
       if (scoped) return scoped;
+      if (a.source === 'chosen' || b.source === 'chosen') return a.source === b.source ? 0 : a.source === 'chosen' ? -1 : 1;
+      const known = Number(priorRejections.has(listingKey(a))) - Number(priorRejections.has(listingKey(b)));
+      if (known) return known;
       const recommended = recommendedFirst(a) - recommendedFirst(b);
       if (recommended) return recommended;
       return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
@@ -458,7 +466,7 @@ async function main() {
     /** Reads the next result page of every search still yielding. */
     const searchPageRound = async (): Promise<void> => {
       const pageNumber = nextPage++;
-      const round: Array<{ stream: SearchStream; accepted: JobListing[] }> = [];
+      const round: Array<{ stream: SearchStream; accepted: JobListing[]; known: number }> = [];
       for (const stream of liveStreams()) {
         // The round's list was taken before it started: a board walled earlier in this round is not asked again.
         if (blockedPlatforms.has(stream.adapter.id)) {
@@ -489,16 +497,18 @@ async function main() {
         stream.pages++;
         stream.total += results.length;
         const accepted = ingest(results, stream.adapter);
-        round.push({ stream, accepted });
+        const known = results.filter(job => index.hasApplication(job) || reviewCache.prior({ ...job, platform: job.platform ?? stream.adapter.id }, reviewContext)).length;
+        round.push({ stream, accepted, known });
         if (!results.length || results.length < stream.adapter.pageSize) stream.exhausted = true;
       }
 
       const newlyAccepted = round.flatMap((item) => item.accepted);
       await rankNew(newlyAccepted);
-      for (const { stream, accepted } of round) {
+      for (const { stream, accepted, known } of round) {
         stream.lowYieldPages = nextLowYieldStreak(
           stream.lowYieldPages,
           accepted.filter(isPromising).length,
+          known,
         );
       }
     };
@@ -576,7 +586,7 @@ async function main() {
     const discoveryMutex = new AsyncMutex();
     const refillReviews = () => discoveryMutex.run(async () => {
 
-      if (!hasUnreviewed() && searchesLeft()) {
+      if (!hasUnreviewed(job => !priorRejections.has(listingKey(job))) && searchesLeft()) {
         await showLiveActivity({ phase: 'reviewing', detail: 'Finding more job listings.' }, page);
         try { await searchMore(); }
         finally { await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' }); }
@@ -760,6 +770,7 @@ async function main() {
         await refillReviews();
         return;
       }
+      if (priorRejections.has(listingKey(stub)) && searchesLeft()) { await refillReviews(); return; }
       reviewClaimed.add(reviewReservationKey(stub));
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id) || abortedPlatforms.has(adapter.id)) return;
@@ -772,8 +783,8 @@ async function main() {
       // Claim capacity before the first await. Page reads now overlap, but the
       // evaluation allowance remains one run-wide budget. Unusable reads return
       // their reservation in finally, including navigation failures and walls.
-      evaluated++;
-      reviewReservations.add(reviewReservationKey(stub));
+      const revalidating = priorRejections.has(listingKey(stub));
+      if (!revalidating) { evaluated++; reviewReservations.add(reviewReservationKey(stub)); }
       let retained = false;
       try {
         await readPlatform(adapter.id, async () => {
@@ -835,6 +846,19 @@ async function main() {
             return;
           }
 
+          // No instruction/model call, reading pause or retained review slot
+          // for an unchanged rejection, including description-only rechecks.
+          if (!approvedApplication(stub) && stub.source !== 'chosen' && reviewCache.suppression(job, reviewContext)) {
+            bump('unchanged rejection');
+            console.log(`  - unchanged rejection: ${jobLabel(job)} (no AI review)`);
+            return;
+          }
+          if (revalidating) {
+            if (evaluated >= config.limits.maxEvaluations) { reviewStopped = true; return; }
+            evaluated++;
+            reviewReservations.add(reviewReservationKey(stub));
+          }
+
           /**
            * Reading pace, not network pace. At 1–3 s a hundred job ads went by in
            * fifteen minutes, and Cloudflare challenges are partly rate-based — the
@@ -894,7 +918,7 @@ async function main() {
               metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
               bump('fit mismatch');
               logOutcome({ status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company, url: stub.url,
-                reviewCache: reviewCacheMetadata(stub, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
+                reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
               retained = true;
               return;
             }

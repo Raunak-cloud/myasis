@@ -107,6 +107,7 @@ as_app "cd $APP/seek-bot && node --test dist/application-identity.test.js"
 as_app "cd $APP/seek-bot && node --test dist/instruction-policy.test.js dist/job-evaluation-trust.test.js"
 as_app "cd $APP/seek-bot && node dist/instruction-gate.test.js"
 as_app "cd $APP/seek-bot && node --test dist/review-budget.test.js"
+as_app "cd $APP/seek-bot && node --test dist/review-cache.test.js dist/discovery-policy.test.js"
 as_app "cd $APP/seek-bot && node --test dist/cover-letter-policy.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/application-review.test.js"
 as_app "cd $APP/seek-bot && node --test dist/application-workers.test.js dist/application-reservations.test.js dist/job-board-url.test.js dist/review-verdicts.test.js dist/external-url.test.js dist/live-workers.test.js"
@@ -153,6 +154,7 @@ as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-acco
 as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-bot/node_modules/.bin/tsx scripts/test-account-settings-ui.mts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-environment.test.ts server/assist.test.ts server/skipped.test.ts server/run-watchdog.test.ts server/chrome-profile.test.ts server/run-completion.test.ts server/salary.test.ts server/run-device.test.ts server/market-scout.test.ts server/blog/*.test.ts server/marketing/*.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/profile-export.test.ts"
+as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/job-review-memory.test.ts"
 as_app "cd $APP/market-scout && npm exec tsc -- -p . && npm test"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.

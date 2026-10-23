@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, JobListing } from './types.js';
 
-type FixtureJob = JobListing & { cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { searchPage?: number; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney',
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
+function run(jobs: FixtureJob[], options: { pages?: number; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -35,7 +35,7 @@ import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).
 Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},formSpeed:false,allowExternalApply:${options.externalLimit !== 0}});
 Object.assign(config.coverLetter, {mode:'tailored'});
 Object.assign(config.rules, {minScore:0,excludedCompanies:[]});
-Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:1,maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:100,maxExternalPerDay:${options.externalLimit ?? 10},
+Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:${options.pages ?? 1},maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:100,maxExternalPerDay:${options.externalLimit ?? 10},
   minDelayMs:0,maxDelayMs:0,minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
 `);
     writeFileSync(join(directory, 'discovery.mjs'), `
@@ -44,11 +44,11 @@ const reads = new Map();
 const platform = new URL(import.meta.url).searchParams.get('platform');
 export const recommended = async () => jobs.filter(job => !job.searchOnlyJob && (${options.workers === 2} ? job.platform === platform : true));
 export const search = async (_page,_keyword,pageNumber) => {
-  record('search',platform,{page:_page.worker});
+  record('search',platform,{page:_page.worker,pageNumber});
   _page.currentJob='search:'+platform;
   await new Promise(done=>setTimeout(done,10));
   if(_page.currentJob!=='search:'+platform) throw Error('Discovery page was navigated by another worker');
-  return pageNumber===1 ? jobs.filter(job=>job.searchOnlyJob && job.platform===platform) : [];
+  return jobs.filter(job=>job.searchOnlyJob && job.platform===platform && (job.searchPage??1)===pageNumber);
 };
 export const fetchJobDetail = async (_page, job) => {
   record('detail',job.id,{page:_page.worker});
@@ -60,7 +60,7 @@ export const fetchJobDetail = async (_page, job) => {
   record('detail-finish',job.id,{page:_page.worker});
   const count = (reads.get(job.id) || 0) + 1; reads.set(job.id,count);
   if(job.loadingFirst && count === 1) return {...job,description:'',alreadyApplied:false};
-  return {...job,description:'Build software in Sydney.',alreadyApplied:job.detailApplied===true,appliedNote:'You applied on 1 October'};
+  return {...job,description:job.detailDescription??'Build software in Sydney.',alreadyApplied:job.detailApplied===true,appliedNote:'You applied on 1 October'};
 };
 `);
     writeFileSync(join(directory, 'browser.mjs'), `
@@ -118,7 +118,18 @@ export const applyToIndeedJob = applyToJobWithAgent;
       (_match, specifier: string) => `from ${JSON.stringify(overrides[specifier] ? url(overrides[specifier]) + (specifier === './discovery.js' ? '?platform=seek' : specifier === './discovery-indeed.js' ? '?platform=indeed' : '') : new URL(specifier, import.meta.url).href)}`,
     );
     writeFileSync(join(directory, 'main.mjs'), main);
-    writeFileSync(join(directory, 'start.mjs'), `globalThis.fetch=async()=>{throw Error('HTTP is forbidden by this offline fixture');}; ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs');`);
+    writeFileSync(join(directory, 'start.mjs'), `
+globalThis.fetch=async()=>{throw Error('HTTP is forbidden by this offline fixture');};
+import {writeFileSync} from 'node:fs';
+const {loadProfile}=await import('./config.mjs');
+const {reviewCacheMetadata,reviewContextFingerprint}=await import(${JSON.stringify(new URL('./review-cache.js', import.meta.url).href)});
+const context=reviewContextFingerprint(loadProfile());
+const priors=${JSON.stringify(options.priorReviews ?? [])};
+writeFileSync(new URL('./review-cache.jsonl',import.meta.url),priors.map(prior=>JSON.stringify({
+  ...reviewCacheMetadata({...prior.job,description:prior.description??'Build software in Sydney.'},'fit-mismatch',prior.changedContext?'old-context':context,null),
+  jobId:prior.job.id,title:prior.job.title,company:prior.job.company,reason:'Prior rejection',reviewedAt:'2026-01-01T00:00:00Z'
+})).join('\\n'));
+${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs');`);
     const output = execFileSync(process.execPath, [join(directory, 'start.mjs'), ...(options.apply ? [] : ['--search-only'])], {
       encoding: 'utf8', timeout: 10_000,
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
@@ -141,6 +152,57 @@ test('Semi auto fills only its run cap and records no submitted applications', (
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['one', 'two']);
   assert.equal(result.history.length, 0);
   assert.match(result.output, /Semi auto complete: 2 application/);
+});
+
+test('old rejected recommendations cannot consume the only review before a fresh search result', () => {
+  const old = job('old-rejection', { source: 'recommended' });
+  const fresh = job('unseen-search', { searchOnlyJob: true, source: 'search' });
+  const result = run([old, fresh], { apply: true, priorReviews: [{ job: old }], reviews: 1, cap: 1 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
+  assert.ok(!result.events.some(event => event.stage === 'detail' && event.id === old.id), 'known recommendations must not delay unseen jobs');
+  assert.ok(result.history.some(record => record.jobId === fresh.id && record.submittedByMyasis));
+});
+
+test('unchanged old rejections use no model call or review slot; full-description edits get a new review', () => {
+  const old = job('unchanged');
+  const changed = job('changed', { detailDescription: 'A genuinely different job description.' });
+  const result = run([old, changed], { apply: true, reviews: 1, cap: 1, priorReviews: [{ job: old }, { job: changed }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [changed.id]);
+  assert.match(result.output, /unchanged rejection.*no AI review/);
+  assert.ok(result.history.some(record => record.jobId === changed.id));
+});
+
+test('candidate changes invalidate an old rejection and explicit user choices bypass it', () => {
+  const changed = job('profile-change');
+  const result = run([changed], { priorReviews: [{ job: changed, changedContext: true }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [changed.id]);
+  const chosen = job('chosen', { source: 'chosen' });
+  const override = run([chosen], { apply: true, priorReviews: [{ job: chosen }] });
+  assert.ok(override.history.some(record => record.jobId === chosen.id));
+});
+
+test('rejection memory is scoped by board even when both boards reuse the same job id', () => {
+  const old = job('same-id');
+  const other = job('same-id', { platform: 'indeed' });
+  const result = run([other], { platform: 'indeed', priorReviews: [{ job: old }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [other.id]);
+});
+
+test('parallel revalidation does not reserve the evaluation allowance for unchanged rejections', () => {
+  const old = job('old-seek', { detailDelayMs: 40 });
+  const changed = job('changed-indeed', { platform: 'indeed', detailDescription: 'Changed requirements.' });
+  const result = run([old, changed], { apply: true, workers: 2, reviews: 1, cap: 1, priorReviews: [{ job: old }, { job: changed }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [changed.id]);
+  assert.ok(result.history.some(record => record.jobId === changed.id));
+});
+
+test('two pages of remembered jobs do not hide fresh listings on page three', () => {
+  const old = Array.from({ length: 64 }, (_, i) => job(`rejected-${i}`, { searchOnlyJob: true, searchPage: i < 32 ? 1 : 2 }));
+  const fresh = job('page-three-new', { searchOnlyJob: true, searchPage: 3 });
+  const result = run([...old, fresh], { apply: true, pages: 3, reviews: 1, cap: 1, priorReviews: old.map(job => ({ job })) });
+  assert.deepEqual(result.events.filter(event => event.stage === 'search').map(event => event.pageNumber), [1, 2, 3]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
+  assert.ok(!result.events.some(event => event.stage === 'detail' && event.id.startsWith('rejected-')));
 });
 
 test('confirmed execution visits only the selected prepared jobs and never discovers replacements', () => {

@@ -12,7 +12,9 @@ export interface ReviewCacheMetadata {
   disposition: ReviewDisposition;
   listingFingerprint?: string;
   contextFingerprint?: string;
-  expiresAt: string;
+  /** Suitability decisions are invalidated by content/context, not a timer. */
+  expiresAt: string | null;
+  contentFingerprint?: string;
 }
 
 export interface ReviewCacheEntry extends ReviewCacheMetadata {
@@ -35,10 +37,20 @@ export function listingFingerprint(job: JobListing): string {
     platform: normalise(job.platform ?? 'seek'),
     title: normalise(job.title),
     company: normalise(job.company),
+    location: normalise(job.location),
+    salary: normalise(job.salary),
+    workArrangement: normalise(job.workArrangement),
     // Search-card fields are available before a detail-page/model call and
     // remain present after detail enrichment, so edits invalidate cheaply.
     teaser: normalise(job.teaser),
   });
+}
+
+/** Relative posting ages and source order are not changes to the advert. */
+export function reviewContentFingerprint(job: JobListing): string | undefined {
+  if (!job.description?.trim()) return undefined;
+  return digest({ description: normalise(job.description), title: normalise(job.title), company: normalise(job.company),
+    location: normalise(job.location), salary: normalise(job.salary), workArrangement: normalise(job.workArrangement) });
 }
 
 function evidenceSignature(): string[] {
@@ -87,13 +99,14 @@ export function reviewCacheMetadata(
   job: JobListing,
   disposition: ReviewDisposition,
   contextFingerprint: string,
-  ttlMs: number,
+  ttlMs: number | null,
 ): ReviewCacheMetadata {
   return {
     disposition,
-    listingFingerprint: listingFingerprint(job),
+    listingFingerprint: job.discoveryFingerprint ?? listingFingerprint(job),
+    ...(disposition !== 'external' ? { contentFingerprint: reviewContentFingerprint(job) } : {}),
     ...(disposition === 'fit-mismatch' || disposition === 'below-score' ? { contextFingerprint } : {}),
-    expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+    expiresAt: ttlMs === null ? null : new Date(Date.now() + ttlMs).toISOString(),
   };
 }
 
@@ -111,8 +124,9 @@ export class ReviewCache {
         if (!line.trim()) continue;
         try {
           const entry = JSON.parse(line) as ReviewCacheEntry;
-          const expiresAt = Date.parse(entry.expiresAt);
-          if (!entry.jobId || !DISPOSITIONS.has(entry.disposition) || !Number.isFinite(expiresAt) || expiresAt <= now) continue;
+          const expiresAt = entry.expiresAt === null ? null : Date.parse(entry.expiresAt);
+          if (!entry.jobId || !DISPOSITIONS.has(entry.disposition)) continue;
+          if (expiresAt === null ? entry.disposition === 'external' : !Number.isFinite(expiresAt) || expiresAt <= now) continue;
           if ((entry.disposition === 'fit-mismatch' || entry.disposition === 'below-score')
             && (!entry.listingFingerprint || !entry.contextFingerprint)) continue;
           const reviewedAt = Date.parse(entry.reviewedAt);
@@ -125,9 +139,14 @@ export class ReviewCache {
     } catch { /* A new account has no cache yet. */ }
   }
 
-  suppression(job: JobListing, contextFingerprint: string): ReviewCacheEntry | null {
-    const fingerprint = listingFingerprint(job);
+  prior(job: JobListing, contextFingerprint: string): ReviewCacheEntry | null {
+    const fingerprint = job.discoveryFingerprint ?? listingFingerprint(job);
+    // Older events lack the richer card fields and full-ad proof. Keep them
+    // behind unseen jobs, but require a new content check before suppressing.
+    const legacyFingerprint = digest({ id: job.id, platform: normalise(job.platform ?? 'seek'),
+      title: normalise(job.title), company: normalise(job.company), teaser: normalise(job.teaser) });
     const entry = this.entries.get(`${job.id}:${fingerprint}`)
+      ?? this.entries.get(`${job.id}:${legacyFingerprint}`)
       ?? this.entries.get(`${job.id}:legacy`);
     if (!entry) return null;
     // A plan that supports employer-site applications must not inherit a
@@ -139,14 +158,22 @@ export class ReviewCache {
       && (!entry.title || !entry.company
         || normalise(entry.title) !== normalise(job.title)
         || normalise(entry.company) !== normalise(job.company))) return null;
-    if (entry.listingFingerprint && entry.listingFingerprint !== fingerprint) return null;
+    if (entry.listingFingerprint && entry.listingFingerprint !== fingerprint && entry.listingFingerprint !== legacyFingerprint) return null;
     if ((entry.disposition === 'fit-mismatch' || entry.disposition === 'below-score')
       && entry.contextFingerprint !== contextFingerprint) return null;
     return entry;
+  }
+
+  suppression(job: JobListing, contextFingerprint: string): ReviewCacheEntry | null {
+    const entry = this.prior(job, contextFingerprint);
+    if (!entry || entry.disposition === 'external') return entry;
+    // Search cards cannot prove that the full description is unchanged.
+    // Defer these jobs behind unseen listings, then revalidate without AI.
+    return entry.contentFingerprint && entry.contentFingerprint === reviewContentFingerprint(job) ? entry : null;
   }
 }
 
 export const REVIEW_TTL = {
   external: 7 * 86_400_000,
-  fit: 7 * 86_400_000,
+  fit: null,
 } as const;

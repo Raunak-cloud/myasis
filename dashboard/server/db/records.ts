@@ -189,7 +189,8 @@ interface RunEventRow {
     disposition: string;
     listingFingerprint?: string | null;
     contextFingerprint?: string | null;
-    expiresAt: string | Date;
+    expiresAt: string | Date | null;
+    contentFingerprint?: string | null;
   } | null;
 }
 
@@ -198,14 +199,15 @@ export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<vo
   await query(
     `INSERT INTO run_events (
        user_id, job_id, status, title, company, reason, url, ts, questions,
-       review_disposition, review_listing_fingerprint, review_context_fingerprint, review_expires_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       review_disposition, review_listing_fingerprint, review_context_fingerprint, review_expires_at, review_content_fingerprint
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      ON CONFLICT (user_id, job_id, status, ts) DO UPDATE SET
        questions = COALESCE(EXCLUDED.questions, run_events.questions),
        review_disposition = COALESCE(EXCLUDED.review_disposition, run_events.review_disposition),
        review_listing_fingerprint = COALESCE(EXCLUDED.review_listing_fingerprint, run_events.review_listing_fingerprint),
        review_context_fingerprint = COALESCE(EXCLUDED.review_context_fingerprint, run_events.review_context_fingerprint),
-       review_expires_at = COALESCE(EXCLUDED.review_expires_at, run_events.review_expires_at)`,
+       review_expires_at = CASE WHEN EXCLUDED.review_disposition IS NOT NULL THEN EXCLUDED.review_expires_at ELSE run_events.review_expires_at END,
+       review_content_fingerprint = COALESCE(EXCLUDED.review_content_fingerprint, run_events.review_content_fingerprint)`,
     [
       uid, e.jobId ?? null, e.status ?? 'unknown', e.title ?? null, e.company ?? null, e.reason ?? null, e.url ?? null, e.ts ?? new Date(),
       e.questions?.length ? JSON.stringify(e.questions) : null,
@@ -213,6 +215,7 @@ export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<vo
       e.reviewCache?.listingFingerprint ?? null,
       e.reviewCache?.contextFingerprint ?? null,
       e.reviewCache?.expiresAt ?? null,
+      e.reviewCache?.contentFingerprint ?? null,
     ],
   );
 }

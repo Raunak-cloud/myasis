@@ -20,10 +20,10 @@ import { resetLiveWorkers } from './live-workers.js';
 import { recommended, search, fetchJobDetail } from './discovery.js';
 import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
-import { AppliedIndex } from './store.js';
+import { AppliedIndex, logOutcome } from './store.js';
 import { judgePage } from './blocker.js';
 import type { JobListing } from './types.js';
-import { ReviewCache, reviewContextFingerprint } from './review-cache.js';
+import { ReviewCache, listingFingerprint, reviewContextFingerprint, reviewCacheMetadata, REVIEW_TTL } from './review-cache.js';
 
 type QueueStatus = 'pending' | 'applied' | 'skipped';
 
@@ -159,6 +159,7 @@ async function build() {
     const skips = new Map<string, number>();
     const bump = (r: string) => skips.set(r, (skips.get(r) ?? 0) + 1);
     const shortlist = [...seen.values()]
+      .map(job => ({ ...job, discoveryFingerprint: listingFingerprint(job) }))
       .filter((j) => !known.has(j.id))
       .filter((j) => !index.hasApplication(j))
       .filter((job) => {
@@ -174,11 +175,14 @@ async function build() {
         console.log(`  – ${job.title} @ ${job.company} — ${excluded}`);
         return false;
       });
-    const reviewPriorities = await rankJobsForReview(shortlist, profile).catch((error) => {
+    const priorRejections = new Set(shortlist.filter(job => reviewCache.prior(job, reviewContext)).map(job => job.id));
+    const reviewPriorities = await rankJobsForReview(shortlist.filter(job => !priorRejections.has(job.id)), profile).catch((error) => {
       console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
       return new Map<string, { priority: number; reason: string }>();
     });
     shortlist.sort((a, b) => {
+      const prior = Number(priorRejections.has(a.id)) - Number(priorRejections.has(b.id));
+      if (prior) return prior;
       const sourcePriority = Number(b.source === 'recommended') - Number(a.source === 'recommended');
       return sourcePriority || (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
     });
@@ -205,23 +209,28 @@ async function build() {
         rememberExistingApplication(job, verdict.reason);
         continue;
       }
-      evaluated++;
+      if (reviewCache.suppression(job, reviewContext)) { bump('unchanged rejection'); continue; }
 
       const excluded = deterministicExclusion(job);
       if (excluded) {
         bump(excluded.replace(/:.*/, '').trim());
         continue;
       }
+      evaluated++;
       const fit = await assessFit(job, profile);
       if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
       if (!fit.shouldApply) {
         console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${fit.reason.slice(0, 90)}`);
         bump('not a fit');
+        if (fit.decision === 'skip') logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, url: job.url,
+          reason: `Fit check (skip): ${fit.reason}`, reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
         continue;
       }
       if (!meetsMinimumScore(fit.matchScore)) {
         console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — below minimum ${config.rules.minScore}`);
         bump('below minimum match score');
+        logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, url: job.url,
+          reason: 'Below minimum match score', reviewCache: reviewCacheMetadata(job, 'below-score', reviewContext, REVIEW_TTL.fit) });
         continue;
       }
       const fitReason = fit.reason;

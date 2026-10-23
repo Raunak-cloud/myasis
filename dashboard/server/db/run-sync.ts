@@ -1,3 +1,4 @@
+import { loadReviewMemory } from '../job-review-memory.js';
 import { writeFileSync, existsSync, unlinkSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { query } from './index.js';
@@ -83,18 +84,6 @@ interface ApplicationExportRow {
   actions: unknown;
 }
 
-interface ReviewCacheExportRow {
-  job_id: string;
-  title: string | null;
-  company: string | null;
-  reason: string | null;
-  ts: Date | string;
-  review_disposition: string;
-  review_listing_fingerprint: string | null;
-  review_context_fingerprint: string | null;
-  review_expires_at: Date | string;
-}
-
 /**
  * Regenerates this account's slice of `seek-bot/data/users/<userId>/` from
  * Postgres immediately before a run starts. Safe to call any number of
@@ -161,40 +150,8 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     ...(Array.isArray(row.questions) && row.questions.length ? { questions: row.questions } : {}),
   })).join('\n'));
 
-  const reviewCache = await query<ReviewCacheExportRow>(
-    `SELECT job_id, title, company, reason, ts, review_disposition,
-            review_listing_fingerprint, review_context_fingerprint, review_expires_at
-       FROM run_events
-      WHERE user_id = $1 AND job_id IS NOT NULL
-        AND review_disposition IS NOT NULL AND review_expires_at > now()
-        -- A skip the candidate overruled is reviewed again, as their choice.
-        AND job_id NOT IN (SELECT job_id FROM review_verdicts WHERE user_id = $1 AND verdict = 'apply')
-      ORDER BY ts DESC LIMIT 2000`,
-    [userId],
-  );
-  // Safely reuse old off-platform decisions immediately. They need no
-  // candidate-context fingerprint and expire seven days after the event.
-  const legacyExternal = await query<ReviewCacheExportRow>(
-    `SELECT job_id, title, company, reason, ts, 'external' AS review_disposition,
-            NULL::text AS review_listing_fingerprint, NULL::text AS review_context_fingerprint,
-            ts + interval '7 days' AS review_expires_at
-       FROM run_events
-      WHERE user_id = $1 AND job_id IS NOT NULL AND status = 'off-platform'
-        AND review_disposition IS NULL AND ts > now() - interval '7 days'
-      ORDER BY ts DESC LIMIT 2000`,
-    [userId],
-  );
-  writeFileSync(resolve(dir, 'review-cache.jsonl'), [...reviewCache, ...legacyExternal].map(row => JSON.stringify({
-    jobId: row.job_id,
-    title: row.title,
-    company: row.company,
-    reason: row.reason ?? row.review_disposition,
-    reviewedAt: new Date(row.ts).toISOString(),
-    disposition: row.review_disposition,
-    ...(row.review_listing_fingerprint ? { listingFingerprint: row.review_listing_fingerprint } : {}),
-    ...(row.review_context_fingerprint ? { contextFingerprint: row.review_context_fingerprint } : {}),
-    expiresAt: new Date(row.review_expires_at).toISOString(),
-  })).join('\n'));
+  const reviewMemory = await loadReviewMemory(userId);
+  writeFileSync(resolve(dir, 'review-cache.jsonl'), reviewMemory.map(row => JSON.stringify(row)).join('\n'));
 
   // The candidate's calls on skipped jobs (skipped.ts, seek-bot review-verdicts.ts).
   writeFileSync(resolve(dir, 'review-verdicts.json'), JSON.stringify(await verdictsForRun(userId), null, 2));

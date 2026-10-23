@@ -1202,7 +1202,7 @@ export function RunPanel({
                   </div>
                 )}
                 <p className="job-meta recommended-first-note">
-                  Recommended jobs from each selected board are analysed first. Search terms expand the pool after those jobs.
+                  New jobs are prioritised. Unchanged rejected jobs do not use another AI review; changed listings or preferences can be checked again.
                 </p>
                 <div className="field run-review-wide">
                   <FieldLabel label="Job titles and search terms" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />

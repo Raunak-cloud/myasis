@@ -22,6 +22,11 @@ test('two consecutive zero-yield pages stop a search stream', () => {
   assert.equal(nextLowYieldStreak(streak, 1), 0);
 });
 
+test('known applications and rejections do not prematurely end discovery', () => {
+  assert.equal(nextLowYieldStreak(1, 0, 20), 0);
+  assert.equal(nextLowYieldStreak(0, 0, 0), 1);
+});
+
 test('board age window rounds up to an offered window, never down', () => {
   assert.equal(boardAgeWindow(14, [1, 3, 7, 14, 31]), 14);
   assert.equal(boardAgeWindow(10, [1, 3, 7, 14, 31]), 14);
