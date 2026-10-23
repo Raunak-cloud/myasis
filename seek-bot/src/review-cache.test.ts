@@ -111,6 +111,10 @@ test('resume and knowledge changes invalidate suitability memory; tracking links
     const changedResume = reviewContextFingerprint(profile);
     writeFileSync(join(directory, 'knowledge.json'), JSON.stringify([{ text: 'New qualification' }]));
     assert.notEqual(reviewContextFingerprint(profile), changedResume);
+    const changedKnowledge = reviewContextFingerprint(profile);
+    writeFileSync(join(directory, 'review-verdicts.json'), JSON.stringify([{ jobId: '1', title: 'Developer', company: 'Fixture',
+      verdict: 'apply', skipReason: 'Experience requirement', note: 'Consider transferable experience', at: '2026-01-01' }]));
+    assert.notEqual(reviewContextFingerprint(profile), changedKnowledge, 'candidate feedback used by the fit prompt must invalidate prior decisions');
     assert.equal(reviewContentFingerprint({ ...job, applicationUrl: 'https://employer.invalid/?tracking=1' }),
       reviewContentFingerprint({ ...job, applicationUrl: 'https://employer.invalid/?tracking=2' }));
   } finally { if (saved === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = saved; rmSync(directory, { recursive: true, force: true }); }

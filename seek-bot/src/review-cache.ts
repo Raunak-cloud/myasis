@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { applicationModelIdentity } from './application-model.js';
 import type { CandidateProfile, JobListing } from './types.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
+import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
 
 export type ReviewDisposition = 'external' | 'fit-mismatch' | 'below-score';
 
@@ -74,10 +75,12 @@ function evidenceSignature(): string[] {
 
 /** Everything that may legitimately change a suitability decision. */
 export function reviewContextFingerprint(profile: CandidateProfile): string {
+  const candidateCalls = verdictContext(loadReviewVerdicts());
   return digest({
     version: FIT_ASSESSMENT_VERSION,
     profile,
     evidence: evidenceSignature(),
+    ...(candidateCalls ? { candidateCalls } : {}),
     resumeSelection: config.resume.select,
     targetRole: config.targetRole,
     // Search terms decide what is discovered, not whether a discovered job
