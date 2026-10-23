@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { withApplicationModel } from './application-model.js';
 import { cachedAssessment } from './pipeline.js';
-import { ReviewCache, listingFingerprint, reviewContextFingerprint } from './review-cache.js';
+import { ReviewCache, listingFingerprint, reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
 import { FIT_ASSESSMENT_VERSION } from './model-versions.js';
 import { loadSavedAnswers, buildKnowledgeContext, knowledgeContextFingerprint } from './knowledge.js';
 import { loadResumes, resolveResume, resumeDirectory } from './resume.js';
@@ -21,7 +21,7 @@ const owners = ['one', 'two'].map(owner => {
 const profile = { name: 'Fixture', nationality: '', phone: '', email: 'fixture@example.test',
   expectedSalary: '', noticePeriod: '', willingToRelocate: false, experienceSummary: 'Retail',
   skills: ['Customer service'], excludedDomains: [], securityClearance: '' };
-const job = { id: 'fixture', title: 'Retail assistant', company: 'Fixture', location: 'Sydney', url: 'https://fixture.invalid' };
+const job = { id: 'fixture', title: 'Retail assistant', company: 'Fixture', location: 'Sydney', url: 'https://fixture.invalid', description: 'Serve customers in a retail store.' };
 const accept = (value: { ok: boolean }) => value.ok;
 
 try {
@@ -71,7 +71,7 @@ try {
   writeFileSync(cachePath, JSON.stringify({ jobId: job.id, title: job.title, company: job.company,
     reviewedAt: new Date().toISOString(), reason: 'Fixture decision', disposition: 'fit-mismatch',
     listingFingerprint: listingFingerprint(job), contextFingerprint: results[0].fingerprint,
-    expiresAt: new Date(Date.now() + 60_000).toISOString() }) + '\n');
+    contentFingerprint: reviewContentFingerprint(job), expiresAt: null }) + '\n');
   const review = new ReviewCache({ cachePath });
   assert.equal(review.suppression(job, results[1].fingerprint), null);
   assert.equal(review.suppression(job, results[0].fingerprint)?.reason, 'Fixture decision');
