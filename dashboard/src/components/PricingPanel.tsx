@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { aud, PAID_PLANS, PLAN_PRESENTATION, DAILY_APPLICATION_MAX, type PaidPlanKey, type PassPlanKey } from '../pricing';
+import { aud, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
@@ -250,21 +250,6 @@ export function PricingPanel() {
           </button>
         </div>
       </section>}
-
-      <section className="pricing-explainer" aria-label="How usage works">
-        <article>
-          <strong>Choose how Owtomate applies</strong>
-          <p>Auto apply submits for you. Semi auto prepares applications for you to review and confirm in Prepared Applications.</p>
-        </article>
-        <article>
-          <strong>Start once. Pause anytime.</strong>
-          <p>Runs are spaced across 24 hours: Free every 24 hours, Essential every 12 hours, and Active Search and Get Owtomated every 6 hours. Busy slots queue automatically. Pausing stops future runs until you resume.</p>
-        </article>
-        <article>
-          <strong>Simple application allowance</strong>
-          <p>Preparing or submitting an application uses one credit. Confirming a prepared application uses no extra credit. Get Owtomated has no application credit cap. Every account can submit up to {DAILY_APPLICATION_MAX} applications per day. Lower chosen caps and available credits still apply.</p>
-        </article>
-      </section>
 
     </div>
   );
