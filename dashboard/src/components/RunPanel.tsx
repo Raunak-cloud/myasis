@@ -145,6 +145,8 @@ export function RunPanel({
   /** One poll for the whole page; see runStatus.ts. */
   const status = useRunStatus();
   const scheduleModeLoaded = useRef(false);
+  const modeChosenByUser = useRef(false);
+  const reviewOpen = useRef(false);
   const [autoSchedule, setAutoSchedule] = useState<AutoScheduleStatus | null>(null);
   const [liveViewOpen, setLiveViewOpen] = useState(false);
   /**
@@ -171,6 +173,7 @@ export function RunPanel({
   const [lines, setLines] = useState<LogLine[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [applicationMode, setApplicationMode] = useState<'auto' | 'semi-auto'>('auto');
+  useEffect(() => { reviewOpen.current = confirming; }, [confirming]);
   /** A sign-in check has the account's Chrome profile open; a run waits for it, so the button does too. */
   const [verifyingSignIn, setVerifyingSignIn] = useState(false);
   const [autoToggling, setAutoToggling] = useState(false);
@@ -341,8 +344,11 @@ export function RunPanel({
         .then((value) => {
           if (!cancelled) {
             setAutoSchedule(value && typeof value.runsUsedToday === 'number' ? value as AutoScheduleStatus : null);
-            if (value?.applicationMode && (!scheduleModeLoaded.current || value.enabled)) {
-              setApplicationMode(value.applicationMode); scheduleModeLoaded.current = true;
+            if (value?.applicationMode) {
+              if (!reviewOpen.current && (value.enabled || (!scheduleModeLoaded.current && !modeChosenByUser.current))) {
+                setApplicationMode(value.applicationMode);
+              }
+              scheduleModeLoaded.current = true;
             }
           }
         })
@@ -690,8 +696,8 @@ export function RunPanel({
 
         {!running && <div className="run-mode-choice">
           <div className="chips" role="group" aria-label="Application mode">
-            <button type="button" className={`chip${applicationMode === 'auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'auto'} disabled={autoSchedule?.enabled || running} onClick={() => setApplicationMode('auto')}>Auto apply</button>
-            <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} disabled={autoSchedule?.enabled || running} onClick={() => setApplicationMode('semi-auto')}>Semi auto</button>
+            <button type="button" className={`chip${applicationMode === 'auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'auto'} disabled={autoSchedule?.enabled || running} onClick={() => { modeChosenByUser.current = true; setApplicationMode('auto'); }}>Auto apply</button>
+            <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} disabled={autoSchedule?.enabled || running} onClick={() => { modeChosenByUser.current = true; setApplicationMode('semi-auto'); }}>Semi auto</button>
           </div>
           <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
@@ -732,7 +738,7 @@ export function RunPanel({
                 className="btn primary lg"
                 disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
                 title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
-                onClick={() => { setScope('all'); setConfirming(true); }}
+                onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('all'); setConfirming(true); }}
               >
                 {applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
               </button>
@@ -743,7 +749,7 @@ export function RunPanel({
                     className="run-scope-link"
                     disabled={accountSetupIncomplete || verifyingSignIn}
                     title="Skips employer websites and applies only through SEEK or Indeed."
-                    onClick={() => { setScope('hosted'); setConfirming(true); }}
+                    onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('hosted'); setConfirming(true); }}
                   >
                     Skip employer websites
                   </button>
@@ -752,7 +758,7 @@ export function RunPanel({
                     className="run-scope-link"
                     disabled={accountSetupIncomplete || verifyingSignIn}
                     title="Applies only where the employer's own site takes the application, on every board in the run."
-                    onClick={() => { setScope('external'); setConfirming(true); }}
+                    onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('external'); setConfirming(true); }}
                   >
                     Employer sites only <span className="beta-flag">Beta</span>
                   </button>

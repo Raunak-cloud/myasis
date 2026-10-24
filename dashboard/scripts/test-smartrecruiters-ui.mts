@@ -408,6 +408,31 @@ try {
   await skippedContext.close();
   // Recurring controls and the unlimited pricing view on desktop and mobile.
   admin = false; scheduleFixture = true; preparingFixture = false; remainingCredits = 5;
+  {
+    scheduleEnabled = false; scheduleMode = 'auto';
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let first = true;
+    await page.route('**/api/auto-schedule', async route => {
+      if (first) { first = false; await gate; }
+      await route.continue();
+    });
+    try {
+      await page.goto(`${origin}/?tab=run`);
+      await page.getByRole('button', {name:'Semi auto',exact:true}).click();
+      await page.getByRole('button', {name:'Start Semi auto',exact:true}).click();
+      const delivered = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auto-schedule');
+      release(); await delivered;
+      const dialog = page.getByRole('dialog');
+      await dialog.getByRole('heading', {name:'Review Semi auto settings',exact:true}).waitFor();
+      await dialog.getByRole('button', {name:'Start Semi auto',exact:true}).click();
+      await page.getByRole('button', {name:'Pause Semi auto',exact:true}).waitFor();
+      assert.equal(writes.filter(write => write.path === '/api/auto-apply').at(-1)!.body.applicationMode, 'semi-auto', 'a delayed default Auto response cannot change the mode the user reviews and authorizes');
+    } finally { release(); await context.close(); }
+  }
   for (const width of [1280, 390]) {
     scheduleEnabled = false; scheduleMode = 'auto';
     const context = await browser.newContext({ viewport: { width, height: 900 } });
