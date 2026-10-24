@@ -695,7 +695,7 @@ export function RunPanel({
           </div>
           <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
-          {entitlements && !isAdmin && <p className="job-meta">{Math.max(0, entitlements.autoRunsPerDay - entitlements.autoRunsUsedToday)} of {entitlements.autoRunsPerDay} runs available today. Confirming prepared applications continues their original run.</p>}
+          {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}
         </div>}
         <div className="run-actions" ref={runBar}>
           {/* Beside the run button on a phone; the desktop layout hides it. */}
@@ -1097,7 +1097,7 @@ export function RunPanel({
           >
             <div className="run-review-head">
               <div>
-                <p className="job-meta">Starting enables {entitlements?.autoRunsPerDay ?? 4} scheduled runs per 24 hours. The first run queues now; later runs are spaced automatically. Pause anytime on the Apply page.</p>
+                <p className="job-meta">Starting enables {entitlements?.autoRunsPerDay ?? 4} scheduled runs per 24 hours. Your run starts when its slot is due and capacity is available. Resuming keeps the gap between runs. Pause anytime on the Apply page.</p>
                 <h2 id="run-review-title">{applicationMode === 'semi-auto' ? 'Review Semi auto settings' : 'Review Auto apply settings'}</h2>
                 <p className="job-meta">Changes made here are saved before a live run starts.</p>
                 {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs each run. {billing?.paid.unlimitedApplications ? 'Your pass includes unlimited applications.' : applicationMode === 'semi-auto' ? 'Each prepared application uses one credit. Confirming it uses no additional credit.' : 'Each submitted application uses one credit.'}</p>}
