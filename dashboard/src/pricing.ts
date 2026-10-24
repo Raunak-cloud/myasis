@@ -79,6 +79,7 @@ export const PLAN_PRESENTATION = {
     description: PAID_PLANS['job-search-pass'].description,
     features: [
       `${PAID_PLANS['job-search-pass'].applications} application credits`,
+      `Daily limit: ${DAILY_APPLICATION_MAX} applications`,
       `${PAID_PLANS['job-search-pass'].durationDays} days of access`,
       `Up to ${plural(ACTIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
