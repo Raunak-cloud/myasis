@@ -416,6 +416,7 @@ try {
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(`${origin}/?tab=run`);
     await page.getByText('Schedule paused', { exact: true }).waitFor();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'schedule details must wrap without overflowing the Apply page');
     const before = writes.filter(write => write.path === '/api/auto-apply').length;
     await page.getByRole('button', { name: 'Semi auto', exact: true }).click();
     await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
@@ -434,6 +435,7 @@ try {
     await page.reload();
     await page.getByText('Schedule paused', { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Start Semi auto', exact: true }).count(), 1, 'mode and pause persist after reload');
+    await page.screenshot({ path: resolve(import.meta.dirname, `../../output/schedule-controls-${width}.png`), fullPage: true });
     await page.goto(`${origin}/?tab=pricing`);
     const card = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name: 'Get Owtomated', exact: true }) });
     await card.getByText('A$79.99', { exact: true }).waitFor();

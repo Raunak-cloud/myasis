@@ -2237,15 +2237,15 @@ textarea.run-instructions-input {
 .run-dashboard .run-actions > .run-scope-actions { grid-column: 1 / -1; }
 
 .run-auto-row {
-  position: relative; display: flex; align-items: center; gap: 8px;
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   padding: 8px 0; border: 0; background: transparent;
 }
 .run-auto-row .auto-apply-dot { display: none; }
 .run-auto-label { display: inline-flex; flex: none; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--text); }
 .run-auto-row .job-meta { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4; }
 .run-auto-last { flex: 1 1 auto; color: var(--text-faint); }
-.run-auto-row .run-auto-status { flex: 0 1 auto; margin-left: auto; }
-.run-auto-row.paused .run-auto-status { flex-shrink: 0; }
+.run-auto-row .run-auto-status { flex: 1 1 100%; margin-left: 0; white-space: normal; overflow: visible; }
+.run-auto-row.paused .run-auto-status { flex-shrink: 1; }
 .run-auto-row .field-info { flex: none; margin-left: 0; }
 
 .saved-search-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
