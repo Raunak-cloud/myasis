@@ -67,7 +67,7 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   },
   pricing: {
     title: 'Plans & pricing',
-    description: '',
+    description: 'One payment. No subscription.',
   },
   setup: {
     title: 'Settings',
@@ -483,7 +483,7 @@ export default function App() {
       {/* Tapping beside the drawer closes it, the way every drawer on a phone does. */}
       <button type="button" className="nav-scrim" tabIndex={-1} aria-hidden="true" onClick={() => setMenuOpen(false)} />
 
-      <main className={`main-shell ${tab === 'run' ? 'run-dashboard' : ''}`}>
+      <main className={`main-shell ${tab === 'run' ? 'run-dashboard' : ''} ${tab === 'pricing' ? 'pricing-dashboard' : ''}`}>
         <header className="page-header">
           <div>
             <h1>{PAGE_COPY[tab].title}</h1>

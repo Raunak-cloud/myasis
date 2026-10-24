@@ -1,7 +1,5 @@
 .pricing-page { width: 100%; gap: 24px; }
-.pricing-page .pricing-head { display: grid; gap: 6px; }
-.pricing-page .pricing-head h2 { margin: 0; font-size: clamp(24px, 2.3vw, 30px); font-weight: 650; letter-spacing: -.035em; }
-.pricing-page .pricing-head p { font-size: 13px; color: var(--text-dim); }
+.pricing-dashboard .page-header p { display: block; font-size: 13px; line-height: 1.6; }
 
 .pricing-page .pricing-status {
   grid-template-columns: repeat(3, minmax(0, 1fr));

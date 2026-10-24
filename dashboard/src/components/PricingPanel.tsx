@@ -143,11 +143,6 @@ export function PricingPanel() {
         <div className="pricing-notice warn">Checkout is not available right now. Your free applications still work.</div>
       )}
 
-      <header className="pricing-head">
-        <h2>Plans &amp; pricing</h2>
-        <p>One payment. No subscription.</p>
-      </header>
-
       {status && (
         <section className="pricing-status" aria-label="Your plan and allowance">
           <div className="pricing-status-plan">
