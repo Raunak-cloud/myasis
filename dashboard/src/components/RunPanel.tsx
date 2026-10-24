@@ -731,7 +731,7 @@ export function RunPanel({
               <button
                 className="btn primary lg"
                 disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
-                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : outOfRuns ? 'You have used today’s runs. You can still confirm prepared applications.' : undefined}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
                 onClick={() => { setScope('all'); setConfirming(true); }}
               >
                 {applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
