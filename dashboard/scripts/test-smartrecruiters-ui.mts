@@ -525,12 +525,16 @@ try {
       const planCard = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
       await planCard.getByText(new RegExp(`${runs} scheduled run${runs === 1 ? '' : 's'} each day`)).waitFor();
       if (name === 'Active Search' || name === 'Get Owtomated') await planCard.getByText('Choose your minimum match score: 60% to 100%', { exact: true }).waitFor();
+      if (name === 'Active Search') {
+        await planCard.getByText('A$19.99', { exact: true }).waitFor();
+        await planCard.getByText('30 days of access', { exact: true }).waitFor();
+      }
     }
     const card = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name: 'Get Owtomated', exact: true }) });
-    await card.getByText('A$79.99', { exact: true }).waitFor();
+    await card.getByText('A$59.99', { exact: true }).waitFor();
     await card.getByText('Unlimited applications', { exact: true }).last().waitFor();
     await card.getByText('Daily limit: 100 applications', { exact: true }).waitFor();
-    await card.getByText('60 days of access', { exact: true }).waitFor();
+    await card.getByText('30 days of access', { exact: true }).waitFor();
     assert.equal(await page.locator('.pricing-topup').count(), 0, 'unlimited customers are not sold top-ups');
     assert.ok(await page.locator('.pricing-status').textContent().then(text => text?.includes('Unlimited')));
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'pricing fits the mobile viewport');

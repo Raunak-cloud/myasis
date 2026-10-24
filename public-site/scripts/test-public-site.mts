@@ -61,6 +61,19 @@ try {
     assert.ok(/<h1\b/.test(html), `${path}: content is server-rendered`);
     assert.ok(/<link[^>]+rel="canonical"/.test(html), `${path}: canonical retained`);
     assert.ok(!/src="\/assets\//.test(html), 'no dashboard bootstrap on public pages');
+    if (path === '/') {
+      for (const [name, price] of [['Active Search', '19.99'], ['Get Owtomated', '59.99']]) {
+        const offers: any[] = [];
+        const visit = (value: any) => {
+          if (value && typeof value === 'object') {
+            if (value['@type'] === 'Offer' && value.name === name) offers.push(value);
+            Object.values(value).forEach(visit);
+          }
+        };
+        for (const match of html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) visit(JSON.parse(match[1]));
+        assert.ok(offers.some(offer => offer.price === price && offer.priceCurrency === 'AUD' && /30 days/.test(offer.description)), `${name} advertises its current price and access period`);
+      }
+    }
     const nonce = response.headers.get('content-security-policy')!.match(/'nonce-([^']+)'/)?.[1];
     assert.ok(nonce);
     assert.ok(html.includes(`nonce="${nonce}"`), 'framework scripts match the CSP nonce');

@@ -228,6 +228,17 @@ export function checkoutPriceData(planKey: PaidPlanKey) {
   };
 }
 
+/** Checkouts opened before duration snapshots were introduced keep their sold term. */
+export function checkoutDurationDays(planKey: PaidPlanKey, metadata: Record<string, string> | null | undefined): number {
+  if (!isPassPlanKey(planKey)) return 0;
+  if (metadata?.durationDays !== undefined) {
+    const days = Number(metadata.durationDays);
+    if (!Number.isSafeInteger(days) || days <= 0) throw new Error('Invalid checkout access period.');
+    return days;
+  }
+  return planKey === 'job-search-pass' || planKey === 'intensive-pass' ? 60 : PAID_PLANS[planKey].durationDays;
+}
+
 export async function createCheckout(
   user: SessionUser,
   planKey: PaidPlanKey,
@@ -248,6 +259,7 @@ export async function createCheckout(
   }
   const env = billingEnv();
   const stripe = stripeClient();
+  const metadata = { userId: user.id, planKey, durationDays: String(PAID_PLANS[planKey].durationDays) };
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     expires_at: checkoutExpiresAt,
@@ -260,8 +272,8 @@ export async function createCheckout(
       quantity: 1,
       price_data: checkoutPriceData(planKey),
     }],
-    metadata: { userId: user.id, planKey },
-    payment_intent_data: { metadata: { userId: user.id, planKey } },
+    metadata,
+    payment_intent_data: { metadata },
     success_url: `${env.baseUrl}/?tab=pricing&payment=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${env.baseUrl}/?tab=pricing&payment=cancelled`,
   });
@@ -278,6 +290,7 @@ export async function fulfillCheckoutSession(
   fulfilled: boolean;
   planKey: PaidPlanKey;
   applications: number;
+  durationDays: number;
   /** Set only on the call that actually created the purchase, for the pixel to echo. */
   conversionId?: string;
 }> {
@@ -289,6 +302,7 @@ export async function fulfillCheckoutSession(
   if (!userId || !isPaidPlanKey(planKeyValue)) throw new Error('Payment metadata is incomplete.');
   if (expectedUserId && expectedUserId !== userId) throw new Error('This payment belongs to another account.');
   const plan = PAID_PLANS[planKeyValue];
+  const durationDays = checkoutDurationDays(planKeyValue, session.metadata);
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -311,7 +325,7 @@ export async function fulfillCheckoutSession(
     );
     if (!purchase.rows[0]) {
       await client.query('COMMIT');
-      return { fulfilled: false, planKey: planKeyValue, applications: plan.applications };
+      return { fulfilled: false, planKey: planKeyValue, applications: plan.applications, durationDays };
     }
 
     const activePass = async () => {
@@ -339,7 +353,7 @@ export async function fulfillCheckoutSession(
     };
 
     if (plan.kind === 'pass') {
-      const expiresAt = new Date(Date.now() + plan.durationDays * 86_400_000);
+      const expiresAt = new Date(Date.now() + durationDays * 86_400_000);
       await client.query(
         `INSERT INTO application_credit_grants (user_id, purchase_id, credits_total, expires_at)
          VALUES ($1,$2,$3,$4)`,
@@ -381,7 +395,7 @@ export async function fulfillCheckoutSession(
       match: redditMatch,
     });
 
-    return { fulfilled: true, planKey: planKeyValue, applications: plan.applications, conversionId };
+    return { fulfilled: true, planKey: planKeyValue, applications: plan.applications, durationDays, conversionId };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

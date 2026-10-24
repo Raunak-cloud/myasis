@@ -11,15 +11,15 @@ export const PAID_PLANS = {
     description: 'Affordable automatic applications for a focused SEEK search.',
   },
   'job-search-pass': {
-    key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 2490,
-    applications: 200, durationDays: 60, employerSiteApplications: 0,
+    key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 1999,
+    applications: 200, durationDays: 30, employerSiteApplications: 0,
     description: 'A broader automatic search across SEEK and Indeed.',
   },
   // Legacy ledger units remain for historical purchases. unlimitedApplications controls usage.
   'intensive-pass': {
-    key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 7999,
-    applications: 400, durationDays: 60, employerSiteApplications: 30, unlimitedApplications: true,
-    description: 'Unlimited application credits for 60 days, up to 100 applications per day.',
+    key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 5999,
+    applications: 400, durationDays: 30, employerSiteApplications: 30, unlimitedApplications: true,
+    description: 'Unlimited application credits for 30 days, up to 100 applications per day.',
   },
   'application-top-up': {
     key: 'application-top-up', kind: 'application-top-up', name: 'Application Top-up', priceCents: 690,

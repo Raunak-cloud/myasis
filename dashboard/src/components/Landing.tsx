@@ -22,7 +22,7 @@ const QUESTIONS = [
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
-  { question: 'Is there a subscription?', answer: 'No. Passes are one-off purchases with no automatic renewal. Get Owtomated is A$79.99 for unlimited application credits over 60 days, with a maximum of 100 applications per day. On plans with credits, one credit is used when an application is submitted in Auto apply or prepared in Semi auto, with no second charge on confirmation. Prices are in Australian dollars.' },
+  { question: 'Is there a subscription?', answer: 'No. Passes are one-off purchases with no automatic renewal. Get Owtomated is A$59.99 for unlimited application credits over 30 days, with a maximum of 100 applications per day. On plans with credits, one credit is used when an application is submitted in Auto apply or prepared in Semi auto, with no second charge on confirmation. Prices are in Australian dollars.' },
 ];
 
 const STEPS = [
@@ -235,7 +235,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
             <header className="home-pricing-head">
               <p className="home-pricing-kicker">pricing</p>
               <h2 id="pricing-heading">Four ways to search with Owtomate.</h2>
-              <p>Start free or choose a pass with 30 or 60 days of access. One payment, no auto-renew. Prices in Australian dollars.</p>
+              <p>Start free or choose a pass with 30 days of access. One payment, no auto-renew. Prices in Australian dollars.</p>
             </header>
             <ol className="home-price-list">
               {PRICE_ROWS.map((row) => (

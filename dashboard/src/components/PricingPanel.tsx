@@ -87,7 +87,7 @@ export function PricingPanel() {
               currency: 'AUD',
             }, body.conversionId);
           }
-          setNotice({ kind: 'ok', text: body.planKey === 'intensive-pass' ? 'Get Owtomated is active: unlimited applications for 60 days.' : `${body.applications} applications were added to your account.` });
+          setNotice({ kind: 'ok', text: body.planKey === 'intensive-pass' ? `Get Owtomated is active: unlimited applications for ${body.durationDays ?? PAID_PLANS['intensive-pass'].durationDays} days.` : `${body.applications} applications were added to your account.` });
         } else {
           await loadStatus();
           if (payment === 'cancelled') {

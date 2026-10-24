@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { after, test } from 'node:test';
+import Stripe from 'stripe';
 import { getPool } from './db/index.js';
-import { billingStatus, checkoutPriceData, createCheckout } from './billing.js';
+import { billingStatus, checkoutPriceData, checkoutDurationDays, createCheckout } from './billing.js';
+import { PAID_PLANS } from '../src/pricing.js';
 import { consumeApplicationCredit } from './application-credits.js';
 import { saveApplicationReview } from './application-reviews.js';
 
@@ -12,13 +14,57 @@ const schema = `unlimited_test_${randomUUID().replaceAll('-', '')}`;
 (pool as unknown as { options: { options: string } }).options.options = `-c search_path=${schema}`;
 after(async () => { await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end(); });
 
-test('Stripe product is AUD79.99 once, with unlimited applications and 60 days', () => {
+test('Stripe products charge AUD19.99 and AUD59.99 once for 30 days', () => {
+  const active = checkoutPriceData('job-search-pass');
+  assert.equal(active.currency, 'aud'); assert.equal(active.unit_amount, 1999);
+  assert.equal(active.tax_behavior, 'inclusive');
+  assert.equal(PAID_PLANS['job-search-pass'].durationDays, 30);
+  assert.match(active.product_data.description, /200 application credits.*30 days.*no automatic renewal/);
   const price = checkoutPriceData('intensive-pass');
-  assert.equal(price.currency, 'aud'); assert.equal(price.unit_amount, 7999);
+  assert.equal(price.currency, 'aud'); assert.equal(price.unit_amount, 5999);
   assert.equal(price.tax_behavior, 'inclusive', 'tax must not increase the advertised checkout amount');
   assert.equal(price.product_data.name, 'Get Owtomated');
-  assert.match(price.product_data.description, /Unlimited applications.*60 days.*no automatic renewal/);
+  assert.equal(PAID_PLANS['intensive-pass'].durationDays, 30);
+  assert.match(price.product_data.description, /Unlimited applications.*30 days.*no automatic renewal/);
   assert.doesNotMatch(price.product_data.description, /400/);
+});
+
+test('checkout access periods survive pricing changes and legacy pending payments keep 60 days', () => {
+  for (const key of ['job-search-pass', 'intensive-pass'] as const) {
+    assert.equal(checkoutDurationDays(key, { durationDays: String(PAID_PLANS[key].durationDays) }), 30);
+    assert.equal(checkoutDurationDays(key, { durationDays: '45' }), 45, 'honor the term snapshotted when checkout opened');
+    assert.equal(checkoutDurationDays(key, { userId: '1', planKey: key }), 60, 'an older checkout retains its sold term');
+    assert.throws(() => checkoutDurationDays(key, { durationDays: 'invalid' }), /Invalid checkout access period/);
+  }
+  assert.equal(checkoutDurationDays('essential-pass', null), 30);
+  assert.equal(checkoutDurationDays('application-top-up', null), 0);
+});
+
+test('new checkout requests carry the advertised amount and snapshot 30 days for fulfillment', async t => {
+  const keys = ['STRIPE_MODE', 'STRIPE_TEST_SECRET_KEY', 'STRIPE_TEST_WEBHOOK_SECRET'] as const;
+  const previous = keys.map(key => process.env[key]);
+  t.after(() => keys.forEach((key, index) => {
+    if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index];
+  }));
+  process.env.STRIPE_MODE = 'test';
+  process.env.STRIPE_TEST_SECRET_KEY = 'sk_test_offline_fixture';
+  process.env.STRIPE_TEST_WEBHOOK_SECRET = 'whsec_offline_fixture';
+  const requests: Stripe.Checkout.SessionCreateParams[] = [];
+  const sessions = new Stripe('sk_test_offline_fixture').checkout.sessions;
+  t.mock.method(Object.getPrototypeOf(sessions), 'create', async (params: Stripe.Checkout.SessionCreateParams) => {
+    requests.push(params);
+    return { id: 'cs_test_offline_fixture', url: 'https://checkout.stripe.com/offline-fixture' };
+  });
+  for (const [key, amount] of [['job-search-pass', 1999], ['intensive-pass', 5999]] as const) {
+    await createCheckout({ id: '1', email: 'checkout@fixture.invalid' } as Parameters<typeof createCheckout>[0], key);
+    const request = requests.at(-1)!;
+    assert.equal(request.mode, 'payment');
+    assert.equal(request.line_items?.[0].price_data?.unit_amount, amount);
+    assert.equal(request.line_items?.[0].price_data?.tax_behavior, 'inclusive');
+    assert.equal(request.metadata?.durationDays, '30');
+    assert.equal(request.payment_intent_data?.metadata?.durationDays, '30');
+    assert.equal(checkoutDurationDays(key, request.metadata as Record<string, string>), 30);
+  }
 });
 
 test('real DB: unlimited includes preparation and employer forms, preserves finite credits, is owner scoped and expires', async () => {
