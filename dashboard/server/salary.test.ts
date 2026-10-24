@@ -32,18 +32,21 @@ pool.query = (async (sql: string) => {
   if (sql.includes('SELECT email FROM users')) return { rows: [{ email: 'one-time-admin@example.com' }] };
   if (sql.includes('FROM resumes')) return { rows: [] };
   if (sql.includes('FROM run_starts') || sql.includes('FROM feature_uses') || sql.includes('FROM applications')) return { rows: [{ n: '0', complete: false }] };
-  if (sql.includes('FROM settings') || sql.includes('FROM account_overrides') || sql.includes('application_credit_grants')) return { rows: [] };
+  if (sql.includes('FROM settings') || sql.includes('FROM application_schedules') || sql.includes('FROM account_overrides') || sql.includes('application_credit_grants')) return { rows: [] };
   throw new Error(`Unexpected query before salary refusal: ${sql}`);
 }) as typeof originalQuery;
 const originalTestQuery = pool.query;
 try {
   for (salary of ['', 'Negotiable', '150000-180000']) {
+    assert.deepEqual(await startRun({ userId: 'salary-test', mode: 'live', trigger: 'auto',
+      applicationMode: 'semi-auto', scheduleGeneration: 1 }),
+    { ok: false, status: 400, error: EXPECTED_SALARY_REQUIRED }, 'a scheduled request still validates salary before any browser or submission');
     for (const trigger of ['manual', 'auto', 'admin', 'onboarding'] as const) {
       const modes: RunMode[] = trigger === 'manual' ? ['live'] : ['live', 'search'];
       for (const mode of modes) {
         const result = await startRun({ userId: 'salary-test', mode, trigger });
-        if (trigger === 'auto') {
-          assert.ok(!result.ok && result.status === 403 && result.error.includes('require your action'), 'scheduled application starts are refused before setup checks');
+        if (trigger === 'auto' || trigger === 'manual') {
+          assert.ok(!result.ok && result.status === 403, 'discovery requires a user-enabled schedule; unapproved automatic and direct customer starts cannot bypass it');
         } else assert.deepEqual(result, { ok: false, status: 400, error: EXPECTED_SALARY_REQUIRED });
         assert.equal(runner.inUse('salary-test'), false, 'refusal releases the start claim');
       }
