@@ -6,7 +6,8 @@ import { FilesPanel } from './FilesPanel';
 import { useSetupStatus, type SetupSection } from '../setupStatus';
 import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
-import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
+import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText, matchThresholdError } from '../runSettings';
+import { CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../pricing';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
 import { useEntitlements } from '../entitlements';
@@ -68,6 +69,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resumeLibraryVersion, setResumeLibraryVersion] = useState(0);
   const status = useSetupStatus();
@@ -107,13 +109,18 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
   };
 
   async function saveUpdates(updates: Record<string, string>) {
+    setSaveError(null);
+    if (canUseAdvancedFilters && updates.MIN_SCORE !== undefined) {
+      const error = matchThresholdError(updates.MIN_SCORE, entitlements?.tier === 'admin' ? 0 : CUSTOM_MIN_SCORE);
+      if (error) { setSaveError(error); return; }
+    }
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ updates }),
     });
     const j = await res.json();
-    if (!res.ok || !j.settings) return;
+    if (!res.ok || !j.settings) { setSaveError(j.error ?? 'Could not save your settings. Please try again.'); return; }
     setSettings(j.settings);
     setEdits((current) => {
       const next = { ...current };
@@ -142,6 +149,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
 
   return (
     <div className={`setup-steps${inline ? ' setup-steps-inline' : ''}`}>
+      {saveError && <div className="banner banner-bad" role="alert">{saveError}</div>}
       {!inline && status && !status.ready && (
         <div className="setup-guide">
           <strong>{status.done} of {status.total} steps complete</strong>
@@ -327,10 +335,12 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
                 <input
                   className="input"
                   type="number"
+                  min={entitlements?.tier === 'admin' ? 0 : CUSTOM_MIN_SCORE}
+                  max={MAX_MATCH_SCORE}
                   value={val('MIN_SCORE')}
                   onChange={(e) => set('MIN_SCORE', e.target.value)}
                 />
-                <span className="job-meta">Out of 100. Higher means fewer, better matches.</span>
+                <span className="job-meta">{entitlements?.tier === 'admin' ? 'Out of 100.' : `Choose ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%.`} Higher means fewer, closer matches.</span>
               </label>
               <label className="field">
                 <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />

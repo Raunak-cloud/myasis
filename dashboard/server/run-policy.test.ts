@@ -1,6 +1,7 @@
 import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, effectivePlatforms, PLATFORMS_CHOSEN_KEY, SCHEDULED_MIN_SCORE } from './entitlements.js';
 import { manualRunRefusal, runControlRefusal } from './start-run.js';
 import { PLAN_LIMITS, PLAN_PRESENTATION } from '../src/pricing.js';
+import { matchThresholdError } from '../src/runSettings.js';
 
 let failures = 0;
 function check(label: string, condition: boolean): void {
@@ -46,7 +47,17 @@ check('standard accounts cannot retain custom cover-letter behavior', standardMa
 check('standard accounts cannot retain fine-tuning prompts', standardManual.AI_INSTRUCTIONS_B64 === '');
 
 const scheduled = applyRunPolicy(saved, freePolicy, 'auto');
-check('scheduled applications always require a 75 percent match', scheduled.MIN_SCORE === String(SCHEDULED_MIN_SCORE));
+check('Free and Essential scheduled applications require a 75 percent match', scheduled.MIN_SCORE === String(SCHEDULED_MIN_SCORE) && applyRunPolicy(saved, essentialPolicy, 'auto').MIN_SCORE === '75');
+for (const policy of [jobSearchPolicy, intensivePolicy]) for (const trigger of ['manual', 'auto'] as const) {
+  for (const score of ['60', '70', '75', '100']) {
+    check(`${policy.tier} ${trigger} honours a ${score}% match threshold`, applyRunPolicy({ ...saved, MIN_SCORE: score }, policy, trigger).MIN_SCORE === score);
+  }
+  for (const [score, expected] of [['22', '60'], ['101', '100'], ['invalid', '75']]) {
+    check(`${policy.tier} ${trigger} bounds a legacy ${score} threshold`, applyRunPolicy({ ...saved, MIN_SCORE: score }, policy, trigger).MIN_SCORE === expected);
+  }
+}
+for (const value of ['59', '101', '', 'NaN', 'Infinity', '-1']) check(`an invalid ${JSON.stringify(value)} match threshold is rejected`, matchThresholdError(value) !== null);
+for (const value of ['60', '70', '100']) check(`a ${value}% match threshold is valid`, matchThresholdError(value) === null);
 check('standard scheduled runs cannot inherit fine-tuning prompts', scheduled.AI_INSTRUCTIONS_B64 === '');
 
 const intensive = applyRunPolicy({ ...saved, MIN_SCORE: '70' }, intensivePolicy, 'manual');
@@ -114,6 +125,11 @@ check('free accounts receive one daily run and SEEK-only access', freeEntitlemen
 const essentialEntitlements = deriveEntitlements({ ...intensiveFacts,
   billing: { paid: { ...intensiveFacts.billing.paid, hasActiveIntensivePass: false, hasActiveEssentialPass: true } },
 });
+const activeEntitlements = deriveEntitlements({ ...intensiveFacts,
+  billing: { paid: { ...intensiveFacts.billing.paid, hasActiveIntensivePass: false, hasActiveJobSearchPass: true } },
+});
+check('editable plans expose a 60% minimum', activeEntitlements.scheduledMinScore === 60 && intensiveEntitlements.scheduledMinScore === 60);
+check('Free and Essential keep the 75% minimum', freeEntitlements.scheduledMinScore === 75 && essentialEntitlements.scheduledMinScore === 75);
 check('Essential allows two runs and 50 reviews per day', essentialEntitlements.autoRunsPerDay === 2 && essentialEntitlements.scheduledJobsPerDay === 50);
 for (const plan of [freeEntitlements, essentialEntitlements, intensiveEntitlements]) {
   check(`${plan.autoRunsPerDay}-run customers cannot bypass scheduled spacing with a direct manual start`, runControlRefusal('manual', plan)?.status === 403);
@@ -173,6 +189,7 @@ check('a free account is never given Indeed', effectivePlatforms({ PLATFORMS: 's
 
 // Every number a plan advertises is the number the server enforces.
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
+check('Active Search and Get Owtomated advertise the editable 60-100% range', ['job-search-pass', 'intensive-pass'].every(plan => said(plan as keyof typeof PLAN_PRESENTATION).includes('Choose your minimum match score: 60% to 100%')));
 check('Free says the scheduled run and reviews it gets', said('free').includes('1 scheduled run each day') && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Essential says it gets two scheduled runs', said('essential-pass').includes('2 scheduled runs each day'));
 check('Active Search says the scheduled runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} scheduled runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));

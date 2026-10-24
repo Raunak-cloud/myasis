@@ -8,7 +8,8 @@ import { useSetupStatus } from '../setupStatus';
 import { BoardResumesNote } from './BoardResumesNote';
 import { ResumeSourceNote } from './ResumeSourceNote';
 import { FieldLabel, InfoTip } from './FieldLabel';
-import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText } from '../runSettings';
+import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText, matchThresholdError } from '../runSettings';
+import { CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../pricing';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { TermsInput } from './TermsInput';
 import { SeekSignIn } from './SeekSignIn';
@@ -574,8 +575,9 @@ export function RunPanel({
       fail('Application and search limits must be at least 1.');
       return;
     }
-    if (Number(updates.MIN_SCORE) > 100) {
-      fail('Match threshold must be between 0 and 100.', 'MIN_SCORE');
+    const thresholdError = entitlements?.advancedFilters ? matchThresholdError(updates.MIN_SCORE, isAdmin ? 0 : CUSTOM_MIN_SCORE) : null;
+    if (thresholdError) {
+      fail(thresholdError, 'MIN_SCORE');
       return;
     }
     /**
@@ -1387,7 +1389,8 @@ export function RunPanel({
                   )}
                   {entitlements?.advancedFilters && <label className="field">
                     <FieldLabel label="Match threshold" help="Jobs scoring below this number are skipped. A higher number gives fewer, closer matches." />
-                    <input className="input" data-field="MIN_SCORE" type="number" min="0" max="100" value={val('MIN_SCORE')} onChange={(e) => setEdit('MIN_SCORE', e.target.value)} />
+                    <input className="input" data-field="MIN_SCORE" type="number" min={isAdmin ? 0 : CUSTOM_MIN_SCORE} max={MAX_MATCH_SCORE} value={val('MIN_SCORE')} onChange={(e) => setEdit('MIN_SCORE', e.target.value)} />
+                    {!isAdmin && <span className="job-meta">Choose {CUSTOM_MIN_SCORE}% to {MAX_MATCH_SCORE}%.</span>}
                     {fieldError('MIN_SCORE')}
                   </label>}
                   {entitlements?.advancedFilters && <label className="field">

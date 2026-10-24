@@ -2,7 +2,7 @@ import { one, query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { billingStatus, isAdmin, type BillingStatus } from './billing.js';
 import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
-import { PLAN_LIMITS, SCHEDULED_MIN_SCORE } from '../src/pricing.js';
+import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../src/pricing.js';
 import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
@@ -149,8 +149,8 @@ export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, '
  * Filtering writes is not enough: an account may have advanced values saved
  * from an earlier Intensive Pass. Standard runs therefore resolve every
  * fine-tuning key back to the product default at execution time. Scheduled
- * live applications then receive their fixed safety threshold regardless of
- * any saved value.
+ * live applications use a fixed threshold on Free and Essential, while
+ * Active Search and Get Owtomated use the customer's chosen threshold.
  */
 /** Set once the account picks its job boards itself; from then on its list is used exactly as picked. */
 export const PLATFORMS_CHOSEN_KEY = 'PLATFORMS_CHOSEN';
@@ -212,10 +212,10 @@ export function applyRunPolicy(
   if (entitlement.maxApplicationsPerRunOverride !== null) {
     resolved.MAX_APPS_PER_RUN = String(entitlement.maxApplicationsPerRunOverride);
   }
-  if (trigger === 'auto' && entitlement.tier !== 'admin') {
+  if (entitlement.tier !== 'admin' && (trigger === 'auto' || entitlement.advancedFilters)) {
     const requestedScore = Number(resolved.MIN_SCORE);
     resolved.MIN_SCORE = String(entitlement.advancedFilters && Number.isFinite(requestedScore)
-      ? Math.max(SCHEDULED_MIN_SCORE, Math.min(100, requestedScore))
+      ? Math.max(CUSTOM_MIN_SCORE, Math.min(MAX_MATCH_SCORE, requestedScore))
       : SCHEDULED_MIN_SCORE);
   }
   /**
@@ -431,6 +431,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
   const evaluationsPerRun = tier === 'admin'
     ? overrides.evaluationsPerRun
     : overrides.evaluationsPerRun ?? planEvaluationsPerRun;
+  const advancedFilters = tier !== 'standard' || billing.paid.hasActiveJobSearchPass;
 
   return {
     tier,
@@ -441,15 +442,17 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     // Only an account allowed to switch automatic runs off can have them off.
     autoApplyPaused: facts.autoApplyPaused,
     canPauseAutoApply,
-    // Admins apply at their own saved threshold; the 75% floor is for accounts nobody is steering.
-    scheduledMinScore: tier !== 'admin' && autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
+    // The editable plans can choose 60-100%; Free and Essential keep 75%.
+    scheduledMinScore: tier !== 'admin' && autoRunsPerDay
+      ? (advancedFilters ? CUSTOM_MIN_SCORE : SCHEDULED_MIN_SCORE)
+      : null,
     scheduledJobsPerDay: autoRunsPerDay > 0 && evaluationsPerRun !== null
       ? autoRunsPerDay * evaluationsPerRun
       : null,
     evaluationsPerRun,
     maxApplicationsPerRunOverride: overrides.maxApplicationsPerRun,
     fineTune: tier !== 'standard',
-    advancedFilters: tier !== 'standard' || billing.paid.hasActiveJobSearchPass,
+    advancedFilters,
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,

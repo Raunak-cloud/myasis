@@ -23,6 +23,8 @@ import {
 } from './server/settings.js';
 import { query, one, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { upsertSettingRow } from './server/db/records.js';
+import { matchThresholdError } from './src/runSettings.js';
+import { CUSTOM_MIN_SCORE } from './src/pricing.js';
 /** The resume note on Apply, once dismissed: a UI preference, never part of a run's settings. */
 const BOARD_RESUMES_NOTE_DISMISSED = 'BOARD_RESUMES_NOTE_DISMISSED';
 import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
@@ -448,6 +450,10 @@ function dataApi(): Plugin {
               if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
               if (!mayEditRunSetting(key, entitlements)) continue;
               updates[key] = String(value ?? '');
+            }
+            if (updates.MIN_SCORE !== undefined) {
+              const error = matchThresholdError(updates.MIN_SCORE, entitlements.tier === 'admin' ? 0 : CUSTOM_MIN_SCORE);
+              if (error) return send({ error }, 400);
             }
             // Boards that differ from what a run would have used are the person's own choice, kept from now on.
             const before = await loadUserSettings(userId);

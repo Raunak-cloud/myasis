@@ -10,6 +10,7 @@ import { userDir, USERS_DIR } from '../server/userdata.js';
 import { accountRequest, accountUnavailable } from '../server/account-lifecycle.js';
 import { runSettingsSnapshotForUser, replaceSearchTermsIfUnchanged } from '../server/settings.js';
 import { runner } from '../server/runner.js';
+import { applyRunPolicy, entitlementsFor } from '../server/entitlements.js';
 
 const pool = getPool();
 const client = await pool.connect();
@@ -60,6 +61,29 @@ try {
     assert.equal(saved.settings.KEYWORDS,cappedTerms);
     assert.equal((await client.query("SELECT value FROM settings WHERE user_id=$1 AND key='KEYWORDS'",[id])).rows[0].value,cappedTerms,'API saves cannot persist a fourth title');
   }
+  for (const plan of ['job-search-pass', 'intensive-pass']) {
+    const purchase = (await client.query(`INSERT INTO billing_purchases(user_id,stripe_checkout_session_id,plan_key,applications_granted,amount_paid)
+      VALUES($1,$2,$3,1,1) RETURNING id`, [peer, `fixture-threshold-${plan}`, plan])).rows[0].id;
+    await client.query("INSERT INTO application_credit_grants(user_id,purchase_id,credits_total,credits_used,expires_at) VALUES($1,$2,1,0,now()+interval '60 days')", [peer,purchase]);
+    const entitlement = await entitlementsFor(peer, 'peer@example.test');
+    assert.equal(entitlement.advancedFilters, true);
+    assert.equal(entitlement.scheduledMinScore, 60);
+    for (const score of ['60', '70', '100']) {
+      const response = await request('/api/settings','POST',{updates:{MIN_SCORE:score}},'peer-token');
+      assert.equal(response.status,200);
+      assert.equal((await response.json() as {settings:{MIN_SCORE:string}}).settings.MIN_SCORE,score);
+      const shown = await (await request('/api/settings','GET',undefined,'peer-token')).json() as Record<string,string>;
+      assert.equal(shown.MIN_SCORE,score);
+      assert.equal(applyRunPolicy(shown,entitlement,'auto').MIN_SCORE,score,'scheduled runs honour the score saved through the real API');
+    }
+    for (const score of ['59', '101', '', 'NaN']) {
+      assert.equal((await request('/api/settings','POST',{updates:{MIN_SCORE:score}},'peer-token')).status,400);
+      assert.equal((await client.query("SELECT value FROM settings WHERE user_id=$1 AND key='MIN_SCORE'",[peer])).rows[0].value,'100','invalid thresholds never overwrite the saved choice');
+    }
+    await client.query('DELETE FROM application_credit_grants WHERE purchase_id=$1',[purchase]);
+    await client.query('DELETE FROM billing_purchases WHERE id=$1',[purchase]);
+  }
+  assert.equal((await request('/api/settings','POST',{updates:{MIN_SCORE:'22'}},'owner-token')).status,200,'admin diagnostic thresholds remain available');
   if(originalAdmins===undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS=originalAdmins;
   for(const path of ['/api/daily-summary','/api/account']) assert.equal((await request(path,'GET',undefined,'')).status,401);
   assert.equal((await request('/api/daily-summary','DELETE')).status,405);

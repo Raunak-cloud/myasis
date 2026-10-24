@@ -1,3 +1,12 @@
+import { CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from './pricing.js';
+
+export function matchThresholdError(value: unknown, minimum = CUSTOM_MIN_SCORE): string | null {
+  const text = String(value ?? '').trim();
+  const score = Number(text);
+  return text && Number.isFinite(score) && score >= minimum && score <= MAX_MATCH_SCORE
+    ? null : `Match threshold must be between ${minimum}% and ${MAX_MATCH_SCORE}%.`;
+}
+
 export const AUSTRALIAN_CITIES = [
   'Sydney',
   'Melbourne',

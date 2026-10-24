@@ -36,6 +36,8 @@ export const PLAN_LIMITS = {
 } as const;
 
 export const SCHEDULED_MIN_SCORE = 75;
+export const CUSTOM_MIN_SCORE = 60;
+export const MAX_MATCH_SCORE = 100;
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const FREE = PLAN_LIMITS.free;
@@ -77,6 +79,7 @@ export const PLAN_PRESENTATION = {
       `${PAID_PLANS['job-search-pass'].durationDays} days of access`,
       `Up to ${plural(ACTIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
+      `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
       'SEEK and Indeed applications',
       'Advanced match and listing-age filters',
     ],
@@ -89,6 +92,7 @@ export const PLAN_PRESENTATION = {
       `${PAID_PLANS['intensive-pass'].durationDays} days of access`,
       `Up to ${plural(INTENSIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
+      `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',
       'Supported employer-site applications',

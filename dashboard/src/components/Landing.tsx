@@ -1,6 +1,6 @@
 import './Landing.css';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FREE_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, SCHEDULED_MIN_SCORE, aud } from '../pricing';
+import { FREE_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE, aud } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
@@ -18,7 +18,7 @@ function landingImprovements():WebsitePatch {
 /** Mirrored word for word in index.html's FAQ structured data; change both together. */
 const QUESTIONS = [
   { question: 'Does it actually submit applications?', answer: 'Yes. Owtomate submits applications on your behalf, using your resume, your preferences and a cover letter written for each job. Every application is saved, so you can see exactly what was sent.' },
-  { question: 'Is Owtomate a job application bot?', answer: `Owtomate is an application assistant, not a spam bot. It automatically applies to jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%. Every application goes through your own SEEK or Indeed session. It stops and asks you whenever it cannot answer something honestly.` },
+  { question: 'Is Owtomate a job application bot?', answer: `Owtomate is a job application assistant. Free and Essential require at least a ${SCHEDULED_MIN_SCORE}% resume match. Active Search and Get Owtomated let you choose your minimum match score from ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%. Every application goes through your own SEEK or Indeed session. It stops and asks you whenever it cannot answer something honestly.` },
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },

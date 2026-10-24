@@ -67,11 +67,11 @@ const server = createServer(async (req, res) => {
     }
     const payloads: Record<string, unknown> = {
       '/api/auth/me': { user: { id: 'fixture', email: 'fixture@example.test', name: 'Fixture Candidate' }, googleConfigured: true },
-      '/api/entitlements': { tier: admin ? 'admin' : 'standard', manualRuns: true, firstRunRequired: !admin,
+      '/api/entitlements': { tier: admin ? 'admin' : scheduleFixture ? 'intensive' : 'standard', manualRuns: true, firstRunRequired: !admin,
         autoRunsPerDay: scheduleFixture ? 4 : 1, autoApplyPaused: !scheduleEnabled, canPauseAutoApply: scheduleFixture, autoRunsUsedToday: 0,
         scheduledMinScore: null, scheduledJobsPerDay: admin ? null : PLAN_LIMITS.free.evaluationsPerRun,
         evaluationsPerRun: admin ? null : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
-        fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin },
+        fineTune: admin || scheduleFixture, advancedFilters: admin || scheduleFixture, indeedApplications: admin, runScopes: admin },
       '/api/billing/status': { configured: true, totalRemaining: remainingCredits, free: { allowance: 5, used: 5 - remainingCredits, remaining: remainingCredits },
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: scheduleFixture ? '2026-12-23T00:00:00Z' : null, hasActivePass: scheduleFixture, hasActiveIntensivePass: scheduleFixture, unlimitedApplications: scheduleFixture } },
       '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },
@@ -481,6 +481,15 @@ try {
     await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByText(/Starting enables 4 scheduled runs per 24 hours/).waitFor();
+    const threshold = dialog.locator('[data-field=MIN_SCORE]');
+    assert.equal(await threshold.getAttribute('min'), '60');
+    assert.equal(await threshold.getAttribute('max'), '100');
+    await threshold.fill(width === 1280 ? '59' : '101');
+    await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
+    await dialog.getByText('Match threshold must be between 60% and 100%.', { exact: true }).waitFor();
+    assert.equal(writes.filter(write => write.path === '/api/auto-apply').length, before, 'an invalid match threshold cannot authorize a run');
+    const chosenScore = width === 1280 ? '60' : '100';
+    await threshold.fill(chosenScore);
     await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     await page.getByRole('button', { name: 'Pause Semi auto', exact: true }).waitFor();
     await schedule.getByText('Waiting to start', { exact: true }).waitFor();
@@ -489,6 +498,7 @@ try {
     assert.equal(writes.filter(write => write.path === '/api/auto-apply').length, before + 1);
     const start = writes.filter(write => write.path === '/api/auto-apply').at(-1)!.body;
     assert.equal(start.enabled, true); assert.equal(start.confirm, true); assert.equal(start.applicationMode, 'semi-auto');
+    assert.equal(writes.filter(write => write.path === '/api/settings').at(-1)!.body.updates.MIN_SCORE, chosenScore);
     assert.equal(await page.getByRole('button', { name: 'Auto apply', exact: true }).isDisabled(), true);
     await page.reload();
     await page.getByRole('button', { name: 'Pause Semi auto', exact: true }).click();
@@ -503,6 +513,7 @@ try {
     for (const [name, runs] of [['Free', 1], ['Essential Pass', 2], ['Active Search', 4], ['Get Owtomated', 4]] as const) {
       const planCard = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
       await planCard.getByText(new RegExp(`${runs} scheduled run${runs === 1 ? '' : 's'} each day`)).waitFor();
+      if (name === 'Active Search' || name === 'Get Owtomated') await planCard.getByText('Choose your minimum match score: 60% to 100%', { exact: true }).waitFor();
     }
     const card = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name: 'Get Owtomated', exact: true }) });
     await card.getByText('A$79.99', { exact: true }).waitFor();
