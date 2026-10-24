@@ -40,15 +40,17 @@
 .pricing-page .pricing-cta:disabled { opacity: .65; }
 
 .pricing-page .pricing-card.premium {
-  --plan-text: #f1f5fc; --plan-muted: #bdcce0; --plan-line: #3a506b; --plan-check: #8dd9c7;
-  border-color: #173957; background: #132d48; box-shadow: none;
+  --plan-text: #3e2d12; --plan-muted: #6a552e; --plan-line: #d6bb82; --plan-check: #937025;
+  border-color: #c7a25e;
+  background: linear-gradient(145deg, #fff9ec, #f3e3bc);
+  box-shadow: inset 0 1px 0 #fffdf6;
 }
 .pricing-page .pricing-card.premium::before { content: none; }
 .pricing-page .pricing-card.premium .pricing-features svg { color: var(--plan-check); }
-.pricing-page .premium .pricing-tag.current { background: #244b56; color: #b1f0df; }
-.pricing-page .premium .pricing-cta { border-color: #d9e7f9; background: #e5eefb; color: #132d48; }
-.pricing-page .premium .pricing-cta:hover:not(:disabled) { border-color: #fff; background: #fff; }
-.pricing-page .premium .pricing-cta:disabled { border-color: #45617c; background: #203d59; color: #d1dff0; opacity: 1; }
+.pricing-page .premium .pricing-tag.current { background: #e7cf99; color: #5a4218; }
+.pricing-page .premium .pricing-cta { border-color: #75521b; background: #75521b; color: #fff8e9; }
+.pricing-page .premium .pricing-cta:hover:not(:disabled) { border-color: #604214; background: #604214; }
+.pricing-page .premium .pricing-cta:disabled { border-color: #c5a160; background: #ead5a6; color: #58431e; opacity: 1; }
 
 .pricing-page .pricing-topup { padding: 18px 20px; gap: 20px; border-radius: 10px; background: var(--surface); }
 .pricing-page .pricing-topup .pricing-plan-label { font-size: 10px; font-weight: 600; letter-spacing: .04em; }
