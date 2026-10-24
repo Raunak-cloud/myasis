@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, JobListing } from './types.js';
 
-type FixtureJob = JobListing & { searchPage?: number; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { searchPage?: number; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney',
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { pages?: number; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean } = {}) {
+function run(jobs: FixtureJob[], options: { pages?: number; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -35,8 +35,8 @@ import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).
 Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},formSpeed:false,allowExternalApply:${options.externalLimit !== 0}});
 Object.assign(config.coverLetter, {mode:'tailored'});
 Object.assign(config.rules, {minScore:0,excludedCompanies:[]});
-Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:${options.pages ?? 1},maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:100,maxExternalPerDay:${options.externalLimit ?? 10},
-  minDelayMs:0,maxDelayMs:0,minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
+Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:${options.pages ?? 1},maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:${options.dailyCap ?? 100},maxExternalPerDay:${options.externalLimit ?? 10},
+  minDelayMs:${options.cooldownMs ?? 0},maxDelayMs:${options.cooldownMs ?? 0},minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
 `);
     writeFileSync(join(directory, 'discovery.mjs'), `
 import { jobs, record } from './boundary.mjs';
@@ -87,7 +87,7 @@ export const assessFit = async job => {
   await new Promise(done => setTimeout(done,job.fitDelayMs||0));
   record('fit-finish',job.id);
   if(job.fitError) { await new Promise(done => setTimeout(done,20)); throw Error('Instruction exception review violated its evidence schema'); }
-  return {decision:'apply',shouldApply:true,matchScore:90,reason:'Fixture fit',evidence:['Fixture'],injectionSuspected:false};
+  return {decision:job.fitReject?'skip':'apply',shouldApply:!job.fitReject,matchScore:90,reason:'Fixture fit',evidence:['Fixture'],injectionSuspected:false};
 };
 `);
     writeFileSync(join(directory, 'apply.mjs'), `
@@ -96,11 +96,11 @@ import { applicationAllowance } from ${JSON.stringify(new URL('./application-all
 import { isExternalApplicationUrl } from ${JSON.stringify(new URL('./job-board-url.js', import.meta.url).href)};
 export const applyToJobWithAgent = async (_page,job) => {
   record('apply',job.id);
-  if(process.env.APPLICATION_REVIEW_MODE === 'prepare') return {status:'prepared',jobId:job.id,draft:{job}};
   await new Promise(done=>setTimeout(done,job.delayMs||0));
   if(job.preSendFailure) return {status:'error',jobId:job.id,error:'Fixture failure before send'};
   if(job.formUrl && !(await applicationAllowance(isExternalApplicationUrl(job.formUrl)))) { record('denied',job.id); return {status:'needs-human',jobId:job.id,reason:'Application allowance unavailable'}; }
   record('finish',job.id);
+  if(process.env.APPLICATION_REVIEW_MODE === 'prepare') return {status:'prepared',jobId:job.id,draft:{job}};
   if(job.uncertain) return {status:'error',jobId:job.id,error:'Fixture uncertain response',submitPressed:true};
   return job.lateApplied ? {status:'already-applied',jobId:job.id,reason:'Already recorded by the employer'}
     : {status:'applied',jobId:job.id,at:new Date().toISOString()};
@@ -510,4 +510,44 @@ test('an isolated-session sign-in failure falls back before any form is opened a
   assert.match(result.output, /Application workers: 1/);
   assert.equal(result.events.filter(event => event.stage === 'apply').length, 2);
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, 2);
+});
+
+
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} stops the other platform's reviews when the shared run cap is reached`, () => {
+  const result = run([
+    job('seek-one', { delayMs: 10 }), job('seek-two', { delayMs: 10 }), job('seek-unused'),
+    ...Array.from({ length: 8 }, (_, i) => job(`indeed-rejected-${i}`, { platform: 'indeed', detailDelayMs: 100, fitReject: true })),
+  ], { apply: true, prepare, workers: 2, cap: 2, reviews: 20 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['seek-one', 'seek-two']);
+  assert.equal(result.events.filter(event => event.stage === 'detail' && event.id.startsWith('indeed')).length, 1,
+    'only the already-open listing may finish; no further review starts after the cap');
+  assert.equal(result.events.filter(event => event.stage === 'fit' && event.id.startsWith('indeed')).length, 0,
+    'an in-flight listing read must not launch another model check after the cap');
+  assert.equal(result.events.filter(event => event.stage === 'activity-finished').length, 2);
+  assert.equal(result.history.length, prepare ? 0 : 2);
+  assert.match(result.output, prepare ? /Semi auto complete: 2 application/ : /Run complete: 2 new application/);
+});
+
+test('the last submission interrupts the other worker cooldown instead of keeping the run active', () => {
+  const result = run([
+    job('seek-one', { delayMs: 10 }), job('seek-unused'),
+    job('indeed-one', { platform: 'indeed', delayMs: 300 }),
+  ], { apply: true, workers: 2, cap: 2, reviews: 10, cooldownMs: 5000 });
+  const sent = result.events.filter(event => event.stage === 'finish');
+  assert.equal(sent.length, 2);
+  const lastSent = Math.max(...sent.map(event => event.at));
+  const finished = result.events.filter(event => event.stage === 'activity-finished');
+  assert.equal(finished.length, 2);
+  assert.ok(Math.max(...finished.map(event => event.at)) - lastSent < 1000, 'workers must finish promptly after the final send');
+  assert.equal(result.history.length, 2);
+});
+
+test('the daily cap also ends a parallel review loop before the larger run cap', () => {
+  const result = run([
+    job('seek-one', { delayMs: 10 }),
+    ...Array.from({ length: 5 }, (_, i) => job(`indeed-rejected-${i}`, { platform: 'indeed', detailDelayMs: 100, fitReject: true })),
+  ], { apply: true, workers: 2, cap: 5, dailyCap: 1, reviews: 20 });
+  assert.equal(result.history.length, 1);
+  assert.equal(result.events.filter(event => event.stage === 'detail' && event.id.startsWith('indeed')).length, 1);
+  assert.equal(result.events.filter(event => event.stage === 'activity-finished').length, 2);
 });

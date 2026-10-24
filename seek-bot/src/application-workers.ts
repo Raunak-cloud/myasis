@@ -2,10 +2,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { LiveWorkerId } from './live-workers.js';
 
 /** A review can publish its final candidate while reporting no further review work. */
-export async function nextApplicationCandidate<T>(take: () => T | undefined, exhausted: () => boolean, advance: () => Promise<boolean>): Promise<T | undefined> {
+export async function nextApplicationCandidate<T>(take: () => T | undefined, exhausted: () => boolean, advance: () => Promise<boolean>, stopped: () => boolean = () => false): Promise<T | undefined> {
+  if (stopped()) return undefined;
   let next = take();
-  while (!next && !exhausted()) {
+  while (!next && !exhausted() && !stopped()) {
     const advanced = await advance();
+    // Exhausted reviews still drain queued candidates; a shared application
+    // limit must stop every worker without taking any more work.
+    if (stopped()) return undefined;
     next = take();
     if (!advanced) break;
   }

@@ -1,6 +1,7 @@
 import { submitApprovedEmail } from './gmail-mailbox.js';
 import { runApprovedEmailBatch } from './approved-email-run.js';
 import type { BrowserContext, Page } from 'patchright';
+import { setTimeout as pause } from 'node:timers/promises';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
 import { settleReviews } from './agent/lessons.js';
@@ -615,6 +616,13 @@ async function main() {
      */
     const candidates: Array<{ job: JobListing; score: number; why: string; reasons: string[] }> = [];
     let busyWorkers = 0;
+    let applied = 0;
+    let prepared = 0;
+    let rehearsed = 0;
+    const applicationLimit = new AbortController();
+    const limitReached = () => !searchOnly && (
+      applied + prepared + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : 0) >= config.limits.maxApplicationsPerRun
+      || index.appliedToday() >= config.limits.maxApplicationsPerDay);
     const workWaiters = new Set<() => void>();
     const workChanged = () => { for (const resolve of workWaiters) resolve(); workWaiters.clear(); };
     /** Every job that qualified this run, applied for yet or not. */
@@ -646,6 +654,7 @@ async function main() {
       if (position < 0) return;
       pendingFits.splice(position, 1);
       workChanged();
+      if (limitReached()) return;
       if (qualified >= candidateCap) return;
       const { job, score, scoreReasons, adapter } = item;
       if (skipExistingApplication(job)) {
@@ -722,7 +731,7 @@ async function main() {
      * trip rate limits.
      */
     const flushFits = async () => {
-      if (!pendingFits.length) return;
+      if (limitReached() || !pendingFits.length) return;
       const decision = await Promise.race(pendingFits.map(async (item) => ({ item, result: await item.fitPromise })));
       settleFit(decision.item, decision.result);
     };
@@ -747,9 +756,9 @@ async function main() {
       if (qualified < candidateCap && evaluated < config.limits.maxEvaluations) reviewStopped = false;
       workChanged();
     };
-    const reviewDone = () => reviewStopped || (!hasUnreviewed() && !discoveryLeft());
+    const reviewDone = () => limitReached() || reviewStopped || (!hasUnreviewed() && !discoveryLeft());
     /** Nothing left to review and no fit check still out. */
-    const reviewExhausted = () => reviewDone() && !pendingFits.length && !activeReviews.size;
+    const reviewExhausted = () => limitReached() || (reviewDone() && !pendingFits.length && !activeReviews.size);
 
     /** Reviews the next listing in the pre-ranked queue. */
     const jobLabel = (job: JobListing) => `${job.title} @ ${job.company}`;
@@ -788,9 +797,11 @@ async function main() {
       let retained = false;
       try {
         await readPlatform(adapter.id, async () => {
+          if (limitReached()) return;
           let job: JobListing;
           // A search just made on this board still has its gap to run out.
           await sitePacer.ready(adapter.id);
+          if (limitReached()) return;
           try {
             job = await measured('detail', () => adapter.fetchJobDetail(reviewPage, stub), { jobId: stub.id });
           } catch (error) {
@@ -799,6 +810,7 @@ async function main() {
             return;
           }
 
+          if (limitReached()) return;
           // Board history includes applications made by hand or on another device.
           // Check it before reading pauses and fit/model calls; an early return
           // gives the temporary evaluation reservation back to the run.
@@ -865,6 +877,7 @@ async function main() {
            * one that blocked a run appeared on a plain search page.
            */
           if (!adapter.apiDiscovery && !approvedApplication(stub)) await jitter(5000, 8000);
+          if (limitReached()) return;
 
           /**
            * The page verdict is for a listing whose description did not come
@@ -881,10 +894,14 @@ async function main() {
             }
             const expected = `the ${adapter.label} job listing "${job.title}" at ${job.company}`;
             let verdict = await judgePage(reviewPage, expected);
+            if (limitReached()) return;
             if (verdict.state === 'loading') {
               await jitter(3000, 5000);
+              if (limitReached()) return;
               job = await measured('detail-retry', () => adapter.fetchJobDetail(reviewPage, stub), { jobId: stub.id });
+              if (limitReached()) return;
               if (!job.description) verdict = await judgePage(reviewPage, expected);
+              if (limitReached()) return;
             }
 
             if (!job.description) {
@@ -912,6 +929,7 @@ async function main() {
           // straight to their complete fit review as before.
           if (!stub.description && stub.source !== 'chosen' && applicationModelAvailable() && config.aiInstructions.trim()) {
             const cardRule = await ruleConflict(stub).catch(() => null);
+            if (limitReached()) return;
             if (cardRule?.decision === 'skip' && cardRule.conflict) {
               const reason = `Your instructions rule this out ("${cardRule.conflict}"). ${cardRule.because}`;
               console.log(`  ✗ ${jobLabel(stub)} — ${reason} (from the search result)`);
@@ -926,7 +944,8 @@ async function main() {
 
           // Both reviewers share the same model concurrency ceiling. Recheck after
           // every await before starting another call; page reading stays parallel.
-          while (pendingFits.length >= config.limits.fitConcurrency) await flushFits();
+          while (!limitReached() && pendingFits.length >= config.limits.fitConcurrency) await flushFits();
+          if (limitReached()) return;
 
           const heuristic = searchOnly ? scoreJob(job, profile) : null;
           const priority = reviewPriorities.get(reviewKey(job));
@@ -964,8 +983,10 @@ async function main() {
 
     /** Moves review on by one step: answered fit checks first, then the next listing, then a check still out. */
     const advanceReview = async (reviewPage: Page = page, accept: (job: JobListing) => boolean = () => true, waitForOther = true): Promise<boolean> => {
+      if (limitReached()) return false;
       try {
         await settleAnswered();
+        if (limitReached()) return false;
         if (!reviewDone() && (hasUnreviewed(accept) || !hasUnreviewed())) {
           if (hasUnreviewed(accept)) await showLiveActivity({ phase: 'reviewing', detail: 'Checking job listings and matching your profile.' }, reviewPage);
           const review = reviewNext(reviewPage, accept);
@@ -1039,7 +1060,7 @@ async function main() {
       }
       console.log(`\n${qualified} qualifying jobs.\n`);
       // A review cut short by the run cap is not a sparse search: the dashboard only renews search terms after a complete one.
-      saveRunSummary(qualified, reviewExhausted() && !reviewStopped);
+      saveRunSummary(qualified, reviewExhausted() && !reviewStopped && !limitReached());
     };
 
     if (searchOnly) {
@@ -1066,18 +1087,21 @@ async function main() {
     const REVIEW_STEP_MS = 10_000;
     const pauseWhileReviewing = async (minMs: number, maxMs: number, reviewPage: Page, accept: (job: JobListing) => boolean) => {
       const until = Date.now() + Math.floor(minMs + Math.random() * (maxMs - minMs));
-      while (Date.now() < until - REVIEW_STEP_MS && !reviewExhausted()) {
+      while (!limitReached() && Date.now() < until - REVIEW_STEP_MS && !reviewExhausted()) {
         if (!await advanceReview(reviewPage, accept, false)) break;
       }
       const left = until - Date.now();
-      if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
+      if (left > 0 && !limitReached()) {
+        try { await pause(left, undefined, { signal: applicationLimit.signal }); }
+        catch (error) { if (!applicationLimit.signal.aborted) throw error; }
+      }
     };
     /**
      * The pause before the next application. A cooldown only protects the
      * next interaction, so a run with nothing left to do does not wait it out.
      */
     const cooldown = async (full: boolean, reviewPage: Page, accept: (job: JobListing) => boolean) => {
-      if (reviewExhausted() && !bestCandidate(accept)) return;
+      if (limitReached() || (reviewExhausted() && !bestCandidate(accept))) return;
       await pauseWhileReviewing(
         full ? config.limits.minDelayMs : config.limits.minNonSubmitDelayMs,
         full ? config.limits.maxDelayMs : config.limits.maxNonSubmitDelayMs,
@@ -1086,10 +1110,6 @@ async function main() {
       );
     };
     // ---- apply -----------------------------------------------------------
-    let applied = 0;
-    let prepared = 0;
-    let rehearsed = 0;
-
     /** Employer-site applications actually SUBMITTED today, across runs. Failures cost model calls but not allowance. */
     let externalSubmitted = config.limits.externalAttemptsToday;
     const slots = new ApplicationSlots({ run: config.limits.maxApplicationsPerRun,
@@ -1106,7 +1126,7 @@ async function main() {
     }
     const runWorker = async (applicationPage: Page, accept: (job: JobListing) => boolean) => {
       for (;;) {
-        if (applied + prepared + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : 0) >= config.limits.maxApplicationsPerRun) break;
+        if (limitReached()) break;
         // An application deadline retires its outstanding browser work. Start
         // the next review/attempt in this same isolated worker session.
         {
@@ -1120,8 +1140,9 @@ async function main() {
         // Each worker reads and applies on its own isolated page. Only fallback
         // discovery uses the persistent page; queue claims and budgets are shared.
         const next = await nextApplicationCandidate(() => takeCandidate(accept), reviewExhausted,
-          () => advanceReview(applicationPage, accept));
+          () => advanceReview(applicationPage, accept), limitReached);
         if (!next) {
+          if (limitReached()) break;
           // Another application may restore a review slot or produce new
           // candidates during its cooldown. Stay available until all are idle.
           if (busyWorkers) {
@@ -1193,6 +1214,10 @@ async function main() {
             if (finalized) return;
             finalized = true;
             slot.finish(finalOutcome?.status === 'applied' || finalOutcome?.status === 'prepared');
+            if (limitReached()) {
+              applicationLimit.abort();
+              workChanged();
+            }
           };
           try {
             console.log(`\n→ ${preparingApplications() ? 'Preparing' : 'Applying'}: ${job.title} @ ${job.company}`);
@@ -1317,6 +1342,10 @@ async function main() {
             const completedAfter = prepared + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : applied);
             if (completedAfter >= config.limits.maxApplicationsPerRun) {
               console.log(`\nRun cap of ${config.limits.maxApplicationsPerRun} reached.`);
+              break;
+            }
+            if (index.appliedToday() >= config.limits.maxApplicationsPerDay) {
+              console.log(`\nDaily cap of ${config.limits.maxApplicationsPerDay} reached.`);
               break;
             }
             /**

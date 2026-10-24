@@ -27,6 +27,20 @@ test('already queued work is drained even after review exhaustion', async () => 
   assert.equal(await nextApplicationCandidate(() => ready.shift(), () => true, advance), 'last');
 });
 
+test('a shared stop prevents queue claims, including when it arrives during review', async () => {
+  const ready: string[] = [];
+  let stopped = false;
+  const next = await nextApplicationCandidate(() => ready.shift(), () => false, async () => {
+    ready.push('unused'); stopped = true; return true;
+  }, () => stopped);
+  assert.equal(next, undefined);
+  assert.deepEqual(ready, ['unused']);
+  assert.equal(await nextApplicationCandidate(() => ready.shift(), () => true, async () => {
+    throw Error('a stopped run must not review again');
+  }, () => stopped), undefined);
+  assert.deepEqual(ready, ['unused']);
+});
+
 const limits = (extra = {}) => ({ run: 2, day: 10, external: 2, appliedToday: () => 0, externalToday: 0, ...extra });
 test('two concurrent applications consume the shared run allowance; a third cannot overrun it', async () => {
   const slots = new ApplicationSlots(limits());
