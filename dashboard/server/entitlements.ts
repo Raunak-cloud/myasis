@@ -12,7 +12,7 @@ export { SCHEDULED_MIN_SCORE };
 /**
  * What an account is allowed to do — decided in one place, for every caller.
  *
- * Every account explicitly starts its runs. Plans limit daily runs and job
+ * Every account explicitly enables its schedule. Plans limit scheduled runs and job
  * reviews; Semi auto confirmations continue an existing preparation run.
  *
  * Every gate in the app reads this module rather than re-deriving the rule
@@ -36,20 +36,13 @@ const INTENSIVE_AUTO_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].autoRunsPerDay
 const ADMIN_AUTO_RUNS_PER_DAY = 4;
 
 /**
- * Where an account's own "automatic runs off" choice is kept. A settings row,
- * but deliberately not a run setting: it never reaches the bot and cannot be
- * posted through /api/settings.
- */
-const AUTO_APPLY_PAUSED_KEY = 'AUTO_APPLY_PAUSED';
-
-/**
  * Per-account admin overrides: how many listings a run reviews, and how many
  * applications one run may submit. Set by an operator to give one account
  * more or less than its plan — for cost control, or a real problem case —
  * without moving the account to a different plan.
  *
  * Stored as settings rows outside `KEEP_SETTINGS_KEYS`, the same way
- * `AUTO_APPLY_PAUSED_KEY` is: `/api/settings` never exposes them to the
+ * private scheduling state is: `/api/settings` never exposes them to the
  * account, and they survive the standard-tier fine-tuning reset in
  * `applyRunPolicy`, which resets everything in that key set back to the
  * product default before an operator's override ever gets a say.
@@ -248,11 +241,11 @@ export interface Entitlements {
   manualRuns: boolean;
   /** Legacy onboarding indicator; completing it never enables scheduling. */
   firstRunRequired: boolean;
-  /** User-started runs per local day (wire name retained for older clients). */
+  /** Scheduled starts per rolling 24 hours (wire name retained). */
   autoRunsPerDay: number;
-  /** Always true: application runs are user-triggered. */
+  /** True until the user explicitly enables their saved schedule. */
   autoApplyPaused: boolean;
-  /** Always false: recurring application schedules are unavailable. */
+  /** The user may start, pause and resume a saved schedule. */
   canPauseAutoApply: boolean;
   autoRunsUsedToday: number;
   /** Fixed match floor for scheduled applications; null when this tier has no schedule. */
@@ -316,8 +309,8 @@ export function automaticRunsPerDay(tier: Tier, plan: 'free' | 'essential' | 'ac
 }
 
 /**
- * Scheduled runs completed since local midnight: a clean completion or real
- * submissions count, including submissions made before a timeout or Stop.
+ * Started live discovery runs in the last 24 hours, including failed or paused
+ * attempts. Approval-only submissions continue an existing prepared application.
  *
  * The comparison is written as a round trip through the local zone —
  * truncate in local time, then read the result back as an instant — so the
@@ -330,9 +323,9 @@ async function automaticRunsStartedToday(userId: string): Promise<number> {
        FROM run_starts r
       WHERE r.user_id = $1
         AND r.trigger IN ('auto', 'onboarding', 'manual') AND NOT r.approval_only
-        AND ${countedRunSql('r')}
-        AND r.started_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
-    [userId, RUN_TIME_ZONE],
+        AND r.mode = 'live'
+        AND r.started_at > now() - interval '24 hours'`,
+    [userId],
   );
   return Number(rows[0]?.n ?? 0);
 }
@@ -426,7 +419,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
         ? ESSENTIAL_EVALUATIONS_PER_RUN
       : FREE_EVALUATIONS_PER_RUN;
   // Anyone with a schedule can switch it off — they found a job, or want a break — and back on.
-  const canPauseAutoApply = false;
+  const canPauseAutoApply = true;
   /**
    * An operator's override wins over the plan's own number wherever one is
    * set, on an operator's own account as much as a customer's: a number typed
@@ -446,7 +439,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     autoRunsPerDay,
     autoRunsUsedToday: facts.autoRunsUsedToday,
     // Only an account allowed to switch automatic runs off can have them off.
-    autoApplyPaused: true,
+    autoApplyPaused: facts.autoApplyPaused,
     canPauseAutoApply,
     // Admins apply at their own saved threshold; the 75% floor is for accounts nobody is steering.
     scheduledMinScore: tier !== 'admin' && autoRunsPerDay ? SCHEDULED_MIN_SCORE : null,
@@ -477,7 +470,7 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
 
   const [autoRunsUsedToday, pausedRow, overrides, suggestionsLeft, hasSuccessfulRun] = await Promise.all([
     autoRunsPerDay > 0 ? automaticRunsStartedToday(userId) : Promise.resolve(0),
-    one<{ value: string }>('SELECT value FROM settings WHERE user_id = $1 AND key = $2', [userId, AUTO_APPLY_PAUSED_KEY]),
+    one<{ value: string }>("SELECT (NOT enabled)::text AS value FROM application_schedules WHERE user_id = $1", [userId]),
     adminOverridesFor(userId),
     searchTermSuggestionsLeft(userId, tier, billing.paid.hasActivePass),
     admin ? Promise.resolve(true) : hasCompletedFirstRun(userId),
@@ -487,14 +480,9 @@ export async function entitlementsFor(userId: string, email?: string | null): Pr
     admin,
     billing,
     autoRunsUsedToday,
-    autoApplyPaused: pausedRow?.value === 'true',
+    autoApplyPaused: pausedRow?.value !== 'false',
     hasSuccessfulRun,
     overrides,
     searchTermSuggestionsLeft: suggestionsLeft,
   });
-}
-
-/** Switches this account's automatic runs off or back on. Callers check `canPauseAutoApply` first. */
-export async function setAutoApplyPaused(userId: string, paused: boolean): Promise<void> {
-  await upsertSettingRow(userId, AUTO_APPLY_PAUSED_KEY, paused ? 'true' : 'false');
 }

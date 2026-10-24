@@ -64,7 +64,7 @@ const PRICE_ROWS: PriceRowSpec[] = [
   { name: 'Free', priceCents: 0, term: 'no card needed', cta: 'Start free', variant: 'light', plan: PLAN_PRESENTATION.free },
   { name: 'Essential Pass', priceCents: PAID_PLANS['essential-pass'].priceCents, term: `one payment · ${PAID_PLANS['essential-pass'].durationDays} days`, cta: 'Choose Essential', variant: 'light', plan: PLAN_PRESENTATION['essential-pass'] },
   { name: 'Active Search', priceCents: PAID_PLANS['job-search-pass'].priceCents, term: `one payment · ${PAID_PLANS['job-search-pass'].durationDays} days`, cta: 'Choose Active Search', variant: 'primary', flag: 'most picked', featured: true, plan: PLAN_PRESENTATION['job-search-pass'] },
-  { name: 'Intensive Pass', priceCents: PAID_PLANS['intensive-pass'].priceCents, term: `one payment · ${PAID_PLANS['intensive-pass'].durationDays} days`, cta: 'Choose Intensive', variant: 'light', plan: PLAN_PRESENTATION['intensive-pass'] },
+  { name: 'Get Owtomated', priceCents: PAID_PLANS['intensive-pass'].priceCents, term: `one payment · ${PAID_PLANS['intensive-pass'].durationDays} days`, cta: 'Get Owtomated', variant: 'light', plan: PLAN_PRESENTATION['intensive-pass'] },
 ];
 
 /**

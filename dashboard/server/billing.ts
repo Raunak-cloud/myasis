@@ -103,6 +103,7 @@ export interface BillingStatus {
     hasActiveEssentialPass: boolean;
     hasActiveJobSearchPass: boolean;
     hasActiveIntensivePass: boolean;
+    unlimitedApplications?: boolean;
   };
   totalRemaining: number;
 }
@@ -124,6 +125,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
         hasActiveEssentialPass: true,
         hasActiveJobSearchPass: true,
         hasActiveIntensivePass: true,
+        unlimitedApplications: true,
       },
       totalRemaining: ADMIN_UNLIMITED,
     };
@@ -182,7 +184,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
   );
   const freeUsed = Number(usage?.used ?? 0);
   const freeRemaining = Math.max(0, FREE_APPLICATIONS - freeUsed);
-  const paidRemaining = Number(paid?.remaining ?? 0);
+  const paidRemaining = paid?.intensive_pass ? ADMIN_UNLIMITED : Number(paid?.remaining ?? 0);
   const hasActivePass = Boolean(paid?.essential_pass || paid?.job_search_pass || paid?.intensive_pass);
   const activePassExpiry = paid?.intensive_pass
     ? (paid.intensive_forever ? null : paid.intensive_expires_at)
@@ -200,14 +202,29 @@ export async function billingStatus(userId: string, email?: string | null): Prom
     },
     paid: {
       remaining: paidRemaining,
-      employerSiteRemaining: Number(paid?.employer_site_remaining ?? 0),
+      employerSiteRemaining: paid?.intensive_pass ? ADMIN_UNLIMITED : Number(paid?.employer_site_remaining ?? 0),
       expiresAt: activePassExpiry ? new Date(activePassExpiry).toISOString() : null,
       hasActivePass,
       hasActiveEssentialPass: Boolean(paid?.essential_pass),
       hasActiveJobSearchPass: Boolean(paid?.job_search_pass),
       hasActiveIntensivePass: Boolean(paid?.intensive_pass),
+      unlimitedApplications: Boolean(paid?.intensive_pass),
     },
     totalRemaining: freeRemaining + paidRemaining,
+  };
+}
+
+/** The same product description and amount shown by Stripe at payment. */
+export function checkoutPriceData(planKey: PaidPlanKey) {
+  const plan = PAID_PLANS[planKey];
+  return {
+    currency: 'aud', unit_amount: plan.priceCents,
+    product_data: {
+      name: plan.name,
+      description: plan.kind === 'pass'
+        ? `${planKey === 'intensive-pass' ? 'Unlimited applications' : `${plan.applications} application credits`} · ${plan.durationDays} days · no automatic renewal`
+        : plan.description,
+    },
   };
 }
 
@@ -215,12 +232,12 @@ export async function createCheckout(
   user: SessionUser,
   planKey: PaidPlanKey,
 ): Promise<{ id: string; url: string }> {
-  const plan = PAID_PLANS[planKey];
   // Stripe allows a minimum 30-minute Checkout window. A short window keeps
   // an application top-up from being paid after its pass has ended.
   const checkoutExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
   if (!isPassPlanKey(planKey)) {
     const status = await billingStatus(user.id, user.email);
+    if (status.paid.unlimitedApplications) throw new Error('Get Owtomated already includes unlimited applications. No top-up is needed.');
     if (!status.paid.hasActivePass) {
       throw new Error('Application top-ups require an active paid pass. Choose a pass first.');
     }
@@ -241,16 +258,7 @@ export async function createCheckout(
     automatic_tax: { enabled: env.automaticTax },
     line_items: [{
       quantity: 1,
-      price_data: {
-        currency: 'aud',
-        unit_amount: plan.priceCents,
-        product_data: {
-          name: plan.name,
-          description: plan.kind === 'pass'
-            ? `${plan.applications} application credits · ${plan.durationDays} days · no automatic renewal`
-            : plan.description,
-        },
-      },
+      price_data: checkoutPriceData(planKey),
     }],
     metadata: { userId: user.id, planKey },
     payment_intent_data: { metadata: { userId: user.id, planKey } },

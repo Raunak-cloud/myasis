@@ -278,7 +278,7 @@ const KIND: Record<AttentionKind, { label: string; tone: string; what: string }>
   'off-platform': {
     label: 'External site · Beta',
     tone: 'muted',
-    what: 'External applications require an Intensive Pass. Supported employer forms are completed automatically; unfamiliar forms stop here for your review.',
+    what: 'External applications require an Get Owtomated. Supported employer forms are completed automatically; unfamiliar forms stop here for your review.',
   },
   error: {
     label: 'Error',

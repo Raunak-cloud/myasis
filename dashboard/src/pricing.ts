@@ -12,10 +12,11 @@ export const PAID_PLANS = {
     applications: 200, durationDays: 60, employerSiteApplications: 0,
     description: 'A broader automatic search across SEEK and Indeed.',
   },
+  // Legacy ledger units remain for historical purchases. unlimitedApplications controls usage.
   'intensive-pass': {
-    key: 'intensive-pass', kind: 'pass', name: 'Intensive Pass', priceCents: 5990,
-    applications: 400, durationDays: 60, employerSiteApplications: 30,
-    description: 'Maximum capacity and advanced controls.',
+    key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 7999,
+    applications: 400, durationDays: 60, employerSiteApplications: 30, unlimitedApplications: true,
+    description: 'Unlimited applications for 60 days. Start once, pause anytime.',
   },
   'application-top-up': {
     key: 'application-top-up', kind: 'application-top-up', name: 'Application Top-up', priceCents: 690,
@@ -28,8 +29,8 @@ export const PASS_PLAN_KEYS = ['essential-pass', 'job-search-pass', 'intensive-p
 export type PassPlanKey = typeof PASS_PLAN_KEYS[number];
 
 export const PLAN_LIMITS = {
-  free: { autoRunsPerDay: 1, evaluationsPerRun: 15 },
-  'essential-pass': { autoRunsPerDay: 1, evaluationsPerRun: 25 },
+  free: { autoRunsPerDay: 4, evaluationsPerRun: 15 },
+  'essential-pass': { autoRunsPerDay: 4, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
   'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 80, employerSitesPerDay: 5 },
 } as const;
@@ -48,7 +49,7 @@ export const PLAN_PRESENTATION = {
     description: 'See Owtomate apply to well-matched SEEK roles before paying.',
     features: [
       `${FREE_APPLICATIONS} application credits`,
-      `${plural(FREE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
+      `${plural(FREE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${FREE.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
       'SEEK applications',
@@ -61,7 +62,7 @@ export const PLAN_PRESENTATION = {
     features: [
       `${PAID_PLANS['essential-pass'].applications} application credits`,
       `${PAID_PLANS['essential-pass'].durationDays} days of access`,
-      `${plural(ESSENTIAL.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
+      `${plural(ESSENTIAL.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ESSENTIAL.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
       'SEEK applications',
@@ -74,23 +75,23 @@ export const PLAN_PRESENTATION = {
     features: [
       `${PAID_PLANS['job-search-pass'].applications} application credits`,
       `${PAID_PLANS['job-search-pass'].durationDays} days of access`,
-      `Up to ${plural(ACTIVE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
+      `Up to ${plural(ACTIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced match and listing-age filters',
     ],
   },
   'intensive-pass': {
-    label: 'Maximum control',
+    label: 'Unlimited applications',
     description: PAID_PLANS['intensive-pass'].description,
     features: [
-      `${PAID_PLANS['intensive-pass'].applications} application credits`,
+      'Unlimited applications',
       `${PAID_PLANS['intensive-pass'].durationDays} days of access`,
-      `Up to ${plural(INTENSIVE.autoRunsPerDay, 'user-started run', 'user-started runs')} each day · Auto apply or Semi auto`,
+      `Up to ${plural(INTENSIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       'SEEK and Indeed applications',
       'Advanced search controls and standing instructions',
-      'Employer-site applications',
+      'Supported employer-site applications',
       'Priority support',
     ],
   },

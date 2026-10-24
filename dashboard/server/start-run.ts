@@ -37,13 +37,14 @@ import type { PreparedApplication } from '../../seek-bot/src/application-review-
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
 import { gmailAccess } from './gmail-access.js';
+import { scheduledStart } from './run-schedule.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
 
 /** The daily limit a run will enforce, resolved exactly as seek-bot's config does. */
 function dailyLimit(overrides: Record<string, string>): number {
-  if (overrides.MAX_APPS_PER_DAY === 'none' && overrides.ADMIN_UNLIMITED === 'true') return Infinity;
+  if (overrides.MAX_APPS_PER_DAY === 'none' && (overrides.ADMIN_UNLIMITED === 'true' || overrides.APPLICATIONS_UNLIMITED === 'true')) return Infinity;
   const wanted = Number(overrides.MAX_APPS_PER_DAY || 20);
   if (!Number.isFinite(wanted)) return 20;
   return Math.max(1, overrides.ADMIN_UNLIMITED === 'true' ? Math.floor(wanted) : Math.min(50, wanted));
@@ -70,6 +71,7 @@ interface StartRunRequest {
   email?: string | null;
   mode: RunMode;
   applicationMode?: 'auto' | 'semi-auto';
+  scheduleGeneration?: number;
   approvals?: unknown;
   /**
    * Who asked: the account holder, the scheduler, or an admin acting for the
@@ -113,7 +115,7 @@ export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns' |
 }
 
 export function runControlRefusal(trigger: StartRunRequest['trigger'], entitlements: Pick<Entitlements, 'tier' | 'autoRunsUsedToday' | 'autoRunsPerDay'>, approvalOnly = false): Refusal | null {
-  if (trigger === 'auto') return { ok: false, status: 403, error: 'Start Auto apply or Semi auto from the Apply page. Application runs require your action.' };
+  if (trigger === 'manual' && entitlements.tier !== 'admin' && entitlements.autoRunsPerDay === 4 && !approvalOnly) return { ok: false, status: 403, error: 'Press Start to enable your scheduled Auto apply or Semi auto runs.' };
   if (entitlements.tier !== 'admin' && trigger === 'manual' && !approvalOnly && entitlements.autoRunsUsedToday >= entitlements.autoRunsPerDay) {
     return { ok: false, status: 429, error: `You have used your ${entitlements.autoRunsPerDay} run${entitlements.autoRunsPerDay === 1 ? '' : 's'} for today. You can still confirm prepared applications.` };
   }
@@ -136,6 +138,9 @@ export function allowanceRefusal(allowance: Pick<BillingStatus, 'totalRemaining'
  * closed it, and was then refused as "already in progress".
  */
 export async function startRun(request: StartRunRequest): Promise<StartRunOutcome> {
+  if (request.trigger === 'auto' && (!Number.isInteger(request.scheduleGeneration) || !request.applicationMode)) {
+    return { ok: false, status: 403, error: 'An active user-enabled schedule is required.' };
+  }
   if (!runner.claimStart(request.userId)) {
     return { ok: false, status: 409, error: 'A run is already starting or in progress for this account.' };
   }
@@ -234,7 +239,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    *
    * Posted settings used to be merged after the plan was applied, and the
    * review screen posts every saved run setting — including the default of 40
-   * jobs to evaluate — so an Intensive Pass sold as 80 jobs a run reviewed 40,
+   * jobs to evaluate — so Get Owtomated sold as 80 jobs a run reviewed 40,
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */
@@ -308,19 +313,23 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (consumes) {
     try {
       const allowance = await billingStatus(userId, email);
+      const unlimitedApplications = allowance.paid.unlimitedApplications === true;
+      if (unlimitedApplications && !admin) {
+        overrides.APPLICATIONS_UNLIMITED = 'true';
+        overrides.MAX_APPS_PER_RUN = 'none';
+        overrides.MAX_APPS_PER_DAY = 'none';
+      }
       const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
       const externalAvailable = prepaidExternal > 0 || allowance.paid.hasActiveIntensivePass
         && allowance.paid.remaining > 0
         && allowance.paid.employerSiteRemaining > 0
-        && externalUsedToday < INTENSIVE_EMPLOYER_SITES_PER_DAY;
+        && (unlimitedApplications || externalUsedToday < INTENSIVE_EMPLOYER_SITES_PER_DAY);
       const externalCeiling = externalUsedToday + Math.min(
         selections ? prepaidExternal : allowance.paid.employerSiteRemaining,
         selections ? prepaidExternal : allowance.paid.remaining,
         Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
       );
-      // Decided here, never from a supplied override. Employer-site support is
-      // still in operator testing: an Intensive customer's own scheduled run
-      // cannot reach it until the customer launch gate is deliberately opened.
+      // Decided from the active pass here, never from a supplied override.
       const employerSitesAllowed = prepaidExternal > 0 || mayRunEmployerSiteApplications({
         targetIsAdmin: admin,
         initiatedByAdmin: trigger === 'admin',
@@ -328,17 +337,17 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       });
       overrides.ALLOW_EXTERNAL_APPLY = employerSitesAllowed ? 'true' : 'false';
       if (directExternalUrl && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
-        return { ok: false, status: 403, error: 'Direct employer-website testing requires an administrator and an active Intensive Pass.' };
+        return { ok: false, status: 403, error: 'Direct employer-website testing requires an administrator and an active Get Owtomated pass.' };
       }
       /**
-       * Employer-site applications are an Intensive Pass feature and cost
+       * Employer-site applications are Get Owtomated feature and cost
        * 10-20x a Quick Apply. An operator of this installation has no
        * ceilings at all: no daily employer-site limit, no allowance
        * deduction, and their own run settings unclamped.
        */
       if (admin) overrides.ADMIN_UNLIMITED = 'true';
       else {
-        overrides.MAX_EXTERNAL_PER_DAY = String(externalCeiling);
+        overrides.MAX_EXTERNAL_PER_DAY = unlimitedApplications ? '' : String(externalCeiling);
         overrides.EXTERNAL_ATTEMPTS_TODAY = String(externalUsedToday);
       }
 
@@ -350,7 +359,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         // Paid credits already receive a dedicated pooled address. Accounts
         // with only their free allowance borrow one until a submission lands.
         borrowFreeProxy = allowance.paid.remaining < 1 && (allowance.free.remaining > 0 || Boolean(selections));
-        if (!selections) overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
+        if (!selections && !unlimitedApplications) overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
       }
     } catch (error) {
       return { ok: false, status: 503, error: `Could not verify run allowance: ${(error as Error).message}` };
@@ -464,7 +473,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   let approved: PreparedApplication[] = [];
   try {
     if (selections) {
-      if (selections.length > Number(overrides.MAX_APPS_PER_RUN === 'none' ? 10 : overrides.MAX_APPS_PER_RUN)) {
+      if (selections.length > Number(overrides.MAX_APPS_PER_RUN === 'none' ? Infinity : overrides.MAX_APPS_PER_RUN)) {
         return { ok: false, status: 400, error: `Confirm at most ${overrides.MAX_APPS_PER_RUN} applications in one run.` };
       }
       try { approved = await claimApplicationReviews(userId, selections); }
@@ -489,50 +498,58 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       }
     }
 
-    const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections)).catch(() => null);
-    const result = await runner.start(
-      mode,
-      overrides,
-      userId,
-      mode === 'live' && !admin && !selections
-        ? async (external) => {
-            let usageError: unknown = null;
-            try {
-              await consumeSuccessfulApplication(userId, external);
-            } catch (error) {
-              usageError = error;
+    const launch = async (): Promise<StartRunOutcome> => {
+      const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections));
+      if (!runStartId) throw new Error('Could not save the run start.');
+      const result = await runner.start(
+        mode,
+        overrides,
+        userId,
+        mode === 'live' && !admin && !selections
+          ? async (external) => {
+              let usageError: unknown = null;
+              try {
+                await consumeSuccessfulApplication(userId, external);
+              } catch (error) {
+                usageError = error;
+              }
+              try {
+                // The runner calls this only after it has confirmed submission. A
+                // free loan is returned; a paid user's dedicated proxy is a no-op.
+                await releaseFreeProxy(userId);
+              } catch (releaseError) {
+                if (!usageError) throw releaseError;
+              }
+              if (usageError) throw usageError;
             }
-            try {
-              // The runner calls this only after it has confirmed submission. A
-              // free loan is returned; a paid user's dedicated proxy is a no-op.
+          : undefined,
+        borrowFreeProxy
+          ? async () => {
+              // Also return a loan when the run finishes without submitting,
+              // fails, or is stopped. Paid assignments are ignored by this call.
               await releaseFreeProxy(userId);
-            } catch (releaseError) {
-              if (!usageError) throw releaseError;
             }
-            if (usageError) throw usageError;
-          }
-        : undefined,
-      borrowFreeProxy
-        ? async () => {
-            // Also return a loan when the run finishes without submitting,
-            // fails, or is stopped. Paid assignments are ignored by this call.
-            await releaseFreeProxy(userId);
-          }
-        : undefined,
-      runStartId,
-      // Diagnostic searches must not rewrite the account's next-run keywords.
-      mode === 'live' && !selections ? {
-        termsUsed: overrides.KEYWORDS ?? '',
-        expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
-      } : undefined,
-    );
-    if (!result.ok) {
-      await discardRunStart(runStartId).catch(() => {});
-      return { ok: false, status: 409, error: result.error ?? 'Could not start the run.' };
-    }
+          : undefined,
+        runStartId,
+        // Diagnostic searches must not rewrite the account's next-run keywords.
+        mode === 'live' && !selections ? {
+          termsUsed: overrides.KEYWORDS ?? '',
+          expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
+        } : undefined,
+      );
+      if (!result.ok) {
+        await discardRunStart(runStartId).catch(() => {});
+        return { ok: false, status: /already|in progress|being prepared|installing an update/i.test(result.error ?? '') ? 409 : 503, error: result.error ?? 'Could not start the run.' };
+      }
 
-    started = true;
-    return { ok: true, mode };
+      started = true;
+      return { ok: true, mode };
+    };
+    if (trigger === 'auto') {
+      return await scheduledStart(userId, request.scheduleGeneration!, request.applicationMode!, entitlements.autoRunsPerDay, launch)
+        ?? { ok: false, status: 409, error: 'The schedule was paused or this slot is no longer due.' };
+    }
+    return await launch();
   } finally {
     if (!started && approved.length) await releaseApplicationReviews(userId, approved.map(item => item.id), selections ?? []);
     // Route selection happens before the runner reserves a slot. Any failure

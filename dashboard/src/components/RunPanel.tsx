@@ -21,6 +21,8 @@ import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, type LogLine } from '../activity';
 
 interface AutoScheduleStatus {
+  enabled: boolean;
+  applicationMode: 'auto' | 'semi-auto';
   runsUsedToday: number;
   runsPerDay: number;
   /** Null while setup is unfinished. */
@@ -110,18 +112,10 @@ function formatRunDuration(milliseconds: number): string {
     : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
-/** What the schedule does, in one breath, for the info icon beside Auto apply. */
-function autoApplySummary(e: NonNullable<ReturnType<typeof useEntitlements>>): string {
-  const matches = e.scheduledMinScore === null ? 'Applies to jobs that match your settings' : `Applies to ${e.scheduledMinScore}%+ matches`;
-  const jobs = e.scheduledJobsPerDay === null ? '' : ` Up to ${e.scheduledJobsPerDay} jobs reviewed daily.`;
-  const runs = `${e.autoRunsPerDay} ${e.autoRunsPerDay === 1 ? 'run' : 'runs'}`;
-  return `${runs} a day, spread across all 24 hours.${jobs} ${matches}, written in your own voice.`;
-}
-
 /** "next 6:00 pm" today, "next Wed 9:40 am" on another day. */
 function nextRunShort(schedule: AutoScheduleStatus): string {
   if (schedule.waitingForSetup || schedule.waitingForBoard || schedule.waitingForFirstRun || !schedule.nextRunAt) return '';
-  if (schedule.dueNow) return 'starting shortly';
+  if (schedule.dueNow) return 'queued for an available slot';
   const at = new Date(schedule.nextRunAt);
   if (Number.isNaN(at.valueOf())) return '';
   const day = (date: Date) => new Intl.DateTimeFormat('en-AU', { dateStyle: 'short', timeZone: schedule.timeZone }).format(date);
@@ -131,24 +125,7 @@ function nextRunShort(schedule: AutoScheduleStatus): string {
   return `next ${weekday} ${time}`;
 }
 
-function nextRunLabel(schedule: AutoScheduleStatus): string {
-  if (schedule.waitingForSetup) return 'Automatic runs start once your setup is complete';
-  if (schedule.waitingForBoard) return 'Automatic runs begin after you connect a job board';
-  if (schedule.waitingForFirstRun) return 'Automatic runs begin after you complete your first run';
-  if (!schedule.nextRunAt) return 'Next run time unavailable';
-  if (schedule.dueNow) return 'Starting shortly';
-  const at = new Date(schedule.nextRunAt);
-  if (Number.isNaN(at.valueOf())) return 'Next run time unavailable';
-  const label = new Intl.DateTimeFormat('en-AU', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: schedule.timeZone,
-  }).format(at);
-  return `Next run ${label}`;
-}
+
 
 /**
  * The main screen: start a run and watch it.
@@ -167,6 +144,7 @@ export function RunPanel({
 }) {
   /** One poll for the whole page; see runStatus.ts. */
   const status = useRunStatus();
+  const scheduleModeLoaded = useRef(false);
   const [autoSchedule, setAutoSchedule] = useState<AutoScheduleStatus | null>(null);
   const [liveViewOpen, setLiveViewOpen] = useState(false);
   /**
@@ -188,7 +166,6 @@ export function RunPanel({
   const isAdmin = entitlements?.tier === 'admin';
   const jobBoards = isAdmin ? ADMIN_JOB_BOARDS : JOB_BOARDS;
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
-  const outOfRuns = Boolean(entitlements && !isAdmin && entitlements.autoRunsUsedToday >= entitlements.autoRunsPerDay);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -322,11 +299,13 @@ export function RunPanel({
       const response = await fetch('/api/auto-apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify({ enabled, confirm: enabled, applicationMode }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? 'Could not change automatic runs.');
       window.dispatchEvent(new CustomEvent('entitlements-changed', { detail: result.entitlements }));
+      const schedule = await fetch('/api/auto-schedule').then(response => response.json());
+      setAutoSchedule(schedule);
     } catch (reason) {
       setError((reason as Error).message);
     } finally {
@@ -360,7 +339,12 @@ export function RunPanel({
       void fetch('/api/auto-schedule')
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
-          if (!cancelled) setAutoSchedule(value && typeof value.runsUsedToday === 'number' ? value as AutoScheduleStatus : null);
+          if (!cancelled) {
+            setAutoSchedule(value && typeof value.runsUsedToday === 'number' ? value as AutoScheduleStatus : null);
+            if (value?.applicationMode && (!scheduleModeLoaded.current || value.enabled)) {
+              setApplicationMode(value.applicationMode); scheduleModeLoaded.current = true;
+            }
+          }
         })
         .catch(() => {});
     };
@@ -631,10 +615,11 @@ export function RunPanel({
         MAX_EVALUATIONS: String(Math.min(Number(updates.MAX_EVALUATIONS) || 10, 10)),
       } : updates;
 
-      const runResponse = await fetch('/api/run', {
+      const scheduled = mode === 'live' && scope === 'all' && Boolean(entitlements?.canPauseAutoApply);
+      const runResponse = await fetch(scheduled ? '/api/auto-apply' : '/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, applicationMode: mode === 'live' ? applicationMode : undefined, ...(mode === 'live' ? { confirm: true } : {}), overrides: runUpdates, scope: mode === 'search' && platforms.every(isEmployerSource) ? 'external' : scope }),
+        body: JSON.stringify({ ...(scheduled ? { enabled: true } : {}), mode, applicationMode: mode === 'live' ? applicationMode : undefined, ...(mode === 'live' ? { confirm: true } : {}), overrides: runUpdates, scope: mode === 'search' && platforms.every(isEmployerSource) ? 'external' : scope }),
       });
       if (runResponse.status === 402) {
         setConfirming(false);
@@ -643,6 +628,7 @@ export function RunPanel({
       }
       const result = await runResponse.json();
       if (!runResponse.ok) throw new Error(result.error ?? 'Failed to start.');
+      if (scheduled) window.dispatchEvent(new CustomEvent('entitlements-changed', { detail: result.entitlements }));
       setLines([]);
       setConfirming(false);
     } catch (reason) {
@@ -704,10 +690,10 @@ export function RunPanel({
 
         {!running && <div className="run-mode-choice">
           <div className="chips" role="group" aria-label="Application mode">
-            <button type="button" className={`chip${applicationMode === 'auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'auto'} onClick={() => setApplicationMode('auto')}>Auto apply</button>
-            <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} onClick={() => setApplicationMode('semi-auto')}>Semi auto</button>
+            <button type="button" className={`chip${applicationMode === 'auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'auto'} disabled={autoSchedule?.enabled || running} onClick={() => setApplicationMode('auto')}>Auto apply</button>
+            <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} disabled={autoSchedule?.enabled || running} onClick={() => setApplicationMode('semi-auto')}>Semi auto</button>
           </div>
-          <p className="job-meta">{applicationMode === 'auto' ? 'You start the run. Owtomate finds suitable jobs, fills their forms and submits applications.' : 'You start the run. Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} Nothing starts automatically when you finish setup.</p>
+          <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{Math.max(0, entitlements.autoRunsPerDay - entitlements.autoRunsUsedToday)} of {entitlements.autoRunsPerDay} runs available today. Confirming prepared applications continues their original run.</p>}
         </div>}
@@ -722,7 +708,11 @@ export function RunPanel({
             {running && <span className="activity-open-dot" aria-hidden="true" />}
             Activity
           </button>
-          {running && status?.isOwner === false ? (
+          {autoSchedule?.enabled ? (
+            <button className="btn btn-danger lg" disabled={autoToggling} onClick={() => void setAutoApply(false)}>
+              {autoToggling ? 'Pausing…' : `Pause ${autoSchedule.applicationMode === 'semi-auto' ? 'Semi auto' : 'Auto apply'}`}
+            </button>
+          ) : running && status?.isOwner === false ? (
             <button className="btn primary lg" disabled>
               Busy with another account's run
             </button>
@@ -740,7 +730,7 @@ export function RunPanel({
               <ResumeSourceNote />
               <button
                 className="btn primary lg"
-                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance || outOfRuns}
+                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
                 title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : outOfRuns ? 'You have used today’s runs. You can still confirm prepared applications.' : undefined}
                 onClick={() => { setScope('all'); setConfirming(true); }}
               >
@@ -780,48 +770,16 @@ export function RunPanel({
 
 
         {showAutoApply && (
-          <div className={`run-auto-row${entitlements.autoApplyPaused || signedOutEverywhere ? ' paused' : ''}`}>
-            <span className="run-auto-label">
-              <span className="auto-apply-dot" aria-hidden="true" />
-              Auto apply
-            </span>
-            {lastRunSummary && <span className="job-meta run-auto-last" title={lastRunSummary}>{lastRunSummary}</span>}
+          <div className={`run-auto-row${!autoSchedule?.enabled ? ' paused' : ''}`} aria-live="polite">
+            <span className="run-auto-label">{autoSchedule?.enabled ? 'Schedule active' : 'Schedule paused'}</span>
             <span className="job-meta run-auto-status">
-              {entitlements.autoApplyPaused
-                ? 'off'
-                : autoSchedule?.waitingForSetup || (autoSchedule === null && accountSetupIncomplete)
-                ? 'starts once your setup is complete'
-                : autoSchedule?.waitingForBoard || signedOutEverywhere
-                ? 'Waiting for sign-in'
-                : autoSchedule?.waitingForFirstRun || firstRun
-                ? 'waiting for you to complete your first run'
-                : `${autoSchedule?.runsUsedToday ?? entitlements.autoRunsUsedToday} of ${entitlements.autoRunsPerDay} today${autoSchedule && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}`}
+              {entitlements.autoRunsPerDay} scheduled {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} per 24 hours
+              {entitlements.autoRunsPerDay === 4 ? ' · about 6 hours apart, at least 4 hours between starts' : ''}
+              {autoSchedule?.enabled && !running && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}
             </span>
-            {entitlements.canPauseAutoApply && !signedOutEverywhere && (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={!entitlements.autoApplyPaused}
-                aria-label="Automatic runs"
-                className={`auto-switch${entitlements.autoApplyPaused || signedOutEverywhere ? '' : ' on'}`}
-                disabled={autoToggling || signedOutEverywhere}
-                title={signedOutEverywhere
-                  ? 'Automatic runs need a signed-in job board. Sign in below first.'
-                  : entitlements.autoApplyPaused
-                  ? 'Turn automatic runs back on'
-                  : 'Turn automatic runs off, for example once you have found a job or want a break'}
-                onClick={() => void setAutoApply(entitlements.autoApplyPaused)}
-              >
-                <span className="auto-switch-knob" aria-hidden="true" />
-              </button>
-            )}
-            <InfoTip
-              label="Auto apply"
-              help={`${autoApplySummary(entitlements)}${autoSchedule ? ` ${nextRunLabel(autoSchedule)}.` : ''}`}
-            />
           </div>
         )}
-        {autoSchedule?.lastError && !running && !entitlements?.autoApplyPaused && !signedOutEverywhere && (
+        {autoSchedule?.lastError && !running && !signedOutEverywhere && (
           <div className="banner banner-bad run-auto-error" role="alert">
             <strong>The last scheduled run could not start.</strong> {formatActivityReason(autoSchedule.lastError.message, isAdmin)}
           </div>
@@ -1139,9 +1097,10 @@ export function RunPanel({
           >
             <div className="run-review-head">
               <div>
+                <p className="job-meta">Starting enables {entitlements?.autoRunsPerDay ?? 4} scheduled runs per 24 hours. The first run queues now; later runs are spaced automatically. Pause anytime on the Apply page.</p>
                 <h2 id="run-review-title">{applicationMode === 'semi-auto' ? 'Review Semi auto settings' : 'Review Auto apply settings'}</h2>
                 <p className="job-meta">Changes made here are saved before a live run starts.</p>
-                {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs this run. {applicationMode === 'semi-auto' ? 'Each prepared application uses one application credit. Confirming it uses no additional credit.' : 'Each successfully submitted application uses one application credit.'}</p>}
+                {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs each run. {billing?.paid.unlimitedApplications ? 'Your pass includes unlimited applications.' : applicationMode === 'semi-auto' ? 'Each prepared application uses one credit. Confirming it uses no additional credit.' : 'Each submitted application uses one credit.'}</p>}
               </div>
               <span className="badge bad">
                 {applicationMode === 'semi-auto' ? 'Prepare for confirmation' : 'Apply to jobs'}{scope === 'external' ? ' · employer sites only' : scope === 'hosted' ? ' · job boards only' : ''}
@@ -1381,7 +1340,7 @@ export function RunPanel({
                 )}
                 <div className="run-review-grid">
 
-                  {(isAdmin || entitlements?.fineTune) && <label className="field">
+                  {(isAdmin || entitlements?.fineTune && !billing?.paid.unlimitedApplications) && <label className="field">
                     <FieldLabel
                       label="Max applications"
                       help={forcedApplications !== null
@@ -1433,7 +1392,7 @@ export function RunPanel({
                     <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />
                     <input className="input" type="number" min="0" value={val('MAX_AGE_DAYS')} onChange={(e) => setEdit('MAX_AGE_DAYS', e.target.value)} />
                   </label>}
-                  {(isAdmin || entitlements?.fineTune) && <label className="field">
+                  {(isAdmin || entitlements?.fineTune && !billing?.paid.unlimitedApplications) && <label className="field">
                     <FieldLabel
                       label="Daily application cap"
                       help={isAdmin
@@ -1443,7 +1402,7 @@ export function RunPanel({
                     <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={isAdmin ? undefined : 50} placeholder={isAdmin ? 'No limit' : undefined} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
                     {fieldError('MAX_APPS_PER_DAY')}
                   </label>}
-                  {(isAdmin || entitlements?.fineTune) && <label className="field">
+                  {(isAdmin || entitlements?.fineTune && !billing?.paid.unlimitedApplications) && <label className="field">
                     <FieldLabel
                       label="Search pages per term"
                       help={isAdmin

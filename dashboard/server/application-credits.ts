@@ -6,6 +6,13 @@ export async function consumeApplicationCredit(client: PoolClient, userId: strin
   // One account at a time through this check, so two runs cannot both take the last free application.
   await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
 
+  const unlimited = await client.query<{ active: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM application_credit_grants g
+      JOIN billing_purchases p ON p.id = g.purchase_id AND p.user_id = g.user_id
+      WHERE g.user_id = $1 AND p.plan_key = 'intensive-pass'
+        AND (g.expires_at IS NULL OR g.expires_at > now())) AS active`, [userId]);
+  if (unlimited.rows[0]?.active) return;
+
   let employerGrantId: string | null = null;
   if (external) {
     const employerGrant = await client.query<{ id: string }>(

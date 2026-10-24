@@ -1,3 +1,5 @@
+import { changeSchedule, scheduleFor } from './server/run-schedule.js';
+import { accountSetupComplete } from './server/setup.js';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync, existsSync } from 'node:fs';
@@ -54,7 +56,7 @@ import { checkGmailMcp } from './server/gmail-mcp.js';
 import { gmailAccess, selectGmailProvider, allowBrowserGmail, disableBrowserGmail } from './server/gmail-access.js';
 import { GmailConnectionError } from '../seek-bot/src/gmail-mcp-client.js';
 import { GmailServiceError } from '../seek-bot/src/gmail-mcp-service.js';
-import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, setAutoApplyPaused, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
+import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
 import { routeStatus } from './server/route.js';
 import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
@@ -67,7 +69,7 @@ import { startRun, expectedSalaryRefusal } from './server/start-run.js';
 import { listApplicationReviews, dismissApplicationReviews, reviewSelection, recoverApplicationReviews, editApplicationCoverLetter } from './server/application-reviews.js';
 import { validateCoverLetterInstructions } from '../seek-bot/src/cover-letter-policy.js';
 import { runDeviceFromHeaders } from './src/run-device.js';
-import { autoScheduleFor, startAutoRunner } from './server/autorun.js';
+import { autoScheduleFor, startAutoRunner, wakeAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
 import { handleMarketing } from './server/marketing/api.js';
 import { startMarketingWorker, stopMarketingWorker } from './server/marketing/worker.js';
@@ -794,7 +796,7 @@ function dataApi(): Plugin {
           // The browser helper remains an Intensive feature even though customers cannot start runs manually.
           const assistUser = await currentUser(req.headers?.cookie);
           if (!(await entitlementsFor(userId, assistUser?.email)).fineTune) {
-            return send({ ok: false, error: 'The browser helper is part of the Intensive Pass.' }, 403);
+            return send({ ok: false, error: 'The browser helper is part of Get Owtomated.' }, 403);
           }
           const b = await readBody();
           const r = await answerForm(userId, {
@@ -1069,12 +1071,26 @@ function dataApi(): Plugin {
       case '/api/auto-apply': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
+          if (!upgradeOriginAllowed(req) || !req.headers['content-type']?.startsWith('application/json')) {
+            return send({ error: 'Use the Apply page on this website to start or pause your schedule.' }, 403);
+          }
           const user = await currentUser(req.headers?.cookie);
           const entitlements = await entitlementsFor(userId, user?.email);
-          if (!entitlements.canPauseAutoApply) return send({ error: 'Application runs now start only when you press Start Auto apply or Start Semi auto.' }, 403);
           const body = await readBody();
-          if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether automatic runs should be on or off.' }, 400);
-          await setAutoApplyPaused(userId, !body.enabled);
+          if (typeof body?.enabled !== 'boolean') return send({ error: 'Choose Start or Pause.' }, 400);
+          const existing = await scheduleFor(userId);
+          const mode = body.applicationMode ?? existing?.application_mode ?? 'auto';
+          if (mode !== 'auto' && mode !== 'semi-auto') return send({ error: 'Choose Auto apply or Semi auto.' }, 400);
+          if (body.enabled) {
+            if (body.confirm !== true) return send({ error: 'Confirm your scheduled application runs before starting.' }, 400);
+            if (!await accountSetupComplete(userId)) return send({ error: 'Complete your profile, resume and search settings first.' }, 428);
+            const balance = await billingStatus(userId, user?.email);
+            if (balance.totalRemaining < 1) return send({ error: 'Choose a pass to keep applying.' }, 402);
+            if (existing?.enabled && existing.application_mode !== mode) return send({ error: 'Pause before changing application mode.' }, 409);
+          }
+          await changeSchedule(userId, body.enabled, mode, entitlements.autoRunsPerDay);
+          if (!body.enabled) runner.stop(userId);
+          else wakeAutoRunner();
           return send({ ok: true, entitlements: await entitlementsFor(userId, user?.email) });
         });
       }

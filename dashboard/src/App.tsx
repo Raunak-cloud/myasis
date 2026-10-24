@@ -383,15 +383,15 @@ export default function App() {
                         ? 'No application limits'
                         : billing.paid.hasActivePass
                           ? billing.paid.expiresAt
-                            ? `${billing.paid.remaining} on your pass · until ${shortDate(billing.paid.expiresAt)}`
-                            : `${billing.paid.remaining} on your grandfathered pass`
+                            ? `${billing.paid.unlimitedApplications ? 'Unlimited applications' : billing.paid.remaining} on your pass · until ${shortDate(billing.paid.expiresAt)}`
+                            : `${billing.paid.unlimitedApplications ? 'Unlimited applications' : billing.paid.remaining} on your grandfathered pass`
                           : `${billing.free.remaining} of ${billing.free.allowance} free applications`}
                     </span>
                   </span>
                   {entitlements.tier !== 'admin' && (
                     <span className="nav-row-value">
-                      <strong>{billing.totalRemaining}</strong>
-                      <span>left</span>
+                      <strong>{billing.paid.unlimitedApplications ? 'Unlimited' : billing.totalRemaining}</strong>
+                      {!billing.paid.unlimitedApplications && <span>left</span>}
                     </span>
                   )}
                   <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>

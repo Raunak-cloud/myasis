@@ -142,7 +142,7 @@ const ALERTS: AlertKind[] = [
       subject: 'Owtomate cannot start applying until your setup is finished',
       paragraphs: [
         `Owtomate has not been able to apply for you yet, because your setup is missing: ${facts.missingSetup.join(', ').toLowerCase()}.`,
-        'Once that is filled in, applying starts by itself at the next scheduled time.',
+        'Once your setup is complete, press Start on the Apply page to enable scheduled Auto apply or Semi auto runs.',
       ],
       action: { label: 'Finish setup', tab: 'setup' },
     }),

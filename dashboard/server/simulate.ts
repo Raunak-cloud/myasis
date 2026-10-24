@@ -18,7 +18,7 @@ import { FREE_APPLICATIONS, PAID_PLANS, PLAN_LIMITS } from '../src/pricing.js';
 
 interface Scenario {
   key: string;
-  group: 'Free plan' | 'Essential Pass' | 'Active Search' | 'Intensive Pass';
+  group: 'Free plan' | 'Essential Pass' | 'Active Search' | 'Get Owtomated';
   label: string;
   description: string;
   pass: 'none' | 'essential-pass' | 'job-search-pass' | 'intensive-pass';
@@ -42,8 +42,8 @@ const SCENARIOS: Scenario[] = [
   { key: 'job-search-last', group: 'Active Search', label: 'Last few applications', description: 'Three applications left: the next run is capped at three.', pass: 'job-search-pass', paidRemaining: 3, freeRemaining: 0, autoRunsUsedToday: 2 },
   { key: 'job-search-paused', group: 'Active Search', label: 'Auto apply switched off', description: 'The customer paused their automatic runs.', pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoApplyPaused: true },
   { key: 'pass-used-up', group: 'Active Search', label: 'Pass used up', description: 'Every application on the pass is spent. The account falls back to the free plan with nothing left.', pass: 'job-search-pass', paidRemaining: 0, freeRemaining: 0 },
-  { key: 'intensive-active', group: 'Intensive Pass', label: 'Active', description: `${PLAN_LIMITS['intensive-pass'].autoRunsPerDay} automatic runs a day with advanced controls.`, pass: 'intensive-pass', paidRemaining: Math.round(INTENSIVE * 0.6), freeRemaining: 0 },
-  { key: 'intensive-last', group: 'Intensive Pass', label: 'Last application', description: 'One application remains; the next scheduled run stops after it is submitted.', pass: 'intensive-pass', paidRemaining: 1, freeRemaining: 0, autoRunsUsedToday: 1 },
+  { key: 'intensive-active', group: 'Get Owtomated', label: 'Active', description: `${PLAN_LIMITS['intensive-pass'].autoRunsPerDay} automatic runs a day with advanced controls.`, pass: 'intensive-pass', paidRemaining: Math.round(INTENSIVE * 0.6), freeRemaining: 0 },
+  { key: 'intensive-last', group: 'Get Owtomated', label: 'Unlimited access', description: 'Application count does not exhaust this pass; it runs until its access period ends.', pass: 'intensive-pass', paidRemaining: 1, freeRemaining: 0, autoRunsUsedToday: 1 },
 ];
 
 /** What the server would answer to a run start. `null` means it would start. */
@@ -75,6 +75,7 @@ function simulate(scenario: Scenario): Simulation {
       hasActiveEssentialPass: active && scenario.pass === 'essential-pass',
       hasActiveJobSearchPass: active && scenario.pass === 'job-search-pass',
       hasActiveIntensivePass: active && scenario.pass === 'intensive-pass',
+      unlimitedApplications: active && scenario.pass === 'intensive-pass',
     },
     totalRemaining: scenario.paidRemaining + scenario.freeRemaining,
   };

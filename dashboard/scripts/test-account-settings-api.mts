@@ -9,6 +9,7 @@ import { getPool } from '../server/db/index.js';
 import { userDir, USERS_DIR } from '../server/userdata.js';
 import { accountRequest, accountUnavailable } from '../server/account-lifecycle.js';
 import { runSettingsSnapshotForUser, replaceSearchTermsIfUnchanged } from '../server/settings.js';
+import { runner } from '../server/runner.js';
 
 const pool = getPool();
 const client = await pool.connect();
@@ -82,6 +83,26 @@ try {
     assert.equal(existsSync(path),false,'only create brand-new isolated fixture directories');
     mkdirSync(path,{recursive:true}); created.push(path); writeFileSync(resolve(path,'fixture-only.txt'),'isolated account fixture');
   }
+  // The start claim prevents this synthetic account from launching any browser.
+  assert.equal((await request('/api/auto-apply','POST',{enabled:true,applicationMode:'auto'})).status,400);
+  assert.equal((await request('/api/auto-apply','POST',{enabled:true,confirm:true,applicationMode:'semi-auto'})).status,428);
+  assert.equal((await request('/api/auto-apply','POST',{enabled:false},'owner-token','https://other.invalid')).status,403);
+  await client.query("UPDATE profiles SET email='owner@example.test',phone='0400000000',work_rights='Fixture rights',experience_summary='Fixture experience',expected_salary='70000' WHERE user_id=$1",[owner]);
+  await client.query("INSERT INTO resumes(user_id,label,file_name) VALUES($1,'Fixture CV','fixture-only.txt')",[owner]);
+  await client.query("INSERT INTO settings(user_id,key,value) VALUES($1,'ONSITE_CITY','Sydney'),($1,'WORK_ARRANGEMENTS','remote')",[owner]);
+  assert.equal(runner.claimStart(owner),true);
+  try {
+    const enabled=await request('/api/auto-apply','POST',{enabled:true,confirm:true,applicationMode:'semi-auto',userId:peer});
+    assert.equal(enabled.status,200);
+    assert.equal((await enabled.json() as {entitlements:{autoApplyPaused:boolean}}).entitlements.autoApplyPaused,false);
+    const ownSchedule=await (await request('/api/auto-schedule')).json() as {enabled:boolean;applicationMode:string};
+    assert.equal(ownSchedule.enabled,true); assert.equal(ownSchedule.applicationMode,'semi-auto');
+    assert.equal((await (await request('/api/auto-schedule','GET',undefined,'peer-token')).json() as {enabled:boolean}).enabled,false);
+    assert.equal((await request('/api/auto-apply','POST',{enabled:true,confirm:true,applicationMode:'auto'})).status,409);
+    assert.equal((await request('/api/auto-apply','POST',{enabled:false})).status,200);
+    assert.equal((await (await request('/api/auto-schedule')).json() as {enabled:boolean}).enabled,false);
+    assert.equal((await client.query('SELECT count(*)::int AS n FROM run_starts WHERE user_id=$1',[owner])).rows[0].n,0);
+  } finally { runner.releaseStart(owner); }
   const site=randomUUID(),job=randomUUID();
   await client.query("INSERT INTO marketing_sites(id,user_id,url,cta_url) VALUES($1,$2,'https://fixture.invalid','https://fixture.invalid')",[site,owner]);
   await client.query("INSERT INTO marketing_jobs(id,site_id,user_id,kind,status,idempotency_key) VALUES($1,$2,$3,'research','running','api-fixture')",[job,site,owner]);

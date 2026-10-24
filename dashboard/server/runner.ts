@@ -137,7 +137,7 @@ function machineRunCapacity(cores = cpus().length, memoryGb = totalmem() / 1024 
 }
 
 const configuredRuns = Number(process.env.MAX_CONCURRENT_RUNS);
-export const MAX_CONCURRENT = Number.isInteger(configuredRuns) && configuredRuns >= 1 ? configuredRuns : machineRunCapacity();
+export const MAX_CONCURRENT = Math.min(3, Number.isInteger(configuredRuns) && configuredRuns >= 1 ? configuredRuns : machineRunCapacity());
 
 const IDLE_STATE: RunState = {
   running: false,

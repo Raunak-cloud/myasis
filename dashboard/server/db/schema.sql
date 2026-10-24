@@ -889,3 +889,17 @@ ALTER TABLE page_views ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT
 ALTER TABLE page_views ADD COLUMN IF NOT EXISTS presence_seq BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS page_views_presence ON page_views(last_seen_at DESC) WHERE visible;
 CREATE INDEX IF NOT EXISTS page_views_identity ON page_views(visitor_id, user_id);
+
+-- Explicit opt-in only: existing accounts remain paused after this upgrade.
+CREATE TABLE IF NOT EXISTS application_schedules (
+  user_id bigint PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  enabled boolean NOT NULL DEFAULT false,
+  application_mode text NOT NULL DEFAULT 'auto' CHECK (application_mode IN ('auto', 'semi-auto')),
+  generation integer NOT NULL DEFAULT 0,
+  next_run_at timestamptz,
+  last_started_at timestamptz,
+  last_error text,
+  error_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS application_schedules_due_idx ON application_schedules(next_run_at, user_id) WHERE enabled;

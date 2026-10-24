@@ -16,12 +16,13 @@ const adminUnlimited = process.env.ADMIN_UNLIMITED === 'true';
  * A configured value, floored at 1 and capped at `max` — except for an
  * admin's run, where the cap is lifted and only the floor remains.
  */
-function ceiling(max: number, value: string | undefined, fallback: number): number {
-  // "none" means no limit at all, and only an operator run may ask for that.
-  if (value?.trim().toLowerCase() === 'none') return adminUnlimited ? Infinity : fallback;
+function ceiling(max: number, value: string | undefined, fallback: number, applicationLimit = false): number {
+  const unlimited = adminUnlimited || applicationLimit && process.env.APPLICATIONS_UNLIMITED === 'true';
+  // Only trusted operator or paid application entitlements may lift the relevant cap.
+  if (value?.trim().toLowerCase() === 'none') return unlimited ? Infinity : fallback;
   const wanted = Number(value ?? fallback);
   if (!Number.isFinite(wanted)) return fallback;
-  return Math.max(1, adminUnlimited ? Math.floor(wanted) : Math.min(max, wanted));
+  return Math.max(1, unlimited ? Math.floor(wanted) : Math.min(max, wanted));
 }
 
 function decodeBase64(value?: string): string {
@@ -242,7 +243,7 @@ export const config = {
      * by the dashboard for an operator of this installation, who is the one
      * person who can judge the traffic risk and is accepting it deliberately.
      */
-    maxApplicationsPerRun: ceiling(10, process.env.MAX_APPS_PER_RUN, 8),
+    maxApplicationsPerRun: ceiling(10, process.env.MAX_APPS_PER_RUN, 8, true),
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
     maxEvaluations: ceiling(150, process.env.MAX_EVALUATIONS, 40),
@@ -252,7 +253,7 @@ export const config = {
      * applied to, everything left worth having is on pages 2+.
      */
     pagesPerKeyword: ceiling(3, process.env.PAGES_PER_KEYWORD, 1),
-    maxApplicationsPerDay: ceiling(50, process.env.MAX_APPS_PER_DAY, 20),
+    maxApplicationsPerDay: ceiling(50, process.env.MAX_APPS_PER_DAY, 20, true),
     /**
      * Employer-site applications SUBMITTED per day. Unset means no limit (a
      * direct CLI run); "0" means none are allowed, which is what every

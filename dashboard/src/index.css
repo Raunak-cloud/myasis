@@ -1794,7 +1794,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 /* The account's own numbers, one row, before it is asked to choose. */
 .pricing-status {
-  display: grid; grid-template-columns: 1.1fr repeat(3, 1fr);
+  display: grid; grid-template-columns: 1.1fr 1fr 1fr;
   border: 1px solid var(--border); border-radius: 14px; background: var(--surface); overflow: hidden;
 }
 .pricing-status > div { display: grid; align-content: center; gap: 3px; padding: 16px 20px; min-width: 0; }
@@ -1819,7 +1819,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .pricing-owl .pricing-owl-face { position: absolute; left: 6px; top: -2px; width: 38px; height: 38px; }
 .pricing-owl .pricing-owl-laptop { position: absolute; left: 0; bottom: 0; width: 50px; height: 20px; }
 
-.pricing-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 22px; }
+.pricing-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 36px; }
 .pricing-tag {
   padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
   font-size: 10.5px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap;
@@ -1827,7 +1827,7 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .pricing-tag.current { background: var(--ok-soft); color: var(--ok); }
 
 .pricing-card h3 { margin: 10px 0 6px; font-size: 22px; letter-spacing: -.025em; }
-.pricing-plan-copy { margin: 0; min-height: 2.9em; color: var(--text-dim); font-size: 13.5px; line-height: 1.45; }
+.pricing-plan-copy { margin: 0; min-height: 4.35em; color: var(--text-dim); font-size: 13.5px; line-height: 1.45; }
 
 .pricing-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin: 20px 0 18px; }
 .pricing-price strong { color: var(--text); font-size: 34px; line-height: 1; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }

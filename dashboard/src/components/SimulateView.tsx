@@ -53,7 +53,7 @@ export function SimulateView() {
               <article className="simulate-card" key={simulation.key}>
                 <div className="simulate-card-head">
                   <strong>{simulation.label}</strong>
-                  <span className="job-meta">{simulation.billing.totalRemaining} applications left</span>
+                  <span className="job-meta">{simulation.billing.paid.unlimitedApplications ? 'Unlimited applications' : `${simulation.billing.totalRemaining} applications left`}</span>
                 </div>
                 <p className="dim">{simulation.description}</p>
                 {simulation.entitlements.manualRuns || simulation.entitlements.firstRunRequired

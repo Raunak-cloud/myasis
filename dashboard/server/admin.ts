@@ -11,7 +11,8 @@ import { basename, resolve } from 'node:path';
 import { getPool, one, query } from './db/index.js';
 import { currentUser, type SessionUser } from './auth.js';
 import { billingStatus, isAdmin } from './billing.js';
-import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides, setAutoApplyPaused } from './entitlements.js';
+import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides } from './entitlements.js';
+import { changeSchedule, scheduleFor } from './run-schedule.js';
 import { applyEnvChanges, envReport, restartDashboard } from './env-settings.js';
 import { readServerLogs, serverHealth } from './health.js';
 import { pruneAllProfiles } from './profile-prune.js';
@@ -47,7 +48,7 @@ const DAY_START = `(date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)`;
 
 function planLabel(paid: Awaited<ReturnType<typeof billingStatus>>['paid'], admin: boolean): string {
   if (admin) return 'Admin';
-  if (paid.hasActiveIntensivePass) return 'Intensive Pass';
+  if (paid.hasActiveIntensivePass) return 'Get Owtomated';
   if (paid.hasActiveJobSearchPass) return 'Active Search';
   if (paid.hasActiveEssentialPass) return 'Essential Pass';
   return 'Free';
@@ -64,7 +65,7 @@ interface AdminUserRow {
   blockedAt: string | null;
   admin: boolean;
   plan: string;
-  allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null };
+  allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null; unlimited?: boolean };
   setupMissing: string[];
   /** When an operator last emailed this account from here. */
   emailedAt: string | null;
@@ -125,7 +126,7 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
     plan: planLabel(billing.paid, admin),
     allowance: admin
       ? { freeRemaining: billing.free.remaining, paidRemaining: -1, paidExpiresAt: null }
-      : { freeRemaining: billing.free.remaining, paidRemaining: billing.paid.remaining, paidExpiresAt: billing.paid.expiresAt },
+      : { freeRemaining: billing.free.remaining, paidRemaining: billing.paid.remaining, paidExpiresAt: billing.paid.expiresAt, unlimited: billing.paid.unlimitedApplications },
     setupMissing: setup.checks.filter((check) => check.required && !check.done).map((check) => check.label),
     emailedAt: lastEmail ? new Date(lastEmail.sent_at).toISOString() : null,
     resumes: Number(counts?.resumes ?? 0),
@@ -633,7 +634,10 @@ export async function handleAdminRequest(
       }
       case 'auto-apply': {
         if (typeof body?.enabled !== 'boolean') return send({ error: 'Say whether automatic runs should be on or off.' }, 400);
-        await setAutoApplyPaused(target.id, !body.enabled);
+        const schedule = await scheduleFor(target.id);
+        const entitlement = await entitlementsFor(target.id, target.email);
+        await changeSchedule(target.id, body.enabled, schedule?.application_mode ?? 'auto', entitlement.autoRunsPerDay);
+        if (!body.enabled) runner.stop(target.id);
         return send({ ok: true, user: await userRow(target) });
       }
       case 'run': {

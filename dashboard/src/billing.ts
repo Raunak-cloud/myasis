@@ -18,6 +18,7 @@ export interface BillingStatus {
     hasActiveEssentialPass: boolean;
     hasActiveJobSearchPass: boolean;
     hasActiveIntensivePass: boolean;
+    unlimitedApplications?: boolean;
   };
   totalRemaining: number;
 }
@@ -56,7 +57,7 @@ export function useBillingStatus(): BillingStatus | null {
 /** The plan's name as the pricing page calls it. */
 export function planName(status: BillingStatus, admin: boolean): string {
   if (admin) return 'Admin';
-  if (status.paid.hasActiveIntensivePass) return 'Intensive Pass';
+  if (status.paid.hasActiveIntensivePass) return 'Get Owtomated';
   if (status.paid.hasActiveJobSearchPass) return 'Active Search';
   if (status.paid.hasActiveEssentialPass) return 'Essential Pass';
   if (status.paid.hasActivePass) return 'Free plan + top-up';

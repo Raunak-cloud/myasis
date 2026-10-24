@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-process.env.MAX_CONCURRENT_RUNS = '3';
+process.env.MAX_CONCURRENT_RUNS = '100';
 const { RunPool, MAX_CONCURRENT } = await import('./runner.js');
 assert.equal(MAX_CONCURRENT, 3);
 

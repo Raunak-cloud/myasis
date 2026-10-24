@@ -3,7 +3,6 @@ import { aud, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey 
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
-import { MascotLogo } from './MascotLogo';
 
 
 function dateLabel(value: string): string {
@@ -87,7 +86,7 @@ export function PricingPanel() {
               currency: 'AUD',
             }, body.conversionId);
           }
-          setNotice({ kind: 'ok', text: `${body.applications} applications were added to your account.` });
+          setNotice({ kind: 'ok', text: body.planKey === 'intensive-pass' ? 'Get Owtomated is active: unlimited applications for 60 days.' : `${body.applications} applications were added to your account.` });
         } else {
           await loadStatus();
           if (payment === 'cancelled') {
@@ -145,8 +144,8 @@ export function PricingPanel() {
 
       <header className="pricing-head">
         <span className="pricing-kicker">Plans &amp; pricing</span>
-        <h2>Choose how actively you want to search</h2>
-        <p>Every pass is one payment with no automatic renewal. Higher plans add more applications, more daily runs, more job boards and more control. Only submitted applications count.</p>
+        <h2>Choose your job search plan</h2>
+        <p>One payment. No subscription. Every plan includes four scheduled runs per day, spread across 24 hours. Start when you are ready and pause anytime.</p>
       </header>
 
       {status && (
@@ -156,22 +155,12 @@ export function PricingPanel() {
             <strong>{PLAN_CARDS.find((card) => card.key === current)?.name}</strong>
           </div>
           <div className="pricing-status-stat">
-            <strong>{status.totalRemaining}</strong>
+            <strong>{status.paid.unlimitedApplications ? 'Unlimited' : status.totalRemaining}</strong>
             <span>applications available now</span>
           </div>
           <div className="pricing-status-stat">
-            <strong>{status.free.remaining}<em> / {status.free.allowance}</em></strong>
-            <span>free applications</span>
-          </div>
-          <div className="pricing-status-stat">
-            <strong>{status.paid.remaining}</strong>
-            <span>
-              {!status.paid.hasActivePass
-                ? 'no active paid pass'
-                : status.paid.expiresAt
-                  ? `on your pass · until ${dateLabel(status.paid.expiresAt)}`
-                  : 'on a grandfathered pass · no expiry'}
-            </span>
+            <strong>{status.paid.expiresAt ? dateLabel(status.paid.expiresAt) : 'No expiry'}</strong>
+            <span>{status.paid.hasActivePass ? 'access ends · no automatic renewal' : 'free allowance · once per account'}</span>
           </div>
         </section>
       )}
@@ -184,6 +173,8 @@ export function PricingPanel() {
             ? 'Included with every account'
             : buying === card.key
               ? 'Opening checkout…'
+              : isCurrent && status?.paid.unlimitedApplications
+                ? 'Your pass is active'
               : isCurrent
                 ? 'Buy this pass again'
                 : `Choose ${card.name}`;
@@ -197,16 +188,6 @@ export function PricingPanel() {
                   <span className="pricing-tag">Most popular</span>
                 ) : null}
               </div>
-              {/* The owl at work, on the plans where Owtomate does the work. The same drawing as the landing page. */}
-              {paid && (
-                <span className="pricing-owl" aria-hidden="true">
-                  <MascotLogo size={40} className="pricing-owl-face" />
-                  <svg className="pricing-owl-laptop" viewBox="0 0 56 22" width="56" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-                    <path d="M9 2h38v13H9z" fill="#fff" />
-                    <path d="M3 15h50l-3 5H6z" fill="#fff" />
-                  </svg>
-                </span>
-              )}
               <h3>{card.name}</h3>
               <p className="pricing-plan-copy">{card.presentation.description}</p>
               <p className="pricing-price">
@@ -225,7 +206,7 @@ export function PricingPanel() {
               </ul>
               <button
                 className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
-                disabled={!paid || checkoutDisabled}
+                disabled={!paid || checkoutDisabled || (isCurrent && status?.paid.unlimitedApplications)}
                 onClick={() => card.key !== 'free' && void buy(card.key)}
               >
                 {label}
@@ -243,7 +224,7 @@ export function PricingPanel() {
       </ul>
 
       {/* A top-up adds to a pass, so on the free plan it is shown but not for sale; the server refuses it too. */}
-      <section className={`pricing-topup ${current === 'free' ? 'unavailable' : ''}`}>
+      {!status?.paid.unlimitedApplications && <section className={`pricing-topup ${current === 'free' ? 'unavailable' : ''}`}>
         <div className="pricing-topup-copy">
           <span className="pricing-plan-label">Top-up · for pass holders</span>
           <h3>{PAID_PLANS['application-top-up'].applications} more applications</h3>
@@ -267,20 +248,20 @@ export function PricingPanel() {
             {buying === 'application-top-up' ? 'Opening checkout…' : current === 'free' ? 'Needs a pass' : `Add ${PAID_PLANS['application-top-up'].applications} applications`}
           </button>
         </div>
-      </section>
+      </section>}
 
       <section className="pricing-explainer" aria-label="How usage works">
         <article>
-          <strong>Only submitted applications count</strong>
-          <p>Skipped jobs, failed forms and anything that needs your attention do not use your allowance.</p>
+          <strong>Choose how Owtomate applies</strong>
+          <p>Auto apply submits for you. Semi auto prepares applications for you to review and confirm in Prepared Applications.</p>
         </article>
         <article>
-          <strong>No surprise renewal</strong>
-          <p>Your pass has a clear end date and never renews or charges again on its own.</p>
+          <strong>Start once. Pause anytime.</strong>
+          <p>Runs are about six hours apart, with at least four hours between starts. Busy slots queue automatically. Pausing stops future runs until you resume.</p>
         </article>
         <article>
-          <strong>Higher plans do more</strong>
-          <p>Upgrade for Indeed, more daily runs and advanced controls.</p>
+          <strong>Simple application allowance</strong>
+          <p>Preparing or submitting an application uses one credit. Confirming a prepared application uses no extra credit. Get Owtomated has no application cap; up to 80 jobs are reviewed each run. Matches, available listings and site restrictions affect results.</p>
         </article>
       </section>
 

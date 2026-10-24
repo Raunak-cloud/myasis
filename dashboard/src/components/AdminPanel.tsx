@@ -37,7 +37,7 @@ interface AdminUser {
   blockedAt: string | null;
   admin: boolean;
   plan: string;
-  allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null };
+  allowance: { freeRemaining: number; paidRemaining: number; paidExpiresAt: string | null; unlimited?: boolean };
   setupMissing: string[];
   emailedAt: string | null;
   resumes: number;
@@ -494,7 +494,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                 <dl className="admin-facts">
                   <dt>Applications left</dt>
                   <dd>
-                    {user.admin ? 'Unlimited' : `${user.allowance.freeRemaining} free · ${user.allowance.paidRemaining} paid`}
+                    {user.admin || user.allowance.unlimited ? 'Unlimited' : `${user.allowance.freeRemaining} free · ${user.allowance.paidRemaining} paid`}
                     {user.allowance.paidExpiresAt && <span className="job-meta"> (paid until {when(user.allowance.paidExpiresAt)})</span>}
                   </dd>
                   <dt>Applications sent</dt>
@@ -720,7 +720,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                 <div className="admin-button-row">
                   <select className="input" value={grantPlan} onChange={(event) => setGrantPlan(event.target.value)} aria-label="Pass to give">
                     {PASS_PLAN_KEYS.map((key) => PAID_PLANS[key]).map((plan) => (
-                      <option key={plan.key} value={plan.key}>{plan.name} · {plan.applications} applications</option>
+                      <option key={plan.key} value={plan.key}>{plan.name} · {plan.key === 'intensive-pass' ? 'Unlimited' : plan.applications} applications</option>
                     ))}
                   </select>
                   <button
@@ -884,7 +884,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
   const matches: Record<UserFilter, (user: AdminUser) => boolean> = {
     all: () => true,
     running: (user) => user.running,
-    paid: (user) => user.plan === 'Essential Pass' || user.plan === 'Active Search' || user.plan === 'Intensive Pass',
+    paid: (user) => user.plan === 'Essential Pass' || user.plan === 'Active Search' || user.plan === 'Get Owtomated',
     free: (user) => user.plan === 'Free',
     admin: (user) => user.admin,
     setup: (user) => user.setupMissing.length > 0,
@@ -941,7 +941,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                   </td>
                   <td>
                     {user.plan}
-                    {!user.admin && <div className="job-meta">{user.allowance.freeRemaining + Math.max(0, user.allowance.paidRemaining)} left</div>}
+                    {!user.admin && <div className="job-meta">{user.allowance.unlimited ? 'Unlimited' : `${user.allowance.freeRemaining + Math.max(0, user.allowance.paidRemaining)} left`}</div>}
                   </td>
                   <td className="nowrap">
                     {user.setupMissing.length ? <span className="badge warn" title={user.setupMissing.join(', ')}>{user.setupMissing.length} left</span> : <span className="badge ok">Done</span>}

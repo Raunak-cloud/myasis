@@ -13,6 +13,8 @@ const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules
 // Serve only the built frontend and fixture APIs: no database, worker or employer is contacted.
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
+let scheduleFixture = false, scheduleEnabled = false;
+let scheduleMode: 'auto' | 'semi-auto' = 'auto';
 let searchStarted = false;
 let adminBoards = 'smartrecruiters';
 let adminSeekSignedIn = false;
@@ -60,15 +62,18 @@ const server = createServer(async (req, res) => {
       for (const item of JSON.parse(body).applications) approvedIds.add(item.id);
     }
     if (path === '/api/run' && req.method === 'POST' && JSON.parse(body || '{}').mode === 'search') searchStarted = true;
+    if (scheduleFixture && path === '/api/auto-apply' && req.method === 'POST') {
+      const input = JSON.parse(body); scheduleEnabled = input.enabled; if (input.enabled) scheduleMode = input.applicationMode;
+    }
     const payloads: Record<string, unknown> = {
       '/api/auth/me': { user: { id: 'fixture', email: 'fixture@example.test', name: 'Fixture Candidate' }, googleConfigured: true },
       '/api/entitlements': { tier: admin ? 'admin' : 'standard', manualRuns: true, firstRunRequired: !admin,
-        autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: false, autoRunsUsedToday: 0,
+        autoRunsPerDay: scheduleFixture ? 4 : 1, autoApplyPaused: !scheduleEnabled, canPauseAutoApply: scheduleFixture, autoRunsUsedToday: 0,
         scheduledMinScore: null, scheduledJobsPerDay: admin ? null : PLAN_LIMITS.free.evaluationsPerRun,
         evaluationsPerRun: admin ? null : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
         fineTune: admin, advancedFilters: admin, indeedApplications: admin, runScopes: admin },
       '/api/billing/status': { configured: true, totalRemaining: remainingCredits, free: { allowance: 5, used: 5 - remainingCredits, remaining: remainingCredits },
-        paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: null, hasActivePass: false } },
+        paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: scheduleFixture ? '2026-12-23T00:00:00Z' : null, hasActivePass: scheduleFixture, hasActiveIntensivePass: scheduleFixture, unlimitedApplications: scheduleFixture } },
       '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: searchStarted || preparingFixture, mode: searchStarted ? 'search' : preparingFixture ? 'live' : null, applicationMode: preparingFixture ? 'semi-auto' : null, prepared: 0, startedAt: searchStarted || preparingFixture ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
@@ -80,9 +85,11 @@ const server = createServer(async (req, res) => {
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/settings': req.method === 'POST' ? { ok: true, settings: settings() } : settings(),
       '/api/run': { ok: true, mode: 'live' },
+      '/api/auto-schedule': scheduleFixture ? { enabled: scheduleEnabled, applicationMode: scheduleMode, runsUsedToday: 0, runsPerDay: 4, nextRunAt: scheduleEnabled ? new Date().toISOString() : null, dueNow: scheduleEnabled, timeZone: 'Australia/Sydney', lastError: null } : null,
       '/api/application-reviews': { applications: preparedFixture ? preparedRows() : [] },
       '/api/application-reviews/cover-letter': { ok: true, application: editedLetter },
     };
+    payloads['/api/auto-apply'] = { ok: true, entitlements: payloads['/api/entitlements'] };
     if (path === '/api/run/stream') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payloads[path] ?? {}));
@@ -143,7 +150,7 @@ try {
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       }
     } else {
-      await dialog.getByText('AI reviews up to 15 jobs this run. Each successfully submitted application uses one application credit.', { exact: true }).waitFor();
+      await dialog.getByText('AI reviews up to 15 jobs each run. Each submitted application uses one credit.', { exact: true }).waitFor();
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0);
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);
@@ -231,7 +238,7 @@ try {
     await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByText('This run fills applications and saves them for your review. Owtomate submits only the jobs you later confirm from the prepared list.', { exact: true }).waitFor();
-    await dialog.getByText('AI reviews up to 15 jobs this run. Each prepared application uses one application credit. Confirming it uses no additional credit.', { exact: true }).waitFor();
+    await dialog.getByText('AI reviews up to 15 jobs each run. Each prepared application uses one credit. Confirming it uses no additional credit.', { exact: true }).waitFor();
     await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     assert.equal(writes.filter(write => write.path === '/api/run').at(-1)!.body.applicationMode, 'semi-auto');
@@ -399,7 +406,47 @@ try {
     await skippedPage.getByText(skippedFixture ? 'Skipped Fixture Role' : 'Nothing skipped lately', { exact: true }).waitFor();
   }
   await skippedContext.close();
-  console.log('PASS: application controls, prepared retries, employer feeds, search-only tests, candidate answers and skipped retention notice; fixture APIs only');
+  // Recurring controls and the unlimited pricing view on desktop and mobile.
+  admin = false; scheduleFixture = true; preparingFixture = false; remainingCredits = 5;
+  for (const width of [1280, 390]) {
+    scheduleEnabled = false; scheduleMode = 'auto';
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    await page.goto(`${origin}/?tab=run`);
+    await page.getByText('Schedule paused', { exact: true }).waitFor();
+    const before = writes.filter(write => write.path === '/api/auto-apply').length;
+    await page.getByRole('button', { name: 'Semi auto', exact: true }).click();
+    await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByText(/Starting enables 4 scheduled runs per 24 hours/).waitFor();
+    await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
+    await page.getByRole('button', { name: 'Pause Semi auto', exact: true }).waitFor();
+    assert.equal(writes.filter(write => write.path === '/api/auto-apply').length, before + 1);
+    const start = writes.filter(write => write.path === '/api/auto-apply').at(-1)!.body;
+    assert.equal(start.enabled, true); assert.equal(start.confirm, true); assert.equal(start.applicationMode, 'semi-auto');
+    assert.equal(await page.getByRole('button', { name: 'Auto apply', exact: true }).isDisabled(), true);
+    await page.reload();
+    await page.getByRole('button', { name: 'Pause Semi auto', exact: true }).click();
+    await page.getByText('Schedule paused', { exact: true }).waitFor();
+    assert.equal(writes.filter(write => write.path === '/api/auto-apply').at(-1)!.body.enabled, false);
+    await page.reload();
+    await page.getByText('Schedule paused', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Start Semi auto', exact: true }).count(), 1, 'mode and pause persist after reload');
+    await page.goto(`${origin}/?tab=pricing`);
+    const card = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name: 'Get Owtomated', exact: true }) });
+    await card.getByText('A$79.99', { exact: true }).waitFor();
+    await card.getByText('Unlimited applications', { exact: true }).last().waitFor();
+    await card.getByText('60 days of access', { exact: true }).waitFor();
+    assert.equal(await page.locator('.pricing-topup').count(), 0, 'unlimited customers are not sold top-ups');
+    assert.ok(await page.locator('.pricing-status').textContent().then(text => text?.includes('Unlimited')));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'pricing fits the mobile viewport');
+    await page.screenshot({ path: resolve(import.meta.dirname, `../../output/scheduled-pricing-${width}.png`), fullPage: true });
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+  console.log('PASS: schedule start/pause persistence, selected mode, unlimited pricing on desktop/mobile, application controls, prepared retries, employer feeds, search-only tests, candidate answers and skipped retention notice; fixture APIs only');
 } finally {
   await browser.close();
   await new Promise<void>(done => liveSockets.close(() => done()));

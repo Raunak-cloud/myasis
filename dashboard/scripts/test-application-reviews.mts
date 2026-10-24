@@ -32,7 +32,7 @@ const used = async (userId = '1') => {
 const grant = async (userId: string, external = 0) => {
   const { rows } = await pool.query(`INSERT INTO billing_purchases
     (user_id,stripe_checkout_session_id,plan_key,applications_granted,amount_paid)
-    VALUES ($1,$2,'intensive-pass',50,0) RETURNING id`, [userId, randomUUID()]);
+    VALUES ($1,$2,'job-search-pass',50,0) RETURNING id`, [userId, randomUUID()]);
   await pool.query('INSERT INTO application_credit_grants (user_id,purchase_id,credits_total) VALUES ($1,$2,50)', [userId, rows[0].id]);
   if (external) await pool.query('INSERT INTO employer_site_credit_grants (user_id,purchase_id,credits_total) VALUES ($1,$2,$3)', [userId, rows[0].id, external]);
 };
