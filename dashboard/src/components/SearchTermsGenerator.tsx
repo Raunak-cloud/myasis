@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { MAX_SEARCH_TERMS } from '../search-limits';
+import type { ResumeSearchSuggestion } from '../resume-search';
 
 interface ResumeOption {
   id: string;
@@ -24,6 +25,8 @@ export function SearchTermsGenerator({
   const [failed, setFailed] = useState(false);
   const [resumes, setResumes] = useState<ResumeOption[]>([]);
   const [selectedResumeIds, setSelectedResumeIds] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<ResumeSearchSuggestion[]>([]);
+  const requestContext = useRef({ cancelled: false });
   /** Suggestions already shown in this session must not cycle back later. */
   const [priorSuggestedTerms, setPriorSuggestedTerms] = useState<string[]>([]);
   const entitlements = useEntitlements();
@@ -33,12 +36,15 @@ export function SearchTermsGenerator({
   const exhausted = left !== null && left <= 0;
 
   useEffect(() => {
+    const request = { cancelled: false };
+    requestContext.current = request;
     fetch('/api/resumes')
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not load resumes.');
         return response.json() as Promise<unknown>;
       })
       .then((value) => {
+        if (request.cancelled) return;
         const next = Array.isArray(value)
           ? value.filter((item): item is ResumeOption => (
               Boolean(item)
@@ -48,22 +54,35 @@ export function SearchTermsGenerator({
             ))
           : [];
         setResumes(next);
+        setGenerating(false);
+        setSuggestions([]);
         setSelectedResumeIds(next.map((resume) => resume.id));
         setPriorSuggestedTerms([]);
       })
       .catch((error) => {
+        if (request.cancelled) return;
+        setGenerating(false);
         setFailed(true);
         setMessage((error as Error).message);
       });
+    return () => { request.cancelled = true; };
   }, [refreshKey]);
 
+  function clearSuggestions() {
+    setSuggestions([]);
+    setPriorSuggestedTerms([]);
+    setMessage(null);
+    setFailed(false);
+  }
+
   function toggleResume(id: string) {
+    clearSuggestions();
     setSelectedResumeIds((current) => (
       current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
     ));
   }
 
-  async function generate() {
+  async function generate(alternatives = false) {
     if (generating || disabled) return;
     if (!selectedResumeIds.length) {
       setFailed(true);
@@ -73,6 +92,7 @@ export function SearchTermsGenerator({
     setGenerating(true);
     setMessage(null);
     setFailed(false);
+    const request = requestContext.current;
     try {
       const response = await fetch('/api/search-terms/generate', {
         method: 'POST',
@@ -80,19 +100,29 @@ export function SearchTermsGenerator({
         body: JSON.stringify({
           currentTerms,
           resumeIds: selectedResumeIds,
-          excludeTerms: priorSuggestedTerms,
+          alternatives,
+          ...(alternatives ? { excludeTerms: priorSuggestedTerms } : {}),
         }),
       });
       const result = await response.json() as {
         terms?: unknown;
         resumeLabel?: unknown;
         resumeLabels?: unknown;
+        suggestions?: ResumeSearchSuggestion[];
         error?: unknown;
       };
+      if (request.cancelled) return;
       if (!response.ok || !Array.isArray(result.terms)) {
         throw new Error(typeof result.error === 'string' ? result.error : 'Could not generate search terms.');
       }
       const terms = result.terms.filter((term): term is string => typeof term === 'string').slice(0, MAX_SEARCH_TERMS);
+      if (!terms.length) throw new Error('No supported job titles were returned. Your existing searches have been kept.');
+      setSuggestions(Array.isArray(result.suggestions)
+        ? result.suggestions.filter(suggestion => suggestion && terms.includes(suggestion.query)
+          && typeof suggestion.reason === 'string' && ['direct', 'transferable'].includes(suggestion.matchType)
+          && Array.isArray(suggestion.evidence) && suggestion.evidence.every(item =>
+            item && typeof item.resumeLabel === 'string' && typeof item.quote === 'string')).slice(0, MAX_SEARCH_TERMS)
+        : []);
       const current = currentTerms.split(/[,;|\r\n]+/).map((term) => term.trim()).filter(Boolean);
       setPriorSuggestedTerms((previous) => (
         [...new Set([...previous, ...current, ...terms].map((term) => term.toLowerCase()))]
@@ -102,10 +132,11 @@ export function SearchTermsGenerator({
       const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected resumes';
       setMessage(`Suggested ${terms.length} job titles from ${label}. Review them, then save.`);
     } catch (error) {
+      if (request.cancelled) return;
       setFailed(true);
       setMessage((error as Error).message);
     } finally {
-      setGenerating(false);
+      if (!request.cancelled) setGenerating(false);
     }
   }
 
@@ -116,10 +147,16 @@ export function SearchTermsGenerator({
         className="btn btn-small search-terms-ai-button"
         disabled={disabled || generating || !resumes.length || exhausted}
         title={exhausted ? 'Your free suggestion has been used. Passes include unlimited suggestions.' : undefined}
-        onClick={generate}
+        onClick={() => void generate()}
       >
         {generating ? 'Suggesting…' : exhausted ? '✨ Suggestion used' : '✨ Suggest from my resumes'}
       </button>
+      {priorSuggestedTerms.length > 0 && !exhausted && (
+        <button type="button" className="btn btn-small" disabled={disabled || generating || !selectedResumeIds.length}
+          onClick={() => void generate(true)}>
+          Find alternatives
+        </button>
+      )}
       {left !== null && !exhausted && !generating && (
         <span className="job-meta search-terms-ai-note">{left === 1 ? 'One free suggestion on your plan.' : `${left} free suggestions on your plan.`}</span>
       )}
@@ -146,10 +183,10 @@ export function SearchTermsGenerator({
               </label>
             ))}
             <div className="search-terms-resume-actions">
-              <button type="button" className="btn" onClick={() => setSelectedResumeIds(resumes.map((resume) => resume.id))}>
+              <button type="button" className="btn" disabled={disabled || generating} onClick={() => { clearSuggestions(); setSelectedResumeIds(resumes.map((resume) => resume.id)); }}>
                 Select all
               </button>
-              <button type="button" className="btn" onClick={() => setSelectedResumeIds([])}>
+              <button type="button" className="btn" disabled={disabled || generating} onClick={() => { clearSuggestions(); setSelectedResumeIds([]); }}>
                 Clear
               </button>
             </div>
@@ -160,6 +197,26 @@ export function SearchTermsGenerator({
         <span className={`job-meta search-terms-ai-message ${failed ? 'bad' : ''}`} role={failed ? 'alert' : 'status'}>
           {message}
         </span>
+      )}
+      {suggestions.length > 0 && suggestions.every(suggestion => currentTerms.split(/[,;|\r\n]+/).some(term => term.trim() === suggestion.query)) && (
+        <details className="search-terms-evidence">
+          <summary>Why these suggestions?</summary>
+          <div className="search-terms-evidence-list">
+            {suggestions.map(suggestion => (
+              <article key={suggestion.query}>
+                <strong>{suggestion.query}</strong>
+                <span className="search-terms-match-type">{suggestion.matchType === 'direct' ? 'Direct experience' : 'Transferable experience'}</span>
+                <p>{suggestion.reason}</p>
+                {suggestion.evidence.map((item, index) => (
+                  <blockquote key={index}>
+                    <p>{item.quote}</p>
+                    <cite>{item.resumeLabel}</cite>
+                  </blockquote>
+                ))}
+              </article>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );

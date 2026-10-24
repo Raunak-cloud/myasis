@@ -188,6 +188,14 @@ a:hover { text-decoration: underline; }
 .search-terms-resume-list label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .search-terms-resume-actions { display: flex; gap: 6px; margin-top: 2px; }
 .search-terms-resume-actions .btn { padding: 4px 8px; font-size: 12px; }
+.search-terms-evidence { flex: 1 1 100%; min-width: 0; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; }
+.search-terms-evidence summary { cursor: pointer; padding: 10px 12px; font-weight: 550; }
+.search-terms-evidence-list { display: grid; gap: 14px; padding: 0 12px 12px; overflow-wrap: anywhere; }
+.search-terms-evidence-list article + article { border-top: 1px solid var(--border); padding-top: 14px; }
+.search-terms-match-type { display: block; color: var(--text-dim); font-size: 12px; margin-top: 3px; }
+.search-terms-evidence-list p { margin: 6px 0; }
+.search-terms-evidence-list blockquote { margin: 8px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--border); color: var(--text-dim); }
+.search-terms-evidence-list cite { font-style: normal; font-size: 12px; }
 
 .files-grid {
   display: grid;

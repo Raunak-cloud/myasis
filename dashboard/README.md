@@ -16,6 +16,37 @@ npm run dev      # http://localhost:5180
 `npm run build && npm run preview` also serves the API, so the production build
 works standalone.
 
+## Resume-based search suggestions
+
+**Suggest from my resumes** returns up to three supported job searches. It reads
+the complete selected documents, generates candidates with attributed quotations,
+checks each quote against that document, then makes a separate suitability review
+covering task relevance, seniority, credentials and overlapping suggestions.
+Direct experience is prioritised over transferable experience. Insufficient
+evidence can produce fewer suggestions or none; failed verification never returns
+unreviewed titles. Oversized documents are rejected explicitly rather than silently
+losing their final sections.
+
+The interface shows **Why these suggestions?** with the supporting quotations and
+source resume labels. Ordinary suggestions can retain the strongest existing
+search. **Find alternatives** explicitly excludes earlier suggestions for the
+selected documents; an unsuccessful request preserves existing search terms.
+Onboarding and sparse-run renewal use the same verification workflow.
+
+The task-based design follows the [ABS OSCA conceptual model](https://www.abs.gov.au/statistics/classifications/osca-occupation-standard-classification-australia/2024-version-1-0/conceptual-model).
+Occupation classifications inform the design; no live taxonomy lookup or licence
+registry verification is performed. A separate model review reduces unsupported
+inferences but does not guarantee semantic correctness.
+
+From `dashboard/`, run offline checks with
+`node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/search-terms.test.ts`
+and the desktop/mobile fixture with
+`node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-resume-search-ui.mts`.
+The optional `scripts/eval-resume-search.mts` makes live Celeris calls using
+fictional resumes only, including unsupported seniority, conflicting credentials,
+graduate projects and injected instructions. It consumes provider usage and is
+not part of deployment checks.
+
 ## Marketing website improvements
 
 The admin Marketing agent can now execute supported improvements on Owtomate's

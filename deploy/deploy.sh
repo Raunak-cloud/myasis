@@ -124,6 +124,7 @@ as_app "cd $APP/seek-bot && node --test dist/smartrecruiters.test.js dist/employ
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/public-website-proxy.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/search-terms.test.ts"
+as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-bot/node_modules/.bin/tsx scripts/test-resume-search-ui.mts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/run-accounting.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/run-policy.test.ts"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/run-schedule.test.ts server/autorun.test.ts server/billing-unlimited.test.ts"
