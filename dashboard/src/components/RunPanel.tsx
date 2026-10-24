@@ -112,17 +112,17 @@ function formatRunDuration(milliseconds: number): string {
     : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
-/** "next 6:00 pm" today, "next Wed 9:40 am" on another day. */
+/** "Next 6:00 pm" today, "Next Wed 9:40 am" on another day. */
 function nextRunShort(schedule: AutoScheduleStatus): string {
   if (schedule.waitingForSetup || schedule.waitingForBoard || schedule.waitingForFirstRun || !schedule.nextRunAt) return '';
-  if (schedule.dueNow) return 'queued for an available slot';
+  if (schedule.dueNow) return 'Waiting to start';
   const at = new Date(schedule.nextRunAt);
   if (Number.isNaN(at.valueOf())) return '';
   const day = (date: Date) => new Intl.DateTimeFormat('en-AU', { dateStyle: 'short', timeZone: schedule.timeZone }).format(date);
   const time = new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', timeZone: schedule.timeZone }).format(at);
-  if (day(at) === day(new Date())) return `next ${time}`;
+  if (day(at) === day(new Date())) return `Next ${time}`;
   const weekday = new Intl.DateTimeFormat('en-AU', { weekday: 'short', timeZone: schedule.timeZone }).format(at);
-  return `next ${weekday} ${time}`;
+  return `Next ${weekday} ${time}`;
 }
 
 
@@ -772,19 +772,15 @@ export function RunPanel({
               )}
             </>
           )}
-        </div>
-
-
         {showAutoApply && (
           <div className={`run-auto-row${!autoSchedule?.enabled ? ' paused' : ''}`} aria-live="polite">
-            <span className="run-auto-label">{autoSchedule?.enabled ? 'Schedule active' : 'Schedule paused'}</span>
+            <span className="run-auto-label">{entitlements.autoRunsPerDay} {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} daily</span>
             <span className="job-meta run-auto-status">
-              {entitlements.autoRunsPerDay} scheduled {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} per 24 hours
-              {entitlements.autoRunsPerDay > 0 ? ` · about ${24 / entitlements.autoRunsPerDay} hours apart` : ''}
-              {autoSchedule?.enabled && !running && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}
+              {autoSchedule?.enabled ? running ? 'Running now' : nextRunShort(autoSchedule) || 'Starting soon' : 'Paused'}
             </span>
           </div>
         )}
+        </div>
         {autoSchedule?.lastError && !running && !signedOutEverywhere && (
           <div className="banner banner-bad run-auto-error" role="alert">
             <strong>The last scheduled run could not start.</strong> {formatActivityReason(autoSchedule.lastError.message, isAdmin)}
