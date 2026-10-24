@@ -29,7 +29,7 @@ const STEPS = [
   {
     code: '01',
     title: 'You tell Owtomate what you want.',
-    body: 'Add your resume, preferred roles, location and pay. Choose Auto apply or Semi auto, then press Start to enable four scheduled runs per day. Your rules apply to every run. Pause whenever you want a break.',
+    body: 'Add your resume, preferred roles, location and pay. Choose Auto apply or Semi auto, then press Start to enable your plan’s scheduled runs. Your rules apply to every run. Pause whenever you want a break.',
   },
   {
     code: '02',

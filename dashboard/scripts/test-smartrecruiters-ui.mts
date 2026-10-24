@@ -462,6 +462,10 @@ try {
     assert.equal(await page.getByRole('button', { name: 'Start Semi auto', exact: true }).count(), 1, 'mode and pause persist after reload');
     await page.screenshot({ path: resolve(import.meta.dirname, `../../output/schedule-controls-${width}.png`), fullPage: true });
     await page.goto(`${origin}/?tab=pricing`);
+    for (const [name, runs] of [['Free', 1], ['Essential Pass', 2], ['Active Search', 4], ['Get Owtomated', 4]] as const) {
+      const planCard = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
+      await planCard.getByText(new RegExp(`${runs} scheduled run${runs === 1 ? '' : 's'} each day`)).waitFor();
+    }
     const card = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name: 'Get Owtomated', exact: true }) });
     await card.getByText('A$79.99', { exact: true }).waitFor();
     await card.getByText('Unlimited applications', { exact: true }).last().waitFor();

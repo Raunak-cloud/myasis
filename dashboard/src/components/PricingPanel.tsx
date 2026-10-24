@@ -145,7 +145,7 @@ export function PricingPanel() {
       <header className="pricing-head">
         <span className="pricing-kicker">Plans &amp; pricing</span>
         <h2>Choose your job search plan</h2>
-        <p>One payment. No subscription. Every plan includes four scheduled runs per day, spread across 24 hours. Start when you are ready and pause anytime.</p>
+        <p>One payment. No subscription. Free includes 1 run per day, Essential 2, and Active Search and Get Owtomated 4. Start when you are ready and pause anytime.</p>
       </header>
 
       {status && (
@@ -257,7 +257,7 @@ export function PricingPanel() {
         </article>
         <article>
           <strong>Start once. Pause anytime.</strong>
-          <p>Runs are about six hours apart, with at least four hours between starts. Busy slots queue automatically. Pausing stops future runs until you resume.</p>
+          <p>Runs are spaced across 24 hours: Free every 24 hours, Essential every 12 hours, and Active Search and Get Owtomated every 6 hours. Busy slots queue automatically. Pausing stops future runs until you resume.</p>
         </article>
         <article>
           <strong>Simple application allowance</strong>

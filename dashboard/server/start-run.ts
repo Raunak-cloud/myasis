@@ -115,10 +115,7 @@ export function manualRunRefusal(entitlements: Pick<Entitlements, 'manualRuns' |
 }
 
 export function runControlRefusal(trigger: StartRunRequest['trigger'], entitlements: Pick<Entitlements, 'tier' | 'autoRunsUsedToday' | 'autoRunsPerDay'>, approvalOnly = false): Refusal | null {
-  if (trigger === 'manual' && entitlements.tier !== 'admin' && entitlements.autoRunsPerDay === 4 && !approvalOnly) return { ok: false, status: 403, error: 'Press Start to enable your scheduled Auto apply or Semi auto runs.' };
-  if (entitlements.tier !== 'admin' && trigger === 'manual' && !approvalOnly && entitlements.autoRunsUsedToday >= entitlements.autoRunsPerDay) {
-    return { ok: false, status: 429, error: `You have used your ${entitlements.autoRunsPerDay} run${entitlements.autoRunsPerDay === 1 ? '' : 's'} for today. You can still confirm prepared applications.` };
-  }
+  if (trigger === 'manual' && entitlements.tier !== 'admin' && !approvalOnly) return { ok: false, status: 403, error: 'Press Start to enable your scheduled Auto apply or Semi auto runs.' };
   return null;
 }
 

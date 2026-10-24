@@ -10,12 +10,12 @@ const schema = `schedule_test_${randomUUID().replaceAll('-', '')}`;
 (pool as unknown as { options: { options: string } }).options.options = `-c search_path=${schema}`;
 after(async () => { await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end(); });
 
-test('elapsed-time scheduling: four runs per 24h, across midnight and DST; missed slots never catch up', () => {
-  for (const date of ['2026-10-03T15:00:00Z', '2026-04-04T15:00:00Z', '2026-10-24T23:59:00Z']) {
+test('elapsed-time scheduling: one, two or four runs per 24h across midnight and DST; missed slots never catch up', () => {
+  for (const runs of [1, 2, 4]) for (const date of ['2026-10-03T15:00:00Z', '2026-04-04T15:00:00Z', '2026-10-24T23:59:00Z']) {
     const starts = [new Date(date)];
-    for (let n = 0; n < 8; n++) starts.push(nextScheduledStart(starts.at(-1)!, starts.at(-1)!));
-    for (let n = 1; n < starts.length; n++) assert.equal(+starts[n] - +starts[n - 1], 6 * 3600_000);
-    for (const at of starts) assert.equal(starts.filter(start => +start >= +at && +start < +at + 86400_000).length <= 4, true);
+    for (let n = 0; n < 8; n++) starts.push(nextScheduledStart(starts.at(-1)!, starts.at(-1)!, runs));
+    for (let n = 1; n < starts.length; n++) assert.equal(+starts[n] - +starts[n - 1], 24 / runs * 3600_000);
+    for (const at of starts) assert.equal(starts.filter(start => +start >= +at && +start < +at + 86400_000).length <= runs, true);
   }
   const last = new Date('2026-01-01T00:00:00Z'), delayed = new Date('2026-01-04T13:00:00Z');
   assert.equal(+nextScheduledStart(delayed, last), +delayed);
@@ -83,4 +83,27 @@ test('real DB: opt-in, mode, idempotence, concurrency, pause races, resume gap a
   assert.equal(launches, 1);
   await pool.query('DELETE FROM users WHERE id=2');
   assert.equal(await scheduleFor('2'), null, 'account deletion removes its future jobs');
+
+  // Existing six-hour slots must obey a smaller plan allowance before any spawn.
+  for (const runs of [1, 2]) {
+    const userId = String(10 + runs);
+    await pool.query('INSERT INTO users VALUES($1)', [userId]);
+    await changeSchedule(userId, true, 'semi-auto', 4);
+    await pool.query("INSERT INTO run_starts(user_id,mode,trigger,started_at) VALUES($1,'live','auto',now()-interval '7 hours')", [userId]);
+    await pool.query("UPDATE application_schedules SET next_run_at=now()-interval '1 hour' WHERE user_id=$1", [userId]);
+    const saved = (await scheduleFor(userId))!;
+    let spawned = false;
+    assert.equal(await scheduledStart(userId, saved.generation, 'semi-auto', runs, async () => { spawned = true; return { ok: true }; }), null);
+    assert.equal(spawned, false);
+    const repaired = +(await scheduleFor(userId))!.next_run_at!;
+    assert.ok(repaired > Date.now() + (24 / runs - 7) * 3600_000 - 5000);
+    await changeSchedule(userId, false, 'semi-auto', runs);
+    await changeSchedule(userId, true, 'semi-auto', runs);
+    assert.ok(+(await scheduleFor(userId))!.next_run_at! >= repaired - 1000, 'Pause/resume retains the plan gap');
+
+    await pool.query("INSERT INTO run_starts(user_id,mode,trigger,started_at) SELECT $1,'live','manual',now()-n*interval '1 minute' FROM generate_series(1,$2::int) n", [userId, runs]);
+    await changeSchedule(userId, false, 'semi-auto', runs);
+    await changeSchedule(userId, true, 'semi-auto', runs);
+    assert.ok(+(await scheduleFor(userId))!.next_run_at! > Date.now() + 23 * 3600_000, 'Historical starts cannot bypass the plan rolling cap');
+  }
 });

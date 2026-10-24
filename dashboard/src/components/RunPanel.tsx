@@ -780,7 +780,7 @@ export function RunPanel({
             <span className="run-auto-label">{autoSchedule?.enabled ? 'Schedule active' : 'Schedule paused'}</span>
             <span className="job-meta run-auto-status">
               {entitlements.autoRunsPerDay} scheduled {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} per 24 hours
-              {entitlements.autoRunsPerDay === 4 ? ' · about 6 hours apart, at least 4 hours between starts' : ''}
+              {entitlements.autoRunsPerDay > 0 ? ` · about ${24 / entitlements.autoRunsPerDay} hours apart` : ''}
               {autoSchedule?.enabled && !running && nextRunShort(autoSchedule) ? ` · ${nextRunShort(autoSchedule)}` : ''}
             </span>
           </div>
@@ -1103,7 +1103,7 @@ export function RunPanel({
           >
             <div className="run-review-head">
               <div>
-                <p className="job-meta">Starting enables {entitlements?.autoRunsPerDay ?? 4} scheduled runs per 24 hours. Your run starts when its slot is due and capacity is available. Resuming keeps the gap between runs. Pause anytime on the Apply page.</p>
+                <p className="job-meta">Starting enables {entitlements?.autoRunsPerDay ?? 4} scheduled {(entitlements?.autoRunsPerDay ?? 4) === 1 ? 'run' : 'runs'} per 24 hours. Your run starts when its slot is due and capacity is available. Resuming keeps the gap between runs. Pause anytime on the Apply page.</p>
                 <h2 id="run-review-title">{applicationMode === 'semi-auto' ? 'Review Semi auto settings' : 'Review Auto apply settings'}</h2>
                 <p className="job-meta">Changes made here are saved before a live run starts.</p>
                 {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs each run. {billing?.paid.unlimitedApplications ? 'Your pass includes unlimited applications.' : applicationMode === 'semi-auto' ? 'Each prepared application uses one credit. Confirming it uses no additional credit.' : 'Each submitted application uses one credit.'}</p>}
