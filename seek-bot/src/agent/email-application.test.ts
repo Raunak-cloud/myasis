@@ -75,9 +75,9 @@ try {
   assert.equal((await submitApprovedEmail(drafts[0])).status, 'rehearsed'); assert.equal(sends.size, 0);
   config.dryRun = false;
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(drafts));
-  const output = await new Promise<string>((done, fail) => {
+  const submitBatch = () => new Promise<string>((done, fail) => {
     const child = spawn(process.execPath, [fileURLToPath(new URL('../main.js', import.meta.url))], {
-      env: { ...process.env, APPLICATION_REVIEW_MODE: 'approved', DRY_RUN: 'false',
+      env: { ...process.env, APPLICATION_REVIEW_MODE: 'approved', DRY_RUN: 'false', ADMIN_UNLIMITED:'true', APPLICATIONS_UNLIMITED:'true', MAX_APPS_PER_DAY:'none',
         CHROME_PATH: '/fixture/chrome-does-not-exist', KEYWORDS: '', EMPLOYER_BROWSER_PROVIDER: 'brightdata', BRIGHTDATA_BROWSER_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -85,7 +85,16 @@ try {
     child.stdout.on('data', chunk => { transcript += chunk; }); child.stderr.on('data', chunk => { transcript += chunk; });
     child.on('error', fail); child.on('close', code => code === 0 ? done(transcript) : fail(new Error(transcript)));
   });
-  assert.match(output, /Run complete: 5 new application/);
+  writeFileSync(join(directory,'applied.json'),JSON.stringify(Array.from({length:98},(_,i)=>({jobId:`daily-seed-${i}`,platform:'seek',title:'Earlier fixture application',company:'Fixture',location:'Sydney',url:'https://fixture.invalid',appliedAt:new Date().toISOString(),score:1,scoreReasons:[],submittedByMyasis:true}))));
+  const capped = await submitBatch();
+  assert.match(capped,/Daily cap of 100 reached/);
+  assert.match(capped,/Run complete: 2 new application/);
+  assert.equal(sends.size,2,'a five-email batch starting at 98 sends only two, including admin/unlimited flags');
+  const records = JSON.parse(readFileSync(join(directory,'applied.json'),'utf8'));
+  assert.equal(records.length,100);
+  writeFileSync(join(directory,'applied.json'),JSON.stringify(records.filter((row:{jobId:string})=>!row.jobId.startsWith('daily-seed-'))));
+  const output = await submitBatch();
+  assert.match(output, /Run complete: 3 new application/);
   assert.equal(JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8')).length, 5);
   assert.equal(sends.size, 5); assert.equal(calls, preparedCalls, 'confirmed email sends need no browser/model reconstruction');
   await withApplicationAllowance(async () => true, () => submitApprovedEmail(drafts[0]));

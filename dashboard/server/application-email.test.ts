@@ -28,8 +28,9 @@ test('production email backend validates exact approvals and attachments; uncert
   const outboxJobs = new Map<string, string>();
   const applied = new Set<string>(), delivered = new Map<string, { id: string; threadId: string }>();
   const rewritten = new Map<string, { id: string; threadId: string; marker: string }>();
-  let attempts = 0, mode: 'success' | 'uncertain-sent' | 'uncertain-unsent' | 'uncertain-rewritten' | 'rejected' = 'success';
+  let attempts = 0, priorSubmissions = 0, mode: 'success' | 'uncertain-sent' | 'uncertain-unsent' | 'uncertain-rewritten' | 'rejected' = 'success';
   const sql = async (statement: string, params: any[] = []) => {
+    if (statement.includes('SELECT count(*)::text AS n') && statement.includes('FROM applications')) return {rows:[{n:String(priorSubmissions+applied.size)}]};
     if (statement.startsWith('SELECT u.email,p.email')) return { rows: [{ email: 'candidate@fixture.invalid', profile_email: 'candidate@fixture.invalid' }] };
     if (statement.startsWith('SELECT key,value FROM settings')) return { rows: [] };
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [] };
@@ -127,6 +128,17 @@ test('production email backend validates exact approvals and attachments; uncert
     assert.equal(recoveredReplacement.alreadySent, true); assert.equal(recoveredReplacement.messageId, 'fixture-6');
     assert.equal((await sendApprovedApplicationEmail(owner, replacedId.id, replacedId.revision)).alreadySent, true);
     assert.equal(attempts, 6, 'Gmail rewriting Message-ID recovers only the exact approval, without resending');
+    mode='success'; priorSubmissions=100-applied.size;
+    const atCap=create();
+    await assert.rejects(sendApprovedApplicationEmail(owner,atCap.id,atCap.revision),/daily limit of 100/);
+    assert.equal(attempts,6,'the production email backend blocks new mail at the global daily maximum');
+    priorSubmissions--;
+    await sendApprovedApplicationEmail(owner,atCap.id,atCap.revision);
+    assert.equal(attempts,7,'the hundredth application is allowed');
+    const aboveCap=create();
+    await assert.rejects(sendApprovedApplicationEmail(owner,aboveCap.id,aboveCap.revision),/daily limit of 100/);
+    assert.equal((await sendApprovedApplicationEmail(owner,atCap.id,atCap.revision)).alreadySent,true,'receipt lookups still work at the daily maximum');
+    assert.equal(attempts,7);
     assert.equal(readFileSync(join(directory, 'resumes', 'CV.txt')).equals(resume), true);
   } finally {
     pool.query = originals.query; pool.connect = originals.connect; OAuth2Client.prototype.request = originals.request;

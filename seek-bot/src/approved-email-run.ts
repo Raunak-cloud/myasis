@@ -3,6 +3,7 @@ import { submitApprovedEmail } from './gmail-mailbox.js';
 import { withApplicationAllowance } from './application-allowance.js';
 import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
 import { countHealth } from './run-health.js';
+import { config } from './config.js';
 
 /** Exact approved emails need neither a job-board session nor form reconstruction. */
 export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Promise<boolean> {
@@ -12,6 +13,10 @@ export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Prom
   const index = new AppliedIndex(); let applied = 0;
   console.log(`Submitting ${drafts.length} confirmed email application(s) through Gmail MCP.`);
   for (const draft of drafts) {
+    if (index.appliedToday() >= config.limits.maxApplicationsPerDay) {
+      console.log(`Daily cap of ${config.limits.maxApplicationsPerDay} reached.`);
+      break;
+    }
     const job = draft.job;
     console.log(`→ Applying: ${job.title} @ ${job.company}`);
     if (index.hasApplication(job)) {
@@ -19,7 +24,7 @@ export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Prom
       console.log('  Already submitted. No email sent.'); continue;
     }
     // The MCP server rechecks this exact, paid approval before it accesses Gmail.
-    const outcome = await withApplicationAllowance(async () => true, () => submitApprovedEmail(draft));
+    const outcome = await withApplicationAllowance(async () => index.appliedToday() < config.limits.maxApplicationsPerDay, () => submitApprovedEmail(draft));
     logOutcome({ ...outcome, reviewId: draft.id, title: job.title, company: job.company, url: job.url });
     countHealth('attempted');
     if (outcome.status === 'applied') {
