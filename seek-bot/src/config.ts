@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import type { CandidateProfile } from './types.js';
 import { applicationModelEnvironment } from './application-model.js';
+import { boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -173,7 +174,7 @@ export const config = {
 
   /** seek.md rules, as data. */
   rules: {
-    maxAgeDays: Number(process.env.MAX_AGE_DAYS ?? 20),
+    maxAgeDays: boundedUserRunLimit('MAX_AGE_DAYS', process.env.MAX_AGE_DAYS, 20),
     minSalary: Number(process.env.MIN_SALARY ?? 70_000),
     minHourlyRate: Number(process.env.MIN_HOURLY_RATE ?? 0),
     minScore: Number(process.env.MIN_SCORE ?? 60),
@@ -252,8 +253,8 @@ export const config = {
      * alone caps discovery at 32 × keywords — and once the obvious listings are
      * applied to, everything left worth having is on pages 2+.
      */
-    pagesPerKeyword: ceiling(3, process.env.PAGES_PER_KEYWORD, 1),
-    maxApplicationsPerDay: ceiling(50, process.env.MAX_APPS_PER_DAY, 20, true),
+    pagesPerKeyword: boundedUserRunLimit('PAGES_PER_KEYWORD', process.env.PAGES_PER_KEYWORD, 1),
+    maxApplicationsPerDay: dailyApplicationLimit(process.env.MAX_APPS_PER_DAY, adminUnlimited || process.env.APPLICATIONS_UNLIMITED === 'true'),
     /**
      * Employer-site applications SUBMITTED per day. Unset means no limit (a
      * direct CLI run); "0" means none are allowed, which is what every

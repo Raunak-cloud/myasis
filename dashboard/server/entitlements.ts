@@ -6,6 +6,7 @@ import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } f
 import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
+import { boundedUserRunLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
 export { SCHEDULED_MIN_SCORE };
 
@@ -220,8 +221,8 @@ export function applyRunPolicy(
   }
   /**
    * An operator of this installation sets their own limits, or none. A number
-   * they saved on the Apply page — applications per run, per day, listings
-   * reviewed — is used as given, unclamped; an empty one means no limit at
+   * they saved on the Apply page for applications per run or listings
+   * reviewed is used as given; an empty optional limit means no limit at
    * all. "none" reaches the bot, which honours it only alongside
    * ADMIN_UNLIMITED; an operator narrowing one run on the command line still
    * can, because those arguments come after this.
@@ -231,6 +232,11 @@ export function applyRunPolicy(
       const value = (resolved[key] ?? '').trim();
       resolved[key] = /^\d+$/.test(value) && Number(value) > 0 ? String(Number(value)) : 'none';
     }
+  }
+  for (const key of Object.keys(USER_RUN_LIMITS) as Array<keyof typeof USER_RUN_LIMITS>) {
+    if (key === 'MAX_APPS_PER_DAY' && (entitlement.tier === 'admin' || entitlement.tier === 'intensive') && (!resolved[key]?.trim() || resolved[key] === 'none')) {
+      resolved[key] = 'none';
+    } else resolved[key] = String(boundedUserRunLimit(key, resolved[key], Number(RUN_SETTING_DEFAULTS[key])));
   }
   return resolved;
 }

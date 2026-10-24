@@ -1,7 +1,7 @@
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { readEnv, runner, type RunMode } from './runner.js';
 import { brightDataBrowserEndpoint, employerBrowserProvider } from '../../seek-bot/src/employer-browser-config.js';
-import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
+import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS, DAILY_APPLICATION_CAP_CHOSEN } from './settings.js';
 import {
   billingStatus,
   consumeSuccessfulApplication,
@@ -38,17 +38,10 @@ import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
 import { gmailAccess } from './gmail-access.js';
 import { scheduledStart } from './run-schedule.js';
+import { dailyApplicationLimit } from '../../seek-bot/src/run-limits.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
-
-/** The daily limit a run will enforce, resolved exactly as seek-bot's config does. */
-function dailyLimit(overrides: Record<string, string>): number {
-  if (overrides.MAX_APPS_PER_DAY === 'none' && (overrides.ADMIN_UNLIMITED === 'true' || overrides.APPLICATIONS_UNLIMITED === 'true')) return Infinity;
-  const wanted = Number(overrides.MAX_APPS_PER_DAY || 20);
-  if (!Number.isFinite(wanted)) return 20;
-  return Math.max(1, overrides.ADMIN_UNLIMITED === 'true' ? Math.floor(wanted) : Math.min(50, wanted));
-}
 
 /**
  * The one way a run starts.
@@ -316,7 +309,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       if (unlimitedApplications && !admin) {
         overrides.APPLICATIONS_UNLIMITED = 'true';
         overrides.MAX_APPS_PER_RUN = 'none';
-        overrides.MAX_APPS_PER_DAY = 'none';
+        // Unlimited access may still have a daily cap chosen by the account.
+        const chosenDailyCap = String(request.clientOverrides?.MAX_APPS_PER_DAY
+          ?? (settingsSnapshot.saved[DAILY_APPLICATION_CAP_CHOSEN] === '1' ? settingsSnapshot.saved.MAX_APPS_PER_DAY : '') ?? '').trim();
+        if (!chosenDailyCap || chosenDailyCap === 'none') overrides.MAX_APPS_PER_DAY = 'none';
       }
       const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
       const externalAvailable = prepaidExternal > 0 || allowance.paid.hasActiveIntensivePass
@@ -389,7 +385,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * same count the dashboard shows as "sent today".
    */
   if (consumes) {
-    const limit = dailyLimit(overrides);
+    const limit = dailyApplicationLimit(overrides.MAX_APPS_PER_DAY, overrides.ADMIN_UNLIMITED === 'true' || overrides.APPLICATIONS_UNLIMITED === 'true');
     const sent = await submittedToday(userId).catch(() => 0);
     if (Number.isFinite(limit) && sent >= limit) {
       return {

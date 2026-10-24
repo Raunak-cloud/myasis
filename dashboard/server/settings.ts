@@ -3,6 +3,7 @@ import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { limitSearchTerms } from '../src/search-limits.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
+import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
 /**
  * Per-run search/apply preferences (job titles, work arrangement, run
@@ -35,14 +36,15 @@ export const KEEP_SETTINGS_KEYS = [
 
 /** TARGET_ROLE remains only so every run explicitly blanks legacy values. */
 export const USER_SETTABLE_SETTINGS_KEYS = KEEP_SETTINGS_KEYS.filter((key) => key !== 'TARGET_ROLE');
+/** Old hidden daily-cap defaults must not become a newly imposed cap on unlimited passes. */
+export const DAILY_APPLICATION_CAP_CHOSEN = 'DAILY_APPLICATION_CAP_CHOSEN';
 
 const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
 /** Mirrors seek-bot's own clamps, so the dashboard shows what a run will really use. */
 export const RUN_LIMITS: Record<string, number> = {
   MAX_EVALUATIONS: 150,
   MAX_APPS_PER_RUN: 10,
-  PAGES_PER_KEYWORD: 3,
-  MAX_APPS_PER_DAY: 50,
+  ...USER_RUN_LIMITS,
 };
 
 function normalizeSetting(key: string, value: string): string {
@@ -137,9 +139,9 @@ export async function runSettingsSnapshotForUser(
      */
     const fallback = options.unlimited && (OPTIONAL_LIMIT_KEYS as readonly string[]).includes(key) ? '' : RUN_SETTING_DEFAULTS[key] ?? '';
     const value = saved[key] ?? fallback;
-    // An operator of this installation runs at whatever size they configured —
-    // except the number of search terms, which is search traffic and is capped for everyone.
-    out[key] = options.unlimited && key !== 'KEYWORDS' ? value : normalizeSetting(key, value);
+    // Review and per-run limits can be overridden. Listing age, selected
+    // daily caps, search terms and pages stay bounded for everyone.
+    out[key] = options.unlimited && key !== 'KEYWORDS' && !(key in USER_RUN_LIMITS) ? value : normalizeSetting(key, value);
   }
   return { settings: out, saved };
 }

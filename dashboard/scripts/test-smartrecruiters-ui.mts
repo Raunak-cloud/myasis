@@ -490,6 +490,15 @@ try {
     assert.equal(writes.filter(write => write.path === '/api/auto-apply').length, before, 'an invalid match threshold cannot authorize a run');
     const chosenScore = width === 1280 ? '60' : '100';
     await threshold.fill(chosenScore);
+    for (const [key,max,label] of [['MAX_AGE_DAYS',30,'Max listing age'],['MAX_APPS_PER_DAY',100,'Daily application cap'],['PAGES_PER_KEYWORD',6,'Search pages per term']] as const) {
+      const input = dialog.locator(`[data-field=${key}]`);
+      assert.equal(await input.getAttribute('max'),String(max));
+      await input.fill(String(max+1));
+      await dialog.getByRole('button',{name:'Start Semi auto',exact:true}).click();
+      await dialog.getByText(`${label} must be between 1 and ${max}.`,{exact:true}).waitFor();
+      assert.equal(writes.filter(write => write.path === '/api/auto-apply').length,before);
+      await input.fill(String(max));
+    }
     await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     await page.getByRole('button', { name: 'Pause Semi auto', exact: true }).waitFor();
     await schedule.getByText('Waiting to start', { exact: true }).waitFor();
@@ -499,6 +508,7 @@ try {
     const start = writes.filter(write => write.path === '/api/auto-apply').at(-1)!.body;
     assert.equal(start.enabled, true); assert.equal(start.confirm, true); assert.equal(start.applicationMode, 'semi-auto');
     assert.equal(writes.filter(write => write.path === '/api/settings').at(-1)!.body.updates.MIN_SCORE, chosenScore);
+    for (const [key,value] of Object.entries({MAX_AGE_DAYS:'30',MAX_APPS_PER_DAY:'100',PAGES_PER_KEYWORD:'6'})) assert.equal(writes.filter(write => write.path === '/api/settings').at(-1)!.body.updates[key],value);
     assert.equal(await page.getByRole('button', { name: 'Auto apply', exact: true }).isDisabled(), true);
     await page.reload();
     await page.getByRole('button', { name: 'Pause Semi auto', exact: true }).click();

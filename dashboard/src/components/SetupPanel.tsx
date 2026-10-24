@@ -8,6 +8,7 @@ import { ProfileForm } from './ProfileForm';
 import { FieldLabel } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText, matchThresholdError } from '../runSettings';
 import { CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../pricing';
+import { USER_RUN_LIMITS, userRunLimitError } from '../../../seek-bot/src/run-limits.js';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
 import { useEntitlements } from '../entitlements';
@@ -114,6 +115,8 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       const error = matchThresholdError(updates.MIN_SCORE, entitlements?.tier === 'admin' ? 0 : CUSTOM_MIN_SCORE);
       if (error) { setSaveError(error); return; }
     }
+    const limitError = userRunLimitError(updates, entitlements?.tier === 'admin' || entitlements?.tier === 'intensive');
+    if (limitError) { setSaveError(limitError.message); return; }
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -348,9 +351,11 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
                   className="input"
                   type="number"
                   value={val('MAX_AGE_DAYS')}
+                  min="1"
+                  max={USER_RUN_LIMITS.MAX_AGE_DAYS}
                   onChange={(e) => set('MAX_AGE_DAYS', e.target.value)}
                 />
-                <span className="job-meta">Days since the job was posted.</span>
+                <span className="job-meta">Up to {USER_RUN_LIMITS.MAX_AGE_DAYS} days since the job was posted.</span>
               </label>
               {canFineTune && <label className="field">
                 <FieldLabel label="Daily application cap" help="The total number of applications allowed in one day, across all runs." />
@@ -358,9 +363,12 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
                   className="input"
                   type="number"
                   value={val('MAX_APPS_PER_DAY')}
+                  min="1"
+                  max={USER_RUN_LIMITS.MAX_APPS_PER_DAY}
+                  placeholder={canFineTune ? 'No limit' : undefined}
                   onChange={(e) => set('MAX_APPS_PER_DAY', e.target.value)}
                 />
-                <span className="job-meta">Keeping this low avoids SEEK verification prompts.</span>
+                <span className="job-meta">Choose up to {USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications per day.</span>
               </label>}
               {canFineTune && <label className="field">
                 <FieldLabel label="Search pages per term" help="How many result pages to check for each search term. More pages take longer." />
@@ -368,9 +376,11 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
                   className="input"
                   type="number"
                   value={val('PAGES_PER_KEYWORD')}
+                  min="1"
+                  max={USER_RUN_LIMITS.PAGES_PER_KEYWORD}
                   onChange={(e) => set('PAGES_PER_KEYWORD', e.target.value)}
                 />
-                <span className="job-meta">32 listings per page.</span>
+                <span className="job-meta">Choose up to {USER_RUN_LIMITS.PAGES_PER_KEYWORD} pages per term.</span>
               </label>}
             </div>
           </div>

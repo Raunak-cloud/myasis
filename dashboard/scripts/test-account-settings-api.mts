@@ -68,6 +68,20 @@ try {
     const entitlement = await entitlementsFor(peer, 'peer@example.test');
     assert.equal(entitlement.advancedFilters, true);
     assert.equal(entitlement.scheduledMinScore, 60);
+    if (plan === 'intensive-pass') {
+      await client.query("INSERT INTO settings(user_id,key,value) VALUES($1,'MAX_APPS_PER_DAY','20') ON CONFLICT(user_id,key) DO UPDATE SET value='20'",[peer]);
+      assert.equal((await (await request('/api/settings','GET',undefined,'peer-token')).json() as Record<string,string>).MAX_APPS_PER_DAY,'','an old hidden default does not impose a new daily cap on unlimited access');
+    }
+    const limits = plan === 'intensive-pass' ? {MAX_AGE_DAYS:'30',MAX_APPS_PER_DAY:'100',PAGES_PER_KEYWORD:'6'} : {MAX_AGE_DAYS:'30'};
+    const allowedLimits = await request('/api/settings','POST',{updates:limits},'peer-token');
+    assert.equal(allowedLimits.status,200);
+    const keptLimits = (await allowedLimits.json() as {settings:Record<string,string>}).settings;
+    for (const [key,value] of Object.entries(limits)) assert.equal(keptLimits[key],value);
+    if (plan === 'intensive-pass') {
+      assert.equal((await (await request('/api/settings','GET',undefined,'peer-token')).json() as Record<string,string>).MAX_APPS_PER_DAY,'100','an explicitly chosen daily cap persists on unlimited access');
+      assert.equal(keptLimits.DAILY_APPLICATION_CAP_CHOSEN,'1');
+    }
+    for (const [key,value] of Object.entries(limits)) assert.equal((await request('/api/settings','POST',{updates:{[key]:String(Number(value)+1)}},'peer-token')).status,400);
     for (const score of ['60', '70', '100']) {
       const response = await request('/api/settings','POST',{updates:{MIN_SCORE:score}},'peer-token');
       assert.equal(response.status,200);
@@ -84,6 +98,10 @@ try {
     await client.query('DELETE FROM billing_purchases WHERE id=$1',[purchase]);
   }
   assert.equal((await request('/api/settings','POST',{updates:{MIN_SCORE:'22'}},'owner-token')).status,200,'admin diagnostic thresholds remain available');
+  for (const [key,max] of Object.entries({MAX_AGE_DAYS:30,MAX_APPS_PER_DAY:100,PAGES_PER_KEYWORD:6})) {
+    assert.equal((await request('/api/settings','POST',{updates:{[key]:String(max)}},'owner-token')).status,200);
+    assert.equal((await request('/api/settings','POST',{updates:{[key]:String(max+1)}},'owner-token')).status,400,'admins use the same configurable maximum');
+  }
   if(originalAdmins===undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS=originalAdmins;
   for(const path of ['/api/daily-summary','/api/account']) assert.equal((await request(path,'GET',undefined,'')).status,401);
   assert.equal((await request('/api/daily-summary','DELETE')).status,405);

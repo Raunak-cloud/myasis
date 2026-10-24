@@ -10,6 +10,7 @@ import { ResumeSourceNote } from './ResumeSourceNote';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText, matchThresholdError } from '../runSettings';
 import { CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../pricing';
+import { USER_RUN_LIMITS, userRunLimitError } from '../../../seek-bot/src/run-limits.js';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { TermsInput } from './TermsInput';
 import { SeekSignIn } from './SeekSignIn';
@@ -374,7 +375,8 @@ export function RunPanel({
     ? Math.max(0, (running || !Number.isFinite(finishedAtMs) ? clock : finishedAtMs) - startedAtMs)
     : null;
   /** An operator's application and review limits have no default: empty means none. */
-  const optionalLimit = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY'].includes(key);
+  const optionalLimit = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY'].includes(key)
+    || key === 'MAX_APPS_PER_DAY' && billing?.paid.unlimitedApplications === true;
   /**
    * A number an operator set against this account, which runs use whatever is
    * typed here. Shown in the field rather than left to contradict it: the
@@ -382,7 +384,10 @@ export function RunPanel({
    */
   const forcedApplications = entitlements?.maxApplicationsPerRunOverride ?? null;
   const forcedEvaluations = isAdmin ? entitlements?.evaluationsPerRun ?? null : null;
-  const val = (k: string, d = optionalLimit(k) ? '' : RUN_DEFAULTS[k] ?? '') => edits[k] ?? settings[k] ?? d;
+  const val = (k: string, d = optionalLimit(k) ? '' : RUN_DEFAULTS[k] ?? '') => {
+    const value = edits[k] ?? settings[k] ?? d;
+    return optionalLimit(k) && value === 'none' ? '' : value;
+  };
   const setEdit = (key: string, value: string) =>
     setEdits((current) => ({ ...current, [key]: value }));
   const arrangements = val('WORK_ARRANGEMENTS').split(',').map((item) => item.trim()).filter(Boolean);
@@ -489,8 +494,7 @@ export function RunPanel({
   const RUN_CAP_VALUES: Record<string, number> = {
     MAX_APPS_PER_RUN: 10,
     MAX_EVALUATIONS: 150,
-    PAGES_PER_KEYWORD: 3,
-    MAX_APPS_PER_DAY: 50,
+    ...USER_RUN_LIMITS,
   };
   const RUN_CAPS = [
     { key: 'MAX_APPS_PER_RUN', label: 'Max applications' },
@@ -580,6 +584,11 @@ export function RunPanel({
       fail(thresholdError, 'MIN_SCORE');
       return;
     }
+    const limitError = userRunLimitError({
+      ...(entitlements?.advancedFilters ? {MAX_AGE_DAYS:updates.MAX_AGE_DAYS} : {}),
+      ...(entitlements?.fineTune ? {MAX_APPS_PER_DAY:updates.MAX_APPS_PER_DAY, PAGES_PER_KEYWORD:updates.PAGES_PER_KEYWORD} : {}),
+    }, optionalLimit('MAX_APPS_PER_DAY'));
+    if (limitError) { fail(limitError.message, limitError.key); return; }
     /**
      * Say so rather than silently trimming.
      *
@@ -1395,26 +1404,23 @@ export function RunPanel({
                   </label>}
                   {entitlements?.advancedFilters && <label className="field">
                     <FieldLabel label="Max listing age" help="Job listings older than this many days are skipped." />
-                    <input className="input" type="number" min="0" value={val('MAX_AGE_DAYS')} onChange={(e) => setEdit('MAX_AGE_DAYS', e.target.value)} />
+                    <input className="input" data-field="MAX_AGE_DAYS" type="number" min="1" max={USER_RUN_LIMITS.MAX_AGE_DAYS} value={val('MAX_AGE_DAYS')} onChange={(e) => setEdit('MAX_AGE_DAYS', e.target.value)} />
+                    {fieldError('MAX_AGE_DAYS')}
                   </label>}
-                  {(isAdmin || entitlements?.fineTune && !billing?.paid.unlimitedApplications) && <label className="field">
+                  {entitlements?.fineTune && <label className="field">
                     <FieldLabel
                       label="Daily application cap"
-                      help={isAdmin
-                        ? 'The total number of applications allowed in one day, across all runs. Empty means no limit.'
-                        : 'The total number of applications allowed in one day, across all runs. Capped at 50.'}
+                      help={`The total number of applications allowed in one day, across all runs. Choose up to ${USER_RUN_LIMITS.MAX_APPS_PER_DAY}.${optionalLimit('MAX_APPS_PER_DAY') ? ' Empty means no limit.' : ''}`}
                     />
-                    <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={isAdmin ? undefined : 50} placeholder={isAdmin ? 'No limit' : undefined} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
+                    <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={USER_RUN_LIMITS.MAX_APPS_PER_DAY} placeholder={optionalLimit('MAX_APPS_PER_DAY') ? 'No limit' : undefined} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
                     {fieldError('MAX_APPS_PER_DAY')}
                   </label>}
-                  {(isAdmin || entitlements?.fineTune && !billing?.paid.unlimitedApplications) && <label className="field">
+                  {entitlements?.fineTune && <label className="field">
                     <FieldLabel
                       label="Search pages per term"
-                      help={isAdmin
-                        ? 'How many result pages to check for each search term. More pages find more jobs and make the run longer.'
-                        : 'How many result pages to check for each search term. This multiplies by your number of search terms, so it is capped at 3.'}
+                      help={`How many result pages to check for each search term. Choose up to ${USER_RUN_LIMITS.PAGES_PER_KEYWORD}. More pages take longer.`}
                     />
-                    <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max={isAdmin ? undefined : 3} value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
+                    <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max={USER_RUN_LIMITS.PAGES_PER_KEYWORD} value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
                     {fieldError('PAGES_PER_KEYWORD')}
                   </label>}
                 </div>
