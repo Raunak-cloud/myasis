@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, JobListing } from './types.js';
 
-type FixtureJob = JobListing & { searchPage?: number; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { searchPage?: number; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney',
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { pages?: number; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number } = {}) {
+function run(jobs: FixtureJob[], options: { pages?: number; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[] } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -34,7 +34,8 @@ export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},formSpeed:false,allowExternalApply:${options.externalLimit !== 0}});
 Object.assign(config.coverLetter, {mode:'tailored'});
-Object.assign(config.rules, {minScore:0,excludedCompanies:[]});
+Object.assign(config.rules, {minScore:${options.minScore ?? 0},maxAgeDays:${options.maxAgeDays ?? 20}});
+config.excludedCompanies = ${JSON.stringify(options.excludedCompanies ?? [])};
 Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:${options.pages ?? 1},maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:${options.dailyCap ?? 100},maxExternalPerDay:${options.externalLimit ?? 10},
   minDelayMs:${options.cooldownMs ?? 0},maxDelayMs:${options.cooldownMs ?? 0},minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
 `);
@@ -87,7 +88,7 @@ export const assessFit = async job => {
   await new Promise(done => setTimeout(done,job.fitDelayMs||0));
   record('fit-finish',job.id);
   if(job.fitError) { await new Promise(done => setTimeout(done,20)); throw Error('Instruction exception review violated its evidence schema'); }
-  return {decision:job.fitReject?'skip':'apply',shouldApply:!job.fitReject,matchScore:90,reason:'Fixture fit',evidence:['Fixture'],injectionSuspected:false};
+  return {decision:job.fitReject?'skip':'apply',shouldApply:!job.fitReject,matchScore:job.matchScore??90,reason:'Fixture fit',evidence:['Fixture'],injectionSuspected:false};
 };
 `);
     writeFileSync(join(directory, 'apply.mjs'), `
@@ -550,4 +551,24 @@ test('the daily cap also ends a parallel review loop before the larger run cap',
   assert.equal(result.history.length, 1);
   assert.equal(result.events.filter(event => event.stage === 'detail' && event.id.startsWith('indeed')).length, 1);
   assert.equal(result.events.filter(event => event.stage === 'activity-finished').length, 2);
+});
+
+
+for (const minimum of [60, 75, 100]) test(`the ${minimum}% match filter includes its exact boundary and skips a lower score`, () => {
+  const result = run([
+    job('below', { matchScore: minimum - 1 }), job('boundary', { matchScore: minimum }),
+  ], { apply: true, minScore: minimum, reviews: 2 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['boundary']);
+  assert.equal(result.history.length, 1);
+});
+
+for (const maximum of [20, 30]) test(`company and ${maximum}-day age filters exclude jobs before AI review without hiding an eligible listing`, () => {
+  const result = run([
+    job('excluded-company', { company: 'Commonwealth Bank of Australia' }),
+    job('too-old', { ageDays: maximum + 1 }),
+    job('eligible', { ageDays: maximum }),
+  ], { apply: true, maxAgeDays: maximum, excludedCompanies: ['Commonweath Bank'], reviews: 1 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['eligible']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['eligible']);
+  assert.equal(result.history.length, 1);
 });

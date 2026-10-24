@@ -15,25 +15,24 @@ import type { JobListing } from './types.js';
  * hooks, which are far stabler than CSS classes.
  */
 
-/** "54m ago•Viewed", "3d ago", "Posted 2 days ago" → days */
+/** Relative board dates, keeping months distinct from minute abbreviations. */
 export function parseAgeDays(text?: string): number | undefined {
   if (!text) return undefined;
   const t = text.toLowerCase();
-  const m = t.match(/(\d+)\s*(m|h|d|w|min|hour|day|week)/);
-  if (!m) return /just now|today/.test(t) ? 0 : undefined;
-  const n = Number(m[1]);
-  switch (m[2][0]) {
-    case 'm':
-      return 0;
-    case 'h':
-      return 0;
-    case 'd':
-      return n;
-    case 'w':
-      return n * 7;
-    default:
-      return undefined;
+  const m = t.match(/\b(\d+)\s*(\+)?\s*(years?|yrs?|y|months?|mos?|weeks?|wks?|w|days?|d|hours?|hrs?|h|minutes?|mins?|m)\b\s*(\+)?/);
+  if (!m) {
+    if (/\byesterday\b/.test(t)) return 1;
+    return /\b(?:just now|today)\b/.test(t) ? 0 : undefined;
   }
+  const unit = m[3];
+  const amount = Number(m[1]);
+  if (/^h/.test(unit)) return Math.floor(amount / 24);
+  if (/^(?:m$|min)/.test(unit)) return Math.floor(amount / 1440);
+  const multiplier = /^y/.test(unit) ? 365 : /^mo/.test(unit) ? 30 : /^w/.test(unit) ? 7 : 1;
+  // "30+ days" and "over 30 days" are older than a 30-day maximum,
+  // rather than an unknown age that slips past the deterministic filter.
+  const olderThan = m[2] || m[4] || /\b(?:over|more than)\s*$/.test(t.slice(0, m.index));
+  return amount * multiplier + (olderThan ? 1 : 0);
 }
 
 function daysSinceIso(iso?: string): number | undefined {
