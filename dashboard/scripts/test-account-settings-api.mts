@@ -45,6 +45,8 @@ try {
     ...(body===undefined?{}:{body:JSON.stringify(body)}),
   });
   process.env.ADMIN_EMAILS = 'owner@example.test';
+  const forgedAdminRun = await request('/api/run','POST',{mode:'live',confirm:true,adminMode:true,userId:owner},'peer-token');
+  assert.equal(forgedAdminRun.status,403,'a customer cannot gain manual admin runs with a client flag or another user ID');
   const oldTerms = 'AI Engineer, Web Developer, Python Developer, Frontend Developer';
   const cappedTerms = 'AI Engineer, Web Developer, Python Developer';
   for (const [id, cookie, unlimited] of [[owner, 'owner-token', true], [peer, 'peer-token', false]] as const) {

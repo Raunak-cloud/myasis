@@ -13,6 +13,8 @@ const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules
 // Serve only the built frontend and fixture APIs: no database, worker or employer is contacted.
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
+let adminControlFixture = false, adminManualRunning = false;
+let adminManualMode: 'auto' | 'semi-auto' = 'auto';
 let scheduleFixture = false, scheduleEnabled = false;
 let scheduleMode: 'auto' | 'semi-auto' = 'auto';
 let searchStarted = false;
@@ -62,6 +64,10 @@ const server = createServer(async (req, res) => {
       for (const item of JSON.parse(body).applications) approvedIds.add(item.id);
     }
     if (path === '/api/run' && req.method === 'POST' && JSON.parse(body || '{}').mode === 'search') searchStarted = true;
+    if (adminControlFixture && path === '/api/run' && req.method === 'POST' && JSON.parse(body).mode === 'live') {
+      adminManualRunning = true; adminManualMode = JSON.parse(body).applicationMode;
+    }
+    if (adminControlFixture && path === '/api/run/stop' && req.method === 'POST') adminManualRunning = false;
     if (scheduleFixture && path === '/api/auto-apply' && req.method === 'POST') {
       const input = JSON.parse(body); scheduleEnabled = input.enabled; if (input.enabled) scheduleMode = input.applicationMode;
     }
@@ -76,7 +82,7 @@ const server = createServer(async (req, res) => {
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: scheduleFixture ? '2026-12-23T00:00:00Z' : null, hasActivePass: scheduleFixture, hasActiveIntensivePass: scheduleFixture, unlimitedApplications: scheduleFixture } },
       '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
-      '/api/run/status': { running: searchStarted || preparingFixture, mode: searchStarted ? 'search' : preparingFixture ? 'live' : null, applicationMode: preparingFixture ? 'semi-auto' : null, prepared: 0, startedAt: searchStarted || preparingFixture ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
+      '/api/run/status': { running: searchStarted || preparingFixture || adminManualRunning, mode: searchStarted ? 'search' : preparingFixture || adminManualRunning ? 'live' : null, applicationMode: adminManualRunning ? adminManualMode : preparingFixture ? 'semi-auto' : null, prepared: 0, startedAt: searchStarted || preparingFixture || adminManualRunning ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
       '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [],
       '/api/attention': attentionFixture ? [{ jobId: 'handoff-fixture', title: 'Fixture Developer', company: 'Fixture Employer', kind: 'question', reason: 'Your answer is needed', at: new Date().toISOString(), url: 'https://fixture.invalid', questions: [{ question: 'Country of birth', kind: 'select', options: ['Australia', 'Canada'] }, { question: 'Audit services', kind: 'select', options: ['Unrelated skill'] }] }] : [],
@@ -85,7 +91,7 @@ const server = createServer(async (req, res) => {
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/settings': req.method === 'POST' ? { ok: true, settings: settings() } : settings(),
       '/api/run': { ok: true, mode: 'live' },
-      '/api/auto-schedule': scheduleFixture ? { enabled: scheduleEnabled, applicationMode: scheduleMode, runsUsedToday: 0, runsPerDay: 4, nextRunAt: scheduleEnabled ? new Date().toISOString() : null, dueNow: scheduleEnabled, timeZone: 'Australia/Sydney', lastError: null } : null,
+      '/api/auto-schedule': scheduleFixture ? { enabled: scheduleEnabled, applicationMode: scheduleMode, runsUsedToday: adminControlFixture ? 4 : 0, runsPerDay: 4, nextRunAt: scheduleEnabled ? new Date(Date.now() + (adminControlFixture ? 6 * 60 * 60_000 : 0)).toISOString() : null, dueNow: scheduleEnabled && !adminControlFixture, timeZone: 'Australia/Sydney', lastError: null } : null,
       '/api/application-reviews': { applications: preparedFixture ? preparedRows() : [] },
       '/api/application-reviews/cover-letter': { ok: true, application: editedLetter },
     };
@@ -120,6 +126,7 @@ try {
     await page.route('**/api/search-terms/generate', route => route.fulfill({contentType:'application/json',body:JSON.stringify({terms:['AI Engineer','Web Developer','Python Developer','Frontend Developer'],resumeLabel:'Fixture resume'})}));
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: 'Start Auto apply', exact: true }).waitFor();
+    assert.equal(await page.getByRole('switch', { name: 'Admin mode', exact: true }).count(), admin ? 1 : 0);
     const searchCard = page.locator('.saved-search-card');
     await searchCard.locator('#saved-search-terms').fill('Web Developer,Python Developer');
     await searchCard.locator('#saved-search-terms').press('Enter');
@@ -428,6 +435,76 @@ try {
     await page.screenshot({ path: resolve(import.meta.dirname, `../../output/plain-activity-${admin ? 'admin' : 'user'}.png`) });
     await context.close();
   }
+  // An admin can run either flow immediately while a fully used schedule waits for its next slot.
+  admin = true; adminControlFixture = true; scheduleFixture = true; scheduleEnabled = true; scheduleMode = 'auto';
+  adminBoards = 'seek'; adminSeekSignedIn = true; searchStarted = false; preparingFixture = false;
+  for (const width of [1280, 390]) {
+    scheduleEnabled = true; scheduleMode = 'auto';
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    await page.goto(`${origin}/?tab=run`);
+    await page.getByRole('button', { name: 'Pause Auto apply', exact: true }).waitFor();
+    const toggle = page.getByRole('switch', { name: 'Admin mode', exact: true });
+    assert.equal(await toggle.getAttribute('aria-checked'), 'false');
+    assert.equal(await page.getByRole('button', { name: 'Semi auto', exact: true }).isDisabled(), true);
+    const writesBefore = writes.length;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let hold = true;
+    await page.route('**/api/auto-schedule', async route => {
+      if (hold) { hold = false; await gate; }
+      await route.continue();
+    });
+    const requested = page.waitForRequest(request => new URL(request.url()).pathname === '/api/auto-schedule');
+    await toggle.click();
+    await requested;
+    assert.equal(await toggle.getAttribute('aria-checked'), 'true');
+    await page.getByRole('button', { name: 'Semi auto', exact: true }).click();
+    const delivered = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auto-schedule');
+    release(); await delivered;
+    await page.getByRole('button', { name: 'Start Semi auto', exact: true }).waitFor();
+    assert.equal(writes.length, writesBefore, 'changing admin mode cannot start work or modify a schedule');
+    assert.equal(scheduleEnabled, true);
+    const beforeRuns = writes.filter(write => write.path === '/api/run').length;
+    const beforeSchedules = writes.filter(write => write.path === '/api/auto-apply').length;
+    for (const mode of ['semi-auto', 'auto'] as const) {
+      const label = mode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply';
+      await page.getByRole('button', { name: mode === 'semi-auto' ? 'Semi auto' : 'Auto apply', exact: true }).click();
+      await page.getByRole('button', { name: label, exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.getByText('Start a single run now. This does not add or change scheduled runs.', { exact: true }).waitFor();
+      if (mode === 'semi-auto') {
+        await page.route('**/api/run', route => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({error:'All run slots are busy. Try again shortly.'}) }), { times: 1 });
+        await dialog.getByRole('button', { name: label, exact: true }).click();
+        await dialog.getByText('All run slots are busy. Try again shortly.', { exact: true }).waitFor();
+        assert.equal(adminManualRunning, false);
+      }
+      await dialog.getByRole('button', { name: label, exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
+      assert.equal(submitted.applicationMode, mode); assert.equal(submitted.mode, 'live'); assert.equal(submitted.confirm, true);
+      assert.equal(submitted.scope, 'all'); assert.equal('enabled' in submitted, false);
+      await page.getByRole('button', { name: /Stop run/ }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click();
+      await toggle.waitFor();
+      assert.equal(scheduleEnabled, true, 'stopping a one-off run keeps the existing schedule unchanged');
+    }
+    assert.equal(writes.filter(write => write.path === '/api/run').length, beforeRuns + 2);
+    assert.equal(writes.filter(write => write.path === '/api/auto-apply').length, beforeSchedules);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: resolve(import.meta.dirname, `../../output/admin-run-mode-${width}.png`), fullPage: true });
+    await toggle.click();
+    await page.getByRole('button', { name: 'Pause Auto apply', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Semi auto', exact: true }).isDisabled(), true);
+    await toggle.click();
+    await page.getByRole('button', { name: 'Pause schedule', exact: true }).click();
+    await page.getByRole('button', { name: 'Pause schedule', exact: true }).waitFor({ state: 'hidden' });
+    assert.equal(scheduleEnabled, false);
+    await page.getByRole('button', { name: 'Start Auto apply', exact: true }).waitFor();
+    await context.close();
+  }
+  adminControlFixture = false; adminManualRunning = false;
   // Recurring controls and the unlimited pricing view on desktop and mobile.
   admin = false; scheduleFixture = true; preparingFixture = false; remainingCredits = 5;
   {

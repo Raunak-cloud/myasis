@@ -21,6 +21,7 @@ import { useRunStatus } from '../runStatus';
 import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, type LogLine } from '../activity';
+import './RunPanel.css';
 
 interface AutoScheduleStatus {
   enabled: boolean;
@@ -166,8 +167,11 @@ export function RunPanel({
   const signedOutEverywhere = boards !== null && !boards.seek?.signedIn && !boards.indeed?.signedIn;
   const firstRun = Boolean(entitlements?.firstRunRequired && !entitlements.manualRuns);
   const driving = Boolean(entitlements?.manualRuns || firstRun);
-  /** Admin runs have no limits: the limit fields are hidden and nothing is capped in the form. */
+  /** On-demand runs use the authenticated admin path; normal application caps still apply. */
   const isAdmin = entitlements?.tier === 'admin';
+  const [adminModeEnabled, setAdminModeEnabled] = useState(false);
+  const adminMode = isAdmin && adminModeEnabled;
+  const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
   const jobBoards = isAdmin ? ADMIN_JOB_BOARDS : JOB_BOARDS;
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -347,7 +351,7 @@ export function RunPanel({
           if (!cancelled) {
             setAutoSchedule(value && typeof value.runsUsedToday === 'number' ? value as AutoScheduleStatus : null);
             if (value?.applicationMode) {
-              if (!reviewOpen.current && (value.enabled || (!scheduleModeLoaded.current && !modeChosenByUser.current))) {
+              if (!adminMode && !reviewOpen.current && (value.enabled || (!scheduleModeLoaded.current && !modeChosenByUser.current))) {
                 setApplicationMode(value.applicationMode);
               }
               scheduleModeLoaded.current = true;
@@ -362,7 +366,7 @@ export function RunPanel({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [entitlements?.autoRunsPerDay, entitlements?.autoApplyPaused, entitlements?.firstRunRequired, status?.finishedAt]);
+  }, [entitlements?.autoRunsPerDay, entitlements?.autoApplyPaused, entitlements?.firstRunRequired, status?.finishedAt, adminMode]);
   useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => setClock(Date.now()), 1000);
@@ -632,7 +636,7 @@ export function RunPanel({
         MAX_EVALUATIONS: String(Math.min(Number(updates.MAX_EVALUATIONS) || 10, 10)),
       } : updates;
 
-      const scheduled = mode === 'live' && scope === 'all' && Boolean(entitlements?.canPauseAutoApply);
+      const scheduled = mode === 'live' && scope === 'all' && useScheduledRuns;
       const runResponse = await fetch(scheduled ? '/api/auto-apply' : '/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -671,7 +675,7 @@ export function RunPanel({
     }
   }
 
-  const showAutoApply = entitlements && entitlements.canPauseAutoApply;
+  const showAutoApply = entitlements && entitlements.canPauseAutoApply && (!adminMode || autoSchedule?.enabled);
   const lastRunSummary = !running && (lastRunAt || status?.finishedAt)
     ? `Last run ${fmtDateTime(lastRunAt ?? status!.finishedAt!)}${status?.finishedAt ? preparing ? ` · ${status.prepared ?? summary.prepared} prepared` : ` · ${status.applied} submitted` : ''}`
     : null;
@@ -706,11 +710,21 @@ export function RunPanel({
         )}
 
         {!running && <div className="run-mode-choice">
+          <div className="run-mode-controls">
           <div className="chips" role="group" aria-label="Application mode">
-            <button type="button" className={`chip${applicationMode === 'auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'auto'} disabled={autoSchedule?.enabled || running} onClick={() => { modeChosenByUser.current = true; setApplicationMode('auto'); }}>Auto apply</button>
-            <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} disabled={autoSchedule?.enabled || running} onClick={() => { modeChosenByUser.current = true; setApplicationMode('semi-auto'); }}>Semi auto</button>
+            <button type="button" className={`chip${applicationMode === 'auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'auto'} disabled={(autoSchedule?.enabled && !adminMode) || running} onClick={() => { modeChosenByUser.current = true; setApplicationMode('auto'); }}>Auto apply</button>
+            <button type="button" className={`chip${applicationMode === 'semi-auto' ? ' on' : ''}`} aria-pressed={applicationMode === 'semi-auto'} disabled={(autoSchedule?.enabled && !adminMode) || running} onClick={() => { modeChosenByUser.current = true; setApplicationMode('semi-auto'); }}>Semi auto</button>
           </div>
-          <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.</p>
+          {isAdmin && <div className="run-admin-mode-control">
+            <span id="run-admin-mode-label">Admin mode</span>
+            <button type="button" role="switch" aria-checked={adminMode} aria-labelledby="run-admin-mode-label"
+              className={`auto-switch${adminMode ? ' on' : ''}`} disabled={starting || autoToggling}
+              onClick={() => { modeChosenByUser.current = true; setAdminModeEnabled(enabled => !enabled); }}>
+              <span className="auto-switch-knob" aria-hidden="true" />
+            </button>
+          </div>}
+          </div>
+          <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}
         </div>}
@@ -725,7 +739,7 @@ export function RunPanel({
             {running && <span className="activity-open-dot" aria-hidden="true" />}
             Activity
           </button>
-          {autoSchedule?.enabled ? (
+          {autoSchedule?.enabled && !adminMode ? (
             <button className="btn btn-danger lg" disabled={autoToggling} onClick={() => void setAutoApply(false)}>
               {autoToggling ? 'Pausing…' : `Pause ${autoSchedule.applicationMode === 'semi-auto' ? 'Semi auto' : 'Auto apply'}`}
             </button>
@@ -787,8 +801,11 @@ export function RunPanel({
           <div className={`run-auto-row${!autoSchedule?.enabled ? ' paused' : ''}`} aria-live="polite">
             <span className="run-auto-label">{entitlements.autoRunsPerDay} {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} daily</span>
             <span className="job-meta run-auto-status">
-              {autoSchedule?.enabled ? running ? 'Running now' : nextRunShort(autoSchedule) || 'Starting soon' : 'Paused'}
+              {autoSchedule?.enabled ? running && !adminMode ? 'Running now' : nextRunShort(autoSchedule) || 'Starting soon' : 'Paused'}
             </span>
+            {adminMode && autoSchedule?.enabled && !running && <button type="button" className="run-scope-link" disabled={autoToggling} onClick={() => void setAutoApply(false)}>
+              {autoToggling ? 'Pausing…' : 'Pause schedule'}
+            </button>}
           </div>
         )}
         </div>
@@ -1110,7 +1127,9 @@ export function RunPanel({
           >
             <div className="run-review-head">
               <div>
-                <p className="job-meta">Starting enables {entitlements?.autoRunsPerDay ?? 4} scheduled {(entitlements?.autoRunsPerDay ?? 4) === 1 ? 'run' : 'runs'} per 24 hours. Your run starts when its slot is due and capacity is available. Resuming keeps the gap between runs. Pause anytime on the Apply page.</p>
+                <p className="job-meta">{useScheduledRuns && scope === 'all'
+                  ? `Starting enables ${entitlements?.autoRunsPerDay ?? 4} scheduled ${(entitlements?.autoRunsPerDay ?? 4) === 1 ? 'run' : 'runs'} per 24 hours. Your run starts when its slot is due and capacity is available. Resuming keeps the gap between runs. Pause anytime on the Apply page.`
+                  : 'Start a single run now. This does not add or change scheduled runs.'}</p>
                 <h2 id="run-review-title">{applicationMode === 'semi-auto' ? 'Review Semi auto settings' : 'Review Auto apply settings'}</h2>
                 <p className="job-meta">Changes made here are saved before a live run starts.</p>
                 {!isAdmin && entitlements?.evaluationsPerRun != null && <p className="job-meta">AI reviews up to {entitlements.evaluationsPerRun} jobs each run. {billing?.paid.unlimitedApplications ? 'Your pass includes unlimited applications.' : applicationMode === 'semi-auto' ? 'Each prepared application uses one credit. Confirming it uses no additional credit.' : 'Each submitted application uses one credit.'}</p>}

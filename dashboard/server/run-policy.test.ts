@@ -144,6 +144,7 @@ for (const plan of [freeEntitlements, essentialEntitlements, intensiveEntitlemen
 }
 check('customers start their runs manually', intensiveEntitlements.manualRuns);
 check('administrators can start runs manually', adminEntitlements.manualRuns);
+check('admin manual runs do not wait for the scheduled daily run allowance', runControlRefusal('manual', { ...adminEntitlements, autoRunsUsedToday: 999 }) === null);
 const newCustomerEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRun: false });
 check('a new customer must start the first run', newCustomerEntitlements.firstRunRequired);
 check('a completed setup or first run never enables scheduling', deriveEntitlements({ ...intensiveFacts, autoApplyPaused: true }).autoApplyPaused && intensiveEntitlements.canPauseAutoApply);

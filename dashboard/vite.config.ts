@@ -1177,6 +1177,7 @@ function dataApi(): Plugin {
           }
           const runUser = await currentUser(req.headers?.cookie);
           if (!runUser) return send({ error: 'Sign in before starting a run.' }, 401);
+          const adminRun = isAdmin(runUser.email);
           /**
            * Entitlement, settings, allowance and deduction all live in
            * startRun, which the scheduler calls too — so a scheduled
@@ -1186,7 +1187,8 @@ function dataApi(): Plugin {
             userId,
             email: runUser.email,
             mode,
-            trigger: 'manual',
+            trigger: adminRun ? 'admin' : 'manual',
+            startedBy: adminRun ? runUser.id : undefined,
             initiatorDevice: runDeviceFromHeaders(req.headers),
             clientOverrides: body?.overrides ?? {},
             scope: body?.scope,

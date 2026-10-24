@@ -38,6 +38,8 @@ test('real DB: opt-in, mode, idempotence, concurrency, pause races, resume gap a
   await changeSchedule('1', true, 'semi-auto');
   assert.equal((await scheduleFor('1'))!.generation, initial.generation);
   await assert.rejects(changeSchedule('1', true, 'auto'), /Pause/);
+  // On-demand admin runs are audited separately and cannot move or spend scheduled slots.
+  await pool.query("INSERT INTO run_starts(user_id,mode,trigger,started_at) SELECT 1,'live','admin',now()-n*interval '1 minute' FROM generate_series(1,4) n");
   let launches = 0;
   const launch = async () => {
     launches++;

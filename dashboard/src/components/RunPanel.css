@@ -1,0 +1,16 @@
+.run-mode-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.run-admin-mode-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
