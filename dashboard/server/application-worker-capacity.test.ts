@@ -40,6 +40,21 @@ test('simultaneous starts reserve capacity and distinct ports before account pre
   assert.equal(pool.activeCount(), 3);
 });
 
+test('sign-in and route preparation reserve capacity before any worker is spawned', async () => {
+  const { pool, releases } = fixture();
+  for (const id of ['one', 'two', 'three']) assert.equal(pool.claimStart(id), true);
+  assert.equal(pool.activeCount(), 3);
+  assert.deepEqual(pool.activeUserIds(), ['one', 'two', 'three']);
+  assert.equal(pool.claimStart('four'), false);
+  assert.equal((await pool.start('live', {}, 'four')).ok, false);
+  const starts = ['one', 'two', 'three'].map(id => pool.start('live', {}, id));
+  assert.equal(pool.activeCount(), 3, 'converting claims to worker reservations never double-counts');
+  releases.forEach(release => release());
+  assert.ok((await Promise.all(starts)).every(result => result.ok));
+  for (const id of ['one', 'two', 'three']) pool.releaseStart(id);
+  assert.equal(pool.activeCount(), 3, 'releasing the start claim cannot release a live worker');
+});
+
 test('one parallel run plus one serial run respects the three-slot machine budget', async () => {
   const { pool, releases, accounts } = fixture();
   const first = pool.start('live', {}, 'one'), second = pool.start('live', {}, 'two');

@@ -407,6 +407,12 @@ class Run {
       COST_TRACKING: 'true',
     };
 
+    // A release can begin while the account export is awaiting the database.
+    if (deploying()) {
+      this.revokeGmail?.(); this.revokeGmail = null;
+      this.cdpPort = null;
+      return { ok: false, error: DEPLOYING_MESSAGE };
+    }
     this.lines = [];
     this.seq = 0;
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
@@ -483,6 +489,11 @@ class Run {
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: `Could not prepare this account's data for the scan: ${(error as Error).message}` };
+    }
+
+    if (deploying()) {
+      this.cdpPort = null;
+      return { ok: false, error: DEPLOYING_MESSAGE };
     }
 
     this.lines = [];
@@ -708,12 +719,13 @@ export class RunPool {
     let n = 0;
     for (const run of this.runs.values()) if (run.occupiesSlot) n += run.workerSlots;
     for (const [id, allocation] of this.preparing) if (!this.runs.get(id)?.occupiesSlot) n += allocation.slots;
+    for (const id of this.starting) if (!this.preparing.has(id) && !this.runs.get(id)?.occupiesSlot) n++;
     return n;
   }
 
   /** Accounts whose run still owns machine resources, used by lease cleanup. */
   activeUserIds(): string[] {
-    return [...this.runs.entries()].filter(([, run]) => run.occupiesSlot).map(([userId]) => userId);
+    return [...new Set([...this.starting, ...this.preparing.keys(), ...[...this.runs.entries()].filter(([, run]) => run.occupiesSlot).map(([userId]) => userId)])];
   }
 
   /** True while any account is running — the machine-wide question. */
@@ -734,7 +746,7 @@ export class RunPool {
   private starting = new Set<string>();
 
   claimStart(userId: string): boolean {
-    if (this.inUse(userId)) return false;
+    if (this.inUse(userId) || this.activeCount() >= MAX_CONCURRENT) return false;
     this.starting.add(userId);
     return true;
   }
@@ -745,7 +757,7 @@ export class RunPool {
 
   /** A run is starting or holds this account's browser; nothing else may open it. */
   inUse(userId: string): boolean {
-    return accountUnavailable(userId) || this.starting.has(userId) || Boolean(this.runs.get(userId)?.occupiesSlot) || browserBenchmarkInProgress(userId);
+    return accountUnavailable(userId) || this.starting.has(userId) || this.preparing.has(userId) || Boolean(this.runs.get(userId)?.occupiesSlot) || browserBenchmarkInProgress(userId);
   }
 
   browserPortFor(userId: string): number | null {
@@ -774,6 +786,7 @@ export class RunPool {
 
   private atCapacity(userId: string): string | null {
     if (this.runs.get(userId)?.occupiesSlot) return null; // its own guard reports better
+    if (this.starting.has(userId) && this.activeCount() <= MAX_CONCURRENT) return null; // already reserved during sign-in/data preparation
     if (this.activeCount() < MAX_CONCURRENT) return null;
     return `The server is already running ${MAX_CONCURRENT} applications at once. Try again in a few minutes.`;
   }

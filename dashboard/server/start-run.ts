@@ -142,7 +142,9 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
     return { ok: false, status: 403, error: 'An active user-enabled schedule is required.' };
   }
   if (!runner.claimStart(request.userId)) {
-    return { ok: false, status: 409, error: 'A run is already starting or in progress for this account.' };
+    return { ok: false, status: 409, error: runner.inUse(request.userId)
+      ? 'A run is already starting or in progress for this account.'
+      : 'The server is busy with other runs. Scheduled runs stay queued until a slot is available.' };
   }
   try {
     return await prepareAndStart(request);
