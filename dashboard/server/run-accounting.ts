@@ -1,3 +1,6 @@
+/** Calendar boundary shared by quota readers without loading plan or billing services. */
+export const RUN_TIME_ZONE = process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney';
+
 /**
  * Completion health and scheduled allowance are different facts. A run can
  * time out or be stopped after sending real applications; that work still

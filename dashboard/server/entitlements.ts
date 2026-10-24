@@ -4,11 +4,11 @@ import { billingStatus, isAdmin, type BillingStatus } from './billing.js';
 import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
 import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../src/pricing.js';
 import type { RunDevice } from '../src/run-device.js';
-import { countedRunSql } from './run-accounting.js';
+import { countedRunSql, RUN_TIME_ZONE } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
 import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
-export { SCHEDULED_MIN_SCORE };
+export { SCHEDULED_MIN_SCORE, RUN_TIME_ZONE };
 
 /**
  * What an account is allowed to do — decided in one place, for every caller.
@@ -25,7 +25,6 @@ export { SCHEDULED_MIN_SCORE };
 export type Tier = 'admin' | 'intensive' | 'standard';
 
 /** Local time is what a candidate means by "today". Scheduled runs happen at any hour of it. */
-export const RUN_TIME_ZONE = process.env.RUN_TIME_ZONE?.trim() || 'Australia/Sydney';
 
 /** Scheduled runs per local day for customer plans. */
 const FREE_AUTO_RUNS_PER_DAY = PLAN_LIMITS.free.autoRunsPerDay;
