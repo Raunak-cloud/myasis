@@ -406,6 +406,28 @@ try {
     await skippedPage.getByText(skippedFixture ? 'Skipped Fixture Role' : 'Nothing skipped lately', { exact: true }).waitFor();
   }
   await skippedContext.close();
+  // The candidate activity view shows outcomes, without internal setup or duplicate limit notices.
+  attentionFixture = false; searchStarted = false; preparingFixture = false;
+  for (admin of [false, true]) {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const lines = [
+      'Application workers: 2 (isolated sessions)',
+      '→ Applying: Fixture Developer @ Fixture Employer',
+      '✅ submitted (1/1)', 'Run cap of 1 reached.',
+      'Shared application allowance is reached.', '=== Run complete: 1 new application(s) ===',
+    ].map((text, seq) => ({ seq, stream: 'out', text }));
+    await page.route('**/api/run/stream', route => route.fulfill({ contentType: 'text/event-stream', body: lines.map(line => `data: ${JSON.stringify(line)}\n\n`).join('') }));
+    await page.goto(`${origin}/?tab=run`);
+    const feed = page.locator('.activity-feed');
+    await feed.getByText('Applied to Fixture Developer', { exact: true }).waitFor();
+    await feed.getByText('Run complete', { exact: true }).waitFor();
+    assert.equal(await feed.getByText('This run reached its limit', { exact: true }).count(), 1);
+    assert.doesNotMatch(await feed.innerText(), /worker|session|shared|unconfirmed|reserved/i);
+    await page.screenshot({ path: resolve(import.meta.dirname, `../../output/plain-activity-${admin ? 'admin' : 'user'}.png`) });
+    await context.close();
+  }
   // Recurring controls and the unlimited pricing view on desktop and mobile.
   admin = false; scheduleFixture = true; preparingFixture = false; remainingCredits = 5;
   {

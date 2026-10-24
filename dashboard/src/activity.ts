@@ -163,6 +163,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   let explained = false;
   let boards: string[] = [];
   let boardsEvent: ActivityEvent | null = null;
+  let applicationLimitEvent: ActivityEvent | null = null;
   let review: ActivityEvent | null = null;
   let reviewed = 0;
   let suitable = 0;
@@ -178,6 +179,12 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     `${reviewed} checked · ${suitable} profile ${suitable === 1 ? 'match' : 'matches'}` + (latestMatch ? ` · latest match: ${latestMatch}` : '');
   const applicationDetail = (extra?: string) =>
     [application?.company, ...(application?.steps ?? []), extra].filter(Boolean).join(' · ');
+  const applicationLimit = (line: LogLine, title: string, detail: string) => {
+    if (applicationLimitEvent) {
+      applicationLimitEvent.title = title;
+      applicationLimitEvent.detail = detail;
+    } else applicationLimitEvent = add(line, title, 'done', detail);
+  };
   const finishApplication = (line: LogLine) => {
     if (!application) return;
     const finishedAtMs = line.ts ? Date.parse(line.ts) : Number.NaN;
@@ -200,17 +207,15 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if (/stop requested/i.test(text)) {
       add(line, 'Run stopped', 'neutral', 'You stopped this run. Anything already submitted stays submitted.');
       explained = true;
-    } else if (/^Application workers: 2/.test(text)) {
-      add(line, 'Two application workers ready', 'done', 'SEEK and Indeed use isolated sessions with shared application limits.');
     } else if ((match = text.match(/(SEEK|Indeed) session OK/i))) {
       if (!boards.includes(match[1])) boards = [...boards, match[1]];
       const title = `Signed in to ${boards.join(' and ')}`;
       if (boardsEvent) boardsEvent.title = title;
       else boardsEvent = add(line, title, 'done');
     } else if (/(SmartRecruiters|Lever|Greenhouse|PageUp|Workday) public job feed ready/i.test(text)) {
-      add(line, `${text.match(/(SmartRecruiters|Lever|Greenhouse|PageUp|Workday) public job feed ready/i)?.[1]} employer feeds connected`, 'done', 'Searching Australian vacancies from the selected employers.');
+      add(line, `Searching ${text.match(/(SmartRecruiters|Lever|Greenhouse|PageUp|Workday) public job feed ready/i)?.[1]} jobs`, 'done', 'Looking for Australian vacancies at your selected employers.');
     } else if (/! (SmartRecruiters|lever|greenhouse|pageup|workday) employer .+ could not be searched:/i.test(text)) {
-      add(line, 'An employer feed could not be searched', 'warn', 'The other employer feeds continue. An admin can check the run console for details.');
+      add(line, 'Some employer jobs could not be searched', 'warn', 'Your search will continue with the other employers.');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
       // A feed with nothing in it is not news.
       if (Number(match[2]) > 0) add(line, `${match[1]} recommended ${match[2]} jobs for you`, 'done', 'New listings take priority over previously rejected jobs.');
@@ -230,10 +235,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if ((match = text.match(/(\d+) unique listings discovered/i))) {
       add(line, `Found ${match[1]} job listings`, 'done', 'Ones already applied to or recently checked are skipped.');
     } else if (/job-title search continues/i.test(text)) {
-      add(line, 'Searching for more jobs', 'neutral', 'The first listings ran out, so the search is reading further pages.');
+      add(line, 'Searching for more jobs', 'neutral', 'Looking for more jobs that match your preferences.');
     } else if ((match = text.match(/Search page (\d+): (\d+) new listing/i))) {
       const last = events.at(-1);
-      if (last?.title === 'Searching for more jobs') last.detail = `Page ${match[1]} added ${match[2]} new listings to review.`;
+      if (last?.title === 'Searching for more jobs') last.detail = `Found ${match[2]} more jobs to review.`;
     } else if (cardRejection.test(text)) {
       reviewed++;
       if (!review) review = add(line, 'Reviewing jobs', 'neutral', reviewDetail());
@@ -328,14 +333,14 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       application.event.detail = `${application.company} · ${readableError(match[1])}`;
       finishApplication(line);
     } else if (/Shared application allowance is reached/i.test(text)) {
-      add(line, 'The shared application limit is reached', 'done', 'Both workers share one limit. Unconfirmed sends keep their places until checked.');
+      if (!applicationLimitEvent) applicationLimit(line, 'This run reached its limit', 'No more applications will be prepared or submitted in this run.');
     } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
       add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
       explained = true;
     } else if ((match = text.match(/Run cap of (\d+) reached/i))) {
       if (outcomes.prepared === Number(match[1])) {
-        add(line, 'Applications saved for review', 'done', 'Prepared applications still need your confirmation before submission.');
-      } else add(line, 'This run reached its limit', 'done', `This run can prepare or submit up to ${match[1]} applications.`);
+        applicationLimit(line, 'Applications saved for review', 'Prepared applications still need your confirmation before submission.');
+      } else applicationLimit(line, 'This run reached its limit', `This run can prepare or submit up to ${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'}.`);
     } else if ((match = text.match(/evaluation cap \((\d+)\) reached/i))) {
       add(line, 'Review limit reached', 'warn', `This run used its ${match[1]} job reviews. Other listings may remain unreviewed; zero submissions does not mean there are no suitable jobs.`);
     } else if ((match = text.match(/✗\s+(?:unexpected )?error:\s*(.*)/i))) {

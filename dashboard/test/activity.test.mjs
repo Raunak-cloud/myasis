@@ -5,6 +5,33 @@ import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 
+test('activity omits internal worker setup and merges application limit notices in either order', () => {
+  for (const isAdmin of [false, true]) for (const notices of [
+    ['Run cap of 2 reached.', 'Shared application allowance is reached.'],
+    ['Shared application allowance is reached.', 'Run cap of 2 reached.'],
+    ['Shared application allowance is reached.'],
+  ]) {
+    const lines = log(['Application workers: 2 (isolated sessions)', ...notices]);
+    const events = activityEvents(lines, Infinity, isAdmin);
+    assert.equal(events.length, 1, 'one useful limit notice, without setup noise');
+    assert.equal(events[0].title, 'This run reached its limit');
+    assert.doesNotMatch(JSON.stringify(events), /worker|session|shared|unconfirmed|reserved/i);
+    if (notices.some(text => text.startsWith('Run cap'))) assert.match(events[0].detail, /up to 2 applications/);
+    assert.equal(lines[0].text, 'Application workers: 2 (isolated sessions)', 'diagnostic logs remain intact');
+  }
+});
+
+test('a shared limit notice cannot obscure prepared applications awaiting confirmation', () => {
+  const events = activityEvents(log([
+    'Ready for confirmation: Developer @ Employer',
+    'Run cap of 1 reached.', 'Shared application allowance is reached.',
+    '=== Semi auto complete: 1 application(s) ready for confirmation ===',
+  ]));
+  assert.equal(events.filter(event => event.title === 'Applications saved for review').length, 1);
+  assert.ok(events.every(event => event.title !== 'This run reached its limit'));
+  assert.match(events.at(-1).detail, /1 application ready for your confirmation. Nothing submitted/);
+});
+
 test('Semi auto reports prepared applications without claiming submission', () => {
   const lines = log(['→ Preparing: Developer @ Fixture', 'Ready for confirmation: Developer @ Fixture', '=== Semi auto complete: 1 application(s) ready for confirmation ===']);
   assert.equal(activitySummary(lines).submitted, 0);
@@ -110,7 +137,7 @@ test('public employer feeds report connection and partial failures without claim
     'SmartRecruiters public job feed ready (admin only).',
     '! SmartRecruiters employer Canva could not be searched: HTTP 429',
   ]));
-  assert.equal(events[0].title, 'SmartRecruiters employer feeds connected');
+  assert.equal(events[0].title, 'Searching SmartRecruiters jobs');
   assert.equal(events[1].tone, 'warn');
   assert.ok(events.every(event => !event.title.startsWith('Signed in')));
 });
