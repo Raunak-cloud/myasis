@@ -175,19 +175,21 @@ export function PricingPanel() {
                 : `Choose ${card.name}`;
           return (
             <article className={`pricing-card ${card.key === 'intensive-pass' ? 'premium' : ''} ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
-              <div className="pricing-card-top">
-                <h3>{card.name}</h3>
-                {isCurrent ? (
-                  <span className="pricing-tag current">Current plan</span>
-                ) : card.recommended ? (
-                  <span className="pricing-tag">Most popular</span>
-                ) : null}
+              <div className="pricing-plan-summary">
+                <div className="pricing-card-top">
+                  <h3>{card.name}</h3>
+                  {isCurrent ? (
+                    <span className="pricing-tag current">Current plan</span>
+                  ) : card.recommended ? (
+                    <span className="pricing-tag">Most popular</span>
+                  ) : null}
+                </div>
+                <p className="pricing-price">
+                  <strong>{card.price}</strong>
+                  <span>{card.term}</span>
+                </p>
+                <p className="pricing-plan-copy">{card.presentation.description}</p>
               </div>
-              <p className="pricing-plan-copy">{card.presentation.description}</p>
-              <p className="pricing-price">
-                <strong>{card.price}</strong>
-                <span>{card.term}</span>
-              </p>
               <ul className="pricing-features">
                 {card.presentation.features.map((feature) => (
                   <li key={feature}>
