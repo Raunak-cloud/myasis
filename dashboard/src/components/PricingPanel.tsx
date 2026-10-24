@@ -145,7 +145,7 @@ export function PricingPanel() {
       <header className="pricing-head">
         <span className="pricing-kicker">Plans &amp; pricing</span>
         <h2>Choose your job search plan</h2>
-        <p>One payment. No subscription. Free includes 1 run per day, Essential 2, and Active Search and Get Owtomated 4. Start when you are ready and pause anytime.</p>
+        <p>One payment. No subscription.</p>
       </header>
 
       {status && (
