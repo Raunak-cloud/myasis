@@ -26,6 +26,8 @@ export default {
   },
   webpack(config, { webpack }) {
     config.resolve.modules.push(resolve(directory, 'node_modules'));
+    // Shared TypeScript uses runtime .js imports; resolve its source when bundling.
+    config.resolve.extensionAlias = { ...config.resolve.extensionAlias, '.js': ['.js', '.ts', '.tsx'] };
     config.plugins.push(new webpack.DefinePlugin({
       __REDDIT_PIXEL_ID__: JSON.stringify(publicPixel('REDDIT_PIXEL_ID')),
       __META_PIXEL_ID__: JSON.stringify(publicPixel('META_PIXEL_ID')),
