@@ -44,8 +44,28 @@
   border-color: #c7a25e;
   background: linear-gradient(145deg, #fff9ec, #f3e3bc);
   box-shadow: inset 0 1px 0 #fffdf6;
+  isolation: isolate;
+  overflow: hidden;
 }
-.pricing-page .pricing-card.premium::before { content: none; }
+.pricing-page .pricing-card.premium::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: linear-gradient(110deg, transparent 38%, rgba(255, 255, 255, .48) 50%, transparent 62%);
+  transform: translateX(-120%);
+  animation: pricing-gold-shimmer 10s ease-in-out 1s infinite;
+  pointer-events: none;
+}
+.pricing-page .pricing-card.premium > * { position: relative; z-index: 1; }
+@keyframes pricing-gold-shimmer {
+  0% { transform: translateX(-120%); }
+  28%, 100% { transform: translateX(120%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pricing-page .pricing-card.premium::before { content: none; animation: none; }
+}
 .pricing-page .pricing-card.premium .pricing-features svg { color: var(--plan-check); }
 .pricing-page .premium .pricing-tag.current { background: #e7cf99; color: #5a4218; }
 .pricing-page .premium .pricing-cta { border-color: #75521b; background: #75521b; color: #fff8e9; }
