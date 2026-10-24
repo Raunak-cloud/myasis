@@ -106,16 +106,6 @@ async function surface(page: Page): Promise<string> {
   return framesState(page.frames());
 }
 
-/**
- * The same fingerprint for the embedded frames alone. The agent loop's
- * no-progress check reads the main frame's observation, so a form inside an
- * iframe (JobAdder, many council and university sites) looked unchanged
- * while the agent was filling it, and the application was abandoned as stuck.
- */
-export async function embeddedSurface(page: Page): Promise<string> {
-  return framesState(page.frames().filter((frame) => frame !== page.mainFrame()));
-}
-
 async function framesState(frames: Frame[]): Promise<string> {
   const parts = await Promise.all(frames.map((frame) => frame
     .evaluate(() => {

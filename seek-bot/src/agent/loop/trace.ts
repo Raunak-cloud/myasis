@@ -1,12 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { Page } from 'patchright';
 import { config } from '../../config.js';
 import type { JobListing } from '../../types.js';
 import { isExternal } from '../guards.js';
-import type { AgentTermination, ToolContext } from '../tools.js';
+import type { AgentTermination } from '../tools.js';
 
-// Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
+// Audit records shared by the active application agent.
 
 export interface TraceStep {
   step: number;
@@ -20,39 +19,12 @@ export interface TraceStep {
   screenshot?: string;
 }
 
-export function pathOf(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.hostname}${parsed.pathname}`;
-  } catch {
-    return url;
-  }
-}
-
-export function hostOf(url: string): string {
+function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
     return '';
   }
-}
-
-export function describeCall(ctx: ToolContext, tool: string, args: Record<string, unknown>): string {
-  if (tool === 'click') {
-    const action = ctx.observation.actions.find((candidate) => candidate.ref === String(args.ref));
-    return `click "${action?.text ?? String(args.ref)}"`;
-  }
-  if (tool === 'answer_questions') {
-    const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
-    const labels = ctx.observation.fields.filter((field) => refs.includes(field.ref)).map((field) => field.label);
-    return `answer ${labels.length} question(s): ${labels.slice(0, 6).join('; ')}${labels.length > 6 ? '…' : ''}`;
-  }
-  if (tool === 'click_point') return `click at (${args.x},${args.y}): ${String(args.reason ?? '')}`;
-  if (tool === 'evaluate_script') return `script: ${String(args.function ?? '').replace(/s+/g, ' ').slice(0, 200)}`;
-  if (tool === 'navigate_page') return `navigate ${String(args.type)}${args.url ? ` ${String(args.url)}` : ''}`;
-  if (['click_element', 'fill_element', 'hover', 'upload_file'].includes(tool)) return `${tool.replace(/_/g, ' ')} ${String(args.ref ?? '')}`;
-  if (tool === 'finish') return `finish ${String(args.status)}: ${String(args.reason ?? '')}`;
-  return tool.replace(/_/g, ' ');
 }
 
 const SITE_HINTS = () => resolve(config.dataDir, 'site-hints.json');
@@ -63,7 +35,7 @@ interface SiteHint {
   updatedAt: string;
 }
 
-export function loadSiteHints(): Record<string, SiteHint> {
+function loadSiteHints(): Record<string, SiteHint> {
   try {
     return existsSync(SITE_HINTS()) ? (JSON.parse(readFileSync(SITE_HINTS(), 'utf8')) as Record<string, SiteHint>) : {};
   } catch {
@@ -95,51 +67,5 @@ export function persistTrace(job: JobListing, outcome: AgentTermination, trace: 
     }
   } catch {
     /* a missing trace must never fail an application */
-  }
-}
-
-/**
- * Centre the unanswered field before taking the handoff screenshot.
- *
- * Found by its ref when extraction saw it, otherwise by its label text (a
- * field only the accessibility snapshot showed). When neither finds it, the
- * page as it stands is still captured: the candidate is better served by the
- * page the run stopped on than by "no capture".
- */
-export async function captureBlockedField(page: Page, ref: string | undefined, label: string): Promise<string | undefined> {
-  let field: ReturnType<Page['locator']> | undefined;
-  let priorOutline: { outline: string; outlineOffset: string } | undefined;
-  const plain = async () => page.screenshot({ type: 'jpeg', quality: 65 })
-    .then((shot) => `data:image/jpeg;base64,${shot.toString('base64')}`)
-    .catch(() => undefined);
-  try {
-    const byRef = ref ? page.locator(`[data-field-id="${ref}"], [data-field-id^="${ref}:"]`).first() : undefined;
-    const text = label.replace(/[\s*:]+$/, '').trim();
-    const byLabel = text ? page.getByLabel(text, { exact: false }).first() : undefined;
-    const byText = text ? page.getByText(text, { exact: false }).first() : undefined;
-    for (const candidate of [byRef, byLabel, byText]) {
-      if (candidate && await candidate.isVisible().catch(() => false)) { field = candidate; break; }
-    }
-    if (!field) return await plain();
-    priorOutline = await field.evaluate((element) => {
-      element.scrollIntoView({ block: 'center', inline: 'nearest' });
-      const html = element as HTMLElement;
-      const prior = { outline: html.style.outline, outlineOffset: html.style.outlineOffset };
-      html.style.outline = '3px solid #2563a6';
-      html.style.outlineOffset = '3px';
-      return prior;
-    });
-    const shot = await page.screenshot({ type: 'jpeg', quality: 65 });
-    return `data:image/jpeg;base64,${shot.toString('base64')}`;
-  } catch {
-    return await plain();
-  } finally {
-    if (field && priorOutline) {
-      await field.evaluate((element, prior) => {
-        const html = element as HTMLElement;
-        html.style.outline = prior.outline;
-        html.style.outlineOffset = prior.outlineOffset;
-      }, priorOutline).catch(() => {});
-    }
   }
 }

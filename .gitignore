@@ -29,6 +29,8 @@ render_check/
 # Scratch work: drafts, renders and one-off verification scripts
 tmp/
 output/
+# Generated screenshots and browser-task journals are not application source.
+/artifacts/
 
 # Local tool configuration
 .claude/

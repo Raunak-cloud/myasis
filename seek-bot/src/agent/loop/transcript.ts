@@ -1,8 +1,7 @@
-import type { Page } from 'patchright';
 import type { ChatMessage } from '../celeris.js';
 import { renderObservation, type Observation } from '../observe.js';
 
-// Part of the agent loop, split from loop.ts by concern; loop.ts re-exports it.
+// Observation messages and transcript trimming used by the application agent.
 
 /** Rough token proxy; good enough to decide when to trim, and free. */
 const estimateTokens = (messages: ChatMessage[]): number =>
@@ -42,29 +41,4 @@ export function observationMessage(observation: Observation, note?: string): Cha
       { type: 'image_url', image_url: { url: observation.screenshot } },
     ],
   };
-}
-
-/**
- * The observation reads the main document only. A form embedded in an iframe
- * (an ATS inside an employer's careers page, a CAPTCHA-free sign-in widget) is
- * invisible to it, so the agent is told one is there and how to see it.
- */
-export async function embeddedForms(page: Page): Promise<string> {
-  const frames = page.frames().filter((frame) => frame !== page.mainFrame() && /^https?:|^about:srcdoc/.test(frame.url()));
-  const found: string[] = [];
-  for (const frame of frames.slice(0, 8)) {
-    const controls = await frame
-      .evaluate(() => [...document.querySelectorAll('input:not([type="hidden"]), textarea, select, button')]
-        .filter((el) => (el as HTMLElement).offsetParent !== null).length)
-      .catch(() => 0);
-    if (controls < 2) continue;
-    // CAPTCHA frames belong to the solver.
-    if (/recaptcha|hcaptcha|turnstile|challenges.cloudflare|arkoselabs|funcaptcha/i.test(frame.url())) continue;
-    let host = 'an embedded page';
-    try { host = new URL(frame.url()).host || host; } catch {}
-    found.push(`${host} (${controls} controls)`);
-  }
-  return found.length
-    ? `This page embeds a form in an iframe that ACTIONS and FIELDS do not include: ${found.join('; ')}. Call take_snapshot to see and use it.`
-    : '';
 }

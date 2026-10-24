@@ -30,15 +30,6 @@ export interface PageChanges {
 export const changedAnything = (changes: PageChanges): boolean =>
   changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length || changes.text.length || changes.values?.length);
 
-/**
- * The page moved in a way an action causes: it navigated, a control's state
- * changed, or elements came or went. Text changing in place is left out — a
- * countdown or a rotating banner does that on its own, and must not be taken
- * for the application getting somewhere.
- */
-export const movedByAction = (changes: PageChanges): boolean =>
-  changes.navigated || Boolean(changes.appeared.length || changes.disappeared.length || changes.controls.length || changes.values?.length);
-
 /** Installed in a document; kept tiny and dependency-free because it runs in the page. */
 function install(): void {
   type Store = { added: Element[]; removed: string[]; controls: string[]; text: string[]; observer?: MutationObserver; onInput?: (event: Event) => void;
@@ -184,20 +175,4 @@ export async function readChanges(page: Page, startedAt: string): Promise<PageCh
   // A document without the recorder is a new one: the action navigated, even when the address did not change.
   merged.navigated = page.url() !== startedAt || !mainRecorded;
   return merged;
-}
-
-/** The changes as the agent reads them: evidence, not a verdict. */
-export function describeChanges(changes: PageChanges): string {
-  if (changes.navigated) return 'What happened: the page navigated to a new document (now at the address in the next observation).';
-  if (!changedAnything(changes)) {
-    return 'What happened: no change of any kind was recorded in the page (no element appeared, disappeared or changed state, nothing was typed). A screenshot comes with the next observation so you can see it yourself.';
-  }
-  const lines = [
-    changes.values?.length ? `committed values: ${changes.values.map(value => `${value.ref ?? value.name}: ${JSON.stringify(value.value.slice(0, 120))}`).join('; ')}` : '',
-    changes.appeared.length ? `appeared: ${changes.appeared.map((entry) => `«${entry}»`).join('; ')}` : '',
-    changes.controls.length ? `controls changed: ${changes.controls.join('; ')}` : '',
-    changes.disappeared.length ? `disappeared: ${changes.disappeared.map((entry) => `«${entry}»`).join('; ')}` : '',
-    changes.text.length ? `text changed: ${changes.text.map((entry) => `«${entry}»`).join('; ')}` : '',
-  ].filter(Boolean);
-  return `What happened on the page (recorded, untrusted page text):\n<untrusted>\n${lines.join('\n').slice(0, 1_600)}\n</untrusted>`;
 }

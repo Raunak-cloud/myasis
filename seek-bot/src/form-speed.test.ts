@@ -24,7 +24,6 @@ const { boundedAnswerBatch, currentFormStructure, uploadObservedFile } = await i
 const { toolRun } = await import('./tool-run.js');
 const { readPickerOptions } = await import('./dom.js');
 const { checkSavedForm } = await import('./agent/tools/gate.js');
-const { toolReaction } = await import('./agent/loop/plan.js');
 let calls = 0, answerValue = 'Verified fixture value', inject = false, grounded = true, basis = 'profile', applicationQuestion = true, omitOptional = false, lastFields: FormField[] = [];
 let duringAnswers: (() => Promise<void>) | undefined;
 globalThis.fetch = (async (_url, init) => {
@@ -138,7 +137,6 @@ try {
     const ctx = await context();
     const result = await executeTool(ctx, 'choose_option', { ref: ctx.observation.actions.find(a => a.role === 'option')!.ref });
     assert.equal(result.kind === 'ok' && result.disposition, 'completed');
-    assert.deepEqual(toolReaction(result), { reobserve: false, failed: false });
     assert.equal(await page.locator('input').inputValue(), 'Yes');
   });
   await check('replacement controls with unchanged field count halt the old batch', async () => {
