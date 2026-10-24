@@ -38,7 +38,7 @@ import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
 import { gmailAccess } from './gmail-access.js';
 import { scheduledStart } from './run-schedule.js';
-import { dailyApplicationLimit } from '../../seek-bot/src/run-limits.js';
+import { dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -171,9 +171,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     const oneTime = request.oneTime;
     if (!oneTime || typeof oneTime !== 'object' || Array.isArray(oneTime)
       || (oneTime.allowMissingSalary !== undefined && typeof oneTime.allowMissingSalary !== 'boolean')
-      || (oneTime.maxApplications !== undefined && (!Number.isInteger(oneTime.maxApplications) || oneTime.maxApplications < 1 || oneTime.maxApplications > 10))
+      || (oneTime.maxApplications !== undefined && (!Number.isInteger(oneTime.maxApplications) || oneTime.maxApplications < 1 || oneTime.maxApplications > USER_RUN_LIMITS.MAX_APPS_PER_DAY))
       || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > 150))) {
-      return { ok: false, status: 400, error: 'Use 1–10 applications and 1–150 job reviews for a one-time run.' };
+      return { ok: false, status: 400, error: `Use 1–${USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications and 1–150 job reviews for a one-time run.` };
     }
   }
 
@@ -284,8 +284,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   }
   if (request.jobIds !== undefined) {
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can target a retry.' };
-    if (!Array.isArray(request.jobIds) || !request.jobIds.length || request.jobIds.length > 10 || request.jobIds.some(id => typeof id !== 'string' || !/^\d{6,12}$/.test(id))) {
-      return { ok: false, status: 400, error: 'Provide between 1 and 10 valid SEEK job IDs.' };
+    if (!Array.isArray(request.jobIds) || !request.jobIds.length || request.jobIds.length > USER_RUN_LIMITS.MAX_APPS_PER_DAY || request.jobIds.some(id => typeof id !== 'string' || !/^\d{6,12}$/.test(id))) {
+      return { ok: false, status: 400, error: `Provide between 1 and ${USER_RUN_LIMITS.MAX_APPS_PER_DAY} valid SEEK job IDs.` };
     }
     const ids = [...new Set(request.jobIds)] as string[];
     const jobs = await query<{ job_id: string; title: string; company: string }>(

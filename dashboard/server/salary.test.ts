@@ -60,8 +60,10 @@ try {
   }
   const exception = await startRun({ userId:'salary-test', mode:'live', trigger:'admin', startedBy:'1', oneTime:{allowMissingSalary:true,maxApplications:3,maxEvaluations:150} });
   assert.ok(!exception.ok && exception.error.includes('Upload your resume'), 'verified operator exception passes salary, keeps other setup gates');
-  const invalidLimit = await startRun({ userId:'salary-test', mode:'live', trigger:'admin', startedBy:'1', oneTime:{allowMissingSalary:true,maxApplications:11} });
-  assert.ok(!invalidLimit.ok && invalidLimit.status === 400);
+  const fullDailyLimit = await startRun({ userId:'salary-test', mode:'live', trigger:'admin', startedBy:'1', oneTime:{allowMissingSalary:true,maxApplications:100} });
+  assert.ok(!fullDailyLimit.ok && fullDailyLimit.error.includes('Upload your resume'), 'a 100-application diagnostic retains setup checks');
+  const invalidLimit = await startRun({ userId:'salary-test', mode:'live', trigger:'admin', startedBy:'1', oneTime:{allowMissingSalary:true,maxApplications:101} });
+  assert.ok(!invalidLimit.ok && invalidLimit.status === 400 && invalidLimit.error.includes('1–100'));
   const missingActor = await startRun({ userId:'salary-test', mode:'live', trigger:'admin', oneTime:{allowMissingSalary:true} });
   assert.ok(!missingActor.ok && missingActor.status === 403);
   pool.query = (async (sql: string) => {

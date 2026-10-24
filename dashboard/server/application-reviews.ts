@@ -5,6 +5,7 @@ import { consumeApplicationCredit } from './application-credits.js';
 import { isAdmin } from './admin-access.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
+import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
 export interface ReviewSelection { id: string; revision: string; retry?: boolean }
 export class ApplicationReviewError extends Error {}
@@ -20,7 +21,7 @@ export async function recoverApplicationReviews(userId: string): Promise<void> {
 }
 
 export function reviewSelection(value: unknown): ReviewSelection[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 10) throw new ApplicationReviewError('Select between 1 and 10 prepared applications.');
+  if (!Array.isArray(value) || value.length < 1 || value.length > USER_RUN_LIMITS.MAX_APPS_PER_DAY) throw new ApplicationReviewError(`Select between 1 and ${USER_RUN_LIMITS.MAX_APPS_PER_DAY} prepared applications.`);
   if (!value.every(item => item && typeof item.id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(item.id)
     && typeof item.revision === 'string' && /^[a-f0-9]{64}$/i.test(item.revision)
     && (item.retry === undefined || typeof item.retry === 'boolean'))

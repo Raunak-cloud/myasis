@@ -89,6 +89,9 @@ try {
   assert.equal((await listApplicationReviews('1')).find(item => item.id === changed.id)?.status, 'failed', 'interrupted sends cannot silently retry');
   assert.throws(() => reviewSelection([select(first), select(first)]), /Reload/);
   assert.throws(() => reviewSelection([]), /Select/);
+  const hundred = Array.from({ length: 100 }, (_, index) => select(draft(`batch-${index}`)));
+  assert.equal(reviewSelection(hundred).length, 100, 'confirmations may use the full daily application allowance');
+  assert.throws(() => reviewSelection([...hundred, select(draft('one-too-many'))]), /100/);
 
   const fifty = Array.from({ length: 50 }, (_, index) => `word${index}`).join(' ');
   await saveUserSettings('1', { COVER_LETTER_INSTRUCTIONS: fifty });
