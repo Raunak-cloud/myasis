@@ -51,7 +51,6 @@ const RUN_DEFAULTS: Record<string, string> = {
   MIN_SALARY: '70000',
   MIN_HOURLY_RATE: '0',
   MAX_AGE_DAYS: '20',
-  MAX_APPS_PER_RUN: '5',
   MAX_EVALUATIONS: '40',
   MIN_SCORE: '60',
   MAX_APPS_PER_DAY: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
@@ -379,13 +378,12 @@ export function RunPanel({
     ? Math.max(0, (running || !Number.isFinite(finishedAtMs) ? clock : finishedAtMs) - startedAtMs)
     : null;
   /** An operator's application and review limits have no default: empty means none. */
-  const optionalLimit = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS'].includes(key);
+  const optionalLimit = (key: string) => isAdmin && key === 'MAX_EVALUATIONS';
   /**
    * A number an operator set against this account, which runs use whatever is
    * typed here. Shown in the field rather than left to contradict it: the
    * review limit is one only for an admin, where the plan sets no number.
    */
-  const forcedApplications = entitlements?.maxApplicationsPerRunOverride ?? null;
   const forcedEvaluations = isAdmin ? entitlements?.evaluationsPerRun ?? null : null;
   const val = (k: string, d = optionalLimit(k) ? '' : RUN_DEFAULTS[k] ?? '') => {
     const value = edits[k] ?? settings[k] ?? d;
@@ -496,12 +494,10 @@ export function RunPanel({
    * a large value here is what earned a bot challenge that blocked the account.
    */
   const RUN_CAP_VALUES: Record<string, number> = {
-    MAX_APPS_PER_RUN: 10,
     MAX_EVALUATIONS: 150,
     ...USER_RUN_LIMITS,
   };
   const RUN_CAPS = [
-    { key: 'MAX_APPS_PER_RUN', label: 'Max applications' },
     { key: 'MAX_EVALUATIONS', label: 'Jobs to evaluate' },
     { key: 'PAGES_PER_KEYWORD', label: 'Search pages per term' },
     { key: 'MAX_APPS_PER_DAY', label: 'Daily application cap' },
@@ -552,11 +548,11 @@ export function RunPanel({
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
-      'MIN_SALARY', 'MIN_HOURLY_RATE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS',
+      'MIN_SALARY', 'MIN_HOURLY_RATE', 'MAX_AGE_DAYS', 'MAX_EVALUATIONS',
       'MIN_SCORE', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
     ].filter((key) => !unlimited(key));
     const positiveKeys = [
-      'MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
+      'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
     ].filter((key) => !unlimited(key));
     if (!updates.KEYWORDS.trim()) {
       fail('Add at least one job title or search term.', 'KEYWORDS');
@@ -1365,35 +1361,13 @@ export function RunPanel({
                 <h3>{isAdmin ? 'Run settings' : 'Run limits'}</h3>
                 {isAdmin && (
                   <p className="job-meta run-review-unlimited">
-                    Admin runs have no limits unless you set one here. Leave a field empty for none.
-                    {(forcedApplications !== null || forcedEvaluations !== null)
+                    Applications use your daily allowance. Leave the review limit empty for none.
+                    {(forcedEvaluations !== null)
                       && ' A greyed-out field was set for this account in Admin, and that number wins.'}
                   </p>
                 )}
                 <div className="run-review-grid">
 
-                  {(isAdmin || entitlements?.fineTune && !billing?.paid.unlimitedApplications) && <label className="field">
-                    <FieldLabel
-                      label="Max applications"
-                      help={forcedApplications !== null
-                        ? `An operator has set this account to ${forcedApplications} applications per run. Runs use that number.`
-                        : isAdmin
-                          ? 'The most applications this run can complete before stopping. Empty means no limit.'
-                          : 'The most applications this run can complete before stopping. Capped at 10 per run.'}
-                    />
-                    <input
-                      className="input"
-                      data-field="MAX_APPS_PER_RUN"
-                      type="number"
-                      min="1"
-                      max={isAdmin ? undefined : 10}
-                      placeholder={isAdmin ? 'No limit' : undefined}
-                      disabled={forcedApplications !== null}
-                      value={forcedApplications !== null ? String(forcedApplications) : val('MAX_APPS_PER_RUN')}
-                      onChange={(e) => setEdit('MAX_APPS_PER_RUN', e.target.value)}
-                    />
-                    {fieldError('MAX_APPS_PER_RUN')}
-                  </label>}
                   {isAdmin && (
                   <label className="field">
                     <FieldLabel

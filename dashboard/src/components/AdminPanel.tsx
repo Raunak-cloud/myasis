@@ -348,7 +348,6 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   const [grantPlan, setGrantPlan] = useState<string>('job-search-pass');
   const [confirmEmail, setConfirmEmail] = useState('');
   const [evaluationsInput, setEvaluationsInput] = useState('');
-  const [maxAppsInput, setMaxAppsInput] = useState('');
   const [homeRouteInput, setHomeRouteInput] = useState('');
   const [externalJobUrl, setExternalJobUrl] = useState('');
   const [externalConfirmation, setExternalConfirmation] = useState<{ userId: string; email: string; url: string } | null>(null);
@@ -380,7 +379,6 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   // the platform ceiling — not just what was typed.
   useEffect(() => {
     setEvaluationsInput(user?.overrides.evaluationsPerRun != null ? String(user.overrides.evaluationsPerRun) : '');
-    setMaxAppsInput(user?.overrides.maxApplicationsPerRun != null ? String(user.overrides.maxApplicationsPerRun) : '');
     setHomeRouteInput(user?.route.homePort != null ? String(user.route.homePort) : '');
     setProxyInput(user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '');
   }, [user]);
@@ -393,13 +391,12 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 'invalid';
     };
     const evaluationsPerRun = parse(evaluationsInput);
-    const maxApplicationsPerRun = parse(maxAppsInput);
     const homeRoutePort = parse(homeRouteInput);
     if (homeRoutePort === 'invalid' || (homeRoutePort !== null && (!Number.isInteger(homeRoutePort) || homeRoutePort < 1024 || homeRoutePort > 65535))) {
       setError('The home route port must be a whole number from 1024 to 65535, or blank for none.');
       return;
     }
-    if (evaluationsPerRun === 'invalid' || maxApplicationsPerRun === 'invalid') {
+    if (evaluationsPerRun === 'invalid') {
       setError('Limits must be a positive number, or left blank to use the plan default.');
       return;
     }
@@ -411,7 +408,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
         method: 'POST',
         json: {
           evaluationsPerRun,
-          maxApplicationsPerRun,
+          maxApplicationsPerRun: null,
           homeRoutePort,
           ...(proxyChanged ? { proxy: proxyInput.trim() || null } : {}),
         },
@@ -631,17 +628,6 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                       placeholder={user.admin ? 'No limit' : 'Plan default'}
                       value={evaluationsInput}
                       onChange={(event) => setEvaluationsInput(event.target.value)}
-                    />
-                  </label>
-                  <label className="admin-switch-row">
-                    <span>Applications per run</span>
-                    <input
-                      className="input"
-                      type="number"
-                      min={1}
-                      placeholder={user.admin ? 'No limit' : 'Plan default'}
-                      value={maxAppsInput}
-                      onChange={(event) => setMaxAppsInput(event.target.value)}
                     />
                   </label>
                   <label className="admin-switch-row">

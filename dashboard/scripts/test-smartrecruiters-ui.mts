@@ -143,6 +143,7 @@ try {
     await page.getByRole('button', { name: 'Start Auto apply', exact: true }).click({ timeout: 15_000 });
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
+    assert.equal(await dialog.locator('[data-field="MAX_APPS_PER_RUN"]').count(), 0, 'runs use the daily allowance without a per-run application control');
     assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
     if (admin) {
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);

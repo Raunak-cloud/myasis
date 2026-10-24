@@ -35,18 +35,8 @@ const INTENSIVE_AUTO_RUNS_PER_DAY = PLAN_LIMITS['intensive-pass'].autoRunsPerDay
 /** Scheduled runs per local day for an operator of this installation. */
 const ADMIN_AUTO_RUNS_PER_DAY = 4;
 
-/**
- * Per-account admin overrides: how many listings a run reviews, and how many
- * applications one run may submit. Set by an operator to give one account
- * more or less than its plan — for cost control, or a real problem case —
- * without moving the account to a different plan.
- *
- * Stored as settings rows outside `KEEP_SETTINGS_KEYS`, the same way
- * private scheduling state is: `/api/settings` never exposes them to the
- * account, and they survive the standard-tier fine-tuning reset in
- * `applyRunPolicy`, which resets everything in that key set back to the
- * product default before an operator's override ever gets a say.
- */
+/** Per-account review overrides. Legacy application overrides are cleared,
+ * because normal runs use the shared daily application allowance. */
 const ADMIN_EVALUATIONS_OVERRIDE_KEY = 'ADMIN_EVALUATIONS_OVERRIDE';
 const ADMIN_MAX_APPS_OVERRIDE_KEY = 'ADMIN_MAX_APPS_OVERRIDE';
 
@@ -72,7 +62,8 @@ export async function adminOverridesFor(userId: string): Promise<AdminOverrides>
   const byKey = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     evaluationsPerRun: parsePositiveInt(byKey[ADMIN_EVALUATIONS_OVERRIDE_KEY]),
-    maxApplicationsPerRun: parsePositiveInt(byKey[ADMIN_MAX_APPS_OVERRIDE_KEY]),
+    // Legacy per-run application overrides no longer restrict normal runs.
+    maxApplicationsPerRun: null,
   };
 }
 
@@ -96,8 +87,8 @@ export async function setAdminOverrides(
     await upsertSettingRow(userId, ADMIN_EVALUATIONS_OVERRIDE_KEY, clamped ? String(clamped) : '');
   }
   if (overrides.maxApplicationsPerRun !== undefined) {
-    const clamped = clamp(overrides.maxApplicationsPerRun, RUN_LIMITS.MAX_APPS_PER_RUN);
-    await upsertSettingRow(userId, ADMIN_MAX_APPS_OVERRIDE_KEY, clamped ? String(clamped) : '');
+    // Clear deprecated overrides supplied by older admin clients.
+    await upsertSettingRow(userId, ADMIN_MAX_APPS_OVERRIDE_KEY, '');
   }
 }
 
@@ -137,6 +128,7 @@ const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
 const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
 export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier'>>): boolean {
+  if (key === 'MAX_APPS_PER_RUN') return false;
   if (key === 'APPLICATION_AI_MODEL' || key === 'APPLICATION_AGENT_MODE') return entitlement.tier === 'admin';
   if (!FINE_TUNING_KEYS.includes(key)) return true;
   return entitlement.fineTune
@@ -198,34 +190,20 @@ export function applyRunPolicy(
   }
   // A pass that includes Indeed adds it, unless the account picked its boards itself.
   resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '' }, entitlement);
-  /**
-   * An operator's numbers for this account win over both the plan's own
-   * default and whatever the account saved — that is the point of setting
-   * one. Applied after the fine-tuning reset above, so they survive for a
-   * standard account whose own MAX_APPS_PER_RUN was just wiped back to the
-   * product default, and before the operator pass below, which keeps any
-   * digits it finds.
-   */
+  // Review overrides remain independent of the application allowance.
   if (entitlement.evaluationsPerRun !== null) {
     resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);
   }
-  if (entitlement.maxApplicationsPerRunOverride !== null) {
-    resolved.MAX_APPS_PER_RUN = String(entitlement.maxApplicationsPerRunOverride);
-  }
+  // Ignore old per-run defaults and operator overrides. The shared daily
+  // allowance and available credits are the application boundaries.
+  resolved.MAX_APPS_PER_RUN = String(USER_RUN_LIMITS.MAX_APPS_PER_DAY);
   if (entitlement.tier !== 'admin' && (trigger === 'auto' || entitlement.advancedFilters)) {
     const requestedScore = Number(resolved.MIN_SCORE);
     resolved.MIN_SCORE = String(entitlement.advancedFilters && Number.isFinite(requestedScore)
       ? Math.max(CUSTOM_MIN_SCORE, Math.min(MAX_MATCH_SCORE, requestedScore))
       : SCHEDULED_MIN_SCORE);
   }
-  /**
-   * An operator of this installation sets their own limits, or none. A number
-   * they saved on the Apply page for applications per run or listings
-   * reviewed is used as given; an empty optional limit means no limit at
-   * all. "none" reaches the bot, which honours it only alongside
-   * ADMIN_UNLIMITED; an operator narrowing one run on the command line still
-   * can, because those arguments come after this.
-   */
+  // An empty operator review limit means no review ceiling.
   if (entitlement.tier === 'admin') {
     for (const key of OPTIONAL_LIMIT_KEYS) {
       const value = (resolved[key] ?? '').trim();

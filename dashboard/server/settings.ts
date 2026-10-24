@@ -43,11 +43,12 @@ const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
 /** Mirrors seek-bot's own clamps, so the dashboard shows what a run will really use. */
 export const RUN_LIMITS: Record<string, number> = {
   MAX_EVALUATIONS: 150,
-  MAX_APPS_PER_RUN: 10,
+  MAX_APPS_PER_RUN: USER_RUN_LIMITS.MAX_APPS_PER_DAY,
   ...USER_RUN_LIMITS,
 };
 
 function normalizeSetting(key: string, value: string): string {
+  if (key === 'MAX_APPS_PER_RUN') return String(USER_RUN_LIMITS.MAX_APPS_PER_DAY);
   if (key === 'KEYWORDS') {
     return limitSearchTerms(value);
   }
@@ -99,7 +100,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   MIN_HOURLY_RATE: '0',
   MIN_SCORE: '60',
   MAX_AGE_DAYS: '20',
-  MAX_APPS_PER_RUN: '5',
+  MAX_APPS_PER_RUN: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
   MAX_APPS_PER_DAY: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
   MAX_EVALUATIONS: '40',
   PAGES_PER_KEYWORD: '1',
@@ -131,23 +132,19 @@ export async function runSettingsSnapshotForUser(
   const saved = await loadUserSettings(userId);
   const out: Record<string, string> = {};
   for (const key of KEEP_SETTINGS_KEYS) {
-    /**
-     * An operator's limits have no default. The product default of five
-     * applications a run exists for accounts on a plan; filled in for an
-     * operator who set nothing it would silently become their limit, when
-     * nothing set means none — see applyRunPolicy.
-     */
+    // Operators may leave review capacity unbounded. Applications always
+    // use the shared daily allowance, including with legacy saved values.
     const fallback = options.unlimited && (OPTIONAL_LIMIT_KEYS as readonly string[]).includes(key) ? '' : RUN_SETTING_DEFAULTS[key] ?? '';
     const value = saved[key] ?? fallback;
-    // Review and per-run limits can be overridden. Listing age, selected
+    // Review limits can be overridden. Listing age, selected
     // daily caps, search terms and pages stay bounded for everyone.
-    out[key] = options.unlimited && key !== 'KEYWORDS' && !(key in USER_RUN_LIMITS) ? value : normalizeSetting(key, value);
+    out[key] = options.unlimited && key !== 'KEYWORDS' && key !== 'MAX_APPS_PER_RUN' && !(key in USER_RUN_LIMITS) ? value : normalizeSetting(key, value);
   }
   return { settings: out, saved };
 }
 
-/** Operators may leave per-run application and review limits empty; the daily maximum always applies. */
-export const OPTIONAL_LIMIT_KEYS = ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS'] as const;
+/** Operators may leave the review limit empty; the daily application maximum always applies. */
+export const OPTIONAL_LIMIT_KEYS = ['MAX_EVALUATIONS'] as const;
 
 export async function loadUserSettings(userId: string): Promise<Record<string, string>> {
   const rows = await query<{ key: string; value: string }>(

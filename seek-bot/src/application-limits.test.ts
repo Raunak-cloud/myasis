@@ -25,3 +25,13 @@ test('actual runner config enforces age, selected daily cap and page ceilings fo
     assert.deepEqual(JSON.parse(result.trim().split('\n').at(-1)!), [30,100,6]);
   }
 });
+
+
+test('ordinary runners can use the complete daily allowance without the old ten-application ceiling', () => {
+  const source = `import {config} from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
+    console.log(JSON.stringify([config.limits.maxApplicationsPerRun,config.limits.maxApplicationsPerDay]));`;
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', source], {
+    env: { ...process.env, ADMIN_UNLIMITED:'false', APPLICATIONS_UNLIMITED:'false', MAX_APPS_PER_RUN:'100', MAX_APPS_PER_DAY:'100' }, encoding:'utf8',
+  });
+  assert.deepEqual(JSON.parse(output.trim().split('\n').at(-1)!), [100,100]);
+});

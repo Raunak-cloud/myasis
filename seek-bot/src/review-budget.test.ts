@@ -22,6 +22,7 @@ function run(jobs: FixtureJob[], options: { pages?: number; priorReviews?: Array
     writeFileSync(join(directory, 'profile.txt'), 'Full name: Fixture Candidate\n');
     writeFileSync(join(directory, 'applied.json'), JSON.stringify(options.history ?? []));
     writeFileSync(join(directory, 'jobs.json'), JSON.stringify(jobs));
+    writeFileSync(join(directory, 'events.jsonl'), '');
     writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(jobs.filter(item => options.approvedIds?.includes(item.id)).map(item => ({ job: item }))));
     writeFileSync(join(directory, 'pending-application-keys.json'), JSON.stringify(options.pendingKeys ?? []));
     writeFileSync(join(directory, 'boundary.mjs'), `
@@ -139,7 +140,7 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
         APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     const history: AppliedRecord[] = JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8'));
     return { output, events, history };
   } finally {
@@ -571,4 +572,18 @@ for (const maximum of [20, 30]) test(`company and ${maximum}-day age filters exc
   assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['eligible']);
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['eligible']);
   assert.equal(result.history.length, 1);
+});
+
+
+test('parallel scheduled runs can exceed ten sends and share the remaining 100-application daily allowance', () => {
+  const batch = (prefix: string, size: number) => Array.from({ length:size }, (_, i) => job(`${prefix}-${i}`, { platform:i%2?'indeed':'seek' }));
+  const first = run(batch('morning',70), {apply:true, workers:2, cap:100, dailyCap:100, reviews:70});
+  assert.equal(first.events.filter(event => event.stage==='finish').length,70);
+  const second = run(batch('afternoon',70), {apply:true, workers:2, cap:100, dailyCap:100, reviews:70, history:first.history});
+  assert.equal(second.events.filter(event => event.stage==='finish').length,30);
+  assert.equal(second.history.filter(record => record.submittedByMyasis).length,100);
+  assert.equal(second.events.filter(event => event.stage==='activity-finished').length,2);
+  const third = run(batch('evening',5), {apply:true, workers:2, cap:100, dailyCap:100, reviews:70, history:second.history});
+  assert.equal(third.events.filter(event => event.stage==='apply').length,0);
+  assert.equal(third.history.filter(record => record.submittedByMyasis).length,100);
 });

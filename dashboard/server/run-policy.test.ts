@@ -68,11 +68,11 @@ check('Intensive runs assess 80 jobs', intensive.MAX_EVALUATIONS === '80');
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, adminPolicy, 'manual');
 check('admins keep a review limit they set, unclamped', admin.MAX_EVALUATIONS === '500');
-check('admins have the global daily ceiling even when per-run applications are unlimited', admin.MAX_APPS_PER_RUN === 'none' && admin.MAX_APPS_PER_DAY === '100');
+check('admins have the global daily ceiling even when per-run applications are unlimited', admin.MAX_APPS_PER_RUN === '100' && admin.MAX_APPS_PER_DAY === '100');
 const adminBlank = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '', MAX_APPS_PER_RUN: '0', MAX_APPS_PER_DAY: ' ' }, adminPolicy, 'manual');
-check('empty optional admin limits mean none; the daily ceiling stays 100', adminBlank.MAX_EVALUATIONS === 'none' && adminBlank.MAX_APPS_PER_RUN === 'none' && adminBlank.MAX_APPS_PER_DAY === '100');
+check('empty optional admin limits mean none; the daily ceiling stays 100', adminBlank.MAX_EVALUATIONS === 'none' && adminBlank.MAX_APPS_PER_RUN === '100' && adminBlank.MAX_APPS_PER_DAY === '100');
 const adminTyped = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '30', MAX_APPS_PER_DAY: '80' }, adminPolicy, 'manual');
-check('admins keep application limits they set, above the plan ceilings', adminTyped.MAX_APPS_PER_RUN === '30' && adminTyped.MAX_APPS_PER_DAY === '80');
+check('legacy admin per-run values cannot reduce the daily application allowance', adminTyped.MAX_APPS_PER_RUN === '100' && adminTyped.MAX_APPS_PER_DAY === '80');
 for (const policy of [intensivePolicy, adminPolicy]) {
   const high = applyRunPolicy({ ...saved, MAX_AGE_DAYS:'99', MAX_APPS_PER_DAY:'999', PAGES_PER_KEYWORD:'99' }, policy, 'auto');
   check(`${policy.tier} legacy settings obey the 30-day, 100-application and six-page maximums`, high.MAX_AGE_DAYS === '30' && high.MAX_APPS_PER_DAY === '100' && high.PAGES_PER_KEYWORD === '6');
@@ -155,19 +155,16 @@ check('manual discovery cannot bypass the saved schedule', runControlRefusal('ma
 check('manual starts cannot exceed the plan daily run allowance', runControlRefusal('manual', { ...freeEntitlements, autoRunsUsedToday: 1 })?.status === 403);
 check('confirming prepared jobs does not spend another daily run', runControlRefusal('manual', { ...freeEntitlements, autoRunsUsedToday: 1 }, true) === null);
 
-// An operator's per-account override is a control, not a suggestion: it wins
-// over the free plan's own default and survives the fine-tuning reset that
-// wipes anything else a standard account tries to save for this key.
+// Old per-run application overrides must not restore the retired cap.
 const freeWithOverride = { ...freePolicy, maxApplicationsPerRunOverride: 2 };
 const overridden = applyRunPolicy(saved, freeWithOverride, 'manual');
-check('an operator override wins over the free plan default', overridden.MAX_APPS_PER_RUN === '2');
+check('legacy free per-run overrides no longer reduce the daily allowance', overridden.MAX_APPS_PER_RUN === '100');
 const intensiveWithOverride = { ...intensivePolicy, maxApplicationsPerRunOverride: 1 };
 const overriddenIntensive = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '10' }, intensiveWithOverride, 'manual');
-check('an operator override wins over an Intensive account\'s own saved value', overriddenIntensive.MAX_APPS_PER_RUN === '1');
-// An override on an operator's own account binds it too. Discarding it let an
-// account whose Limits panel read 51 review every listing it found.
+check('legacy Intensive per-run values no longer restrict normal runs', overriddenIntensive.MAX_APPS_PER_RUN === '100');
+// The same rule applies to administrator accounts.
 const adminWithOverride = applyRunPolicy(saved, { ...adminPolicy, maxApplicationsPerRunOverride: 3 }, 'manual');
-check('an operator override binds an admin account as well', adminWithOverride.MAX_APPS_PER_RUN === '3');
+check('legacy admin overrides cannot restore a separate application cap', adminWithOverride.MAX_APPS_PER_RUN === '100');
 const adminReviewOverride = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '' }, { ...adminPolicy, evaluationsPerRun: 50 }, 'manual');
 check('a review override caps an admin account that set no limit of its own', adminReviewOverride.MAX_EVALUATIONS === '50');
 const adminOverrideWins = applyRunPolicy(
@@ -175,9 +172,9 @@ const adminOverrideWins = applyRunPolicy(
   { ...adminPolicy, evaluationsPerRun: 50, maxApplicationsPerRunOverride: 3 },
   'manual',
 );
-check('an override wins over the numbers an admin saved itself', adminOverrideWins.MAX_EVALUATIONS === '50' && adminOverrideWins.MAX_APPS_PER_RUN === '3');
+check('review overrides remain independent of the daily application allowance', adminOverrideWins.MAX_EVALUATIONS === '50' && adminOverrideWins.MAX_APPS_PER_RUN === '100');
 const adminNoOverride = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '' }, adminPolicy, 'manual');
-check('an admin with no override still has no limit', adminNoOverride.MAX_EVALUATIONS === 'none' && adminNoOverride.MAX_APPS_PER_RUN === 'none');
+check('an admin with no override still has no limit', adminNoOverride.MAX_EVALUATIONS === 'none' && adminNoOverride.MAX_APPS_PER_RUN === '100');
 const adminOverrideAuto = applyRunPolicy(saved, { ...adminPolicy, evaluationsPerRun: 50 }, 'auto');
 check('a review override holds for an admin\'s scheduled runs too', adminOverrideAuto.MAX_EVALUATIONS === '50');
 
@@ -203,6 +200,14 @@ check('Essential says it gets two scheduled runs', said('essential-pass').includ
 check('Active Search says the scheduled runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} scheduled runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
 check('Intensive says scheduled runs, both modes, reviews and employer-site applications', said('intensive-pass').includes('Up to 4 scheduled runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('employer-site applications'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
+
+
+for (const policy of [freePolicy, essentialPolicy, jobSearchPolicy, intensivePolicy, adminPolicy]) {
+  for (const trigger of ['auto', 'manual'] as const) for (const oldCap of ['1', '2', '5', '10', 'none', '999']) {
+    const actual = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: oldCap }, { ...policy, maxApplicationsPerRunOverride: 2 }, trigger);
+    check(`${policy.tier} ${trigger} ignores a legacy ${oldCap} application cap`, actual.MAX_APPS_PER_RUN === '100');
+  }
+}
 
 console.log(`\n${failures} failure(s)`);
 process.exit(failures ? 1 : 0);

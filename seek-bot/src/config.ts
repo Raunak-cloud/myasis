@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import type { CandidateProfile } from './types.js';
 import { applicationModelEnvironment } from './application-model.js';
-import { boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
+import { USER_RUN_LIMITS, boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -244,7 +244,7 @@ export const config = {
      * by the dashboard for an operator of this installation, who is the one
      * person who can judge the traffic risk and is accepting it deliberately.
      */
-    maxApplicationsPerRun: ceiling(10, process.env.MAX_APPS_PER_RUN, 8, true),
+    maxApplicationsPerRun: ceiling(USER_RUN_LIMITS.MAX_APPS_PER_DAY, process.env.MAX_APPS_PER_RUN, USER_RUN_LIMITS.MAX_APPS_PER_DAY, true),
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
     maxEvaluations: ceiling(150, process.env.MAX_EVALUATIONS, 40),
