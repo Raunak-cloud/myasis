@@ -218,7 +218,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
 export function checkoutPriceData(planKey: PaidPlanKey) {
   const plan = PAID_PLANS[planKey];
   return {
-    currency: 'aud', unit_amount: plan.priceCents,
+    currency: 'aud', unit_amount: plan.priceCents, tax_behavior: 'inclusive' as const,
     product_data: {
       name: plan.name,
       description: plan.kind === 'pass'

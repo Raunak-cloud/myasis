@@ -15,6 +15,7 @@ after(async () => { await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
 test('Stripe product is AUD79.99 once, with unlimited applications and 60 days', () => {
   const price = checkoutPriceData('intensive-pass');
   assert.equal(price.currency, 'aud'); assert.equal(price.unit_amount, 7999);
+  assert.equal(price.tax_behavior, 'inclusive', 'tax must not increase the advertised checkout amount');
   assert.equal(price.product_data.name, 'Get Owtomated');
   assert.match(price.product_data.description, /Unlimited applications.*60 days.*no automatic renewal/);
   assert.doesNotMatch(price.product_data.description, /400/);
