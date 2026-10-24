@@ -25,7 +25,7 @@ import { query, one, health as dbHealth, migrate as dbMigrate } from './server/d
 import { upsertSettingRow } from './server/db/records.js';
 import { matchThresholdError } from './src/runSettings.js';
 import { CUSTOM_MIN_SCORE } from './src/pricing.js';
-import { userRunLimitError } from '../seek-bot/src/run-limits.js';
+import { userRunLimitError, dailyApplicationLimit } from '../seek-bot/src/run-limits.js';
 /** The resume note on Apply, once dismissed: a UI preference, never part of a run's settings. */
 const BOARD_RESUMES_NOTE_DISMISSED = 'BOARD_RESUMES_NOTE_DISMISSED';
 import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
@@ -456,7 +456,7 @@ function dataApi(): Plugin {
               const error = matchThresholdError(updates.MIN_SCORE, entitlements.tier === 'admin' ? 0 : CUSTOM_MIN_SCORE);
               if (error) return send({ error }, 400);
             }
-            const limitError = userRunLimitError(updates, entitlements.tier === 'admin' || entitlements.tier === 'intensive');
+            const limitError = userRunLimitError(updates);
             if (limitError) return send({ error: limitError.message }, 400);
             // Boards that differ from what a run would have used are the person's own choice, kept from now on.
             const before = await loadUserSettings(userId);
@@ -469,14 +469,14 @@ function dataApi(): Plugin {
               settings[DAILY_APPLICATION_CAP_CHOSEN] = '1';
             }
             return send({ ok: true, settings: { ...settings, KEYWORDS: limitSearchTerms(settings.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(settings, entitlements),
-              ...(entitlements.tier === 'intensive' && settings[DAILY_APPLICATION_CAP_CHOSEN] !== '1' ? { MAX_APPS_PER_DAY: '' } : {}) } });
+              MAX_APPS_PER_DAY: String(dailyApplicationLimit(entitlements.tier === 'intensive' && settings[DAILY_APPLICATION_CAP_CHOSEN] !== '1' ? undefined : settings.MAX_APPS_PER_DAY)) } });
           }
           // What the run screen shows is what a run would use, not the raw saved value.
           const viewer = await currentUser(req.headers?.cookie);
           const saved = await loadUserSettings(userId);
           const entitlements = await entitlementsFor(userId, viewer?.email);
           return send({ ...saved, KEYWORDS: limitSearchTerms(saved.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(saved, entitlements),
-            ...(entitlements.tier === 'intensive' && saved[DAILY_APPLICATION_CAP_CHOSEN] !== '1' ? { MAX_APPS_PER_DAY: '' } : {}) });
+            MAX_APPS_PER_DAY: String(dailyApplicationLimit(entitlements.tier === 'intensive' && saved[DAILY_APPLICATION_CAP_CHOSEN] !== '1' ? undefined : saved.MAX_APPS_PER_DAY)) });
         });
       }
 

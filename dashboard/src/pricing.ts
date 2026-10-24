@@ -1,4 +1,7 @@
+import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+
 export const FREE_APPLICATIONS = 5;
+export const DAILY_APPLICATION_MAX = USER_RUN_LIMITS.MAX_APPS_PER_DAY;
 
 /** One-off, non-renewing products. Prices include GST where it applies. */
 export const PAID_PLANS = {
@@ -16,7 +19,7 @@ export const PAID_PLANS = {
   'intensive-pass': {
     key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 7999,
     applications: 400, durationDays: 60, employerSiteApplications: 30, unlimitedApplications: true,
-    description: 'Unlimited applications for 60 days. Start once, pause anytime.',
+    description: 'Unlimited application credits for 60 days, up to 100 applications per day.',
   },
   'application-top-up': {
     key: 'application-top-up', kind: 'application-top-up', name: 'Application Top-up', priceCents: 690,
@@ -89,6 +92,7 @@ export const PLAN_PRESENTATION = {
     description: PAID_PLANS['intensive-pass'].description,
     features: [
       'Unlimited applications',
+      `Daily limit: ${DAILY_APPLICATION_MAX} applications`,
       `${PAID_PLANS['intensive-pass'].durationDays} days of access`,
       `Up to ${plural(INTENSIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,

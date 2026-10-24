@@ -68,9 +68,9 @@ check('Intensive runs assess 80 jobs', intensive.MAX_EVALUATIONS === '80');
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, adminPolicy, 'manual');
 check('admins keep a review limit they set, unclamped', admin.MAX_EVALUATIONS === '500');
-check('admins with no saved limit have none on applications per run or per day', admin.MAX_APPS_PER_RUN === 'none' && admin.MAX_APPS_PER_DAY === 'none');
+check('admins have the global daily ceiling even when per-run applications are unlimited', admin.MAX_APPS_PER_RUN === 'none' && admin.MAX_APPS_PER_DAY === '100');
 const adminBlank = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '', MAX_APPS_PER_RUN: '0', MAX_APPS_PER_DAY: ' ' }, adminPolicy, 'manual');
-check('an empty, zero or blank admin limit means none', adminBlank.MAX_EVALUATIONS === 'none' && adminBlank.MAX_APPS_PER_RUN === 'none' && adminBlank.MAX_APPS_PER_DAY === 'none');
+check('empty optional admin limits mean none; the daily ceiling stays 100', adminBlank.MAX_EVALUATIONS === 'none' && adminBlank.MAX_APPS_PER_RUN === 'none' && adminBlank.MAX_APPS_PER_DAY === '100');
 const adminTyped = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '30', MAX_APPS_PER_DAY: '80' }, adminPolicy, 'manual');
 check('admins keep application limits they set, above the plan ceilings', adminTyped.MAX_APPS_PER_RUN === '30' && adminTyped.MAX_APPS_PER_DAY === '80');
 for (const policy of [intensivePolicy, adminPolicy]) {
@@ -86,7 +86,7 @@ check('Free runs assess 15 jobs', standardAuto.MAX_EVALUATIONS === '15');
 check('Free first-run policy also assesses 15 jobs', standardManual.MAX_EVALUATIONS === '15');
 check('Essential runs assess 25 jobs', applyRunPolicy(saved, essentialPolicy, 'auto').MAX_EVALUATIONS === '25');
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, adminPolicy, 'auto');
-check('admin scheduled runs keep their own limits too', adminAuto.MAX_EVALUATIONS === '100' && adminAuto.MAX_APPS_PER_DAY === 'none');
+check('admin scheduled runs keep their review limit and the global daily ceiling', adminAuto.MAX_EVALUATIONS === '100' && adminAuto.MAX_APPS_PER_DAY === '100');
 check('admin scheduled runs keep their own match threshold', adminAuto.MIN_SCORE === saved.MIN_SCORE);
 check('admin scheduled live runs keep the saved prompt', adminAuto.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 const jobSearchAuto = applyRunPolicy(saved, jobSearchPolicy, 'auto');

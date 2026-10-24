@@ -36,7 +36,7 @@ export const KEEP_SETTINGS_KEYS = [
 
 /** TARGET_ROLE remains only so every run explicitly blanks legacy values. */
 export const USER_SETTABLE_SETTINGS_KEYS = KEEP_SETTINGS_KEYS.filter((key) => key !== 'TARGET_ROLE');
-/** Old hidden daily-cap defaults must not become a newly imposed cap on unlimited passes. */
+/** Distinguishes a chosen daily cap from the old hidden defaults on Get Owtomated. */
 export const DAILY_APPLICATION_CAP_CHOSEN = 'DAILY_APPLICATION_CAP_CHOSEN';
 
 const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
@@ -100,7 +100,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   MIN_SCORE: '60',
   MAX_AGE_DAYS: '20',
   MAX_APPS_PER_RUN: '5',
-  MAX_APPS_PER_DAY: '20',
+  MAX_APPS_PER_DAY: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
   MAX_EVALUATIONS: '40',
   PAGES_PER_KEYWORD: '1',
   COVER_LETTER_MODE: 'tailored',
@@ -146,8 +146,8 @@ export async function runSettingsSnapshotForUser(
   return { settings: out, saved };
 }
 
-/** The limits an operator may leave empty, meaning none: applications per run and per day, and listings reviewed. */
-export const OPTIONAL_LIMIT_KEYS = ['MAX_APPS_PER_RUN', 'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS'] as const;
+/** Operators may leave per-run application and review limits empty; the daily maximum always applies. */
+export const OPTIONAL_LIMIT_KEYS = ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS'] as const;
 
 export async function loadUserSettings(userId: string): Promise<Record<string, string>> {
   const rows = await query<{ key: string; value: string }>(

@@ -70,7 +70,7 @@ try {
     assert.equal(entitlement.scheduledMinScore, 60);
     if (plan === 'intensive-pass') {
       await client.query("INSERT INTO settings(user_id,key,value) VALUES($1,'MAX_APPS_PER_DAY','20') ON CONFLICT(user_id,key) DO UPDATE SET value='20'",[peer]);
-      assert.equal((await (await request('/api/settings','GET',undefined,'peer-token')).json() as Record<string,string>).MAX_APPS_PER_DAY,'','an old hidden default does not impose a new daily cap on unlimited access');
+      assert.equal((await (await request('/api/settings','GET',undefined,'peer-token')).json() as Record<string,string>).MAX_APPS_PER_DAY,'100','old hidden defaults use the new global daily maximum');
     }
     const limits = plan === 'intensive-pass' ? {MAX_AGE_DAYS:'30',MAX_APPS_PER_DAY:'100',PAGES_PER_KEYWORD:'6'} : {MAX_AGE_DAYS:'30'};
     const allowedLimits = await request('/api/settings','POST',{updates:limits},'peer-token');
@@ -80,6 +80,7 @@ try {
     if (plan === 'intensive-pass') {
       assert.equal((await (await request('/api/settings','GET',undefined,'peer-token')).json() as Record<string,string>).MAX_APPS_PER_DAY,'100','an explicitly chosen daily cap persists on unlimited access');
       assert.equal(keptLimits.DAILY_APPLICATION_CAP_CHOSEN,'1');
+      for (const value of ['','none','0']) assert.equal((await request('/api/settings','POST',{updates:{MAX_APPS_PER_DAY:value}},'peer-token')).status,400,'unlimited passes cannot bypass the global daily maximum');
     }
     for (const [key,value] of Object.entries(limits)) assert.equal((await request('/api/settings','POST',{updates:{[key]:String(Number(value)+1)}},'peer-token')).status,400);
     for (const score of ['60', '70', '100']) {
@@ -101,6 +102,9 @@ try {
   for (const [key,max] of Object.entries({MAX_AGE_DAYS:30,MAX_APPS_PER_DAY:100,PAGES_PER_KEYWORD:6})) {
     assert.equal((await request('/api/settings','POST',{updates:{[key]:String(max)}},'owner-token')).status,200);
     assert.equal((await request('/api/settings','POST',{updates:{[key]:String(max+1)}},'owner-token')).status,400,'admins use the same configurable maximum');
+  }
+  for (const cookie of ['owner-token','peer-token']) for (const value of ['','none','0']) {
+    assert.equal((await request('/api/settings','POST',{updates:{MAX_APPS_PER_DAY:value}},cookie)).status,cookie==='owner-token'?400:200,'admin daily caps cannot be left unlimited; unavailable customer settings remain ignored');
   }
   if(originalAdmins===undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS=originalAdmins;
   for(const path of ['/api/daily-summary','/api/account']) assert.equal((await request(path,'GET',undefined,'')).status,401);

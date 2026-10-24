@@ -309,10 +309,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       if (unlimitedApplications && !admin) {
         overrides.APPLICATIONS_UNLIMITED = 'true';
         overrides.MAX_APPS_PER_RUN = 'none';
-        // Unlimited access may still have a daily cap chosen by the account.
+        // Every account has a daily ceiling, including unlimited passes.
         const chosenDailyCap = String(request.clientOverrides?.MAX_APPS_PER_DAY
           ?? (settingsSnapshot.saved[DAILY_APPLICATION_CAP_CHOSEN] === '1' ? settingsSnapshot.saved.MAX_APPS_PER_DAY : '') ?? '').trim();
-        if (!chosenDailyCap || chosenDailyCap === 'none') overrides.MAX_APPS_PER_DAY = 'none';
+        overrides.MAX_APPS_PER_DAY = String(dailyApplicationLimit(chosenDailyCap));
       }
       const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
       const externalAvailable = prepaidExternal > 0 || allowance.paid.hasActiveIntensivePass
@@ -385,7 +385,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * same count the dashboard shows as "sent today".
    */
   if (consumes) {
-    const limit = dailyApplicationLimit(overrides.MAX_APPS_PER_DAY, overrides.ADMIN_UNLIMITED === 'true' || overrides.APPLICATIONS_UNLIMITED === 'true');
+    const limit = dailyApplicationLimit(overrides.MAX_APPS_PER_DAY);
     const sent = await submittedToday(userId).catch(() => 0);
     if (Number.isFinite(limit) && sent >= limit) {
       return {

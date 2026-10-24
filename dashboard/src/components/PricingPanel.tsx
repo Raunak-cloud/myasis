@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { aud, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
+import { aud, PAID_PLANS, PLAN_PRESENTATION, DAILY_APPLICATION_MAX, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
@@ -261,7 +261,7 @@ export function PricingPanel() {
         </article>
         <article>
           <strong>Simple application allowance</strong>
-          <p>Preparing or submitting an application uses one credit. Confirming a prepared application uses no extra credit. Get Owtomated has no application cap; up to 80 jobs are reviewed each run. Matches, available listings and site restrictions affect results.</p>
+          <p>Preparing or submitting an application uses one credit. Confirming a prepared application uses no extra credit. Get Owtomated has no application credit cap. Every account can submit up to {DAILY_APPLICATION_MAX} applications per day. Lower chosen caps and available credits still apply.</p>
         </article>
       </section>
 

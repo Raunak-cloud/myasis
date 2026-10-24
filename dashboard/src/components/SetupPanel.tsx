@@ -95,7 +95,10 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       .catch(() => {});
   }, []);
 
-  const val = (k: string, d = '') => edits[k] ?? settings[k] ?? d;
+  const val = (k: string, d = '') => {
+    const value = edits[k] ?? settings[k] ?? d;
+    return k === 'MAX_APPS_PER_DAY' && edits[k] === undefined && (!value.trim() || value === 'none') ? String(USER_RUN_LIMITS.MAX_APPS_PER_DAY) : value;
+  };
   const set = (k: string, v: string) => {
     setEdits((current) => ({ ...current, [k]: v }));
     setSaved(false);
@@ -115,7 +118,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       const error = matchThresholdError(updates.MIN_SCORE, entitlements?.tier === 'admin' ? 0 : CUSTOM_MIN_SCORE);
       if (error) { setSaveError(error); return; }
     }
-    const limitError = userRunLimitError(updates, entitlements?.tier === 'admin' || entitlements?.tier === 'intensive');
+    const limitError = userRunLimitError(updates);
     if (limitError) { setSaveError(limitError.message); return; }
     const res = await fetch('/api/settings', {
       method: 'POST',
@@ -365,7 +368,6 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
                   value={val('MAX_APPS_PER_DAY')}
                   min="1"
                   max={USER_RUN_LIMITS.MAX_APPS_PER_DAY}
-                  placeholder={canFineTune ? 'No limit' : undefined}
                   onChange={(e) => set('MAX_APPS_PER_DAY', e.target.value)}
                 />
                 <span className="job-meta">Choose up to {USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications per day.</span>

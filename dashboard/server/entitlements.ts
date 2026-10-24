@@ -6,7 +6,7 @@ import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } f
 import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
-import { boundedUserRunLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
 export { SCHEDULED_MIN_SCORE };
 
@@ -234,8 +234,8 @@ export function applyRunPolicy(
     }
   }
   for (const key of Object.keys(USER_RUN_LIMITS) as Array<keyof typeof USER_RUN_LIMITS>) {
-    if (key === 'MAX_APPS_PER_DAY' && (entitlement.tier === 'admin' || entitlement.tier === 'intensive') && (!resolved[key]?.trim() || resolved[key] === 'none')) {
-      resolved[key] = 'none';
+    if (key === 'MAX_APPS_PER_DAY') {
+      resolved[key] = String(dailyApplicationLimit(resolved[key]));
     } else resolved[key] = String(boundedUserRunLimit(key, resolved[key], Number(RUN_SETTING_DEFAULTS[key])));
   }
   return resolved;

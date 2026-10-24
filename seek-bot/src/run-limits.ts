@@ -12,11 +12,10 @@ const LABELS: Record<LimitKey, string> = {
   PAGES_PER_KEYWORD: 'Search pages per term',
 };
 
-export function userRunLimitError(updates: Record<string, unknown>, uncappedDaily = false): { key: LimitKey; message: string } | null {
+export function userRunLimitError(updates: Record<string, unknown>): { key: LimitKey; message: string } | null {
   for (const key of Object.keys(USER_RUN_LIMITS) as LimitKey[]) {
     if (updates[key] === undefined) continue;
     const raw = String(updates[key] ?? '').trim();
-    if (key === 'MAX_APPS_PER_DAY' && uncappedDaily && (!raw || raw === 'none')) continue;
     const value = Number(raw);
     if (!raw || !Number.isInteger(value) || value < 1 || value > USER_RUN_LIMITS[key]) {
       return { key, message: `${LABELS[key]} must be between 1 and ${USER_RUN_LIMITS[key]}.` };
@@ -31,6 +30,7 @@ export function boundedUserRunLimit(key: LimitKey, raw: string | undefined, fall
   return !raw?.trim() || !Number.isFinite(value) ? fallback : Math.max(1, Math.min(USER_RUN_LIMITS[key], Math.floor(value)));
 }
 
-export function dailyApplicationLimit(raw: string | undefined, uncapped: boolean): number {
-  return uncapped && raw?.trim().toLowerCase() === 'none' ? Infinity : boundedUserRunLimit('MAX_APPS_PER_DAY', raw, 20);
+export function dailyApplicationLimit(raw: string | undefined): number {
+  return !raw?.trim() || !Number.isFinite(Number(raw)) || Number(raw) <= 0
+    ? USER_RUN_LIMITS.MAX_APPS_PER_DAY : boundedUserRunLimit('MAX_APPS_PER_DAY', raw, USER_RUN_LIMITS.MAX_APPS_PER_DAY);
 }

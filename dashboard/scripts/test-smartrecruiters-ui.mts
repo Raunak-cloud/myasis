@@ -493,6 +493,7 @@ try {
     for (const [key,max,label] of [['MAX_AGE_DAYS',30,'Max listing age'],['MAX_APPS_PER_DAY',100,'Daily application cap'],['PAGES_PER_KEYWORD',6,'Search pages per term']] as const) {
       const input = dialog.locator(`[data-field=${key}]`);
       assert.equal(await input.getAttribute('max'),String(max));
+      if (key === 'MAX_APPS_PER_DAY') assert.equal(await input.getAttribute('placeholder'),null,'daily applications never offer No limit');
       await input.fill(String(max+1));
       await dialog.getByRole('button',{name:'Start Semi auto',exact:true}).click();
       await dialog.getByText(`${label} must be between 1 and ${max}.`,{exact:true}).waitFor();
@@ -528,6 +529,7 @@ try {
     const card = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name: 'Get Owtomated', exact: true }) });
     await card.getByText('A$79.99', { exact: true }).waitFor();
     await card.getByText('Unlimited applications', { exact: true }).last().waitFor();
+    await card.getByText('Daily limit: 100 applications', { exact: true }).waitFor();
     await card.getByText('60 days of access', { exact: true }).waitFor();
     assert.equal(await page.locator('.pricing-topup').count(), 0, 'unlimited customers are not sold top-ups');
     assert.ok(await page.locator('.pricing-status').textContent().then(text => text?.includes('Unlimited')));

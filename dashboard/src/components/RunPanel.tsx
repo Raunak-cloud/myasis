@@ -53,7 +53,7 @@ const RUN_DEFAULTS: Record<string, string> = {
   MAX_APPS_PER_RUN: '5',
   MAX_EVALUATIONS: '40',
   MIN_SCORE: '60',
-  MAX_APPS_PER_DAY: '20',
+  MAX_APPS_PER_DAY: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
   PAGES_PER_KEYWORD: '1',
   COVER_LETTER_MODE: 'tailored',
   COVER_LETTER_TEXT_B64: '',
@@ -375,8 +375,7 @@ export function RunPanel({
     ? Math.max(0, (running || !Number.isFinite(finishedAtMs) ? clock : finishedAtMs) - startedAtMs)
     : null;
   /** An operator's application and review limits have no default: empty means none. */
-  const optionalLimit = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY'].includes(key)
-    || key === 'MAX_APPS_PER_DAY' && billing?.paid.unlimitedApplications === true;
+  const optionalLimit = (key: string) => isAdmin && ['MAX_APPS_PER_RUN', 'MAX_EVALUATIONS'].includes(key);
   /**
    * A number an operator set against this account, which runs use whatever is
    * typed here. Shown in the field rather than left to contradict it: the
@@ -386,6 +385,7 @@ export function RunPanel({
   const forcedEvaluations = isAdmin ? entitlements?.evaluationsPerRun ?? null : null;
   const val = (k: string, d = optionalLimit(k) ? '' : RUN_DEFAULTS[k] ?? '') => {
     const value = edits[k] ?? settings[k] ?? d;
+    if (k === 'MAX_APPS_PER_DAY' && edits[k] === undefined && (!value.trim() || value === 'none')) return String(USER_RUN_LIMITS.MAX_APPS_PER_DAY);
     return optionalLimit(k) && value === 'none' ? '' : value;
   };
   const setEdit = (key: string, value: string) =>
@@ -587,7 +587,7 @@ export function RunPanel({
     const limitError = userRunLimitError({
       ...(entitlements?.advancedFilters ? {MAX_AGE_DAYS:updates.MAX_AGE_DAYS} : {}),
       ...(entitlements?.fineTune ? {MAX_APPS_PER_DAY:updates.MAX_APPS_PER_DAY, PAGES_PER_KEYWORD:updates.PAGES_PER_KEYWORD} : {}),
-    }, optionalLimit('MAX_APPS_PER_DAY'));
+    });
     if (limitError) { fail(limitError.message, limitError.key); return; }
     /**
      * Say so rather than silently trimming.
@@ -1410,9 +1410,9 @@ export function RunPanel({
                   {entitlements?.fineTune && <label className="field">
                     <FieldLabel
                       label="Daily application cap"
-                      help={`The total number of applications allowed in one day, across all runs. Choose up to ${USER_RUN_LIMITS.MAX_APPS_PER_DAY}.${optionalLimit('MAX_APPS_PER_DAY') ? ' Empty means no limit.' : ''}`}
+                      help={`The total number of applications allowed in one day, across all runs. Every account is limited to ${USER_RUN_LIMITS.MAX_APPS_PER_DAY} per day. You can choose a lower cap.`}
                     />
-                    <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={USER_RUN_LIMITS.MAX_APPS_PER_DAY} placeholder={optionalLimit('MAX_APPS_PER_DAY') ? 'No limit' : undefined} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
+                    <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={USER_RUN_LIMITS.MAX_APPS_PER_DAY} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
                     {fieldError('MAX_APPS_PER_DAY')}
                   </label>}
                   {entitlements?.fineTune && <label className="field">

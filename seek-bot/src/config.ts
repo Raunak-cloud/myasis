@@ -254,7 +254,7 @@ export const config = {
      * applied to, everything left worth having is on pages 2+.
      */
     pagesPerKeyword: boundedUserRunLimit('PAGES_PER_KEYWORD', process.env.PAGES_PER_KEYWORD, 1),
-    maxApplicationsPerDay: dailyApplicationLimit(process.env.MAX_APPS_PER_DAY, adminUnlimited || process.env.APPLICATIONS_UNLIMITED === 'true'),
+    maxApplicationsPerDay: dailyApplicationLimit(process.env.MAX_APPS_PER_DAY),
     /**
      * Employer-site applications SUBMITTED per day. Unset means no limit (a
      * direct CLI run); "0" means none are allowed, which is what every
