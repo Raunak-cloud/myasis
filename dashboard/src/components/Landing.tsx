@@ -22,19 +22,19 @@ const QUESTIONS = [
   { question: 'What happens when it cannot answer a question?', answer: 'It pauses that application and puts the question in Needs attention. Owtomate uses your profile and documents to answer screening questions; it does not invent work experience, qualifications or work rights.' },
   { question: 'Do I need to give Owtomate my SEEK password?', answer: 'No. You sign in to SEEK yourself through your private browser session in Owtomate. The application agent reuses that session without asking for your password.' },
   { question: 'Can I see what was sent?', answer: 'Yes. Your application history stores the role, cover letter and screening answers, so you can see what each employer received and keep track of your search.' },
-  { question: 'Is there a subscription?', answer: 'No. Paid passes are one-off purchases for 30 or 60 days. They do not renew automatically, and a credit is used when an application is submitted in Auto apply or prepared in Semi auto, with no second charge on confirmation. Prices are in Australian dollars.' },
+  { question: 'Is there a subscription?', answer: 'No. Passes are one-off purchases with no automatic renewal. Get Owtomated is A$79.99 for unlimited applications over 60 days. On plans with credits, one credit is used when an application is submitted in Auto apply or prepared in Semi auto, with no second charge on confirmation. Prices are in Australian dollars.' },
 ];
 
 const STEPS = [
   {
     code: '01',
     title: 'You tell Owtomate what you want.',
-    body: 'Add your resume, the kinds of roles you want, where you would work, and the pay you would accept. Owtomate checks each listing it considers against what you have written. You set the rules once; the agent follows them on every run.',
+    body: 'Add your resume, preferred roles, location and pay. Choose Auto apply or Semi auto, then press Start to enable four scheduled runs per day. Your rules apply to every run. Pause whenever you want a break.',
   },
   {
     code: '02',
     title: 'Owtomate applies to the jobs that fit.',
-    body: 'It reads the listing, picks the right resume, writes a cover letter for that role and fills in the screening questions from your profile. If it cannot answer something honestly, it stops and brings the question back to your inbox.',
+    body: 'It reads listings, picks your resume, writes cover letters and fills in screening questions. Auto apply submits for you. Semi auto saves prepared applications so you can review and confirm selected jobs. Questions it cannot answer go to Needs attention.',
   },
   {
     code: '03',
@@ -209,7 +209,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
           <div className="home-width home-how-inner">
             <header className="home-how-head">
               <p className="home-how-kicker">how it works</p>
-              <h2 id="how-heading">Three steps. The <em>first</em> one is the only one that needs you.</h2>
+              <h2 id="how-heading">Three steps. You control <em>when</em> it runs.</h2>
               <p className="home-how-blurb">After that, Owtomate reads the listings, picks the right resume and writes the cover letter. You come back for what it could not answer honestly.</p>
             </header>
             <ol className="home-how-list">
@@ -243,7 +243,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
               ))}
             </ol>
             <p className="home-price-foot">
-              Need more later? An Application Top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} more application credits.
+              Need more credits? A top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} applications on an active credit plan. Get Owtomated already includes unlimited applications.
             </p>
           </div>
         </section>
