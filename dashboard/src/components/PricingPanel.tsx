@@ -144,8 +144,7 @@ export function PricingPanel() {
       )}
 
       <header className="pricing-head">
-        <span className="pricing-kicker">Plans &amp; pricing</span>
-        <h2>Choose your job search plan</h2>
+        <h2>Plans &amp; pricing</h2>
         <p>One payment. No subscription.</p>
       </header>
 
@@ -156,12 +155,12 @@ export function PricingPanel() {
             <strong>{PLAN_CARDS.find((card) => card.key === current)?.name}</strong>
           </div>
           <div className="pricing-status-stat">
+            <span>Applications available</span>
             <strong>{status.paid.unlimitedApplications ? 'Unlimited' : status.totalRemaining}</strong>
-            <span>applications available now</span>
           </div>
           <div className="pricing-status-stat">
+            <span>{status.paid.hasActivePass ? 'Access ends' : 'Free allowance'}</span>
             <strong>{status.paid.expiresAt ? dateLabel(status.paid.expiresAt) : 'No expiry'}</strong>
-            <span>{status.paid.hasActivePass ? 'access ends · no automatic renewal' : 'free allowance · once per account'}</span>
           </div>
         </section>
       )}
@@ -182,14 +181,13 @@ export function PricingPanel() {
           return (
             <article className={`pricing-card ${card.key === 'intensive-pass' ? 'premium' : ''} ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
               <div className="pricing-card-top">
-                <span className="pricing-plan-label">{card.presentation.label}</span>
+                <h3>{card.name}</h3>
                 {isCurrent ? (
                   <span className="pricing-tag current">Current plan</span>
                 ) : card.recommended ? (
                   <span className="pricing-tag">Most popular</span>
                 ) : null}
               </div>
-              <h3>{card.name}</h3>
               <p className="pricing-plan-copy">{card.presentation.description}</p>
               <p className="pricing-price">
                 <strong>{card.price}</strong>
@@ -217,13 +215,6 @@ export function PricingPanel() {
         })}
       </div>
 
-      <ul className="pricing-trust" aria-label="Payment terms">
-        <li>Secure checkout by Stripe</li>
-        <li>One payment, no renewal</li>
-        <li>Prices in Australian dollars</li>
-        <li>Clear pass end date before payment</li>
-      </ul>
-
       {/* A top-up adds to a pass, so on the free plan it is shown but not for sale; the server refuses it too. */}
       {!status?.paid.unlimitedApplications && <section className={`pricing-topup ${current === 'free' ? 'unavailable' : ''}`}>
         <div className="pricing-topup-copy">
@@ -250,6 +241,13 @@ export function PricingPanel() {
           </button>
         </div>
       </section>}
+
+      <ul className="pricing-trust" aria-label="Payment terms">
+        <li>Secure checkout by Stripe</li>
+        <li>One payment, no renewal</li>
+        <li>Prices in Australian dollars</li>
+        <li>Clear pass end date before payment</li>
+      </ul>
 
     </div>
   );
