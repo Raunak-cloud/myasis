@@ -3,6 +3,7 @@ import { aud, PAID_PLANS, PLAN_PRESENTATION, DAILY_APPLICATION_MAX, type PaidPla
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
+import './PricingPanel.css';
 
 
 function dateLabel(value: string): string {
@@ -179,7 +180,7 @@ export function PricingPanel() {
                 ? 'Buy this pass again'
                 : `Choose ${card.name}`;
           return (
-            <article className={`pricing-card ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
+            <article className={`pricing-card ${card.key === 'intensive-pass' ? 'premium' : ''} ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
               <div className="pricing-card-top">
                 <span className="pricing-plan-label">{card.presentation.label}</span>
                 {isCurrent ? (

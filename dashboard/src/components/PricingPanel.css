@@ -1,0 +1,36 @@
+.pricing-card.premium {
+  border-color: #527da9;
+  background: radial-gradient(ellipse at top right, rgba(88, 148, 224, .24), transparent 65%), linear-gradient(145deg, #173453, #0c1e36);
+  box-shadow: 0 12px 30px rgba(12, 30, 54, .16);
+  color: #edf4ff;
+}
+.pricing-card.premium::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 3px;
+  border-radius: 0 0 6px 6px;
+  background: linear-gradient(90deg, #83dfcf, #b3cfff);
+}
+.pricing-card.premium .pricing-plan-label { color: #accbef; }
+.pricing-card.premium h3, .pricing-card.premium .pricing-price strong { color: #fff; }
+.pricing-card.premium .pricing-plan-copy { color: #c4d3e7; }
+.pricing-card.premium .pricing-price span { color: #afc5df; }
+.pricing-card.premium .pricing-features { border-color: rgba(188, 212, 242, .23); color: #edf4ff; }
+.pricing-card.premium .pricing-features svg { color: #83dfcf; }
+.pricing-card.premium .pricing-tag.current { background: rgba(131, 223, 207, .16); color: #a0f0df; }
+.pricing-card.premium .pricing-cta {
+  border-color: #c6ddff;
+  background: #dceaff;
+  color: #142e4d;
+  font-weight: 700;
+}
+.pricing-card.premium .pricing-cta:hover:not(:disabled) { border-color: #fff; background: #eff6ff; }
+.pricing-card.premium .pricing-cta:disabled {
+  border-color: rgba(188, 212, 242, .3);
+  background: rgba(255, 255, 255, .08);
+  color: #cbdcf0;
+  opacity: 1;
+}
