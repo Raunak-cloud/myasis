@@ -98,6 +98,7 @@ export const PLAN_PRESENTATION = {
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
       'SEEK and Indeed applications',
+      'Advanced match and listing-age filters',
       'Advanced search controls and standing instructions',
       'Supported employer-site applications',
       'Priority support',
