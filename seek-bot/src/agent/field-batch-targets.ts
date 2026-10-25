@@ -75,7 +75,7 @@ export class FieldBatchTargets {
       const within = (target: Node) => scopes.some(scope => contains(scope, target)) || [...references].some(reference => contains(reference, target));
       let revision = 0, dirty = false, stale = false;
       const address = location.href;
-      const hosts = elements.filter(element => within(element));
+      let hosts = elements.filter(element => within(element));
       const anchoredRoots = () => {
         const found: Array<Document | ShadowRoot> = [document];
         for (let i = 0; i < found.length; i++) for (const element of found[i].querySelectorAll('*')) if (element.shadowRoot) found.push(element.shadowRoot);
@@ -116,7 +116,9 @@ export class FieldBatchTargets {
           const current = state.check();
           if (current.status === 'stale' || expected !== revision) return current;
           dirty = false;
-          for (const root of anchoredRoots()) if (!roots.includes(root)) { roots.push(root); observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true }); }
+          const liveRoots = anchoredRoots();
+          hosts = liveRoots.flatMap(root => [...root.querySelectorAll('*')].filter(element => within(element)));
+          for (const root of liveRoots) if (!roots.includes(root)) { roots.push(root); observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true }); }
           nodes.forEach((node, index) => node.setAttribute(anchor, `${key}:${index}`));
           return state.check();
         },

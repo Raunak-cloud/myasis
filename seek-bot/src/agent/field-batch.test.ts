@@ -215,6 +215,12 @@ try {
     assert.equal(disposition(await batch(ctx, ['First', 'Must stay empty'])), 'reobserve');
     assert.equal(await page.inputValue('#second'), '');
   });
+  await check('new hosts remain tracked when a later answer attaches their shadow form', async () => {
+    const ctx = await setup(`<form><label>First<input onblur="document.querySelector('form').insertAdjacentHTML('beforeend','<div id=late-host></div>')"></label><label>Second<input onblur="document.querySelector('#late-host').attachShadow({mode:'open'}).innerHTML='<label>New question<input></label>'"></label><label>Third<input id=third></label></form>`);
+    assert.equal(disposition(await batch(ctx, ['First', 'Second', 'Must stay empty'])), 'reobserve');
+    assert.equal(await page.inputValue('#third'), '');
+    assert.equal(ctx.captured.length, 2);
+  });
   await check('a wide stable section fills all 16 fields in one batch', async () => {
     const ctx = await setup(Array.from({ length: MAX_FIELD_BATCH }, (_, i) => `<label>Field ${i}<input></label>`).join(''));
     const values = Array.from({ length: MAX_FIELD_BATCH }, (_, i) => `Fixture value ${i}`);
