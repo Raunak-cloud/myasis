@@ -56,17 +56,17 @@ try {
     assert.match(all, /Rinu Fixture/); assert.match(all, /Weekends only/); assert.match(all, /pharmacy placement/);
     assert.match(all, /read_application_history/); // unrelated history is available on demand, not duplicated in every prompt
     return [
-      { name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Rinu Fixture' } },
-      { name: 'browser_action', args: { action: 'fill', selector: '#email', value: 'fixture@example.invalid' } },
-      { name: 'browser_action', args: { action: 'fill', selector: '#letter', value: letter } },
-      { name: 'upload_document', args: { selector: '#cv', document_id: 'cv-1' } },
-      { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
+      { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Name' }, value: 'Rinu Fixture' } },
+      { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Email' }, value: 'fixture@example.invalid' } },
+      { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Cover letter' }, value: letter } },
+      { name: 'upload_document', args: { locator: { by: 'css', value: '#cv' }, document_id: 'cv-1' } },
+      { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Submit' }, sends_application: true } },
     ];
   }, body => {
     assert.match(observation(body), /Please choose a referral source/);
     return [{ name: 'reason_through_problem', args: { problem: 'The first submission was rejected. Correct the actual referral source and retry.' } }];
   }, () => [
-    { name: 'browser_action', args: { action: 'select', selector: 'select', value: 'Company website' } },
+    { name: 'browser_action', args: { action: 'select', locator: { by: 'role', value: 'combobox', name: 'Referral source' }, value: 'Company website' } },
     { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
   ], body => {
     assert.match(observation(body), /Application received/); assert.match(observation(body), /ABC123/);
@@ -146,6 +146,81 @@ try {
   const widget = await runApplicationAgent({ page, job: { ...job, id: 'agent-widget-recovery' }, profile, log: () => {} });
   assert.equal(Boolean(widget.submitPressed), false);
   assert.equal(await page.inputValue('#city'), 'Sydney NSW');
+  assert.equal(script.length, 0);
+
+  // The agent chooses the custom-widget sequence; transport only performs
+  // standard locator actions. Country and phone remain separate controls.
+  await page.goto(url);
+  await page.setContent(`<main><h1>Contact details</h1>
+    <button type=button aria-label="Country information" onclick="window.wrongCountry=true">Country information</button>
+    <button type=button aria-label="Country" aria-controls=countries onclick="document.querySelector('#countries').hidden=false">Choose country</button>
+    <div role=listbox aria-label=Countries id=countries hidden>
+      <button type=button role=option onclick="document.querySelector('[aria-label=Country]').textContent='Australia +61';document.querySelector('#countries').hidden=true;window.country='AU'">Australia +61</button>
+    </div>
+    <label>Phone<input type=tel id=phone></label>
+    <label>City<input id=city placeholder="Search city" role=combobox aria-controls=cities aria-autocomplete=list oninput="document.querySelector('#cities').hidden=false"></label>
+    <div role=listbox aria-label=Cities id=cities hidden><button type=button role=option onclick="document.querySelector('#city').value='Sydney NSW';this.parentElement.hidden=true">Sydney NSW</button></div>
+    <button type=button id=advance onclick="window.advanced=true">Next</button></main>`);
+  const customStarted = performance.now();
+  script = [body => {
+    const instructions = String(body.messages.find(message => message.role === 'system')?.content);
+    assert.match(instructions, /no automatic custom-widget filler/);
+    assert.match(instructions, /After two attempts/);
+    return [{ name: 'browser_action', args: { action: 'select', locator: { by: 'role', value: 'button', name: 'Country' }, value: 'Australia +61' } },
+      { name: 'browser_action', args: { action: 'click', selector: '#advance' } }];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /not a native HTML select/);
+    assert.match(JSON.stringify(body.messages), /Not run: inspect the fresh observation/);
+    return [{ name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Country' } } }];
+  }, body => {
+    assert.match(observation(body), /Australia \+61/);
+    return [{ name: 'take_snapshot', args: { locator: { by: 'role', value: 'listbox', name: 'Countries' } } }];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /option.*Australia \+61/);
+    return [
+      { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'option', name: 'Australia +61' } } },
+      { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Phone' }, value: '412345678' } },
+      { name: 'browser_action', args: { action: 'fill', locator: { by: 'placeholder', value: 'Search city' }, value: 'Sydney' } },
+      { name: 'browser_action', args: { action: 'click', selector: '#advance' } },
+    ];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /Autocomplete text is not a committed selection/);
+    return [{ name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'option', name: 'Sydney NSW' } } }];
+  }, () => [{ name: 'finish', args: { status: 'skipped', reason: 'Offline direct-control benchmark', evidence: 'Country AU, phone and selected Sydney NSW inspected' } }]];
+  const custom = await runApplicationAgent({ page, job: { ...job, id: 'agent-direct-custom-controls' }, profile, log: () => {} });
+  assert.equal(await page.evaluate('window.country', undefined, undefined, false), 'AU');
+  assert.equal(await page.inputValue('#phone'), '412345678');
+  assert.equal(await page.inputValue('#city'), 'Sydney NSW');
+  assert.equal(await page.evaluate('Boolean(window.wrongCountry || window.advanced)', undefined, undefined, false), false);
+  assert.equal(custom.captured.find(answer => answer.question === 'Phone')?.answer, '412345678');
+  assert.equal(script.length, 0);
+  console.log(JSON.stringify({ directCustomControlsMs: Math.round(performance.now() - customStarted), model: 'scripted offline fixture' }));
+
+  await page.goto(url);
+  await page.setContent(`<main><section id=first><button type=button onclick="window.firstClicked=true">Continue</button></section>
+    <section id=second><button type=button onclick="window.secondClicked=true">Continue</button></section>
+    <div id=shadow></div><iframe id=employer srcdoc="<label>Email<input placeholder='Employer email'></label>"></iframe></main>`);
+  await page.locator('#shadow').evaluate(node => { node.attachShadow({ mode: 'open' }).innerHTML = '<label>Shadow name<input data-testid="shadow-name"></label>'; });
+  script = [() => [
+    { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Continue' } } },
+    { name: 'browser_action', args: { action: 'click', selector: '#first button' } },
+  ], body => {
+    assert.match(JSON.stringify(body.messages), /strict mode violation/);
+    return [
+      { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Continue', within: '#second' } } },
+      { name: 'browser_action', args: { action: 'fill', locator: { by: 'test_id', value: 'shadow-name' }, value: 'Shadow candidate' } },
+      { name: 'browser_action', args: { action: 'fill', ref: 'f999999', selector: '#missing', locator: { by: 'placeholder', value: 'Employer email', frame: '#employer' }, value: 'fixture@example.invalid' } },
+    ];
+  }, () => [{ name: 'take_snapshot', args: { locator: { by: 'css', value: 'body', frame: '#employer' } } }], body => {
+    assert.match(JSON.stringify(body.messages), /Employer email/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Offline scoped controls exercised', evidence: 'Unique section, shadow and iframe fields saved' } }];
+  }];
+  const scoped = await runApplicationAgent({ page, job: { ...job, id: 'agent-direct-locator-scopes' }, profile, log: () => {} });
+  assert.equal(await page.evaluate('Boolean(window.firstClicked)', undefined, undefined, false), false, 'ambiguous targeting and its queued action do not execute');
+  assert.equal(await page.evaluate('window.secondClicked', undefined, undefined, false), true);
+  assert.equal(await page.getByTestId('shadow-name').inputValue(), 'Shadow candidate');
+  assert.equal(await page.frameLocator('#employer').getByPlaceholder('Employer email').inputValue(), 'fixture@example.invalid');
+  assert.ok(scoped.captured.some(answer => answer.question === 'Email' && answer.answer === 'fixture@example.invalid'));
   assert.equal(script.length, 0);
 
   await page.goto(url);

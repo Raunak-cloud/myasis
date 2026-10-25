@@ -6,11 +6,10 @@ import type { FormField } from '../types.js';
  * Turns the live page into the compact, ref-addressed state the agent reasons
  * over.
  *
- * The refs are the whole safety story. The model never emits a CSS selector,
- * an XPath or a line of JavaScript — it can only name a ref that this module
- * just stamped onto a real, visible element. That makes "the agent decides how
- * to navigate" compatible with "the agent cannot touch anything we did not
- * offer it", which is what keeps the deterministic rails meaningful.
+ * Refs keep common actions compact. The applying agent may also choose a
+ * standard browser locator or inspect the DOM directly from page evidence.
+ * Observations describe controls and saved state; they do not choose answers
+ * or prescribe a widget-specific filling sequence.
  */
 
 interface AgentAction {

@@ -92,10 +92,13 @@ try {
   calls = [{ name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } }] as typeof calls;
   await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(requests, 0, 'a raw send attempt cannot bypass preparation');
+  calls = [{ name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Send application' } } }] as typeof calls;
+  await runAgentOnlyApplication({ page, job, profile, log: () => {} });
+  assert.equal(requests, 0, 'direct semantic locators retain confirmation even without an agent-supplied send flag');
   process.env.APPLICATION_REVIEW_MODE = 'approved';
   calls = [
     { name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } },
-    { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
+    { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Send application' }, sends_application: true } },
     { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Fixture receipt' } },
   ] as typeof calls;
   const sent = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
