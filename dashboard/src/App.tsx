@@ -51,7 +51,7 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
   },
   attention: {
     title: 'Needs attention',
-    description: 'Resolve anything the automation could not finish on its own.',
+    description: 'Answer application questions that need information from you.',
   },
   prepared: {
     title: 'Prepared Applications',
@@ -114,10 +114,15 @@ export default function App() {
   }, []);
   const [apps, setApps] = useState<Application[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
+  const [appsLoading, setAppsLoading] = useState(true);
+  const [attentionLoading, setAttentionLoading] = useState(true);
+  const [appsError, setAppsError] = useState<string | null>(null);
+  const [attentionError, setAttentionError] = useState<string | null>(null);
   const [preparedCount, setPreparedCount] = useState(0);
   const [running, setRunning] = useState(false);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [today, setToday] = useState<TodayStats>({ runs: 0, reviewed: 0, submitted: 0 });
+  const [todayAvailable, setTodayAvailable] = useState(false);
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref());
   const [toast, setToast] = useState<string | null>(null);
   const { user, googleConfigured, loading: authLoading, signOut } = useAuth();
@@ -168,25 +173,38 @@ export default function App() {
   }, [authLoading, user]);
 
   const load = useCallback(async () => {
-    const [a, n, lastRun, todayStats, prepared] = await Promise.all([
-      fetch('/api/applications').then((response) => response.json()).catch(() => []),
-      fetch('/api/attention').then((response) => response.json()).catch(() => []),
+    const [, , lastRun, todayStats, prepared] = await Promise.all([
+      fetch('/api/applications').then(async response => {
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error();
+        setApps(data); setAppsError(null);
+      }).catch(() => setAppsError('Could not load your applications. Please try again.')).finally(() => setAppsLoading(false)),
+      fetch('/api/attention').then(async response => {
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error();
+        setAttention(data); setAttentionError(null);
+      }).catch(() => setAttentionError('Could not check which jobs need your attention. Please try again.')).finally(() => setAttentionLoading(false)),
       fetch('/api/run/last').then((response) => response.json()).catch(() => ({ startedAt: null })),
-      fetch('/api/today').then((response) => response.json()).catch(() => null),
+      fetch('/api/today').then((response) => response.ok ? response.json() : null).catch(() => null),
       fetch('/api/application-reviews').then((response) => response.ok ? response.json() : null).catch(() => null),
     ]);
-    setApps(Array.isArray(a) ? a : []);
-    setAttention(Array.isArray(n) ? n : []);
     if (Array.isArray(prepared?.applications)) {
       setPreparedCount(prepared.applications.filter((item: { status: string }) => item.status === 'ready').length);
     }
     setLastRunAt(typeof lastRun?.startedAt === 'string' ? lastRun.startedAt : null);
-    if (todayStats && typeof todayStats.runs === 'number') setToday(todayStats as TodayStats);
+    const validToday = todayStats && typeof todayStats.runs === 'number' && typeof todayStats.submitted === 'number' && typeof todayStats.reviewed === 'number';
+    setTodayAvailable(Boolean(validToday));
+    if (validToday) setToday(todayStats as TodayStats);
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    setApps([]); setAttention([]); setPreparedCount(0);
+    setAppsLoading(true); setAttentionLoading(true);
+    setAppsError(null); setAttentionError(null); setTodayAvailable(false);
+    if (user?.id) void load();
+  }, [load, user?.id]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -206,7 +224,7 @@ export default function App() {
     if (typeof runStatus.startedAt === 'string') setLastRunAt(runStatus.startedAt);
     if (wasRunning.current && !runStatus.running) {
       void load();
-      setToast(runStatus.applicationMode === 'semi-auto' ? `Preparation finished, ${runStatus.prepared ?? 0} ready for review` : `Run finished${runStatus.applied ? `, ${runStatus.applied} submitted` : ''}`);
+      setToast(runStatus.exitCode !== null && runStatus.exitCode !== 0 ? 'The run stopped. Check Activity for the result.' : runStatus.applicationMode === 'semi-auto' ? `Preparation finished, ${runStatus.prepared ?? 0} ready for review` : `Run finished${runStatus.applied ? `, ${runStatus.applied} submitted` : ''}`);
       window.setTimeout(() => setToast(null), 6000);
     }
     wasRunning.current = Boolean(runStatus.running);
@@ -497,15 +515,15 @@ export default function App() {
         {tab === 'run' && (
           <section className="dashboard-metrics" aria-label="Application summary">
             <button type="button" className="metric-tile" onClick={() => setTab('applications')}>
-              <strong>{stats.week}</strong>
+              <strong>{appsLoading || appsError ? '?' : stats.week}</strong>
               <span>applied this week</span>
             </button>
             <div className="metric-tile">
-              <strong>{today.submitted}</strong>
+              <strong>{todayAvailable ? today.submitted : '?'}</strong>
               <span>sent today</span>
             </div>
             <div className="metric-tile">
-              <strong>{today.reviewed}</strong>
+              <strong>{todayAvailable ? today.reviewed : '?'}</strong>
               <span>reviewed today</span>
             </div>
             {/* Only when there is something to do: a row of zeros is noise. */}
@@ -533,11 +551,11 @@ export default function App() {
               onGoPricing={() => setTab('pricing')}
             />
           )}
-          {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} />}
+          {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} loading={attentionLoading} loadError={attentionError} isAdmin={isAdmin} />}
           {tab === 'prepared' && <PreparedApplications running={running} onCountChange={setPreparedCount} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
-            <ApplicationsPanel apps={apps} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />
+            <ApplicationsPanel apps={apps} loading={appsLoading} loadError={appsError} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />
           )}
           {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'pricing' && <PricingPanel />}

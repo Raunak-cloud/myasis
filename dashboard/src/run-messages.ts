@@ -9,6 +9,10 @@
  * reach the page whatever the wording around it.
  */
 const PLAIN: Array<[RegExp, string]> = [
+  [/Unexpected (?:token|end).*JSON|JSON\.parse|not valid JSON/i, 'Could not load the latest information. Please try again.'],
+  [/Failed to fetch|NetworkError|Load failed/i, 'The connection was interrupted. Please try again.'],
+  [/^(?:Fundamental field mismatch|Major role mismatch)/i, 'This job does not match your experience or preferences.'],
+  [/^Model match score .+ below minimum/i, 'This job is below your chosen match level.'],
   [/Instruction (?:exception review|assessment) violated its evidence schema/i,
     'The job could not be checked reliably against your instructions. Please try again later.'],
   [/capmonster|captcha|cloudflare|security (?:check|verification)|anti-bot/i,
@@ -24,11 +28,11 @@ const PLAIN: Array<[RegExp, string]> = [
     'This application could not be completed in this attempt.'],
   [/^model budget exhausted/i, 'This application could not be completed in this attempt.'],
   [/^step budget exhausted/i, 'This application could not be completed in this attempt.'],
-  [/^stuck for \d+s/i, 'The page stopped responding to what the agent did.'],
+  [/^stuck for \d+s/i, 'This application could not be completed in this attempt.'],
   [/^overall time limit/i, 'The application ran out of time.'],
-  [/^the agent stopped proposing/i, 'The agent could not work out a next step on this page.'],
-  [/^stuck repeating/i, 'The agent kept repeating the same action with no effect.'],
-  [/^no progress after six/i, 'The page did not change in response to anything the agent tried.'],
+  [/^the agent stopped proposing/i, 'This application could not be completed in this attempt.'],
+  [/^stuck repeating/i, 'This application could not be completed in this attempt.'],
+  [/^no progress after six/i, 'This application could not be completed in this attempt.'],
   [/^agent claimed submission/i, 'The application was not confirmed as submitted.'],
   [/^[a-z_]+ failed: /i, 'A step failed while filling in the application.'],
   [/^Fields not verified: (.+)/i, 'Required answers could not be confirmed: $1'],
@@ -70,6 +74,18 @@ export function plainReason(reason: string): string {
   if (/\b(?:[A-Z][A-Z_]+_(?:KEY|TOKEN|URL)|[A-Za-z]+Error|HTTP\s*\d{3}|status(?: code)?[\s:=]+[45]\d{2})\b|\b(?:token|prompt|completion)\s*(?:count|budget|limit|[:=]\s*\d)|https?:\/\/|\bat .+\.(?:ts|js):\d+|\b(?:locator|page|browser|context)\.[a-z]+|Call log:|\b(?:selector|stack trace)\b/i.test(plain)) {
     return 'This step could not be completed. Please try again later.';
   }
-  return plain;
+  if (/\b(?:Celeris|Patchright|Playwright|ECONNREFUSED|ENOENT|EACCES)\b|(?:[A-Z]:\\|\/home\/|\/var\/)|^\s*[{[]/i.test(plain)) {
+    return 'This step could not be completed. Please try again later.';
+  }
+  return plain || 'This step could not be completed. Please try again later.';
+}
+
+export function userFacingError(error: unknown): string {
+  return plainReason(error instanceof Error ? error.message : String(error));
+}
+
+export function preparedStatusLabel(status: string, running: boolean): string {
+  return ({ ready: 'Ready for your review', approved: running ? 'Submission in progress' : 'Waiting to submit',
+    applied: 'Submitted', dismissed: 'Skipped by you', failed: 'Not completed' } as Record<string, string>)[status] ?? 'Status unavailable';
 }
 

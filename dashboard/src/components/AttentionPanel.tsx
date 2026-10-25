@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { relative } from '../format';
+import { plainReason, userFacingError } from '../run-messages';
 
 export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
 
@@ -123,7 +124,7 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
           {control(q)}
         </label>
       ))}
-      {error && <div className="banner banner-bad">{error}</div>}
+      {error && <div className="banner banner-bad">{userFacingError(error)}</div>}
       <div className="answer-actions">
         <button className="btn primary" disabled={saving || !answered.length} onClick={save} title="Saved for every future run; this job is retried on the next one.">
           {saving ? 'Saving…' : 'Save and retry'}
@@ -182,7 +183,7 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
           {questions.map((question) => <div key={question.question}>{questionText(question)}</div>)}
         </div>
       )}
-      {error && <div className="job-meta">{error}</div>}
+      {error && <div className="job-meta">{userFacingError(error)}</div>}
       {!steps && !error && <div className="job-meta">Loading steps…</div>}
       {steps?.map((s) => (
         <div key={s.step} className="trace-step">
@@ -220,7 +221,7 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
 }
 
 /** One blocked job, plus its step-by-step trace on a full-width row beneath. */
-function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: () => void }) {
+function AttentionRow({ item, onCleared, isAdmin }: { item: AttentionItem; onCleared?: () => void; isAdmin: boolean }) {
   const [showTrace, setShowTrace] = useState(false);
   return (
     <>
@@ -234,12 +235,12 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
         </td>
         <td className="job-meta attention-reason">
           {/* With a question to answer, the question is the whole story; the reason only repeated it. */}
-          {item.questions?.length ? <AnswerForm item={item} onSaved={onCleared} /> : item.reason}
-          <div className="trace-actions">
+          {item.questions?.length ? <AnswerForm item={item} onSaved={onCleared} /> : plainReason(item.reason)}
+          {isAdmin && <div className="trace-actions">
             <button type="button" className="link-button" onClick={() => setShowTrace((open) => !open)}>
               {showTrace ? 'Hide steps' : 'View steps'}
             </button>
-          </div>
+          </div>}
         </td>
         <td className="attention-when nowrap job-meta">{relative(item.at)}</td>
         <td className="attention-open nowrap">
@@ -248,7 +249,7 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
           </a>
         </td>
       </tr>
-      {showTrace && (
+      {isAdmin && showTrace && (
         <tr className="trace-row">
           <td colSpan={5}>
             <TraceSteps jobId={item.jobId} questions={item.questions} />
@@ -266,7 +267,7 @@ const KIND: Record<AttentionKind, { label: string; tone: string; what: string }>
     what: 'SEEK wants your work rights verified before this listing will accept an application. Completing SEEK Pass once unlocks all of them.',
   },
   captcha: {
-    label: 'CAPTCHA',
+    label: 'Security check',
     tone: 'warn',
     what: 'A bot check appeared. Open the listing and clear it yourself, then re-run.',
   },
@@ -278,12 +279,12 @@ const KIND: Record<AttentionKind, { label: string; tone: string; what: string }>
   'off-platform': {
     label: 'External site · Beta',
     tone: 'muted',
-    what: 'External applications require an Get Owtomated. Supported employer forms are completed automatically; unfamiliar forms stop here for your review.',
+    what: "The application continues on the employer's website. Check its current status there.",
   },
   error: {
     label: 'Error',
     tone: 'bad',
-    what: 'Something failed mid-run. Nothing was submitted.',
+    what: 'The application could not be completed. Check its status on the job site before trying again.',
   },
 };
 
@@ -298,9 +299,15 @@ const KIND: Record<AttentionKind, { label: string; tone: string; what: string }>
 export function AttentionPanel({
   items,
   onCleared,
+  loading = false,
+  loadError = null,
+  isAdmin = false,
 }: {
   items: AttentionItem[];
   onCleared?: () => void;
+  loading?: boolean;
+  loadError?: string | null;
+  isAdmin?: boolean;
 }) {
   const [kind, setKind] = useState<AttentionKind | 'all'>('all');
   const [clearing, setClearing] = useState(false);
@@ -339,11 +346,13 @@ export function AttentionPanel({
     [counts],
   );
 
+  if (loadError) return <div className="card empty" role="alert"><p>{userFacingError(loadError)}</p><button className="btn" onClick={onCleared}>Try again</button></div>;
+  if (loading && !items.length) return <div className="card empty" role="status">Checking for jobs that need your attention…</div>;
   if (!items.length) {
     return (
       <div className="card empty">
-        <div className="big">Nothing needs you</div>
-        <p>Jobs the automation couldn't finish will appear here, grouped by what's blocking them.</p>
+        <div className="big">No questions waiting</div>
+        <p>Application questions that need your answer will appear here.</p>
       </div>
     );
   }
@@ -376,7 +385,7 @@ export function AttentionPanel({
         </button>
       </div>
 
-      {error && <div className="banner banner-bad">{error}</div>}
+      {error && <div className="banner banner-bad">{userFacingError(error)}</div>}
 
       {kind !== 'all' && <p className="job-meta attention-what">{KIND[kind].what}</p>}
 
@@ -400,7 +409,7 @@ export function AttentionPanel({
           </thead>
           <tbody>
             {shown.map((i) => (
-              <AttentionRow key={i.jobId} item={i} onCleared={onCleared} />
+              <AttentionRow key={i.jobId} item={i} onCleared={onCleared} isAdmin={isAdmin} />
             ))}
           </tbody>
         </table>

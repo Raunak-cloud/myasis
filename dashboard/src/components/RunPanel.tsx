@@ -20,7 +20,7 @@ import { MascotLogo } from './MascotLogo';
 import { useRunStatus } from '../runStatus';
 import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
-import { activityEvents, activitySummary, formatActivityReason, type LogLine } from '../activity';
+import { activityEvents, activitySummary, formatActivityReason, runResultLabel, type LogLine } from '../activity';
 import './RunPanel.css';
 
 interface AutoScheduleStatus {
@@ -511,7 +511,7 @@ export function RunPanel({
    */
   const fieldError = (field: string) =>
     errorField === field && error ? (
-      <span className="field-error" role="alert">{error}</span>
+      <span className="field-error" role="alert">{formatActivityReason(error, isAdmin)}</span>
     ) : null;
 
   /** Reject a submission: message under the field, plus a nudge on the modal. */
@@ -673,7 +673,7 @@ export function RunPanel({
 
   const showAutoApply = entitlements && entitlements.canPauseAutoApply && (!adminMode || autoSchedule?.enabled);
   const lastRunSummary = !running && (lastRunAt || status?.finishedAt)
-    ? `Last run ${fmtDateTime(lastRunAt ?? status!.finishedAt!)}${status?.finishedAt ? preparing ? ` · ${status.prepared ?? summary.prepared} prepared` : ` · ${status.applied} submitted` : ''}`
+    ? `Last run ${fmtDateTime(lastRunAt ?? status!.finishedAt!)}${status?.finishedAt ? preparing ? ` · ${Math.max(status.prepared ?? 0, summary.prepared)} prepared` : ` · ${Math.max(status.applied, summary.submitted)} submitted` : ''}`
     : null;
 
   return (
@@ -685,15 +685,16 @@ export function RunPanel({
       <div className="run-side">
       <div className="card run-controls-card">
         <div className="panel-body">
-        {!status?.hasKey && !isAdmin && (
-          <div className="banner">Matching is not configured, so results will only use keywords.</div>
+        {status && !status.hasKey && !isAdmin && (
+          <div className="banner">Job matching is temporarily unavailable. Please try again later.</div>
         )}
+        {status?.connectionLost && <div className="banner" role="status">Could not refresh the run status. Showing the last known result.</div>}
         {running && status?.isOwner === false && (
           <div className="banner">
-            Another account is currently running, and the shared browser can only do one run at a time. Try again once it finishes.
+            Applications are busy right now. Please try again shortly.
           </div>
         )}
-        {error && <div className="banner banner-bad">{error}</div>}
+        {error && <div className="banner banner-bad">{formatActivityReason(error, isAdmin)}</div>}
         {/*
           Running out is silent otherwise: the scheduler just stops starting runs
           while the switch still reads "on". Found with the admin simulator.
@@ -927,7 +928,7 @@ export function RunPanel({
           <div className="console-status">
             <strong>Activity</strong>
             <span className={`badge ${running ? 'bad' : 'muted'}`}>
-              {running ? (
+              {status?.connectionLost ? 'Checking status' : running ? (
                 <span className="in-progress-label">
                   <strong className="active-mode-label">{status?.mode === 'search' ? 'Search test' : preparing ? 'Preparing' : 'Applying'}</strong>
                   <span>In progress</span>
@@ -942,10 +943,10 @@ export function RunPanel({
                 </span>
               ) : status?.finishedAt ? (
                 <span className="finished-label">
-                  Finished
+                  {runResultLabel(status, lines)}
                   {elapsedMs !== null && <time className="run-elapsed">{formatRunDuration(elapsedMs)}</time>}
                 </span>
-              ) : 'Ready'}
+              ) : runResultLabel(status, lines)}
             </span>
           </div>
           <div className="console-actions">
@@ -1419,7 +1420,7 @@ export function RunPanel({
                 </div>
               </section>}
 
-              {error && !errorField && <div className="banner banner-bad run-review-error">{error}</div>}
+              {error && !errorField && <div className="banner banner-bad run-review-error">{formatActivityReason(error, isAdmin)}</div>}
             </div>
 
             <div className="confirm-actions run-review-actions">

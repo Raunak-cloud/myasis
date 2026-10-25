@@ -4,6 +4,7 @@ import { withApplicationAllowance } from './application-allowance.js';
 import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
 import { countHealth } from './run-health.js';
 import { config } from './config.js';
+import { normaliseAttentionOutcome } from './blocked-questions.js';
 
 /** Exact approved emails need neither a job-board session nor form reconstruction. */
 export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Promise<boolean> {
@@ -24,7 +25,7 @@ export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Prom
       console.log('  Already submitted. No email sent.'); continue;
     }
     // The MCP server rechecks this exact, paid approval before it accesses Gmail.
-    const outcome = await withApplicationAllowance(async () => index.appliedToday() < config.limits.maxApplicationsPerDay, () => submitApprovedEmail(draft));
+    const outcome = normaliseAttentionOutcome(await withApplicationAllowance(async () => index.appliedToday() < config.limits.maxApplicationsPerDay, () => submitApprovedEmail(draft)));
     logOutcome({ ...outcome, reviewId: draft.id, title: job.title, company: job.company, url: job.url });
     countHealth('attempted');
     if (outcome.status === 'applied') {
@@ -33,7 +34,8 @@ export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Prom
         url: job.url, appliedAt: outcome.at, score: 0, scoreReasons: ['Candidate-confirmed email application'],
         coverLetter: draft.coverLetter, answers: draft.answers, resume: draft.resume, external: true, submittedByMyasis: true });
       console.log(`  ✅ submitted [external] (${applied}/${drafts.length})`);
-    } else if (outcome.status === 'needs-human') { countHealth('needsHuman'); console.log(`  ⏸ needs you: ${outcome.reason}`); }
+    } else if (outcome.status === 'needs-human') { countHealth('needsHuman'); console.log(`  ⏸ needs your answer: ${outcome.reason}`); }
+    else if (outcome.status === 'skipped') console.log(outcome.submitPressed ? `  Submission not confirmed: ${outcome.reason}` : `  – skipped: ${outcome.reason}`);
   }
   saveRunSummary(drafts.length, false);
   console.log(`\n=== Run complete: ${applied} new application(s) ===`);

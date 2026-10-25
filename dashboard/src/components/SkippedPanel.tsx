@@ -1,3 +1,4 @@
+import { plainReason, userFacingError } from '../run-messages';
 import { useMemo, useState } from 'react';
 import { relative } from '../format';
 
@@ -81,7 +82,7 @@ function SkippedRow({ job, onChange }: { job: SkippedJob; onChange: (items: Skip
         <span className={`badge ${KIND[job.kind].tone}`}>{KIND[job.kind].label}</span>
       </td>
       <td className="job-meta attention-reason">
-        {job.reason}
+        {plainReason(job.reason)}
         <div className="skipped-call">
           {job.verdict === 'apply' && (
             <span className="badge ok" title="It goes back into your next run; the fit check is not asked again.">You'd apply · in the next run</span>
@@ -123,7 +124,7 @@ function SkippedRow({ job, onChange }: { job: SkippedJob; onChange: (items: Skip
             <button type="button" className="link-button" onClick={() => { setNote(job.note ?? ''); setEditingNote(false); }}>Cancel</button>
           </div>
         )}
-        {error && <div className="banner banner-bad">{error}</div>}
+        {error && <div className="banner banner-bad">{userFacingError(error)}</div>}
       </td>
       <td className="attention-when nowrap job-meta">{relative(job.at)}</td>
       <td className="attention-open nowrap">
@@ -161,7 +162,7 @@ export function SkippedPanel({ items, error, onItems }: {
   const shown = useMemo(() => (items ?? []).filter((item) =>
     filter === 'all' ? true : filter === 'called' ? Boolean(item.verdict) : item.kind === filter), [items, filter]);
 
-  if (error) return <div className="banner banner-bad">{error}</div>;
+  if (error) return <div className="banner banner-bad">{userFacingError(error)}</div>;
   if (!items) return <div className="card empty"><p>Loading skipped jobs…</p></div>;
   if (!items.length) {
     return (

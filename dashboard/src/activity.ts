@@ -7,8 +7,18 @@ export interface LogLine {
   text: string;
 }
 
+export function runResultLabel(status: { running: boolean; finishedAt: string | null; exitCode: number | null; connectionLost?: boolean } | null, lines: LogLine[] = []): string {
+  if (!status || status.connectionLost) return 'Checking status';
+  if (status.running) return 'In progress';
+  if (!status.finishedAt) return 'Ready';
+  if (lines.some(line => /stop requested/i.test(line.text))) return 'Stopped';
+  if (status.exitCode !== 0) return 'Stopped early';
+  if (lines.some(line => /✗\s+(?:unexpected )?error:|Submission not confirmed:|^Fatal:|time limit; stopping the worker/i.test(line.text))) return 'Finished with issues';
+  return 'Finished';
+}
+
 type ActivityTone = 'done' | 'neutral' | 'warn' | 'bad';
-type ActivityOutcome = 'already-applied' | 'skipped' | 'needs-human' | 'failed' | 'prepared';
+type ActivityOutcome = 'already-applied' | 'skipped' | 'needs-human' | 'failed' | 'unconfirmed' | 'prepared';
 type OutcomeCounts = Record<ActivityOutcome, number>;
 
 interface ActivityEvent {
@@ -91,9 +101,9 @@ function reviewShortfall(lines: LogLine[], reviewed: number): string | null {
     if (label) counts.set(label, (counts.get(label) ?? 0) + Number(match[1]));
   }
   const reasons = [...counts].sort((a, b) => b[1] - a[1]).map(([label, n]) => `${n} ${label}`);
-  return `Only ${reviewed} new ${reviewed === 1 ? 'job was' : 'jobs were'} left to review (your limit is ${limit})` +
-    (reasons.length ? `: ${reasons.join(', ')}.` : '.') +
-    ' More or different job titles will find more.';
+  return `This run reviewed ${reviewed} ${reviewed === 1 ? 'job' : 'jobs'} out of a limit of ${limit}.` +
+    (reasons.length ? ` Not reviewed: ${reasons.join(', ')}.` : '') +
+    ' You can change your job titles to widen the search.';
 }
 
 /**
@@ -101,25 +111,25 @@ function reviewShortfall(lines: LogLine[], reviewed: number): string | null {
  * first line here and the full diagnostic in the admin run console.
  */
 export function formatActivityReason(raw: string, isAdmin = false): string {
-  const message = (raw
+  const message = ((isAdmin ? raw : plainReason(raw))
     .replace(/^(?:Error:\s*)+/i, '')
     .split(/\r?\n|\s+Call log:/)[0]
     .trim()
     .slice(0, 300) || 'An unknown error occurred.').replace(/[.\s]+$/, '');
   const nextSteps: Array<[RegExp, string]> = [
-    [/already running with this profile/i, 'Start the run again: Owtomate now closes the leftover browser first.'],
+    [/already running with this profile/i, 'Another application run is still active. Wait for it to finish.'],
     [/search terms or target role/i, 'Add job titles under Your search, then start the run again.'],
     [/matching service is not configured|CELERIS_API_KEY/i, 'An AI service key is missing on the server, so an admin needs to add it.'],
     [/browser has disconnected|has been closed|Target closed/i, 'The browser closed during the run. Start the run again.'],
-    [/Timeout \d+ms exceeded|timed out/i, 'The page was slow to respond. Starting again usually works.'],
+    [/Timeout \d+ms exceeded|timed out/i, 'The page was slow to respond. Please try again later.'],
     [/net::ERR|ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i, 'The connection dropped for a moment. Start the run again.'],
   ];
   const next = nextSteps.find(([pattern]) => pattern.test(message))?.[1];
   if (isAdmin) return next ? `${message}. ${next}` : `${message}.`;
   const plain = plainReason(message).replace(/[.\s]+$/, '');
-  if (plain !== message) return `${plain}.`;
+  if (plain !== message) return /[!?]$/.test(plain) ? plain : `${plain}.`;
   // Known recovery steps explain the problem without exposing the diagnostic.
-  return next ? next : `${plain}.`;
+  return next ? plainReason(next) : /[!?]$/.test(plain) ? plain : `${plain}.`;
 }
 
 /**
@@ -138,7 +148,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   const events: ActivityEvent[] = [];
   // Several listings can share one visible entry. Count each logged outcome
   // independently so merging entries cannot create an unexplained remainder.
-  const outcomes: OutcomeCounts = { 'already-applied': 0, skipped: 0, 'needs-human': 0, failed: 0, prepared: 0 };
+  const outcomes: OutcomeCounts = { 'already-applied': 0, skipped: 0, 'needs-human': 0, failed: 0, unconfirmed: 0, prepared: 0 };
   const confirming = lines.some(line => /APPLICATION_REVIEW_MODE=approved\b/.test(line.text));
   const recordOutcome = (event: ActivityEvent, outcome: ActivityOutcome) => {
     outcomes[outcome]++;
@@ -172,8 +182,12 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   type Application = { event: ActivityEvent; title: string; company: string; steps: string[]; startedAtMs: number };
   let application: Application | null = null;
   const applications = new Map<string, Application>();
+  // The old sole-agent finish schema could not save questions. Its needs-human
+  // judgements never created actionable tasks; do not direct old runs to an empty page.
+  const questionlessJudgements = new Set<string>();
   const currentJobs = new Map<string, string>();
   let finished = false;
+  let stopNotice: ActivityEvent | null = null;
 
   const reviewDetail = () =>
     `${reviewed} checked · ${suitable} profile ${suitable === 1 ? 'match' : 'matches'}` + (latestMatch ? ` · latest match: ${latestMatch}` : '');
@@ -205,7 +219,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     if (/starting (live|search) run/i.test(text)) {
       add(line, 'Run started', 'done');
     } else if (/stop requested/i.test(text)) {
-      add(line, 'Run stopped', 'neutral', 'You stopped this run. Anything already submitted stays submitted.');
+      stopNotice = add(line, 'Stopping run', 'neutral', 'Your stop request was received. Applications already submitted stay submitted.');
+      explained = true;
+    } else if (/Run reached its .+ time limit; stopping the worker/i.test(text)) {
+      stopNotice = add(line, 'Run time limit reached', 'warn', 'This run is stopping because it reached its time limit. Applications already submitted stay submitted.');
       explained = true;
     } else if ((match = text.match(/(SEEK|Indeed) session OK/i))) {
       if (!boards.includes(match[1])) boards = [...boards, match[1]];
@@ -263,6 +280,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       latestMatch = matchedJobs.at(-1) ?? '';
       if (review) review.detail = reviewDetail();
     } else if ((match = text.match(/→ (?:Applying|Preparing):\s*(.+?)\s+@\s+(.+)/i))) {
+      questionlessJudgements.delete(worker);
       currentJob = `${match[1]} at ${match[2]}`;
       application = {
         event: add(line, `${/→ Preparing:/i.test(text) ? 'Preparing' : 'Applying to'} ${match[1]}`, 'neutral', match[2], true),
@@ -288,16 +306,19 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       } else {
         add(line, 'Application submitted', 'done', match[1] ? `${match[1]} this run` : undefined);
       }
-    } else if ((match = text.match(/⏸ needs you:\s*(.*)/i))) {
-      const detail = `${readableError(match[1])} Open Needs attention to finish it.`;
+    } else if (/^Agent judgement: needs-human:/i.test(text)) {
+      questionlessJudgements.add(worker);
+    } else if ((match = text.match(/⏸ needs (you|your answer):\s*(.*)/i))) {
+      const actionable = match[1].toLowerCase() === 'your answer' || !questionlessJudgements.has(worker);
+      const detail = `${readableError(match[2])}${actionable ? ' Open Needs attention to finish it.' : ''}`;
       if (application) {
-        application.event.title = `${application.title} needs your answer`;
-        application.event.tone = 'warn';
-        recordOutcome(application.event, 'needs-human');
+        application.event.title = actionable ? `${application.title} needs your answer` : `Skipped ${application.title}`;
+        application.event.tone = actionable ? 'warn' : 'neutral';
+        recordOutcome(application.event, actionable ? 'needs-human' : 'skipped');
         application.event.detail = detail;
         finishApplication(line);
       } else {
-        recordOutcome(add(line, 'Needs your attention', 'warn', detail), 'needs-human');
+        recordOutcome(add(line, actionable ? 'Needs your attention' : 'Application skipped', actionable ? 'warn' : 'neutral', detail), actionable ? 'needs-human' : 'skipped');
       }
     } else if (/↪ off-platform/i.test(text)) {
       if (application) {
@@ -335,17 +356,25 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if (/Shared application allowance is reached/i.test(text)) {
       if (!applicationLimitEvent) applicationLimit(line, 'This run reached its limit', 'No more applications will be prepared or submitted in this run.');
     } else if ((match = text.match(/Daily cap of (\d+) (?:already )?reached/i))) {
-      add(line, "Today's application limit is reached", 'warn', `${match[1]} applications were sent today. Runs resume tomorrow.`);
+      add(line, "Today's application limit is reached", 'warn', `The limit is ${match[1]} applications today. You can apply again when the daily allowance resets.`);
       explained = true;
     } else if ((match = text.match(/Run cap of (\d+) reached/i))) {
       if (outcomes.prepared === Number(match[1])) {
         applicationLimit(line, 'Applications saved for review', 'Prepared applications still need your confirmation before submission.');
       } else applicationLimit(line, 'This run reached its limit', `This run can prepare or submit up to ${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'}.`);
     } else if ((match = text.match(/evaluation cap \((\d+)\) reached/i))) {
-      add(line, 'Review limit reached', 'warn', `This run used its ${match[1]} job reviews. Other listings may remain unreviewed; zero submissions does not mean there are no suitable jobs.`);
+      add(line, 'Review limit reached', 'warn', `This run reviewed up to its limit of ${match[1]} jobs. Other listings may still be available to review.`);
+    } else if ((match = text.match(/^Submission not confirmed:\s*(.*)/i))) {
+      if (application) {
+        application.event.title = `Submission not confirmed: ${application.title}`;
+        application.event.tone = 'warn';
+        application.event.detail = `${readableError(match[1])} Check your application history on the job site before trying again.`;
+        recordOutcome(application.event, 'unconfirmed');
+        finishApplication(line);
+      } else recordOutcome(add(line, 'Submission not confirmed', 'warn', 'Check your application history on the job site before trying again.'), 'unconfirmed');
     } else if ((match = text.match(/✗\s+(?:unexpected )?error:\s*(.*)/i))) {
       if (application) {
-        application.event.title = `Could not apply to ${application.title}`;
+        application.event.title = `Could not finish: ${application.title}`;
         application.event.tone = 'bad';
         recordOutcome(application.event, 'failed');
         application.event.detail = `${application.company} · ${readableError(match[1])}`;
@@ -358,7 +387,13 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if ((match = text.match(/semantic pre-ranking unavailable:\s*(.*)/i))) {
       add(line, 'Jobs were reviewed in search order', 'warn', readableError(match[1]));
     } else if (/🛑 The browser closed mid-run/i.test(text)) {
-      add(line, 'The application stopped unexpectedly', 'bad', `Submission could not be confirmed${currentJob ? ` for ${currentJob}` : ''}.`);
+      if (application) {
+        application.event.title = `Submission not confirmed: ${application.title}`;
+        application.event.tone = 'warn';
+        application.event.detail = 'The application stopped unexpectedly. Check your application history on the job site before trying again.';
+        recordOutcome(application.event, 'unconfirmed');
+        finishApplication(line);
+      } else add(line, 'The application stopped unexpectedly', 'bad', `Submission could not be confirmed${currentJob ? ` for ${currentJob}` : ''}.`);
       explained = true;
     } else if ((match = text.match(/🛑 \[(SEEK|Indeed)\] (\d+) anti-bot challenges/i))) {
       add(line, `${match[1]} is blocking automated visits`, 'bad', `${match[2]} verification challenges in a row, so ${match[1]} was stopped for this run. Let it rest for a few hours before running again.`);
@@ -394,6 +429,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       );
     } else if ((match = text.match(/run finished \(exit ([^)]*)\)/i))) {
       finished = true;
+      if (stopNotice) {
+        stopNotice.title = 'Run stopped';
+        stopNotice.detail = 'This run has stopped. Applications already submitted stay submitted.';
+      }
       if (match[1] !== '0' && !explained) {
         add(
           line,
@@ -410,6 +449,11 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     if (currentJob) currentJobs.set(worker, currentJob);
   }
 
+  if (finished) for (const active of applications.values()) {
+    active.event.title = `Not completed: ${active.title}`;
+    active.event.detail = 'This attempt ended without a confirmed result. Check your application history on the job site before trying again.';
+    active.event.tone = 'warn';
+  }
   // Reviewing is finished once the run is; until then it is live whenever nothing is being applied for.
   if (review) {
     if (finished) {
@@ -430,6 +474,7 @@ function completionDetail(lines: LogLine[], suitable: number, submitted: number,
   const needsHuman = outcomes['needs-human'];
   const failed = outcomes.failed;
   const prepared = outcomes.prepared;
+  const unconfirmed = outcomes.unconfirmed;
   const parts = [
     ...(suitable > 0 ? [`${suitable} profile ${suitable === 1 ? 'match' : 'matches'}`] : []),
     `${submitted} ${submitted === 1 ? 'application' : 'applications'} submitted`,
@@ -437,9 +482,10 @@ function completionDetail(lines: LogLine[], suitable: number, submitted: number,
     ...(skipped ? [`${skipped} skipped for other reasons`] : []),
     ...(needsHuman ? [`${needsHuman} ${needsHuman === 1 ? 'needs' : 'need'} your attention`] : []),
     ...(failed ? [`${failed} ${failed === 1 ? 'application' : 'applications'} failed`] : []),
+    ...(unconfirmed ? [`${unconfirmed} ${unconfirmed === 1 ? 'submission' : 'submissions'} not confirmed`] : []),
     ...(prepared ? [`${prepared} ${prepared === 1 ? 'application awaits' : 'applications await'} your confirmation`] : []),
   ];
-  const remaining = Math.max(0, suitable - submitted - alreadyApplied - skipped - needsHuman - failed - prepared);
+  const remaining = Math.max(0, suitable - submitted - alreadyApplied - skipped - needsHuman - failed - unconfirmed - prepared);
   if (remaining) {
     const reason = lastMatch(lines, /(?:Run|Daily) cap of \d+ (?:already )?reached|Shared application allowance is reached/i)
       ? 'the application limit was reached'

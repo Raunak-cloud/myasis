@@ -1,10 +1,11 @@
 import { useEffect, useReducer, useState } from 'react';
 import { initialLiveWorkers, liveWorkersState } from '../live-action-state';
 import type { LiveStreamMessage } from '../live-action-state';
+import { plainReason } from '../run-messages';
 
 const ACTIVITY_LABEL = {
   starting: 'Getting ready', reviewing: 'Reviewing jobs', applying: 'Applying',
-  waiting: 'Waiting', cooldown: 'Pausing between jobs', finished: 'Finished',
+  waiting: 'Waiting', cooldown: 'Pausing between jobs', finished: 'Activity ended',
 };
 
 /** Independent, view-only pictures of this account's application workers. */
@@ -37,7 +38,7 @@ export function LiveActionViewer({ onClose, activity, preparing = false }: { onC
             <h2 id="live-action-title">Live action</h2>
             <span className="job-meta">Watch Owtomate work in real time.</span>
           </div>
-          <span className={`badge ${liveCount ? 'ok' : 'muted'}`}>{workers.length > 1 ? `${liveCount} of ${workers.length} pictures live` : liveCount ? 'Picture live' : 'Connecting'} · view only</span>
+          <span className={`badge ${liveCount ? 'ok' : 'muted'}`}>{workers.length > 0 && workers.every(worker => worker.view.phase === 'finished') ? 'Live activity ended' : workers.length > 1 ? `${liveCount} of ${workers.length} pictures live` : liveCount ? 'Picture live' : 'Connecting'} · view only</span>
           <button className="btn btn-small" onClick={onClose}>Close</button>
         </div>
         <div className={`live-action-grid${workers.length > 1 ? ' parallel' : ''}`}>
@@ -53,10 +54,10 @@ export function LiveActionViewer({ onClose, activity, preparing = false }: { onC
                   <strong>{label}</strong>
                   <div className="live-action-worker-status">
                     {activityLabel && <span className={`badge ${workerActivity?.phase === 'applying' ? 'ok' : 'info'}`}>{activityLabel}</span>}
-                    <span className={`badge ${live ? 'ok' : 'muted'}`}>{disconnected ? 'Disconnected' : live ? 'Picture live' : pageLess || finished ? 'No browser page' : 'Waiting for picture'}</span>
+                    <span className={`badge ${live ? 'ok' : 'muted'}`}>{disconnected ? 'Disconnected' : live ? 'Picture live' : pageLess || finished ? 'No live picture' : 'Waiting for picture'}</span>
                   </div>
                 </div>
-                {workerActivity?.detail && !pageLess && <p className="live-action-worker-detail">{workerActivity.detail}</p>}
+                {workerActivity?.detail && !pageLess && <p className="live-action-worker-detail">{plainReason(workerActivity.detail)}</p>}
                 <div className="live-action-screen">
                   {view.frame && (
                     <img src={view.frame} alt={`${label} live browser activity`} draggable={false}
@@ -70,11 +71,11 @@ export function LiveActionViewer({ onClose, activity, preparing = false }: { onC
                         <rect x="5" y="7" width="38" height="28" rx="4" /><path d="M5 15h38M17 41h14M24 35v6" />
                         <circle cx="11" cy="11" r="1" fill="currentColor" stroke="none" />
                       </svg>
-                      <h3>{finished ? 'Worker finished' : disconnected ? 'Live view disconnected' : pageLess ? activityLabel : 'Waiting for a browser page'}</h3>
-                      <p>{finished ? 'This worker has finished its work for this run.' : disconnected
-                        ? 'The browser picture is unavailable. Check the run activity below, or reconnect the views.'
-                        : pageLess ? workerActivity?.detail || 'This worker will continue when its next task is ready.'
-                        : 'Job searches and AI reviews can happen without a browser page. The picture will appear when a page opens.'}</p>
+                      <h3>{finished ? 'Live activity ended' : disconnected ? 'Live view disconnected' : pageLess ? activityLabel : 'Waiting for an application page'}</h3>
+                      <p>{finished ? 'Check Activity for the application results.' : disconnected
+                        ? 'The live picture is unavailable. Check Activity below, or reconnect the view.'
+                        : pageLess ? workerActivity?.detail ? plainReason(workerActivity.detail) : 'Waiting for the next application.'
+                        : 'Owtomate is reviewing jobs. A live picture will appear when an application page opens.'}</p>
                       {disconnected && <button className="btn btn-small" onClick={() => setAttempt(value => value + 1)}>Reconnect views</button>}
                     </div>
                   )}
@@ -85,7 +86,7 @@ export function LiveActionViewer({ onClose, activity, preparing = false }: { onC
         </div>
         <div className="live-action-progress" role="status">
           <span className="activity-pulse" aria-hidden="true" />
-          <div><span className="job-meta">Latest run activity</span><strong>{activity || 'Waiting for the next run update…'}</strong></div>
+          <div><span className="job-meta">Latest run activity</span><strong>{activity ? plainReason(activity) : 'Waiting for the next run update…'}</strong></div>
         </div>
       </div>
     </div>

@@ -26,6 +26,7 @@ interface RunStatus {
   hasKey: boolean;
   /** false when a run is active but belongs to a different account — the server withholds every other field then. */
   isOwner: boolean;
+  connectionLost?: boolean;
 }
 
 /** The faster of the two rates the components used, so nothing became less responsive. */
@@ -38,11 +39,18 @@ let latest: RunStatus | null = null;
 
 async function poll(): Promise<void> {
   try {
-    const status = (await fetch('/api/run/status').then((response) => response.json())) as RunStatus;
+    const response = await fetch('/api/run/status');
+    if (!response.ok) throw new Error('Status unavailable');
+    const status = (await response.json()) as RunStatus;
+    if (typeof status.running !== 'boolean') throw new Error('Status unavailable');
     latest = status;
     for (const notify of subscribers) notify(status);
   } catch {
     // The server may be restarting; the next tick will pick it up.
+    if (latest) {
+      latest = { ...latest, connectionLost: true };
+      for (const notify of subscribers) notify(latest);
+    }
   }
 }
 

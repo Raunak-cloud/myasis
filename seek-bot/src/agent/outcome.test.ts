@@ -14,8 +14,22 @@ assert.equal(outcomeFromRun(run({ status: 'skipped', reason: 'x' }, false), 'job
 
 const frictions: string[] = [];
 const blocked = outcomeFromRun(run({ status: 'needs-human', reason: 'CapMonster could not clear the CAPTCHA' }, false), 'job-2', 'https://x.example', (kind) => frictions.push(kind));
-assert.equal(blocked.status, 'needs-human');
+assert.equal(blocked.status, 'skipped', 'a technical wall without a question is not a candidate task');
 assert.deepEqual(frictions, ['captcha'], 'walls still feed the run-level friction counter');
+
+for (const reason of ['Fundamental field mismatch: insurance instead of software', 'Major role mismatch: sales programme', 'Physical data centre work is outside saved preferences']) {
+  const mismatch = outcomeFromRun(run({ status: 'needs-human', reason }, false), 'mismatch', 'https://employer.example/apply');
+  assert.equal(mismatch.status, 'skipped');
+  assert.equal(mismatch.reason, reason);
+}
+const question = { question: 'Current clearance *', prompt: 'Which clearance do you currently hold?', kind: 'select' as const, options: ['None', 'Baseline'] };
+const attention = outcomeFromRun(run({ status: 'needs-human', reason: 'Current clearance is unknown', questions: [question] }, false), 'question', 'https://employer.example/apply');
+assert.equal(attention.status, 'needs-human');
+assert.ok(attention.status === 'needs-human' && attention.questions?.[0].question === 'Current clearance');
+assert.ok(attention.status === 'needs-human' && attention.questions?.[0].prompt === question.prompt);
+assert.ok(attention.status === 'needs-human' && attention.url === 'https://employer.example/apply');
+assert.equal(outcomeFromRun(run({ status: 'needs-human', reason: 'No usable question', questions: [{ question: '  ' }, { question: 'Password' }] }, true), 'empty', '').status, 'skipped');
+assert.equal(outcomeFromRun(run({ status: 'needs-human', reason: 'No usable question' }, true), 'empty', '').submitPressed, true, 'uncertain sends keep their duplicate protection');
 
 const applied = outcomeFromRun({ ...run({ status: 'applied' }, true), site: 'careers.example.com', coverLetter: 'Dear team' }, 'job-3', '');
 assert.ok(applied.status === 'applied' && applied.site === 'careers.example.com' && applied.coverLetter === 'Dear team');

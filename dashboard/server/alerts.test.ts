@@ -35,6 +35,8 @@ check('it names the board', alertsFor({ ...healthy, signedOutBoards: ['SEEK', 'I
 
 const failed = { failed: true, stopped: false };
 check('three failed runs in a row is an alert', keys({ ...healthy, recentRuns: [failed, failed, failed] }).join() === 'runs-failing');
+const failedMessage = alertsFor({ ...healthy, recentRuns: [failed, failed, failed] })[0].message;
+check('failed-run email does not claim no applications were sent', !failedMessage.paragraphs.join(' ').includes('before sending any application') && failedMessage.paragraphs.join(' ').includes('may still have been submitted'));
 check('two are not', keys({ ...healthy, recentRuns: [failed, failed] }).length === 0);
 check('a run the person stopped is not a failure', keys({ ...healthy, recentRuns: [failed, { failed: true, stopped: true }, failed] }).length === 0);
 check('a success in between resets it', keys({ ...healthy, recentRuns: [failed, { failed: false, stopped: false }, failed] }).length === 0);

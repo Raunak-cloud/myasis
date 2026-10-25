@@ -156,6 +156,6 @@ export async function recordReviewedOutcome(userId: string, reviewId: string, st
 
 export async function finishApplicationReviews(userId: string): Promise<void> {
   await query(`UPDATE application_reviews SET status='failed',
-    detail='Submission was not confirmed. You can retry this application.',updated_at=now()
+    detail='Submission was not confirmed. Check your application history on the job site before trying again.',updated_at=now()
     WHERE user_id=$1 AND status='approved'`, [userId]);
 }

@@ -1,5 +1,6 @@
 import type { ApplyOutcome } from '../types.js';
 import type { runApplicationAgent } from './loop.js';
+import { normaliseAttentionOutcome } from '../blocked-questions.js';
 
 type AgentRun = Awaited<ReturnType<typeof runApplicationAgent>>;
 
@@ -49,14 +50,14 @@ export function outcomeFromRun(
       // Friction feeds the run-level abort counter, so repeated walls stop a board for the run.
       if (/captcha/i.test(run.outcome.reason)) onFriction?.('captcha');
       else if (/identity|work-rights/i.test(run.outcome.reason)) onFriction?.('identity');
-      return {
+      return normaliseAttentionOutcome({
         status: 'needs-human',
         jobId,
         reason: run.outcome.reason,
         url: finalUrl,
-        ...(run.outcome.questions?.length ? { questions: run.outcome.questions } : {}),
+        questions: run.outcome.questions,
         ...extras,
-      };
+      });
     }
   }
 }

@@ -294,17 +294,33 @@ try {
   assert.equal(await page.inputValue('#name'), 'Async body');
 
   await page.goto(url);
+  await page.locator('form').evaluate(form => form.insertAdjacentHTML('beforeend', '<label>Current clearance<select required><option value="">Choose</option><option>None</option><option>Baseline</option></select></label>'));
   script = [() => [
     { name: 'browser_action', args: { action: 'fill', selector: '#name' } },
     { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
   ], body => {
     assert.match(JSON.stringify(body.messages), /Not run: the prior action failed/);
     assert.equal(effort(body), 'xhigh');
-    return [{ name: 'finish', args: { status: 'needs-human', reason: 'A consequential candidate fact is unknown', evidence: 'No candidate evidence supplied for this fact' } }];
+    return [{ name: 'finish', args: { status: 'needs-human', reason: 'A consequential candidate fact is unknown', evidence: 'No candidate evidence supplied for this fact',
+      questions: [{ question: 'Current clearance', prompt: 'Which clearance do you currently hold?', kind: 'select', options: ['None', 'Baseline'] }] } }];
   }];
   const failedInput = await runApplicationAgent({ page, job: { ...job, id: 'agent-invalid-input' }, profile, log: () => {} });
   assert.equal(failedInput.outcome.status, 'needs-human');
+  assert.deepEqual(failedInput.outcome.status === 'needs-human' && failedInput.outcome.questions, [{ question: 'Current clearance', prompt: 'Which clearance do you currently hold?', kind: 'select', options: ['None', 'Baseline'] }]);
   assert.equal(await page.evaluate('window.presses ?? 0', undefined, undefined, false), 0, 'a failed action retires the rest of that model plan');
+
+  for (const reason of ['Fundamental field mismatch: insurance instead of software', 'The browser could not finish the page']) {
+    script = [body => {
+      const finish = (body.tools ?? []).find(tool => (tool as { function: { name: string } }).function.name === 'finish');
+      assert.match(JSON.stringify(finish), /questions.*exact unanswered REQUIRED application questions/);
+      return [{ name: 'finish', args: { status: 'needs-human', reason, evidence: 'No candidate question' } }];
+    }, body => {
+      assert.match(JSON.stringify(body.messages), /Needs attention requires an exact unanswered required application question/);
+      return [{ name: 'finish', args: { status: 'skipped', reason, evidence: 'No candidate answer is needed' } }];
+    }];
+    const noQuestion = await runApplicationAgent({ page, job: { ...job, id: `no-question-${reason}` }, profile, log: () => {} });
+    assert.equal(noQuestion.outcome.status, 'skipped');
+  }
 
   await page.goto(url);
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } }]];

@@ -1,4 +1,5 @@
 import { plainReason, resolveAttention, type RunEventRow } from './attention.js';
+import { normaliseAttentionOutcome } from '../../seek-bot/src/blocked-questions.js';
 
 let failures = 0;
 function check(label: string, condition: boolean): void {
@@ -54,6 +55,13 @@ check(
   'candidate-facing prompts survive attention normalisation',
   prompted[0]?.questions?.[0]?.prompt === 'Describe yourself and explain why you are interested in this role.',
 );
+
+const candidateQuestion = normaliseAttentionOutcome({ status: 'needs-human', jobId: 'job-1', reason: 'Current clearance is unknown', url: 'https://example.test/job-1', questions: [{ question: 'Current clearance *', prompt: 'Which clearance do you currently hold?', kind: 'select', options: ['None', 'Baseline'] }] });
+const savedAttention = resolveAttention([{ ...event(candidateQuestion.status, 3), reason: candidateQuestion.status === 'needs-human' ? candidateQuestion.reason : '', questions: candidateQuestion.status === 'needs-human' ? candidateQuestion.questions ?? [] : [] }], new Set());
+check('a normalised run question survives the database-to-attention lifecycle with its choices',
+  savedAttention[0]?.questions?.[0]?.question === 'Current clearance' && savedAttention[0]?.questions?.[0]?.options?.join(',') === 'None,Baseline');
+check('role mismatches without questions stay out of Needs attention',
+  resolveAttention([{ ...event('needs-human', 4), reason: 'Fundamental field mismatch', questions: [] }], new Set()).length === 0);
 
 console.log(`\n${failures} failure(s)`);
 process.exit(failures ? 1 : 0);

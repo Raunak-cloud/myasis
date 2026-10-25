@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mts",
     "lint": "oxlint",
+    "test:statuses": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.app.json --test test/activity.test.mjs test/status-copy.test.tsx",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -38,6 +38,7 @@ import { isSubmitControl } from '../llm.js';
 import { prepareEmailApplication } from './prepare-email.js';
 import { readFieldFeedback } from './field-feedback.js';
 import { ApplicationProgress } from './progress.js';
+import { normaliseBlockedQuestions } from '../blocked-questions.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -82,6 +83,11 @@ export const agentOnlyTools: ToolSchema[] = [
   schema('finish', 'Report your own final judgement after reading the actual page. No independent form or receipt reviewer will override it. Applied means the site received this application; a press alone is not receipt. Record an uncertain result honestly.', {
     status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied'] },
     reason: string, evidence: string,
+    questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED application questions needing a consequential candidate fact or decision. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
+      type: 'object', additionalProperties: false,
+      properties: { question: string, prompt: string, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
+      required: ['question'],
+    } },
     cover_letter: string, resume_id: string,
     answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
   }, ['status', 'reason', 'evidence']),
@@ -90,6 +96,7 @@ export const agentOnlyTools: ToolSchema[] = [
 export const AGENT_ONLY_PROMPT = `You are the sole applying agent. Complete the specified job application using the candidate's evidence and preferences. You author answers, select/upload documents, write a tailored cover letter with paragraph breaks (including optional letter fields), inspect actual saved form values, recover errors, decide whether to submit or retry, and determine receipt. There is no separate form checker, answer gate, reservation veto or receipt verifier. You may consult a read-only specialist when useful; its advice is yours to assess.
 Read the authoritative profile, saved answers, CVs, supporting documents and current application history. More evidence is available with read_candidate_evidence. Follow explicit candidate preferences, including reusing supplied cover-letter text unchanged when the selected letter mode is reuse; distinguish routine reasonable choices from unknown personal facts. Do not invent qualifications, legal/work rights, health history, identity or financial facts. Ask for attention only when a consequential unknown prevents truthful completion. History and reservations are advisory: inspect uncertain previous sends before deciding to repeat. A validation-rejected submit can be corrected and retried; do not call that a successful or uncertain receipt merely because Submit was pressed. Inspect the current page after sending; report applied only when you see receipt evidence. Keep answers and documents consistent and preserve letter paragraphs.
 When the form offers CV upload or parsing, upload the selected CV early, then inspect and correct the resulting saved fields. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless the form requires them or the candidate asks. Complete required sections truthfully and include the tailored cover letter. Use the fresh observation already provided before requesting another snapshot of the same information.
+If a role does not match the candidate's preferences, finish as skipped with the reason. For needs-human, include questions containing the exact observed required form labels, clear candidate-facing prompts and offered choices. Only ask about a consequential candidate fact or decision the saved evidence cannot answer. Browser failures and role mismatches are not unanswered application questions; never invent a question to create a task.
 For verification email codes and links, use the Gmail MCP tools only. Never open Gmail in the browser. When an employer requires applications by email, use prepare_email_application with the observed recipient, tailored subject, complete cover letter and selected resume. Email applications always wait for explicit candidate confirmation. Saving content is not an email send or a successful application. For online applications, supply submit_ref or submit_selector when saving a prepared application.
 ${WORK_RIGHTS_EVIDENCE_RULES}
 Use browser_action directly to operate the actual form. You choose every interaction; there is no automatic custom-widget filler. Use observed refs or standard Playwright locators: for example locator={by:"role",value:"button",name:"Country"}, locator={by:"label",value:"Phone"}, or locator={by:"placeholder",value:"Search countries"}. Names must come from the observed page. Locators match exactly by default; narrow ambiguous matches with within (section CSS), frame (iframe CSS), or an index you deliberately choose after inspecting the matches. Native actions retain browser auto-waiting and normal input events. Use script only for browser-side DOM inspection or an interaction unavailable through these native actions; DOM methods require their proper receiver (for example node.click(), not an unbound click function).
@@ -255,11 +262,15 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       if (args.cover_letter) ctx.coverLetter = coverLetterForRun(String(args.cover_letter));
       const resumeId = approved?.resumeId ?? args.resume_id;
       if (resumeId) { const doc = agentOnlyDocuments().find(item => item.id === resumeId); if (doc) { ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName; } }
+      const questions = normaliseBlockedQuestions(args.questions).slice(0, 30);
+      if (args.status === 'needs-human' && !questions.length) return ok('Needs attention requires an exact unanswered required application question. Supply it in questions with its form label, candidate-facing prompt and available choices. If this is a role mismatch, technical problem or no candidate answer is needed, finish as skipped with the reason. Do not invent a question.', 'invalid-arguments');
       log(`  Agent judgement: ${args.status}: ${args.reason} Evidence: ${args.evidence}`);
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
       const status = args.status as 'applied' | 'skipped' | 'needs-human' | 'already-applied';
       if (status === 'applied' && reviewingApplications() && !ctx.submissionAttempted) return ok('No application has been submitted. In Semi auto, finish filling and use prepare_application for candidate confirmation.', 'failed');
-      return { kind: 'terminal', outcome: status === 'applied' ? { status } : { status, reason: String(args.reason) } };
+      return { kind: 'terminal', outcome: status === 'applied' ? { status } : status === 'needs-human'
+        ? { status, reason: String(args.reason), questions }
+        : { status, reason: String(args.reason) } };
     }
     if (name === 'reason_through_problem') { highEffort = true; return ok('The next turn will use high reasoning effort for this problem.'); }
     if (name === 'read_candidate_evidence') return ok(await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0)));

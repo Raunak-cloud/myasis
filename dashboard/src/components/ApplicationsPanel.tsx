@@ -12,6 +12,8 @@ interface Props {
   /** Offer the Skipped view beside what was sent (administrators, while it is tried out). */
   showSkipped?: boolean;
   showCosts?: boolean;
+  loading?: boolean;
+  loadError?: string | null;
 }
 
 const SkippedPanel = lazy(() => import('./SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
@@ -89,7 +91,7 @@ const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
  * unanswered for a fortnight is the single most actionable thing a job seeker
  * has, and nothing else in the product surfaces it.
  */
-export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false, showCosts = false }: Props) {
+export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false, showCosts = false, loading = false, loadError = null }: Props) {
   const [costs, setCosts] = useState<Record<string, ApplicationCost>>({});
   const [costError, setCostError] = useState(false);
   const [costLoading, setCostLoading] = useState(false);
@@ -219,7 +221,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
         </details>
       )}
 
-      {rows.length === 0 ? (
+      {loadError ? <div className="card empty" role="alert">{loadError}</div> : loading && !apps.length ? <div className="card empty" role="status">Loading your applications…</div> : rows.length === 0 ? (
         <div className="card empty">
           <div className="big">{apps.length ? 'Nothing here' : 'No applications yet'}</div>
           <p>{apps.length ? 'Try another filter.' : 'Applications appear here once you submit them.'}</p>

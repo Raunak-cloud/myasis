@@ -1,9 +1,40 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activityEvents, activitySummary, formatActivityReason } from '../src/activity.ts';
+import { activityEvents, activitySummary, formatActivityReason, runResultLabel } from '../src/activity.ts';
 import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
+
+test('historical sole-agent judgements without saved questions are skipped, not phantom attention tasks', () => {
+  const lines = log([
+    '✓ 90 · Insurance Analyst @ Insurance Employer',
+    '✓ 90 · Data Technician @ Data Employer',
+    '[worker:seek] → Applying: Insurance Analyst @ Insurance Employer',
+    '[worker:seek] Agent judgement: needs-human: Fundamental field mismatch. Evidence: Insurance role, software profile.',
+    '[worker:indeed] → Applying: Data Technician @ Data Employer',
+    '[worker:indeed] Agent judgement: needs-human: Outside saved preferences. Evidence: Trainee operations.',
+    '[worker:seek] ⏸ needs you: Fundamental field mismatch.',
+    '[worker:indeed] ⏸ needs you: Outside saved preferences.',
+    '=== Run complete: 0 new application(s) ===',
+  ]);
+  const events = activityEvents(lines, Infinity);
+  assert.ok(events.some(event => event.title === 'Skipped Insurance Analyst'));
+  assert.ok(events.some(event => event.title === 'Skipped Data Technician'));
+  assert.doesNotMatch(JSON.stringify(events), /needs your answer|Open Needs attention|need your attention/);
+  assert.match(activitySummary(lines).outcomeSummary, /2 skipped for other reasons/);
+});
+
+test('new question-backed outcomes still direct candidates to Needs attention after an agent judgement', () => {
+  const lines = log([
+    '✓ 90 · Developer @ Employer',
+    '→ Applying: Developer @ Employer',
+    'Agent judgement: needs-human: Current clearance is unknown. Evidence: Required clearance question.',
+    '⏸ needs your answer: Which clearance do you currently hold?',
+    '=== Run complete: 0 new application(s) ===',
+  ]);
+  assert.ok(activityEvents(lines).some(event => event.title === 'Developer needs your answer' && /Open Needs attention/.test(event.detail)));
+  assert.match(activitySummary(lines).outcomeSummary, /1 needs your attention/);
+});
 
 test('activity omits internal worker setup and merges application limit notices in either order', () => {
   for (const isAdmin of [false, true]) for (const notices of [
@@ -339,7 +370,7 @@ test('technical details are translated across skips, errors, board failures and 
       assert.ok(activityEvents(lines, 14, true).at(-1).detail.includes(reason.split(/[.:]/)[0]));
     }
   }
-  assert.equal(formatActivityReason('Required answer: What is your notice period?'), 'Required answer: What is your notice period?.');
+  assert.equal(formatActivityReason('Required answer: What is your notice period?'), 'Required answer: What is your notice period?');
 });
 
 test('unexpected exits expose exit codes only to admins', () => {
@@ -352,9 +383,56 @@ test('an exhausted review allowance explains that remaining listings were not ru
   const lines = log(['evaluation cap (100) reached', '=== Run complete: 0 new application(s) ===']);
   const event = activityEvents(lines).find(event => event.title === 'Review limit reached');
   assert.ok(event);
-  assert.match(event.detail, /100 job reviews/);
-  assert.match(event.detail, /unreviewed/);
+  assert.match(event.detail, /limit of 100 jobs/);
+  assert.match(event.detail, /Other listings may still/);
+  assert.doesNotMatch(event.detail, /zero submissions/);
   assert.equal(activityEvents(lines).at(-1).title, 'Run complete');
+});
+
+test('review limits do not contradict successful submissions or promise more matches', () => {
+  const lines = log(['overrides: MAX_EVALUATIONS=100', '✓ 90 · Role @ Employer', '→ Applying: Role @ Employer', '✅ submitted (1/10)', 'evaluation cap (100) reached', '=== Run complete: 1 new application(s) ===']);
+  assert.doesNotMatch(JSON.stringify(activityEvents(lines)), /zero submissions|nothing submitted/i);
+  const partial = activitySummary(lines.filter(line => !line.text.includes('evaluation cap'))).shortfall;
+  assert.doesNotMatch(partial, /only.*left to review|will find more/i);
+});
+
+test('an uncertain send is distinct from a failed or skipped application and preserves confirmed sends', () => {
+  const lines = log([
+    '✓ 90 · Sent @ Employer', '✓ 90 · Unknown @ Employer',
+    '→ Applying: Sent @ Employer', '✅ submitted (1/10)',
+    '→ Applying: Unknown @ Employer', 'Submission not confirmed: TypeError: HTTP 503 at https://private.example',
+    '=== Run complete: 1 new application(s) ===',
+  ]);
+  const events = activityEvents(lines);
+  assert.ok(events.some(event => event.outcome === 'unconfirmed' && /Check your application history/.test(event.detail)));
+  assert.doesNotMatch(JSON.stringify(events), /TypeError|503|private\.example|nothing submitted/i);
+  assert.equal(activitySummary(lines).outcomeSummary, '2 profile matches · 1 application submitted · 1 submission not confirmed.');
+});
+
+test('interrupted applications do not remain applying after the run ends', () => {
+  for (const ending of ['⏹ stop requested, terminating', 'Run reached its 20-minute time limit; stopping the worker.', 'run finished (exit 137)']) {
+    const events = activityEvents(log(['→ Applying: Role @ Employer', ending, 'run finished (exit 137)']));
+    assert.ok(events.some(event => event.title === 'Not completed: Role'));
+    assert.ok(events.every(event => !event.live && !event.title.startsWith('Applying')));
+    assert.doesNotMatch(JSON.stringify(events), /nothing submitted|nothing was submitted/i);
+  }
+});
+
+test('the activity badge distinguishes unavailable, stopped and partially completed runs', () => {
+  const status = { running: false, finishedAt: '2026-10-25T00:00:00Z', exitCode: 0 };
+  assert.equal(runResultLabel(null), 'Checking status');
+  assert.equal(runResultLabel({ ...status, connectionLost: true }), 'Checking status');
+  assert.equal(runResultLabel({ ...status, exitCode: 1 }), 'Stopped early');
+  assert.equal(runResultLabel(status, log(['⏹ stop requested, terminating'])), 'Stopped');
+  assert.equal(runResultLabel(status, log(['Submission not confirmed: No receipt'])), 'Finished with issues');
+  assert.equal(runResultLabel(status), 'Finished');
+});
+
+test('technical details after the first line cannot leak through a readable error prefix', () => {
+  for (const reason of ['Could not finish.\nTypeError: HTTP 503 at https://private.example', 'Celeris 429: overloaded', 'Failed to fetch', 'Unexpected token < in JSON', 'Details: C:\\private\\session.json']) {
+    assert.doesNotMatch(formatActivityReason(reason), /TypeError|503|private|Celeris|429|JSON|session\.json/i);
+    assert.ok(formatActivityReason(reason, true).includes(reason.split('\n')[0]));
+  }
 });
 
 test('reserved search-card rejections count as reviews without creating profile matches', () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { COVER_LETTER_INSTRUCTION_WORD_LIMIT, instructionWordCount } from '../../../seek-bot/src/cover-letter-policy.js';
+import { plainReason, preparedStatusLabel, userFacingError } from '../run-messages';
 interface Review {
   id: string; status: string; detail: string | null;
   application: {
@@ -14,6 +15,8 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [editing, setEditing] = useState<{ id: string; revision: string; text: string } | null>(null);
   const [instructions, setInstructions] = useState('');
   const [savedInstructions, setSavedInstructions] = useState('');
@@ -34,15 +37,17 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
     const response = await fetch('/api/application-reviews', { signal });
     if (!response.ok) throw new Error('Could not load prepared applications.');
     const data = await response.json();
-    const applications: Review[] = Array.isArray(data.applications) ? data.applications : [];
+    if (!Array.isArray(data.applications)) throw new Error('Could not load prepared applications.');
+    const applications: Review[] = data.applications;
     if (signal?.aborted) return;
     setReviews(applications);
+    setLoading(false); setLoadError('');
     onCountChange(applications.filter(item => item.status === 'ready').length);
   };
   useEffect(() => {
     if (editing || busy) return;
     const controller = new AbortController();
-    const refresh = () => { void load(controller.signal).catch(reason => { if (!controller.signal.aborted) setError(reason.message); }); };
+    const refresh = () => { void load(controller.signal).catch(() => { if (!controller.signal.aborted) { setLoadError('Could not load prepared applications. Please try again.'); setLoading(false); } }); };
     refresh();
     const timer = window.setInterval(refresh, 10000);
     return () => { controller.abort(); window.clearInterval(timer); };
@@ -104,9 +109,11 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
       </form>
     </details>
     {reviews.length > 0 && <p className="job-meta prepared-intro">Review and select the jobs you want to apply to.</p>}
-    {error && <div className="banner banner-bad" role="alert">{error}</div>}
+    {error && <div className="banner banner-bad" role="alert">{userFacingError(error)}</div>}
+    {loadError && <div className="banner banner-bad" role="alert">{loadError}</div>}
+    {loading && <p role="status">Loading prepared applications…</p>}
     {notice && <p className="job-meta prepared-notice" role="status">{notice}</p>}
-    {!reviews.length && <div className="prepared-empty"><p>No prepared applications yet.</p><a className="btn" href="/?tab=run">Apply page</a></div>}
+    {!loading && !loadError && !reviews.length && <div className="prepared-empty"><p>No prepared applications yet.</p><a className="btn" href="/?tab=run">Apply page</a></div>}
     {reviews.map(item => {
       const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim();
       const coverLetter = normalizeText(item.application.coverLetter || '');
@@ -117,8 +124,8 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
         onChange={event => setSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })}/>
         <span className="prepared-job"><strong>{item.application.job.title}</strong><span className="job-meta">{item.application.job.company} · {item.application.job.location}</span></span>
       </label>
-      <span className={`prepared-status ${item.status}`}>{item.status === 'ready' ? 'Ready' : item.status === 'approved' ? 'Submitting' : item.status === 'applied' ? 'Submitted' : item.status === 'dismissed' ? 'Skipped' : 'Could not submit'}</span>
-      {item.detail && <p className="job-meta prepared-detail">{item.detail}</p>}
+      <span className={`prepared-status ${item.status}`}>{preparedStatusLabel(item.status, running)}</span>
+      {item.detail && <p className="job-meta prepared-detail">{plainReason(item.detail)}</p>}
       {item.status === 'failed' && <button type="button" className="btn prepared-retry" disabled={running || busy || Boolean(editing)}
         onClick={() => void decide('submit', item)}>Retry application</button>}
       <details><summary>Review application</summary>

@@ -1,4 +1,7 @@
 import { query } from './db/index.js';
+import type { BlockedQuestion } from '../../seek-bot/src/types.js';
+import { normaliseBlockedQuestions as normaliseQuestions } from '../../seek-bot/src/blocked-questions.js';
+export { normaliseQuestions };
 import { plainReason } from '../src/run-messages.js';
 export { plainReason } from '../src/run-messages.js';
 
@@ -21,53 +24,6 @@ interface AttentionItem {
   at: string;
   /** Questions the candidate can answer right here to unblock the job. */
   questions?: BlockedQuestion[];
-}
-
-/**
- * A blocked question as the dashboard shows it: the wording, and the choices
- * the form offered when it had any, so the person picks from the same list
- * the form did rather than typing something that will not match on retry.
- */
-interface BlockedQuestion {
-  question: string;
-  /** Complete request shown to the candidate; `question` remains the form's exact label. */
-  prompt?: string;
-  kind?: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
-  options?: string[];
-}
-
-/**
- * Accepts both shapes a run has ever written — bare label strings from older
- * runs, and objects from current ones — so old rows still render.
- */
-export function normaliseQuestions(raw: unknown): BlockedQuestion[] {
-  if (!Array.isArray(raw)) return [];
-  const out: BlockedQuestion[] = [];
-  for (const entry of raw) {
-    const item: { question?: unknown; prompt?: unknown; kind?: unknown; options?: unknown } =
-      typeof entry === 'string' ? { question: entry } : entry && typeof entry === 'object' ? entry : {};
-    if (typeof item.question !== 'string') continue;
-    // Labels arrive with the form's own line breaks and required-asterisks; one line reads better.
-    const question = item.question.replace(/\s*\*\s*$/, '').replace(/\s+/g, ' ').trim();
-    if (!question) continue;
-    /**
-     * Never shown, whatever the run wrote. Runs stopped recording password
-     * fields once that was noticed, but rows from before then still hold
-     * them, and a password typed into this form is stored in plain text and
-     * replayed at every later employer. Dropping them here covers the old
-     * rows the capture-side fix cannot reach.
-     */
-    if (/\bpass(word|phrase)\b/i.test(question)) continue;
-    const options = Array.isArray(item.options) ? item.options.map(String).filter(Boolean) : [];
-    const prompt = typeof item.prompt === 'string' ? item.prompt.replace(/\s+/g, ' ').trim().slice(0, 500) : '';
-    out.push({
-      question,
-      ...(prompt ? { prompt } : {}),
-      ...(typeof item.kind === 'string' ? { kind: item.kind as BlockedQuestion['kind'] } : {}),
-      ...(options.length ? { options } : {}),
-    });
-  }
-  return out;
 }
 
 export interface RunEventRow {

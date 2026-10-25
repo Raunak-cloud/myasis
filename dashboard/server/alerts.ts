@@ -127,7 +127,7 @@ const ALERTS: AlertKind[] = [
     message: () => ({
       subject: 'Your last 3 Owtomate runs failed',
       paragraphs: [
-        'Your last 3 runs each stopped on a problem before sending any application.',
+        'Your last 3 runs did not finish normally. Some applications may still have been submitted. Check your application history before trying again.',
         'The Apply page shows what each run hit. If it is not something you can fix there, reply to this email and we will look into it.',
       ],
       action: { label: 'See what happened', tab: 'run' },

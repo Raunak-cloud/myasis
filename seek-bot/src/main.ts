@@ -1,5 +1,6 @@
 import { submitApprovedEmail } from './gmail-mailbox.js';
 import { runApprovedEmailBatch } from './approved-email-run.js';
+import { normaliseAttentionOutcome } from './blocked-questions.js';
 import type { BrowserContext, Page } from 'patchright';
 import { setTimeout as pause } from 'node:timers/promises';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
@@ -1259,12 +1260,14 @@ async function main() {
                 });
                 break;
               }
-              console.log(`  ✗ unexpected error: ${msg}`);
+              console.log(submitPressed ? `  Submission not confirmed: ${msg}` : `  ✗ unexpected error: ${msg}`);
               logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company });
               // It may have failed halfway through the board's form, so the next request still keeps its distance.
               await cooldown(false, applicationPage, accept);
               continue;
             }
+            // Include email-confirmation outcomes as well as browser adapters.
+            outcome = normaliseAttentionOutcome(outcome);
             finalOutcome = outcome;
             logOutcome({ ...outcome, title: job.title, company: job.company, url: job.url, reviewId: approvedApplication(job)?.id });
             // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
@@ -1327,13 +1330,13 @@ async function main() {
                 console.log(`  ↩ already applied — ${outcome.reason}`);
                 break;
               case 'needs-human':
-                console.log(`  ⏸ needs you: ${outcome.reason}\n     ${outcome.url}`);
+                console.log(`  ⏸ needs your answer: ${outcome.reason}\n     ${outcome.url}`);
                 break;
               case 'skipped':
-                console.log(`  – skipped: ${outcome.reason}`);
+                console.log(outcome.submitPressed ? `  Submission not confirmed: ${outcome.reason}` : `  – skipped: ${outcome.reason}`);
                 break;
               case 'error':
-                console.log(`  ✗ error: ${outcome.error}`);
+                console.log(outcome.submitPressed ? `  Submission not confirmed: ${outcome.error}` : `  ✗ error: ${outcome.error}`);
                 break;
             }
 
