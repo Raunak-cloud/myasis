@@ -23,20 +23,20 @@ export class FieldBatchTargets {
       const optionIndices: Array<number | null> = [];
       for (const write of writes) {
         const matches = elements.filter(element => element.getAttribute('data-field-id') === write.ref);
-        if (matches.length !== 1) return { error: 'A FIELD target is missing or ambiguous. No fields were written.' };
+        if (matches.length !== 1) return { error: `Field ${write.ref}: A FIELD target is missing or ambiguous. No fields were written.` };
         const node = matches[0];
-        if (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement)) return { error: 'Use browser_action for non-native controls. No fields were written.' };
-        if (node.disabled || node.matches(':disabled') || node.getAttribute('aria-disabled') === 'true' || 'readOnly' in node && node.readOnly) return { error: 'A FIELD target is disabled or read-only. No fields were written.' };
+        if (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement)) return { error: `Field ${write.ref}: Use browser_action for non-native controls. No fields were written.` };
+        if (node.disabled || node.matches(':disabled') || node.getAttribute('aria-disabled') === 'true' || 'readOnly' in node && node.readOnly) return { error: `Field ${write.ref}: A FIELD target is disabled or read-only. No fields were written.` };
         if (node.closest('[role=combobox], [role=listbox]') || node.getAttribute('role') === 'combobox'
-          || node.getAttribute('aria-autocomplete') && node.getAttribute('aria-autocomplete') !== 'none' || node.hasAttribute('list')) return { error: 'Use browser_action for autocomplete/custom widgets. No fields were written.' };
+          || node.getAttribute('aria-autocomplete') && node.getAttribute('aria-autocomplete') !== 'none' || node.hasAttribute('list')) return { error: `Field ${write.ref}: Use browser_action for autocomplete/custom widgets. No fields were written.` };
         let optionIndex: number | null = null;
         if (node instanceof HTMLSelectElement) {
-          if (node.multiple) return { error: 'Use browser_action for multi-select controls. No fields were written.' };
+          if (node.multiple) return { error: `Field ${write.ref}: Use browser_action for multi-select controls. No fields were written.` };
           const matches = [...node.options].map((option, index) => ({ option, index })).filter(({ option }) => !option.disabled && !option.parentElement?.matches('optgroup:disabled') && (option.label === write.value || option.value === write.value));
-          if (matches.length !== 1) return { error: 'A requested option is missing or ambiguous. Use browser_action. No fields were written.' };
+          if (matches.length !== 1) return { error: `Field ${write.ref}: A requested option is missing or ambiguous. Use browser_action. No fields were written.` };
           optionIndex = matches[0].index;
         } else if (node instanceof HTMLInputElement && (node.type === 'checkbox' ? !['true', 'false'].includes(write.value)
-          : !['text', 'email', 'tel', 'url', 'number', 'date', 'month', 'week', 'time', 'datetime-local'].includes(node.type))) return { error: 'Use browser_action for this input type. No fields were written.' };
+          : !['text', 'email', 'tel', 'url', 'number', 'date', 'month', 'week', 'time', 'datetime-local'].includes(node.type))) return { error: `Field ${write.ref}: Use browser_action for this input type. No fields were written.` };
         nodes.push(node); optionIndices.push(optionIndex);
       }
       // Metadata extraction does not expose every native constraint (for example

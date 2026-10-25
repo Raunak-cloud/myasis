@@ -91,7 +91,9 @@ try {
   await check('unsupported controls and invalid later choices are rejected before any write', async () => {
     for (const second of [`<input role=combobox>`, `<input type=password>`, `<input readonly>`, `<select><option disabled>Choice</option></select>`, `<select><option value=a>Choice</option><option value=b>Choice</option></select>`]) {
       const ctx = await setup(`<label>First<input id=first></label><label>Second${second}</label>`);
-      await batch(ctx, ['Must stay empty', 'Choice']);
+      const result = await batch(ctx, ['Must stay empty', 'Choice']);
+      assert.ok(result.kind === 'ok');
+      assert.match(result.message, new RegExp(ctx.observation.fields[1].ref), 'recovery identifies the rejected target');
       assert.equal(await page.inputValue('#first'), '');
     }
   });
