@@ -10,6 +10,10 @@ import { quoteCheckout, billingOffers, DAY_MS, type ActivePass } from './billing
 import { billingStatus } from './billing.js';
 import { PAID_PLANS, type PassPlanKey } from '../src/pricing.js';
 
+// The deployment host has real analytics credentials. Fixture payments must
+// never be reported as real conversions, even when run on that host.
+process.env.REDDIT_CONVERSION_TOKEN = '';
+
 const now = Date.now();
 const pool = getPool();
 const schema = `billing_upgrades_${randomUUID().replaceAll('-', '')}`;
