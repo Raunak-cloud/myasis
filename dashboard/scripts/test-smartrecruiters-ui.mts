@@ -299,7 +299,7 @@ try {
     await card.getByText('Two weeks', { exact: true }).waitFor();
     await page.getByLabel('Select Prepared Role 1 at Fixture Employer', { exact: true }).check();
     await page.getByRole('button', { name: 'Apply to 1 job', exact: true }).click();
-    await page.getByText('Submitting', { exact: true }).waitFor();
+    await page.getByText('Waiting to submit', { exact: true }).waitFor();
     assert.equal(await preparedBadge.textContent(), String(preparedRows().length - 1), 'confirming an application reduces the prepared count');
     const approval = writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body;
     assert.deepEqual(approval, { confirm: true, applications: [{ id: preparedRows()[0].id, revision: preparedRows()[0].application.revision }] });
@@ -311,8 +311,8 @@ try {
       await page.getByRole('button', { name: 'Apply to 4 jobs', exact: true }).waitFor({ state: 'hidden' });
       assert.deepEqual(writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body.applications,
         e2eDrafts.slice(1).map((draft: any) => ({ id: draft.id, revision: draft.revision })));
-      await page.getByText('Submitting', { exact: true }).nth(4).waitFor();
-      assert.equal(await page.getByText('Submitting', { exact: true }).count(), 5);
+      await page.getByText('Waiting to submit', { exact: true }).nth(4).waitFor();
+      assert.equal(await page.getByText('Waiting to submit', { exact: true }).count(), 5);
     }
     assert.equal(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
     assert.deepEqual(errors, []);
@@ -339,13 +339,13 @@ try {
   await failedCard.getByRole('button', { name: 'Save cover letter', exact: true }).click();
   await failedCard.getByRole('textbox').waitFor({ state: 'hidden' });
   await failedCard.getByText('Revised failed application letter.', { exact: true }).waitFor();
-  await failedCard.getByText('Could not submit', { exact: true }).waitFor();
+  await failedCard.getByText('Not completed', { exact: true }).waitFor();
   await failedCard.getByText('Fixture submission was not confirmed.', { exact: true }).waitFor();
   assert.equal(await failedCard.getByRole('checkbox').isDisabled(), true, 'editing a failed application cannot authorize a retry');
   assert.equal(writes.filter(write => write.path === '/api/application-reviews/submit').length, beforeRetry, 'editing alone never submits a failed application');
   const retryRow = preparedRows()[0];
   await failedCard.getByRole('button', { name: 'Retry application', exact: true }).click();
-  await failedCard.getByText('Submitting', { exact: true }).waitFor();
+  await failedCard.getByText('Waiting to submit', { exact: true }).waitFor();
   await failedCard.getByRole('button', { name: 'Retry application', exact: true }).waitFor({ state: 'hidden' });
   assert.deepEqual(writes.filter(write => write.path === '/api/application-reviews/submit').at(-1)!.body,
     { confirm: true, applications: [{ id: retryRow.id, revision: retryRow.application.revision, retry: true }] }, 'retry submits only the failed row and its current edited version');

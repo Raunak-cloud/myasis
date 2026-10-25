@@ -167,10 +167,10 @@ try {
   await eventually(() => attachedTo('indeed') === ids[1]);
   await indeed.getByText('Picture live', { exact: true }).waitFor();
   await contexts[0].close();
-  await seek.getByText('Waiting for a browser page', { exact: true }).waitFor();
+  await seek.getByRole('heading', { name: 'Waiting for an application page', exact: true }).waitFor();
   await indeed.getByText('Picture live', { exact: true }).waitFor();
   writeLiveTarget(directory, 'seek', { finished: true, activity: { phase: 'finished' } });
-  await seek.getByText('Worker finished', { exact: true }).waitFor();
+  await seek.getByRole('heading', { name: 'Live activity ended', exact: true }).waitFor();
   await indeed.getByText('Picture live', { exact: true }).waitFor();
   // Late failures from a vanished stream cannot erase the other worker's view.
   assert.equal(attachedTo('indeed'), ids[1]);
