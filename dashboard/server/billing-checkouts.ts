@@ -114,7 +114,7 @@ export async function managedCheckout(
     const params: Stripe.Checkout.SessionCreateParams = {
       mode: 'payment', expires_at: expiresAt, customer_creation: 'always', customer_email: user.email,
       client_reference_id: user.id, allow_promotion_codes: quote.kind !== 'upgrade',
-      automatic_tax: { enabled: env.automaticTax }, payment_method_collection: 'if_required',
+      automatic_tax: { enabled: env.automaticTax },
       line_items: [{ quantity: 1, price_data: priceData(quote) }], metadata,
       ...(quote.amountCents > 0 ? { payment_intent_data: { metadata } } : {}),
       success_url: `${env.baseUrl}/?tab=pricing&payment=success&session_id={CHECKOUT_SESSION_ID}`,

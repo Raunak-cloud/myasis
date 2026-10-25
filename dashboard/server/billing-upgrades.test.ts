@@ -36,6 +36,7 @@ let rejectRequest = false;
 const fake = {
   checkout: { sessions: {
     async create(params: Stripe.Checkout.SessionCreateParams, options: { idempotencyKey: string }) {
+      assert.equal(params.payment_method_collection, undefined, 'one-time Checkout rejects this subscription-only option');
       if (rejectRequest) { rejectRequest = false; throw Object.assign(new Error('Fixture invalid Stripe request'), { type: 'StripeInvalidRequestError' }); }
       if (keys.has(options.idempotencyKey)) return sessions.get(keys.get(options.idempotencyKey)!)!;
       requests.push(params);
@@ -94,7 +95,7 @@ test('one-time purchases reuse a checkout across tabs and grant only once across
   const [first, second] = await Promise.all([checkout(2,'essential-pass'), checkout(2,'essential-pass')]);
   assert.equal(first.id, second.id); assert.equal(requests.length, count+1);
   const request = requests.at(-1)!;
-  assert.equal(request.mode, 'payment'); assert.equal(request.payment_method_collection, 'if_required');
+  assert.equal(request.mode, 'payment'); assert.equal(request.payment_method_collection, undefined);
   assert.equal(request.subscription_data, undefined); assert.equal(request.payment_intent_data?.setup_future_usage, undefined);
   assert.equal('recurring' in request.line_items![0].price_data!, false);
   paid(first.id);
