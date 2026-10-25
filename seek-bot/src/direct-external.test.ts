@@ -39,6 +39,7 @@ test('agent-only direct orchestration treats duplicate history as advisory and d
       const failureAgent = { runAgent: async ({ page, job }: Parameters<typeof import('./agent/loop.js').runApplicationAgent>[0]) => {
         calls++;
         assert.equal(job.title, 'Fictional receptionist', 'hidden browser warnings cannot become the job identity');
+        assert.equal(job.source, 'chosen', 'an explicit direct application carries the user selection through to the sole applying agent');
         const failure = new Error('Synthetic error after possible send');
         captureApplicationFailure(page, job.id, failure, { stage: 'agent-loop', submitPressed: true });
         throw failure;

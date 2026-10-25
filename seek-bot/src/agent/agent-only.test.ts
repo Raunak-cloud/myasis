@@ -110,6 +110,18 @@ try {
   assert.equal(batched.captured.length, 4);
 
   await page.goto(url);
+  script = [body => {
+    const instructions = String(body.messages.find(message => message.role === 'system')?.content);
+    assert.match(instructions, /USER-SELECTED APPLICATION/);
+    assert.match(instructions, /current selection overrides ordinary search keywords/);
+    assert.match(instructions, /never claim experience, qualifications or legal permissions the candidate does not have/);
+    assert.match(instructions, /does not authorize duplicate or uncertain sends, bypass candidate confirmation, or change saved preferences/);
+    return [{ name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Rinu Fixture' } }];
+  }, () => [{ name: 'finish', args: { status: 'skipped', reason: 'Offline explicit selection received', evidence: 'Selection reached the application agent with truthful-answer and submission protections' } }]];
+  await runApplicationAgent({ page, job: { ...job, id: 'agent-explicit-job-selection', title: 'Different career title', source: 'chosen' }, profile, log: () => {} });
+  assert.equal(await page.inputValue('#name'), 'Rinu Fixture');
+
+  await page.goto(url);
   await page.setContent(`<main><label>City<input id=city role=combobox aria-controls=cities aria-autocomplete=list oninput="document.querySelector('#cities').hidden=false"></label>
     <div id=cities role=listbox hidden><button type=button role=option onclick="document.querySelector('#city').value='Sydney NSW';this.parentElement.hidden=true">Sydney NSW</button></div></main>`);
   script = [body => {

@@ -78,6 +78,7 @@ export async function runDirectExternalApplication(
     applicationUrl: page.url(),
     applicationMode: 'external',
     platform: 'external',
+    source: 'chosen',
   };
   const index = new AppliedIndex();
   if ((!config.allowExternalApply || config.limits.maxApplicationsPerRun < 1
