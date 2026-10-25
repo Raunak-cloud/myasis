@@ -8,6 +8,7 @@ function fixture(url: string) {
   const context = { pages: () => pages };
   const navigations: string[] = [];
   const page = { url: () => url, context: () => context, isClosed: () => false,
+    waitForLoadState: async () => {},
     goto: async (next: string) => { url = next; navigations.push(next); } } as unknown as Page;
   pages.push(page);
   return { page, pages, navigations, navigate: (next: string) => { url = next; } };
@@ -62,4 +63,50 @@ test('failed employer connection or navigation cannot fall back locally and is c
   assert.equal(retired, 1, 'disconnect cleanup is idempotent and cannot replace a completed outcome');
   process.env.BRIGHTDATA_BROWSER_ENABLED = 'false'; process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
   assert.equal(await failed.route(local.page), local.page);
+});
+
+test('an initial empty response retries in a fresh private session, cleans up and never copies local state', async () => {
+  process.env.BRIGHTDATA_BROWSER_ENABLED = 'true';
+  const local = fixture('https://employer.example/apply');
+  const first = fixture('about:blank'), second = fixture('about:blank');
+  first.page.goto = async () => { throw new Error('page.goto: net::ERR_EMPTY_RESPONSE'); };
+  let opens = 0, closes = 0, stops = 0;
+  const pauses: number[] = [];
+  const router = new EmployerBrowserRouter({
+    open: async page => { assert.equal(page, local.page); return { page: ++opens === 1 ? first.page : second.page, close: async () => { closes++; } }; },
+    guard: async () => ({ blocked: () => null, stop: async () => { stops++; } }),
+  }, { now: Date.now, pause: async ms => { pauses.push(ms); } });
+  assert.equal(await router.route(local.page), second.page);
+  assert.equal(opens, 2); assert.equal(closes, 1); assert.equal(stops, 1);
+  assert.deepEqual(local.navigations, []);
+  assert.deepEqual(second.navigations, ['https://employer.example/apply']);
+  assert.deepEqual(pauses, [1000]);
+  await router.close(); assert.equal(closes, 2); assert.equal(stops, 2);
+});
+
+test('entry retries are bounded and stop on access policy, certificate errors or an exhausted time window', async () => {
+  process.env.BRIGHTDATA_BROWSER_ENABLED = 'true';
+  for (const scenario of ['transport', 'provider', 'policy', 'certificate', 'deadline', 'closed', 'committed'] as const) {
+    const local = fixture('https://employer.example/apply');
+    let opens = 0, closes = 0, stops = 0, now = 0;
+    const router = new EmployerBrowserRouter({
+      open: async () => {
+        opens++;
+        const remote = fixture('about:blank');
+        if (scenario === 'committed') remote.page.waitForLoadState = async () => { throw new Error('net::ERR_EMPTY_RESPONSE after document commit'); };
+        remote.page.goto = async () => {
+          if (scenario === 'committed') return null;
+          if (scenario === 'deadline') now = 125_000;
+          if (scenario === 'closed') local.page.isClosed = () => true;
+          throw new Error(scenario === 'certificate' ? 'net::ERR_CERT_AUTHORITY_INVALID' : scenario === 'provider' ? 'Protocol error: Client connect timeout (proxy_error)' : 'net::ERR_EMPTY_RESPONSE');
+        };
+        return { page: remote.page, close: async () => { closes++; } };
+      },
+      guard: async () => ({ blocked: () => scenario === 'policy' ? 'Destination disallowed' : null, stop: async () => { stops++; } }),
+    }, { now: () => now, pause: async () => {} });
+    await assert.rejects(router.route(local.page), /ERR_|Client connect timeout/);
+    assert.equal(opens, scenario === 'transport' || scenario === 'provider' ? 3 : 1, scenario);
+    assert.equal(closes, opens); assert.equal(stops, opens);
+    assert.deepEqual(local.navigations, []);
+  }
 });
