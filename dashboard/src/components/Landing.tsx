@@ -155,9 +155,6 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
               <span className="home-hero-promise">Let Owtomate apply for you.</span>
               </>}
             </h1>
-            <p className="home-hero-summary">
-              Owtomate helps Australian job seekers prepare and submit applications on SEEK and Indeed.
-            </p>
             <JobSourceLogos />
             <div className="home-hero-actions">
               {start()}
