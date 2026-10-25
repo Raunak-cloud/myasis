@@ -27,6 +27,21 @@ import { platformOf } from './agent/lessons.js';
  */
 const CORPUS_DIR = (): string => process.env.FORM_CORPUS_DIR ?? resolve(config.dataDir, 'form-corpus');
 const PER_PLATFORM = 25;
+const CAPTURE_BUDGET_MS = 2_000;
+
+/** Optional diagnostics share one short deadline, including provider CDP calls. */
+async function withinCapture<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([operation(), new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+    })]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
 
 export interface FormExpectation {
   url: string;
@@ -108,31 +123,33 @@ async function fieldsStillShown(page: Page, observation: Observation): Promise<b
 /** Records this page into the corpus, once per distinct page; never fails an application. */
 export async function recordFormPage(page: Page, observation: Observation): Promise<void> {
   try {
+    const signal = AbortSignal.timeout(CAPTURE_BUDGET_MS);
     if (!observation.fields.length) return;
     const url = page.url();
     const signature = signatureOf(url, observation);
     const tried = attempts.get(signature) ?? 0;
     if (tried >= MAX_ATTEMPTS) return;
     attempts.set(signature, tried + 1);
-    const expectation = expectationOf(observation, await hasCaptchaSurface(page).catch(() => false), url);
+    const expectation = expectationOf(observation, await withinCapture(signal, () => hasCaptchaSurface(page)), url);
     const dir = join(CORPUS_DIR(), expectation.platform.replace(/[^\w.-]+/g, '_'));
     if (existsSync(join(dir, `${signature}.json`))) {
       attempts.set(signature, MAX_ATTEMPTS);
       return;
     }
-    const html = await snapshotPage(page);
-    if (!html || !(await fieldsStillShown(page, observation))) return;
+    const html = await snapshotPage(page, signal);
+    if (!html || !(await withinCapture(signal, () => fieldsStillShown(page, observation)))) return;
+    signal.throwIfAborted();
     attempts.set(signature, MAX_ATTEMPTS);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${signature}.html.gz`), gzipSync(html));
     writeFileSync(join(dir, `${signature}.json`), JSON.stringify(expectation, null, 2));
     prune(dir);
-  } catch { /* the corpus is for testing; an application never waits on it */ }
+  } catch { /* Best-effort diagnostics stop at their short capture deadline. */ }
 }
 
 /** The page as rendered, self-contained: form state written into the markup, stylesheets inlined, scripts gone. */
-async function snapshotPage(page: Page): Promise<string | null> {
-  const captured = await page.evaluate(() => {
+async function snapshotPage(page: Page, signal: AbortSignal): Promise<string | null> {
+  const captured = await withinCapture(signal, () => page.evaluate(() => {
     const clone = document.documentElement.cloneNode(true) as HTMLElement;
     /**
      * Each element of the copy gets what the live one shows but its markup
@@ -189,7 +206,7 @@ async function snapshotPage(page: Page): Promise<string | null> {
     }
     clone.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => node.remove());
     return { html: clone.outerHTML, css: rules.join('\n'), external };
-  }).catch(() => null);
+  })).catch(() => null);
   if (!captured) return null;
   /**
    * Every stylesheet's text, read from the browser itself rather than the
@@ -197,10 +214,13 @@ async function snapshotPage(page: Page): Promise<string | null> {
    * the page's script, and fetching it again may not reach the same file. The
    * browser already holds each one, in the order the page applies them.
    */
-  const fetched = await stylesheetTexts(page).catch(() => [] as string[]);
+  const fetched = await stylesheetTexts(page, signal).catch(() => [] as string[]);
+  signal.throwIfAborted();
   if (!fetched.length) {
     for (const href of captured.external.slice(0, 12)) {
-      const css = await page.context().request.get(href, { timeout: 8_000 }).then((response) => (response.ok() ? response.text() : '')).catch(() => '');
+      const css = await withinCapture(signal, () => page.context().request.get(href, { timeout: CAPTURE_BUDGET_MS })
+        .then((response) => (response.ok() ? response.text() : ''))).catch(() => '');
+      signal.throwIfAborted();
       if (css) fetched.push(css);
     }
   } else captured.css = '';
@@ -209,24 +229,30 @@ async function snapshotPage(page: Page): Promise<string | null> {
 }
 
 /** The text of every stylesheet in the page's main document, as the browser holds it. */
-async function stylesheetTexts(page: Page): Promise<string[]> {
-  const cdp = await page.context().newCDPSession(page);
+async function stylesheetTexts(page: Page, signal: AbortSignal): Promise<string[]> {
+  const cdp = await withinCapture(signal, () => page.context().newCDPSession(page).then(session => {
+    // A session created after the deadline still belongs to this collector.
+    if (signal.aborted) void session.detach().catch(() => {});
+    return session;
+  }));
   try {
     const sheets: Array<{ id: string; frameId: string }> = [];
     cdp.on('CSS.styleSheetAdded', (event: { header: { styleSheetId: string; frameId: string } }) => {
       sheets.push({ id: event.header.styleSheetId, frameId: event.header.frameId });
     });
-    const tree = await cdp.send('Page.getFrameTree') as { frameTree: { frame: { id: string } } };
-    await cdp.send('DOM.enable');
-    await cdp.send('CSS.enable');
-    await page.waitForTimeout(150);
+    const tree = await withinCapture(signal, () => cdp.send('Page.getFrameTree')) as { frameTree: { frame: { id: string } } };
+    await withinCapture(signal, () => cdp.send('DOM.enable'));
+    await withinCapture(signal, () => cdp.send('CSS.enable'));
+    await withinCapture(signal, () => page.waitForTimeout(150));
     const main = tree.frameTree.frame.id;
     const texts = await Promise.all(sheets.filter((sheet) => sheet.frameId === main).map((sheet) =>
-      (cdp.send('CSS.getStyleSheetText', { styleSheetId: sheet.id }) as Promise<{ text: string }>).then((reply) => reply.text).catch(() => '')));
-    await cdp.send('CSS.disable').catch(() => {});
+      withinCapture(signal, () => cdp.send('CSS.getStyleSheetText', { styleSheetId: sheet.id }) as Promise<{ text: string }>).then((reply) => reply.text).catch(() => '')));
+    await withinCapture(signal, () => cdp.send('CSS.disable')).catch(() => {});
     return texts.filter(Boolean);
   } finally {
-    await cdp.detach().catch(() => {});
+    // Detach is best effort; an unresponsive provider must not hold the form.
+    const detached = cdp.detach().catch(() => {});
+    if (!signal.aborted) await withinCapture(signal, () => detached).catch(() => {});
   }
 }
 

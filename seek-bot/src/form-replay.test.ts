@@ -84,6 +84,25 @@ try {
   assert.equal(run.status, 1, 'a field no longer found fails the replay');
   assert.match(run.stdout, /✗ .*fields found: \d+ → \d+/);
 
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<label>Deadline fixture<input></label>'));
+  const delayed = await observe(page);
+  const context = page.context();
+  const openSession = context.newCDPSession;
+  let detached = false;
+  context.newCDPSession = async () => ({
+    on: () => {},
+    send: () => new Promise(() => {}),
+    detach: async () => { detached = true; },
+  }) as unknown as Awaited<ReturnType<typeof openSession>>;
+  const began = Date.now();
+  try { await recordFormPage(page, delayed); }
+  finally { context.newCDPSession = openSession; }
+  assert.ok(Date.now() - began < 4_000, 'an unresponsive diagnostic CDP request cannot hold up the application');
+  assert.equal(detached, true, 'the timed-out collector releases its own CDP session');
+  assert.equal(readdirSync(platformDir).filter(name => name.endsWith('.json')).length, 1, 'no partial or late recording is saved');
+  await recordFormPage(page, delayed);
+  assert.equal(readdirSync(platformDir).filter(name => name.endsWith('.json')).length, 2, 'a later healthy capture can still succeed');
+
   console.log('PASS: real form pages are recorded once and only when stable, replay offline with their state, styles, shadow roots and in-page step address, and a worse reading fails the replay');
 } finally {
   await browser.close();

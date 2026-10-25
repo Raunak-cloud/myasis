@@ -23,3 +23,28 @@ test('two unchanged action turns prompt recovery; inspections are neutral and re
   progress.attemptedAction('browser_action/click');
   assert.equal(progress.inspect({ ...state, actions: [{ ref: 'a0', text: 'Sydney NSW', role: 'option', disabled: false }] }), undefined, 'opening a widget is progress');
 });
+
+test('alternating between an empty editor and the same form triggers cycle recovery', () => {
+  const progress = new ApplicationProgress();
+  const main = observation();
+  const editor = { ...main, text: 'Edit optional history', fields: [...main.fields, { ref: 'f1', label: 'Employer', kind: 'text' as const, required: true, currentValue: '' }] };
+  progress.inspect(main);
+  for (const state of [editor, main, editor]) {
+    progress.attemptedAction('browser_action/click');
+    assert.equal(progress.inspect(state), undefined);
+  }
+  progress.attemptedAction('browser_action/click');
+  assert.match(progress.inspect(main)!, /Repeated form cycle.*3 times.*Switching views without saving/);
+});
+
+test('returning from menus with newly saved answers is progress, not a cycle', () => {
+  const progress = new ApplicationProgress();
+  const main = observation();
+  progress.inspect(main);
+  for (const value of ['Sydney', 'Melbourne', 'Brisbane', 'Perth']) {
+    progress.attemptedAction('browser_action/click');
+    assert.equal(progress.inspect({ ...main, text: 'Choose city' }), undefined);
+    progress.attemptedAction('browser_action/click');
+    assert.equal(progress.inspect({ ...main, fields: [{ ...main.fields[0], currentValue: value }] }), undefined);
+  }
+});

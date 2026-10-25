@@ -73,6 +73,19 @@ try {
   assert.deepEqual(selects.map(field => field.currentValue), ['', '', '3 years'], 'a placeholder is no answer; a chosen option reads as its visible text');
   await page.locator('select').first().selectOption('1043');
   assert.equal((await observe(page)).fields[0].currentValue, 'No');
+  await page.setContent(`<main>
+    <label>Visible answer<input></label>
+    <div id="conditional" style="display:none"><div><label>Conditional country
+      <input role="combobox" aria-autocomplete="both" aria-required="true">
+    </label></div></div>
+    <div style="height:32px"><label>Styled country<input role="combobox" style="width:0;opacity:0"></label></div>
+    <div style="visibility:hidden"><label>Hidden choice<input role="combobox"></label></div>
+  </main>`);
+  assert.deepEqual((await observe(page)).fields.map(field => field.label), ['Visible answer', 'Styled country'],
+    'hidden conditional questions are excluded while a rendered custom widget stays observable');
+  await page.locator('#conditional').evaluate(el => (el as HTMLElement).style.display = 'block');
+  assert.deepEqual((await observe(page)).fields.map(field => field.label), ['Visible answer', 'Conditional country', 'Styled country'],
+    'revealing a conditional question makes it available on the next observation');
   await page.setContent('<main><label>Code<input maxlength="6"></label></main>');
   assert.equal(await fillEmailedCode(page, (await observe(page)).fields, '123456'), true);
   assert.equal(await page.locator('input').inputValue(), '123456');

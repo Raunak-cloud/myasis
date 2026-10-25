@@ -273,7 +273,18 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
       // zero-width and transparent inside the box a person clicks; the box is
       // the visible control.
       let widget: Element | null = el.parentElement;
-      for (let depth = 0; widget && depth < 3 && !visible(widget); depth++) widget = widget.parentElement;
+      for (let depth = 0; widget && depth < 3; depth++) {
+        const style = getComputedStyle(widget);
+        // A conditional section with display:none is not a closed widget.
+        // Do not climb out of it and mistake the surrounding visible form
+        // for the control, making an irrelevant question look fillable.
+        if (style.display === 'none' || style.visibility === 'hidden' || style.contentVisibility === 'hidden') {
+          widget = null;
+          break;
+        }
+        if (visible(widget)) break;
+        widget = widget.parentElement;
+      }
       const visibleThroughWidget = (el.getAttribute('role') === 'combobox' || el.hasAttribute('aria-haspopup'))
         && Boolean(widget && visible(widget));
       if (!visible(el) && !visibleThroughLabel && !visibleThroughWidget) return;
