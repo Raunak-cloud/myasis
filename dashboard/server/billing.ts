@@ -251,11 +251,22 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string): P
   const event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
     const session = event.data.object as Stripe.Checkout.Session;
-    await fulfillCheckoutSession(session.id);
-  } else if (event.type === 'checkout.session.expired') {
+    if (session.payment_status === 'paid' || session.payment_status === 'no_payment_required') {
+      await fulfillCheckoutSession(session.id);
+    } else await recordCheckoutState(session, 'processing');
+  } else if (event.type === 'checkout.session.expired' || event.type === 'checkout.session.async_payment_failed') {
     const session = event.data.object as Stripe.Checkout.Session;
-    await getPool().query("UPDATE billing_checkout_intents SET state='expired' WHERE stripe_checkout_session_id=$1 AND state IN ('creating','open')", [session.id]);
+    await recordCheckoutState(session, event.type === 'checkout.session.expired' ? 'expired' : 'failed');
   }
+}
+
+async function recordCheckoutState(session: Stripe.Checkout.Session, state: 'processing' | 'expired' | 'failed'): Promise<void> {
+  const token = session.metadata?.checkoutIntentId;
+  const intentId = token && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(token) ? token : null;
+  await getPool().query(`UPDATE billing_checkout_intents SET state=$3,stripe_checkout_session_id=$1
+    WHERE (stripe_checkout_session_id=$1 OR id=$2::uuid) AND user_id::text=$4 AND plan_key=$5 AND stripe_mode=$6
+      AND state IN ('creating','open','processing')`,
+  [session.id, intentId, state, session.metadata?.userId, session.metadata?.planKey, session.livemode ? 'live' : 'test']);
 }
 
 /** Uses free capacity first for board applications; employer sites require both paid and employer-site credits. */

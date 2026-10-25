@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { after, before, test } from 'node:test';
 import Stripe from 'stripe';
 import { getPool } from './db/index.js';
-import { billingStatus, checkoutPriceData, checkoutDurationDays, createCheckout } from './billing.js';
+import { billingStatus, checkoutPriceData, checkoutDurationDays, createCheckout, handleStripeWebhook } from './billing.js';
 import { PAID_PLANS } from '../src/pricing.js';
 import { consumeApplicationCredit } from './application-credits.js';
 import { saveApplicationReview } from './application-reviews.js';
@@ -73,6 +73,32 @@ test('new checkout requests carry the advertised amount and snapshot 30 days for
     assert.equal(request.payment_intent_data?.metadata?.durationDays, '30');
     assert.equal(checkoutDurationDays(key, request.metadata as Record<string, string>), 30);
   }
+});
+
+test('signed delayed-payment webhooks reserve checkout while processing and release failed or expired requests', async t => {
+  const names = ['STRIPE_MODE','STRIPE_TEST_SECRET_KEY','STRIPE_TEST_WEBHOOK_SECRET'] as const;
+  const previous = names.map(key => process.env[key]);
+  t.after(() => names.forEach((key,index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; }));
+  process.env.STRIPE_MODE = 'test'; process.env.STRIPE_TEST_SECRET_KEY = 'sk_test_offline_fixture';
+  process.env.STRIPE_TEST_WEBHOOK_SECRET = 'whsec_offline_fixture';
+  const id = randomUUID();
+  await pool.query(`INSERT INTO billing_checkout_intents(id,user_id,plan_key,stripe_mode,quote,stripe_params,expires_at)
+    VALUES($1,2,'essential-pass','test','{}','{}',now()+interval '31 minutes')`, [id]);
+  const session = { id: 'cs_async_fixture', mode: 'payment', livemode: false, payment_status: 'unpaid',
+    metadata: { userId: '2',planKey: 'essential-pass',checkoutIntentId: id } };
+  const deliver = async (type: string, object = session) => {
+    const payload = JSON.stringify({ id: 'evt_fixture',object: 'event',type,data: { object } });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload,secret: 'whsec_offline_fixture' });
+    await handleStripeWebhook(Buffer.from(payload),signature);
+  };
+  const state = async () => (await pool.query('SELECT state FROM billing_checkout_intents WHERE id=$1',[id])).rows[0].state;
+  await deliver('checkout.session.completed'); assert.equal(await state(),'processing');
+  await deliver('checkout.session.async_payment_failed'); assert.equal(await state(),'failed');
+  await deliver('checkout.session.completed'); assert.equal(await state(),'failed','a repeated older completed event cannot reserve a failed checkout again');
+  await pool.query("UPDATE billing_checkout_intents SET state='open' WHERE id=$1",[id]);
+  await deliver('checkout.session.expired',{ ...session,metadata:{ ...session.metadata,userId:'1' } });
+  assert.equal(await state(),'open','an event for another owner cannot release the pending slot');
+  await deliver('checkout.session.expired'); assert.equal(await state(),'expired');
 });
 
 test('real DB: unlimited includes preparation and employer forms, preserves finite credits, is owner scoped and expires', async () => {
