@@ -127,13 +127,13 @@ export async function runDirectExternalApplication(
     });
     console.log('  ✅ submitted [external] (1/1)');
   } else if (outcome.status === 'needs-human') {
-    console.log(`  ⏸ needs you: ${outcome.reason}`);
+    console.log(`  ⏸ needs your answer: ${outcome.reason}`);
   } else if (outcome.status === 'already-applied') {
     console.log(`  ↩ already applied: ${outcome.reason}`);
   } else if (outcome.status === 'skipped') {
-    console.log(`  – skipped: ${outcome.reason}`);
+    console.log(outcome.submitPressed ? `  Submission not confirmed: ${outcome.reason}` : `  – skipped: ${outcome.reason}`);
   } else if (outcome.status === 'error') {
-    console.log(`  ✕ error: ${outcome.error}`);
+    console.log(outcome.submitPressed ? `  Submission not confirmed: ${outcome.error}` : `  ✕ error: ${outcome.error}`);
   } else {
     console.log(`  – ${outcome.status}`);
   }

@@ -1,7 +1,7 @@
 /** The sole application agent owns retry decisions; history is advisory. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,6 +32,9 @@ test('agent-only direct orchestration treats duplicate history as advisory and d
   const oldExternal = config.allowExternalApply;
   config.allowExternalApply = true;
   let calls = 0;
+  const output: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args) => output.push(args.map(String).join(' '));
   try {
     await withApplicationModel({ DATA_DIR: ownerDir }, async () => {
       new AppliedIndex().add({ jobId, title: 'Fictional receptionist', company: 'agent.fixture.invalid', location: '', url,
@@ -57,15 +60,32 @@ test('agent-only direct orchestration treats duplicate history as advisory and d
       journal.close();
       await runDirectExternalApplication(page, url, profile, () => null, failureAgent);
       assert.equal(calls, 3);
+      assert.equal(output.filter(line => line.includes('Submission not confirmed:')).length, 3,
+        'possible sends must not be reported as ordinary failed or skipped applications');
       const after = new ApplicationReservations(ownerDir);
       assert.equal(after.state(claim), 'running', 'Agent-only orchestration must not mutate protected reservations.');
       after.close();
+
+      const questions = [{ question: 'Current clearance', kind: 'select' as const, options: ['None', 'Baseline'] }];
+      await runDirectExternalApplication(page, url, profile, () => null, {
+        runAgent: async ({ log }) => {
+          log?.('Agent judgement: needs-human: Current clearance is unknown.');
+          return { outcome: { status: 'needs-human', reason: 'Which clearance do you currently hold?', questions },
+            captured: [], actions: [], submitPressed: false, steps: 1, usage: 'offline fixture' };
+        },
+      });
+      assert.ok(output.some(line => line.includes('⏸ needs your answer: Which clearance')),
+        'direct employer applications use the same actionable question marker as board runs');
+      const saved = JSON.parse(readFileSync(join(ownerDir, 'run-log.jsonl'), 'utf8').trim().split('\n').at(-1)!);
+      assert.equal(saved.status, 'needs-human');
+      assert.deepEqual(saved.questions, questions);
 
       config.allowExternalApply = false;
       await runDirectExternalApplication(page, url, profile, () => null, failureAgent);
       assert.equal(calls, 3, 'Decision mode must not override employer-site entitlement.');
     });
   } finally {
+    console.log = originalLog;
     config.allowExternalApply = oldExternal;
     await browser.close();
     rmSync(ownerDir, { recursive: true, force: true });
