@@ -43,6 +43,7 @@ import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
 import {
   billingStatus,
   createCheckout,
+  BillingPolicyError,
   fulfillCheckoutSession,
   handleStripeWebhook,
   isAdmin,
@@ -315,8 +316,12 @@ function dataApi(): Plugin {
           if (!user) return send({ error: 'Sign in before purchasing a pass.' }, 401);
           if (!isPaidPlanKey(body?.planKey)) return send({ error: 'Choose a valid pass.' }, 400);
           try {
-            return send(await createCheckout(user, body.planKey));
+            return send(await createCheckout(user, body.planKey, {
+              quotedAt: body.quotedAt, sourceGrantId: body.sourceGrantId,
+              amountCents: body.amountCents, expiresAt: body.expiresAt,
+            }));
           } catch (error) {
+            if (error instanceof BillingPolicyError) return send({ error: error.message }, error.status);
             const message = (error as Error).message;
             // Our own refusals are written for the customer; anything from Stripe is logged and replaced.
             const ours = /not configured|top-ups require|top-up checkout/i.test(message);
@@ -338,7 +343,7 @@ function dataApi(): Plugin {
             const result = await fulfillCheckoutSession(sessionId, user.id, matchKeysFromRequest(req));
             // A paying account gets its dedicated address now, not at the next reconcile.
             void reconcilePool().catch((error) => console.warn('[proxy-pool] reconcile after payment failed:', (error as Error).message));
-            return send({ ok: true, ...result, status: await billingStatus(user.id) });
+            return send({ ok: true, ...result, status: await billingStatus(user.id, user.email) });
           } catch (error) {
             console.warn('[billing] confirm failed:', (error as Error).message);
             return send({ error: 'The payment could not be confirmed yet. If you were charged, it will be credited within a few minutes.' }, 400);

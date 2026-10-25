@@ -6,14 +6,17 @@ import {
   FREE_APPLICATIONS,
   PAID_PLANS,
   PASS_PLAN_KEYS,
-  isPaidPlanKey,
-  isPassPlanKey,
   type PaidPlanKey,
 } from '../src/pricing.js';
 import type { SessionUser } from './auth.js';
 import { isAdmin } from './admin-access.js';
 export { isAdmin, adminAddresses } from './admin-access.js';
-import { reportRedditConversion, type RedditMatchKeys } from './reddit-capi.js';
+import type { RedditMatchKeys } from './reddit-capi.js';
+import { activeBillingPass, managedCheckout, type CheckoutOptions } from './billing-checkouts.js';
+import { billingOffers } from './billing-policy.js';
+import { fulfillPayment } from './billing-fulfillment.js';
+import type { BillingOffers } from '../src/billing-offers.js';
+export { BillingPolicyError } from './billing-policy.js';
 
 /** Large but finite so JSON/arithmetic (e.g. Math.min with a run cap) stays well-behaved — Infinity serialises to null. */
 const ADMIN_UNLIMITED = 1_000_000;
@@ -81,7 +84,7 @@ function billingEnv() {
 function stripeClient(): Stripe {
   const state = paymentsState();
   if (!state.configured) throw new Error(`Payments are not configured yet. ${state.problem}`);
-  return new Stripe(billingEnv().secretKey);
+  return new Stripe(billingEnv().secretKey, { timeout: 10_000, maxNetworkRetries: 1 });
 }
 
 export function paymentsConfigured(): boolean {
@@ -106,6 +109,7 @@ export interface BillingStatus {
     unlimitedApplications?: boolean;
   };
   totalRemaining: number;
+  offers?: BillingOffers;
 }
 
 export async function billingStatus(userId: string, email?: string | null): Promise<BillingStatus> {
@@ -128,6 +132,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
         unlimitedApplications: true,
       },
       totalRemaining: ADMIN_UNLIMITED,
+      offers: billingOffers(null, true),
     };
   }
 
@@ -211,6 +216,7 @@ export async function billingStatus(userId: string, email?: string | null): Prom
       unlimitedApplications: Boolean(paid?.intensive_pass),
     },
     totalRemaining: freeRemaining + paidRemaining,
+    offers: billingOffers(await activeBillingPass(getPool(), userId), false),
   };
 }
 
@@ -228,180 +234,14 @@ export function checkoutPriceData(planKey: PaidPlanKey) {
   };
 }
 
-/** Checkouts opened before duration snapshots were introduced keep their sold term. */
-export function checkoutDurationDays(planKey: PaidPlanKey, metadata: Record<string, string> | null | undefined): number {
-  if (!isPassPlanKey(planKey)) return 0;
-  if (metadata?.durationDays !== undefined) {
-    const days = Number(metadata.durationDays);
-    if (!Number.isSafeInteger(days) || days <= 0) throw new Error('Invalid checkout access period.');
-    return days;
-  }
-  return planKey === 'job-search-pass' || planKey === 'intensive-pass' ? 60 : PAID_PLANS[planKey].durationDays;
+export { checkoutDurationDays } from './billing-fulfillment.js';
+
+export async function createCheckout(user: SessionUser, planKey: PaidPlanKey, options: CheckoutOptions = {}) {
+  return managedCheckout(getPool(), stripeClient, user, planKey, isAdmin(user.email), billingEnv(), options);
 }
 
-export async function createCheckout(
-  user: SessionUser,
-  planKey: PaidPlanKey,
-): Promise<{ id: string; url: string }> {
-  // Stripe allows a minimum 30-minute Checkout window. A short window keeps
-  // an application top-up from being paid after its pass has ended.
-  const checkoutExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
-  if (!isPassPlanKey(planKey)) {
-    const status = await billingStatus(user.id, user.email);
-    if (status.paid.unlimitedApplications) throw new Error('Get Owtomated already includes unlimited applications. No top-up is needed.');
-    if (!status.paid.hasActivePass) {
-      throw new Error('Application top-ups require an active paid pass. Choose a pass first.');
-    }
-    if (status.paid.expiresAt
-      && new Date(status.paid.expiresAt).getTime() <= (checkoutExpiresAt + 4 * 60) * 1000) {
-      throw new Error('This pass ends too soon for a top-up checkout. Choose a new pass first.');
-    }
-  }
-  const env = billingEnv();
-  const stripe = stripeClient();
-  const metadata = { userId: user.id, planKey, durationDays: String(PAID_PLANS[planKey].durationDays) };
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    expires_at: checkoutExpiresAt,
-    customer_creation: 'always',
-    customer_email: user.email,
-    client_reference_id: user.id,
-    allow_promotion_codes: true,
-    automatic_tax: { enabled: env.automaticTax },
-    line_items: [{
-      quantity: 1,
-      price_data: checkoutPriceData(planKey),
-    }],
-    metadata,
-    payment_intent_data: { metadata },
-    success_url: `${env.baseUrl}/?tab=pricing&payment=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.baseUrl}/?tab=pricing&payment=cancelled`,
-  });
-  if (!session.url) throw new Error('The payment provider did not return a checkout URL.');
-  return { id: session.id, url: session.url };
-}
-
-export async function fulfillCheckoutSession(
-  sessionId: string,
-  expectedUserId?: string,
-  /** What the browser knew, when a browser is present. Absent on the webhook path. */
-  redditMatch?: RedditMatchKeys,
-): Promise<{
-  fulfilled: boolean;
-  planKey: PaidPlanKey;
-  applications: number;
-  durationDays: number;
-  /** Set only on the call that actually created the purchase, for the pixel to echo. */
-  conversionId?: string;
-}> {
-  const stripe = stripeClient();
-  const session = await stripe.checkout.sessions.retrieve(sessionId);
-  if (session.payment_status !== 'paid') throw new Error('Payment has not completed.');
-  const userId = session.metadata?.userId;
-  const planKeyValue = session.metadata?.planKey;
-  if (!userId || !isPaidPlanKey(planKeyValue)) throw new Error('Payment metadata is incomplete.');
-  if (expectedUserId && expectedUserId !== userId) throw new Error('This payment belongs to another account.');
-  const plan = PAID_PLANS[planKeyValue];
-  const durationDays = checkoutDurationDays(planKeyValue, session.metadata);
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const purchase = await client.query<{ id: string }>(
-      `INSERT INTO billing_purchases (
-         user_id, stripe_checkout_session_id, stripe_payment_intent_id,
-         plan_key, applications_granted, amount_paid, currency, paid_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,now())
-       ON CONFLICT (stripe_checkout_session_id) DO NOTHING
-       RETURNING id`,
-      [
-        userId,
-        session.id,
-        typeof session.payment_intent === 'string' ? session.payment_intent : null,
-        plan.key,
-        plan.applications,
-        session.amount_total ?? plan.priceCents,
-        session.currency ?? 'aud',
-      ],
-    );
-    if (!purchase.rows[0]) {
-      await client.query('COMMIT');
-      return { fulfilled: false, planKey: planKeyValue, applications: plan.applications, durationDays };
-    }
-
-    const activePass = async () => {
-      const result = await client.query<{ expires_at: Date | null }>(
-        `SELECT g.expires_at
-           FROM application_credit_grants g
-           JOIN billing_purchases p ON p.id = g.purchase_id
-          WHERE g.user_id = $1
-            AND p.plan_key = ANY($2)
-            AND g.created_at <= to_timestamp($3)
-            AND (g.expires_at IS NULL OR g.expires_at > to_timestamp($3))
-          ORDER BY CASE p.plan_key
-                     WHEN 'intensive-pass' THEN 3
-                     WHEN 'job-search-pass' THEN 2
-                     WHEN 'essential-pass' THEN 1
-                   END DESC,
-                   g.expires_at DESC NULLS FIRST,
-                   g.id DESC
-          LIMIT 1`,
-        [userId, [...PASS_PLAN_KEYS], session.created],
-      );
-      const row = result.rows[0];
-      if (!row) throw new Error('The pass required for this add-on is no longer active.');
-      return row.expires_at;
-    };
-
-    if (plan.kind === 'pass') {
-      const expiresAt = new Date(Date.now() + durationDays * 86_400_000);
-      await client.query(
-        `INSERT INTO application_credit_grants (user_id, purchase_id, credits_total, expires_at)
-         VALUES ($1,$2,$3,$4)`,
-        [userId, purchase.rows[0].id, plan.applications, expiresAt],
-      );
-      if (plan.employerSiteApplications > 0) {
-        await client.query(
-          `INSERT INTO employer_site_credit_grants (user_id, purchase_id, credits_total, expires_at)
-           VALUES ($1,$2,$3,$4)`,
-          [userId, purchase.rows[0].id, plan.employerSiteApplications, expiresAt],
-        );
-      }
-    } else {
-      const expiresAt = await activePass();
-      await client.query(
-        `INSERT INTO application_credit_grants (user_id, purchase_id, credits_total, expires_at)
-         VALUES ($1,$2,$3,$4)`,
-        [userId, purchase.rows[0].id, plan.applications, expiresAt],
-      );
-    }
-    await client.query('COMMIT');
-
-    /**
-     * Reported once the money is actually banked, never before. The purchase
-     * row's id is the conversion id: the insert above is `ON CONFLICT DO
-     * NOTHING`, so whichever of the webhook and the confirm call gets here
-     * first is the only one that reaches this line, and the pixel echoes the
-     * same id from the page. Reddit keeps one of the two.
-     */
-    const conversionId = `purchase:${purchase.rows[0].id}`;
-    reportRedditConversion({
-      trackingType: 'Purchase',
-      conversionId,
-      externalId: userId,
-      email: session.customer_details?.email ?? undefined,
-      valueDecimal: (session.amount_total ?? plan.priceCents) / 100,
-      currency: (session.currency ?? 'aud').toUpperCase(),
-      itemCount: 1,
-      match: redditMatch,
-    });
-
-    return { fulfilled: true, planKey: planKeyValue, applications: plan.applications, durationDays, conversionId };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+export async function fulfillCheckoutSession(sessionId: string, expectedUserId?: string, redditMatch?: RedditMatchKeys) {
+  return fulfillPayment(getPool(), stripeClient(), sessionId, expectedUserId, redditMatch);
 }
 
 export async function handleStripeWebhook(rawBody: Buffer, signature: string): Promise<void> {
@@ -412,6 +252,9 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string): P
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
     const session = event.data.object as Stripe.Checkout.Session;
     await fulfillCheckoutSession(session.id);
+  } else if (event.type === 'checkout.session.expired') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    await getPool().query("UPDATE billing_checkout_intents SET state='expired' WHERE stripe_checkout_session_id=$1 AND state IN ('creating','open')", [session.id]);
   }
 }
 

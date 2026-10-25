@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { BillingOffers } from './billing-offers.js';
 
 /**
  * The account's plan and application allowance, as the server counts them.
@@ -21,6 +22,7 @@ export interface BillingStatus {
     unlimitedApplications?: boolean;
   };
   totalRemaining: number;
+  offers?: BillingOffers;
 }
 
 /** Fired by anything that changes the allowance — a purchase confirmed, a pass granted — so every copy refreshes. */

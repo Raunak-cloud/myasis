@@ -243,9 +243,31 @@ CREATE TABLE IF NOT EXISTS billing_purchases (
   applications_granted       INTEGER NOT NULL CHECK (applications_granted > 0),
   amount_paid                INTEGER NOT NULL CHECK (amount_paid >= 0),
   currency                   TEXT NOT NULL DEFAULT 'aud',
+  purchase_kind              TEXT NOT NULL DEFAULT 'purchase',
+  pricing_snapshot           JSONB NOT NULL DEFAULT '{}'::jsonb,
   paid_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS billing_purchases_user_idx ON billing_purchases(user_id, paid_at DESC);
+ALTER TABLE billing_purchases ADD COLUMN IF NOT EXISTS purchase_kind TEXT NOT NULL DEFAULT 'purchase';
+ALTER TABLE billing_purchases ADD COLUMN IF NOT EXISTS pricing_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- One resumable payment intent per account/mode prevents parallel tabs from
+-- opening separate payable checkouts for the same current plan state.
+CREATE TABLE IF NOT EXISTS billing_checkout_intents (
+  id UUID PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_key TEXT NOT NULL,
+  stripe_mode TEXT NOT NULL CHECK (stripe_mode IN ('live', 'test')),
+  state TEXT NOT NULL DEFAULT 'creating' CHECK (state IN ('creating','open','processing','fulfilled','expired','failed','refund_pending','refunded')),
+  stripe_checkout_session_id TEXT UNIQUE,
+  stripe_refund_id TEXT,
+  quote JSONB NOT NULL,
+  stripe_params JSONB NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_checkout_intents_pending_idx
+  ON billing_checkout_intents(user_id, stripe_mode) WHERE state IN ('creating','open','processing');
 
 -- Historical add-on purchases may have granted no ordinary application
 -- credits. Keep those records valid even though every product sold now does.
@@ -280,6 +302,7 @@ UPDATE application_credit_grants AS g
    )
   FROM billing_purchases AS p
  WHERE g.purchase_id = p.id
+   AND p.purchase_kind = 'purchase'
    AND (g.expires_at IS NULL OR g.expires_at > now())
    AND (
      (p.plan_key = 'essential-pass' AND p.applications_granted < 50)
@@ -293,9 +316,9 @@ UPDATE billing_purchases
      WHEN 'job-search-pass' THEN 200
      WHEN 'intensive-pass' THEN 400
    END
- WHERE (plan_key = 'essential-pass' AND applications_granted < 50)
+ WHERE purchase_kind = 'purchase' AND ((plan_key = 'essential-pass' AND applications_granted < 50)
     OR (plan_key = 'job-search-pass' AND applications_granted < 200)
-    OR (plan_key = 'intensive-pass' AND applications_granted < 400);
+    OR (plan_key = 'intensive-pass' AND applications_granted < 400));
 
 -- NULL remains valid for grandfathered passes.
 ALTER TABLE application_credit_grants ALTER COLUMN expires_at DROP NOT NULL;
@@ -324,7 +347,7 @@ INSERT INTO employer_site_credit_grants (
 SELECT g.user_id, g.purchase_id, g.credits_total, g.credits_used, g.expires_at, g.created_at
   FROM application_credit_grants g
   JOIN billing_purchases p ON p.id = g.purchase_id
- WHERE p.plan_key = 'intensive-pass'
+ WHERE p.plan_key = 'intensive-pass' AND p.purchase_kind = 'purchase'
 ON CONFLICT (purchase_id) DO NOTHING;
 
 -- The first rollout may already have created a grandfather allowance before

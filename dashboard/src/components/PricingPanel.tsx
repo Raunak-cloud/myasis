@@ -7,7 +7,7 @@ import './PricingPanel.css';
 
 
 function dateLabel(value: string): string {
-  return new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+  return new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', day: 'numeric', month: 'short', year: 'numeric' })
     .format(new Date(value));
 }
 
@@ -68,6 +68,10 @@ export function PricingPanel() {
           if (!response.ok) throw new Error(body.error || 'Could not confirm the payment.');
           setStatus(body.status);
           window.dispatchEvent(new Event(BILLING_CHANGED));
+          if (body.refunded) {
+            setNotice({ kind: 'warn', text: 'Your plan changed before payment completed. This payment was refunded.' });
+            return;
+          }
           const product = PAID_PLANS[body.planKey as PaidPlanKey];
           /**
            * The server reported this purchase as it banked it and handed back
@@ -78,16 +82,18 @@ export function PricingPanel() {
           if (body.conversionId && product) {
             trackRedditEvent('Purchase', {
               conversionId: body.conversionId,
-              value: product.priceCents / 100,
+              value: (body.amountPaidCents ?? product.priceCents) / 100,
               currency: 'AUD',
               itemCount: 1,
             });
             trackMetaEvent('Purchase', {
-              value: product.priceCents / 100,
+              value: (body.amountPaidCents ?? product.priceCents) / 100,
               currency: 'AUD',
             }, body.conversionId);
           }
-          setNotice({ kind: 'ok', text: body.planKey === 'intensive-pass' ? `Get Owtomated is active: unlimited applications for ${body.durationDays ?? PAID_PLANS['intensive-pass'].durationDays} days.` : `${body.applications} applications were added to your account.` });
+          setNotice({ kind: 'ok', text: body.kind === 'upgrade' && product && body.expiresAt
+            ? `Upgraded to ${product.name}. Access ends ${dateLabel(body.expiresAt)}.`
+            : body.planKey === 'intensive-pass' ? `Get Owtomated is active: unlimited applications for ${body.durationDays ?? PAID_PLANS['intensive-pass'].durationDays} days.` : `${body.applications} applications were added to your account.` });
         } else {
           await loadStatus();
           if (payment === 'cancelled') {
@@ -107,14 +113,26 @@ export function PricingPanel() {
     void finish();
   }, [loadStatus]);
 
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') void loadStatus().catch(() => {}); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const end = status?.paid.expiresAt ? Date.parse(status.paid.expiresAt) - Date.now() : null;
+    const timer = end !== null && end > 0 ? window.setTimeout(refresh, Math.min(end + 1000, 2_147_483_647)) : undefined;
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.clearTimeout(timer); };
+  }, [loadStatus, status?.paid.expiresAt]);
+
   const buy = async (planKey: PaidPlanKey) => {
+    const offer = status?.offers?.[planKey];
+    if (offer?.kind === 'blocked') return;
     setBuying(planKey);
     setNotice(null);
     try {
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planKey }),
+        body: JSON.stringify({ planKey, quotedAt: offer?.quotedAt, sourceGrantId: offer?.sourceGrantId,
+          amountCents: offer?.amountCents, expiresAt: offer?.expiresAt }),
       });
       const body = await response.json();
       if (!response.ok || !body.url) throw new Error(body.error || 'Could not open checkout.');
@@ -122,6 +140,7 @@ export function PricingPanel() {
     } catch (error) {
       setNotice({ kind: 'bad', text: (error as Error).message });
       setBuying(null);
+      void loadStatus().catch(() => {});
     }
   };
 
@@ -164,15 +183,29 @@ export function PricingPanel() {
         {PLAN_CARDS.map((card) => {
           const isCurrent = card.key === current;
           const paid = card.key !== 'free';
+          const offer = card.key !== 'free' ? status?.offers?.[card.key] : undefined;
+          const upgrade = offer?.kind === 'upgrade' && offer.expiresAt ? offer : undefined;
+          const lowerPlan = paid && PLAN_CARDS.findIndex(plan => plan.key === card.key) < PLAN_CARDS.findIndex(plan => plan.key === current);
+          const unavailable = isCurrent || lowerPlan || offer?.kind === 'blocked';
           const label = !paid
             ? 'Included with every account'
             : buying === card.key
               ? 'Opening checkout…'
-              : isCurrent && status?.paid.unlimitedApplications
-                ? 'Your pass is active'
               : isCurrent
-                ? 'Buy this pass again'
+                ? 'Your pass is active'
+              : lowerPlan
+                ? 'Lower plan unavailable'
+              : offer?.kind === 'blocked'
+                ? 'Unavailable'
+              : upgrade
+                ? `Upgrade to ${card.name}`
                 : `Choose ${card.name}`;
+          const features = card.presentation.features.map(feature => {
+            if (!upgrade) return feature;
+            if (feature === `${PAID_PLANS[card.key as PassPlanKey].durationDays} days of access`) return `Access until ${dateLabel(upgrade.expiresAt!)}`;
+            if (card.key !== 'intensive-pass' && /application credits$/.test(feature)) return `${upgrade.additionalApplications} additional application credits`;
+            return feature;
+          });
           return (
             <article className={`pricing-card ${card.key === 'intensive-pass' ? 'premium' : ''} ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
               <div className="pricing-plan-summary">
@@ -185,13 +218,13 @@ export function PricingPanel() {
                   ) : null}
                 </div>
                 <p className="pricing-price">
-                  <strong>{card.price}</strong>
-                  <span>{card.term}</span>
+                  <strong>{upgrade ? aud(upgrade.amountCents!) : card.price}</strong>
+                  <span>{upgrade ? `upgrade · ends ${dateLabel(upgrade.expiresAt!)}` : card.term}</span>
                 </p>
-                <p className="pricing-plan-copy">{card.presentation.description}</p>
+                <p className="pricing-plan-copy">{upgrade ? card.presentation.description.replace(/for \d+ days/, `until ${dateLabel(upgrade.expiresAt!)}`) : card.presentation.description}</p>
               </div>
               <ul className="pricing-features">
-                {card.presentation.features.map((feature) => (
+                {features.map((feature) => (
                   <li key={feature}>
                     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M20 6 9 17l-5-5" />
@@ -202,7 +235,8 @@ export function PricingPanel() {
               </ul>
               <button
                 className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
-                disabled={!paid || checkoutDisabled || (isCurrent && status?.paid.unlimitedApplications)}
+                disabled={!paid || checkoutDisabled || unavailable}
+                title={offer?.reason}
                 onClick={() => card.key !== 'free' && void buy(card.key)}
               >
                 {label}
@@ -230,7 +264,7 @@ export function PricingPanel() {
           </p>
           <button
             className="btn pricing-cta"
-            disabled={checkoutDisabled || current === 'free'}
+            disabled={checkoutDisabled || current === 'free' || status?.offers?.['application-top-up']?.kind === 'blocked'}
             title={current === 'free' ? 'Available with an active paid pass.' : undefined}
             onClick={() => void buy('application-top-up')}
           >

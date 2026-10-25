@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { after, test } from 'node:test';
+import { after, before, test } from 'node:test';
 import Stripe from 'stripe';
 import { getPool } from './db/index.js';
 import { billingStatus, checkoutPriceData, checkoutDurationDays, createCheckout } from './billing.js';
@@ -13,6 +13,14 @@ const pool = getPool();
 const schema = `unlimited_test_${randomUUID().replaceAll('-', '')}`;
 (pool as unknown as { options: { options: string } }).options.options = `-c search_path=${schema}`;
 after(async () => { await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end(); });
+before(async () => {
+  await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE users(id bigint PRIMARY KEY,email text NOT NULL);
+    INSERT INTO users VALUES (1,'unlimited@fixture.invalid'),(2,'finite@fixture.invalid'),(3,'active@fixture.invalid'),(4,'checkout@fixture.invalid');`);
+  const sql = readFileSync(new URL('./db/schema.sql', import.meta.url), 'utf8');
+  for (const table of ['billing_purchases', 'billing_checkout_intents', 'application_credit_grants', 'employer_site_credit_grants', 'monthly_application_usage', 'application_reviews']) {
+    await pool.query(sql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n\\);`))![0]);
+  }
+});
 
 test('Stripe products charge AUD19.99 and AUD59.99 once for 30 days', () => {
   const active = checkoutPriceData('job-search-pass');
@@ -53,10 +61,10 @@ test('new checkout requests carry the advertised amount and snapshot 30 days for
   const sessions = new Stripe('sk_test_offline_fixture').checkout.sessions;
   t.mock.method(Object.getPrototypeOf(sessions), 'create', async (params: Stripe.Checkout.SessionCreateParams) => {
     requests.push(params);
-    return { id: 'cs_test_offline_fixture', url: 'https://checkout.stripe.com/offline-fixture' };
+    return { id: `cs_test_${params.metadata?.checkoutIntentId}`, url: 'https://checkout.stripe.com/offline-fixture' };
   });
   for (const [key, amount] of [['job-search-pass', 1999], ['intensive-pass', 5999]] as const) {
-    await createCheckout({ id: '1', email: 'checkout@fixture.invalid' } as Parameters<typeof createCheckout>[0], key);
+    await createCheckout({ id: key === 'job-search-pass' ? '3' : '4', email: 'checkout@fixture.invalid' } as Parameters<typeof createCheckout>[0], key);
     const request = requests.at(-1)!;
     assert.equal(request.mode, 'payment');
     assert.equal(request.line_items?.[0].price_data?.unit_amount, amount);
@@ -68,12 +76,6 @@ test('new checkout requests carry the advertised amount and snapshot 30 days for
 });
 
 test('real DB: unlimited includes preparation and employer forms, preserves finite credits, is owner scoped and expires', async () => {
-  await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE users(id bigint PRIMARY KEY,email text NOT NULL);
-    INSERT INTO users VALUES (1,'unlimited@fixture.invalid'),(2,'finite@fixture.invalid');`);
-  const sql = readFileSync(new URL('./db/schema.sql', import.meta.url), 'utf8');
-  for (const table of ['billing_purchases', 'application_credit_grants', 'employer_site_credit_grants', 'monthly_application_usage', 'application_reviews']) {
-    await pool.query(sql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n\\);`))![0]);
-  }
   const purchase = (await pool.query(`INSERT INTO billing_purchases(user_id,stripe_checkout_session_id,plan_key,applications_granted,amount_paid)
     VALUES(1,'fixture-unlimited','intensive-pass',400,7999) RETURNING id`)).rows[0].id;
   await pool.query(`INSERT INTO application_credit_grants(user_id,purchase_id,credits_total,credits_used,expires_at)
