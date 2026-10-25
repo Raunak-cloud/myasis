@@ -76,6 +76,7 @@ export async function fulfillPayment(pool: Pool, stripe: Stripe, sessionId: stri
     let stale = false;
     if (quote) {
       stale = quote.version !== 1 || quote.planKey !== planKey
+        || (quote.kind === 'upgrade' && quote.upgradePricingVersion !== 2)
         || session.amount_total! > quote.amountCents
         || (quote.kind === 'upgrade' && session.amount_total !== quote.amountCents)
         || (session.amount_subtotal !== null && session.amount_subtotal !== quote.amountCents)

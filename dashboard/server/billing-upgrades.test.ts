@@ -75,14 +75,16 @@ async function seed(id: number, key: PassPlanKey, left = 15, days = 30, amount: 
   return { grant, end, purchase };
 }
 
-test('proration uses integer cents, the remaining period and the original sold duration', () => {
+test('proration credits the existing tier price, uses integer cents and preserves the remaining period', () => {
   const pass: ActivePass = { grantId: '1', planKey: 'essential-pass', expiresAt: new Date(now+15*DAY_MS).toISOString(),
     periodStartedAt: new Date(now-15*DAY_MS).toISOString(), priceCents: 990, durationMs: 30*DAY_MS, applications: 50 };
   const half = quoteCheckout('job-search-pass', pass, false, now);
   assert.equal(half.amountCents, 505); assert.equal(half.additionalApplications, 75); assert.equal(half.expiresAt, pass.expiresAt);
   assert.equal(quoteCheckout('job-search-pass', { ...pass, expiresAt: new Date(now+30*DAY_MS).toISOString() }, false, now).amountCents, 1009);
   assert.equal(quoteCheckout('job-search-pass', { ...pass, expiresAt: new Date(now+DAY_MS).toISOString() }, false, now).amountCents, 0, 'waive subminimum differences, never add a future charge');
-  assert.equal(quoteCheckout('intensive-pass', { ...pass, planKey: 'job-search-pass', priceCents: 2499, durationMs: 60*DAY_MS, applications: 200, expiresAt: new Date(now+30*DAY_MS).toISOString() }, false, now).amountCents, 4750);
+  assert.equal(quoteCheckout('intensive-pass', { ...pass, planKey: 'job-search-pass', priceCents: 2499, durationMs: 60*DAY_MS, applications: 200, expiresAt: new Date(now+30*DAY_MS).toISOString() }, false, now).amountCents, 4000);
+  assert.equal(quoteCheckout('job-search-pass', { ...pass, priceCents: 0 }, false, now).amountCents, 505, 'a granted pass retains its full tier value');
+  assert.equal(quoteCheckout('job-search-pass', { ...pass, priceCents: 790 }, false, now).amountCents, 505, 'a discount must not increase the upgrade gap');
   assert.throws(() => quoteCheckout('essential-pass', pass, false, now), /already active/);
   assert.throws(() => quoteCheckout('essential-pass', { ...pass, planKey: 'job-search-pass' }, false, now), /downgrade/);
   assert.throws(() => quoteCheckout('job-search-pass', { ...pass, expiresAt: null }, false, now), /no expiry/);
@@ -195,10 +197,35 @@ test('zero-cost remainder, discounted purchases and top-ups do not create recurr
   assert.equal(result.fulfilled,true); assert.equal(result.expiresAt,source.end); assert.equal(refunds.size,count);
   const discount = await checkout(8,'essential-pass'); paid(discount.id,790);
   await fulfillPayment(pool,fake,discount.id,'8');
-  assert.equal((await activeBillingPass(pool,'8'))!.priceCents,790,'credit the actual paid value rather than a fictional full-price payment');
+  const discountedPass = (await activeBillingPass(pool,'8'))!;
+  assert.equal(discountedPass.priceCents,790,'retain the actual payment for audit');
+  assert.equal(quoteCheckout('job-search-pass',discountedPass,false).amountCents,1009,'upgrade credits the full existing tier rather than the discounted payment');
   const topup = await managedCheckout(pool,fake,user(8),'application-top-up',false,env);
   paid(topup.id); const expiry = (await activeBillingPass(pool,'8'))!.expiresAt;
   assert.equal((await fulfillPayment(pool,fake,topup.id,'8')).expiresAt,expiry);
+});
+
+test('zero-paid active passes receive the tier price credit and outdated unpaid upgrade links are replaced', async () => {
+  const source = await seed(11,'job-search-pass',15,30,0);
+  const quote = quoteCheckout('intensive-pass',await activeBillingPass(pool,'11'),false,now);
+  assert.equal(quote.amountCents,2000); assert.equal(quote.expiresAt,source.end);
+  const old = await checkout(11,'intensive-pass');
+  await pool.query("UPDATE billing_checkout_intents SET quote=quote-'upgradePricingVersion' WHERE stripe_checkout_session_id=$1",[old.id]);
+  const corrected = await checkout(11,'intensive-pass');
+  assert.notEqual(corrected.id,old.id); assert.equal(sessions.get(old.id)!.status,'expired');
+  assert.equal(sessions.get(corrected.id)!.amount_total,2000);
+  paid(corrected.id); const result=await fulfillPayment(pool,fake,corrected.id,'11');
+  assert.equal(result.amountPaidCents,2000); assert.equal(result.expiresAt,source.end);
+});
+
+test('a payment from the old upgrade calculation is refunded rather than accepted at the excessive price', async () => {
+  await seed(12,'job-search-pass',15,30,0);
+  const old = await checkout(12,'intensive-pass');
+  await pool.query("UPDATE billing_checkout_intents SET quote=(quote-'upgradePricingVersion') || '{\"amountCents\":3000}'::jsonb WHERE stripe_checkout_session_id=$1",[old.id]);
+  const session=sessions.get(old.id)!; session.amount_total=3000; session.amount_subtotal=3000;
+  paid(old.id); const result=await fulfillPayment(pool,fake,old.id,'12');
+  assert.equal(result.refunded,true);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM billing_purchases WHERE user_id=12')).rows[0].n,1);
 });
 
 test('legacy payments retain their sold duration, but an old duplicate or downgrade link is refunded; another owner cannot fulfill a purchase', async () => {

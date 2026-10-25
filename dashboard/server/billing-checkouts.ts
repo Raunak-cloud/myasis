@@ -94,6 +94,7 @@ export async function managedCheckout(
         throw new BillingPolicyError('Your previous payment is being confirmed. Refresh pricing before opening another checkout.');
       }
       const same = pending.plan_key === planKey && pending.quote.sourceGrantId === quote.sourceGrantId
+        && pending.quote.upgradePricingVersion === quote.upgradePricingVersion
         && pending.quote.expiresAt === quote.expiresAt && pending.quote.amountCents === quote.amountCents
         && pending.quote.additionalApplications === quote.additionalApplications && pending.expires_at.getTime() > Date.now();
       if (session.status === 'open' && same && session.url) {

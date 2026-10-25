@@ -19,6 +19,7 @@ export interface ActivePass {
 }
 export interface CheckoutQuote extends BillingOffer {
   version: 1;
+  upgradePricingVersion?: 2;
   planKey: PaidPlanKey;
   kind: 'purchase' | 'upgrade' | 'topup';
   amountCents: number;
@@ -58,13 +59,17 @@ export function quoteCheckout(planKey: PaidPlanKey, active: ActivePass | null, a
     throw new BillingPolicyError('This pass needs a billing review before it can be upgraded. Contact support.');
   }
   const targetMs = BigInt(plan.durationDays * DAY_MS), sourceMs = BigInt(active.durationMs);
-  const denominator = targetMs * sourceMs;
-  const amount = prorate(BigInt(plan.priceCents) * sourceMs - BigInt(active.priceCents) * targetMs, denominator, remainingMs, false);
+  const currentPlan = PAID_PLANS[active.planKey];
+  const currentTermMs = BigInt(currentPlan.durationDays * DAY_MS);
+  // Credit the existing tier's advertised value, including discounted or
+  // granted passes. The payment ledger is an audit record, not the tier price.
+  const amount = prorate(BigInt(plan.priceCents) * currentTermMs - BigInt(currentPlan.priceCents) * targetMs,
+    targetMs * currentTermMs, remainingMs, false);
   // Stripe's AUD minimum is 50 cents. Waive tiny remaining differences;
   // never round them up or carry a balance into a future automatic charge.
   const amountCents = amount < 50 ? 0 : amount;
-  const extra = prorate(BigInt(plan.applications) * sourceMs - BigInt(active.applications) * targetMs, denominator, remainingMs, true);
-  return { ...base, kind: 'upgrade', amountCents, expiresAt: active.expiresAt,
+  const extra = prorate(BigInt(plan.applications) * sourceMs - BigInt(active.applications) * targetMs, targetMs * sourceMs, remainingMs, true);
+  return { ...base, kind: 'upgrade', upgradePricingVersion: 2, amountCents, expiresAt: active.expiresAt,
     additionalApplications: Math.max(1, extra), periodStartedAt: active.periodStartedAt };
 }
 
