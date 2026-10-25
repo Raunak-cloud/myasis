@@ -96,7 +96,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   const [costError, setCostError] = useState(false);
   const [costLoading, setCostLoading] = useState(false);
   useEffect(() => {
-    if (!showCosts) { setCosts({}); return; }
+    if (!showCosts || loading || loadError) { setCosts({}); return; }
     let cancelled = false;
     setCostLoading(true);
     fetch('/api/applications/costs').then(async response => {
@@ -106,7 +106,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     }).catch(() => { if (!cancelled) setCostError(true); })
       .finally(() => { if (!cancelled) setCostLoading(false); });
     return () => { cancelled = true; };
-  }, [showCosts, apps]);
+  }, [showCosts, apps, loading, loadError]);
   const [view, setView] = useState<'sent' | 'skipped'>('sent');
   const [skipped, setSkipped] = useState<SkippedJob[] | null>(null);
   const [skippedError, setSkippedError] = useState<string | null>(null);
