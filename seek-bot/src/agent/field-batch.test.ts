@@ -8,7 +8,7 @@ import type { ToolContext } from './tools/context.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-field-batch-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only' });
 const { fillObservedFields, MAX_FIELD_BATCH } = await import('./field-batch.js');
-const { observe } = await import('./observe.js');
+const { observe, renderObservation } = await import('./observe.js');
 const { agentOnlyTools } = await import('./agent-only.js');
 const { validToolInput } = await import('./tool-input.js');
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -87,6 +87,32 @@ try {
       await batch(ctx, ['Must stay empty', 'Choice']);
       assert.equal(await page.inputValue('#first'), '');
     }
+  });
+  await check('autocomplete metadata and exact batch errors guide individual interaction', async () => {
+    for (const attributes of ['role=combobox', 'aria-autocomplete=list', 'list=cities']) {
+      const ctx = await setup(`<label>First name<input id=first></label><label>City<input ${attributes} aria-describedby=city-help placeholder="Start typing a city"></label><p id=city-help>Choose a city from the suggestions.</p><datalist id=cities><option>Sydney</option></datalist>`);
+      const city = ctx.observation.fields[1];
+      assert.equal(city.autocomplete, true);
+      assert.match(renderObservation(ctx.observation), /autocomplete: type then choose an observed suggestion/);
+      assert.match(renderObservation(ctx.observation), /Choose a city from the suggestions/);
+      assert.match(renderObservation(ctx.observation), /placeholder=Start typing a city/);
+      const result = await batch(ctx, ['Fixture', 'Sydney']);
+      assert.equal(disposition(result), 'failed');
+      assert.ok(result.kind === 'ok');
+      assert.match(result.message, new RegExp(city.ref));
+      assert.match(result.message, /City.*autocomplete/);
+      assert.equal(await page.inputValue('#first'), '');
+      assert.equal(disposition(await fillObservedFields(ctx, [{ ref: ctx.observation.fields[0].ref, value: 'Fixture' }])), 'completed');
+    }
+  });
+  await check('phone punctuation does not abort a valid stable section or invent a saved value', async () => {
+    const ctx = await setup(`<label>Phone<input type=tel onblur="this.value=this.value.replace(/ /g,'')"></label><label>Name<input id=name></label>`);
+    assert.equal(disposition(await batch(ctx, ['+61 412 345 678', 'Fixture'])), 'completed');
+    assert.equal(await page.inputValue('#name'), 'Fixture');
+    assert.equal(ctx.captured[0].answer, '+61412345678');
+    const changed = await setup(`<label>Phone<input type=tel onblur="this.value='+61499999999'"></label><label>Name<input id=name></label>`);
+    assert.equal(disposition(await batch(changed, ['+61 412 345 678', 'Must stay empty'])), 'reobserve');
+    assert.equal(await page.inputValue('#name'), '');
   });
   await check('missing/duplicate refs, oversized and malformed requests cannot start a batch', async () => {
     const ctx = await setup('<label>First<input id=first></label>');

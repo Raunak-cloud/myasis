@@ -370,6 +370,12 @@ export async function waitForApplicationSurface(page: Page, timeout = 25_000): P
     .waitForFunction(
       () => {
         const CHROME = 'header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"]';
+        const visible = (element: Element) => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+        const busy = [...document.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].some(visible);
+        const fields = [...document.querySelectorAll('input:not([type="hidden"]), textarea, select')].some(element => !element.closest(CHROME) && visible(element));
+        // A loading shell can have cookie/navigation buttons. They do not make
+        // the application ready for a paid reasoning turn.
+        if (busy && !fields) return false;
         const candidates = [...document.querySelectorAll('input, textarea, select, button, [role="button"]')];
         const meaningful = candidates.some((element) => {
           if (element.closest(CHROME)) return false;
@@ -482,9 +488,13 @@ export function renderObservation(observation: Observation): string {
   const fields = observation.fields
     .map((f) => {
       const options = f.options?.length ? `  options=${JSON.stringify(f.options)}` : '';
-      const value = f.currentValue ? `  current=${JSON.stringify(f.currentValue)}` : '';
+      const value = f.currentValue !== undefined ? `  current=${JSON.stringify(f.currentValue)}` : '';
       const error = f.validationError ? `  validation=${JSON.stringify(f.validationError)}` : '';
-      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.section ? `${f.section} › ` : ''}${f.label}${options}${value}${error}`;
+      const control = [f.inputType && `input=${f.inputType}`, f.autocomplete && 'autocomplete: type then choose an observed suggestion',
+        f.sensitive && 'private credential: use authentication tools'].filter(Boolean).join('; ');
+      const description = f.description ? `  description=${JSON.stringify(f.description)}` : '';
+      const hints = f.hints ? `  hints=${JSON.stringify(f.hints)}` : '';
+      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.section ? `${f.section} › ` : ''}${f.label}${control ? `  control=${JSON.stringify(control)}` : ''}${description}${hints}${options}${value}${error}`;
     })
     .join('\n');
 

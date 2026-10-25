@@ -5,6 +5,7 @@ import { metric } from '../pipeline.js';
 import type { FormField } from '../types.js';
 import type { ToolContext, ToolResult } from './tools/context.js';
 import { cleanCoverLetter, isCoverLetterField } from '../cover-letter-policy.js';
+import { readFieldFeedback } from './field-feedback.js';
 
 export const MAX_FIELD_BATCH = 16;
 export type FieldWrite = { ref: string; value: string };
@@ -25,8 +26,15 @@ export async function fillObservedFields(ctx: ToolContext, writes: readonly Fiel
     return reply('Provide 1–16 distinct current FIELD refs.', 'failed');
   }
   const fields = writes.map(write => ctx.observation.fields.find(field => field.ref === write.ref));
-  if (fields.some(field => !field || field.sensitive || field.autocomplete || !['text', 'textarea', 'select', 'checkbox'].includes(field.kind))) {
-    return reply('Batch only ordinary observed fields. Use browser_action or authentication tools for custom widgets, radio groups or credentials.', 'reobserve');
+  const blocked = fields.flatMap((field, index) => {
+    const reason = !field ? 'not a current FIELD ref: inspect the fresh page'
+      : field.sensitive ? 'private credential: use authentication tools'
+      : field.autocomplete ? 'autocomplete: use browser_action to type, inspect suggestions, then click the matching option'
+      : !['text', 'textarea', 'select', 'checkbox'].includes(field.kind) ? `${field.kind}: use browser_action individually` : '';
+    return reason ? [{ ref: writes[index].ref, question: field?.label, reason }] : [];
+  });
+  if (blocked.length) {
+    return reply(`No fields were written. Blocked fields: ${JSON.stringify(blocked)}. Remove these from the batch; ordinary fields can be batched separately.`, 'failed');
   }
   writes = writes.map((write, index) => isCoverLetterField(fields[index]!.label) ? { ...write, value: cleanCoverLetter(write.value) } : write);
   const baseline = JSON.stringify(ctx.observation.fields.map(identity));
@@ -44,15 +52,22 @@ export async function fillObservedFields(ctx: ToolContext, writes: readonly Fiel
       const handle = await locator.elementHandle({ timeout: 2500 }) as typeof handles[number] | null;
       if (!handle) return reply('A FIELD target disappeared. No fields were written.', 'reobserve');
       handles.push(handle);
-      const supported = await handle.evaluate((el, value) => {
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return false;
-        if (el.disabled || el.matches(':disabled') || ('readOnly' in el && el.readOnly) || el.getAttribute('aria-disabled') === 'true') return false;
-        if (el.closest('[role=combobox], [role=listbox]') || el.getAttribute('role') === 'combobox' || el.getAttribute('aria-autocomplete') || el.hasAttribute('list')) return false;
-        if (el instanceof HTMLSelectElement) return !el.multiple && [...el.options].filter(option => !option.disabled && !option.parentElement?.matches('optgroup:disabled') && (option.label === value || option.value === value)).length === 1;
-        if (el instanceof HTMLTextAreaElement) return true;
-        return el.type === 'checkbox' ? ['true', 'false'].includes(value) : ['text', 'email', 'tel', 'url', 'number', 'date', 'month', 'week', 'time', 'datetime-local'].includes(el.type);
+      const unsupported = await handle.evaluate((el, value) => {
+        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return 'not a native input, textarea or select';
+        if (el.disabled || el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') return 'disabled control';
+        if ('readOnly' in el && el.readOnly) return 'read-only control';
+        if (el.closest('[role=combobox], [role=listbox]') || el.getAttribute('role') === 'combobox'
+          || el.getAttribute('aria-autocomplete') && el.getAttribute('aria-autocomplete') !== 'none' || el.hasAttribute('list')) return 'autocomplete/custom widget: type and choose an observed suggestion individually';
+        if (el instanceof HTMLSelectElement) {
+          if (el.multiple) return 'multi-select: interact individually';
+          const matches = [...el.options].filter(option => !option.disabled && !option.parentElement?.matches('optgroup:disabled') && (option.label === value || option.value === value));
+          return matches.length === 1 ? '' : matches.length ? 'ambiguous option: use a unique option value' : 'no enabled option matches the requested label/value';
+        }
+        if (el instanceof HTMLTextAreaElement) return '';
+        return el.type === 'checkbox' ? ['true', 'false'].includes(value) ? '' : 'checkbox value must be true or false'
+          : ['text', 'email', 'tel', 'url', 'number', 'date', 'month', 'week', 'time', 'datetime-local'].includes(el.type) ? '' : `input type ${el.type} requires individual interaction`;
       }, writes[index].value);
-      if (!supported) return reply('A field needs individual interaction, a different value, or is disabled/read-only. No fields were written.', 'reobserve');
+      if (unsupported) return reply(`Field ${field!.ref} ${JSON.stringify(field!.label)}: ${unsupported}. Use browser_action to inspect and interact individually. No fields were written.`, 'failed');
     }
     for (const [index, write] of writes.entries()) {
       const field = fields[index]!, handle = handles[index];
@@ -72,19 +87,12 @@ export async function fillObservedFields(ctx: ToolContext, writes: readonly Fiel
         const timer = setTimeout(resolve, 50);
         requestAnimationFrame(() => { clearTimeout(timer); resolve(); });
       }));
-      const saved = await handle.evaluate((el, requested) => ({
-        connected: el.isConnected,
-        value: el instanceof HTMLInputElement && el.type === 'checkbox' ? String(el.checked) : el.value,
-        validation: el.getAttribute('aria-invalid') === 'true' ? 'aria-invalid' : el.validationMessage,
-        matches: el instanceof HTMLSelectElement
-          ? [...el.selectedOptions].some(option => option.label === requested || option.value === requested)
-          : (el instanceof HTMLInputElement && el.type === 'checkbox' ? String(el.checked) : el.value) === requested.replace(/\r\n?/g, '\n'),
-      }), write.value);
-      results.push({ ref: write.ref, question: field.label, requested: write.value, saved: saved.value, validation: saved.validation });
+      const saved = await readFieldFeedback(handle, write.value);
+      results.push({ ref: write.ref, question: field.label, requested: write.value, saved: saved.saved ?? '', validation: saved.validation });
       const prior = ctx.captured.findIndex(item => item.question === field.label);
       if (prior >= 0) ctx.captured.splice(prior, 1);
-      ctx.captured.push({ question: field.label, answer: write.value });
-      if (isCoverLetterField(field.label)) ctx.coverLetter = write.value;
+      if (saved.saved !== null) ctx.captured.push({ question: field.label, answer: saved.saved });
+      if (isCoverLetterField(field.label) && saved.saved !== null) ctx.coverLetter = saved.saved;
       if (!saved.connected || !await unchanged() || !await batch.resolve(field)) {
         return reply('The form changed after a write. Remaining fields were not written; re-observe.', 'reobserve');
       }

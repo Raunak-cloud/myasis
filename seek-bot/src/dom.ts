@@ -341,7 +341,8 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
         ...(hints ? { hints } : {}),
         required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
-        autocomplete: el.getAttribute('role') === 'combobox',
+        autocomplete: el.getAttribute('role') === 'combobox' || Boolean(el.getAttribute('aria-autocomplete') && el.getAttribute('aria-autocomplete') !== 'none')
+          || el.hasAttribute('list') || Boolean(el.closest('[role="combobox"], [role="listbox"]')),
         // Only when it constrains the value; "text" tells the answerer nothing.
         ...(el.tagName === 'INPUT' && el.type && el.type !== 'text'
           ? { inputType: el.type }

@@ -33,7 +33,8 @@ async function identify(page: Page): Promise<PageIdentity> {
     }
     const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const address = Array.isArray(posting?.jobLocation) ? posting?.jobLocation[0]?.address : posting?.jobLocation?.address;
-    const heading = document.querySelector('main h1, [role="main"] h1, h1')?.textContent;
+    const heading = [...document.querySelectorAll('main h1, [role="main"] h1, h1')]
+      .find(element => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }))?.textContent;
     const siteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
     const host = location.hostname.replace(/^www\./, '');
     return {

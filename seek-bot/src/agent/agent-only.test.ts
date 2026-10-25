@@ -109,6 +109,58 @@ try {
   assert.equal(batched.coverLetter, letter);
   assert.equal(batched.captured.length, 4);
 
+  await page.goto(url);
+  await page.setContent(`<main><label>City<input id=city role=combobox aria-controls=cities aria-autocomplete=list oninput="document.querySelector('#cities').hidden=false"></label>
+    <div id=cities role=listbox hidden><button type=button role=option onclick="document.querySelector('#city').value='Sydney NSW';this.parentElement.hidden=true">Sydney NSW</button></div></main>`);
+  script = [body => {
+    assert.match(observation(body), /autocomplete: type then choose an observed suggestion/);
+    return [{ name: 'fill_fields', args: { fields: [{ ref: 'f0', value: 'Sydney' }] } }];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /Blocked fields.*City.*autocomplete/);
+    return [{ name: 'fill_fields', args: { fields: [{ ref: 'f0', value: 'Sydney' }] } }];
+  }, body => {
+    assert.equal(effort(body), 'xhigh');
+    assert.match(observation(body), /No visible progress after 2 consecutive action turns/);
+    return [{ name: 'browser_action', args: { action: 'fill', ref: 'f0', value: 'Sydney' } },
+      { name: 'browser_action', args: { action: 'click', selector: '#missing-dependent-action' } }];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /Autocomplete text is not a committed selection/);
+    assert.match(JSON.stringify(body.messages), /Not run: inspect the fresh observation/);
+    return [{ name: 'browser_action', args: { action: 'click', selector: '[role=option]' } }];
+  }, body => {
+    assert.match(observation(body), /Sydney NSW/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Offline widget recovered', evidence: 'Selected Sydney NSW from the actual dropdown' } }];
+  }];
+  const widget = await runApplicationAgent({ page, job: { ...job, id: 'agent-widget-recovery' }, profile, log: () => {} });
+  assert.equal(Boolean(widget.submitPressed), false);
+  assert.equal(await page.inputValue('#city'), 'Sydney NSW');
+  assert.equal(script.length, 0);
+
+  await page.goto(url);
+  await page.setContent(`<main><label>Phone<input type=tel id=phone onblur="this.value=this.value.replace(/ /g,'')"></label>
+    <label>From date<input id=date placeholder=MM/YYYY onblur="this.value='';this.setAttribute('aria-invalid','true')"></label><button type=button id=advance onclick="window.advanced=true">Next</button></main>`);
+  script = [() => [{ name: 'browser_action', args: { action: 'fill', selector: '#phone', value: '+61 412 345 678' } },
+    { name: 'browser_action', args: { action: 'fill', selector: '#date', value: '2024-01-01' } },
+    { name: 'browser_action', args: { action: 'click', selector: '#advance' } }], body => {
+    assert.equal(effort(body), 'xhigh');
+    assert.match(JSON.stringify(body.messages), /browser readback/);
+    assert.match(observation(body), /validation=.*field invalid/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Offline validation exposed', evidence: 'Date was rejected; queued Next was not executed' } }];
+  }];
+  const readback = await runApplicationAgent({ page, job: { ...job, id: 'agent-field-readback' }, profile, log: () => {} });
+  assert.equal(readback.captured.find(answer => answer.question === 'Phone')?.answer, '+61412345678');
+  assert.equal(readback.captured.find(answer => answer.question === 'From date')?.answer, '');
+  assert.equal(await page.evaluate('Boolean(window.advanced)', undefined, undefined, false), false);
+
+  await page.goto(url);
+  await page.setContent(`<main aria-busy=true><p>Loading application</p><button>Cancel</button></main><script>setTimeout(()=>{const main=document.querySelector('main');main.removeAttribute('aria-busy');main.innerHTML='<label>Name<input></label><button>Next</button>'},300)</script>`);
+  script = [body => {
+    assert.match(observation(body), /FIELDS \(1\)/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Offline application ready', evidence: 'First model call sees the loaded form' } }];
+  }];
+  await runApplicationAgent({ page, job: { ...job, id: 'agent-loading-surface' }, profile, log: () => {} });
+  assert.equal(script.length, 0);
+
   config.dryRun = true;
   await page.goto(url);
   script = [() => [{ name: 'fill_fields', args: { fields: [{ ref: 'f0', value: 'Must stay empty' }] } }]];

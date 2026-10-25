@@ -25,7 +25,7 @@ test('agent-only direct orchestration treats duplicate history as advisory and d
   const browser = await chromium.launch({ headless: true,
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   const context = await browser.newContext({ serviceWorkers: 'block' });
-  await context.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<main><h1>Fictional receptionist</h1><button>Apply now</button></main>' }));
+  await context.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<h1 hidden>Unsupported browser</h1><main><h1>Fictional receptionist</h1><button>Apply now</button></main>' }));
   const page = await context.newPage();
   const url = 'https://agent.fixture.invalid/application';
   const jobId = `external-${createHash('sha256').update(url).digest('hex').slice(0, 24)}`;
@@ -38,6 +38,7 @@ test('agent-only direct orchestration treats duplicate history as advisory and d
         appliedAt: new Date().toISOString(), score: 0, platform: 'external', scoreReasons: ['Earlier uncertainty'], submittedByMyasis: false });
       const failureAgent = { runAgent: async ({ page, job }: Parameters<typeof import('./agent/loop.js').runApplicationAgent>[0]) => {
         calls++;
+        assert.equal(job.title, 'Fictional receptionist', 'hidden browser warnings cannot become the job identity');
         const failure = new Error('Synthetic error after possible send');
         captureApplicationFailure(page, job.id, failure, { stage: 'agent-loop', submitPressed: true });
         throw failure;
