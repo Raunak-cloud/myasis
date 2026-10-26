@@ -36,7 +36,7 @@ export async function submissionControl(page: Page, target?: Locator, key?: stri
       tag: element.tagName, type: element instanceof HTMLInputElement || element instanceof HTMLButtonElement ? element.type : element.getAttribute('type'), role: element.getAttribute('role'),
       label: label(element), autocomplete: element.getAttribute('autocomplete'), visible: visible(element),
     });
-    const implicitSubmit = key === 'Enter' && node instanceof HTMLInputElement
+    const implicitSubmit = ['Enter', 'NumpadEnter', 'Return'].includes(key?.split('+').at(-1) ?? '') && node instanceof HTMLInputElement
       && ['text', 'search', 'url', 'tel', 'email', 'password', 'number', 'date', 'month', 'week', 'time', 'datetime-local'].includes(node.type)
       && form instanceof HTMLFormElement;
     const submitter = implicitSubmit ? [...form.elements].find(element =>

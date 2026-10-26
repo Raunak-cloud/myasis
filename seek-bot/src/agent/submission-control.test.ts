@@ -91,7 +91,7 @@ try {
     const authAction = index === 0 || index === 3 ? { action: 'click', ...at('#overlay') }
       : { action: 'press', value: 'Enter', ...(index === 1 ? at('#password') : {}) };
     const unapprovedSend = index === 0 ? { action: 'click', ...at('#send') }
-      : { action: 'press', value: index === 3 ? 'Space' : 'Enter', ...(index === 1 || index === 3 ? at('#send') : index === 2 ? at('#name') : {}) };
+      : { action: 'press', value: index === 3 ? 'Space' : index === 4 ? 'NumpadEnter' : 'Enter', ...(index === 1 || index === 3 ? at('#send') : index === 2 ? at('#name') : {}) };
     calls = [
       { name: 'browser_action', args: { ...authAction, test_phase: 'login' } },
       { name: 'browser_action', args: { action: 'press', ...at('#city'), value: 'Enter', test_phase: 'widget' } },
@@ -114,7 +114,7 @@ try {
     // the same content approval as a mouse click.
     if (index === 2 || index === 4) await scope.locator('#name').focus();
     const sendAction = index === 0 ? { action: 'click', ...at('#send') }
-      : { action: 'press', value: 'Enter', ...(index === 1 ? at('#send') : index === 3 ? at('#name') : {}) };
+      : { action: 'press', value: index === 4 ? 'NumpadEnter' : 'Enter', ...(index === 1 ? at('#send') : index === 3 ? at('#name') : {}) };
     calls = [
       { name: 'upload_document', args: { ...at('#cv'), document_id: 'cv' } },
       { name: 'browser_action', args: { ...sendAction, test_phase: 'application' } },
