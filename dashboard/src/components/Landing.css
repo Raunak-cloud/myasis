@@ -101,9 +101,6 @@
 .home-job-source-apsjobs .home-job-source-logo { padding: 5px 8px; border-radius: 4px; background: #172b45; }
 .home-job-source-apsjobs img { width: 100%; height: 100%; }
 .home-job-source-caption { font-size: 11px; line-height: 1.45; color: #526175; text-align: center; }
-@media (max-width: 600px) {
-  .home-job-sources { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
-}
 .home-hero-actions {
   display: flex; flex-wrap: wrap; align-items: center; gap: 20px 28px;
   margin-top: 38px;
@@ -661,34 +658,53 @@
 
 @media (max-width: 600px) {
   .home-hero {
-    padding: 40px 0 36px;
+    padding: 32px 0 28px;
     font-family: var(--display);
   }
-  .home-hero-inner { padding-inline: 24px; }
+  .home-hero-inner { padding-inline: 20px; }
   .landing .home-hero-title {
-    font-size: clamp(28px, 8.2vw, 38px); font-weight: 650;
-    line-height: 1.18; letter-spacing: -.035em; color: #172b45;
+    font-size: clamp(30px, 7.2vw, 36px); font-weight: 650;
+    line-height: 1.14; letter-spacing: -.035em; color: #172b45;
+    text-wrap: pretty;
   }
-  .home-hero-promise { display: inline-block; width: 100%; text-wrap: balance; }
+  .home-hero-promise { display: block; text-wrap: balance; }
+  .home-job-sources {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0;
+    margin-top: 22px; overflow: hidden;
+    border: 1px solid #e1e7ef; border-radius: 12px;
+    background: #f8fafc;
+  }
+  .home-job-source {
+    gap: 5px; padding: 11px 10px;
+    border: 0; border-radius: 0; background: transparent;
+  }
+  .home-job-source:nth-child(odd) { border-right: 1px solid #e1e7ef; }
+  .home-job-source:nth-child(-n + 2) { border-bottom: 1px solid #e1e7ef; }
+  .home-job-source-logo { height: 28px; }
+  .home-job-source-logo img { height: 22px; }
+  .home-job-source-logo svg { width: 24px; height: 24px; }
+  .home-job-source-apsjobs .home-job-source-logo { width: 132px; max-width: 100%; padding: 4px 6px; }
+  .home-job-source-apsjobs img { width: 100%; height: 100%; }
+  .home-job-source-caption { font-size: 10.5px; line-height: 1.4; }
   .home-hero-summary {
     margin-top: 20px; font-size: 16px; line-height: 1.65;
     color: #526175; text-wrap: pretty;
   }
-  .home-hero-actions { margin-top: 28px; gap: 12px; }
+  .home-hero-actions { margin-top: 24px; gap: 10px; }
   .landing .home-hero .home-button {
-    min-height: 52px; border: 1px solid #16385f; border-radius: 10px;
+    min-height: 50px; border: 1px solid #16385f; border-radius: 8px;
     background: #16385f; box-shadow: none;
-    font-size: 16px; font-weight: 600; letter-spacing: 0;
+    font-size: 15px; font-weight: 600; letter-spacing: 0;
   }
   .landing .home-hero .home-button:hover { background: #245386; transform: none; box-shadow: none; }
   .landing .home-hero .home-button:active { background: #122f50; transform: none; }
   .home-hero-actions .home-hero-note {
-    max-width: none; text-align: center; font-size: 13px; color: #526175;
+    max-width: none; text-align: center; font-size: 12px; color: #526175;
   }
   .home-hero-note strong { color: #172b45; }
   .home-hero .home-consent {
-    max-width: 38ch; margin: 16px auto 0; text-align: center;
-    font-family: inherit; font-size: 11.5px; line-height: 1.6;
+    max-width: 38ch; margin: 12px auto 0; text-align: center;
+    font-family: inherit; font-size: 11.5px; line-height: 1.5;
     letter-spacing: 0; color: #68768a;
   }
   .home-hero .home-consent a { color: #526175; }
