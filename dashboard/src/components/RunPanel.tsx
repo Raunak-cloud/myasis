@@ -1446,7 +1446,7 @@ export function ActivityFeed({ events, running, isAdmin }: {
   return (
     <div className="activity-feed">
       {visible.length ? visible.map(event => event === alreadyApplied[0] ? (
-        <details className="activity-duplicates" key={`already-applied-${event.id}`}>
+        <details className="activity-duplicates" key="already-applied">
           <summary>Already applied ({alreadyApplied.length})</summary>
           <div className="activity-duplicate-list">{alreadyApplied.map(renderEvent)}</div>
         </details>
