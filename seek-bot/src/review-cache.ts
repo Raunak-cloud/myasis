@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
 import { applicationModelIdentity } from './application-model.js';
-import type { CandidateProfile, JobListing } from './types.js';
+import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
 
@@ -55,7 +55,7 @@ export function reviewContentFingerprint(job: JobListing): string | undefined {
 }
 
 function evidenceSignature(): string[] {
-  const paths = ['knowledge.json', 'resumes.json'].map(name => resolve(config.dataDir, name));
+  const paths = ['knowledge.json', 'resumes.json', 'answers.json'].map(name => resolve(config.dataDir, name));
   const signatures: string[] = [];
   for (const path of paths) {
     const name = path.split(/[\\/]/).at(-1) ?? path;
@@ -111,6 +111,22 @@ export function reviewCacheMetadata(
     ...(disposition === 'fit-mismatch' || disposition === 'below-score' ? { contextFingerprint } : {}),
     expiresAt: ttlMs === null ? null : new Date(Date.now() + ttlMs).toISOString(),
   };
+}
+
+export function currentFitReview(job: JobListing, profile: CandidateProfile) {
+  const review = job.fitReview;
+  return review && review.contentFingerprint === reviewContentFingerprint(job)
+    && review.contextFingerprint === reviewContextFingerprint(profile) ? review : undefined;
+}
+
+/** A technical failure or uncertain send must never become a suitability veto. */
+export function applicationRejectionCache(job: JobListing, outcome: ApplyOutcome, contextFingerprint: string): ReviewCacheMetadata | undefined {
+  if (outcome.status !== 'skipped' || outcome.submitPressed || outcome.fitRejection?.source !== 'listing'
+    || !job.description?.trim()) return undefined;
+  const quote = normalise(outcome.fitRejection.evidence);
+  const listing = normalise([job.title, job.company, job.location, job.workArrangement, job.description].filter(Boolean).join('\n'));
+  if (!quote || !listing.includes(quote)) return undefined;
+  return reviewCacheMetadata(job, 'fit-mismatch', contextFingerprint, REVIEW_TTL.fit);
 }
 
 export class ReviewCache {

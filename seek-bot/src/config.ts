@@ -179,8 +179,8 @@ export const config = {
     onsiteCity: process.env.ONSITE_CITY ?? 'Sydney',
 
     /**
-     * Which work arrangements to accept. On-site is additionally constrained to
-     * `onsiteCity`; remote and hybrid are accepted anywhere in the country.
+     * Which work arrangements to accept. Onsite and hybrid are additionally
+     * constrained to `onsiteCity`; allowed remote roles may be elsewhere.
      */
     workArrangements: (process.env.WORK_ARRANGEMENTS ?? 'remote,hybrid,onsite')
       .split(',')

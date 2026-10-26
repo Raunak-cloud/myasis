@@ -1,5 +1,5 @@
 import type { Page } from 'patchright';
-import type { ApplicationAction, BlockedQuestion, CandidateProfile, JobListing } from '../types.js';
+import type { ApplicationAction, BlockedQuestion, CandidateProfile, FitRejection, JobListing } from '../types.js';
 import type { Observation } from './observe.js';
 import type { SiteCredential } from '../site-auth.js';
 import { jobBoardForHost } from '../job-board-url.js';
@@ -18,7 +18,7 @@ export type AgentTermination =
     }
   | { status: 'off-platform'; redirectedTo: string }
   | { status: 'already-applied'; reason: string }
-  | { status: 'skipped'; reason: string };
+  | { status: 'skipped'; reason: string; fitRejection?: FitRejection };
 
 /** Expected handoffs need a fresh observation, not expensive failure recovery.
  * Keep this separate from prose, which can quote arbitrary form wording. */

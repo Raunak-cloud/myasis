@@ -6,10 +6,12 @@ function check(label: string, condition: boolean): void {
   console.log(`${condition ? 'PASS' : 'FAIL'}  ${label}`);
 }
 const noConflict = { violated: false, ruleQuote: '', explanation: 'No standing instruction is broken.' };
+const onsiteCheck = { offered: ['onsite'], evidence: 'Onsite Sydney role.' };
 
 const contradictoryApply = normalizeFitAssessment({
   decision: 'apply',
   instructionCheck: noConflict,
+  workArrangementCheck: onsiteCheck,
   shouldApply: false,
   matchScore: 82,
   reason: 'Relevant experience matches the role.',
@@ -21,6 +23,7 @@ check('decision is the single source of truth for apply', contradictoryApply?.sh
 const contradictorySkip = normalizeFitAssessment({
   decision: 'skip',
   instructionCheck: noConflict,
+  workArrangementCheck: onsiteCheck,
   shouldApply: true,
   matchScore: 35,
   reason: 'A mandatory qualification is not supported.',
@@ -29,7 +32,13 @@ const contradictorySkip = normalizeFitAssessment({
 });
 check('decision is the single source of truth for skip', contradictorySkip?.shouldApply === false);
 
-const base = { instructionCheck: noConflict, matchScore: 90, reason: 'Strong clinical experience.', evidence: ['GP 2017-2024'], injectionSuspected: false };
+const base = { instructionCheck: noConflict, workArrangementCheck: onsiteCheck, matchScore: 90, reason: 'Strong clinical experience.', evidence: ['GP 2017-2024'], injectionSuspected: false };
+const hybrid = { ...base, decision: 'apply', workArrangementCheck: { offered: ['hybrid'], evidence: 'Fixed hybrid schedule, three office days and two at home.' } };
+check('a high-score hybrid approval cannot override an onsite-only selection', normalizeFitAssessment(hybrid, '', ['onsite'])?.decision === 'skip');
+check('a hybrid role is reconsidered when hybrid is selected', normalizeFitAssessment(hybrid, '', ['onsite', 'hybrid'])?.decision === 'apply');
+check('explicit alternative arrangements can meet an allowed selection', normalizeFitAssessment({ ...hybrid, workArrangementCheck: { offered: ['onsite', 'hybrid'], evidence: 'Choose onsite or hybrid.' } }, '', ['onsite'])?.decision === 'apply');
+check('an unknown arrangement cannot silently override a restrictive selection', normalizeFitAssessment({ ...hybrid, workArrangementCheck: { offered: [], evidence: '' } }, '', ['onsite'])?.decision === 'uncertain');
+check('a legacy missing arrangement check is not a reusable approval', normalizeFitAssessment({ ...base, decision: 'apply', workArrangementCheck: undefined }) === null);
 const unregistered = normalizeFitAssessment({
   ...base, decision: 'apply',
   credentialChecks: [{ requirement: 'AHPRA general registration', mandatory: true, candidateEvidence: 'MBBS Nepal only', status: 'not-held' }],

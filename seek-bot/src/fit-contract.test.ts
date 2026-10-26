@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
@@ -9,6 +9,11 @@ process.env.CELERIS_API_KEY = 'fixture-only';
 const { config } = await import('./config.js');
 const { assessFit } = await import('./llm.js');
 config.aiInstructions = 'Do not apply for manager positions.';
+config.resume.select = 'fit-fixture-cv';
+mkdirSync(join(directory, 'resumes'));
+writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Retail customer service experience.\n' + 'Unrelated supporting detail. '.repeat(900) + '\nCREDENTIAL_TAIL_FIXTURE');
+writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'fit-fixture-cv', label: 'Fixture CV', fileName: 'CV.txt', isDefault: true }]));
+writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Current clearance', answer: 'SAVED_CANDIDATE_FACT_FIXTURE' }]));
 const originalFetch = globalThis.fetch;
 let mode = 'allow', calls = 0, corrections = 0;
 globalThis.fetch = async (_url, init) => {
@@ -22,11 +27,17 @@ globalThis.fetch = async (_url, init) => {
       exceptionQuote: '', exceptionConditions: [] }], injectionSuspected: false };
   } else {
     assert.ok(schema.properties.instructionCheck, 'the provider receives a typed instruction contract');
+    assert.ok(schema.properties.workArrangementCheck, 'arrangements are extracted before the approval decision');
+    assert.match(body.messages[0].content, /FULL CANDIDATE PROFILE/);
+    assert.match(body.messages[0].content, /CREDENTIAL_TAIL_FIXTURE/, 'the matcher reads the complete ordinary CV, including facts beyond the former short excerpt');
+    assert.match(body.messages[0].content, /SAVED_CANDIDATE_FACT_FIXTURE/);
+    assert.match(body.messages[0].content, /RELEVANT APPLICATION HISTORY/);
     assert.equal(schema.properties.instructionConflict, undefined, 'prose cannot encode a blocking decision');
     const correction = String(body.messages[0].content).includes('DECISION CONTRACT CORRECTION');
     if (correction) { corrections++; assert.equal(body.model, 'celeris-1-magnus'); }
     const malformed = mode === 'invalid-twice' || mode === 'repair' && !correction;
     value = {
+      workArrangementCheck: { offered: ['onsite'], evidence: 'Casual retail assistant.' },
       opportunityEvidence: 'A genuine current casual Retail Assistant vacancy.',
       instructionCheck: malformed
         ? { violated: true, ruleQuote: '', explanation: 'A conflict without traceable evidence is invalid.' }

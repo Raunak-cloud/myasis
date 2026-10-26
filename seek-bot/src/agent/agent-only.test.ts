@@ -34,6 +34,11 @@ globalThis.fetch = (async (_url, init) => {
 }) as typeof fetch;
 const { runApplicationAgent } = await import('./loop.js');
 const { withApplicationAllowance } = await import('../application-allowance.js');
+const { config } = await import('../config.js');
+const { JOB_FIT_POLICY } = await import('../job-fit-policy.js');
+const { reviewContextFingerprint, reviewContentFingerprint, applicationRejectionCache, ReviewCache } = await import('../review-cache.js');
+const { outcomeFromRun } = await import('./outcome.js');
+const { logOutcome } = await import('../store.js');
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   const context = await browser.newContext();
@@ -62,7 +67,8 @@ try {
     ];
   }, body => {
     assert.match(observation(body), /Please choose a referral source/);
-    return [{ name: 'reason_through_problem', args: { problem: 'The first submission was rejected. Correct the actual referral source and retry.' } }];
+    assert.deepEqual(body.tools && (body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission']);
+    return [{ name: 'resume_after_rejected_submission', args: { evidence: 'Please choose a referral source' } }];
   }, () => [
     { name: 'browser_action', args: { action: 'select', locator: { by: 'role', value: 'combobox', name: 'Referral source' }, value: 'Company website' } },
     { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
@@ -86,6 +92,7 @@ try {
   await page.goto(url);
 
   const beforeBatch = turns.length;
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<input id=after>'), undefined, undefined, false);
   script = [body => {
     assert.doesNotMatch(JSON.stringify(body.tools), /fill_fields|answer_questions|review_saved_form/);
     return [{ name: 'browser_batch', args: { actions: [
@@ -94,6 +101,7 @@ try {
       { action: 'fill', selector: '#letter', value: letter },
       { action: 'select', selector: 'select', value: 'Company website' },
       { action: 'click', selector: '#submit', sends_application: true, wait: { locator: { by: 'text', value: 'Receipt ABC123' } } },
+      { action: 'fill', selector: '#after', value: 'Never run after sending' },
     ] } }];
   }, body => {
     assert.match(observation(body), /Receipt ABC123/);
@@ -103,6 +111,7 @@ try {
   assert.equal(batched.outcome.status, 'applied');
   assert.equal(turns.length-beforeBatch,2,'five native commands and receipt inspection need only two scripted model turns');
   assert.equal(await page.evaluate('window.presses',undefined,undefined,false),1);
+  assert.equal(await page.inputValue('#after'), '', 'the remainder of a batch cannot mutate after a send before receipt review');
   assert.equal(batched.coverLetter,letter);
   assert.ok(batched.captured.some(answer=>answer.question.includes('Referral source') && answer.answer==='Company website'),'save the observed selected option for application history');
   const experience = readFileSync(join(directory,'site-hints.json'),'utf8');
@@ -177,6 +186,7 @@ try {
   const beforeBudget = turns.length;
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }], body => {
     assert.match(observation(body), /Application received: BUDGET123/);
+    assert.deepEqual((body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission'], 'Housing-style receipt review cannot waste its final response on a wait for an already-matched URL');
     completionTokens = 1_000_000;
     return [
       { name: 'finish', args: { status: 'applied', reason: 'Employer accepted the application', evidence: 'Application received: BUDGET123' } },
@@ -189,6 +199,17 @@ try {
   assert.equal(turns.length - beforeBudget, 2, 'no additional model call after the budget is exhausted');
   assert.equal(await page.inputValue('#after'), '');
   assert.match(readFileSync(join(directory, 'traces', 'native-budget-receipt.json'), 'utf8'), /BUDGET123/);
+
+  await page.goto(url);
+  await page.setContent(`<button id=send onclick="history.replaceState({},'', '/apply/success');document.querySelector('main').textContent='We could not process your application. Try later.'">Submit</button><main></main>`);
+  script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }], body => {
+    assert.match(observation(body), /could not process/);
+    completionTokens = 1_000_000;
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Submission is unconfirmed', evidence: 'The URL says success but the actual employer response says it could not process the application.' } }];
+  }];
+  const uncertainReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-uncertain-receipt' }, profile, log: () => {} });
+  assert.equal(uncertainReceipt.outcome.status, 'skipped', 'a success URL alone must not promote an unsuccessful application');
+  assert.equal(uncertainReceipt.submitPressed, true, 'uncertain submissions retain duplicate protection');
 
   const finishApplied: Call = { name: 'finish', args: { status: 'applied', reason: 'Planned receipt', evidence: 'This claim must not bypass an unexecuted action' } };
   for (const [id, calls] of [
@@ -223,6 +244,55 @@ try {
   const budgetQuestion = await runApplicationAgent({ page, job: { ...job, id: 'native-budget-question' }, profile, log: () => {} });
   assert.equal(budgetQuestion.outcome.status, 'needs-human', 'retain valid unanswered questions at the boundary too');
   if (budgetQuestion.outcome.status === 'needs-human') assert.equal(budgetQuestion.outcome.questions?.[0].question, 'Earliest start date');
+
+  await page.goto(url);
+  await page.setContent(`<label>Name<input id=name></label><button id=send onclick="document.querySelector('main').textContent='Application received: APPROVED123'">Submit</button><main></main>`);
+  const reviewedJob: JobListing = { ...job, id: 'native-authoritative-match', description: 'Onsite Sydney application development.' };
+  reviewedJob.fitReview = { score: 85, reason: 'The candidate matches these development duties', evidence: ['Relevant development'],
+    contentFingerprint: reviewContentFingerprint(reviewedJob)!, contextFingerprint: reviewContextFingerprint(profile) };
+  script = [body => {
+    assert.match(JSON.stringify(body.messages), /APPROVED FIT REVIEW.*candidate matches these development duties/s);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Repeated assessment of the same title', evidence: 'Onsite Sydney application development.',
+      fit_rejection: { source: 'listing', evidence: 'Onsite Sydney application development.' } } }];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /matcher already approved these unchanged listing facts/);
+    return [{ name: 'browser_batch', args: { actions: [
+      { action: 'fill', selector: '#name', value: 'Rinu Fixture' },
+      { action: 'click', selector: '#send', sends_application: true },
+    ] } }];
+  }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Approved job completed', evidence: 'Application received: APPROVED123' } }]];
+  assert.equal((await runApplicationAgent({ page, job: reviewedJob, profile, log: () => {} })).outcome.status, 'applied', 'the applier cannot overturn unchanged approved listing facts');
+
+  await page.setContent('<main>Current NV1 clearance must be held before applying.</main>');
+  script = [() => [{ name: 'finish', args: { status: 'skipped', reason: 'The form introduced a mandatory clearance requirement', evidence: 'Current NV1 clearance must be held before applying.',
+    fit_rejection: { source: 'form', evidence: 'Current NV1 clearance must be held before applying.' } } }]];
+  const newRequirement = await runApplicationAgent({ page, job: reviewedJob, profile, log: () => {} });
+  assert.equal(newRequirement.outcome.status, 'skipped', 'new mandatory form eligibility can still stop an approved match');
+  assert.equal(applicationRejectionCache(reviewedJob, outcomeFromRun(newRequirement, reviewedJob.id, page.url()), reviewContextFingerprint(profile)), undefined, 'a form-only requirement is not cached against unchanged listing text');
+
+  await page.goto(url);
+  await page.setContent('<main>Role located in Melbourne VIC (Remote).</main>');
+  const mismatchJob: JobListing = { ...job, id: 'native-late-fit-rejection', location: 'Melbourne VIC (Remote)', description: 'Fully remote software role in Melbourne.' };
+  const contextFingerprint = reviewContextFingerprint(profile);
+  script = [body => {
+    assert.ok(body.messages.some(message => typeof message.content === 'string' && message.content.includes(JOB_FIT_POLICY)));
+    assert.match(JSON.stringify(body.messages), /APPROVED FIT REVIEW\\nnull/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Actual arrangement conflicts with the saved onsite preference', evidence: 'Melbourne VIC (Remote)',
+      fit_rejection: { source: 'listing', evidence: 'Melbourne VIC (Remote)' } } }];
+  }];
+  const lateMismatch = await runApplicationAgent({ page, job: mismatchJob, profile, log: () => {} });
+  const mismatch = outcomeFromRun(lateMismatch, mismatchJob.id, page.url());
+  const metadata = applicationRejectionCache(mismatchJob, mismatch, contextFingerprint);
+  assert.equal(metadata?.disposition, 'fit-mismatch');
+  logOutcome({ ...mismatch, title: mismatchJob.title, company: mismatchJob.company, reviewCache: metadata });
+  const nextRun = new ReviewCache();
+  assert.equal(nextRun.suppression(mismatchJob, contextFingerprint)?.disposition, 'fit-mismatch', 'a second run suppresses the actual application-stage mismatch');
+  assert.equal(nextRun.suppression({ ...mismatchJob, description: 'Now onsite in Sydney.' }, contextFingerprint), null);
+  const beforePreferences = config.rules.workArrangements;
+  try {
+    config.rules.workArrangements = ['remote'];
+    assert.equal(nextRun.suppression(mismatchJob, reviewContextFingerprint(profile)), null, 'changed candidate preferences permit reconsideration');
+  } finally { config.rules.workArrangements = beforePreferences; }
 
   await page.goto(url);
   script=[()=>[{name:'browser_action',args:{action:'fill',selector:'#name',value:'Must not happen'}}]];

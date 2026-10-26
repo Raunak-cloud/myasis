@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ReviewCache, listingFingerprint, reviewContentFingerprint, reviewCacheMetadata, reviewContextFingerprint, REVIEW_TTL, type ReviewCacheEntry } from './review-cache.js';
+import { ReviewCache, applicationRejectionCache, currentFitReview, listingFingerprint, reviewContentFingerprint, reviewCacheMetadata, reviewContextFingerprint, REVIEW_TTL, type ReviewCacheEntry } from './review-cache.js';
 import { config } from './config.js';
-import type { CandidateProfile, JobListing } from './types.js';
+import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 const NOW = Date.parse('2026-09-22T00:00:00.000Z');
 const job: JobListing = {
@@ -44,6 +44,29 @@ test('suppresses an unchanged job before another model review', () => withCache(
   const cache = new ReviewCache({ now: NOW, cachePath: path });
   assert.equal(cache.suppression(job, 'candidate-v1')?.disposition, 'fit-mismatch');
 }));
+
+test('application-stage rejections require a structured listing quote and no uncertain send', () => {
+  const mismatch: ApplyOutcome = { status: 'skipped', jobId: job.id, reason: 'Actual duties do not match',
+    fitRejection: { source: 'listing', evidence: 'Build software with React.' } };
+  assert.equal(applicationRejectionCache(job, mismatch, 'candidate-v1')?.disposition, 'fit-mismatch');
+  for (const outcome of [
+    { ...mismatch, submitPressed: true },
+    { ...mismatch, fitRejection: undefined, reason: 'Role mismatch: browser failed' },
+    { ...mismatch, fitRejection: { source: 'form' as const, evidence: 'Build software with React.' } },
+    { ...mismatch, fitRejection: { source: 'listing' as const, evidence: 'An invented employer requirement' } },
+    { ...mismatch, fitRejection: { source: 'listing' as const, evidence: '   ' } },
+  ]) assert.equal(applicationRejectionCache(job, outcome, 'candidate-v1'), undefined);
+  assert.equal(applicationRejectionCache({ ...job, description: undefined }, mismatch, 'candidate-v1'), undefined);
+});
+
+test('approved fit handoff is accepted only for the exact current listing and candidate context', () => {
+  const profile = { name: 'Fixture' } as CandidateProfile;
+  const reviewed: JobListing = { ...job, fitReview: { score: 85, reason: 'Relevant work', evidence: ['React'],
+    contentFingerprint: reviewContentFingerprint(job)!, contextFingerprint: reviewContextFingerprint(profile) } };
+  assert.equal(currentFitReview(reviewed, profile)?.score, 85);
+  assert.equal(currentFitReview({ ...reviewed, description: 'Changed employer requirements' }, profile), undefined);
+  assert.equal(currentFitReview(reviewed, { ...profile, experienceSummary: 'Changed candidate evidence' }), undefined);
+});
 
 test('unchanged suitability decisions survive seven days and the full access period', () => withCache([entry()], path => {
   const cache = new ReviewCache({ now: NOW + 90 * 86400_000, cachePath: path });
@@ -112,9 +135,12 @@ test('resume and knowledge changes invalidate suitability memory; tracking links
     writeFileSync(join(directory, 'knowledge.json'), JSON.stringify([{ text: 'New qualification' }]));
     assert.notEqual(reviewContextFingerprint(profile), changedResume);
     const changedKnowledge = reviewContextFingerprint(profile);
+    writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Current clearance', answer: 'New candidate fact' }]));
+    assert.notEqual(reviewContextFingerprint(profile), changedKnowledge, 'changed saved answers used by matching invalidate prior decisions');
+    const changedAnswers = reviewContextFingerprint(profile);
     writeFileSync(join(directory, 'review-verdicts.json'), JSON.stringify([{ jobId: '1', title: 'Developer', company: 'Fixture',
       verdict: 'apply', skipReason: 'Experience requirement', note: 'Consider transferable experience', at: '2026-01-01' }]));
-    assert.notEqual(reviewContextFingerprint(profile), changedKnowledge, 'candidate feedback used by the fit prompt must invalidate prior decisions');
+    assert.notEqual(reviewContextFingerprint(profile), changedAnswers, 'candidate feedback used by the fit prompt must invalidate prior decisions');
     assert.equal(reviewContentFingerprint({ ...job, applicationUrl: 'https://employer.invalid/?tracking=1' }),
       reviewContentFingerprint({ ...job, applicationUrl: 'https://employer.invalid/?tracking=2' }));
   } finally { if (saved === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = saved; rmSync(directory, { recursive: true, force: true }); }

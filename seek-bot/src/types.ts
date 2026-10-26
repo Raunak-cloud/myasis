@@ -35,6 +35,22 @@ export interface CandidateProfile {
   securityClearance: string;
 }
 
+export interface FitRejection {
+  /** Only listing facts can be revalidated from the next run's listing. */
+  source: 'listing' | 'form';
+  /** Exact employer quote supporting the suitability conflict. */
+  evidence: string;
+}
+
+export interface JobFitReview {
+  score: number;
+  reason: string;
+  evidence: string[];
+  workArrangementCheck?: { offered: Array<'onsite' | 'hybrid' | 'remote'>; evidence: string };
+  contentFingerprint: string;
+  contextFingerprint: string;
+}
+
 export interface JobListing {
   id: string;
   title: string;
@@ -70,6 +86,8 @@ export interface JobListing {
   description?: string;
   /** Search-card identity retained when the detail page enriches fields. */
   discoveryFingerprint?: string;
+  /** Trusted review handoff, usable only while listing and candidate context match. */
+  fitReview?: JobFitReview;
   /**
    * Annual minimum parsed from SEEK's structured payload, present even when the
    * advertiser hid the range. Used for filtering only — never quoted back as a
@@ -148,7 +166,7 @@ export type ApplyOutcome = (
       stoppedAt: string;
     }
   | { status: 'prepared'; jobId: string; draft: import('./application-review-types.js').PreparedApplication }
-  | { status: 'skipped'; jobId: string; reason: string }
+  | { status: 'skipped'; jobId: string; reason: string; fitRejection?: FitRejection }
   | { status: 'already-applied'; jobId: string; reason: string }
   | { status: 'off-platform'; jobId: string; redirectedTo: string }
   | {

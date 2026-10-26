@@ -44,7 +44,8 @@ export function outcomeFromRun(
     case 'already-applied':
       return { status: 'already-applied', jobId, reason: run.outcome.reason, ...extras };
     case 'skipped':
-      return { status: 'skipped', jobId, reason: run.outcome.reason, ...extras };
+      return { status: 'skipped', jobId, reason: run.outcome.reason,
+        ...(run.outcome.fitRejection ? { fitRejection: run.outcome.fitRejection } : {}), ...extras };
     case 'needs-human':
     default: {
       // Friction feeds the run-level abort counter, so repeated walls stop a board for the run.

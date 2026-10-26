@@ -92,13 +92,17 @@ async function approvedText(path: string | null): Promise<string> {
 /** No AI calls and no writes. Initial evidence is bounded; the same function
  * retrieves verbatim passages by any follow-up query, so omissions never become
  * an independent blocker. The full current profile is supplied by the parent. */
+export function candidateSavedAnswers() {
+  return records('answers.json').filter(item => typeof item.question === 'string' && typeof item.answer === 'string')
+    .map(item => ({ question: item.question, answer: item.answer, ...(typeof item.createdAt === 'string' ? { createdAt: item.createdAt } : {}) }));
+}
+
 export async function agentOnlyEvidence(query = '', offset = 0): Promise<string> {
   const resumes = resumeRecords();
   const knowledge = records('knowledge.json').filter(record => record.enabled === true && typeof record.id === 'string' && typeof record.label === 'string')
     .filter(record => record.kind === 'note' && typeof record.text === 'string'
       || record.kind === 'file' && typeof record.fileName === 'string' && Boolean(ownerFile(record.fileName, 'knowledge')));
-  const answers = records('answers.json').filter(item => typeof item.question === 'string' && typeof item.answer === 'string')
-    .map(item => ({ question: item.question, answer: item.answer, ...(typeof item.createdAt === 'string' ? { createdAt: item.createdAt } : {}) }));
+  const answers = candidateSavedAnswers();
   const inventory = JSON.stringify({ resumes, supportingDocuments: knowledge.map(record => ({ id: record.id, label: record.label, kind: record.kind })), savedAnswerCount: answers.length });
   if (query === 'document-inventory') return evidencePage(inventory, inventory, offset);
   const sections = [preferenceEvidence(), 'SAVED CANDIDATE ANSWERS\n' + JSON.stringify(answers),

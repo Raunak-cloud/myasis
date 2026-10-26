@@ -132,7 +132,8 @@ function contextSignature(items: KnowledgeItem[]): string {
  * *evidence*, not instructions: the caller wraps it accordingly and the model
  * is told it may only ground answers in it, never take direction from it.
  */
-export async function buildKnowledgeContext(query = ''): Promise<string> {
+export async function buildKnowledgeContext(query = '', maxChars = MAX_CHARS): Promise<string> {
+  const contextLimit = Math.min(60_000, Math.max(MAX_CHARS, maxChars));
   const items = loadKnowledge().filter((i) => i.enabled);
   /**
    * The resume is a supporting document, and for most accounts the only one.
@@ -148,7 +149,7 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
   if (!items.length && !resumes.length) return '';
 
   const signature = knowledgeContextFingerprint();
-  if (contextCache?.signature === signature) return relevantEvidence(contextCache.value, query, MAX_CHARS);
+  if (contextCache?.signature === signature) return relevantEvidence(contextCache.value, query, contextLimit);
 
   // Document extraction is independent per item. Running it concurrently
   // removes repeated PDF/DOCX latency while preserving manifest order below.
@@ -190,7 +191,7 @@ export async function buildKnowledgeContext(query = ''): Promise<string> {
 
   const value = chunks.join('\n\n');
   contextCache = { signature, value };
-  return relevantEvidence(value, query, MAX_CHARS);
+  return relevantEvidence(value, query, contextLimit);
 }
 
 interface ResumeEntry {

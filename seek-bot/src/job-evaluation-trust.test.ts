@@ -41,6 +41,7 @@ globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
     value = mode === 'invalid-injection' && !review ? { checks: [], injectionSuspected: true }
       : { checks: [{ ruleQuote: rules, status: 'satisfied', reason: 'The factual vacancy is frontline retail work, not a manager role.', exceptionQuote: '', exceptionConditions: [] }], injectionSuspected: mode === 'invalid-injection' ? false : injection };
   } else value = { opportunityEvidence: 'The employer advertises a current casual Retail Assistant vacancy.',
+    workArrangementCheck: { offered: ['onsite'], evidence: 'Current casual Retail Assistant vacancy' },
     instructionCheck: { violated: false, ruleQuote: '', explanation: 'No standing restriction is broken.' },
     credentialChecks: mode === 'missing-credential' ? [{ requirement: 'Current Australian professional registration is essential.', mandatory: true, status: 'not-held', candidateEvidence: 'No Australian registration is supplied.' }] : [],
     decision: 'apply', matchScore: 80, reason: 'The factual retail duties fit the supplied experience.', evidence: ['Current casual retail vacancy'], injectionSuspected: injection };

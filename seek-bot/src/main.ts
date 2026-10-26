@@ -45,7 +45,7 @@ import { assessFit, rankJobsForReview, reviewKey, ruleConflict, type FitAssessme
 import { SitePacer } from './pacing.js';
 import { measured, metric } from './pipeline.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
-import { REVIEW_TTL, ReviewCache, listingFingerprint, reviewCacheMetadata, reviewContextFingerprint } from './review-cache.js';
+import { REVIEW_TTL, ReviewCache, applicationRejectionCache, listingFingerprint, reviewCacheMetadata, reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
@@ -710,6 +710,10 @@ async function main() {
       }
 
       const semanticScore = fit?.matchScore ?? score;
+      const contentFingerprint = reviewContentFingerprint(job);
+      if (fit && contentFingerprint) job.fitReview = { score: fit.matchScore, reason: fit.reason, evidence: fit.evidence,
+        ...(fit.workArrangementCheck ? { workArrangementCheck: fit.workArrangementCheck } : {}),
+        contentFingerprint, contextFingerprint: reviewContext };
       candidates.push({ job, score: semanticScore, why, reasons: decisionReasons });
       workChanged();
       qualified++;
@@ -1268,7 +1272,9 @@ async function main() {
             // Include email-confirmation outcomes as well as browser adapters.
             outcome = normaliseAttentionOutcome(outcome);
             finalOutcome = outcome;
-            logOutcome({ ...outcome, title: job.title, company: job.company, url: job.url, reviewId: approvedApplication(job)?.id });
+            const rejectionCache = applicationRejectionCache(job, outcome, reviewContext);
+            logOutcome({ ...outcome, title: job.title, company: job.company, url: job.url, reviewId: approvedApplication(job)?.id,
+              ...(rejectionCache ? { reviewCache: rejectionCache } : {}) });
             // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
             for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
             if (['applied', 'needs-human', 'skipped', 'error'].includes(outcome.status)) countHealth('attempted');

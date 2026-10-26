@@ -99,7 +99,7 @@ as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/agent-only-routing.test.js dist/application-worker-page.test.js"
 as_app "cd $APP/seek-bot && node --test dist/application-model.test.js dist/agent/application-model-routing.test.js dist/agent/tool-input.test.js dist/store-scope.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/direct-external.test.js"
-as_app "cd $APP/seek-bot && node dist/fit-contract.test.js && node dist/application-model-cache.test.js"
+as_app "cd $APP/seek-bot && node dist/fit-assessment.test.js && node dist/fit-contract.test.js && node dist/application-model-cache.test.js"
 as_app "cd $APP/seek-bot && node dist/assessment-reuse.test.js"
 as_app "cd $APP/seek-bot && node --test dist/parallel-ranking.test.js"
 as_app "cd $APP/seek-bot && node scripts/test-ranking.mjs"

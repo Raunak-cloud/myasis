@@ -11,6 +11,8 @@ const skipped = outcomeFromRun(run({ status: 'skipped', reason: 'page did not ch
 assert.equal(skipped.status, 'skipped');
 assert.equal(skipped.submitPressed, true);
 assert.equal(outcomeFromRun(run({ status: 'skipped', reason: 'x' }, false), 'job-1', '').submitPressed, undefined);
+const rejection = outcomeFromRun(run({ status: 'skipped', reason: 'Location mismatch', fitRejection: { source: 'listing', evidence: 'Melbourne VIC' } }, false), 'job-1', '');
+assert.ok(rejection.status === 'skipped' && rejection.fitRejection?.source === 'listing');
 
 const frictions: string[] = [];
 const blocked = outcomeFromRun(run({ status: 'needs-human', reason: 'CapMonster could not clear the CAPTCHA' }, false), 'job-2', 'https://x.example', (kind) => frictions.push(kind));
