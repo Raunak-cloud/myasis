@@ -147,8 +147,7 @@ try {
     assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
     if (admin) {
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
-      assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0, 'account choices cannot bypass server browser routing');
-      assert.match(await dialog.textContent() ?? '', /Bright Data receives your resume/);
+      assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0, 'employer forms use the native browser');
       await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).waitFor();
       assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES] input').inputValue(), 'Canva,KPMGAustralia1,Colliers');
       assert.match(await dialog.textContent() ?? '', /no job-board sign-in required/i);
@@ -174,7 +173,6 @@ try {
     const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
     assert.equal(submitted.overrides.PLATFORMS, admin ? 'smartrecruiters' : 'seek');
     assert.equal('SMARTRECRUITERS_COMPANIES' in submitted.overrides, admin);
-    assert.equal('EMPLOYER_BROWSER_PROVIDER' in submitted.overrides, false);
     assert.equal('APPLICATION_AI_MODEL' in submitted.overrides, admin);
     if (admin) assert.equal(submitted.overrides.APPLICATION_AI_MODEL, 'celeris');
     for (const source of EMPLOYER_SOURCES) assert.equal(source.key in submitted.overrides, admin);

@@ -1,3 +1,5 @@
+import { hasHcaptchaChallenge } from '../captcha/detect.js';
+import { HCAPTCHA_SKIP_REASON } from '../captcha.js';
 import { FieldBatchTargets } from './field-batch-targets.js';
 import { extractFields } from '../dom.js';
 import { metric } from '../pipeline.js';
@@ -68,6 +70,7 @@ export async function fillObservedFields(ctx: ToolContext, writes: readonly Fiel
       return state?.status === 'ready';
     };
     for (const [index, write] of writes.entries()) {
+      if (await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
       const field = fields[index]!;
       if (!await current()) return reply('The questions or controls changed. Remaining fields were not written; re-observe.', 'reobserve');
       const locator = targets.locator(index);
@@ -82,6 +85,7 @@ export async function fillObservedFields(ctx: ToolContext, writes: readonly Fiel
       if (prior >= 0) ctx.captured.splice(prior, 1);
       if (saved.saved !== null) ctx.captured.push({ question: field.label, answer: saved.saved });
       if (isCoverLetterField(field.label) && saved.saved !== null) ctx.coverLetter = saved.saved;
+      if (await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
       if (!saved.connected || !saved.batch || !await current(saved.batch)) {
         return reply('The form changed after a write. Remaining fields were not written; re-observe.', 'reobserve');
       }

@@ -8,11 +8,11 @@ import { applicationModelEnvironment } from '../application-model.js';
 import { cleanCoverLetter, coverLetterInstructionPrompt, isCoverLetterField } from '../cover-letter-policy.js';
 import { readSavedForm } from './saved-form.js';
 import { waitForChallengeToClear, workingIn } from '../browser.js';
-import { hasCaptchaSurface } from '../captcha/detect.js';
 import { config } from '../config.js';
+import { hasHcaptchaChallenge } from '../captcha/detect.js';
+import { HCAPTCHA_SKIP_REASON } from '../captcha.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordFormPage } from '../form-corpus.js';
-import { applicationBrowserName, applicationUpload, selectRemotePage } from '../employer-browser.js';
 import { documentFor } from '../resume.js';
 import { outsideScope } from '../run-scope.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
@@ -199,15 +199,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     if (opened.length !== 1) return false;
     ctx.page = opened[0];
     listen(ctx.page);
-    selectRemotePage(ctx.page); await workingIn(ctx.page);
-    return true;
-  };
-  const routeEmployer = async () => {
-    const page = await options.routeEmployerPage?.(ctx.page) ?? ctx.page;
-    if (page === ctx.page) return false;
-    ctx.page = page; watchContext(page.context());
-    selectRemotePage(page); await workingIn(page);
-    lastNote = 'The employer form is in a fresh private browser. Read the new page and use its refs.';
+    await workingIn(ctx.page);
     return true;
   };
   // Test fixtures may mutate their intercepted invalid-domain page, but can
@@ -228,6 +220,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const activity = startAgentActivity(options.job);
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if (await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
     if (name === 'prepare_email_application') {
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: 'Inspected email application instructions; no email draft or send in dry-run.' } };
       if (!config.allowExternalApply || outsideScope('external')) return ok('Email applications are outside this run scope.', 'failed');
@@ -320,7 +313,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       } else throw new Error('Provide document_id or cover_letter.');
       const converted = await documentFor(file, await input.getAttribute('accept') ?? '');
       if (!converted) throw new Error('No supported document conversion is available for this input.');
-      await input.setInputFiles(await applicationUpload(ctx.page, converted), { timeout: 15_000 });
+      await input.setInputFiles(converted, { timeout: 15_000 });
       return ok('Document uploaded; inspect its saved filename on the page.');
     }
     if (name === 'fill_fields') return fillObservedFields(ctx, (args.fields as FieldWrite[]).map(write =>
@@ -396,7 +389,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       case 'select_page': {
         const page = ctx.page.context().pages()[Number(args.page_index)];
         if (!page || page.isClosed()) throw new Error('Choose an open page_index from the observation.');
-        ctx.page = page; selectRemotePage(page); await workingIn(page); break;
+        ctx.page = page; await workingIn(page); break;
       }
       case 'dialog': {
         const dialog = dialogs.get(ctx.page);
@@ -483,10 +476,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         ctx.page = open.at(-1)!;
       }
       if (await followPopup()) lastNote = 'The previous control opened a new tab. Read the new page before acting.';
-      await routeEmployer();
-      if (applicationBrowserName(ctx.page) === 'brightdata' && await hasCaptchaSurface(ctx.page)) {
-        const cleared = await waitForChallengeToClear(ctx.page, Math.min(60_000, remainingMs()));
-        lastNote += ` Bright Data verification: ${cleared ? 'surface cleared' : 'surface remains; do not treat this as a receipt'}.`;
+      if (await hasHcaptchaChallenge(ctx.page)) {
+        terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
+        finished = true;
+        break;
       }
       ctx.observation = await observe(ctx.page, { screenshot });
       if (!waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
@@ -519,6 +512,11 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
+      if (await hasHcaptchaChallenge(ctx.page)) {
+        terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
+        finished = true;
+        break;
+      }
       messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       steps++; // AGENT_MAX_STEPS counts model turns.
       const reply = await celerisChat({ model: 'celeris-1-magnus', messages: agentOnlyTranscript(messages, 42_000), tools: agentOnlyTools,
@@ -538,13 +536,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
           planActions++;
           try {
             if (!tool || !validToolInput(call.args, tool.parameters)) throw new Error('Invalid tool input. Read the schema and retry with the correct arguments.');
-            if (await routeEmployer()) {
-              interrupted = true;
-              result = ok('Not run: the browser changed. Read the fresh employer form before acting.');
-            } else {
-              if (['browser_action', 'fill_fields', 'upload_document'].includes(call.name)) progress.attemptedAction(`${call.name}/${String(call.args.action ?? '')}`);
-              result = await act(call.name, call.args);
-            }
+            if (['browser_action', 'fill_fields', 'upload_document'].includes(call.name)) progress.attemptedAction(`${call.name}/${String(call.args.action ?? '')}`);
+            result = await act(call.name, call.args);
           } catch (error) {
             result = error instanceof StaleObservedRefError
               ? ok(error.message, 'reobserve')

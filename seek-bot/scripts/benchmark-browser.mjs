@@ -76,7 +76,7 @@ try {
     if (!live) writeFileSync(profilePath, 'Full name: Benchmark Fixture\nExpected annual salary: 100000\n');
     const child = spawn(process.execPath, ['dist/browser-benchmark.js', ...(live ? [] : ['--fixture'])], {
       cwd: root, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...env, ...preferences, DISPLAY: env.DISPLAY ?? ':99', HEADLESS: String(headless), BROWSER_CONNECT_CDP: 'false', CHROME_PROFILE_DIR: profile, PROFILE_PATH: profilePath, DATA_DIR: data, BENCHMARK_OUTPUT: output, CDP_PORT: '19444', DRY_RUN: 'true', CAPTCHA_SOLVER: 'off', BRIGHTDATA_ADMIN_ENABLED: 'false', BRIGHTDATA_BROWSER_ENABLED: 'false', SEEK_BASE: live ? (env.SEEK_BASE ?? 'https://www.seek.com.au') : 'https://benchmark.invalid' },
+      env: { ...env, ...preferences, DISPLAY: env.DISPLAY ?? ':99', HEADLESS: String(headless), BROWSER_CONNECT_CDP: 'false', CHROME_PROFILE_DIR: profile, PROFILE_PATH: profilePath, DATA_DIR: data, BENCHMARK_OUTPUT: output, CDP_PORT: '19444', DRY_RUN: 'true', CAPTCHA_SOLVER: 'off', SEEK_BASE: live ? (env.SEEK_BASE ?? 'https://www.seek.com.au') : 'https://benchmark.invalid' },
     });
     // Do not log raw launch output; Chrome/provider command lines can contain credentials.
     child.stdout.resume(); child.stderr.resume();

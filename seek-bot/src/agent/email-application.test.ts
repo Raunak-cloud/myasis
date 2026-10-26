@@ -13,7 +13,7 @@ import type { PreparedApplication } from '../application-review-types.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-email-applications-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false',
-  APPLICATION_REVIEW_MODE: 'prepare', DRY_RUN: 'false', EMPLOYER_BROWSER_PROVIDER: 'local' });
+  APPLICATION_REVIEW_MODE: 'prepare', DRY_RUN: 'false' });
 mkdirSync(join(directory, 'resumes'));
 const resume = Buffer.from('Private fixture resume');
 writeFileSync(join(directory, 'resumes', 'Fixture CV.txt'), resume);
@@ -78,7 +78,7 @@ try {
   const submitBatch = () => new Promise<string>((done, fail) => {
     const child = spawn(process.execPath, [fileURLToPath(new URL('../main.js', import.meta.url))], {
       env: { ...process.env, APPLICATION_REVIEW_MODE: 'approved', DRY_RUN: 'false', ADMIN_UNLIMITED:'true', APPLICATIONS_UNLIMITED:'true', MAX_APPS_PER_DAY:'none',
-        CHROME_PATH: '/fixture/chrome-does-not-exist', KEYWORDS: '', EMPLOYER_BROWSER_PROVIDER: 'brightdata', BRIGHTDATA_BROWSER_ENABLED: 'false' },
+        CHROME_PATH: '/fixture/chrome-does-not-exist', KEYWORDS: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let transcript = '';

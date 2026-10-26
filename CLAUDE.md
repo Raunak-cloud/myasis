@@ -15,6 +15,7 @@ Think like a senior software developer. Prioritize holistic, architectural solut
 - The dashboard runs `seek-bot/dist`, so build seek-bot after changing it.
 - Deployment default: the user has requested that changes to this project always be deployed after verification. Commit the requested changes, push to `main`, then run `bash /home/myasis/myasis/deploy/deploy.sh` as root on the VPS without waiting for a separate deployment request.
   Use the deployment script so active runs finish before builds and restarts. Verify the live site after deployment.
+- All job-board and employer-site applications use Owtomate's native, per-account browser. Never route application data to an external browser provider. Skip applications immediately when an hCaptcha checkbox or puzzle is visible; do not attempt a solve or mark them as needing user input.
 - Employer-site login and account creation are automated with per-site credentials; government jobs are reviewed and applied for under the same candidate-fit rules as other jobs.
 - x11vnc binds `127.0.0.1` only, behind the authenticated dashboard WebSocket. Never publish a VNC port.
 - Never route the bot's outbound traffic through Cloudflare WARP.

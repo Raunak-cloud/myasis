@@ -544,7 +544,7 @@ export function RunPanel({
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && key !== 'EMPLOYER_BROWSER_PROVIDER' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -1183,12 +1183,6 @@ export function RunPanel({
                   </div>
                 ))}
                 {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">Admin pilot. No job-board sign-in required. The selected employer feeds share your normal fit checks and application limits. Test without applying checks one page per search term and up to 10 jobs, without saving drafts or opening application forms.</p>}
-                {isAdmin && platforms.some(isEmployerSource) && (
-                  <div className="field run-review-wide">
-                    <FieldLabel label="Employer forms" help="Employer forms use the server-configured private browser automatically." />
-                    <span className="field-help">When Bright Data is enabled, employer forms use a separate private session with automatic security verification. Bright Data receives your resume and application answers. SEEK and Indeed sign-ins stay in their existing browsers. Employer forms requiring sign-in may need attention.</span>
-                  </div>
-                )}
                 <p className="job-meta recommended-first-note">
                   New jobs are prioritised. Unchanged rejected jobs do not use another AI review; changed listings or preferences can be checked again.
                 </p>

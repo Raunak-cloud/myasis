@@ -1,6 +1,5 @@
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
-import { readEnv, runner, type RunMode } from './runner.js';
-import { brightDataBrowserEndpoint, employerBrowserProvider } from '../../seek-bot/src/employer-browser-config.js';
+import { runner, type RunMode } from './runner.js';
 import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS, DAILY_APPLICATION_CAP_CHOSEN } from './settings.js';
 import {
   billingStatus,
@@ -263,10 +262,6 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   }
   try {
     applyJobSourceAccess(overrides, admin);
-    if (mode === 'live' && !emailOnly) {
-      const browserEnv = { ...readEnv(), ...process.env, ...overrides };
-      if (employerBrowserProvider(browserEnv) === 'brightdata') brightDataBrowserEndpoint(browserEnv);
-    }
   }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;

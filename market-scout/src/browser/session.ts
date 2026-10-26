@@ -12,7 +12,7 @@ import { Semaphore } from '../core/semaphore.js';
  *
  * It is never signed in to any platform. Everything it reads is what any
  * visitor sees without an account, which is both the durable legal position
- * (Meta v. Bright Data, X v. Bright Data) and what keeps one account's ban
+ * and what keeps one account's ban
  * from mattering.
  */
 

@@ -77,9 +77,7 @@ const GROUPS: GroupSpec[] = [
     key: 'application-costs', title: 'Application cost accounting',
     note: 'Admin-only USD estimates. Rates are saved with new usage; changing them does not rewrite history. Leave unknown rates blank. Credits and taxes are not included.',
     keys: [
-      { key: 'BRIGHTDATA_API_KEY', label: 'Bright Data management API key', help: 'Read final per-session bandwidth. Separate from Browser API connection credentials.', kind: 'secret' },
-      { key: 'BRIGHTDATA_BROWSER_USD_PER_GB', label: 'Bright Data USD per GB', help: 'Default 8. Use your contracted effective rate; premium domains may differ.', kind: 'number' },
-      { key: 'APPLICATION_INFRA_USD_PER_WORKER_HOUR', label: 'Other overhead USD per worker-hour', help: 'Hosting, proxies, storage, email and other fixed service fees divided by expected monthly worker-hours. Exclude separately metered Celeris, Bright Data and CAPTCHA charges.', kind: 'number' },
+      { key: 'APPLICATION_INFRA_USD_PER_WORKER_HOUR', label: 'Other overhead USD per worker-hour', help: 'Hosting, proxies, storage, email and other fixed service fees divided by expected monthly worker-hours. Exclude separately metered Celeris and CAPTCHA charges.', kind: 'number' },
     ],
   },
   {
@@ -149,9 +147,6 @@ const GROUPS: GroupSpec[] = [
       { key: 'ADMIN_FORM_SPEED', label: 'Admin form speed pilot', help: 'Larger bounded question batches, exact account/job-scoped answer reuse, and immediate verified fills. Admin-owned runs only; existing truth and submission checks remain active. Takes effect on the next run.', kind: 'boolean' },
       { key: 'BROWSER_CONNECT_CDP', label: 'Attach to a shared browser', help: 'Keep off: each run needs its own Chrome on its own profile.', kind: 'boolean' },
       { key: 'CDP_HOST', label: 'CDP host', help: 'Only used when attaching to a shared browser.', kind: 'text' },
-      { key: 'BRIGHTDATA_BROWSER_ENABLED', label: 'Bright Data employer forms', help: 'Routes employer forms through fresh private cloud sessions, including direct links and SEEK/Indeed handoffs. Job-board sessions and login cookies stay local.', kind: 'boolean' },
-      { key: 'BRIGHTDATA_BROWSER_USERNAME', label: 'Bright Data browser username', help: 'From the Browser API zone, not the account API key.', kind: 'text' },
-      { key: 'BRIGHTDATA_BROWSER_PASSWORD', label: 'Bright Data browser password', help: 'Zone credential. Kept on the server; never included in run preferences.', kind: 'secret' },
     ],
   },
   {
@@ -392,7 +387,7 @@ function normalise(key: string, spec: Spec | undefined, raw: unknown): string {
   switch (kind) {
     case 'number':
       if (!/^-?\d+(\.\d+)?$/.test(value)) throw new Error(`${key}: must be a number.`);
-      if (['BRIGHTDATA_BROWSER_USD_PER_GB', 'APPLICATION_INFRA_USD_PER_WORKER_HOUR'].includes(key) && (!Number.isFinite(Number(value)) || Number(value) < 0)) throw new Error(`${key}: must be a finite, non-negative USD rate.`);
+      if (key === 'APPLICATION_INFRA_USD_PER_WORKER_HOUR' && (!Number.isFinite(Number(value)) || Number(value) < 0)) throw new Error(`${key}: must be a finite, non-negative USD rate.`);
       return value;
     case 'boolean':
       if (value !== 'true' && value !== 'false') throw new Error(`${key}: must be true or false.`);

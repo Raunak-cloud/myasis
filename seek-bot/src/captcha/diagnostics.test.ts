@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { captchaDiagnosticSecrets, safeCaptchaDiagnostic } from './diagnostics.js';
 
 test('provider and protocol explanations survive while secrets, URLs and arbitrary payloads do not', () => {
-  const secrets = captchaDiagnosticSecrets({ BRIGHTDATA_BROWSER_PASSWORD: 'private/p@ssword', CELERIS_API_KEY: 'private-api-key', HOME: '/safe/home' });
-  const error = Object.assign(new Error('Protocol error (Captcha.solve): solver unavailable; wss://user:private%2Fp%40ssword@brd.superproxy.io:9222/?token=abc email me@example.test api_key=other-secret Bearer bearer-secret'), { code: -32000, stack: 'private stack' });
+  const secrets = captchaDiagnosticSecrets({ FIXTURE_BROWSER_PASSWORD: 'private/p@ssword', CELERIS_API_KEY: 'private-api-key', HOME: '/safe/home' });
+  const error = Object.assign(new Error('Protocol error (Captcha.solve): solver unavailable; wss://user:private%2Fp%40ssword@browser.fixture.invalid:9222/?token=abc email me@example.test api_key=other-secret Bearer bearer-secret'), { code: -32000, stack: 'private stack' });
   const result = safeCaptchaDiagnostic(error, secrets);
   assert.equal(result.code, -32000);
   assert.match(String(result.message), /Protocol error \(Captcha.solve\): solver unavailable/);

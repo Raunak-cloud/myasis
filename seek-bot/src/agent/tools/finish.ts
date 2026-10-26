@@ -1,12 +1,14 @@
 import { verifyAlreadyApplied, verifySubmissionEvidence } from '../../llm.js';
 import { isExternal } from '../guards.js';
-import { handleCaptchaWithCapMonster } from '../../captcha.js';
+import { hasHcaptchaChallenge } from '../../captcha/detect.js';
+import { handleCaptchaWithCapMonster, HCAPTCHA_SKIP_REASON } from '../../captcha.js';
 import { ToolResult, ToolContext, ok } from './context.js';
 import { submissionEvidence } from './gate.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
 export async function doFinish(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
   const reason = String(args.reason ?? 'no reason given');
   /**
    * CAPTCHAs belong to CapMonster, never to the model's judgment. A widget
@@ -19,6 +21,7 @@ export async function doFinish(ctx: ToolContext, args: Record<string, unknown>):
     await ctx.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
     await ctx.page.waitForTimeout(2_500).catch(() => {});
     const captcha = await handleCaptchaWithCapMonster(ctx.page);
+    if (captcha === 'hcaptcha') return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
     if (captcha === 'solved') return ok('The CAPTCHA solver cleared the verification. Re-observe the page and continue the application.');
     if (captcha === 'none') ctx.log('  · the agent reported a CAPTCHA, but none is on the page');
   }

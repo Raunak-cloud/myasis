@@ -12,7 +12,7 @@ assert.equal(result.a.totalUsd, 4.5); assert.equal(result.b.totalUsd, 5.5);
 assert.equal(result.failed, undefined);
 assert.equal(result.a.totalUsd + result.b.totalUsd, 10, 'allocation conserves spend; re-sync does not double bill');
 assert.equal(result.a.incomplete, false);
-result = summariseApplicationCosts([...rows, event({ jobId: 'a', amountUsd: null, provider: 'Bright Data' })]);
+result = summariseApplicationCosts([...rows, event({ jobId: 'a', amountUsd: null, provider: 'CapMonster' })]);
 assert.equal(result.a.totalUsd, 4.5); assert.equal(result.a.incomplete, true);
 assert.equal(formatApplicationCost(result.a), 'US$4.5000 +');
 assert.equal(formatApplicationCost(undefined), 'Not recorded');

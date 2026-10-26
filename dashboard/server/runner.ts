@@ -54,7 +54,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
 /** Retired experiment settings and credentials never reach a new worker. */
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
-    'BRIGHTDATA_API_KEY', 'BRIGHTDATA_BROWSER_PASSWORD', 'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
+    'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
   return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }

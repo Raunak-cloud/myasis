@@ -4,9 +4,8 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'patchrig
 import { config } from './config.js';
 import { signInAutomatically } from './signin-agent.js';
 import { captchaEnabled, handleCaptchaWithCapMonster, watchCaptchas } from './captcha.js';
-import { hasCaptchaSurface } from './captcha/detect.js';
+import { hasCaptchaSurface, hasHcaptchaChallenge } from './captcha/detect.js';
 import { countHealth } from './run-health.js';
-import { selectRemotePage } from './employer-browser.js';
 import { metric } from './pipeline.js';
 import { currentApplicationWorker } from './application-workers.js';
 import { updateLiveTarget, type LiveActivity } from './live-workers.js';
@@ -241,7 +240,6 @@ export async function applicationWorkerContexts(ctx: BrowserContext, count: numb
  * are looking at.
  */
 export async function workingIn(page: Page): Promise<void> {
-  if (selectRemotePage(page)) return;
   try {
     await page.bringToFront();
     const session = await page.context().newCDPSession(page);
@@ -263,7 +261,7 @@ export async function workingIn(page: Page): Promise<void> {
 export async function showLiveActivity(activity: LiveActivity, page?: Page): Promise<void> {
   try {
     let targetId: string | undefined;
-    if (page && !selectRemotePage(page)) {
+    if (page) {
       const session = await page.context().newCDPSession(page);
       try { targetId = (await session.send('Target.getTargetInfo')).targetInfo.targetId; }
       finally { await session.detach().catch(() => {}); }
@@ -480,6 +478,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): Promise<boolean> {
   const showing = () => hasCaptchaSurface(page).catch(() => false);
   const deadline = Date.now() + timeoutMs;
+  if (await hasHcaptchaChallenge(page)) return false;
   if (!(await showing())) return true;
   console.log('  ⏳ Security verification — waiting for it to clear');
   // Most managed checks clear themselves quickly. Give that free path a short
@@ -488,6 +487,7 @@ export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): P
   const automaticUntil = Math.min(deadline, Date.now() + 5_000);
   while (Date.now() < automaticUntil) {
     await sleep(500);
+    if (await hasHcaptchaChallenge(page)) return false;
     if (!(await showing())) {
       // Said out loud, so a check that needed no solver is told apart from one CapMonster cleared.
       console.log('  ✓ Security verification cleared by itself');
@@ -498,6 +498,7 @@ export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): P
   }
   if (captchaEnabled() && (await handleCaptchaWithCapMonster(page)) === 'solved') {
     for (let tries = 0; tries < 30; tries += 1) {
+      if (await hasHcaptchaChallenge(page)) return false;
       if (!(await showing())) {
         await page.waitForLoadState('domcontentloaded').catch(() => {});
         return true;
@@ -507,6 +508,7 @@ export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): P
   }
   while (Date.now() < deadline) {
     await sleep(500);
+    if (await hasHcaptchaChallenge(page)) return false;
     if (!(await showing())) {
       // The real page is now loading behind the cleared challenge.
       await page.waitForLoadState('domcontentloaded').catch(() => {});

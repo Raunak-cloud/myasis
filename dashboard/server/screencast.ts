@@ -1,11 +1,8 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { upgradeOriginAllowed } from './http-guards.js';
 import { currentUser } from './auth.js';
-import { existsSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { readEnv, runner } from './runner.js';
 import { userDir } from './userdata.js';
-import { LIVE_VIEW_REQUEST_FILE, remotePreviewFile, readRemoteBrowserPreview } from '../../seek-bot/src/remote-browser-preview.js';
 import { readLiveWorkers, readLiveTarget, type LiveWorkerId } from '../../seek-bot/src/live-workers.js';
 
 
@@ -229,9 +226,6 @@ export function attachScreencast(server: { on: (ev: string, cb: (...a: any[]) =>
 interface WorkerStream {
   session: Session | null;
   current: CdpTarget | null;
-  remoteId: string | null;
-  remoteAt: number;
-  remoteUrl: string;
   state: string;
   activityKey: string;
 }
@@ -275,7 +269,7 @@ export function streamLiveWorkers(client: WebSocket, options: {
       await Promise.all(workers.map(async worker => {
         let stream = streams.get(worker.id);
         if (!stream) {
-          stream = { session: null, current: null, remoteId: null, remoteAt: 0, remoteUrl: '', state: '', activityKey: '' };
+          stream = { session: null, current: null, state: '', activityKey: '' };
           streams.set(worker.id, stream);
         }
         const emit = (message: Record<string, unknown>) => send({ ...message, workerId: worker.id });
@@ -295,32 +289,6 @@ export function streamLiveWorkers(client: WebSocket, options: {
         if (activity && activity.phase !== 'applying' && activity.phase !== 'reviewing') {
           await waiting(activity.phase); return;
         }
-        try {
-          writeFileSync(resolve(options.directory, LIVE_VIEW_REQUEST_FILE), JSON.stringify({ at: Date.now() }), { mode: 0o600 });
-        } catch { /* Preparing account directory: retry on the next tick. */ }
-        // A previous cloud session must not replace the shared review page.
-        const remote = activity?.phase === 'reviewing' ? null : readRemoteBrowserPreview(options.directory, Date.now(), worker.id);
-        if (remote) {
-          await stop(stream);
-          if (remote.sessionId !== stream.remoteId || remote.url !== stream.remoteUrl || stream.state !== 'remote') {
-            emit({ type: 'attached', target: { id: remote.sessionId, url: remote.url, title: 'Employer application' } });
-            emit({ type: 'ready' });
-            stream.remoteAt = 0;
-          }
-          stream.remoteId = remote.sessionId; stream.remoteUrl = remote.url; stream.state = 'remote';
-          if (remote.at !== stream.remoteAt) {
-            if (remote.data) emit({ type: 'frame', data: remote.data });
-            else emit({ type: 'waiting' });
-            stream.remoteAt = remote.at;
-            // The next valid picture must restore attachment after an empty frame.
-            if (!remote.data) stream.state = 'remote-waiting';
-          }
-          return;
-        }
-        if (activity?.phase !== 'reviewing' && existsSync(resolve(options.directory, remotePreviewFile(worker.id)))) {
-          await waiting('remote-unavailable'); return;
-        }
-        stream.remoteId = null; stream.remoteAt = 0; stream.remoteUrl = '';
         const pages = targets.filter(target => target.type === 'page'
           && !/^(devtools|chrome):/.test(target.url) && Boolean(target.webSocketDebuggerUrl));
         const active = named?.targetId ? pages.find(target => target.id === named.targetId)

@@ -25,9 +25,7 @@ export function configureLiveWorkers(directory: string, ids: LiveWorkerId[]): vo
 }
 export function resetLiveWorkers(directory: string): void {
   for (const id of ['main', 'seek', 'indeed'] as const) {
-    for (const file of [liveTargetFile(id), id === 'main' ? 'remote-browser-preview.json' : `remote-browser-preview-${id}.json`]) {
-      try { unlinkSync(resolve(directory, file)); } catch { /* No previous run. */ }
-    }
+    try { unlinkSync(resolve(directory, liveTargetFile(id))); } catch { /* No previous run. */ }
   }
   configureLiveWorkers(directory, ['main']);
 }

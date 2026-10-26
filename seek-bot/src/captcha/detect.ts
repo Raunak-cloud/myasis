@@ -143,13 +143,13 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
  * presence as a wall ended those applications before a field was filled, so
  * only a rendered, on-screen hCaptcha frame counts, the way an invisible
  * reCAPTCHA only counts once its image challenge opens. CapMonster offers no
- * hCaptcha task, so a puzzle that does open still ends with the person.
+ * hCaptcha task; a visible checkbox or puzzle is skipped immediately.
  *
  * Only documents outside hCaptcha are read: its own frames nest the checkbox
  * and puzzle inside a hidden outer frame, and only the outer one says whether
  * any of it is showing.
  */
-async function hcaptchaShowing(page: Page): Promise<boolean> {
+export async function hasHcaptchaChallenge(page: Page): Promise<boolean> {
   const hosts = page.frames().filter((frame) => !/hcaptcha\.com/i.test(frame.url()));
   for (const host of hosts) {
     const showing = await host
@@ -188,7 +188,7 @@ export async function hasCaptchaSurface(page: Page): Promise<boolean> {
     /(?:arkoselabs\.com|funcaptcha\.com|geetest\.com|captcha-delivery\.com|awswaf\.com|imperva\.com)/i.test(frame.url()))) {
     return true;
   }
-  if (await hcaptchaShowing(page)) return true;
+  if (await hasHcaptchaChallenge(page)) return true;
   return page
     .evaluate(() => {
       if (/captcha|additional verification required|verify (?:that )?you are human/i.test(document.title)) return true;

@@ -186,7 +186,7 @@ export async function signInAutomatically(
     // Reloaded before any challenge is solved: a token lives in the page, and reloading after the solve threw it away and paid for a second.
     await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
     const captcha = await handleCaptchaWithCapMonster(page);
-    if (captcha === 'blocked') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: 0 };
+    if (captcha === 'blocked' || captcha === 'hcaptcha') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: 0 };
     if (captcha === 'solved') await page.waitForTimeout(1_500).catch(() => {});
     return await drive(page, site, isSignedIn, log);
   } finally {
@@ -235,7 +235,7 @@ async function drive(
       await target.waitForTimeout(1_500).catch(() => {});
       continue;
     }
-    if (captcha === 'blocked') {
+    if (captcha === 'blocked' || captcha === 'hcaptcha') {
       return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
     }
     const observation = await observe(target, { screenshot: true });
@@ -276,7 +276,7 @@ async function drive(
             result = 'CapMonster cleared the security verification; the requested click was not executed.';
             break;
           }
-          if (captchaBeforeClick === 'blocked') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
+          if (captchaBeforeClick === 'blocked' || captchaBeforeClick === 'hcaptcha') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
           const widget = embedded.find(candidate => candidate.ref === String(args.ref));
           if (widget) {
             log(`  ↪ sign-in: click "${widget.text.slice(0, 60)}"`);
@@ -302,7 +302,7 @@ async function drive(
             result = 'CapMonster cleared the security verification; the requested click was not executed.';
             break;
           }
-          if (captchaBeforeClick === 'blocked') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
+          if (captchaBeforeClick === 'blocked' || captchaBeforeClick === 'hcaptcha') return { ok: false, reason: 'CapMonster could not clear the sign-in security verification.', steps: step };
           const x = Number(args.x);
           const y = Number(args.y);
           if (!(x >= 0 && x <= 1000 && y >= 0 && y <= 1000)) result = 'x and y must be on the 0-1000 grid.';

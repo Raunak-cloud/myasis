@@ -17,7 +17,7 @@ Object.assign(process.env, {
   HEADLESS: String(mode === 'headless'), BACKGROUND: 'true', BROWSER_CONNECT_CDP: 'false',
   BROWSER_PROXY_SERVER: '', RUN_VIDEO_DIR: '', CHROME_PROFILE_DIR: resolve(directory, 'a'),
   DATA_DIR: resolve(directory, 'data'), DRY_RUN: 'true', CAPTCHA_SOLVER: 'off',
-  CAPMONSTER_API_KEY: '', BRIGHTDATA_ENABLED: 'false', BRIGHTDATA_ADMIN_ONLY: 'false',
+  CAPMONSTER_API_KEY: '',
   CELERIS_API_KEY: 'offline-fixtures-only', SEARCH_LOCATION: 'Sydney NSW', SEARCH_RADIUS_KM: '25', MAX_AGE_DAYS: '14',
 });
 mkdirSync(process.env.DATA_DIR!, { recursive: true });

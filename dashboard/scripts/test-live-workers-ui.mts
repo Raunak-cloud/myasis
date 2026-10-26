@@ -1,17 +1,15 @@
 /** Real Chrome/CDP + real viewer, synthetic local pages only. No accounts or employers. */
 import assert from 'node:assert/strict';
 import { createServer as httpServer } from 'node:http';
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { WebSocketServer } from 'ws';
 import { streamLiveWorkers, type CdpTarget } from '../server/screencast.js';
 import { configureLiveWorkers, resetLiveWorkers, writeLiveTarget } from '../../seek-bot/src/live-workers.js';
-import { remotePreviewFile } from '../../seek-bot/src/remote-browser-preview.js';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 
 const directory = mkdtempSync(join(tmpdir(), 'live-workers-ui-'));
@@ -128,15 +126,11 @@ try {
   writeLiveTarget(directory, 'seek', { activity: { phase: 'waiting', detail: 'No matching SEEK job ready.' } });
   await seek.getByRole('heading', { name: 'Waiting', exact: true }).waitFor();
   assert.equal(await seek.getByRole('img').count(), 0, 'waiting must remove the previous form');
-  // A lingering cloud preview must not override the newly owned review page.
-  const oldCloudFile = join(directory, remotePreviewFile('indeed'));
-  writeFileSync(oldCloudFile, JSON.stringify({ sessionId: randomUUID(), provider: 'brightdata', at: Date.now(), url: 'https://cloud.fixture.invalid', data: (await pages[1].screenshot({ type: 'jpeg' })).toString('base64') }));
   writeLiveTarget(directory, 'indeed', { targetId: otherReviewId, activity: { phase: 'reviewing' } });
   await indeed.getByText('Reviewing jobs', { exact: true }).waitFor();
   await eventually(() => attachedTo('indeed') === otherReviewId);
   await indeed.getByText('Picture live', { exact: true }).waitFor();
   assert.equal(await seek.getByRole('img').count(), 0, 'released review page must not appear in the waiting worker');
-  unlinkSync(oldCloudFile);
   writeLiveTarget(directory, 'seek', { targetId: ids[0], activity: { phase: 'applying', detail: 'SEEK fixture application' } });
   writeLiveTarget(directory, 'indeed', { targetId: ids[1], activity: { phase: 'applying', detail: 'Indeed fixture application' } });
   await eventually(() => attachedTo('seek') === ids[0] && attachedTo('indeed') === ids[1]);
@@ -158,14 +152,6 @@ try {
   await indeed.getByText('Picture live', { exact: true }).waitFor();
   writeLiveTarget(directory, 'seek', { targetId: popupId, activity: { phase: 'applying' } });
   await seek.getByText('Picture live', { exact: true }).waitFor();
-  const remoteData = (await popup.screenshot({ type: 'jpeg', quality: 82 })).toString('base64');
-  const remoteFile = join(directory, remotePreviewFile('indeed'));
-  writeFileSync(remoteFile, JSON.stringify({ sessionId: randomUUID(), provider: 'brightdata', at: Date.now(), url: 'https://cloud.fixture.invalid', data: remoteData }));
-  await viewer.waitForFunction(`data => document.querySelector('[aria-label="Indeed / employer feeds worker"] img')?.getAttribute('src') === 'data:image/jpeg;base64,' + data`, remoteData);
-  await seek.getByText('Picture live', { exact: true }).waitFor();
-  unlinkSync(remoteFile);
-  await eventually(() => attachedTo('indeed') === ids[1]);
-  await indeed.getByText('Picture live', { exact: true }).waitFor();
   await contexts[0].close();
   await seek.getByRole('heading', { name: 'Waiting for an application page', exact: true }).waitFor();
   await indeed.getByText('Picture live', { exact: true }).waitFor();
@@ -176,7 +162,7 @@ try {
   assert.equal(attachedTo('indeed'), ids[1]);
   assert.deepEqual(errors, []);
   await viewerContext.close();
-  console.log('PASS: simultaneous independent review pictures and phases, waiting/cooldown clearing, application isolation, desktop/mobile layout, popups, cloud switching and cleanup; synthetic pages only');
+  console.log('PASS: simultaneous independent review pictures and phases, waiting/cooldown clearing, application isolation, desktop/mobile layout, native employer popups and cleanup; synthetic pages only');
 } finally {
   for (const client of wss.clients) client.terminate();
   await server.close();

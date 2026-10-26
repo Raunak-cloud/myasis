@@ -9,7 +9,7 @@ import type { CandidateProfile, FormField } from './types.js';
 import type { ToolContext } from './agent/tools.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-form-speed-'));
-Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_SPEED_PILOT: 'true', DRY_RUN: 'false', CAPTCHA_SOLVER: 'off', RESUME_ALLOW_UPLOAD: 'true', RESUME_SELECT: '', EMPLOYER_BROWSER_PROVIDER: 'local' });
+Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_SPEED_PILOT: 'true', DRY_RUN: 'false', CAPTCHA_SOLVER: 'off', RESUME_ALLOW_UPLOAD: 'true', RESUME_SELECT: '' });
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'fixture.txt'), 'Approved synthetic resume');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'fixture', label: 'Fixture CV', fileName: 'fixture.txt', isDefault: true }]));

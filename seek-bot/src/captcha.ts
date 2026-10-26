@@ -1,8 +1,7 @@
 import type { BrowserContext, Page } from 'patchright';
 import { capMonsterSolver } from './captcha/capmonster.js';
-import { detectChallenge, hasCaptchaSurface, type Solver } from './captcha/detect.js';
+import { detectChallenge, hasCaptchaSurface, hasHcaptchaChallenge, type Solver } from './captcha/detect.js';
 import { watchRecaptchaV3 } from './captcha/recaptcha-v3.js';
-import { applicationBrowserName, solveRemoteCaptcha } from './employer-browser.js';
 
 export { reportRejectedToken } from './captcha/capmonster.js';
 
@@ -17,9 +16,10 @@ const attempts = new WeakMap<Page, { instance: string; time: number }>();
 const chain = (): Solver[] =>
   (process.env.CAPTCHA_SOLVER ?? '').split(',').flatMap(name => SOLVERS[name.trim().toLowerCase()] ?? []);
 
-export const captchaEnabled = () => chain().length > 0 || process.env.BRIGHTDATA_BROWSER_ENABLED === 'true';
+export const captchaEnabled = () => chain().length > 0;
 
-type CaptchaHandling = 'none' | 'solved' | 'blocked';
+export const HCAPTCHA_SKIP_REASON = 'This application requires hCaptcha verification and was skipped.';
+type CaptchaHandling = 'none' | 'solved' | 'blocked' | 'hcaptcha';
 
 /**
  * The single CAPTCHA ownership boundary. Browser agents call this rather than
@@ -27,6 +27,7 @@ type CaptchaHandling = 'none' | 'solved' | 'blocked';
  * unknown or failed challenge is blocked from all AI interaction.
  */
 export async function handleCaptchaWithCapMonster(page: Page): Promise<CaptchaHandling> {
+  if (await hasHcaptchaChallenge(page)) return 'hcaptcha';
   if (!(await hasCaptchaSurface(page))) return 'none';
   if (!captchaEnabled()) return 'blocked';
   return (await trySolveCaptcha(page)) ? 'solved' : 'blocked';
@@ -42,7 +43,7 @@ export function watchCaptchas(context: BrowserContext): void {
 
 /** Returns true only when a solver applied a solution; callers must re-check the page. */
 export async function trySolveCaptcha(page: Page): Promise<boolean> {
-  if (applicationBrowserName(page) === 'brightdata') return solveRemoteCaptcha(page);
+  if (await hasHcaptchaChallenge(page)) return false;
   const solvers = chain();
   if (!solvers.length) return false;
   try {

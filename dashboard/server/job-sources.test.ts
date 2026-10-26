@@ -7,12 +7,6 @@ import { getPool } from './db/index.js';
 import { startRun } from './start-run.js';
 
 test('customer settings and every run trigger refuse SmartRecruiters before any database or browser action', async () => {
-  assert.equal(jobSourceSettingsError({ EMPLOYER_BROWSER_PROVIDER: 'brightdata' }, false)?.status, 403);
-  assert.equal(jobSourceSettingsError({ EMPLOYER_BROWSER_PROVIDER: 'unknown' }, true)?.status, 400);
-  assert.equal(jobSourceSettingsError({ EMPLOYER_BROWSER_PROVIDER: 'brightdata' }, true), null);
-  for (const secret of ['BRIGHTDATA_ADMIN_ENABLED', 'BRIGHTDATA_BROWSER_ENABLED', 'BRIGHTDATA_BROWSER_USERNAME', 'BRIGHTDATA_BROWSER_PASSWORD']) {
-    assert.ok(!(USER_SETTABLE_SETTINGS_KEYS as readonly string[]).includes(secret));
-  }
   assert.equal(jobSourceSettingsError({ PLATFORMS: 'indeed, SmartRecruiters' }, false)?.status, 403);
   assert.equal(jobSourceSettingsError({ SMARTRECRUITERS_COMPANIES: 'Canva' }, false)?.status, 403);
   assert.equal(jobSourceSettingsError({ PLATFORMS: 'smartrecruiters', SMARTRECRUITERS_COMPANIES: 'Canva' }, true), null);
@@ -43,8 +37,6 @@ test('old saved settings and server environment cannot enable the feed on custom
   applyJobSourceAccess(settings, false);
   assert.equal(settings.PLATFORMS, 'seek');
   assert.equal(settings.SMARTRECRUITERS_ADMIN_ENABLED, 'false');
-  assert.equal((settings as Record<string, string>).EMPLOYER_BROWSER_PROVIDER, undefined);
-  assert.equal((settings as Record<string, string>).BRIGHTDATA_ADMIN_ENABLED, undefined);
   for (const source of EMPLOYER_SOURCES) assert.equal((settings as Record<string, string>)[source.key], '');
   const only = { PLATFORMS: 'smartrecruiters' };
   applyJobSourceAccess(only, false);

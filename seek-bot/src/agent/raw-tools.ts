@@ -5,7 +5,6 @@ import type { FormField } from '../types.js';
 import type { ToolSchema } from './celeris.js';
 import { isForbiddenDestination, siteDomain } from './guards.js';
 import { abandoned } from '../tool-run.js';
-import { applicationUpload } from '../employer-browser.js';
 import { config } from '../config.js';
 import { inspectInteractionElement } from './interaction-inspection.js';
 import {
@@ -421,7 +420,7 @@ async function uploadFile(ctx: ToolContext, args: Record<string, unknown>): Prom
     sent = () => coverLetterSent(ctx, document);
   }
   try {
-    const upload = await applicationUpload(ctx.page, file);
+    const upload = file;
     if (facts.type === 'file') {
       await target.setInputFiles(upload, { timeout: 10_000 });
     } else {

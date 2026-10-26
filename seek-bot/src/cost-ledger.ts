@@ -86,23 +86,3 @@ export function recordCelerisCost(model: string, usage: unknown): void {
     detail: u ? `${u.prompt} input tokens (${u.cached} cached), ${u.completion} output tokens including reasoning; published USD rates 2026-10-14.`
       : 'Request usage unavailable; charge cannot be determined.' });
 }
-
-/** Use provider session bytes, never page sizes or account-wide balance deltas. */
-export async function recordBrightDataCost(sessionId?: string): Promise<void> {
-  if (process.env.COST_TRACKING !== 'true') return;
-  const rate = configuredRate('BRIGHTDATA_BROWSER_USD_PER_GB') ?? 8;
-  try {
-    if (!sessionId || !process.env.BRIGHTDATA_API_KEY) throw new Error('unavailable');
-    const response = await fetch(`https://api.brightdata.com/browser_sessions/${encodeURIComponent(sessionId)}`, {
-      headers: { Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}` }, signal: AbortSignal.timeout(5_000),
-    });
-    if (!response.ok) throw new Error('unavailable');
-    const { session } = await response.json() as { session?: { session_id?: string; bandwidth?: unknown; status?: string } };
-    if (session?.session_id !== sessionId || !finite(session.bandwidth) || !['finished', 'failed'].includes(session.status ?? '')) throw new Error('unavailable');
-    recordCost({ provider: 'Bright Data', amountUsd: session.bandwidth / 1_000_000_000 * rate, basis: 'estimated',
-      quantity: session.bandwidth, unit: 'bytes', detail: `Provider session bandwidth at US$${rate}/GB; before credits, tax and premium-domain adjustments.` });
-  } catch {
-    recordCost({ provider: 'Bright Data', amountUsd: null, basis: 'unknown',
-      detail: 'Final session bandwidth unavailable; requires BRIGHTDATA_API_KEY and provider session data. Browser connection may have incurred charges.' });
-  }
-}

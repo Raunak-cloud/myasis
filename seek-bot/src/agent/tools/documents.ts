@@ -11,7 +11,6 @@ import { locate } from '../raw-tools.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
 import { boardResumeInstead } from './resume-step.js';
 import { assertLive } from '../../tool-run.js';
-import { applicationUpload } from '../../employer-browser.js';
 
 // Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
 
@@ -94,7 +93,7 @@ async function addCoverLetterFile(ctx: ToolContext, action: Observation['actions
   if (!document) return ok(`This upload only accepts "${accept}", and the cover letter could not be produced in that format. Look for a text box or another option.`);
   try {
     assertLive();
-    const file = await applicationUpload(ctx.page, document.file);
+    const file = document.file;
     if (config.formSpeed) await uploadObservedFile(input, file);
     else await input.setInputFiles(file, { timeout: 10_000 });
   }
@@ -183,7 +182,7 @@ export async function doAttachResume(ctx: ToolContext, args: Record<string, unkn
   let retained = '';
   try {
     assertLive();
-    const file = await applicationUpload(ctx.page, document.file);
+    const file = document.file;
     if (config.formSpeed) retained = await uploadObservedFile(input, file);
     else await input.setInputFiles(file, { timeout: 10_000 });
   }

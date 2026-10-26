@@ -27,7 +27,7 @@ const costFixture = summariseApplicationCosts([
   {id:'old-1',runId:'old',at:'2026-10-18T00:00:00Z',kind:'usage',jobId:'tracked',provider:'Anthropic',model:'claude-haiku-5-5',amountUsd:0.0097},
   {id:'old-2',runId:'old',at:'2026-10-18T00:00:01Z',kind:'usage',provider:'Anthropic',model:'claude-haiku-5-5',amountUsd:null},
   {id:'current-1',runId:'current',at:'2026-10-21T00:00:00Z',kind:'usage',jobId:'tracked',provider:'Celeris',model:'celeris-1-magnus',amountUsd:0.1128,detail:'Usage includes cached input, reasoning and retries.'},
-  {id:'current-2',runId:'current',at:'2026-10-21T00:00:01Z',kind:'usage',jobId:'tracked',provider:'Bright Data',amountUsd:0.03,detail:'Provider session bandwidth estimate.'},
+  {id:'current-2',runId:'current',at:'2026-10-21T00:00:01Z',kind:'usage',jobId:'tracked',provider:'CapMonster',amountUsd:0.03,detail:'CAPTCHA task charge.'},
   {id:'current-3',runId:'current',at:'2026-10-21T00:00:02Z',kind:'usage',provider:'Infrastructure',amountUsd:null,detail:'Overhead not allocated.'},
   {id:'current-4',runId:'current',at:'2026-10-21T00:00:03Z',kind:'submitted',jobId:'tracked'},
   {id:'current-5',runId:'current',at:'2026-10-21T00:00:04Z',kind:'finished'},
@@ -102,7 +102,7 @@ try {
         const drawer=page.locator('.drawer');
         await drawer.getByRole('heading',{name:'Application cost (USD)'}).waitFor();
         assert.match(await drawer.innerText(), /Celeris.*celeris-1-magnus/s);
-        assert.match(await drawer.innerText(), /Bright Data/);
+        assert.match(await drawer.innerText(), /CapMonster/);
         assert.match(await drawer.innerText(), /Infrastructure.*Unavailable/s);
         assert.doesNotMatch(await drawer.innerText(), /haiku|anthropic|Run has not closed cleanly/i);
         assert.match(await drawer.innerText(), /Costs shown are from the submission run; earlier attempts are excluded/);

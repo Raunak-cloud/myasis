@@ -12,18 +12,9 @@ on every response, including unusable generations/retries, whether or not the
 caller supplies a budget meter. Cached input and output (including reasoning)
 use the published [Celeris rates](https://docs.celeris.ai/pricing).
 
-Bright Data uses final bandwidth from the provider's
-[session API](https://docs.brightdata.com/api-reference/browser-api/get-session),
-at the configured per-GB rate (default $8). This is an estimate before credits,
-taxes and premium-domain adjustments, not a reconciled invoice. Missing
-credentials, delayed session data and interrupted sessions remain unknown;
-page sizes and concurrent account-balance deltas are never substituted.
 CapMonster task charges use the response's cost when supplied. Fixed services use optional allocations configured in
 Admin > Config > Application cost accounting:
 
-- `BRIGHTDATA_API_KEY`: management key for session bandwidth, separate from
-  browser connection credentials.
-- `BRIGHTDATA_BROWSER_USD_PER_GB`: contracted rate; defaults to 8.
 - `APPLICATION_INFRA_USD_PER_WORKER_HOUR`: hosting, proxy, storage, email and
   other fixed service costs divided by expected monthly worker-hours. Exclude
   the separately metered providers.

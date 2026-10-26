@@ -33,24 +33,24 @@ function readAll(): Record<string, Wall> {
 const standing = (wall: Wall | undefined, now: number): wall is Wall =>
   Boolean(wall && now - Date.parse(wall.at) < WALL_STANDS_MS);
 
-const keyFor = (host: string, employer?: string, browser = 'local') =>
-  `${host.toLowerCase()}${employer?.trim() ? `|${employer.trim().toLowerCase()}` : browser === 'local' ? '' : `|browser:${browser}`}`;
+const keyFor = (host: string, employer?: string) =>
+  `${host.toLowerCase()}${employer?.trim() ? `|${employer.trim().toLowerCase()}` : ''}`;
 
 /** What stopped this site, or this employer on it, within the last day, if anything. */
-export function walledHost(host: string, employer?: string, browser = 'local'): Wall | null {
+export function walledHost(host: string, employer?: string): Wall | null {
   const all = readAll();
   const now = Date.now();
-  for (const key of [keyFor(host, undefined, browser), ...(employer?.trim() ? [keyFor(host, employer)] : [])]) {
+  for (const key of [keyFor(host), ...(employer?.trim() ? [keyFor(host, employer)] : [])]) {
     if (standing(all[key], now)) return all[key];
   }
   return null;
 }
 
 /** `employer` scopes the wall to one employer's account; without it the whole host is walled. */
-export function recordWall(host: string, reason: string, employer?: string, browser = 'local'): void {
+export function recordWall(host: string, reason: string, employer?: string): void {
   if (!host) return;
   const now = Date.now();
   const all = Object.fromEntries(Object.entries(readAll()).filter(([, wall]) => standing(wall, now)));
-  all[keyFor(host, employer, browser)] = { at: new Date(now).toISOString(), reason };
+  all[keyFor(host, employer)] = { at: new Date(now).toISOString(), reason };
   try { writeFileSync(FILE(), JSON.stringify(all, null, 2)); } catch { /* a wall not remembered costs one more attempt, never the run */ }
 }

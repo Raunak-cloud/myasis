@@ -6,8 +6,6 @@ import { chromium } from 'patchright';
 import type { JobListing } from '../types.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-agent-only-'));
-process.env.BRIGHTDATA_BROWSER_ENABLED = 'false';
-process.env.EMPLOYER_BROWSER_PROVIDER = 'local';
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_CORPUS_DIR: join(directory, 'form-corpus'),
   ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false' });
 process.env.APPLICATION_AI_MODEL = 'celeris';
