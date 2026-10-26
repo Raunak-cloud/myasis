@@ -57,7 +57,9 @@ try {
   script = [body => {
     const all = JSON.stringify(body);
     assert.match(all, /Rinu Fixture/); assert.match(all, /Weekends only/); assert.match(all, /pharmacy placement/);
-    assert.match(all, /read_application_history/); // unrelated history is available on demand, not duplicated in every prompt
+    assert.match(all, /MATCHING-STAGE DUPLICATE DECISION/);
+    assert.match(all, /read_application_attempts/);
+    assert.doesNotMatch(JSON.stringify(body.tools), /read_application_history/);
     return [
       { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Name' }, value: 'Rinu Fixture' } },
       { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Email' }, value: 'fixture@example.invalid' } },
@@ -305,7 +307,48 @@ try {
   const captcha=await runApplicationAgent({page,job:{...job,id:'native-hcaptcha'},profile,log:()=>{}});
   assert.equal(captcha.outcome.status,'skipped');assert.equal(turns.length,beforeCaptcha,'visible hCaptcha stops before a model call');
   assert.equal(await page.locator('iframe').count(),1);
-  console.log('PASS: native batched end-to-end submission, validation/context recovery, budget-boundary receipts without further actions or confirmation bypass, account allowance and immediate hCaptcha skip.');
+  await page.goto(url);
+  const beforeDuplicate = turns.length;
+  const originalHistory = readFileSync(join(directory, 'applied.json'), 'utf8');
+  writeFileSync(join(directory, 'applied.json'), JSON.stringify([{
+    jobId: job.id, title: job.title, company: job.company, location: job.location, platform: 'seek', url,
+    appliedAt: new Date().toISOString(), score: 85,
+  }]));
+  const duplicate = await runApplicationAgent({ page, job, profile, log: () => {} });
+  assert.equal(duplicate.outcome.status, 'already-applied');
+  assert.equal(duplicate.steps, 0);
+  assert.equal(duplicate.submitPressed, false);
+  assert.equal(turns.length, beforeDuplicate, 'a known duplicate never enters the applier model loop');
+  assert.equal(await page.inputValue('#name'), '', 'no form mutation for a known duplicate');
+  writeFileSync(join(directory, 'applied.json'), JSON.stringify([{
+    jobId: 'original-seek-posting', title: job.title, company: job.company, location: job.location,
+    platform: 'seek', url: 'https://www.seek.com.au/job/original-seek-posting', applicationUrl: url,
+    appliedAt: new Date().toISOString(), score: 85,
+  }]));
+  const crossBoardDuplicate = await runApplicationAgent({ page, job: { ...job, id: 'indeed-other-id', platform: 'indeed' }, profile, log: () => {} });
+  assert.equal(crossBoardDuplicate.outcome.status, 'already-applied');
+  assert.equal(crossBoardDuplicate.steps, 0);
+  assert.equal(turns.length, beforeDuplicate, 'the same external entry on another board is resolved by matching without a second agent review');
+  writeFileSync(join(directory, 'applied.json'), originalHistory);
+
+  script = [() => [{ name: 'finish', args: { status: 'already-applied', reason: 'Similar old title', evidence: 'Historical role' } }], body => {
+    assert.match(JSON.stringify(body.messages), /only for NEW employer-form evidence/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'End controlled test', evidence: 'No employer duplicate was observed' } }];
+  }];
+  const inventedDuplicate = await runApplicationAgent({ page, job: { ...job, id: 'invented-duplicate' }, profile, log: () => {} });
+  assert.equal(inventedDuplicate.outcome.status, 'skipped', 'the applier cannot invent a second duplicate decision from history');
+
+  await page.setContent('<main><h1>Application</h1><p>You already applied to this position on 25 October.</p></main>');
+  script = [() => [{ name: 'finish', args: {
+    status: 'already-applied', reason: 'The employer confirms a prior application',
+    evidence: 'You already applied to this position on 25 October.',
+    duplicate_evidence: { quote: 'You already applied to this position on 25 October.' },
+  } }]];
+  const formDuplicate = await runApplicationAgent({ page, job: { ...job, id: 'employer-revealed-duplicate' }, profile, log: () => {} });
+  assert.equal(formDuplicate.outcome.status, 'already-applied');
+  assert.equal(formDuplicate.submitPressed, false);
+  assert.equal(script.length, 0);
+  console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and hCaptcha skip.');
 } finally {
   await browser.close();
   rmSync(directory,{recursive:true,force:true});

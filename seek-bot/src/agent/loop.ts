@@ -15,6 +15,7 @@ export interface AgentRunResult {
   actions: ApplicationAction[];
   /** The employer site the attempt ended on, when it left the job board. */
   site?: string;
+  applicationUrl?: string;
   /** The application's own submit control was pressed during this attempt. */
   submitPressed: boolean;
   steps: number;

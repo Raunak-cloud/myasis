@@ -187,6 +187,8 @@ export type ApplyOutcome = (
    * automatically — a second copy to a real employer is worse than a miss.
    */
   submitPressed?: boolean;
+  /** Known entry address retained separately from the original board advert. */
+  applicationUrl?: string;
 };
 
 export interface AppliedRecord {
@@ -195,6 +197,7 @@ export interface AppliedRecord {
   company: string;
   location: string;
   url: string;
+  applicationUrl?: string;
   appliedAt: string;
   score: number;
   platform: PlatformId;

@@ -102,6 +102,7 @@ interface ApplicationRow {
   company: string;
   location?: string;
   url?: string;
+  applicationUrl?: string | null;
   platform?: string;
   score?: number;
   salary?: string | null;
@@ -130,8 +131,8 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
     `INSERT INTO applications (
        user_id, job_id, title, company, location, url, platform, score, salary,
        work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons,
-       outcome, applied_at, external, submitted_by_myasis, site, actions, resume_name
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+       outcome, applied_at, external, submitted_by_myasis, site, actions, resume_name, application_url
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      ON CONFLICT (user_id, platform, job_id) DO NOTHING
      RETURNING id`,
     [
@@ -142,6 +143,7 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
       a.outcome ?? null, a.appliedAt ?? new Date(), a.external === true,
       a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
       a.site ?? null, JSON.stringify(a.actions ?? []), a.resumeName ?? null,
+      a.applicationUrl ?? null,
     ],
   );
   return rows.length > 0;

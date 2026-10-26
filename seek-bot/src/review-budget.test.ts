@@ -478,7 +478,7 @@ test('parallel workers resume fallback discovery once and share its new listings
   assert.equal(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length, 1);
   assert.ok(result.history.some(record => record.jobId === 'fallback' && record.submittedByMyasis));
 });
-test('the coordinator defers shared-destination decisions to the agent and permits cross-platform applications', () => {
+test('the coordinator defers destinations unknown until form opening to the agent and permits distinct cross-platform applications', () => {
   const result = run([
     job('seek-one', { formUrl: 'https://employer.fixture.invalid/apply?job=1', delayMs: 80 }),
     job('indeed-one', { platform: 'indeed', formUrl: 'https://employer.fixture.invalid/apply?job=1', delayMs: 100 }),
@@ -586,4 +586,38 @@ test('parallel scheduled runs can exceed ten sends and share the remaining 100-a
   const third = run(batch('evening',5), {apply:true, workers:2, cap:100, dailyCap:100, reviews:70, history:second.history});
   assert.equal(third.events.filter(event => event.stage==='apply').length,0);
   assert.equal(third.history.filter(record => record.submittedByMyasis).length,100);
+});
+
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} matching serializes a known shared employer destination across boards`, () => {
+  const applicationUrl = 'https://employer.fixture.invalid/jobs/known-shared-posting';
+  const result = run([
+    job('seek-shared', { applicationUrl, delayMs: 100 }),
+    job('indeed-shared', { platform: 'indeed', applicationUrl, delayMs: 100 }),
+    job('fresh-next', { platform: 'indeed' }),
+  ], { apply: true, prepare, workers: 2, cap: 2, reviews: 5 });
+  const attempts = result.events.filter(event => event.stage === 'apply').map(event => event.id);
+  assert.equal(attempts.filter(id => id.endsWith('-shared')).length, 1);
+  assert.ok(attempts.includes('fresh-next'), 'a duplicate alias leaves application capacity for another new job');
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, prepare ? 0 : 2);
+});
+
+test('a failed attempt does not prevent a different board from applying through the same known destination', () => {
+  const applicationUrl = 'https://employer.fixture.invalid/jobs/retry-safe-posting';
+  const result = run([
+    job('seek-failed', { applicationUrl, delayMs: 30, preSendFailure: true }),
+    job('indeed-retry', { platform: 'indeed', applicationUrl, detailDelayMs: 100 }),
+  ], { apply: true, workers: 2, cap: 2, reviews: 5 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['seek-failed', 'indeed-retry']);
+  assert.equal(result.history.length, 1);
+  assert.equal(result.history[0].jobId, 'indeed-retry');
+});
+
+test('an unconfirmed send cannot be repeated through a known cross-board alias in the same run', () => {
+  const applicationUrl = 'https://employer.fixture.invalid/jobs/uncertain-posting';
+  const result = run([
+    job('seek-uncertain', { applicationUrl, delayMs: 30, uncertain: true }),
+    job('indeed-alias', { platform: 'indeed', applicationUrl, detailDelayMs: 100 }),
+  ], { apply: true, workers: 2, cap: 2, reviews: 5 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['seek-uncertain']);
+  assert.equal(result.history.length, 0, 'uncertain sends are not fabricated into confirmed applications');
 });

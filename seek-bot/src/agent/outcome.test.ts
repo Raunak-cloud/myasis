@@ -33,6 +33,7 @@ assert.ok(attention.status === 'needs-human' && attention.url === 'https://emplo
 assert.equal(outcomeFromRun(run({ status: 'needs-human', reason: 'No usable question', questions: [{ question: '  ' }, { question: 'Password' }] }, true), 'empty', '').status, 'skipped');
 assert.equal(outcomeFromRun(run({ status: 'needs-human', reason: 'No usable question' }, true), 'empty', '').submitPressed, true, 'uncertain sends keep their duplicate protection');
 
-const applied = outcomeFromRun({ ...run({ status: 'applied' }, true), site: 'careers.example.com', coverLetter: 'Dear team' }, 'job-3', '');
+const applied = outcomeFromRun({ ...run({ status: 'applied' }, true), site: 'careers.example.com', applicationUrl: 'https://careers.example.com/jobs/3', coverLetter: 'Dear team' }, 'job-3', '');
 assert.ok(applied.status === 'applied' && applied.site === 'careers.example.com' && applied.coverLetter === 'Dear team');
+assert.equal(applied.applicationUrl, 'https://careers.example.com/jobs/3');
 console.log('agent outcome mapping checks passed');

@@ -52,6 +52,7 @@ import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scop
 import { deterministicExclusion, meetsMinimumScore, scoreJob } from './scoring.js';
 import { SMARTRECRUITERS_PAGE_SIZE, SmartRecruitersDiscovery } from './smartrecruiters.js';
 import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
+import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications } from './application-review.js';
 import { applicationKeys } from './application-identity.js';
@@ -181,6 +182,7 @@ async function main() {
       company: job.company,
       location: job.location,
       url: job.url,
+      ...(job.applicationUrl ? { applicationUrl: job.applicationUrl } : {}),
       appliedAt: new Date().toISOString(),
       score: 0,
       platform: job.platform ?? 'seek',
@@ -235,8 +237,9 @@ async function main() {
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
     const skipExistingApplication = (job: JobListing): boolean => {
-      if (!job.alreadyApplied && !index.hasApplication(job)) return false;
-      const reason = job.appliedNote || 'An application to this role is already recorded.';
+      const review = reviewDuplicate(job, index.all);
+      if (review.decision !== 'duplicate') return false;
+      const reason = review.reason;
       if (job.alreadyApplied) rememberExistingApplication(job, reason);
       bump('already applied');
       console.log(`  – skipped (already applied): ${job.title} @ ${job.company}`);
@@ -615,6 +618,9 @@ async function main() {
      * rarely what ends a run (about 1.4 submissions per run over ten days).
      */
     const candidates: Array<{ job: JobListing; score: number; why: string; reasons: string[] }> = [];
+    const duplicateReviews = new DuplicateReviewQueue();
+    const preparedKeys = new Set<string>();
+    const uncertainKeys = new Set<string>();
     let busyWorkers = 0;
     let applied = 0;
     let prepared = 0;
@@ -671,6 +677,14 @@ async function main() {
           title: job.title,
           company: job.company,
         });
+        return;
+      }
+
+      if (fit?.duplicateReview?.decision === 'duplicate') {
+        restoreReviewSlot(job, false);
+        bump('already applied');
+        logOutcome({ status: 'already-applied', jobId: job.id, reason: fit.duplicateReview.reason,
+          title: job.title, company: job.company, url: job.url });
         return;
       }
 
@@ -1158,6 +1172,7 @@ async function main() {
           break;
         }
         busyWorkers++;
+        let releaseDuplicateReview: (() => void) | undefined;
 
         try {
           const { job, score, reasons } = next;
@@ -1171,7 +1186,20 @@ async function main() {
             continue;
           }
 
-          // Check this exact listing/form again: another attempt may have finished since discovery.
+          // The matching stage resolves known aliases before either board's
+          // applier starts. An unsuccessful earlier attempt leaves it eligible.
+          releaseDuplicateReview = await duplicateReviews.enter(job);
+          if (applicationKeys(job).some(key => uncertainKeys.has(key))) {
+            restoreReviewSlot(job, true);
+            logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, url: job.url,
+              reason: 'An earlier submission to this application destination is unconfirmed. Check its status before retrying.' });
+            continue;
+          }
+          if (applicationKeys(job).some(key => preparedKeys.has(key))) {
+            restoreReviewSlot(job, true);
+            bump('awaiting your confirmation');
+            continue;
+          }
           if (skipExistingApplication(job)) {
             restoreReviewSlot(job, true);
             continue;
@@ -1218,6 +1246,9 @@ async function main() {
             if (finalized) return;
             finalized = true;
             slot.finish(finalOutcome?.status === 'applied' || finalOutcome?.status === 'prepared');
+            if (finalOutcome?.status === 'prepared') for (const key of applicationKeys(job)) preparedKeys.add(key);
+            if (finalOutcome?.submitPressed && finalOutcome.status !== 'applied') for (const key of applicationKeys(job)) uncertainKeys.add(key);
+            releaseDuplicateReview?.();
             if (limitReached()) {
               applicationLimit.abort();
               workChanged();
@@ -1300,6 +1331,7 @@ async function main() {
                   location: job.location,
                   url: job.url,
                   appliedAt: outcome.at,
+                  ...(outcome.applicationUrl || job.applicationUrl ? { applicationUrl: outcome.applicationUrl ?? job.applicationUrl } : {}),
                   score,
                   platform: platformId,
                   salary: job.salary,
@@ -1331,7 +1363,7 @@ async function main() {
                 break;
               case 'already-applied':
                 restoreReviewSlot(job, true);
-                rememberExistingApplication(job, outcome.reason);
+                rememberExistingApplication({ ...job, applicationUrl: outcome.applicationUrl ?? job.applicationUrl }, outcome.reason);
                 console.log(`  ↩ already applied — ${outcome.reason}`);
                 break;
               case 'needs-human':
@@ -1369,6 +1401,7 @@ async function main() {
             finalize();
           }
         } finally {
+          releaseDuplicateReview?.();
           busyWorkers--;
           workChanged();
         }

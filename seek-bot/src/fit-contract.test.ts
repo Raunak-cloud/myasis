@@ -31,7 +31,9 @@ globalThis.fetch = async (_url, init) => {
     assert.match(body.messages[0].content, /FULL CANDIDATE PROFILE/);
     assert.match(body.messages[0].content, /CREDENTIAL_TAIL_FIXTURE/, 'the matcher reads the complete ordinary CV, including facts beyond the former short excerpt');
     assert.match(body.messages[0].content, /SAVED_CANDIDATE_FACT_FIXTURE/);
-    assert.match(body.messages[0].content, /RELEVANT APPLICATION HISTORY/);
+    assert.match(body.messages[0].content, /MATCHING-STAGE DUPLICATE DECISION/);
+    assert.match(body.messages[0].content, /"decision":"clear"/);
+    assert.match(body.messages[0].content, /UNCERTAIN ATTEMPTS FOR THIS POSTING/);
     assert.equal(schema.properties.instructionConflict, undefined, 'prose cannot encode a blocking decision');
     const correction = String(body.messages[0].content).includes('DECISION CONTRACT CORRECTION');
     if (correction) { corrections++; assert.equal(body.model, 'celeris-1-magnus'); }

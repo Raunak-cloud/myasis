@@ -712,6 +712,8 @@ CREATE INDEX IF NOT EXISTS admin_emails_user_idx ON admin_emails(user_id, sent_a
 -- The resume file an application went out with, as the board or employer
 -- received it. Owtomate's resume is the source of truth; this is the proof.
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS resume_name TEXT;
+-- Keep the exact employer entry address when the original advert was on a board.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS application_url TEXT;
 -- Website marketing workspaces. Each job and draft belongs to one signed-in account.
 CREATE TABLE IF NOT EXISTS marketing_sites (
   id UUID PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

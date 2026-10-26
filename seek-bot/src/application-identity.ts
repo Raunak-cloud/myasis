@@ -40,6 +40,9 @@ export function applicationKeys(job: Pick<JobListing, 'id' | 'platform' | 'url' 
 /** A matching role on a different platform/form is explicitly allowed. */
 export function sameApplication(record: AppliedRecord, job: JobListing): boolean {
   if (record.platform === (job.platform ?? 'seek') && record.jobId === job.id) return true;
-  const form = applicationFormKey(record, record.url);
-  return form !== null && applicationKeys(job).includes(form);
+  const known = applicationKeys(job);
+  return [record.url, record.applicationUrl].some(raw => {
+    const form = raw ? applicationFormKey(record, raw) : null;
+    return form !== null && known.includes(form);
+  });
 }

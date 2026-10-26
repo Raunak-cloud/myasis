@@ -22,6 +22,7 @@ export function outcomeFromRun(
   const extras = {
     ...(run.actions.length ? { actions: run.actions } : {}),
     ...(run.submitPressed ? { submitPressed: true } : {}),
+    ...(run.applicationUrl ? { applicationUrl: run.applicationUrl } : {}),
   };
   switch (run.outcome.status) {
     case 'prepared':

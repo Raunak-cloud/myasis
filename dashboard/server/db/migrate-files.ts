@@ -197,6 +197,7 @@ export async function migrateFilesToUser(email: string, name?: string) {
     const inserted = await insertApplicationRow(uid, {
       jobId: a.jobId, title: a.title, company: a.company, location: a.location ?? '',
       url: a.url ?? '', platform: a.platform ?? 'seek', score: a.score ?? 0,
+      applicationUrl: typeof a.applicationUrl === 'string' ? a.applicationUrl : null,
       salary: a.salary ?? null, workArrangement: a.workArrangement ?? null,
       ageDaysAtApply: a.ageDaysAtApply ?? null, coverLetter: a.coverLetter ?? null,
       answers: a.answers ?? [], scoreReasons: a.scoreReasons ?? [],

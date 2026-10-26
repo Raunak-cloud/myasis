@@ -139,7 +139,7 @@ function evidencePage(inventory: string, body: string, offset: number): string {
 
 /** Advisory history only. Reading does not acquire/release claims, reserve
  * application slots, modify the journal, or decide what the agent may do. */
-export function applicationHistory(query = '', offset = 0): string {
+export function applicationHistory(query = '', offset = 0, includeApplied = true): string {
   const terms = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   // Agents naturally combine an id, company and title. Comparing that whole
   // sentence to each individual field incorrectly returned an empty history.
@@ -150,7 +150,7 @@ export function applicationHistory(query = '', offset = 0): string {
     const text = ['id', 'jobId', 'job_id', 'title', 'company', 'url'].map(key => String(record[key] ?? '')).join(' ').toLowerCase();
     return ids.length ? ids.some(id => text.includes(id)) : words.every(word => text.includes(word));
   };
-  const applied = records('applied.json').map(record => Object.fromEntries(['id', 'jobId', 'title', 'company', 'platform', 'url', 'appliedAt', 'external', 'site', 'submittedByMyasis']
+  const applied = (includeApplied ? records('applied.json') : []).map(record => Object.fromEntries(['id', 'jobId', 'title', 'company', 'platform', 'url', 'appliedAt', 'external', 'site', 'submittedByMyasis']
     .filter(key => record[key] !== undefined).map(key => [key, record[key]])))
     .filter(matches).sort((a, b) => String(b.appliedAt ?? '').localeCompare(String(a.appliedAt ?? '')));
   let attempts: unknown[] = [];
@@ -159,12 +159,21 @@ export function applicationHistory(query = '', offset = 0): string {
     let db: DatabaseSync | undefined;
     try {
       db = new DatabaseSync(path, { readOnly: true });
-      attempts = db.prepare('SELECT job_id,platform,state,updated_at FROM attempts ORDER BY updated_at DESC').all().filter(matches);
+      attempts = db.prepare('SELECT job_id,platform,state,updated_at FROM attempts ORDER BY updated_at DESC').all()
+        .filter(record => includeApplied || !['applied', 'observed'].includes(String(record.state))).filter(matches);
     } catch { /* History remains advisory even for an old or unavailable journal. */ }
     finally { db?.close(); }
   }
-  const body = JSON.stringify({ applied, attempts, agentActivities: readAgentActivities().filter(record => matches(record as Record<string, unknown>)) }).replace(/</g, '\\u003c');
+  const body = JSON.stringify({ applied, attempts, agentActivities: readAgentActivities()
+    .filter(record => includeApplied || !['applied', 'already-applied'].includes(String((record as Record<string, unknown>).outcome)))
+    .filter(record => matches(record as Record<string, unknown>)) }).replace(/</g, '\\u003c');
   const start = Number.isFinite(offset) ? Math.min(body.length, Math.max(0, Math.floor(offset))) : 0;
   const end = Math.min(body.length, start + 23_000);
   return `ADVISORY ACCOUNT APPLICATION HISTORY. Historical reservation states may reflect an interrupted or rejected attempt and are not proof of receipt or a new submission prohibition. Agent activities include other workers: submitted=true records a marked send attempt, not confirmed receipt. Interpret finished/interrupted/uncertain results from their detail and actual page evidence. This read changes no records. Query a job id/title/company/URL for older matches. Follow NEXT_OFFSET with the same query for all records.\nOFFSET: ${start}; NEXT_OFFSET: ${end < body.length ? end : 'null'}\n${body.slice(start, end)}`;
+}
+
+/** The applier can recover an interrupted send without redoing the matcher's
+ * confirmed-duplicate review or interpreting unrelated application records. */
+export function applicationAttemptHistory(query = '', offset = 0): string {
+  return applicationHistory(query, offset, false);
 }

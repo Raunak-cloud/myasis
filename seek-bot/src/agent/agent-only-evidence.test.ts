@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { withApplicationModel } from '../application-model.js';
-import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationHistory } from './agent-only-evidence.js';
+import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationHistory, applicationAttemptHistory } from './agent-only-evidence.js';
 
 const directories: string[] = [];
 const originalFetch = globalThis.fetch;
@@ -153,6 +153,9 @@ test('application history reads confirmed and uncertain owner records without al
   assert.ok(text.includes('HISTORY old job') && text.includes('pending-job') && text.includes('uncertain'));
   assert.ok(!text.includes('UNNEEDED_PRIVATE_HISTORY_LETTER'));
   assert.match(text, /not proof of receipt or a new submission prohibition/);
+  const attempts = withApplicationModel(record.env, () => applicationAttemptHistory());
+  assert.match(attempts, /pending-job/);
+  assert.doesNotMatch(attempts, /HISTORY old job/, 'confirmed applications are reviewed by matching, not by the applier');
   assert.deepEqual(readFileSync(dbPath), before);
   const isolated = withApplicationModel(foreign.env, applicationHistory);
   assert.ok(!isolated.includes('pending-job'));

@@ -115,6 +115,7 @@ export async function runDirectExternalApplication(
       location: job.location,
       url: job.url,
       appliedAt: outcome.at,
+      ...(outcome.applicationUrl ? { applicationUrl: outcome.applicationUrl } : {}),
       score: 100,
       platform: 'external',
       coverLetter: outcome.coverLetter,

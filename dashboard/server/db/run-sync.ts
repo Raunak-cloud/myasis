@@ -64,6 +64,7 @@ export function profileToLegacyText(p: CandidateProfile): string {
 }
 
 interface ApplicationExportRow {
+  application_url: string | null;
   job_id: string;
   title: string;
   company: string;
@@ -111,7 +112,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
-            external, submitted_by_myasis, site, actions
+            external, submitted_by_myasis, site, actions, application_url
        FROM applications WHERE user_id = $1 ORDER BY applied_at`,
     [userId],
   );
@@ -121,6 +122,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     company: a.company,
     location: a.location,
     url: a.url,
+    ...(a.application_url ? { applicationUrl: a.application_url } : {}),
     appliedAt: new Date(a.applied_at).toISOString(),
     score: a.score,
     platform: a.platform,
@@ -247,6 +249,7 @@ export async function syncRunResultsToDb(
           company: a.company,
           location: a.location ?? '',
           url: a.url ?? '',
+          applicationUrl: typeof a.applicationUrl === 'string' ? a.applicationUrl : null,
           platform: a.platform ?? 'seek',
           score: a.score ?? 0,
           salary: a.salary ?? null,
