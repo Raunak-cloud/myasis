@@ -36,5 +36,8 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     await page.locator('#delayed').click();
     await waitAfterAction(page, { wait: { selector: '#ready', state: 'visible', timeout_ms: 1000 } });
     assert.equal(await page.locator('#ready').isVisible(), true);
+    await page.setContent('<label>Password<input type=password value="private-fixture"></label>');
+    const privateInput = await nativeReadback(page.getByLabel('Password')) as { private: boolean };
+    assert.equal(privateInput.private, true); assert.equal(JSON.stringify(privateInput).includes('private-fixture'), false);
   } finally { await browser.close(); }
 });

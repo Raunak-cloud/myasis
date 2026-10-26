@@ -101,6 +101,7 @@ try {
   assert.equal(turns.length-beforeBatch,2,'five native commands and receipt inspection need only two scripted model turns');
   assert.equal(await page.evaluate('window.presses',undefined,undefined,false),1);
   assert.equal(batched.coverLetter,letter);
+  assert.ok(batched.captured.some(answer=>answer.question.includes('Referral source') && answer.answer==='Company website'),'save the observed selected option for application history');
   const experience = readFileSync(join(directory,'site-hints.json'),'utf8');
   assert.match(experience,/fill/); assert.doesNotMatch(experience,/Rinu Fixture|fixture@example.invalid|Dear team/,'reusable approaches contain no candidate answers');
 
@@ -117,6 +118,14 @@ try {
   assert.equal(await page.frameLocator('#login').getByLabel('Email').inputValue(),'fixture@example.invalid');
   assert.equal(readFileSync(join(directory,'traces','native-private-auth.json'),'utf8').includes(privatePassword),false);
   delete process.env.SITE_AUTH_SECRET;
+
+  await page.setContent('<label>Password<input id=password type=password></label>');
+  script=[()=>[{name:'browser_action',args:{action:'fill',selector:'#password',value:'private-native-fixture'}}],body=>{
+    assert.equal(JSON.stringify(body.messages.filter(message=>message.role==='tool')).includes('private-native-fixture'),false,'private readback never exposes the requested credential');
+    return [{name:'finish',args:{status:'skipped',reason:'Offline native privacy check',evidence:'Native input filled without saving a reusable password answer'}}];
+  }];
+  const privateNative=await runApplicationAgent({page,job:{...job,id:'native-private-write'},profile,log:()=>{}});
+  assert.equal(privateNative.captured.length,0,'private fields cannot become reusable candidate answers');
 
   await page.goto(url);
   await page.setContent(`<label>Name<input id=name></label><button id=stop type=button onclick="window.wrong=true">Next</button>`);

@@ -451,12 +451,14 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         else if (args.action === 'check') await element.setChecked(value !== 'false', { timeout: 8000 });
         else await element.selectOption({ label: value }, { timeout: 4000 }).catch(() => element.selectOption(value, { timeout: 4000 }));
         await waitAfterAction(ctx.page, args);
-        const readback = await nativeReadback(target(ctx, args));
-        if (args.action === 'fill' && actionLabel) {
-          ctx.captured = [...ctx.captured.filter(answer => answer.question !== actionLabel), { question: actionLabel, answer: value }];
-          if (isCoverLetterField(actionLabel)) ctx.coverLetter = value;
+        const readback = await nativeReadback(target(ctx, args)) as { private: boolean; value?: string; checked?: boolean; selected?: Array<{ label: string }> };
+        const saved = args.action === 'check' ? String(readback.checked)
+          : args.action === 'select' ? readback.selected?.map(option => option.label).join(', ') : readback.value;
+        if (!readback.private && typeof saved === 'string' && actionLabel) {
+          ctx.captured = [...ctx.captured.filter(answer => answer.question !== actionLabel), { question: actionLabel, answer: saved }];
+          if (isCoverLetterField(actionLabel)) ctx.coverLetter = saved;
         }
-        return ok(JSON.stringify({ action: args.action, requested: value, current: readback, note: 'Current browser readback; inspect validation and selection before advancing. This is not server receipt.' }));
+        return ok(JSON.stringify({ action: args.action, requested: readback.private ? '[private credential]' : value, current: readback, note: 'Current browser readback; inspect validation and selection before advancing. This is not server receipt.' }));
       }
       default: throw new Error('Unknown browser action.');
     }

@@ -29,6 +29,7 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
         ? (node.getRootNode() as ShadowRoot).getElementById(id)?.textContent : node.ownerDocument.getElementById(id)?.textContent).filter(Boolean);
     return {
       tag: node.tagName.toLowerCase(), type, name: input.name || null,
+      private: privateValue,
       label: [...(input.labels || [])].map(label => label.textContent).join(' ') || node.getAttribute('aria-label') || null,
       value: privateValue ? '[private credential]' : element.isContentEditable ? element.innerText : input.value ?? element.innerText,
       checked: typeof input.checked === 'boolean' ? input.checked : node.getAttribute('aria-checked'),
