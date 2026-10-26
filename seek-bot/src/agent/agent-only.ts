@@ -542,8 +542,13 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       for (const call of reply.toolCalls) {
         let result: ToolResult;
         const tool = agentOnlyTools.find(item => item.name === call.name);
-        if (interrupted || remainingMs() <= 0 || meter.exhausted || planActions >= 16) {
+        // Usage is charged when the reply arrives. Its final judgement can
+        // record an observed receipt even if that reply crossed the budget;
+        // it needs no further model call or browser mutation. Never accept a
+        // later judgement from a plan whose preceding action did not run.
+        if (interrupted || remainingMs() <= 0 || planActions >= 16 || (meter.exhausted && call.name !== 'finish')) {
           result = ok(interruptionNote);
+          interrupted = true;
         } else {
           planActions++;
           try {

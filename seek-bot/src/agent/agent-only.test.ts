@@ -7,7 +7,7 @@ import type { JobListing } from '../types.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-agent-only-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_CORPUS_DIR: join(directory, 'form-corpus'),
-  ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false' });
+  ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false', AGENT_BUDGET_USD: '0.10' });
 process.env.APPLICATION_AI_MODEL = 'celeris';
 writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Availability', answer: 'Weekends only' }]));
 mkdirSync(join(directory, 'resumes'));
@@ -19,15 +19,18 @@ type Call = { name: string; args: Record<string, unknown> };
 type Body = { messages: Array<{ role: string; content: unknown }>; tools?: unknown[]; output_config?: { effort?: string }; chat_template_kwargs?: { reasoning_effort?: string } };
 let script: Array<(body: Body) => Call[]> = [];
 const turns: Body[] = [];
+let completionTokens = 10;
 const observation = (body: Body) => JSON.stringify(body.messages.filter(message => message.role === 'user').at(-1)?.content);
-const reply = (calls: Call[]) => Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: 10 } });
+const reply = (calls: Call[]) => Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: completionTokens } });
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body)) as Body;
   assert.ok(body.tools?.length, 'no independent checker, answerer, receipt verifier or script reviewer may be called');
   turns.push(body);
   const next = script.shift();
   assert.ok(next, 'the parent makes only the scripted number of requests');
-  return reply(next(body));
+  const response = reply(next(body));
+  completionTokens = 10;
+  return response;
 }) as typeof fetch;
 const { runApplicationAgent } = await import('./loop.js');
 const { withApplicationAllowance } = await import('../application-allowance.js');
@@ -167,6 +170,60 @@ try {
   assert.equal(await page.inputValue('#name'),'Recovered in same live page');
   assert.equal(await page.locator('#stage').innerText(),'Assessment question 8 of 8');
 
+  // The provider charges the final response before its tool calls dispatch.
+  // A receipt already observed by Magnus must survive that budget boundary.
+  await page.goto(url);
+  await page.setContent(`<button id=send onclick="document.querySelector('main').textContent='Application received: BUDGET123'">Submit</button><main></main><input id=after>`);
+  const beforeBudget = turns.length;
+  script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }], body => {
+    assert.match(observation(body), /Application received: BUDGET123/);
+    completionTokens = 1_000_000;
+    return [
+      { name: 'finish', args: { status: 'applied', reason: 'Employer accepted the application', evidence: 'Application received: BUDGET123' } },
+      { name: 'browser_action', args: { action: 'fill', selector: '#after', value: 'Must not run after finish' } },
+    ];
+  }];
+  const budgetReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-budget-receipt' }, profile, log: () => {} });
+  assert.equal(budgetReceipt.outcome.status, 'applied');
+  assert.equal(budgetReceipt.submitPressed, true);
+  assert.equal(turns.length - beforeBudget, 2, 'no additional model call after the budget is exhausted');
+  assert.equal(await page.inputValue('#after'), '');
+  assert.match(readFileSync(join(directory, 'traces', 'native-budget-receipt.json'), 'utf8'), /BUDGET123/);
+
+  const finishApplied: Call = { name: 'finish', args: { status: 'applied', reason: 'Planned receipt', evidence: 'This claim must not bypass an unexecuted action' } };
+  for (const [id, calls] of [
+    ['mutation', [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }, finishApplied]],
+    ['progress-write', [{ name: 'save_progress', args: { note: 'Must not be saved', cover_letter: 'Must not be recorded' } }, finishApplied]],
+    ['invalid-finish', [{ name: 'finish', args: { status: 'applied' } }, finishApplied]],
+  ] as Array<[string, Call[]]>) {
+    await page.goto(url);
+    await page.setContent(`<button id=send onclick="document.querySelector('main').textContent='Wrong receipt'">Submit</button><main>Not submitted</main>`);
+    const before: number = turns.length;
+    script = [() => { completionTokens = 1_000_000; return calls; }];
+    const blocked = await runApplicationAgent({ page, job: { ...job, id: `native-budget-${id}` }, profile, log: () => {} });
+    assert.deepEqual(blocked.outcome, { status: 'skipped', reason: 'The application spending budget was reached.' });
+    assert.equal(blocked.submitPressed, false);
+    assert.equal(blocked.coverLetter, undefined);
+    assert.equal(await page.locator('main').innerText(), 'Not submitted');
+    assert.equal(turns.length - before, 1, 'no generation or remaining plan actions after budget exhaustion');
+  }
+
+  process.env.APPLICATION_REVIEW_MODE = 'prepare';
+  try {
+    script = [() => { completionTokens = 1_000_000; return [finishApplied]; }];
+    const unconfirmed = await runApplicationAgent({ page, job: { ...job, id: 'native-budget-semi-confirmation' }, profile, log: () => {} });
+    assert.equal(unconfirmed.outcome.status, 'skipped', 'budget finalization still enforces Semi auto confirmation');
+    assert.match(readFileSync(join(directory, 'traces', 'native-budget-semi-confirmation.json'), 'utf8'), /No application has been submitted/);
+  } finally { delete process.env.APPLICATION_REVIEW_MODE; }
+
+  script = [() => { completionTokens = 1_000_000; return [{ name: 'finish', args: {
+    status: 'needs-human', reason: 'A required candidate fact is missing', evidence: 'Required availability question',
+    questions: [{ question: 'Earliest start date', prompt: 'When can you start?', kind: 'text' }],
+  } }]; }];
+  const budgetQuestion = await runApplicationAgent({ page, job: { ...job, id: 'native-budget-question' }, profile, log: () => {} });
+  assert.equal(budgetQuestion.outcome.status, 'needs-human', 'retain valid unanswered questions at the boundary too');
+  if (budgetQuestion.outcome.status === 'needs-human') assert.equal(budgetQuestion.outcome.questions?.[0].question, 'Earliest start date');
+
   await page.goto(url);
   script=[()=>[{name:'browser_action',args:{action:'fill',selector:'#name',value:'Must not happen'}}]];
   const quota=await withApplicationAllowance(()=>false,()=>runApplicationAgent({page,job:{...job,id:'native-quota'},profile,log:()=>{}}));
@@ -178,7 +235,7 @@ try {
   const captcha=await runApplicationAgent({page,job:{...job,id:'native-hcaptcha'},profile,log:()=>{}});
   assert.equal(captcha.outcome.status,'skipped');assert.equal(turns.length,beforeCaptcha,'visible hCaptcha stops before a model call');
   assert.equal(await page.locator('iframe').count(),1);
-  console.log('PASS: native batched end-to-end submission, real validation recovery, context retry without browser reset, account allowance and immediate hCaptcha skip.');
+  console.log('PASS: native batched end-to-end submission, validation/context recovery, budget-boundary receipts without further actions or confirmation bypass, account allowance and immediate hCaptcha skip.');
 } finally {
   await browser.close();
   rmSync(directory,{recursive:true,force:true});
