@@ -16,7 +16,7 @@ const profile = { name: 'Alex Fixture', email: 'alex@example.test', phone: '', s
   nationality: '', expectedSalary: '', noticePeriod: '', willingToRelocate: false,
   experienceSummary: 'Fictional retail service experience.', skills: [], excludedDomains: [], securityClearance: '' };
 
-test('SEEK and Indeed hand listing problems to the same applying agent before legacy prechecks', async () => {
+test('matching resolves known duplicates before the applier; other listing problems use the same native agent', async () => {
   const browser = await chromium.launch({ headless: true,
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   const context = await browser.newContext({ serviceWorkers: 'block' });
@@ -46,9 +46,18 @@ test('SEEK and Indeed hand listing problems to the same applying agent before le
           url: `https://${platform}.fixture.invalid/listing`, platform, applicationMode: 'unknown', alreadyApplied: true }, profile, {
           onFriction: () => { throw new Error('A legacy wall classifier must not run before agent handoff.'); },
         });
-        assert.equal(outcome.status, 'rehearsed', 'Dry run remains authoritative even when the model reports a terminal judgement.');
+        assert.equal(outcome.status, 'already-applied', 'A known duplicate is resolved by matching without filling a rehearsal form.');
       }
-      assert.equal(modelCalls, 2, 'One applying agent per listing; no page judge, receipt verifier or duplicate classifier.');
+      assert.equal(modelCalls, 0, 'Neither board spends a model call on a known duplicate.');
+
+      for (const [platform, apply] of [['seek', applyToJobWithAgent], ['indeed', applyToIndeedJob]] as const) {
+        const outcome = await apply(page, { id: `unreviewed-${platform}`, title: 'Fictional vacancy', company: 'Fixture employer', location: '',
+          url: `https://${platform}.fixture.invalid/listing`, platform, applicationMode: 'unknown' }, profile, {
+          onFriction: () => { throw new Error('A legacy wall classifier must not run before agent handoff.'); },
+        });
+        assert.equal(outcome.status, 'rehearsed', 'Unknown form evidence still belongs to the applier, with dry-run submission withheld.');
+      }
+      assert.equal(modelCalls, 2, 'Only uncleared page evidence reaches the applying agent; no independent page judge or receipt verifier.');
 
       config.allowExternalApply = false;
       html = '<main><h1>Fictional vacancy</h1><a data-automation="job-detail-apply" href="https://employer.fixture.invalid/apply">Apply</a><a href="https://employer.fixture.invalid/apply">Apply on company site</a></main>';
