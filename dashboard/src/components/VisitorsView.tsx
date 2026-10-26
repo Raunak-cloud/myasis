@@ -117,6 +117,15 @@ const PAGES: Record<string, string> = {
   admin: 'Admin',
 };
 const pageLabel = (page: string) => PAGES[page] ?? page;
+function pageJourney(pages: string[]): string {
+  const groups: Array<{ page: string; count: number }> = [];
+  for (const page of pages) {
+    const previous = groups.at(-1);
+    if (previous?.page === page) previous.count++;
+    else groups.push({ page, count: 1 });
+  }
+  return groups.map(({ page, count }) => `${pageLabel(page)}${count > 1 ? ` ×${count}` : ''}`).join(' → ');
+}
 const place = (row: {
   city: string | null;
   region: string | null;
@@ -409,7 +418,7 @@ export function VisitorsView() {
                     <th>Started</th>
                     <th>Visitor</th>
                     <th>Location</th>
-                    <th>Pages / details</th>
+                    <th>Page views / details</th>
                     <th>Visible time</th>
                   </tr>
                 </thead>
@@ -427,10 +436,10 @@ export function VisitorsView() {
                       <td>
                         <details>
                           <summary>
-                            {visit.views} {visit.views === 1 ? 'page' : 'pages'}{' '}
+                            {visit.views} {visit.views === 1 ? 'page view' : 'page views'}{' '}
                             · {pageLabel(visit.pages.at(-1) ?? 'Unknown')}
                           </summary>
-                          <p>{visit.pages.map(pageLabel).join(' → ')}</p>
+                          <p>{pageJourney(visit.pages)}</p>
                           <p className="job-meta">
                             {[
                               visit.browser,

@@ -361,6 +361,23 @@ try {
     0,
     'advanced details stay collapsed',
   );
+  for (const fixture of [
+    { pages: Array(14).fill('landing'), summary: '14 page views · Home', journey: 'Home ×14' },
+    { pages: ['landing', 'landing', 'pricing', 'landing', 'landing', 'landing'], summary: '6 page views · Home', journey: 'Home ×2 → Pricing → Home ×3' },
+    { pages: ['landing'], summary: '1 page view · Home', journey: 'Home' },
+  ]) {
+    visit.pages = fixture.pages;
+    visit.views = fixture.pages.length;
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    const summary = page.locator('summary').filter({ hasText: fixture.summary });
+    await summary.waitFor();
+    await summary.click();
+    await page.getByText(fixture.journey, { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Home → Home/).count(), 0, 'consecutive repeats are compact without losing return visits');
+    await summary.click();
+  }
+  visit.pages = ['landing', 'run'];
+  visit.views = 2;
   await page.getByRole('button', { name: 'Today', exact: true }).click();
   await page.getByRole('button', { name: '30 days', exact: true }).click();
   await page.getByText('33', { exact: true }).waitFor();
@@ -433,7 +450,7 @@ try {
   assert.deepEqual(errors, []);
   await context.close();
   console.log(
-    'PASS Visitors UI: live polling, outage/recovery, default all countries, no admin toggle, honest unknown time/location, collapsed details, stale filters and mobile layout; fixture APIs only',
+    'PASS Visitors UI: grouped repeated page views, preserved navigation order, singular labels, live polling, outage/recovery, collapsed details, stale filters and mobile layout; fixture APIs only',
   );
 } finally {
   await browser.close();
