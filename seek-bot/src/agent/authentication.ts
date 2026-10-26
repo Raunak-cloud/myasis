@@ -1,18 +1,29 @@
-import type { Page } from 'patchright';
-import { fillField } from '../../dom.js';
-import type { Observation } from '../observe.js';
-import { isForbiddenDestination } from '../guards.js';
-import { gmailAvailable, findVerificationInGmail } from '../../gmail-mailbox.js';
-import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../../site-auth.js';
-import { storedCredential } from '../../site-credentials.js';
+import type { Locator, Page } from 'patchright';
+import { browserTarget } from './browser-target.js';
+import type { Observation } from './observe.js';
+import { isForbiddenDestination } from './browser-boundaries.js';
+import { gmailAvailable, findVerificationInGmail } from '../gmail-mailbox.js';
+import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../site-auth.js';
+import { storedCredential } from '../site-credentials.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
-import { assertLive } from '../../tool-run.js';
+import { assertLive } from '../tool-run.js';
 
-// Part of the agent's tools, split from tools.ts by concern; tools.ts re-exports it.
+// Private credential transport. Magnus chooses controls; native fill emits normal input events.
 
 export async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));
+  const selected = new Map<string, Locator>();
+  if (Array.isArray(args.targets)) for (const [index, spec] of (args.targets as Record<string, unknown>[]).entries()) {
+    const input = browserTarget(ctx.page, spec);
+    const facts = await input.evaluate(node => {
+      const element = node as HTMLInputElement;
+      return { label: [...(element.labels || [])].map(label => label.textContent).join(' ') || node.getAttribute('aria-label') || element.name || '', inputType: element.type, sensitive: element.type === 'password' };
+    });
+    const ref = `private-native-${index}`;
+    fields.push({ ...facts, ref, kind: 'text', required: true });
+    selected.set(ref, input);
+  }
   if (!fields.length) {
     return ok('None of those refs are authentication fields on this page. Choose refs from the current FIELDS list.');
   }
@@ -39,7 +50,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   const unsupported = values.filter((entry) => entry.value === null);
   const missingCredential = unsupported.some((entry) => entry.field.sensitive);
   if (missingCredential) {
-    return ok('The private site credential is unavailable. Finish with "cannot_complete" so this job is skipped.');
+    return ok('The private site credential is unavailable. Finish with "skipped" so this job is skipped.');
   }
 
   const filled: string[] = [];
@@ -47,15 +58,13 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   for (const { field, value } of values) {
     if (value === null) continue;
     try {
-      await fillField(ctx.page, field, value);
-      ctx.guards.recordFillSuccess(field.label);
+      await (selected.get(field.ref) ?? browserTarget(ctx.page, { ref: field.ref })).fill(value, { timeout: 8000 });
       filled.push(field.label);
     } catch (error) {
       failed.push(`${field.label}: ${(error as Error).message}`);
     }
   }
 
-  if (filled.length) ctx.guards.recordProgress();
   /**
    * The candidate now has, or has used, an account they may never have heard
    * of. The purpose is the agent's own reading of the page; the password is
@@ -79,18 +88,19 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   return ok(
     `${filled.length} authentication field(s) completed${filled.length ? `: ${filled.join('; ')}` : ''}.` +
       (unsupported.length
-        ? ` Use answer_questions for the remaining profile field(s): ${unsupported.map((entry) => `${entry.field.ref} (${entry.field.label})`).join(', ')}.`
+        ? ` Use native browser actions for the remaining profile field(s): ${unsupported.map((entry) => `${entry.field.ref} (${entry.field.label})`).join(', ')}.`
         : '') +
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
       ' Continue with the sign-in or account-creation control.' +
       (setsPassword ? ' If the site then rejects the password for its rules, call complete_authentication again with password_rules taken from that message.' : ''),
+    failed.length || unsupported.length ? 'failed' : 'completed',
   );
 }
 
-export async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string): Promise<boolean> {
+export async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string, targets?: Locator[]): Promise<boolean> {
   if (!fields.length || new Set(fields.map(f => f.ref)).size !== fields.length) return false;
   if (fields.length > 1 && fields.length !== code.length) return false;
-  const inputs = fields.map(field => page.locator(`[data-field-id="${field.ref}"]`));
+  const inputs = targets ?? fields.map(field => browserTarget(page, { ref: field.ref }));
   const values = fields.length === 1 ? [code] : [...code];
   // Validate the model's complete selection before typing any private code.
   for (let i = 0; i < inputs.length; i++) {
@@ -110,11 +120,13 @@ const cannotReadMailbox = (error: string) => /reconnect|authorization|MCP could 
 
 export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!gmailAvailable()) {
-    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "cannot_complete".');
+    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "skipped".');
   }
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [String(args.ref ?? '')];
-  const fields = refs.map(ref => ctx.observation.fields.find(candidate => candidate.ref === ref));
-  if (!fields.length || fields.some(field => !field) || new Set(refs).size !== refs.length) return ok('Choose current code FIELD refs: ref for one input, or refs for all separate digit boxes in order.');
+  let fields = refs.map(ref => ctx.observation.fields.find(candidate => candidate.ref === ref));
+  const targets = Array.isArray(args.targets) ? (args.targets as Record<string, unknown>[]).map(spec => browserTarget(ctx.page, spec)) : undefined;
+  if (targets) fields = targets.map((_, index) => ({ ref: `private-code-${index}`, label: 'Verification code', kind: 'text', required: true }));
+  if (!fields.length || fields.some(field => !field) || !targets && new Set(refs).size !== refs.length) return ok('Choose current code inputs using targets, or current FIELD refs in digit order.');
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
   ctx.log('  ✉ waiting for the emailed verification code');
 
@@ -128,15 +140,14 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
      * another ninety seconds finding out the same thing.
      */
     if (cannotReadMailbox(found.error)) return ok(`${found.error} Reconnect Gmail from the dashboard before retrying this application; resending the code will not reconnect the mailbox.`);
-    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".`);
+    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
   }
 
   try {
-    if (!await fillEmailedCode(ctx.page, fields as Observation['fields'], found.value)) return ok('Code entry needs a different field selection. For separate digit boxes, select ALL current code FIELD refs in order using refs. Re-observe before retrying.');
+    if (!await fillEmailedCode(ctx.page, fields as Observation['fields'], found.value, targets)) return ok('Code entry needs a different input selection. Select all current digit boxes in order; inspect the current page before retrying.');
   } catch {
     return ok('The code inputs changed or could not be filled. Inspect the fresh page: it may have advanced automatically; otherwise select the current code fields and retry.');
   }
-  ctx.guards.recordProgress();
   ctx.log(`  ✉ entered the code from "${found.subject.slice(0, 60)}"`);
   {
     const site = hostOf(ctx.page.url());
@@ -154,7 +165,7 @@ export const EMAIL_WAIT_MS = 120_000;
 
 export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!gmailAvailable()) {
-    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "cannot_complete".');
+    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "skipped".');
   }
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
   ctx.log('  ✉ waiting for the emailed verification link');
@@ -162,14 +173,14 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
     if (cannotReadMailbox(found.error)) return ok(`${found.error} Reconnect Gmail from the dashboard before retrying this application; resending the link will not reconnect the mailbox.`);
-    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "cannot_complete".`);
+    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
   }
   if (found.kind !== 'link') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a code, not a link. Call enter_emailed_code with the code field(s) instead.`);
   if (isForbiddenDestination(found.value)) return ok('The emailed link points somewhere this agent never navigates. Try another authentication option.');
   // A new tab keeps the form behind it intact; the loop follows the new tab.
   const tab = await ctx.page.context().newPage();
   await tab.goto(found.value, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
-  ctx.guards.recordProgress();
+  ctx.page = tab;
   const site = hostOf(found.value);
   noteAction(ctx, { kind: 'email-code', site, detail: `Opened the verification link ${siteName(site)} emailed you ("${found.subject.slice(0, 60)}").` });
   ctx.log(`  ✉ opened the emailed link from "${found.subject.slice(0, 60)}"`);

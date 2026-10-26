@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 import type { ApplicationAction, CandidateProfile, JobListing } from '../types.js';
-import type { AgentTermination } from './tools/context.js';
+import type { AgentTermination } from './context.js';
 import { withJobCost } from '../cost-ledger.js';
 import { runAgentOnlyApplication } from './agent-only.js';
 

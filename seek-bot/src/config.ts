@@ -115,8 +115,6 @@ export const config = {
   userDataDir: process.env.CHROME_PROFILE_DIR ?? 'C:\\Users\\PC\\ChromeDebugProfile',
   chromePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   headless: process.env.HEADLESS === 'true',
-  /** Owner-authorized admin pilot, enforced by the dashboard after overrides. */
-  formSpeed: process.env.FORM_SPEED_PILOT === 'true',
   /** Real window, parked off-screen: same fingerprint as visible, out of the way. */
   background: process.env.BACKGROUND === 'true',
 
@@ -307,42 +305,12 @@ export const config = {
      */
     maxOutputTokens: Number(process.env.CELERIS_MAX_OUTPUT_TOKENS ?? 8192),
 
-    /**
-     * Ceilings on one application. An agent loop has no natural stopping point.
-     *
-     * Steps are budgeted per page of the form as well as overall. A Workday
-     * application runs to five or six pages and needs forty-odd steps; a flat
-     * 24 ended those mid-form while they were still advancing. What has to be
-     * stopped is time spent on one page, which is what a loop looks like.
-     */
+    /** Resource ceilings; the agent owns form progress and recovery. */
     maxSteps: Number(process.env.AGENT_MAX_STEPS ?? 60),
-    maxStepsPerPage: Number(process.env.AGENT_MAX_STEPS_PER_PAGE ?? 16),
-    /**
-     * Stop when the agent is stuck, not merely when it is slow. A slow
-     * multi-page employer form that keeps advancing gets as long as it needs.
-     */
-    maxStuckMs: Number(process.env.AGENT_STUCK_MS ?? 180_000),
     maxTotalMs: Number(process.env.AGENT_MAX_MS ?? 1_800_000),
     budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? 0.1),
 
-    /** Turns with no page change before escalating to the reasoning model. */
-    escalateAfterStalls: Number(process.env.AGENT_ESCALATE_AFTER ?? 2),
 
-    /** celeris-1 accepts images; a screenshot is attached once a step stalls. */
-    useScreenshots: process.env.AGENT_SCREENSHOTS !== 'false',
-    /**
-     * Trimming the transcript costs cache hits, since Celeris caches on prefix
-     * and everything after the system prompt shifts. Kept high enough that a
-     * normal application never trims.
-     */
-    maxTranscriptTokens: Number(process.env.AGENT_MAX_TRANSCRIPT_TOKENS ?? 60_000),
-
-    /**
-     * The general browser tools (agent/raw-tools.ts): a snapshot across
-     * iframes, scripts, navigation, tabs, uploads by file picker. On unless
-     * AGENT_RAW_TOOLS=false, which leaves only the purpose-built tools.
-     */
-    rawTools: process.env.AGENT_RAW_TOOLS !== 'false',
   },
 
   coverLetter: {

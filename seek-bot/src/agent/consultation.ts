@@ -2,7 +2,7 @@ import { APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from '../applicati
 import { agentOnlyEvidence } from './agent-only-evidence.js';
 import { celerisChat, type CostMeter, type ToolSchema } from './celeris.js';
 import { validToolInput } from './tool-input.js';
-import { ok, type ToolContext, type ToolResult } from './tools/context.js';
+import { ok, type ToolContext, type ToolResult } from './context.js';
 
 export const consultationToolSchema: ToolSchema = {
   name: 'consult_application_specialist',

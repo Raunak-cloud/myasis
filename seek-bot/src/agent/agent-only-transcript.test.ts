@@ -17,7 +17,8 @@ test('Celeris retains candidate facts, authored actions and current state while 
     { role: 'user', content: 'URL: https://fixture.invalid/two\nCURRENT_OBSERVATION_AND_RECORDED_DRAFT' },
   ];
   const before = JSON.stringify(messages);
-  const payload = JSON.stringify(agentOnlyTranscript(messages, 42_000));
+  assert.equal(agentOnlyTranscript(messages, 42_000), messages, 'ordinary turns preserve an unchanged cacheable prefix');
+  const payload = JSON.stringify(agentOnlyTranscript(messages, 18_000));
   assert.match(payload, /CANONICAL_CANDIDATE_CV_AND_JOB/);
   assert.match(payload, /Saved candidate answer/);
   assert.match(payload, /CURRENT_SNAPSHOT_REFS_AND_VALUES/);

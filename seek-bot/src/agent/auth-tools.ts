@@ -1,18 +1,22 @@
 import { gmailAvailable } from '../gmail-mailbox.js';
 import type { ToolSchema } from './celeris.js';
+import { browserTargetProperties } from './browser-target.js';
+
+const targets = { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', additionalProperties: false, properties: browserTargetProperties }, description: 'Agent-selected native locators for the actual credential/code inputs, including frame and section scopes. Prefer these to refs for embedded forms.' };
 
 export const AUTHENTICATION_TOOL: ToolSchema = {
     name: 'complete_authentication',
     description:
       'Fill sign-in or account-creation fields using the candidate profile and the private site credential. ' +
       'Use this for email, username, name, phone, password and password-confirmation fields. Pass every authentication FIELD on the page. ' +
-      'Do not use answer_questions for credentials. After filling, click the sign-in, create-account or continue control. ' +
+      'Use this private tool for credentials. After filling, click the sign-in, create-account or continue control. ' +
       "When creating an account or setting a new password, read the site's password requirements (stated beside the field, " +
       'or in the message after a rejected password) and pass them as password_rules; the password is then built to fit them. ' +
       'You never see or choose the password itself.',
     parameters: {
       type: 'object',
       properties: {
+        targets,
         refs: {
           type: 'array',
           items: { type: 'string' },
@@ -35,7 +39,7 @@ export const AUTHENTICATION_TOOL: ToolSchema = {
           },
         },
       },
-      required: ['refs', 'purpose', 'reason'],
+      required: ['purpose', 'reason'],
     },
   };
 
@@ -48,6 +52,7 @@ export const EMAILED_CODE_TOOL: ToolSchema = {
   parameters: {
     type: 'object',
     properties: {
+      targets,
       ref: { type: 'string', description: 'The FIELD ref of the code input.' },
       refs: { type: 'array', items: { type: 'string' }, description: 'All code FIELD refs in digit order when the code has separate boxes.' },
       sender_hint: { type: 'string', description: 'The site or company that sent the code, e.g. "Oracle" or "Workday".' },

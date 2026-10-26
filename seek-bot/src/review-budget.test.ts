@@ -33,7 +33,7 @@ export const record = (stage, id, extra={}) => appendFileSync(new URL('./events.
     writeFileSync(join(directory, 'config.mjs'), `
 export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
-Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},formSpeed:false,allowExternalApply:${options.externalLimit !== 0}});
+Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},allowExternalApply:${options.externalLimit !== 0}});
 Object.assign(config.coverLetter, {mode:'tailored'});
 Object.assign(config.rules, {minScore:${options.minScore ?? 0},maxAgeDays:${options.maxAgeDays ?? 20}});
 config.excludedCompanies = ${JSON.stringify(options.excludedCompanies ?? [])};

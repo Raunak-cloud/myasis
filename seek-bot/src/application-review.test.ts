@@ -19,8 +19,6 @@ process.env.COVER_LETTER_INSTRUCTIONS = 'Use a direct greeting and concise parag
 const { config } = await import('./config.js');
 const { applicationApprovalGate, applicationContent, approvedSeekReviewUrl } = await import('./application-review.js');
 const { runAgentOnlyApplication } = await import('./agent/agent-only.js');
-const { RunGuards } = await import('./agent/guards.js');
-const { CostMeter } = await import('./agent/celeris.js');
 config.dryRun = false; config.allowExternalApply = true;
 config.celeris.maxSteps = 3;
 mkdirSync(join(directory, 'resumes'));
@@ -38,7 +36,7 @@ await page.context().route('**/*', route => {
 });
 await page.goto(job.url);
 const ctx = { page, job, profile, log: () => {}, captured: [{ question: 'Name', answer: 'Fixture Applicant' }], resumeUsed: 'cv', resumeName: 'Fixture CV.txt',
-  guards: new RunGuards({ ...config.celeris, meter: new CostMeter(1) }), observation: { url: job.url, title: '', text: '', actions: [], fields: [] }, actions: [] };
+  observation: { url: job.url, title: '', text: '', actions: [], fields: [] }, actions: [] };
 const originalFetch = globalThis.fetch;
 try {
   const prepared = await applicationApprovalGate(ctx);
@@ -167,10 +165,6 @@ try {
       assert.doesNotMatch(body.messages[1].content, /SOURCE 1, character/, 'approved runs load the document inventory; full evidence remains available on demand');
     }
     assert.ok(call, 'the browser completes within the planned turns');
-    if (call.name === 'fill_fields') {
-      const fields = call.args.fields as Array<{ ref: string; value: string }>;
-      fields[0].ref = (await page.locator('#letter').getAttribute('data-field-id'))!;
-    }
     // A stale plan may repeat Apply before noticing its popup. The handoff
     // must cancel that second click and require a fresh form observation.
     const plan = call.args.selector === '#entry' && /\/jobs\/[135]$/.test(page.url()) ? [call, call] : [call];
@@ -231,7 +225,7 @@ try {
     expectedControlSends = true;
     const rewritten = 'MODEL_REWRITE_MUST_NOT_REPLACE_THE_APPROVED_LETTER';
     const writes: typeof calls = fill(index < 2 ? rewritten : drafts[index].coverLetter);
-    if (index === 1) writes[2] = { name: 'fill_fields', args: { fields: [{ ref: 'fixture-letter', value: rewritten }] } };
+    if (index === 1) writes[2] = { name: 'browser_batch', args: { actions: [{ action: 'fill', selector: '#letter', value: rewritten }] } };
     calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send' } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', cover_letter: rewritten } }];
     if (index === 4) calls = [

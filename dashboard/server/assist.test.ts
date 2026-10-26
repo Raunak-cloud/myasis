@@ -102,15 +102,5 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
   assert.match(failed.error ?? '', /Fixture answer-bank failure/);
   assert.equal(prompts.length, callsBeforeFailure, 'database failure must not fall back to another bank');
 
-  const llm = await import(/* @vite-ignore */ new URL('../../seek-bot/dist/llm.js', import.meta.url).href);
-  const profile = {
-    name: 'Fixture worker', nationality: 'Not stated', phone: '', email: '',
-    expectedSalary: 'Negotiable', noticePeriod: '2 weeks', willingToRelocate: false,
-    referralSource: 'Job board', experienceSummary: 'Fixture experience', skills: [], excludedDomains: [], securityClearance: 'None held',
-  };
-  const job = { id: 'fixture', title: 'Fixture role', company: 'Fixture employer', location: '', url: '' };
-  await llm.answerFields(fields, job, profile, 'Account-specific context without an answer override');
-  assert.ok(!prompts.at(-1)!.includes(sharedAnswer), 'an omitted dashboard answer bank must also fail closed');
-  await llm.answerFields(fields, job, profile);
-  assert.ok(prompts.at(-1)!.includes(sharedAnswer), 'isolated normal workers must still load their own DATA_DIR bank');
+  assert.ok([...routedModels.values()].every(value => value === 'celeris-1-magnus'), 'extension suggestions use Magnus directly without the retired form engine');
 });

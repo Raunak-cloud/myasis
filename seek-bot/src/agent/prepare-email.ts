@@ -6,7 +6,7 @@ import { validApplicationEmail } from '../application-email-message.js';
 import { gmailAvailable } from '../gmail-mailbox.js';
 import { agentOnlyDocuments, agentOnlyResumePath } from './agent-only-evidence.js';
 import { readSavedForm } from './saved-form.js';
-import { ok, type ToolContext, type ToolResult } from './tools/context.js';
+import { ok, type ToolContext, type ToolResult } from './context.js';
 import type { PreparedApplication } from '../application-review-types.js';
 
 /** Email applications always wait for candidate confirmation, including Auto runs. */

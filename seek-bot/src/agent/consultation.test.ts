@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { withApplicationModel } from '../application-model.js';
 import { CostMeter } from './celeris.js';
 import { consultApplicationSpecialist, consultationToolSchema, type ConsultationOptions } from './consultation.js';
-import type { ToolContext, ToolResult } from './tools/context.js';
+import type { ToolContext, ToolResult } from './context.js';
 
 const directories: string[] = [];
 const originalFetch = globalThis.fetch;

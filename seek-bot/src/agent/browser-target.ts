@@ -1,5 +1,12 @@
 import type { Locator, Page } from 'patchright';
-import { locate } from './raw-tools.js';
+
+/** Resolve afresh for every operation. Never retain an ElementHandle across a rerender. */
+export function locate(page: Page, ref: string): Locator | null {
+  if (/^a\d+$/.test(ref)) return page.locator(`[data-ref-id="${ref}"]`);
+  if (/^f\d+(?::\d+)?$/.test(ref)) return page.locator(`[data-field-id="${ref}"]`);
+  if (/^(?:f\d+)?e\d+$/.test(ref)) return page.locator(`aria-ref=${ref}`);
+  return null;
+}
 
 /** Standard Playwright locators, selected by the agent, without widget recipes. */
 export const browserTargetProperties = {
@@ -45,9 +52,8 @@ export function browserTarget(page: Page, args: Record<string, unknown>): Locato
     // choosing a potentially different answer/control. An index is explicit.
     return spec.index === undefined ? result : result.nth(spec.index);
   }
-  if (args.selector) return page.locator(String(args.selector)).first();
+  if (args.selector) return page.locator(String(args.selector));
   const ref = String(args.ref ?? '');
-  if (/^f\d+:\d+$/.test(ref)) return page.locator(`[data-field-id="${ref}"]`).first();
   const found = locate(page, ref);
   if (!found) throw new Error('Use an observed ref, CSS selector or Playwright locator for this element.');
   return found;

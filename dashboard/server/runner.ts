@@ -25,8 +25,7 @@ export async function accountBrowserEnvironment(userId: string, mode: RunMode): 
   const admin = isAdmin(owners[0]?.email);
   const env = readEnv();
   return { ...browserRunEnvironment(admin, mode, process.env.ADMIN_HEADLESS ?? env.ADMIN_HEADLESS),
-    ...applicationWorkerEnvironment(admin, mode, process.env.ADMIN_PARALLEL_APPLY ?? env.ADMIN_PARALLEL_APPLY),
-    FORM_SPEED_PILOT: String(admin && (process.env.ADMIN_FORM_SPEED ?? env.ADMIN_FORM_SPEED) === 'true') };
+    ...applicationWorkerEnvironment(admin, mode, process.env.ADMIN_PARALLEL_APPLY ?? env.ADMIN_PARALLEL_APPLY) };
 }
 
 /** Recheck the active owner before accessing their private application files. */

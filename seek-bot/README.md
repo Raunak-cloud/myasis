@@ -368,38 +368,14 @@ prompt, evidence, profile, settings and model version. Cover letters and resume 
 share in-flight results and prepare one candidate ahead during the existing cooldown.
 Candidate documents and resume contents supply relevant verbatim evidence.
 
-Form writes are read back before being recorded. Rejected values and unsupported
-answers block submission until resolved. Progress observes current field values,
-validation text and disabled controls. Model retries share a 60-second deadline;
-local stage timings are written to the account's ignored `pipeline-metrics.jsonl`.
-These changes preserve model-led decisions and browser navigation. Explicit user
-constraints, submission limits and verification remain enforced.
+### Direct Magnus browser applications
 
-Validation: `npm run test:pipeline` uses browser fixtures and a stub model;
-`npm run test:fit-live` uses synthetic profiles with real model calls (API cost,
-no applications). `npm run test:agent` exercises the browser agent on a local form.
-The historical benchmark numbers above are not measurements of this new pipeline.
+Magnus authors answers, chooses native browser operations, diagnoses failures and judges the employer receipt. The retired automatic filler, custom-widget recipes, answer cache and independent form/receipt reviewers have been removed.
 
-### Form section batching
+`browser_batch` transports up to 12 agent-selected native actions in order. Each action resolves a fresh strict Playwright locator, supports frame/section scopes and optional native waits, and reports actual values, constraints and validation together. An actual error or popup handoff stops the remaining commands. No form fingerprint veto or automatic answer rewriting decides the interaction.
 
-The active Agent-only runner exposes `fill_fields` for up to 16 ordinary observed
-fields per call. The applying agent authors each value from candidate evidence.
-Native browser actions run sequentially, commit blur handlers and report saved
-values. A changed question, replaced control, navigation, rejected value or
-validation error stops the remaining writes. Custom pickers, address suggestions,
-radio groups, credentials and uploads retain individual interaction. Every batch
-returns to a fresh observation before navigation or submission; dry-run, account
-scope, quotas and the existing reasoning effort remain in force.
+Browser scripts execute only in the browser, without host Node/filesystem access. Semi auto retains exact candidate confirmation and uses native controls rather than scripts or coordinate clicks. Account quotas, duplicate filtering, account isolation, dry-run and immediate visible hCaptcha skipping remain in place.
 
-Run `npm run test:field-batch` for browser regression fixtures and the active
-application-loop integration tests. Account-local `pipeline-metrics.jsonl`
-records batch duration/counts without adding field values to metrics. Local
-fixture timings do not establish live application speed improvements.
+The conversation keeps a stable cacheable prefix until compaction is necessary. Superseded DOM trees are then retired in chunks while candidate facts, exact approval, current draft and agent-authored progress remain. Context-limit and transient generation failures retry with the same live browser and spending meter; browser actions are never replayed by a model retry. Resource ceilings remain unchanged.
 
-Observed refs used by individual actions, scoped snapshots and uploads are checked
-for existence before their action timeout starts. A missing ref retires the rest
-of that plan and returns to a fresh observation at normal reasoning effort.
-Explicit CSS selectors retain normal auto-waiting for controls that render later;
-existing refs still wait for visibility and enabled state. Radio option refs,
-shadow roots and iframe snapshot refs use their original targeting paths. The
-active-loop regression tests in `npm run test:agent` cover these handoffs.
+Run `npm run test:agent`, `npm run test:native-browser` and `npm run test:saved-form`. These use real browser fixtures with scripted model responses, including five prepared/confirmed applications. Fixture turn counts do not establish live cost or success rates.

@@ -9,7 +9,7 @@ import { GmailMcpService, GmailServiceError } from './gmail-mcp-service.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-gmail-mcp-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
-const { doEnterEmailedCode, doOpenEmailedLink } = await import('./agent/tools/auth.js');
+const { doEnterEmailedCode, doOpenEmailedLink } = await import('./agent/authentication.js');
 const { observe } = await import('./agent/observe.js');
 const { findVerificationInGmail, gmailAvailable } = await import('./gmail-mailbox.js');
 const originalFetch = globalThis.fetch;
@@ -56,7 +56,7 @@ try {
     return route.fulfill({ contentType: 'text/html', body: '<main><label>Code<input maxlength="6"></label></main>' });
   });
   const page = await context.newPage(); await page.goto('https://employer.mailbox.invalid/code');
-  const ctx = { page, job: { company: 'Fixture' }, observation: await observe(page), log: () => {}, guards: { recordProgress() {} }, actions: [] } as unknown as Parameters<typeof doEnterEmailedCode>[0];
+  const ctx = { page, job: { company: 'Fixture' }, observation: await observe(page), log: () => {}, actions: [] } as unknown as Parameters<typeof doEnterEmailedCode>[0];
   const code = await doEnterEmailedCode(ctx, { ref: ctx.observation.fields[0].ref });
   assert.match(JSON.stringify(code), /Entered the emailed code/);
   assert.equal(await page.locator('input').inputValue(), '482913'); assert.equal(context.pages().length, 1);

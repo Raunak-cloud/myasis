@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Page } from 'patchright';
 import { jobBoardForUrl, isExternalApplicationUrl } from './job-board-url.js';
-import { detectConfirmation, listingIdIn } from './agent/guards.js';
+import { detectConfirmation, listingIdIn } from './agent/browser-boundaries.js';
 
 test('board aliases share identity while lookalike domains, userinfo and URL text grant no board access', () => {
   for (const host of ['www.seek.com.au', 'seek.com.au', 'au.seek.com', 'www.seek.com', 'AU.SEEK.COM.']) {

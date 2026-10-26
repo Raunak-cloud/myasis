@@ -3,8 +3,10 @@ import { trimTranscript } from './loop/transcript.js';
 
 /** Old DOM trees are observations, not candidate facts. Keep the current
  * observation/snapshot, authored answers and tool actions. */
-export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number): ChatMessage[] {
-
+export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number, force = false): ChatMessage[] {
+  // Keep the growing prefix byte-for-byte stable for provider prompt caching.
+  // Compact in chunks, only when necessary, leaving room for subsequent turns.
+  if (!force && JSON.stringify(messages).length <= maxTokens * 4) return messages;
   const snapshotCalls = new Set<string>();
   for (const message of messages) if (message.role === 'assistant') {
     for (const call of message.tool_calls ?? []) if (call.function.name === 'take_snapshot') snapshotCalls.add(call.id);
@@ -24,5 +26,5 @@ export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number):
     }
     return message;
   });
-  return trimTranscript(compact, maxTokens);
+  return trimTranscript(compact, Math.floor(maxTokens * 0.75));
 }

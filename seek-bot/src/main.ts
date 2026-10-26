@@ -5,7 +5,6 @@ import type { BrowserContext, Page } from 'patchright';
 import { setTimeout as pause } from 'node:timers/promises';
 import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
-import { settleReviews } from './agent/lessons.js';
 import { withApplicationAllowance } from './application-allowance.js';
 import { applicationFailureContext } from './application-diagnostics.js';
 import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
@@ -153,7 +152,7 @@ async function main() {
   if (!searchOnly) {
     console.log(
       `Browser agent: ${applicationModelIdentity().model} ` +
-        `(max ${config.celeris.maxSteps} steps, ${config.celeris.maxStepsPerPage} per page, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
+        `(max ${config.celeris.maxSteps} turns, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
     );
   }
   console.log(
@@ -1417,8 +1416,6 @@ async function main() {
   } finally {
     metric('run-total', performance.now() - startedAt);
     await closeBrowser(ctx);
-    // Reviews of failed attempts still running finish before the process ends, so their lessons are kept.
-    await settleReviews();
   }
 }
 

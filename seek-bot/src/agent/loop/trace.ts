@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from '../../config.js';
 import type { JobListing } from '../../types.js';
-import { isExternal } from '../guards.js';
-import type { AgentTermination } from '../tools.js';
+import { isExternal } from '../browser-boundaries.js';
+import type { AgentTermination } from '../context.js';
 
 // Audit records shared by the active application agent.
 
@@ -43,6 +43,13 @@ function loadSiteHints(): Record<string, SiteHint> {
   }
 }
 
+/** Owner-local experience is advice about interactions, never saved candidate answers. */
+export function browserExperience(url: string): string {
+  const host = hostOf(url);
+  const hint = loadSiteHints()[host];
+  return JSON.stringify({ host, hint: hint ?? null, instruction: 'Historical interaction evidence only. Inspect the current page and match its controls before reusing an approach. Never reuse a previous candidate answer, stale ref or assumed receipt.' });
+}
+
 /**
  * Keeps the record a person would want: the full step-by-step trace, with
  * screenshots, for anything that needs them; and for an employer site that
@@ -60,9 +67,14 @@ export function persistTrace(job: JobListing, outcome: AgentTermination, trace: 
       );
     }
     const host = hostOf(finalUrl);
-    if ((outcome.status === 'applied' || outcome.status === 'rehearsed') && host && isExternal(finalUrl) && trace.length) {
+    if (outcome.status === 'applied' && host && isExternal(finalUrl) && trace.length) {
       const hints = loadSiteHints();
-      hints[host] = { steps: trace.map((step) => step.label).slice(0, 40), updatedAt: new Date().toISOString() };
+      const commands = trace.flatMap(step => step.tool === 'browser_batch' && Array.isArray(step.args.actions)
+        ? step.args.actions as Record<string, unknown>[] : step.tool === 'browser_action' ? [step.args] : []);
+      // Store only interaction types and explicit locators, never answer values,
+      // private credentials, scripts or transient observation refs.
+      hints[host] = { steps: commands.filter(command => command.locator || command.selector)
+        .map(command => JSON.stringify({ action: command.action, locator: command.locator, selector: command.selector })).slice(0, 40), updatedAt: new Date().toISOString() };
       writeFileSync(SITE_HINTS(), JSON.stringify(hints, null, 2));
     }
   } catch {

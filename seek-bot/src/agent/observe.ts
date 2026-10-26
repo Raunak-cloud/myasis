@@ -404,7 +404,8 @@ export async function waitForApplicationSurface(page: Page, timeout = 25_000): P
  * agent went ahead and reasoned about a blank page.
  */
 export function looksUnrendered(observation: Observation): boolean {
-  return observation.fields.length === 0 && observation.actions.length < 2;
+  return observation.fields.length === 0 && observation.actions.length < 2
+    && (observation.text.trim().length < 15 || /^(?:loading|please wait)[.\s…]*$/i.test(observation.text.trim()));
 }
 
 interface ObserveOptions {

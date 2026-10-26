@@ -7,7 +7,7 @@ import { isCoverLetterField, cleanCoverLetter } from './cover-letter-policy.js';
 export { applicationContent } from './application-review-content.js';
 import { readSavedForm } from './agent/saved-form.js';
 import { agentOnlyResumePath } from './agent/agent-only-evidence.js';
-import type { ToolContext, ToolResult } from './agent/tools/context.js';
+import type { ToolContext, ToolResult } from './agent/context.js';
 import type { JobListing } from './types.js';
 import type { PreparedApplication } from './application-review-types.js';
 

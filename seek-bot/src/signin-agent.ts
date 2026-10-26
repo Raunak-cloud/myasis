@@ -3,7 +3,7 @@ import { celerisChat, CostMeter, type ChatMessage, type ToolSchema } from './age
 import { observe, renderObservation } from './agent/observe.js';
 import { gmailAccount, gmailAvailable, findCodeInGmail } from './gmail-mailbox.js';
 import { handleCaptchaWithCapMonster } from './captcha.js';
-import { fillField } from './dom.js';
+import { browserTarget } from './agent/browser-target.js';
 
 /**
  * Signs an account back in to a job board when its session has lapsed.
@@ -320,7 +320,7 @@ async function drive(
           else if (!field) result = 'No FIELD has that ref on this page.';
           else {
             log('  ↪ sign-in: entered the account email');
-            await fillField(target, field, account);
+            await browserTarget(target, { ref: field.ref }).fill(account, { timeout: 8000 });
             result = `Entered ${account}.`;
           }
           break;
@@ -334,7 +334,7 @@ async function drive(
             const found = await findCodeInGmail({ hint: site, timeoutMs: 90_000, log });
             if ('error' in found) result = `${found.error} If there is a resend control, click it and try once more; otherwise give_up.`;
             else {
-              await fillField(target, field, found.code);
+              await browserTarget(target, { ref: field.ref }).fill(found.code, { timeout: 8000 });
               result = 'Entered the emailed code.';
             }
           }

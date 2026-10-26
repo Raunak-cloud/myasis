@@ -144,7 +144,6 @@ const GROUPS: GroupSpec[] = [
     keys: [
       { key: 'CHROME_PATH', label: 'Chrome executable', help: 'Full path on the server.', kind: 'text' },
       { key: 'ADMIN_HEADLESS', label: 'Admin headless discovery pilot', help: 'Modern Chrome headless for admin-owned search-only runs and queue scans. Customer runs and live applications use headed Chrome. Takes effect on the next run; detection and savings depend on the site.', kind: 'boolean' },
-      { key: 'ADMIN_FORM_SPEED', label: 'Admin form speed pilot', help: 'Larger bounded question batches, exact account/job-scoped answer reuse, and immediate verified fills. Admin-owned runs only; existing truth and submission checks remain active. Takes effect on the next run.', kind: 'boolean' },
       { key: 'BROWSER_CONNECT_CDP', label: 'Attach to a shared browser', help: 'Keep off: each run needs its own Chrome on its own profile.', kind: 'boolean' },
       { key: 'CDP_HOST', label: 'CDP host', help: 'Only used when attaching to a shared browser.', kind: 'text' },
     ],
