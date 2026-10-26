@@ -474,7 +474,7 @@ export function RunPanel({
   };
   const summary = useMemo(() => activitySummary(lines), [lines]);
   const preparing = status?.applicationMode === 'semi-auto';
-  const events = useMemo(() => activityEvents(lines, 14, isAdmin), [lines, isAdmin]);
+  const events = useMemo(() => activityEvents(lines, Infinity, isAdmin), [lines, isAdmin]);
   /** The one thing the run is doing now, for the card above the feed. */
   const liveEvent = events.find((event) => event.live);
   const currentHeading = liveEvent?.title.startsWith('Applying') ? 'Applying now'
@@ -1023,29 +1023,7 @@ export function RunPanel({
                 </div>
               )}
 
-              <div className="activity-feed">
-                {events.length ? events.map((event) => (
-                  <div className={`activity-event ${event.tone}${event.live && running ? ' live' : ''}`} key={event.id}>
-                    <span className="activity-dot" aria-hidden="true" />
-                    <div>
-                      <div className="activity-event-heading">
-                        <strong>{event.title}</strong>
-                        {isAdmin && event.durationMs !== undefined && (
-                          <span className="activity-duration" title="Time from starting this application to its outcome" aria-label={`Application attempt took ${formatRunDuration(event.durationMs)}`}>
-                            {formatRunDuration(event.durationMs)}
-                          </span>
-                        )}
-                      </div>
-                      {event.detail && <span>{event.detail}</span>}
-                    </div>
-                  </div>
-                )) : (
-                  <div className="activity-event neutral">
-                    <span className="activity-dot" aria-hidden="true" />
-                    <div><strong>Run started</strong><span>Preparing the search.</span></div>
-                  </div>
-                )}
-              </div>
+              <ActivityFeed events={events} running={running} isAdmin={isAdmin} />
             </>
           )}
         </div>
@@ -1434,6 +1412,48 @@ export function RunPanel({
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+export function ActivityFeed({ events, running, isAdmin }: {
+  events: ReturnType<typeof activityEvents>;
+  running: boolean;
+  isAdmin: boolean;
+}) {
+  const alreadyApplied = events.filter(event => event.outcome === 'already-applied');
+  const recent = new Set(events.filter(event => event.outcome !== 'already-applied').slice(-14));
+  const visible = events.filter(event => recent.has(event) || event === alreadyApplied[0]);
+  const renderEvent = (event: (typeof events)[number]) => (
+    <div className={`activity-event ${event.tone}${event.live && running ? ' live' : ''}`} key={event.id}>
+      <span className="activity-dot" aria-hidden="true" />
+      <div>
+        <div className="activity-event-heading">
+          <strong>{event.title}</strong>
+          {isAdmin && event.durationMs !== undefined && (
+            <span className="activity-duration" title="Time from starting this application to its outcome" aria-label={`Application attempt took ${formatRunDuration(event.durationMs)}`}>
+              {formatRunDuration(event.durationMs)}
+            </span>
+          )}
+        </div>
+        {event.detail && <span>{event.detail}</span>}
+      </div>
+    </div>
+  );
+  return (
+    <div className="activity-feed">
+      {visible.length ? visible.map(event => event === alreadyApplied[0] ? (
+        <details className="activity-duplicates" key={`already-applied-${event.id}`}>
+          <summary>Already applied ({alreadyApplied.length})</summary>
+          <div className="activity-duplicate-list">{alreadyApplied.map(renderEvent)}</div>
+        </details>
+      ) : renderEvent(event)) : (
+        <div className="activity-event neutral">
+          <span className="activity-dot" aria-hidden="true" />
+          <div><strong>Run started</strong><span>Preparing the search.</span></div>
         </div>
       )}
     </div>

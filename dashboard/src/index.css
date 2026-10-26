@@ -1610,6 +1610,13 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 
 .activity-feed { display: grid; gap: 0; }
 
+.activity-duplicates { min-width: 0; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.activity-duplicates > summary { padding: 12px; cursor: pointer; color: var(--text-dim); font-size: 13px; font-weight: 600; }
+.activity-duplicates > summary::marker { color: var(--text-faint); }
+.activity-duplicates > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.activity-duplicate-list { padding: 4px 12px 0; }
+.activity-duplicate-list .activity-event:last-child { padding-bottom: 12px; }
+
 .activity-event {
   position: relative;
   display: flex;
