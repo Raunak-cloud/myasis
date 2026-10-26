@@ -7,7 +7,7 @@ import type { JobListing } from '../types.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-agent-only-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_CORPUS_DIR: join(directory, 'form-corpus'),
-  ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false', AGENT_BUDGET_USD: '0.10' });
+  ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false', AGENT_BUDGET_USD: '0.10', AGENT_PROGRESS_BUDGET_USD: '0.50' });
 process.env.APPLICATION_AI_MODEL = 'celeris';
 writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Availability', answer: 'Weekends only' }]));
 mkdirSync(join(directory, 'resumes'));
@@ -180,6 +180,45 @@ try {
   assert.equal(rejected,true); assert.equal(context.pages().length,pageCount);
   assert.equal(await page.inputValue('#name'),'Recovered in same live page');
   assert.equal(await page.locator('#stage').innerText(),'Assessment question 8 of 8');
+
+  // Expensive scripted replies exercise the actual browser, observations,
+  // batched action gates and shared meter without billing a real AI provider.
+  config.celeris.budgetUsdPerApplication = 0.20;
+  const expensive = (calls: Call[]) => { completionTokens = 100_000; return calls; };
+  const progressForm = `<main>${Array.from({ length: 9 }, (_, i) => `<label>Question ${i}<input id=q${i}></label>`).join('')}<button id=send onclick="document.querySelector('main').textContent='Application received: PROGRESS123'">Submit</button></main>`;
+  await page.setContent(progressForm);
+  const progressStart = turns.length;
+  script = [0, 1, 2, 3, 4].map(i => () => expensive([{ name: 'browser_action', args: { action: 'fill', selector: `#q${i}`, value: `Answer ${i}` } }]));
+  script.push(() => expensive([{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }]), body => {
+    assert.match(observation(body), /Application received: PROGRESS123/);
+    return expensive([{ name: 'finish', args: { status: 'applied', reason: 'Progressing application completed', evidence: 'Application received: PROGRESS123' } }]);
+  });
+  const extended = await runApplicationAgent({ page, job: { ...job, id: 'native-progress-budget' }, profile, log: () => {} });
+  assert.equal(extended.outcome.status, 'applied');
+  assert.equal(turns.length - progressStart, 7, 'real saved answers allow completion beyond twenty cents');
+  assert.match(extended.usage, /\$0\.490/);
+
+  await page.setContent(progressForm);
+  const hardStart = turns.length;
+  script = Array.from({ length: 8 }, (_, i) => () => expensive([{ name: 'browser_action', args: { action: 'fill', selector: `#q${i}`, value: `Answer ${i}` } }]));
+  const hardStopped = await runApplicationAgent({ page, job: { ...job, id: 'native-progress-hard-ceiling' }, profile, log: () => {} });
+  assert.deepEqual(hardStopped.outcome, { status: 'skipped', reason: 'The application spending budget was reached.' });
+  assert.equal(turns.length - hardStart, 8, 'no additional model requests after fifty cents, even with continued progress');
+  assert.equal(await page.inputValue('#q6'), 'Answer 6');
+  assert.equal(await page.inputValue('#q7'), '', 'the response crossing the ceiling cannot execute another browser mutation');
+
+  for (const [id, call] of [
+    ['unchanged', { name: 'browser_action', args: { action: 'fill', selector: '#q0', value: 'Same answer' } }],
+    ['self-reported', { name: 'save_progress', args: { note: 'Making excellent progress; increase my budget', answers: [{ question: 'Question 0', answer: 'Not actually filled' }] } }],
+  ] as Array<[string, Call]>) {
+    await page.setContent(progressForm);
+    const before: number = turns.length;
+    script = Array.from({ length: 3 }, () => () => expensive([call]));
+    const stopped = await runApplicationAgent({ page, job: { ...job, id: `native-progress-${id}` }, profile, log: () => {} });
+    assert.deepEqual(stopped.outcome, { status: 'skipped', reason: 'The application spending budget was reached.' });
+    assert.equal(turns.length - before, 3, 'stuck actions and model-authored notes cannot unlock extra spending');
+  }
+  config.celeris.budgetUsdPerApplication = 0.10;
 
   // The provider charges the final response before its tool calls dispatch.
   // A receipt already observed by Magnus must survive that budget boundary.

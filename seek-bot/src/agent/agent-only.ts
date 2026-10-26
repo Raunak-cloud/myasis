@@ -20,7 +20,8 @@ import { startAgentActivity } from './agent-activity.js';
 import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationAttemptHistory } from './agent-only-evidence.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
 import { agentOnlyTranscript } from './agent-only-transcript.js';
-import { CostMeter, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
+import { celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
+import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
 import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
@@ -161,7 +162,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     applicationUrl, submitPressed: false, steps: 0, usage: 'No model calls: matching stage identified a confirmed duplicate.',
   };
   const started = Date.now();
-  const meter = new CostMeter(config.celeris.budgetUsdPerApplication);
+  const meter = new ProgressBudget(config.celeris.budgetUsdPerApplication, config.celeris.progressBudgetUsdPerApplication);
   const log = options.log ?? console.log;
   const approved = approvedApplication(options.job);
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile,
@@ -190,6 +191,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   let terminal: AgentTermination = { status: 'skipped', reason: 'The application resource budget ended before the agent finished.' };
   let finished = false;
   let recoveryNote = '';
+  let browserMutated = false;
   let contextLimit = 42_000;
   const waitedForSurface = new Set<string>();
   const remainingMs = () => config.celeris.maxTotalMs - (Date.now() - started);
@@ -383,6 +385,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const converted = await documentFor(file, await input.getAttribute('accept') ?? '');
       if (!converted) throw new Error('No supported document conversion is available for this input.');
       await input.setInputFiles(converted, { timeout: 15_000 });
+      const readback = await nativeReadback(input) as { files?: string[]; invalid?: boolean; validation?: string };
+      if (readback.files?.length && !readback.invalid && !readback.validation) meter.uploaded(String(args.document_id ?? 'cover-letter'));
       return ok('Document uploaded; inspect its saved filename on the page.');
     }
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
@@ -494,6 +498,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         else await element.selectOption({ label: value }, { timeout: 4000 }).catch(() => element.selectOption(value, { timeout: 4000 }));
         await waitAfterAction(ctx.page, args);
         const readback = await nativeReadback(target(ctx, args)) as { private: boolean; value?: string; checked?: boolean; selected?: Array<{ label: string }> };
+        browserMutated = true; // retain successful writes even if a later command in the batch fails
         const saved = args.action === 'check' ? String(readback.checked)
           : args.action === 'select' ? readback.selected?.map(option => option.label).join(', ') : readback.value;
         if (!readback.private && typeof saved === 'string' && actionLabel) {
@@ -513,7 +518,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   };
 
   try {
-    while (!finished && steps < config.celeris.maxSteps && remainingMs() > 0 && !meter.exhausted) {
+    while (!finished && steps < config.celeris.maxSteps && remainingMs() > 0) {
       if (ctx.page.isClosed()) {
         const open = [...ownedPages].filter(page => !page.isClosed());
         if (!open.length) { terminal = { status: 'skipped', reason: 'The application browser closed.' }; break; }
@@ -535,6 +540,11 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       if (isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
+      // Inspect the results of already-executed actions before enforcing the
+      // next-call budget. This does not run another model or replay a write.
+      meter.observe(ctx.observation.fields, browserMutated);
+      browserMutated = false;
+      if (meter.exhausted) break;
       if (approved) {
         // Keep actual readback for known answers across wizard steps, including
         // selections made by clicks rather than fill/select tools. Do not copy
@@ -600,6 +610,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
             if (!tool || !validToolInput(call.args, tool.parameters)) throw new Error('Invalid tool input. Read the schema and retry with the correct arguments.');
             const wasReviewingSubmission = submissionReviewRequired;
             result = await act(call.name, call.args);
+            if (result.kind === 'ok' && result.disposition !== 'failed' && (call.name === 'browser_batch'
+              || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link', 'upload_document'].includes(call.name)
+              || call.name === 'browser_action' && ['click', 'fill', 'select', 'check', 'press', 'navigate', 'script', 'dialog'].includes(String(call.args.action)))) browserMutated = true;
             if (!wasReviewingSubmission && submissionReviewRequired && result.kind === 'ok' && result.disposition !== 'failed') {
               result = ok(`${result.message}\nReview the fresh employer response before any further action.`, 'reobserve');
             }
