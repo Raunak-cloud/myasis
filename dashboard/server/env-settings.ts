@@ -113,12 +113,8 @@ const GROUPS: GroupSpec[] = [
     note: 'An agent loop has no natural end; these bound one application in steps, time and spend.',
     keys: [
       { key: 'AGENT_MAX_STEPS', label: 'Max steps per application', help: 'Actions the agent may take on one application before giving up.', kind: 'number' },
-      { key: 'AGENT_MAX_STEPS_PER_PAGE', label: 'Max steps per page', help: 'Actions on one page before it is treated as stuck.', kind: 'number' },
       { key: 'AGENT_MAX_MS', label: 'Max time per application (ms)', help: 'Wall-clock ceiling for one application.', kind: 'number' },
       { key: 'AGENT_BUDGET_USD', label: 'Spend ceiling per application (USD)', help: '0 means no ceiling.', kind: 'number' },
-      { key: 'AGENT_ESCALATE_AFTER', label: 'Escalate after stalls', help: 'Turns with no page change before switching to the reasoning model.', kind: 'number' },
-      { key: 'AGENT_SCREENSHOTS', label: 'Screenshots on stall', help: 'Attach a screenshot once a step stalls.', kind: 'boolean' },
-      { key: 'AGENT_MAX_TRANSCRIPT_TOKENS', label: 'Max transcript tokens', help: 'How much history the agent carries between steps.', kind: 'number' },
     ],
   },
   {
