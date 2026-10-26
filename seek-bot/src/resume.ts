@@ -37,36 +37,17 @@ export function loadResumes(): ResumeRecord[] {
   }
 }
 
-/** Document formats a resume can be sent as, with the MIME types an `accept` may name instead. */
-const RESUME_FORMATS: Record<string, string[]> = {
-  '.pdf': ['application/pdf'],
-  '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-  '.doc': ['application/msword'],
-  '.rtf': ['application/rtf', 'text/rtf'],
-  '.txt': ['text/plain'],
-};
-
-/** Whether a file input's `accept` attribute allows this extension; empty means anything. */
-export function acceptsFormat(accept: string, ext: string): boolean {
-  const tokens = accept.toLowerCase().split(',').map((token) => token.trim()).filter(Boolean);
-  if (!tokens.length || tokens.includes('*') || tokens.includes('*/*')) return true;
-  const mimes = RESUME_FORMATS[ext] ?? [];
-  return tokens.some((token) => token === ext || mimes.includes(token) || mimes.some((mime) => token.endsWith('/*') && mime.startsWith(token.slice(0, -1))));
-}
+export type DocumentFormat = 'pdf' | 'docx' | 'doc' | 'rtf' | 'txt';
 
 /**
- * A document (resume, cover letter) in a format this upload accepts.
- *
- * Employer forms restrict uploads ("PDF only" is common) while candidates
- * keep whatever they wrote in. The same document is converted once, with
- * LibreOffice so the layout survives, and kept beside the original for every
- * later form. Null when no accepted format can be produced.
+ * Convert an account document only to a format explicitly chosen by the
+ * applying agent. Employer HTML is never parsed into a conversion or veto.
+ * LibreOffice retains the document layout; variants remain beside the source.
  */
-export async function documentFor(file: string, accept: string): Promise<string | null> {
+export async function convertDocument(file: string, format: DocumentFormat): Promise<string | null> {
   const ext = extname(file).toLowerCase();
-  if (acceptsFormat(accept, ext)) return file;
-  const target = ['.pdf', '.docx', '.doc', '.rtf', '.txt'].find((candidate) => candidate !== ext && acceptsFormat(accept, candidate));
-  if (!target) return null;
+  const target = `.${format}`;
+  if (ext === target) return file;
   const converted = resolve(dirname(file), `${basename(file, extname(file))}${target}`);
   if (existsSync(converted)) return converted;
   const profile = resolve(tmpdir(), `owtomate-lo-${process.getuid?.() ?? 'user'}`);

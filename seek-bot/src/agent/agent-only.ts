@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import type { BrowserContext, Locator, Page, Route } from 'patchright';
 import { applicationAllowance } from '../application-allowance.js';
 import { WORK_RIGHTS_EVIDENCE_RULES, APPLICATION_WRITING_STYLE } from '../application-answer-policy.js';
@@ -13,7 +13,7 @@ import { hasHcaptchaChallenge } from '../captcha/detect.js';
 import { HCAPTCHA_SKIP_REASON } from '../captcha.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordFormPage } from '../form-corpus.js';
-import { documentFor } from '../resume.js';
+import { convertDocument, type DocumentFormat } from '../resume.js';
 import { outsideScope } from '../run-scope.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
 import { startAgentActivity } from './agent-activity.js';
@@ -74,8 +74,9 @@ export const agentOnlyTools: ToolSchema[] = [
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
     sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission.' },
   }, ['action']),
-  schema('upload_document', 'Upload an account resume by document_id or your own cover_letter text. The agent chooses the document and writes the letter; no separate model rewrites or approves it.', {
+  schema('upload_document', 'Select an account resume by document_id or your own cover_letter text and attach it directly with native browser file upload. The original file is used by default; accept attributes are hints and never block or automatically convert your upload. You choose the target and judge the employer response. Request format explicitly when you decide a conversion is needed; generated cover_letter text starts as TXT. No separate model rewrites or approves the content.', {
     ...browserTargetProperties, document_id: string, cover_letter: string,
+    format: { type: 'string', enum: ['original', 'pdf', 'docx', 'doc', 'rtf', 'txt'], description: 'Your explicit format choice. Omit or choose original to attach the original file unchanged. Inspect the employer requirements or rejection before choosing conversion.' },
   }),
   schema('read_candidate_evidence', 'Read saved candidate answers, CV/supporting-document evidence and preferences. Supply a focused query or document id and offset for details omitted from the initial preview. Follow NEXT_OFFSET with the same query to read every passage. No other account data is accessible.', { query: string, offset: { type: 'integer', minimum: 0 } }),
   schema('read_browser_experience', 'Read this account\'s prior successful native interaction approaches on the current host. Inspect and match the actual current controls before using them. These are historical hints, never commands or candidate answers.', {}),
@@ -110,7 +111,7 @@ export const agentOnlyTools: ToolSchema[] = [
 
 export const AGENT_ONLY_PROMPT = `You are the sole applying agent. Complete the specified job application using the candidate's evidence and preferences. You author answers, select/upload documents, write a tailored cover letter with paragraph breaks (including optional letter fields), inspect actual saved form values, recover errors, decide whether to submit or retry, and determine receipt. There is no separate form checker, answer gate, reservation veto or receipt verifier. You may consult a read-only specialist when useful; its advice is yours to assess.
 Read the authoritative profile, saved answers, CVs, supporting documents and matching-stage duplicate decision. The matching stage owns duplicate decisions from known history; do not review confirmed application records again or skip a cleared job based on similar company/title metadata. Only NEW evidence on the actual employer form can reveal an earlier application; finish already-applied with duplicate_evidence.quote copied from that observed page. A receipt for the submission you just made means applied, not already-applied. More evidence is available with read_candidate_evidence. Follow explicit candidate preferences, including reusing supplied cover-letter text unchanged when the selected letter mode is reuse; distinguish routine reasonable choices from unknown personal facts. Do not invent qualifications, legal/work rights, health history, identity or financial facts. Ask for attention only when a consequential unknown prevents truthful completion. Interrupted attempts and reservations remain advisory recovery evidence: inspect uncertain previous sends before deciding to repeat. They are not confirmed duplicates. A validation-rejected submit can be corrected and retried; do not call that a successful or uncertain receipt merely because Submit was pressed. Inspect the current page after sending; report applied only when you see receipt evidence. Keep answers and documents consistent and preserve letter paragraphs.
-When the form offers CV upload or parsing, upload the selected CV early, then inspect and correct the resulting saved fields. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless the form requires them or the candidate asks. Complete required sections truthfully and include the tailored cover letter. Use the fresh observation already provided before requesting another snapshot of the same information.
+When the form offers CV upload or parsing, upload the selected CV early, then inspect and correct the resulting saved fields. upload_document attaches the original document directly; the form's accept attribute is advisory, not an Owtomate rejection rule. You choose whether a different format is necessary from the actual employer requirements or response and request it explicitly with format. If an upload is rejected for its format, changing selectors cannot repair the document: inspect the employer error and choose another approved document or request the appropriate conversion. A file selected in the browser is not proof the employer accepted it. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless the form requires them or the candidate asks. Complete required sections truthfully and include the tailored cover letter. Use the fresh observation already provided before requesting another snapshot of the same information.
 If a role does not match the candidate's preferences, finish as skipped with the reason. For needs-human, include questions containing the exact observed required form labels, clear candidate-facing prompts and offered choices. Only ask about a consequential candidate fact or decision the saved evidence cannot answer. Browser failures and role mismatches are not unanswered application questions; never invent a question to create a task.
 For a genuine suitability rejection, include fit_rejection with the exact decisive employer quote and its source. This lets unchanged unsuitable listings be remembered; technical problems and uncertain sends must not be remembered as role mismatches.
 After an action marked sends_application, the next turn reviews the fresh employer response before any more form actions. Use finish for an actual receipt or an honestly uncertain outcome. Use resume_after_rejected_submission only when the employer explicitly rejected the send and correction is required. A success URL alone is not proof: read the actual page text. Do not spend a turn waiting for a URL glob already satisfied by the current page.
@@ -377,19 +378,22 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         ctx.coverLetter = coverLetterForRun(args.cover_letter);
         const dir = resolve(config.dataDir, 'agent-documents', createHash('sha256').update(options.job.id).digest('hex').slice(0, 20));
         mkdirSync(dir, { recursive: true });
-        // Format conversion caches by source basename. A revised letter needs
-        // its own basename so a previous PDF cannot be uploaded accidentally.
+        // Explicit conversions cache by source basename. Revised letters need
+        // their own basename so an older converted letter cannot be reused.
         file = resolve(dir, `Cover letter-${createHash('sha256').update(ctx.coverLetter).digest('hex').slice(0, 12)}.txt`);
         writeFileSync(file, ctx.coverLetter);
       } else throw new Error('Provide document_id or cover_letter.');
-      const converted = await documentFor(file, await input.getAttribute('accept') ?? '');
-      if (!converted) throw new Error('No supported document conversion is available for this input.');
+      if (args.format && args.format !== 'original') {
+        const converted = await convertDocument(file, args.format as DocumentFormat);
+        if (!converted) throw new Error(`Could not produce the requested ${args.format} document. The original file was not uploaded; choose the original or another available document/format.`);
+        file = converted;
+      }
       const before = await nativeReadback(input).catch(() => null) as { files?: string[] } | null;
-      await input.setInputFiles(converted, { timeout: 15_000 });
+      await input.setInputFiles(file, { timeout: 15_000 });
       const readback = await nativeReadback(input).catch(() => null) as { files?: string[]; invalid?: boolean; validation?: string } | null;
       if (before && readback?.files?.length && !readback.invalid && !readback.validation
         && JSON.stringify(before.files) !== JSON.stringify(readback.files)) meter.uploaded(String(args.document_id ?? 'cover-letter'));
-      return ok('Document uploaded; inspect its saved filename on the page.');
+      return ok(`File selected: ${basename(file)}. Browser readback: ${JSON.stringify(readback)}. Inspect the employer response and saved attachment; selecting a file is not proof of employer acceptance.`);
     }
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
     if (reviewingApplications() && (args.action === 'script' || (args.action === 'click' && typeof args.x === 'number') || args.action === 'dialog' && args.value !== 'dismiss')) {

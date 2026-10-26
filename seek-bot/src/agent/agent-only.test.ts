@@ -91,6 +91,69 @@ try {
   assert.ok(existsSync(join(directory, 'form-corpus')), 'the sole agent retains private form replay recording');
   assert.equal(JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8')).length, 1, 'driver does not mutate history or reserve duplicate claims');
 
+  // A genuine small PDF, without office software or network access. Conversion
+  // selection uses a prebuilt variant; the production converter is unchanged.
+  const pdfObjects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length 47 >>\nstream\nBT /F1 12 Tf 20 250 Td (Synthetic resume) Tj ET\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  pdfObjects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  writeFileSync(join(directory, 'resumes', 'CV.pdf'), pdf);
+  const originalInventory = readFileSync(join(directory, 'resumes.json'), 'utf8');
+  writeFileSync(join(directory, 'resumes.json'), JSON.stringify([
+    ...JSON.parse(originalInventory), { id: 'cv-pdf', label: 'Synthetic PDF CV', fileName: 'CV.pdf' },
+  ]));
+  const uploadForm = (accept: string) => `<main><form onsubmit="event.preventDefault();if(!document.querySelector('#resume').files.length)return;window.lastUploaded=document.querySelector('#resume').files[0];window.otherFileCount=document.querySelector('#unused').files.length;document.querySelector('main').textContent='Application received: UPLOAD123'">
+    <label>Unused attachment<input type=file id=unused accept='image/*'></label>
+    <section id=resume-section><label>Resume<input type=file id=resume accept='${accept}' onchange="window.uploadChanges=(window.uploadChanges||0)+1"></label></section>
+    <button id=send>Submit</button></form></main>`;
+  for (const [index, accept] of ['doc,docx,pdf,rtf', '.pdf', 'application/pdf', 'unrecognised-format-hint'].entries()) {
+    await page.setContent(uploadForm(accept));
+    await page.evaluate('window.uploadChanges=0', undefined, undefined, false);
+    const before: number = turns.length;
+    script = [() => [{ name: 'upload_document', args: { document_id: 'cv-pdf', locator: { by: 'label', value: 'Resume', within: '#resume-section' } } }], body => {
+      assert.match(JSON.stringify(body.messages), /File selected: CV.pdf/);
+      return [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
+    }, body => {
+      assert.match(observation(body), /Application received: UPLOAD123/);
+      return [{ name: 'finish', args: { status: 'applied', reason: 'Native attachment accepted by fixture', evidence: 'Application received: UPLOAD123' } }];
+    }];
+    const uploaded = await runApplicationAgent({ page, job: { ...job, id: `direct-upload-${index}` }, profile, log: () => {} });
+    assert.equal(uploaded.outcome.status, 'applied');
+    assert.equal(uploaded.resumeUsed, 'cv-pdf');
+    assert.equal(turns.length - before, 3, 'one native upload, one send and one receipt judgement; no format gate or independent reviewer');
+    assert.equal(await page.evaluate('window.uploadChanges', undefined, undefined, false), 1, 'native upload dispatches the actual file change event');
+    assert.equal(await page.evaluate('window.otherFileCount', undefined, undefined, false), 0, 'only the agent-selected upload target receives a file');
+    const uploadedBytes = await page.evaluate('(async () => Array.from(new Uint8Array(await window.lastUploaded.arrayBuffer())))()', undefined, undefined, false);
+    assert.deepEqual(Buffer.from(uploadedBytes as number[]), Buffer.from(pdf), 'the original PDF bytes are uploaded unchanged');
+  }
+
+  await page.setContent(`<main><label>Resume<input type=file id=resume accept='doc,docx,pdf,rtf' onchange="document.querySelector('#message').textContent=this.files[0].name.endsWith('.pdf')?'Resume accepted':'Only PDF accepted by this employer'"></label><p id=message></p><button id=send onclick="if(document.querySelector('#message').textContent==='Resume accepted')document.querySelector('main').textContent='Application received: CONVERT123'">Submit</button></main>`);
+  script = [() => [{ name: 'upload_document', args: { document_id: 'cv-1', selector: '#resume' } }], body => {
+    assert.match(observation(body), /Only PDF accepted by this employer/);
+    assert.match(JSON.stringify(body.messages), /File selected: CV.txt/, 'the original must be attempted unchanged, not silently converted from accept');
+    return [{ name: 'upload_document', args: { document_id: 'cv-1', selector: '#resume', format: 'pdf' } }];
+  }, body => {
+    assert.match(observation(body), /Resume accepted/);
+    assert.match(JSON.stringify(body.messages), /File selected: CV.pdf/);
+    return [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
+  }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Agent chose PDF after actual employer rejection', evidence: 'Application received: CONVERT123' } }]];
+  const convertedUpload = await runApplicationAgent({ page, job: { ...job, id: 'agent-requested-upload-format' }, profile, log: () => {} });
+  assert.equal(convertedUpload.outcome.status, 'applied');
+
+  await page.setContent(uploadForm('doc,docx,pdf,rtf'));
+  script = [() => [{ name: 'upload_document', args: { document_id: '../../another-account/CV.pdf', selector: '#resume' } }], body => {
+    assert.match(JSON.stringify(body.messages), /Choose a document_id from the account document inventory/);
+    return [{ name: 'finish', args: { status: 'skipped', reason: 'Unknown document correctly refused', evidence: 'No account-owned document matched that ID' } }];
+  }];
+  await runApplicationAgent({ page, job: { ...job, id: 'direct-upload-owner-isolation' }, profile, log: () => {} });
+  assert.equal(await page.locator('#resume').evaluate(input => (input as HTMLInputElement).files?.length), 0);
+  writeFileSync(join(directory, 'resumes.json'), originalInventory);
+
   await page.goto(url);
 
   const beforeBatch = turns.length;
