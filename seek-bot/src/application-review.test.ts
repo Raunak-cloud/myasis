@@ -75,7 +75,9 @@ try {
   process.env.APPLICATION_REVIEW_MODE = 'prepare';
   let turn = 0;
   let calls: Array<{ name: string; args: Record<string, unknown> }> = [{ name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } }];
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    if (!body.tools?.length) return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: true }) } }] });
     const call = calls.shift() ?? { name: 'finish', args: { status: 'skipped', reason: 'Fixture complete', evidence: 'Fixture only' } };
     return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${++turn}`, type: 'function',
       function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
