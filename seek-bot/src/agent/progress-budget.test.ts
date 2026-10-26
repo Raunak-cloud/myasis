@@ -34,8 +34,6 @@ test('recent new answers extend spending gradually up to fifty cents', () => {
   fields[3].currentValue = 'Dear team'; meter.observe(fields, true);
   assert.equal(meter.limitUsd, 0.50);
   spend(meter, 0.08);
-  assert.equal(meter.limitUsd, 0.50);
-  spend(meter, 0.000001);
   assert.equal(meter.exhausted, true);
 });
 
@@ -81,4 +79,12 @@ test('a new form step counts once, revisiting steps and uploads cannot repeatedl
   spend(meter, 0.09);
   meter.uploaded('resume-1');
   assert.equal(meter.limitUsd, 0.37);
+});
+
+test('invalid operator settings retain safe finite budget defaults', () => {
+  const meter = new ProgressBudget(Number.NaN, Number.POSITIVE_INFINITY);
+  assert.equal(meter.limitUsd, 0.20);
+  assert.equal(meter.maximum, 0.50);
+  spend(meter, 0.20);
+  assert.equal(meter.exhausted, true);
 });

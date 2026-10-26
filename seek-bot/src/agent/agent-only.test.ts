@@ -218,6 +218,16 @@ try {
     assert.deepEqual(stopped.outcome, { status: 'skipped', reason: 'The application spending budget was reached.' });
     assert.equal(turns.length - before, 3, 'stuck actions and model-authored notes cannot unlock extra spending');
   }
+  await page.setContent(`${progressForm}<label>Resume<input id=cv type=file accept='.txt'></label>`);
+  await page.locator('#cv').setInputFiles(join(directory, 'resumes', 'CV.txt'));
+  script = [
+    () => expensive([{ name: 'take_snapshot', args: {} }]),
+    () => expensive([{ name: 'upload_document', args: { selector: '#cv', document_id: 'cv-1' } }]),
+    () => expensive([{ name: 'browser_action', args: { action: 'fill', selector: '#q0', value: 'Must not execute' } }]),
+  ];
+  const unchangedUpload = await runApplicationAgent({ page, job: { ...job, id: 'native-progress-unchanged-upload' }, profile, log: () => {} });
+  assert.deepEqual(unchangedUpload.outcome, { status: 'skipped', reason: 'The application spending budget was reached.' });
+  assert.equal(await page.inputValue('#q0'), '', 're-uploading the already-present resume cannot buy extra spending');
   config.celeris.budgetUsdPerApplication = 0.10;
 
   // The provider charges the final response before its tool calls dispatch.

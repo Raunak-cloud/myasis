@@ -15,13 +15,15 @@ export class ProgressBudget extends CostMeter {
   readonly maximum: number;
 
   constructor(base: number, maximum = 0.50) {
+    base = Number.isFinite(base) && base > 0 ? base : 0.20;
+    maximum = Number.isFinite(maximum) && maximum > 0 ? maximum : 0.50;
     super(base);
     this.allowance = base;
     this.maximum = Math.max(base, maximum);
   }
 
   get limitUsd(): number { return this.allowance; }
-  override get exhausted(): boolean { return this.totals.costUsd >= this.allowance; }
+  override get exhausted(): boolean { return this.totals.costUsd + 1e-9 >= this.allowance; }
 
   private credit(key: string): void {
     if (this.credited.has(key)) return;

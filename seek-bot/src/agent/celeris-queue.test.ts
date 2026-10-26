@@ -10,7 +10,7 @@ import { closeCelerisQueues } from '../../../shared/celeris-queue.mjs';
 const directory = mkdtempSync(join(tmpdir(), 'celeris-client-queue-'));
 Object.assign(process.env, { DATA_DIR: directory, COST_TRACKING: 'true', CELERIS_API_KEY: 'fixture-key',
   CELERIS_QUEUE_FILE: join(directory, 'queue.sqlite'), CELERIS_MIN_INTERVAL_MS: '0', CELERIS_MAX_CONCURRENT_REQUESTS: '2' });
-const { celerisChat } = await import('./celeris.js');
+const { celerisChat, CostMeter, ApplicationBudgetExhaustedError } = await import('./celeris.js');
 const { withApplicationModel } = await import('../application-model.js');
 const originalFetch = globalThis.fetch, originalRandom = Math.random;
 after(() => { globalThis.fetch = originalFetch; Math.random = originalRandom; closeCelerisQueues(); rmSync(directory, { recursive: true, force: true }); });
@@ -18,6 +18,30 @@ const request = { model: 'celeris-1' as const, messages: [{ role: 'user' as cons
 const success = () => new Response(JSON.stringify({ choices: [{ message: { content: 'fixture answer' }, finish_reason: 'stop' }],
   usage: { prompt_tokens: 20, completion_tokens: 3 } }));
 const environment = (scope: string) => ({ ...process.env, CELERIS_WORKSPACE_ID: scope });
+
+test('an unusable charged response cannot trigger another request after exhausting its application budget', async () => {
+  let calls = 0;
+  const meter = new CostMeter(0.50);
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ choices: [{ message: { content: 'Incomplete response' }, finish_reason: 'length' }], usage: { completion_tokens: 1_000_000 } });
+  };
+  await assert.rejects(withApplicationModel(environment('budget-retry'), () => celerisChat({ ...request, meter })), ApplicationBudgetExhaustedError);
+  assert.equal(calls, 1);
+  assert.equal(meter.exhausted, true);
+});
+
+test('provider-reported charges on a format error also enforce the application budget before retrying', async () => {
+  let calls = 0;
+  const meter = new CostMeter(0.50);
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ error: 'response_format could not be satisfied', usage: { completion_tokens: 1_000_000 } }, { status: 400 });
+  };
+  await assert.rejects(withApplicationModel(environment('budget-format-retry'), () => celerisChat({ ...request, meter })), ApplicationBudgetExhaustedError);
+  assert.equal(calls, 1);
+  assert.equal(meter.exhausted, true);
+});
 
 test('429 honors Retry-After, jitter and a shared cooldown across accounts/models; payloads stay unchanged', async () => {
   Math.random = () => 0.5;

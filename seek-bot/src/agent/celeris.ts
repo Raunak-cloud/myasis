@@ -159,6 +159,9 @@ export interface CelerisRequest {
 
 /** The model answered, but never finished: the fault is in this reply, not in reaching Celeris. */
 export class ReplyUnusableError extends Error {}
+export class ApplicationBudgetExhaustedError extends Error {
+  constructor() { super('The application spending budget was reached.'); }
+}
 
 /**
  * The model answered, but the answer cannot be used: the fault is in this
@@ -215,6 +218,9 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   const deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
+    // A charged unusable reply can exhaust the budget before an internal
+    // generation retry. The parent tool loop has not regained control yet.
+    if (request.meter?.exhausted) throw new ApplicationBudgetExhaustedError();
     let costRecorded = false;
     let endCostRequest = () => {};
     let permit: CelerisPermit | undefined;
@@ -225,6 +231,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       const queuedAt = performance.now();
       permit = await acquireCelerisPermit({ endpoint: endpointFor(request.model), deadline, leaseMs: config.celeris.timeoutMs,
         env: { ...process.env, ...applicationModelEnvironment() } });
+      if (request.meter?.exhausted) throw new ApplicationBudgetExhaustedError();
       metric('model-queue', performance.now() - queuedAt, { model: request.model });
       endCostRequest = beginCostRequest('Celeris', request.model);
       sent = true;
@@ -253,7 +260,10 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         if ([401, 402, 404, 413, 429, 502, 503].includes(response.status)) {
           recordCost({ provider: 'Celeris', model: request.model, amountUsd: 0, basis: 'provider',
             detail: `HTTP ${response.status}: rejected request or server failure; not charged by Celeris.` });
-        } else recordCelerisCost(request.model, reportedUsage);
+        } else {
+          if (reportedUsage) request.meter?.record(reportedUsage);
+          recordCelerisCost(request.model, reportedUsage);
+        }
         costRecorded = true;
         endCostRequest();
         if (response.status === 400 && /response_format could not be satisfied/i.test(detail)) {

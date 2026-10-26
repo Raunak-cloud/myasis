@@ -20,7 +20,7 @@ import { startAgentActivity } from './agent-activity.js';
 import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationAttemptHistory } from './agent-only-evidence.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
 import { agentOnlyTranscript } from './agent-only-transcript.js';
-import { celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
+import { ApplicationBudgetExhaustedError, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
 import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
 import { isExternal } from './browser-boundaries.js';
@@ -384,9 +384,11 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       } else throw new Error('Provide document_id or cover_letter.');
       const converted = await documentFor(file, await input.getAttribute('accept') ?? '');
       if (!converted) throw new Error('No supported document conversion is available for this input.');
+      const before = await nativeReadback(input).catch(() => null) as { files?: string[] } | null;
       await input.setInputFiles(converted, { timeout: 15_000 });
-      const readback = await nativeReadback(input) as { files?: string[]; invalid?: boolean; validation?: string };
-      if (readback.files?.length && !readback.invalid && !readback.validation) meter.uploaded(String(args.document_id ?? 'cover-letter'));
+      const readback = await nativeReadback(input).catch(() => null) as { files?: string[]; invalid?: boolean; validation?: string } | null;
+      if (before && readback?.files?.length && !readback.invalid && !readback.validation
+        && JSON.stringify(before.files) !== JSON.stringify(readback.files)) meter.uploaded(String(args.document_id ?? 'cover-letter'));
       return ok('Document uploaded; inspect its saved filename on the page.');
     }
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
@@ -583,10 +585,16 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
           requireTool: true, thinking: true, reasoningEffort: highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
       } catch (error) {
+        if (error instanceof ApplicationBudgetExhaustedError) break;
         if (!/Celeris (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
-        reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
-          requireTool: true, thinking: true, reasoningEffort: highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
+        try {
+          reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
+            requireTool: true, thinking: true, reasoningEffort: highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
+        } catch (retryError) {
+          if (retryError instanceof ApplicationBudgetExhaustedError) break;
+          throw retryError;
+        }
       }
       messages.push(reply.message);
       highEffort = false;
