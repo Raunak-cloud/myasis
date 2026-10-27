@@ -3,7 +3,7 @@ import { applicationModelEnvironment } from '../application-model.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost, recordCost } from '../cost-ledger.js';
-import { acquireCelerisPermit, celerisRetryDelay, waitForCelerisRetry, type CelerisPermit } from '../../../shared/celeris-queue.mjs';
+import { acquireCelerisPermit, celerisRetryDelay, waitForCelerisRetry, CelerisQueueDeadlineError, type CelerisPermit } from '../../../shared/celeris-queue.mjs';
 
 /**
  * Minimal client for Celeris' OpenAI-compatible chat API.
@@ -173,6 +173,12 @@ export class ApplicationBudgetExhaustedError extends Error {
  * that ran out of room threw away the ranking of every job in the run.
  */
 class ReplyTruncatedError extends ReplyUnusableError {}
+export class CelerisRetryDeadlineError extends Error {}
+
+function retryDeadline(error: unknown, priorReply?: unknown): Error {
+  const preceding = priorReply && priorReply !== error ? ` Earlier generation failed: ${(priorReply as Error).message}.` : '';
+  return new CelerisRetryDeadlineError(`Celeris retry deadline reached after: ${(error as Error).message}.${preceding}`, { cause: error });
+}
 
 export async function celerisChat(request: CelerisRequest): Promise<CelerisReply> {
 
@@ -217,6 +223,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   const startedAt = performance.now();
   const deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
   let lastError: unknown;
+  let unusableReply: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     // A charged unusable reply can exhaust the budget before an internal
     // generation retry. The parent tool loop has not regained control yet.
@@ -322,9 +329,13 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       // Release before sleeping: another worker may use the allowance while
       // this call backs off. A workspace 429 cooldown is already shared.
       permit?.release();
+      // Admission failure on a later attempt must not claim that the whole
+      // operation sent nothing: earlier generations may already be charged.
+      if (error instanceof CelerisQueueDeadlineError && lastError) throw retryDeadline(lastError, unusableReply);
       lastError = error;
       if (error instanceof ReplyUnusableError) {
         if (attempt !== 0) throw error;
+        unusableReply = error;
         // Only retry generation: no browser action from this response ran.
         // Ask for a fresh concise response rather than repeating a degenerate
         // punctuation loop until the same token limit is reached.
@@ -333,9 +344,14 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       }
       const detail = (error as Error).message ?? String(error);
       const transient = responseStatus === 429 || (responseStatus !== undefined && responseStatus >= 500 && responseStatus < 600)
-        || ((responseStatus === undefined || responseStatus < 400) && /econnreset|etimedout|fetch failed|aborted|timeout/i.test(detail));
+        || ((responseStatus === undefined || responseStatus < 400) && /econnreset|etimedout|fetch failed|aborted|timeout|timed out|AbortError/i.test(`${(error as Error).name} ${detail}`));
       if (!transient || attempt === 2) throw error;
-      await waitForCelerisRetry(retryMs ?? celerisRetryDelay(null, attempt), deadline);
+      try {
+        await waitForCelerisRetry(retryMs ?? celerisRetryDelay(null, attempt), deadline);
+      } catch (waitError) {
+        if (waitError instanceof CelerisQueueDeadlineError) throw retryDeadline(error, unusableReply);
+        throw waitError;
+      }
     } finally {
       endCostRequest();
       permit?.release();

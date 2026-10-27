@@ -107,3 +107,23 @@ test('queue rejection sends no request and creates no phantom unknown provider c
   assert.equal(calls, 0);
   assert.equal(readFileSync(join(directory, 'cost-ledger.jsonl'), 'utf8'), before);
 });
+
+test('a sent request timeout retains its cause when there is no time to retry', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; throw new DOMException('Fixture provider timed out', 'TimeoutError'); };
+  await assert.rejects(withApplicationModel(environment('sent-timeout'), () => celerisChat({ ...request, deadline: Date.now() + 300 })),
+    error => /retry deadline reached.*provider timed out/.test(String(error)) && !/no new request was sent/.test(String(error)));
+  assert.equal(calls, 1);
+});
+
+test('truncated generation followed by a timeout reports both failures instead of blaming queue admission', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) return Response.json({ choices: [{ message: { content: '' }, finish_reason: 'length' }], usage: { completion_tokens: 8192 } });
+    throw new DOMException('Fixture provider timed out', 'TimeoutError');
+  };
+  await assert.rejects(withApplicationModel(environment('truncated-then-timeout'), () => celerisChat({ ...request, deadline: Date.now() + 300 })),
+    error => /provider timed out/.test(String(error)) && /length limit/.test(String(error)) && !/no new request was sent/.test(String(error)));
+  assert.equal(calls, 2);
+});

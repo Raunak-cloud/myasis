@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CostMeter, type CelerisRequest, type CelerisReply } from './celeris.js';
+import { CostMeter, CelerisRetryDeadlineError, type CelerisRequest, type CelerisReply } from './celeris.js';
 import { PersonalAnswerCheck, checkedPersonalReviews, personalAnswers, type PersonalAnswer } from './personal-answer-check.js';
 import type { SavedForm } from './saved-form.js';
 import type { ToolContext } from './context.js';
@@ -133,4 +133,50 @@ test('automatic send classification charges the same application meter with boun
     assert.equal(meter.totals.calls, 1);
     assert.ok(meter.totals.costUsd > 0);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('large forms use bounded groups, retain completed checks after a failure, and never approve a partial review', async () => {
+  const large = { ...form(), fields: Array.from({ length: 29 }, (_, i) => ({ ...form().fields[0], label: `Personal question ${i}`, ref: `f${i}` })) };
+  const seen: string[][] = [];
+  let fail = true;
+  const check = new PersonalAnswerCheck({ meter: new CostMeter(1), remainingMs: () => 120_000, sources: async () => [], chat: async request => {
+    const answers: PersonalAnswer[] = JSON.parse(String(request.messages[1].content)).answers;
+    assert.ok(answers.length <= 12);
+    seen.push(answers.map(answer => answer.id));
+    if (seen.length === 2 && fail) throw new Error('Provider timed out');
+    return reply(answers.map(answer => review(answer.id, 'routine')));
+  } });
+  const first = await check.check(ctx(), large);
+  assert.ok(first?.kind === 'terminal' && first.outcome.status === 'skipped');
+  fail = false;
+  assert.equal(await check.check(ctx(), large), null);
+  assert.deepEqual(seen.map(group => group.length), [12, 12, 12, 5]);
+  assert.deepEqual(seen[1], seen[2]);
+  // A changed answer invalidates its group, while identical groups stay cached.
+  large.fields[0].currentValue = 'Yes';
+  assert.equal(await check.check(ctx(), large), null);
+  assert.equal(seen.length, 5);
+});
+
+test('a missing consequential answer in the final group blocks the whole form', async () => {
+  const large = { ...form(), fields: Array.from({ length: 13 }, (_, i) => ({ ...form().fields[0], label: `Personal question ${i}`, ref: `f${i}` })) };
+  const check = new PersonalAnswerCheck({ meter: new CostMeter(1), remainingMs: () => 120_000, sources: async () => [], chat: async request => {
+    const answers: PersonalAnswer[] = JSON.parse(String(request.messages[1].content)).answers;
+    return reply(answers.map(answer => review(answer.id, answer.id === 'field:12' ? 'missing' : 'routine')));
+  } });
+  const result = await check.check(ctx(), large);
+  assert.ok(result?.kind === 'terminal' && result.outcome.status === 'needs-human');
+  assert.equal(result.outcome.questions?.[0].question, 'Personal question 12');
+});
+
+test('a transient provider deadline allows one read-only retry while retaining the filled form; repeated failure stops', async () => {
+  let calls = 0;
+  const check = new PersonalAnswerCheck({ meter: new CostMeter(1), remainingMs: () => 120_000, sources: async () => [],
+    chat: async () => { calls++; throw new CelerisRetryDeadlineError('Provider timeout; no retry time remains'); } });
+  const first = await check.check(ctx(), form());
+  assert.ok(first?.kind === 'ok' && first.disposition === 'failed');
+  assert.match(first.message, /without refilling/);
+  const second = await check.check(ctx(), form());
+  assert.ok(second?.kind === 'terminal' && second.outcome.status === 'skipped');
+  assert.equal(calls, 2);
 });
