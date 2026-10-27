@@ -6,6 +6,8 @@ import type { PreparedApplication } from './application-review-types.js';
 
 const routes = new Map<string, { port: number; account: string; active: boolean; browser?: Promise<Browser>; tail: Promise<unknown>; pages: Set<Page> }>();
 const THREAD_ROWS = 'tr[data-thread-id], tr[data-legacy-thread-id], tr [data-legacy-thread-id], tr [data-thread-id]';
+const ERROR_NAMES = new Set(['Error', 'TimeoutError', 'TargetClosedError', 'ProtocolError', 'TypeError', 'ReferenceError', 'SyntaxError']);
+const NETWORK_ERRORS = new Set(['ERR_FAILED', 'ERR_ABORTED', 'ERR_TIMED_OUT', 'ERR_CONNECTION_CLOSED', 'ERR_CONNECTION_RESET', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED', 'ERR_NETWORK_CHANGED', 'ERR_INTERNET_DISCONNECTED', 'ERR_TOO_MANY_REDIRECTS', 'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_BLOCKED_BY_CLIENT', 'ERR_BLOCKED_BY_RESPONSE', 'ERR_CERT_AUTHORITY_INVALID', 'ERR_CERT_DATE_INVALID']);
 export function registerGmailBrowser(userId: string, port: number, account: string) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid private Gmail browser port.');
   const route = { port, account, active: true, tail: Promise.resolve(), pages: new Set<Page>() };
@@ -15,32 +17,60 @@ export function registerGmailBrowser(userId: string, port: number, account: stri
 export async function withGmailBrowser<T>(userId: string, action: (page: Page) => Promise<T>, fragment = ''): Promise<T> {
   const route = routes.get(userId);
   if (!route?.active) throw new GmailServiceError('reconnect', 'Start a run with your connected Gmail browser.');
+  let phase = 'connecting to the private browser';
+  let connection: Browser | undefined;
   const work = route.tail.catch(() => {}).then(async () => {
     if (!route.active) throw new GmailServiceError('reconnect', 'The Gmail browser session ended.');
-    route.browser ??= chromium.connectOverCDP(`http://127.0.0.1:${route.port}`, { timeout: 15_000 }).catch(() => {
-      route.browser = undefined; // a transient connection failure must not poison the entire run
-      throw new GmailServiceError('unavailable', 'The private Gmail browser connection is unavailable. Retry the mailbox request.');
-    });
+    if (!route.browser) {
+      const connecting = chromium.connectOverCDP(`http://127.0.0.1:${route.port}`, { timeout: 15_000 }).then(browser => {
+        browser.once('disconnected', () => { if (route.browser === connecting) route.browser = undefined; });
+        return browser;
+      }).catch(() => {
+        if (route.browser === connecting) route.browser = undefined;
+        throw new GmailServiceError('unavailable', 'The private Gmail browser connection is unavailable. Retry the mailbox request.');
+      });
+      route.browser = connecting;
+    }
     const browser = await route.browser;
+    connection = browser;
     const context = browser.contexts()[0];
-    if (!context) throw new GmailServiceError('reconnect', 'The Gmail browser is unavailable.');
+    if (!browser.isConnected() || !context) {
+      route.browser = undefined;
+      throw new GmailServiceError('unavailable', 'The private Gmail browser session is unavailable. Retry the mailbox request.');
+    }
+    phase = 'opening a mailbox tab';
     const page = await context.newPage();
     route.pages.add(page);
     try {
       // Open the requested view from a new page. A later hash-only navigation
       // can otherwise read the previous inbox while Gmail renders the search.
+      phase = 'opening Gmail';
       await page.goto(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(route.account)}${fragment}`, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+      phase = 'waiting for the mailbox';
       await page.locator('[role="main"]').waitFor({ timeout: 15_000 }).catch(() => { throw new GmailServiceError('reconnect', 'Sign in to Gmail in Settings. The mailbox did not open.'); });
+      phase = 'checking the signed-in account';
       const labels = await page.locator('a[aria-label^="Google Account:"], button[aria-label^="Google Account:"]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).getAttribute('aria-label') || '').join('\n'));
       const displayed = labels.match(/[^\s()<>]+@[^\s()<>]+/g) || [];
       if (!displayed.some(email => email.toLowerCase() === route.account.toLowerCase())) throw new GmailServiceError('reconnect', 'Gmail opened a different account. Connect the address in your profile.');
+      phase = 'reading the requested mailbox view';
       return await action(page);
     } finally { route.pages.delete(page); await page.close().catch(() => {}); }
   });
   route.tail = work;
   return work.catch(error => {
     if (error instanceof GmailServiceError) throw error;
-    throw new GmailServiceError('unavailable', 'The Gmail browser request could not finish. Retry the mailbox request; this does not establish that Gmail is disconnected.');
+    const closed = !connection?.isConnected() || /Target closed|Target page, context or browser has been closed|Session closed|has been disconnected/i.test(String((error as Error)?.message));
+    if (closed) {
+      route.browser = undefined;
+      void connection?.close().catch(() => {});
+    }
+    // Never log browser error text: it can contain mailbox URLs or message
+    // contents. These bounded fields identify the failing operation instead.
+    const errorName = error instanceof Error && ERROR_NAMES.has(error.name) ? error.name : 'Error';
+    const networkCode = /\bnet::(ERR_[A-Z_]+)/.exec(String((error as Error)?.message))?.[1];
+    console.warn('[gmail-browser]', JSON.stringify({ userId, phase, error: errorName, closed,
+      networkCode: networkCode ? NETWORK_ERRORS.has(networkCode) ? networkCode : 'OTHER_NETWORK_ERROR' : undefined }));
+    throw new GmailServiceError('unavailable', `The Gmail browser request could not finish while ${phase}. Retry the mailbox request; this does not establish that Gmail is disconnected.`);
   });
 }
 export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {

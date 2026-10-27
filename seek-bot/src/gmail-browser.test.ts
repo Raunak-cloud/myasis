@@ -42,6 +42,9 @@ const gateway = new GmailMcpService({ search: searchBrowserGmail, thread: readBr
 const lease = await gateway.grant('browser-owner', 'candidate@fixture.invalid', approvals), client = new GmailMcpClient(lease.connection);
 try {
   const threads = await client.search('verification'); assert.equal(threads[0].id, 'fixturethread');
+  const readerConnection = await withGmailBrowser('browser-owner', async page => page.context().browser()!);
+  await readerConnection.close();
+  assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'a dropped reader connection must reconnect instead of poisoning all later mailbox reads');
   assert.ok(gmailNavigations.some(url => url.includes('#search/')), 'search opens the requested view directly, without reading a stale inbox');
   emptySearch = true; assert.deepEqual(await client.search('no matching email'), []); emptySearch = false;
   mailboxUnavailable = true;
@@ -50,6 +53,16 @@ try {
   assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'a temporary mailbox failure does not poison later reads');
   const messages = await client.thread(threads[0].id);
   assert.equal(messages[0].date, undefined, 'a browser read must not invent a delivery timestamp that reverses verification-code order');
+  const originalWarn = console.warn;
+  let diagnostic = '';
+  try {
+    console.warn = (...parts) => { diagnostic = parts.join(' '); };
+    await assert.rejects(withGmailBrowser('browser-owner', async () => {
+      const error = new Error('private-message-body net::ERR_PRIVATE_MESSAGE_BODY'); error.name = 'private-mailbox-name'; throw error;
+    }), /while reading the requested mailbox view/);
+  } finally { console.warn = originalWarn; }
+  assert.match(diagnostic, /OTHER_NETWORK_ERROR/);
+  assert.doesNotMatch(diagnostic, /private-message-body|private-mailbox-name|ERR_PRIVATE_MESSAGE_BODY/, 'diagnostics cannot log browser error contents or arbitrary error names');
   assert.equal(readVerificationEmailsLocally(messages.map(verificationMessage), { hint: 'Fixture', want: 'code' })?.value, '482913');
   await assert.rejects(client.thread('foreignthread'), /Search this mailbox/);
   for (const draft of drafts.values()) await client.sendApproved(draft.id, draft.revision);
