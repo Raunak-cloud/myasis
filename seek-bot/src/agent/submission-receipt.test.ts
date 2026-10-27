@@ -17,6 +17,15 @@ try {
   const employerMessage = 'Congratulations! You have applied to a new job as Sandwich Artist at the selected store.';
   await page.setContent(`<main><h1>${employerMessage}</h1><p>Check your email for confirmation.</p></main>`);
   assert.ok(await submissionReceipt(page, employerMessage), 'novel employer wording is grounded without an English success phrase allowlist');
+  await page.setContent('<h1>Your application for <a href="/job">Retail Assistant</a> has been received.</h1>');
+  assert.ok(await submissionReceipt(page, 'Your application for Retail Assistant has been received.'), 'linked vacancy text remains part of the employer message');
+  await page.setContent('Application received: PLAIN123');
+  assert.ok(await submissionReceipt(page, 'Application received: PLAIN123'));
+  await page.setContent('<div id=receipt></div>');
+  await page.locator('#receipt').evaluate(node => node.attachShadow({ mode: 'open' }).innerHTML='<h1>Application received: SHADOW123</h1>');
+  assert.ok(await submissionReceipt(page, 'Application received: SHADOW123'));
+  await page.locator('#receipt').evaluate(node => node.setAttribute('role','button'));
+  assert.equal(await submissionReceipt(page, 'Application received: SHADOW123'), null, 'shadow control state cannot stand in for an employer receipt');
   await page.setContent('<main>Thank you for applying. Your application has been successfully submitted.</main>');
   assert.ok(await submissionReceipt(page, 'Your application has been successfully submitted.'));
   await page.setContent('<main>Application sent</main>');
