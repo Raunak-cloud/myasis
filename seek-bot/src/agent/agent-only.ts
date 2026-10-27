@@ -267,6 +267,20 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const activity = startAgentActivity(options.job);
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    // A native modal blocks renderer inspection, including locator.count().
+    // Surface it before any DOM probe; the agent chooses the dialog response.
+    const pendingDialog = dialogs.get(ctx.page);
+    if (pendingDialog) {
+      if (name === 'browser_action' && args.action === 'dialog') {
+        const value = String(args.value ?? '');
+        if (reviewingApplications() && value !== 'dismiss') return ok('Use dismiss in Semi auto. Accepting a browser dialog can bypass candidate confirmation.', 'failed');
+        dialogs.delete(ctx.page);
+        if (value === 'dismiss') await pendingDialog.dismiss();
+        else await pendingDialog.accept(value === 'accept' ? undefined : value);
+        return ok('Browser dialog answered. Inspect the fresh employer page before continuing.', 'reobserve');
+      }
+      return ok(`Pending browser ${pendingDialog.type()} dialog: ${pendingDialog.message()}. The page cannot be inspected while it is open. Choose browser_action with action=dialog to answer it; do not repeat the prior page action.`, 'reobserve');
+    }
     if (await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
     if (name === 'browser_batch') {
       const results: unknown[] = [];
@@ -564,25 +578,30 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         ctx.page = open.at(-1)!;
       }
       if (await followPopup()) lastNote = 'The previous control opened a new tab. Read the new page before acting.';
-      if (await hasHcaptchaChallenge(ctx.page)) {
+      const pendingDialog = dialogs.get(ctx.page);
+      if (!pendingDialog && await hasHcaptchaChallenge(ctx.page)) {
         terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
         finished = true;
         break;
       }
-      ctx.observation = await observe(ctx.page, { screenshot });
-      if (!waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
+      ctx.observation = pendingDialog ? { url: ctx.page.url(), title: ctx.observation.title,
+        actions: [], fields: [], text: `Native browser ${pendingDialog.type()} dialog blocks the page: ${pendingDialog.message()}` }
+        : await observe(ctx.page, { screenshot });
+      if (!pendingDialog && !waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
         || !ctx.observation.fields.length && /\b(?:loading|please wait)\b/i.test(ctx.observation.text))) {
         waitedForSurface.add(ctx.observation.url);
         const ready = await waitForApplicationSurface(ctx.page, Math.max(1, Math.min(15_000, remainingMs())));
         ctx.observation = await observe(ctx.page, { screenshot });
         if (!ready) lastNote += ' Waited for the application surface; it has not rendered yet. Inspect loading/blocking evidence instead of repeatedly requesting the same snapshot.';
       }
-      if (isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
+      if (!pendingDialog && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
       // Inspect the results of already-executed actions before enforcing the
       // next-call budget. This does not run another model or replay a write.
-      meter.observe(ctx.observation.fields, browserMutated);
-      browserMutated = false;
+      if (!pendingDialog) {
+        meter.observe(ctx.observation.fields, browserMutated);
+        browserMutated = false;
+      }
       if (meter.exhausted || !stepBudget.permits(steps, meter.progressCount)) break;
       if (approved) {
         // Keep actual readback for known answers across wizard steps, including
@@ -599,14 +618,14 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
-      if (await hasHcaptchaChallenge(ctx.page)) {
+      if (!pendingDialog && await hasHcaptchaChallenge(ctx.page)) {
         terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
         finished = true;
         break;
       }
       messages.push(observationMessage(ctx.observation, `${lastNote}\n${submissionReviewRequired ? 'SUBMISSION RESULT REVIEW: Read the current employer response. Finish with its actual receipt or an honest uncertain result. Use resume_after_rejected_submission only for an explicit employer rejection or a new required application step after a handoff. Read-only waits and snapshots are allowed; do not repeat the prior send.' : ''}\nOpen pages: ${JSON.stringify(pages)}\nDurable progress: ${recoveryNote}\n${interactionMemory.render()}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       const turnTools = agentOnlyTools.filter(tool => submissionReviewRequired
-        ? ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result'].includes(tool.name)
+        ? ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result', ...(pendingDialog ? ['browser_action'] : [])].includes(tool.name)
         : tool.name !== 'resume_after_rejected_submission');
       steps++; // Model turns; extra windows require fresh browser-confirmed progress.
       // Compact only at the threshold so ordinary turns retain a cacheable

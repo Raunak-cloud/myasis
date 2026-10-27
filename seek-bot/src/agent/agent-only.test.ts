@@ -583,6 +583,17 @@ try {
   assert.ok(completedTrace.steps[0].completedAt);
   assert.match(completedTrace.steps[0].result, /Controlled script completed/);
   assert.equal(script.length, 0);
+  await page.setContent('<main><button onclick="alert(\'Resume imported. Please continue.\')">Import resume</button><p>Application is not sent.</p></main>');
+  script = [() => [{ name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Import resume' } } }],
+  body => {
+    assert.match(observation(body), /Resume imported\. Please continue\./, 'a native dialog must reach the agent without a renderer inspection deadlock');
+    return [{ name: 'browser_action', args: { action: 'dialog', value: 'accept' } }];
+  }, () => [{ name: 'finish', args: { status: 'skipped', reason: 'Controlled dialog test completed', evidence: 'Import acknowledgement was handled; no application sent.' } }]];
+  const dialogRun = await runApplicationAgent({ page, job: { ...job, id: 'native-dialog-recovery' }, profile, log: () => {} });
+  assert.equal(dialogRun.outcome.status, 'skipped');
+  assert.equal(dialogRun.steps, 3);
+  assert.equal(dialogRun.submitPressed, false);
+  assert.equal(script.length, 0);
   console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and hCaptcha skip.');
 } finally {
   await browser.close();
