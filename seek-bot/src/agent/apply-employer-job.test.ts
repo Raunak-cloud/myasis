@@ -14,6 +14,7 @@ process.env.APPLY_ONLY = 'all';
 const { applyToEmployerJob } = await import('./apply-employer-job.js');
 const { smartRecruitersListing } = await import('../smartrecruiters.js');
 const { config } = await import('../config.js');
+const { reviewContentFingerprint, reviewContextFingerprint, currentFitReview } = await import('../review-cache.js');
 const job = smartRecruitersListing({
   id: '123456789', name: 'Fixture Developer', company: { identifier: 'FixtureEmployer', name: 'Fixture Employer' },
   location: { city: 'Sydney', country: 'au' }, visibility: 'PUBLIC',
@@ -84,9 +85,17 @@ try {
   }), /Fixture agent failed/);
   assert.equal(released, 2, 'navigation guard is removed even when the agent fails');
   for (const source of sourceJobs) {
-    const target = { ...job, id: `${source.platform}-fixture`, platform: source.platform, url: source.url, applicationUrl: source.url };
-    const outcome = await applyToEmployerJob(page, target, profile, deps, { guard, runAgent: async options => {
+    const target = { ...job, id: `${source.platform}-fixture`, platform: source.platform, url: source.url, applicationUrl: source.url,
+      description: 'Build web applications.', fitReview: undefined as import('../types.js').JobFitReview | undefined };
+    target.fitReview = { score: 100, reason: 'Development role approved.', evidence: ['Build web applications.'],
+      contentFingerprint: reviewContentFingerprint(target)!, contextFingerprint: reviewContextFingerprint(profile) };
+    let refreshed = false;
+    const outcome = await applyToEmployerJob(page, target, profile, deps, { guard, refresh: async previous => {
+      refreshed = true; return { ...previous, fitReview: undefined };
+    }, runAgent: async options => {
       assert.equal(options.job.platform, source.platform);
+      assert.equal(refreshed, true);
+      assert.ok(currentFitReview(options.job, profile), 'provider refresh must preserve the matcher approval into the real application boundary');
       await options.page.locator('input[name=email]').fill(profile.email);
       await options.page.getByRole('button', { name: 'Submit application' }).click();
       assert.equal(await options.page.title(), 'Fixture submitted');

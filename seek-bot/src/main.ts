@@ -115,7 +115,7 @@ if (employerFeedsEnabled(process.env)) {
     assertSignedIn: async () => {},
     search: (_page, keyword, page) => discovery.search(keyword, page),
     fetchJobDetail: (_page, job) => discovery.detail(job),
-    apply: async (page, job, profile, deps) => applyToEmployerJob(page, await discovery.detail(job), profile, deps),
+    apply: async (page, job, profile, deps) => applyToEmployerJob(page, job, profile, deps, { refresh: job => discovery.detail(job) }),
   });
 }
 
@@ -128,7 +128,7 @@ if (employerFeedsEnabled(process.env)) {
       assertSignedIn: async () => {},
       search: (_page, keyword, page) => discovery.search(keyword, page),
       fetchJobDetail: (_page, job) => discovery.detail(job),
-      apply: async (page, job, profile, deps) => applyToEmployerJob(page, await discovery.detail(job), profile, deps),
+      apply: async (page, job, profile, deps) => applyToEmployerJob(page, job, profile, deps, { refresh: job => discovery.detail(job) }),
     });
   }
 }
@@ -703,6 +703,7 @@ async function main() {
       const semanticScore = fit?.matchScore ?? score;
       const contentFingerprint = reviewContentFingerprint(job);
       if (fit && contentFingerprint) job.fitReview = { score: fit.matchScore, reason: fit.reason, evidence: fit.evidence,
+        ...(fit.roleFitCheck ? { roleFitCheck: fit.roleFitCheck } : {}),
         ...(fit.workArrangementCheck ? { workArrangementCheck: fit.workArrangementCheck } : {}),
         contentFingerprint, contextFingerprint: reviewContext };
       candidates.push({ job, score: semanticScore, why, reasons: decisionReasons });
@@ -1315,7 +1316,7 @@ async function main() {
                   url: job.url,
                   appliedAt: outcome.at,
                   ...(outcome.applicationUrl || job.applicationUrl ? { applicationUrl: outcome.applicationUrl ?? job.applicationUrl } : {}),
-                  score,
+                  score: job.fitReview?.score ?? score,
                   platform: platformId,
                   salary: job.salary,
                   workArrangement: job.workArrangement,
@@ -1323,7 +1324,7 @@ async function main() {
                   coverLetter: outcome.coverLetter,
                   answers: outcome.answers,
                   ...(outcome.resume ? { resume: outcome.resume } : {}),
-                  scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...reasons] : reasons,
+                  scoreReasons: job.source === 'recommended' ? [`${adapter.label} Recommended`, ...(job.fitReview?.evidence ?? reasons)] : job.fitReview?.evidence ?? reasons,
                   external: job.applicationMode === 'external',
                   ...(outcome.site ? { site: outcome.site } : {}),
                   ...(outcome.actions?.length ? { actions: outcome.actions } : {}),

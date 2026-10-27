@@ -43,13 +43,16 @@ globalThis.fetch = async (_url, init) => {
     const correction = String(userPrompt).includes('DECISION CONTRACT CORRECTION');
     if (correction) {
       corrections++; assert.equal(body.model, 'celeris-1-magnus');
-      assert.match(userPrompt, /failed this specific check: matchScore/);
+      assert.match(userPrompt, /failed this specific check: (?:matchScore|roleFitCheck)/);
     }
     assert.equal(schema.properties.matchScore.minimum, 0);
     assert.equal(schema.properties.matchScore.maximum, 100);
     const stale = (mode === 'stale-repair' && !correction) || mode === 'stale-twice';
     const malformed = mode === 'invalid-twice' || mode === 'repair' && !correction;
     value = {
+      roleFitCheck: { alignment: 'aligned', employerEvidence: 'Casual retail assistant.',
+        candidateEvidence: mode === 'invented-role-evidence' && !correction ? 'Ten years of specialist UX research.' : 'Retail customer service experience.',
+        explanation: 'The primary retail service duties match saved CV experience.' },
       workArrangementCheck: { offered: ['onsite'], evidence: 'Casual retail assistant.' },
       opportunityEvidence: 'A genuine current casual Retail Assistant vacancy.',
       instructionCheck: stale
@@ -105,6 +108,10 @@ try {
   assert.match(fitAssessmentValidationError({ ...recovered, instructionCheck: { violated: true, ruleQuote: 'Obsolete restriction', explanation: 'A saved question mentions it.' } })!, /CURRENT standing instructions/);
   mode = 'stale-twice';
   assert.equal((await assessFit({ ...job, id: 'stale-twice', description: `${job.description} Invalid stale rule twice.` }, profile)).shouldApply, true);
+  mode = 'invented-role-evidence';
+  const beforeEvidenceRepair = corrections;
+  assert.equal((await assessFit({ ...job, id: 'invented-role-evidence', description: `${job.description} Grounding fixture.` }, profile)).shouldApply, true);
+  assert.equal(corrections, beforeEvidenceRepair + 1, 'an invented candidate qualification must be corrected against actual CV evidence before approval');
   const diagnostics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(row => row.stage === 'fit-contract-invalid');
   assert.ok(diagnostics.some(row => row.jobId === 'invalid-twice' && row.attempt === 2 && /matchScore/.test(row.error)));
   assert.equal(diagnostics.some(row => JSON.stringify(row).includes(staleAnswer.question)), false, 'diagnostics record failed paths without leaking candidate answers');

@@ -46,6 +46,7 @@ export interface JobFitReview {
   score: number;
   reason: string;
   evidence: string[];
+  roleFitCheck?: import('./role-fit.js').RoleFitCheck;
   workArrangementCheck?: { offered: Array<'onsite' | 'hybrid' | 'remote'>; evidence: string };
   contentFingerprint: string;
   contextFingerprint: string;

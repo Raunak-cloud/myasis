@@ -10,16 +10,25 @@ import { runApplicationAgent } from './loop.js';
 import { outcomeFromRun } from './outcome.js';
 import { waitForApplicationSurface } from './observe.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
+import { refreshMatchedApplication } from '../matched-application.js';
 
 /** Public-feed jobs enter the same application agent and submission gate as employer handoffs. */
 export async function applyToEmployerJob(page: Page, job: JobListing, profile: CandidateProfile, deps: ApplyDeps,
-  options: { runAgent?: typeof runApplicationAgent; guard?: typeof guardExternalNavigations } = {},
+  options: { runAgent?: typeof runApplicationAgent; guard?: typeof guardExternalNavigations;
+    refresh?: (job: JobListing) => Promise<JobListing> } = {},
 ): Promise<ApplyOutcome> {
   if (!job.platform || !isEmployerSource(job.platform) || !employerFeedsEnabled(process.env) || !config.allowExternalApply) {
     return { status: 'skipped', jobId: job.id, reason: 'Employer-feed applications are currently restricted to administrator accounts.' };
   }
   if (outsideScope('external')) return { status: 'skipped', jobId: job.id, reason: scopeSkipReason() };
   if (config.dryRun && process.env.REHEARSE !== 'true') return { status: 'skipped', jobId: job.id, reason: 'Dry run — forms are not opened.' };
+  if (options.refresh) {
+    const refreshed = await refreshMatchedApplication(job, await options.refresh(job), profile);
+    if ('outcome' in refreshed) return refreshed.outcome;
+    // Keep coordinator accounting and recovery metadata on the same reviewed job.
+    delete job.fitReview;
+    Object.assign(job, refreshed.job);
+  }
   const listing = employerJobIdentity(job.platform, job.url);
   const destination = employerJobIdentity(job.platform, job.applicationUrl ?? job.url);
   if (listing.namespace !== destination.namespace || listing.posting !== destination.posting) throw new Error('The application address is for a different employer job.');
