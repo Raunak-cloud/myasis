@@ -372,18 +372,6 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
                 />
                 <span className="job-meta">Choose up to {USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications per day.</span>
               </label>}
-              {canFineTune && <label className="field">
-                <FieldLabel label="Search pages per term" help="How many result pages to check for each search term. More pages take longer." />
-                <input
-                  className="input"
-                  type="number"
-                  value={val('PAGES_PER_KEYWORD')}
-                  min="1"
-                  max={USER_RUN_LIMITS.PAGES_PER_KEYWORD}
-                  onChange={(e) => set('PAGES_PER_KEYWORD', e.target.value)}
-                />
-                <span className="job-meta">Choose up to {USER_RUN_LIMITS.PAGES_PER_KEYWORD} pages per term.</span>
-              </label>}
             </div>
           </div>
         )}

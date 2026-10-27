@@ -55,7 +55,6 @@ const RUN_DEFAULTS: Record<string, string> = {
   MAX_EVALUATIONS: '40',
   MIN_SCORE: '60',
   MAX_APPS_PER_DAY: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
-  PAGES_PER_KEYWORD: '1',
   COVER_LETTER_MODE: 'tailored',
   COVER_LETTER_TEXT_B64: '',
   AI_INSTRUCTIONS_B64: '',
@@ -504,7 +503,6 @@ export function RunPanel({
   };
   const RUN_CAPS = [
     { key: 'MAX_EVALUATIONS', label: 'Jobs to evaluate' },
-    { key: 'PAGES_PER_KEYWORD', label: 'Search pages per term' },
     { key: 'MAX_APPS_PER_DAY', label: 'Daily application cap' },
   ];
   const termCount = val('KEYWORDS').split(',').map((t) => t.trim()).filter(Boolean).length;
@@ -554,10 +552,10 @@ export function RunPanel({
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
       'MIN_SALARY', 'MIN_HOURLY_RATE', 'MAX_AGE_DAYS', 'MAX_EVALUATIONS',
-      'MIN_SCORE', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
+      'MIN_SCORE', 'MAX_APPS_PER_DAY',
     ].filter((key) => !unlimited(key));
     const positiveKeys = [
-      'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY', 'PAGES_PER_KEYWORD',
+      'MAX_EVALUATIONS', 'MAX_APPS_PER_DAY',
     ].filter((key) => !unlimited(key));
     if (!updates.KEYWORDS.trim()) {
       fail('Add at least one job title or search term.', 'KEYWORDS');
@@ -591,7 +589,7 @@ export function RunPanel({
     }
     const limitError = userRunLimitError({
       ...(entitlements?.advancedFilters ? {MAX_AGE_DAYS:updates.MAX_AGE_DAYS} : {}),
-      ...(entitlements?.fineTune ? {MAX_APPS_PER_DAY:updates.MAX_APPS_PER_DAY, PAGES_PER_KEYWORD:updates.PAGES_PER_KEYWORD} : {}),
+      ...(entitlements?.fineTune ? {MAX_APPS_PER_DAY:updates.MAX_APPS_PER_DAY} : {}),
     });
     if (limitError) { fail(limitError.message, limitError.key); return; }
     /**
@@ -1389,14 +1387,6 @@ export function RunPanel({
                     />
                     <input className="input" data-field="MAX_APPS_PER_DAY" type="number" min="1" max={USER_RUN_LIMITS.MAX_APPS_PER_DAY} value={val('MAX_APPS_PER_DAY')} onChange={(e) => setEdit('MAX_APPS_PER_DAY', e.target.value)} />
                     {fieldError('MAX_APPS_PER_DAY')}
-                  </label>}
-                  {entitlements?.fineTune && <label className="field">
-                    <FieldLabel
-                      label="Search pages per term"
-                      help={`How many result pages to check for each search term. Choose up to ${USER_RUN_LIMITS.PAGES_PER_KEYWORD}. More pages take longer.`}
-                    />
-                    <input className="input" data-field="PAGES_PER_KEYWORD" type="number" min="1" max={USER_RUN_LIMITS.PAGES_PER_KEYWORD} value={val('PAGES_PER_KEYWORD')} onChange={(e) => setEdit('PAGES_PER_KEYWORD', e.target.value)} />
-                    {fieldError('PAGES_PER_KEYWORD')}
                   </label>}
                 </div>
               </section>}
