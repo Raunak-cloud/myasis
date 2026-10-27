@@ -14,6 +14,8 @@
     "test:external": "tsc && node dist/external-e2e.js",
     "test:external-real": "tsc && node dist/external-real-rehearsal.js",
     "test:agent": "tsc && node dist/agent/agent-only.test.js",
+    "test:agent-screenshots": "tsc && node --test dist/agent/agent-only-transcript.test.js && node dist/agent/agent-screenshots.test.js",
+    "test:agent-screenshots-live": "tsc && node scripts/test-screenshot-agent-live.mjs --live",
     "test:cover-letter": "tsc && node dist/agent/cover-letter-opportunity.test.js",
     "test:assessment-reuse": "tsc && node dist/assessment-reuse.test.js",
     "test:capmonster": "tsc && node scripts/test-capmonster.mjs",

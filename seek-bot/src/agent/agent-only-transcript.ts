@@ -1,6 +1,20 @@
 import type { ChatMessage } from './celeris.js';
 import { trimTranscript } from './loop/transcript.js';
 
+/** The screenshot experiment sends one current picture while retaining prior text and actions. */
+export function latestObservationScreenshotOnly(messages: ChatMessage[]): ChatMessage[] {
+  let latest = -1;
+  messages.forEach((message, index) => { if (message.role === 'user') latest = index; });
+  let changed = false;
+  const next = messages.map((message, index): ChatMessage => {
+    if (index <= 1 || index === latest || message.role !== 'user' || typeof message.content === 'string'
+      || !message.content.some(part => part.type === 'image_url')) return message;
+    changed = true;
+    return { ...message, content: message.content.filter(part => part.type === 'text') };
+  });
+  return changed ? next : messages;
+}
+
 /** Old DOM trees are observations, not candidate facts. Keep the current
  * observation/snapshot, authored answers and tool actions. */
 export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number, force = false): ChatMessage[] {

@@ -30,6 +30,7 @@ const approvedIds = new Set<string>();
 const letterEdits = new Map<string, any>();
 let letterInstructions = '';
 let failedLetterFixture = false;
+let screenshotsEveryTurn = 'false';
 const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')).prepared : null;
 const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
   application: { revision: String(index).repeat(64), job: { title: `Prepared Role ${index}`, company: 'Fixture Employer', location: 'Sydney', url: `https://fixture.invalid/job/${index}` },
@@ -38,6 +39,7 @@ const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ i
       application: letterEdits.get(row.id) ?? row.application }));
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
+  APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: screenshotsEveryTurn,
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   COVER_LETTER_INSTRUCTIONS: letterInstructions,
@@ -48,6 +50,10 @@ const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     if (req.method === 'POST') writes.push({ path, body: JSON.parse(body || '{}') });
+    if (path === '/api/settings' && req.method === 'POST' && JSON.parse(body || '{}').updates?.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN !== undefined) {
+      assert.equal(admin, true, 'ordinary accounts never post screenshot testing');
+      screenshotsEveryTurn = JSON.parse(body).updates.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN;
+    }
     if (path === '/api/settings' && req.method === 'POST' && JSON.parse(body || '{}').updates?.COVER_LETTER_INSTRUCTIONS !== undefined) {
       letterInstructions = JSON.parse(body).updates.COVER_LETTER_INSTRUCTIONS.trim();
     }
@@ -127,6 +133,21 @@ try {
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: 'Start Auto apply', exact: true }).waitFor();
     assert.equal(await page.getByRole('switch', { name: 'Admin mode', exact: true }).count(), admin ? 1 : 0);
+    const screenshotSwitch = page.getByRole('switch', { name: 'Screenshots each step', exact: true });
+    assert.equal(await screenshotSwitch.count(), admin ? 1 : 0);
+    if (admin) {
+      assert.equal(await screenshotSwitch.getAttribute('aria-checked'), 'false');
+      await screenshotSwitch.click();
+      await page.waitForFunction(() => document.querySelector('[aria-labelledby="screenshot-each-step-label"]')?.getAttribute('aria-checked') === 'true');
+      assert.equal(screenshotsEveryTurn, 'true');
+      await page.reload();
+      await page.waitForFunction(() => document.querySelector('[aria-labelledby="screenshot-each-step-label"]')?.getAttribute('aria-checked') === 'true');
+      mkdirSync(resolve(import.meta.dirname, '../../output'), { recursive: true });
+      await page.locator('section[aria-labelledby="screenshot-test-title"]').screenshot({ path: resolve(import.meta.dirname, '../../output/admin-screenshot-test.png') });
+      await screenshotSwitch.click();
+      await page.waitForFunction(() => document.querySelector('[aria-labelledby="screenshot-each-step-label"]')?.getAttribute('aria-checked') === 'false');
+      assert.equal(screenshotsEveryTurn, 'false');
+    }
     const searchCard = page.locator('.saved-search-card');
     await searchCard.locator('#saved-search-terms').fill('Web Developer,Python Developer');
     await searchCard.locator('#saved-search-terms').press('Enter');
@@ -484,6 +505,7 @@ try {
       const submitted = writes.filter(write => write.path === '/api/run').at(-1)!.body;
       assert.equal(submitted.applicationMode, mode); assert.equal(submitted.mode, 'live'); assert.equal(submitted.confirm, true);
       assert.equal(submitted.scope, 'all'); assert.equal('enabled' in submitted, false);
+      await page.waitForFunction(() => document.querySelector<HTMLButtonElement>('[aria-labelledby="screenshot-each-step-label"]')?.disabled === true);
       await page.getByRole('button', { name: /Stop run/ }).click();
       await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click();
       await toggle.waitFor();

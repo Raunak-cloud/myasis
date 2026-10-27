@@ -129,7 +129,7 @@ const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
 export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier'>>): boolean {
   if (key === 'MAX_APPS_PER_RUN') return false;
-  if (key === 'APPLICATION_AI_MODEL' || key === 'APPLICATION_AGENT_MODE') return entitlement.tier === 'admin';
+  if (key === 'APPLICATION_AI_MODEL' || key === 'APPLICATION_AGENT_MODE' || key === 'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN') return entitlement.tier === 'admin';
   if (!FINE_TUNING_KEYS.includes(key)) return true;
   return entitlement.fineTune
     || (entitlement.advancedFilters && (ADVANCED_FILTER_KEYS as readonly string[]).includes(key));

@@ -12,6 +12,21 @@ recovers form errors, judges duplicate history and verifies receipt itself.
 Read-only specialist advice is optional and shares the parent spending budget.
 Normal turns use medium reasoning; failed actions receive higher effort.
 
+Administrators can enable **Admin screenshot test → Screenshots each step** on
+the Apply page. It saves for that administrator's future runs and defaults off.
+When enabled, every Magnus decision receives a fresh viewport screenshot alongside
+the normal form observation; previous observation images are removed before the
+next request while their text and action history remain. Normal accounts retain
+on-demand screenshots. The server rejects non-admin changes and rechecks admin
+access when building each worker environment.
+
+Run `npm run test:agent-screenshots` for isolated browser/transport checks.
+`npm run test:agent-screenshots-live` spends up to the normal per-application
+budget on three fictional forms using real Magnus: native fields, a custom
+dropdown with radio buttons and a checkbox, and an autocomplete selection.
+Browser traffic is restricted to reserved `.invalid` domains, so no real employer
+receives an application. The report is `output/screenshot-agent-live.json`.
+
 Account isolation, site access, plan allowances, spending limits, resource
 deadlines, dry-run controls and Stop remain infrastructure responsibilities.
 Only confirmed applications consume the application allowance. Historical

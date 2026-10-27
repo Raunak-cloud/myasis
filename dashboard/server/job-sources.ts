@@ -1,6 +1,6 @@
 import { EMPLOYER_SOURCES, employerTargets, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { applicationModelSettingsError, applicationModelForAccount } from './application-model-policy.js';
-import { applicationAgentSettingsError, applicationAgentModeForAccount } from './application-agent-policy.js';
+import { applicationAgentSettingsError, applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 
 export function jobSourceSettingsError(updates: Record<string, unknown>, targetIsAdmin: boolean): { status: number; error: string } | null {
   const modelError = applicationModelSettingsError(updates, targetIsAdmin);
@@ -23,6 +23,7 @@ export function jobSourceSettingsError(updates: Record<string, unknown>, targetI
 export function applyJobSourceAccess(settings: Record<string, string>, targetIsAdmin: boolean): void {
   settings.APPLICATION_AI_MODEL = applicationModelForAccount(settings.APPLICATION_AI_MODEL, targetIsAdmin);
   settings.APPLICATION_AGENT_MODE = applicationAgentModeForAccount(settings.APPLICATION_AGENT_MODE, targetIsAdmin);
+  settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN = applicationScreenshotsForAccount(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, targetIsAdmin);
   // Authorization is supplied only by accountApplicationEnvironment after rechecking ownership.
   delete settings.APPLICATION_AGENT_MODE_AUTHORIZED;
   const allowed: string[] = ['seek', 'indeed', ...(targetIsAdmin ? EMPLOYER_SOURCES.map(source => source.id) : [])];

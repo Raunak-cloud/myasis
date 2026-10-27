@@ -1,7 +1,31 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ChatMessage } from './celeris.js';
-import { agentOnlyTranscript } from './agent-only-transcript.js';
+import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
+
+test('screenshot testing removes old pictures before compaction while retaining text, approvals and tool history', () => {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'System' },
+    { role: 'user', content: 'EXACT_APPROVAL_AND_CANDIDATE' },
+    { role: 'user', content: [{ type: 'text', text: 'Previously selected Australia' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,OLD' } }] },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'fill', type: 'function', function: { name: 'browser_action', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'fill', content: 'Saved value' },
+    { role: 'user', content: [{ type: 'text', text: 'Current form' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,NEW' } }] },
+  ];
+  const original = JSON.stringify(messages);
+  const current = latestObservationScreenshotOnly(messages);
+  const payload = JSON.stringify(agentOnlyTranscript(current, 42_000));
+  assert.doesNotMatch(payload, /base64,OLD/);
+  assert.match(payload, /base64,NEW/);
+  assert.match(payload, /Previously selected Australia/);
+  assert.equal(current[1], messages[1]);
+  assert.equal(current[3], messages[3]);
+  assert.equal(current[4], messages[4]);
+  assert.equal(JSON.stringify(messages), original);
+  assert.equal(latestObservationScreenshotOnly(current), current, 'does not rewrite a clean prefix');
+  const blocked: ChatMessage[] = [...current, { role: 'user', content: 'Native dialog blocks the page; no screenshot available' }];
+  assert.doesNotMatch(JSON.stringify(latestObservationScreenshotOnly(blocked)), /image_url/, 'never passes an old picture as evidence of the current dialog');
+});
 
 test('Celeris retains candidate facts, authored actions and current state while retiring superseded DOM trees', () => {
   const messages: ChatMessage[] = [

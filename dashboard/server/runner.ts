@@ -14,7 +14,7 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import { applicationModelForAccount } from './application-model-policy.js';
-import { applicationAgentModeForAccount } from './application-agent-policy.js';
+import { applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
 import { finishApplicationReviews } from './application-reviews.js';
 import { gmailRunConnection } from './gmail-mcp.js';
@@ -47,6 +47,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
+    APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin),
     CELERIS_API_KEY: serverEnv.CELERIS_API_KEY };
 }
 

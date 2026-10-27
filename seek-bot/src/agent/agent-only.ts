@@ -19,7 +19,7 @@ import { commitAcceptedCredentials } from '../site-credentials.js';
 import { startAgentActivity } from './agent-activity.js';
 import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationAttemptHistory } from './agent-only-evidence.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
-import { agentOnlyTranscript } from './agent-only-transcript.js';
+import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
 import { ProgressBudget, ProgressStepBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
@@ -172,6 +172,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const meter = new ProgressBudget(config.celeris.budgetUsdPerApplication, config.celeris.progressBudgetUsdPerApplication);
   const stepBudget = new ProgressStepBudget(config.celeris.maxSteps, config.celeris.progressMaxSteps);
   const log = options.log ?? console.log;
+  const screenshotsEveryTurn = applicationModelEnvironment().APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN === 'true';
+  if (screenshotsEveryTurn) log('Admin screenshot test: fresh screenshot each decision turn; only the latest image is sent.');
   const approved = approvedApplication(options.job);
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile,
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' },
@@ -602,12 +604,12 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       ctx.observation = pendingDialog ? { url: ctx.page.url(), title: ctx.observation.title,
         actions: [], fields: [], text: `Native browser ${pendingDialog.type()} dialog blocks the page: ${pendingDialog.message()}` }
-        : await observe(ctx.page, { screenshot });
+        : await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
       if (!pendingDialog && !waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
         || !ctx.observation.fields.length && /\b(?:loading|please wait)\b/i.test(ctx.observation.text))) {
         waitedForSurface.add(ctx.observation.url);
         const ready = await waitForApplicationSurface(ctx.page, Math.max(1, Math.min(15_000, remainingMs())));
-        ctx.observation = await observe(ctx.page, { screenshot });
+        ctx.observation = await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
         if (!ready) lastNote += ' Waited for the application surface; it has not rendered yet. Inspect loading/blocking evidence instead of repeatedly requesting the same snapshot.';
       }
       if (!pendingDialog && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
@@ -650,7 +652,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       // no browser action, upload or assessment is replayed.
       let reply;
       const compact = (force = false) => {
-        const transcript = agentOnlyTranscript(messages, contextLimit, force);
+        const transcript = agentOnlyTranscript(screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages, contextLimit, force);
         if (transcript !== messages) messages.splice(0, messages.length, ...transcript);
         return messages;
       };

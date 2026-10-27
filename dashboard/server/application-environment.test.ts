@@ -35,7 +35,7 @@ test('application environment rechecks active ownership and only returns that ow
   try {
     await assert.rejects(accountApplicationEnvironment('../owner-account'), /account is not available/);
     assert.equal(queries, 0);
-    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', CELERIS_API_KEY: 'fixture-only' });
+    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'false', CELERIS_API_KEY: 'fixture-only' });
     available = false;
     await assert.rejects(accountApplicationEnvironment('owner-account', {}), /account is not available/);
     available = true;
@@ -67,6 +67,11 @@ test('runtime always selects Celeris and always uses Agent-only for admins and o
     const defaultAdmin = await accountApplicationEnvironment('admin', {});
     assert.equal(defaultAdmin.APPLICATION_AGENT_MODE, 'agent-only');
     assert.equal(defaultAdmin.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
+    const enabled = { APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true' };
+    assert.equal((await accountApplicationEnvironment('admin', enabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
+    assert.equal((await accountApplicationEnvironment('customer', enabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false', 'stale saved admin choices cannot enable customer screenshots');
+    assert.equal(defaultAdmin.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false');
+    assert.equal(applicationRunEnvironment(enabled).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, undefined, 'shared environment cannot bypass the account check');
   } finally {
     pool.query = originalQuery;
     for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }

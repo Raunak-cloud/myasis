@@ -16,6 +16,7 @@ import { TermsInput } from './TermsInput';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
+import { AdminScreenshotTest } from './AdminScreenshotTest';
 import { MascotLogo } from './MascotLogo';
 import { useRunStatus } from '../runStatus';
 import { fmtDateTime } from '../format';
@@ -174,6 +175,8 @@ export function RunPanel({
   const jobBoards = isAdmin ? ADMIN_JOB_BOARDS : JOB_BOARDS;
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [screenshotSaving, setScreenshotSaving] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<LogLine[]>([]);
   const [confirming, setConfirming] = useState(false);
@@ -217,7 +220,9 @@ export function RunPanel({
   const wasRunning = useRef(false);
 
   useEffect(() => {
-    fetch('/api/settings').then((r) => r.json()).then(setSettings).catch(() => {});
+    fetch('/api/settings').then((r) => r.ok ? r.json() : null).then(value => {
+      if (value) { setSettings(value); setSettingsLoaded(true); }
+    }).catch(() => {});
   }, []);
 
   /**
@@ -540,7 +545,7 @@ export function RunPanel({
   }, [attempt, errorField]);
 
   async function saveAndStart(mode: 'live' | 'search' = 'live') {
-    if (starting) return;
+    if (starting || screenshotSaving) return;
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
@@ -758,7 +763,7 @@ export function RunPanel({
               <ResumeSourceNote />
               <button
                 className="btn primary lg"
-                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
+                disabled={screenshotSaving || accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
                 title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
                 onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('all'); setConfirming(true); }}
               >
@@ -827,6 +832,10 @@ export function RunPanel({
         )}
         </div>
       </div>
+
+      {isAdmin && <AdminScreenshotTest enabled={settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN === 'true'}
+        disabled={running || starting || !status || !settingsLoaded} onSavingChange={setScreenshotSaving}
+        onSaved={saved => setSettings(current => ({ ...current, ...saved }))} />}
 
       <section className="card saved-search-card" aria-labelledby="saved-search-title">
         <div className="panel-body">
@@ -1400,12 +1409,12 @@ export function RunPanel({
               <button className="btn" disabled={starting} onClick={() => setConfirming(false)}>
                 Cancel
               </button>
-              {isAdmin && <button className="btn" disabled={starting} onClick={() => void saveAndStart('search')}>
+              {isAdmin && <button className="btn" disabled={starting || screenshotSaving} onClick={() => void saveAndStart('search')}>
                 Test without applying
               </button>}
               <button
                 className="btn btn-danger-solid"
-                disabled={starting}
+                disabled={starting || screenshotSaving}
                 onClick={() => void saveAndStart('live')}
               >
                 {starting ? 'Saving and starting…' : applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { applicationAgentModeForAccount, applicationAgentSettingsError } from './application-agent-policy.js';
+import { applicationAgentModeForAccount, applicationAgentSettingsError, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { applyJobSourceAccess, jobSourceSettingsError } from './job-sources.js';
 import { mayEditRunSetting } from './entitlements.js';
 import { USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
@@ -8,6 +8,23 @@ import { getPool } from './db/index.js';
 import { startRun } from './start-run.js';
 
 after(async () => { await getPool().end(); });
+
+test('screenshots each turn are opt-in and admin-only at save and execution time', () => {
+  const key = 'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN';
+  for (const value of ['true', 'false']) {
+    assert.equal(jobSourceSettingsError({ [key]: value }, true), null);
+    assert.equal(jobSourceSettingsError({ [key]: value }, false)?.status, 403);
+  }
+  assert.equal(jobSourceSettingsError({ [key]: 'everywhere' }, true)?.status, 400);
+  assert.equal(mayEditRunSetting(key, { tier: 'standard', fineTune: true, advancedFilters: true }), false);
+  assert.equal(mayEditRunSetting(key, { tier: 'admin', fineTune: true, advancedFilters: true }), true);
+  assert.equal(applicationScreenshotsForAccount(undefined, true), 'false');
+  assert.equal(applicationScreenshotsForAccount('true', true), 'true');
+  assert.equal(applicationScreenshotsForAccount('true', false), 'false');
+  const settings: Record<string, string> = { [key]: 'true' };
+  applyJobSourceAccess(settings, false);
+  assert.equal(settings[key], 'false');
+});
 
 test('legacy settings accept only Agent-only and no caller may supply authorization', () => {
   for (const mode of ['agent-only']) {
@@ -41,7 +58,7 @@ test('every run trigger rejects customer mode overrides before database or brows
   pool.query = (async () => { throw new Error('Unauthorized mode reached database'); }) as typeof original;
   try {
     for (const trigger of ['manual', 'auto', 'admin', 'onboarding'] as const) for (const mode of ['search', 'live'] as const) {
-      for (const clientOverrides of [{ APPLICATION_AGENT_MODE: 'agent-only' }, { APPLICATION_AGENT_MODE_AUTHORIZED: 'true' }]) {
+      for (const clientOverrides of [{ APPLICATION_AGENT_MODE: 'agent-only' }, { APPLICATION_AGENT_MODE_AUTHORIZED: 'true' }, { APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true' }]) {
         const result = await startRun({ userId: 'agent-mode-customer', email: 'customer@fixture.invalid', mode, trigger, clientOverrides });
         assert.ok(!result.ok && result.status === 403, `${trigger}/${mode}`);
       }
