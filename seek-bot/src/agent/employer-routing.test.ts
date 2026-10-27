@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { personalAnswerFixtureResponse } from './personal-answer-check-fixture.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,8 +34,6 @@ try {
       let turns = 0;
       globalThis.fetch = async (_url, init) => {
         const body = JSON.parse(String(init?.body));
-        const sourceCheck = personalAnswerFixtureResponse(body);
-        if (sourceCheck) return sourceCheck;
         if (!body.tools?.length) return Response.json({ choices: [{ message: { content: JSON.stringify({ sends_application: false }) } }] });
         assert.ok(body.tools?.length, 'only the mocked application model is called');
         const text = JSON.stringify(body.messages.filter((message: { role: string }) => message.role === 'user').at(-1)?.content);

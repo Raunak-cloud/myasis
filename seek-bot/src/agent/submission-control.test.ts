@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { personalAnswerFixtureResponse } from './personal-answer-check-fixture.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,8 +49,6 @@ const review = `<main><h1>Review application</h1><form method="post" action="/re
   <input type="file" id="cv"><button id="send">Submit</button></form></main>`;
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
-  const sourceCheck = personalAnswerFixtureResponse(body);
-  if (sourceCheck) return sourceCheck;
   if (!body.tools?.length) {
     classifierCalls++;
     const prompt = JSON.stringify(body.messages);

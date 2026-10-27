@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { chromium } from 'patchright';
 import type { JobListing, CandidateProfile } from '../types.js';
 import { withApplicationModel } from '../application-model.js';
-import { personalAnswerFixtureResponse } from './personal-answer-check-fixture.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-screenshots-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', ALLOW_EXTERNAL_APPLY: 'true',
@@ -34,8 +33,6 @@ try {
     const imagesSeen: number[] = [];
     globalThis.fetch = (async (_url, init) => {
       const body = JSON.parse(String(init?.body));
-      const checked = personalAnswerFixtureResponse(body);
-      if (checked) return checked;
       if (!body.tools?.length && JSON.stringify(body.messages).includes('Would pressing the control')) {
         return Response.json({ choices: [{ message: { role: 'assistant', content: '{"sends_application":false}' } }] });
       }
