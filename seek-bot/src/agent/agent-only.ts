@@ -43,6 +43,7 @@ import { needsSubmissionReview, submissionControl } from './submission-control.j
 import { JOB_FIT_POLICY, jobPreferenceContext } from '../job-fit-policy.js';
 import { currentFitReview } from '../review-cache.js';
 import type { FitRejection } from '../types.js';
+import { submissionReceipt } from './submission-receipt.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -89,12 +90,14 @@ export const agentOnlyTools: ToolSchema[] = [
   }, ['purpose', 'evidence']),
   schema('wait_for_verification', 'Optionally wait for a security challenge and use the configured CAPTCHA service. The result is an observation for you to assess; it never ends the application or prevents you choosing another next step.', {}),
   consultationToolSchema,
+  schema('wait_for_submission_result', 'After a send, wait up to ten seconds for the employer response to change, without clicking, navigating or sending again. Then inspect the fresh response or take_snapshot. If still uncertain, finish skipped.', {}),
   schema('resume_after_rejected_submission', 'Receipt review only: resume form correction when the employer explicitly rejected the send with validation errors or additional required questions. Quote the actual rejection. A loading page, missing receipt or uncertain send does not authorize another submission.', {
     evidence: string,
   }, ['evidence']),
-  schema('finish', 'Report your own final judgement after reading the actual page. No independent form or receipt reviewer will override it. Applied means the site received this application; a press alone is not receipt. Record an uncertain result honestly.', {
+  schema('finish', 'Report your final judgement after reading the actual page. Applied requires receipt.quote grounded in fresh visible employer text confirming completed application delivery. A press alone is not receipt. Record an uncertain result honestly.', {
     status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied'] },
     reason: string, evidence: string,
+    receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: exact visible employer quote confirming this application was received. A loading state, disabled button, account creation or URL is not receipt.', properties: { quote: { type: 'string', minLength: 12 } }, required: ['quote'] },
     questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED application questions needing a consequential candidate fact or decision. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
       type: 'object', additionalProperties: false,
       properties: { question: string, prompt: string, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
@@ -114,7 +117,7 @@ Read the authoritative profile, saved answers, CVs, supporting documents and mat
 When the form offers CV upload or parsing, upload the selected CV early, then inspect and correct the resulting saved fields. upload_document attaches the original document directly; the form's accept attribute is advisory, not an Owtomate rejection rule. You choose whether a different format is necessary from the actual employer requirements or response and request it explicitly with format. If an upload is rejected for its format, changing selectors cannot repair the document: inspect the employer error and choose another approved document or request the appropriate conversion. A file selected in the browser is not proof the employer accepted it. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless the form requires them or the candidate asks. Complete required sections truthfully and include the tailored cover letter. Use the fresh observation already provided before requesting another snapshot of the same information.
 If a role does not match the candidate's preferences, finish as skipped with the reason. For needs-human, include questions containing the exact observed required form labels, clear candidate-facing prompts and offered choices. Only ask about a consequential candidate fact or decision the saved evidence cannot answer. Browser failures and role mismatches are not unanswered application questions; never invent a question to create a task.
 For a genuine suitability rejection, include fit_rejection with the exact decisive employer quote and its source. This lets unchanged unsuitable listings be remembered; technical problems and uncertain sends must not be remembered as role mismatches.
-After an action marked sends_application, the next turn reviews the fresh employer response before any more form actions. Use finish for an actual receipt or an honestly uncertain outcome. Use resume_after_rejected_submission only when the employer explicitly rejected the send and correction is required. A success URL alone is not proof: read the actual page text. Do not spend a turn waiting for a URL glob already satisfied by the current page.
+After an action marked sends_application, review the fresh employer response before any more form actions. For applied, finish must include receipt.quote copied exactly from visible employer text confirming completed application delivery. A disabled button, Please wait, no validation errors, account creation and a success URL are not receipts. While pending, use wait_for_submission_result or take_snapshot to inspect, including frames. Finish skipped if receipt remains uncertain; never repeat a send because a receipt is missing. Use resume_after_rejected_submission only when the employer explicitly rejected the send and correction is required.
 For verification email codes and links, use the Gmail MCP tools only. Never open Gmail in the browser. When an employer requires applications by email, use prepare_email_application with the observed recipient, tailored subject, complete cover letter and selected resume. Email applications always wait for explicit candidate confirmation. Saving content is not an email send or a successful application. For online applications, supply submit_ref or submit_selector when saving a prepared application.
 ${WORK_RIGHTS_EVIDENCE_RULES}
 Use browser_action or browser_batch directly to operate the actual form. You choose every interaction; there is no automatic custom-widget filler. Use observed refs or standard Playwright locators: for example locator={by:"role",value:"button",name:"Country"}, locator={by:"label",value:"Phone"}, or locator={by:"placeholder",value:"Search countries"}. Names must come from the observed page. Locators match exactly by default; narrow ambiguous matches with within (section CSS), frame (iframe CSS), or an index you deliberately choose after inspecting the matches. Native actions retain browser auto-waiting and normal input events. Native fill supports text inputs, textareas AND contenteditable rich-text editors, including an editable body inside an iframe: use a CSS locator for the observed editable element with frame set to its iframe selector. Prefer native fill over setting value or innerHTML; direct DOM writes can omit the events controlled React inputs and editors need. Use script only for browser-side DOM inspection or an interaction unavailable through these native actions; DOM methods require their proper receiver (for example node.click(), not an unbound click function).
@@ -307,6 +310,13 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       highEffort = true;
       return ok(`Employer rejection recorded: ${args.evidence}. Correct the observed form in the same page; do not restart or repeat accepted submissions.`, 'reobserve');
     }
+    if (name === 'wait_for_submission_result') {
+      if (!submissionReviewRequired) return ok('This read-only wait is available after a marked application send.', 'failed');
+      const before = await ctx.page.locator('body').innerText({ timeout: 2500 });
+      await ctx.page.waitForFunction(previous => document.body.innerText !== previous, before,
+        { timeout: Math.max(1, Math.min(10_000, remainingMs())), polling: 250 }).catch(() => {});
+      return ok('Read the fresh employer response. This wait did not repeat the send.', 'reobserve');
+    }
     if (name === 'finish') {
       if (args.status === 'already-applied') {
         const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '').replace(/\s+/g, ' ').trim();
@@ -330,6 +340,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
       const status = args.status as 'applied' | 'skipped' | 'needs-human' | 'already-applied';
       if (status === 'applied' && reviewingApplications() && !ctx.submissionAttempted) return ok('No application has been submitted. In Semi auto, finish filling and use prepare_application for candidate confirmation.', 'failed');
+      if (status === 'applied') {
+        const receipt = await submissionReceipt(ctx.page, String((args.receipt as { quote?: string } | undefined)?.quote ?? ''));
+        if (!receipt) return ok('Submission is not confirmed. Supply receipt.quote copied exactly from visible employer text confirming this application was received. Please wait, a disabled button, no validation errors, account creation and a success URL are not receipts. Inspect the response; finish skipped if it remains uncertain. Do not send again without an explicit employer rejection.', 'failed');
+      }
       if (status === 'skipped') return { kind: 'terminal', outcome: { status, reason: String(args.reason),
         ...(args.fit_rejection ? { fitRejection: args.fit_rejection as FitRejection } : {}) } };
       return { kind: 'terminal', outcome: status === 'applied' ? { status } : status === 'needs-human'
@@ -575,7 +589,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       messages.push(observationMessage(ctx.observation, `${lastNote}\n${submissionReviewRequired ? 'SUBMISSION RESULT REVIEW: Read the current employer response. Finish with its actual receipt or an honest uncertain result. Only an explicit employer rejection permits resume_after_rejected_submission; no browser action or repeat send in this review turn.' : ''}\nOpen pages: ${JSON.stringify(pages)}\nDurable progress: ${recoveryNote}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       const turnTools = agentOnlyTools.filter(tool => submissionReviewRequired
-        ? tool.name === 'finish' || tool.name === 'resume_after_rejected_submission'
+        ? ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result'].includes(tool.name)
         : tool.name !== 'resume_after_rejected_submission');
       steps++; // Model turns; extra windows require fresh browser-confirmed progress.
       // Compact only at the threshold so ordinary turns retain a cacheable

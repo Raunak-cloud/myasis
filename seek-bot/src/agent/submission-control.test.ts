@@ -119,7 +119,7 @@ try {
     calls = [
       { name: 'upload_document', args: { ...at('#cv'), document_id: 'cv' } },
       { name: 'browser_action', args: { ...sendAction, test_phase: 'application' } },
-      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received' } },
+      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' } } },
     ];
     const sent = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
     assert.equal(sent.outcome.status, 'applied');

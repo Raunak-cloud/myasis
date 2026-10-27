@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS applications (
   UNIQUE (user_id, job_id)
 );
 CREATE INDEX IF NOT EXISTS applications_user_idx ON applications(user_id, applied_at DESC);
+-- Preserve uncertain historical sends without counting them as confirmed sends.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS confirmation_status TEXT CHECK (confirmation_status IS NULL OR confirmation_status = 'unconfirmed');
 
 -- Each platform has its own job-id namespace. Cross-platform applications
 -- remain independent; exact form reservations are managed by the run coordinator.

@@ -152,7 +152,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     const q = query.trim().toLowerCase();
     return apps
       .filter((a) => {
-        if (filter === 'awaiting') return !a.outcome && daysSince(a.appliedAt) >= followUpDays;
+        if (filter === 'awaiting') return !a.confirmationStatus && !a.outcome && daysSince(a.appliedAt) >= followUpDays;
         if (filter === 'interview') return a.outcome === 'interview';
         if (filter === 'rejected') return a.outcome === 'rejected';
         return true;
@@ -170,7 +170,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   const counts = useMemo(
     () => ({
       all: apps.length,
-      awaiting: apps.filter((a) => !a.outcome && daysSince(a.appliedAt) >= followUpDays).length,
+      awaiting: apps.filter((a) => !a.confirmationStatus && !a.outcome && daysSince(a.appliedAt) >= followUpDays).length,
       interview: apps.filter((a) => a.outcome === 'interview').length,
       rejected: apps.filter((a) => a.outcome === 'rejected').length,
     }),
@@ -242,7 +242,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
             <tbody>
               {rows.map((a) => {
                 const age = daysSince(a.appliedAt);
-                const stale = !a.outcome && age >= followUpDays;
+                const stale = !a.confirmationStatus && !a.outcome && age >= followUpDays;
                 return (
                   <tr key={a.jobId} className="clickable application-item" onClick={() => setOpen(a)}>
                     <td className="application-role">
@@ -261,7 +261,9 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                       </div>
                     </td>
                     <td className="application-status">
-                      {a.outcome ? (
+                      {a.confirmationStatus === 'unconfirmed' ? (
+                        <span className="badge warn" title="No employer receipt was recorded. Automatic retries are held to avoid a duplicate.">Unconfirmed</span>
+                      ) : a.outcome ? (
                         <span className={`badge ${OUTCOMES.find((o) => o.id === a.outcome)?.tone ?? 'muted'}`}>
                           {OUTCOMES.find((o) => o.id === a.outcome)?.label}
                         </span>
@@ -325,7 +327,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 </> : <p>{costLoading ? 'Loading…' : 'Not recorded. Cost tracking starts with new runs; historical charges cannot be reconstructed reliably.'}</p>}
               </div>}
               <div className="section">
-                <h3>Submitted</h3>
+                <h3>{open.confirmationStatus ? 'Submission unconfirmed' : 'Submitted'}</h3>
+                {open.confirmationStatus && <p>No employer receipt was recorded. Automatic retries are held to avoid a duplicate.</p>}
                 <p className="app-submitted">
                   {open.external
                     ? <>On the employer's own site{open.site ? <> · <strong>{open.site}</strong></> : null}. Found on {boardLabel(open.platform)}.</>
@@ -349,7 +352,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 </div>
               ) : null}
 
-              <div className="section">
+              {!open.confirmationStatus && <div className="section">
                 <h3>Outcome</h3>
                 <div className="chips">
                   {OUTCOMES.map((o) => (
@@ -373,9 +376,9 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                     follow-up to the recruiter is reasonable at this point.
                   </p>
                 )}
-              </div>
+              </div>}
 
-              {open.resumeName && (
+              {open.resumeName && !open.confirmationStatus && (
                 <div className="section">
                   <h3>Resume sent</h3>
                   <p className="app-resume">
@@ -392,7 +395,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
 
               {open.coverLetter && (
                 <div className="section">
-                  <h3>Cover letter sent</h3>
+                  <h3>{open.confirmationStatus ? 'Cover letter' : 'Cover letter sent'}</h3>
                   <div className="letter">{open.coverLetter}</div>
                 </div>
               )}
@@ -434,7 +437,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     <>
       <div className="view-switch" role="tablist" aria-label="Which jobs">
         <button type="button" role="tab" aria-selected={view === 'sent'} className={view === 'sent' ? 'on' : ''} onClick={() => setView('sent')}>
-          Applied<span className="view-count">{apps.length}</span>
+          Applied<span className="view-count">{apps.filter(app => !app.confirmationStatus).length}</span>
         </button>
         <button type="button" role="tab" aria-selected={view === 'skipped'} className={view === 'skipped' ? 'on' : ''} onClick={() => setView('skipped')}>
           Skipped{skipped ? <span className="view-count">{skipped.length}</span> : null}

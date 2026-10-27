@@ -231,7 +231,7 @@ export default function App() {
   }, [runStatus, load]);
 
   const stats = useMemo(() => {
-    const week = apps.filter((app) => daysSince(app.appliedAt) <= 7).length;
+    const week = apps.filter((app) => !app.confirmationStatus && daysSince(app.appliedAt) <= 7).length;
     const verification = attention.filter((item) => item.kind === 'verification').length;
     return { week, blocked: attention.length, verification };
   }, [apps, attention]);
@@ -240,7 +240,7 @@ export default function App() {
     { id: 'run', label: 'Apply' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
     { id: 'prepared', label: 'Prepared Applications', badge: preparedCount },
-    { id: 'applications', label: 'Submitted Applications', badge: apps.length },
+    { id: 'applications', label: 'Submitted Applications', badge: apps.filter(app => !app.confirmationStatus).length },
   ];
   if (isAdmin) primaryNav.push({ id: 'marketing', label: 'Marketing' });
 

@@ -49,7 +49,7 @@ try {
         } else {
           assert.equal(turns, 4);
           assert.match(text, /Receipt NATIVE123/);
-          calls = [{ name: 'finish', args: { status: 'applied', reason: 'Native fixture submitted', evidence: 'Application received, Receipt NATIVE123' } }];
+          calls = [{ name: 'finish', args: { status: 'applied', reason: 'Native fixture submitted', evidence: 'Application received, Receipt NATIVE123', receipt: { quote: 'Application received' } } }];
         }
         return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, i) => ({ id: `t${turns}-${i}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
       };

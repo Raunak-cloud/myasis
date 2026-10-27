@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reviewDuplicate, reviewCurrentDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
+import { AppliedIndex } from './store.js';
 import { withApplicationModel } from './application-model.js';
 import type { AppliedRecord, JobListing } from './types.js';
 
@@ -43,6 +44,20 @@ test('board evidence is decisive even when the owner has no local application re
   assert.equal(result.decision, 'duplicate');
   assert.equal(result.reason, 'You applied on 26 Oct');
   assert.equal(result.evidence?.source, 'board');
+});
+
+test('an unconfirmed send stays owner-scoped and blocks automatic retry without counting as a submitted application', () => {
+  const held = { ...prior, appliedAt: new Date().toISOString(), submittedByMyasis: false, confirmationStatus: 'unconfirmed' as const };
+  const result = reviewDuplicate(job, [held]);
+  assert.equal(result.decision, 'duplicate');
+  assert.match(result.reason, /unconfirmed.*retry is held/i);
+  const environment = owner('uncertain', [held]);
+  withApplicationModel(environment, () => {
+    const history = new AppliedIndex();
+    assert.equal(history.hasApplication(job), true);
+    assert.equal(history.appliedToday(), 0);
+    assert.equal(history.all.length, 1, 'correction preserves history');
+  });
 });
 
 test('fresh handoff uses the correct owner and notices submissions recorded since an earlier clearance', async () => {

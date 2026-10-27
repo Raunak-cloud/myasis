@@ -67,6 +67,7 @@ export class AppliedIndex {
     return this.records.filter(
       (r) =>
         day(new Date(r.appliedAt)) === today &&
+        r.confirmationStatus !== 'unconfirmed' &&
         (r.submittedByMyasis ?? (r.score > 0 || Boolean(r.coverLetter))),
     ).length;
   }

@@ -87,6 +87,7 @@ import { stopAllSignins } from './server/signin.js';
 import { loadApplicationCosts } from './server/application-costs.js';
 
 interface ApplicationRow {
+  confirmation_status: 'unconfirmed' | null;
   job_id: string;
   title: string;
   company: string;
@@ -110,6 +111,7 @@ interface ApplicationRow {
 
 function rowToApplication(a: ApplicationRow) {
   return {
+    confirmationStatus: a.confirmation_status ?? undefined,
     jobId: a.job_id,
     title: a.title,
     company: a.company,
@@ -389,9 +391,9 @@ function dataApi(): Plugin {
             const rows = await query<ApplicationRow>(
               `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
                       age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at,
-                      external, site, actions, resume_name
+                      external, site, actions, resume_name, confirmation_status
                  FROM applications
-                WHERE user_id = $1 AND submitted_by_myasis
+                WHERE user_id = $1 AND (submitted_by_myasis OR confirmation_status = 'unconfirmed')
                 ORDER BY applied_at DESC`,
               [userId],
             );
@@ -400,9 +402,9 @@ function dataApi(): Plugin {
           const rows = await query<ApplicationRow>(
             `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
                     age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at,
-                    external, site, actions, resume_name
+                    external, site, actions, resume_name, confirmation_status
                FROM applications
-              WHERE user_id = $1 AND submitted_by_myasis
+              WHERE user_id = $1 AND (submitted_by_myasis OR confirmation_status = 'unconfirmed')
               ORDER BY applied_at DESC`,
             [userId],
           );

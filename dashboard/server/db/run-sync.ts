@@ -64,6 +64,7 @@ export function profileToLegacyText(p: CandidateProfile): string {
 }
 
 interface ApplicationExportRow {
+  confirmation_status: 'unconfirmed' | null;
   application_url: string | null;
   job_id: string;
   title: string;
@@ -112,7 +113,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
-            external, submitted_by_myasis, site, actions, application_url
+            external, submitted_by_myasis, site, actions, application_url, confirmation_status
        FROM applications WHERE user_id = $1 ORDER BY applied_at`,
     [userId],
   );
@@ -136,6 +137,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     ...(a.site ? { site: a.site } : {}),
     ...(Array.isArray(a.actions) && a.actions.length ? { actions: a.actions } : {}),
     submittedByMyasis: a.submitted_by_myasis,
+    ...(a.confirmation_status ? { confirmationStatus: a.confirmation_status } : {}),
   }));
   writeFileSync(resolve(dir, 'applied.json'), JSON.stringify(appliedJson, null, 2));
 
@@ -264,6 +266,7 @@ export async function syncRunResultsToDb(
           actions: Array.isArray(a.actions) ? a.actions : [],
           submittedByMyasis: a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
           resumeName: typeof a.resume === 'string' ? a.resume : null,
+          confirmationStatus: a.confirmationStatus === 'unconfirmed' ? 'unconfirmed' : null,
         });
         if (inserted && (a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)))) applications++;
       }

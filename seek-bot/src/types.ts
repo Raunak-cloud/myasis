@@ -192,6 +192,8 @@ export type ApplyOutcome = (
 };
 
 export interface AppliedRecord {
+  /** Unconfirmed historical sends are retained for audit/duplicate protection. */
+  confirmationStatus?: 'unconfirmed';
   jobId: string;
   title: string;
   company: string;
@@ -218,7 +220,7 @@ export interface AppliedRecord {
   site?: string;
   /** Accounts created, sign-ins and other side effects of this application. */
   actions?: ApplicationAction[];
-  /** False when the record was only discovered on the job board for duplicate protection. */
+  /** False for observed history or unconfirmed sends retained for duplicate protection. */
   submittedByMyasis?: boolean;
 }
 

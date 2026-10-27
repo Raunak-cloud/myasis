@@ -20,7 +20,9 @@ export function reviewDuplicate(job: JobListing, history: readonly AppliedRecord
   };
   const record = history.find(record => sameApplication(record, job));
   return record ? {
-    decision: 'duplicate', keys, reason: 'An application to this exact listing or application destination is already recorded.',
+    decision: 'duplicate', keys, reason: record.confirmationStatus === 'unconfirmed'
+      ? 'A previous send to this exact application is unconfirmed. Automatic retry is held to avoid sending a duplicate.'
+      : 'An application to this exact listing or application destination is already recorded.',
     evidence: { source: 'history', jobId: record.jobId, platform: record.platform, url: record.applicationUrl ?? record.url, appliedAt: record.appliedAt },
   } : { decision: 'clear', keys, reason: 'No confirmed application matches this listing or its known application destination.' };
 }

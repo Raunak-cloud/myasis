@@ -32,7 +32,7 @@ const profile = { name: 'Fixture Applicant', phone: '', email: '', nationality: 
 let requests = 0;
 await page.context().route('**/*', route => {
   if (!new URL(route.request().url()).hostname.endsWith('.invalid')) return route.abort();
-  if (route.request().method() === 'POST') requests++;
+  if (route.request().method() === 'POST') { requests++; return route.fulfill({ contentType: 'text/html', body: '<main>Application received</main>' }); }
   return route.fulfill({ contentType: 'text/html', body: '<main><form method="post"><label>Name<input name="name" required value="Fixture Applicant"></label><button id="send">Send application</button></form></main>' });
 });
 await page.goto(job.url);
@@ -100,7 +100,7 @@ try {
   calls = [
     { name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } },
     { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Send application' }, sends_application: true } },
-    { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Fixture receipt' } },
+    { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Fixture receipt', receipt: { quote: 'Application received' } } },
   ] as typeof calls;
   const sent = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(requests, 1, 'an unchanged application sends only after its exact version was confirmed');
@@ -229,11 +229,11 @@ try {
     const writes: typeof calls = fill(index < 2 ? rewritten : drafts[index].coverLetter);
     if (index === 1) writes[2] = { name: 'browser_batch', args: { actions: [{ action: 'fill', selector: '#letter', value: rewritten }] } };
     calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send' } },
-      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', cover_letter: rewritten } }];
+      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' }, cover_letter: rewritten } }];
     if (index === 4) calls = [
       { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
       { name: 'browser_action', args: { action: 'click', selector: '#send' } },
-      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', answers: [] } },
+      { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' }, answers: [] } },
     ];
     const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
     assert.equal(result.outcome.status, 'applied');

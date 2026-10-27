@@ -7,6 +7,7 @@ interface Answer {
 export type Outcome = 'interview' | 'rejected' | 'closed';
 
 export interface Application {
+  confirmationStatus?: 'unconfirmed';
   jobId: string;
   title: string;
   company: string;

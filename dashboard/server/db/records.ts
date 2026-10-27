@@ -97,6 +97,7 @@ export async function insertKnowledgeItemRow(uid: string, k: KnowledgeRow): Prom
 }
 
 interface ApplicationRow {
+  confirmationStatus?: 'unconfirmed' | null;
   jobId: string;
   title: string;
   company: string;
@@ -119,7 +120,7 @@ interface ApplicationRow {
   site?: string | null;
   /** What Myasis did on the candidate's behalf while applying. */
   actions?: unknown[];
-  /** False when retained only to prevent duplicating an application made elsewhere. */
+  /** False for observed or unconfirmed history retained for duplicate protection. */
   submittedByMyasis?: boolean;
   /** The resume file sent with it. */
   resumeName?: string | null;
@@ -131,8 +132,8 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
     `INSERT INTO applications (
        user_id, job_id, title, company, location, url, platform, score, salary,
        work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons,
-       outcome, applied_at, external, submitted_by_myasis, site, actions, resume_name, application_url
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+       outcome, applied_at, external, submitted_by_myasis, site, actions, resume_name, application_url, confirmation_status
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
      ON CONFLICT (user_id, platform, job_id) DO NOTHING
      RETURNING id`,
     [
@@ -141,11 +142,26 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
       a.ageDaysAtApply ?? null, a.coverLetter ?? null,
       JSON.stringify(a.answers ?? []), JSON.stringify(a.scoreReasons ?? []),
       a.outcome ?? null, a.appliedAt ?? new Date(), a.external === true,
-      a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
+      a.confirmationStatus === 'unconfirmed' ? false : a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
       a.site ?? null, JSON.stringify(a.actions ?? []), a.resumeName ?? null,
       a.applicationUrl ?? null,
+      a.confirmationStatus ?? null,
     ],
   );
+  return rows.length > 0;
+}
+
+/** Operator correction, never a retry. Keep the original application and trace
+ * for duplicate protection; append an audit event atomically and idempotently. */
+export async function markApplicationUnconfirmed(uid: string, platform: string, jobId: string, reason: string): Promise<boolean> {
+  if (!reason.trim()) throw new Error('A confirmation correction requires a reason.');
+  const rows = await query<{ id: string }>(`WITH corrected AS (
+    UPDATE applications SET confirmation_status = 'unconfirmed', submitted_by_myasis = false
+    WHERE user_id = $1 AND platform = $2 AND job_id = $3 AND confirmation_status IS DISTINCT FROM 'unconfirmed'
+    RETURNING user_id, job_id, title, company, url
+  ) INSERT INTO run_events(user_id, job_id, status, title, company, reason, url)
+    SELECT user_id, job_id, 'unconfirmed', title, company, $4, url FROM corrected RETURNING id`,
+  [uid, platform, jobId, reason]);
   return rows.length > 0;
 }
 

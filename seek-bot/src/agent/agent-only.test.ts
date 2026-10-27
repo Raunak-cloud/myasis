@@ -71,7 +71,7 @@ try {
     assert.doesNotMatch(JSON.stringify(body.messages.filter(message => message.role === 'tool')), /Browser\/tool error:/,
       'a timeout-only post-action wait must not report an executed submit as a selector failure');
     assert.match(observation(body), /Please choose a referral source/);
-    assert.deepEqual(body.tools && (body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission']);
+    assert.deepEqual(body.tools && (body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result']);
     return [{ name: 'resume_after_rejected_submission', args: { evidence: 'Please choose a referral source' } }];
   }, () => [
     { name: 'browser_action', args: { action: 'select', locator: { by: 'role', value: 'combobox', name: 'Referral source' }, value: 'Company website' } },
@@ -80,7 +80,7 @@ try {
     assert.doesNotMatch(JSON.stringify(body.messages.filter(message => message.role === 'tool')), /Browser\/tool error:/);
     assert.match(JSON.stringify(body.messages), /action completed, but its follow-up wait timed out/);
     assert.match(observation(body), /Application received/); assert.match(observation(body), /ABC123/);
-    return [{ name: 'finish', args: { status: 'applied', reason: 'Received after correcting referral source', evidence: 'Application received, Receipt ABC123', cover_letter: letter, resume_id: 'cv-1' } }];
+    return [{ name: 'finish', args: { status: 'applied', reason: 'Received after correcting referral source', evidence: 'Application received, Receipt ABC123', receipt: { quote: 'Application received' }, cover_letter: letter, resume_id: 'cv-1' } }];
   }];
   let quotaChecks = 0;
   const run = await withApplicationAllowance(async external => { assert.equal(external, true); quotaChecks++; return true; },
@@ -109,7 +109,7 @@ try {
       () => [{ name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } }],
       body => {
         assert.match(observation(body), /Application received/);
-        return [{ name: 'finish', args: { status: 'applied', reason: 'Completed after verified progress', evidence: 'Application received, Receipt ABC123' } }];
+        return [{ name: 'finish', args: { status: 'applied', reason: 'Completed after verified progress', evidence: 'Application received, Receipt ABC123', receipt: { quote: 'Application received' } } }];
       },
     ];
     const extended = await runApplicationAgent({ page, job: { ...job, id: 'progress-turn-extension' }, profile, log: () => {} });
@@ -164,7 +164,7 @@ try {
       return [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
     }, body => {
       assert.match(observation(body), /Application received: UPLOAD123/);
-      return [{ name: 'finish', args: { status: 'applied', reason: 'Native attachment accepted by fixture', evidence: 'Application received: UPLOAD123' } }];
+      return [{ name: 'finish', args: { status: 'applied', reason: 'Native attachment accepted by fixture', evidence: 'Application received: UPLOAD123', receipt: { quote: 'Application received: UPLOAD123' } } }];
     }];
     const uploaded = await runApplicationAgent({ page, job: { ...job, id: `direct-upload-${index}` }, profile, log: () => {} });
     assert.equal(uploaded.outcome.status, 'applied');
@@ -185,7 +185,7 @@ try {
     assert.match(observation(body), /Resume accepted/);
     assert.match(JSON.stringify(body.messages), /File selected: CV.pdf/);
     return [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
-  }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Agent chose PDF after actual employer rejection', evidence: 'Application received: CONVERT123' } }]];
+  }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Agent chose PDF after actual employer rejection', evidence: 'Application received: CONVERT123', receipt: { quote: 'Application received: CONVERT123' } } }]];
   const convertedUpload = await runApplicationAgent({ page, job: { ...job, id: 'agent-requested-upload-format' }, profile, log: () => {} });
   assert.equal(convertedUpload.outcome.status, 'applied');
 
@@ -214,7 +214,7 @@ try {
     ] } }];
   }, body => {
     assert.match(observation(body), /Receipt ABC123/);
-    return [{ name: 'finish', args: { status: 'applied', reason: 'Batched native actions received', evidence: 'Receipt ABC123' } }];
+    return [{ name: 'finish', args: { status: 'applied', reason: 'Batched native actions received', evidence: 'Receipt ABC123', receipt: { quote: 'Application received' } } }];
   }];
   const batched = await runApplicationAgent({ page, job: { ...job, id: 'agent-native-batch' }, profile, log: () => {} });
   assert.equal(batched.outcome.status, 'applied');
@@ -298,7 +298,7 @@ try {
   script = [0, 1, 2, 3, 4].map(i => () => expensive([{ name: 'browser_action', args: { action: 'fill', selector: `#q${i}`, value: `Answer ${i}` } }]));
   script.push(() => expensive([{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }]), body => {
     assert.match(observation(body), /Application received: PROGRESS123/);
-    return expensive([{ name: 'finish', args: { status: 'applied', reason: 'Progressing application completed', evidence: 'Application received: PROGRESS123' } }]);
+    return expensive([{ name: 'finish', args: { status: 'applied', reason: 'Progressing application completed', evidence: 'Application received: PROGRESS123', receipt: { quote: 'Application received: PROGRESS123' } } }]);
   });
   const extended = await runApplicationAgent({ page, job: { ...job, id: 'native-progress-budget' }, profile, log: () => {} });
   assert.equal(extended.outcome.status, 'applied');
@@ -344,10 +344,10 @@ try {
   const beforeBudget = turns.length;
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }], body => {
     assert.match(observation(body), /Application received: BUDGET123/);
-    assert.deepEqual((body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission'], 'Housing-style receipt review cannot waste its final response on a wait for an already-matched URL');
+    assert.deepEqual((body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result'], 'Housing-style receipt review cannot waste its final response on a wait for an already-matched URL');
     completionTokens = 1_000_000;
     return [
-      { name: 'finish', args: { status: 'applied', reason: 'Employer accepted the application', evidence: 'Application received: BUDGET123' } },
+      { name: 'finish', args: { status: 'applied', reason: 'Employer accepted the application', evidence: 'Application received: BUDGET123', receipt: { quote: 'Application received: BUDGET123' } } },
       { name: 'browser_action', args: { action: 'fill', selector: '#after', value: 'Must not run after finish' } },
     ];
   }];
@@ -357,6 +357,33 @@ try {
   assert.equal(turns.length - beforeBudget, 2, 'no additional model call after the budget is exhausted');
   assert.equal(await page.inputValue('#after'), '');
   assert.match(readFileSync(join(directory, 'traces', 'native-budget-receipt.json'), 'utf8'), /BUDGET123/);
+
+  // Mimco regression: a disabled Please wait button is not an employer receipt,
+  // even when the model incorrectly calls it applied. No second send is allowed.
+  await page.goto(url);
+  await page.setContent(`<main><button id=send onclick="window.pendingPresses=(window.pendingPresses||0)+1;this.disabled=true;this.textContent='Please wait...'">Apply</button></main>`);
+  script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
+    () => [{ name: 'finish', args: { status: 'applied', reason: 'Button disabled', evidence: 'Please wait...', receipt: { quote: 'Please wait...' } } }],
+    body => {
+      assert.match(JSON.stringify(body.messages), /Submission is not confirmed/);
+      assert.ok(!(body.tools as Array<{ function: { name: string } }>).some(tool => tool.function.name === 'browser_action'), 'receipt review cannot repeat a send');
+      return [{ name: 'finish', args: { status: 'skipped', reason: 'Submission remains unconfirmed; no employer receipt', evidence: 'The button only says Please wait...' } }];
+    }];
+  const pendingReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-pending-receipt' }, profile, log: () => {} });
+  assert.equal(pendingReceipt.outcome.status, 'skipped');
+  assert.equal(pendingReceipt.submitPressed, true);
+  assert.equal(await page.evaluate('window.pendingPresses', undefined, undefined, false), 1);
+
+  await page.setContent(`<main><label>Name<input value="Rinu"></label><p id=result>Ready</p><button id=send onclick="window.delayedPresses=(window.delayedPresses||0)+1;this.disabled=true;document.querySelector('#result').textContent='Please wait...';setTimeout(()=>document.querySelector('#result').textContent='Application received: DELAY123',1800)">Apply</button></main>`);
+  script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
+    () => [{ name: 'wait_for_submission_result', args: {} }],
+    body => {
+      assert.match(observation(body), /Application received: DELAY123/);
+      return [{ name: 'finish', args: { status: 'applied', reason: 'Delayed employer receipt', evidence: 'Application received: DELAY123', receipt: { quote: 'Application received: DELAY123' } } }];
+    }];
+  const delayedReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-delayed-receipt' }, profile, log: () => {} });
+  assert.equal(delayedReceipt.outcome.status, 'applied');
+  assert.equal(await page.evaluate('window.delayedPresses', undefined, undefined, false), 1, 'read-only pending review never repeats Apply');
 
   await page.goto(url);
   await page.setContent(`<button id=send onclick="history.replaceState({},'', '/apply/success');document.querySelector('main').textContent='We could not process your application. Try later.'">Submit</button><main></main>`);
@@ -369,7 +396,7 @@ try {
   assert.equal(uncertainReceipt.outcome.status, 'skipped', 'a success URL alone must not promote an unsuccessful application');
   assert.equal(uncertainReceipt.submitPressed, true, 'uncertain submissions retain duplicate protection');
 
-  const finishApplied: Call = { name: 'finish', args: { status: 'applied', reason: 'Planned receipt', evidence: 'This claim must not bypass an unexecuted action' } };
+  const finishApplied: Call = { name: 'finish', args: { status: 'applied', reason: 'Planned receipt', evidence: 'This claim must not bypass an unexecuted action', receipt: { quote: 'This claim must not bypass an unexecuted action' } } };
   for (const [id, calls] of [
     ['mutation', [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }, finishApplied]],
     ['progress-write', [{ name: 'save_progress', args: { note: 'Must not be saved', cover_letter: 'Must not be recorded' } }, finishApplied]],
@@ -418,7 +445,7 @@ try {
       { action: 'fill', selector: '#name', value: 'Rinu Fixture' },
       { action: 'click', selector: '#send', sends_application: true },
     ] } }];
-  }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Approved job completed', evidence: 'Application received: APPROVED123' } }]];
+  }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Approved job completed', evidence: 'Application received: APPROVED123', receipt: { quote: 'Application received: APPROVED123' } } }]];
   assert.equal((await runApplicationAgent({ page, job: reviewedJob, profile, log: () => {} })).outcome.status, 'applied', 'the applier cannot overturn unchanged approved listing facts');
 
   await page.setContent('<main>Current NV1 clearance must be held before applying.</main>');
