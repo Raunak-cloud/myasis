@@ -407,6 +407,17 @@ try {
   assert.equal(uncertainReceipt.outcome.status, 'skipped', 'a success URL alone must not promote an unsuccessful application');
   assert.equal(uncertainReceipt.submitPressed, true, 'uncertain submissions retain duplicate protection');
 
+  // Script scope is the document/frame, not an unrelated control label lookup.
+  await page.setContent('<main>Inspect document</main>');
+  script = [() => [{ name: 'browser_action', args: { action: 'script', selector: '#invalid?control id', script: '() => document.querySelector("main").innerText' } }],
+    body => {
+      assert.doesNotMatch(JSON.stringify(body.messages.filter(message => message.role === 'tool')), /Browser\/tool error:/);
+      assert.match(JSON.stringify(body.messages.filter(message => message.role === 'tool')), /Inspect document/);
+      return [{ name: 'finish', args: { status: 'skipped', reason: 'Read-only scope fixture complete', evidence: 'Document inspection completed' } }];
+    }];
+  const documentInspection = await runApplicationAgent({ page, job: { ...job, id: 'native-script-scope' }, profile, log: () => {} });
+  assert.equal(documentInspection.submitPressed, false);
+
   const finishApplied: Call = { name: 'finish', args: { status: 'applied', reason: 'Planned receipt', evidence: 'This claim must not bypass an unexecuted action', receipt: { quote: 'This claim must not bypass an unexecuted action' } } };
   for (const [id, calls] of [
     ['mutation', [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }, finishApplied]],

@@ -54,8 +54,12 @@ export async function saveAnswers(
   }
   if (saved && jobId) {
     await query(
-      `UPDATE run_events SET dismissed_at = now()
-        WHERE user_id = $1 AND job_id = $2 AND status = 'needs-human' AND dismissed_at IS NULL`,
+      // The answer is also a lifecycle event. A delayed run-log import must
+      // not resurrect an older question after its answer was already saved.
+      `WITH dismissed AS (UPDATE run_events SET dismissed_at = now()
+        WHERE user_id = $1 AND job_id = $2 AND status = 'needs-human' AND dismissed_at IS NULL)
+       INSERT INTO run_events(user_id, job_id, status, reason)
+       VALUES ($1, $2, 'answered', 'Candidate answers saved for this application.')`,
       [userId, jobId],
     );
   }

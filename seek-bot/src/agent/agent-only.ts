@@ -44,6 +44,7 @@ import { JOB_FIT_POLICY, jobPreferenceContext } from '../job-fit-policy.js';
 import { currentFitReview } from '../review-cache.js';
 import type { FitRejection } from '../types.js';
 import { submissionReceipt } from './submission-receipt.js';
+import { InteractionMemory } from './interaction-memory.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -197,7 +198,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   let finished = false;
   let recoveryNote = '';
   let browserMutated = false;
-  let contextLimit = 42_000;
+  // Stable profile/job evidence and current state remain; superseded page
+  // trees retire sooner instead of consuming most of every paid model call.
+  let contextLimit = 24_000;
+  const interactionMemory = new InteractionMemory();
   const waitedForSurface = new Set<string>();
   const remainingMs = () => config.celeris.maxTotalMs - (Date.now() - started);
   const watched = new Set<Page>();
@@ -426,7 +430,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     const labelRef = args.locator || args.selector ? undefined : args.ref;
     let actionLabel = ctx.observation.fields.find(field => field.ref === labelRef || String(labelRef ?? '').startsWith(field.ref + ':'))?.label
       ?? ctx.observation.actions.find(action => action.ref === labelRef)?.text ?? '';
-    if (!actionLabel && hasBrowserTarget(args)) {
+    if (!actionLabel && hasBrowserTarget(args) && ['fill', 'select', 'check', 'click', 'press', 'hover'].includes(String(args.action))) {
       const element = target(ctx, args);
       if (await element.count()) actionLabel = await element.evaluate(node => {
         const input = node as HTMLInputElement;
@@ -591,7 +595,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         finished = true;
         break;
       }
-      messages.push(observationMessage(ctx.observation, `${lastNote}\n${submissionReviewRequired ? 'SUBMISSION RESULT REVIEW: Read the current employer response. Finish with its actual receipt or an honest uncertain result. Use resume_after_rejected_submission only for an explicit employer rejection or a new required application step after a handoff. Read-only waits and snapshots are allowed; do not repeat the prior send.' : ''}\nOpen pages: ${JSON.stringify(pages)}\nDurable progress: ${recoveryNote}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
+      messages.push(observationMessage(ctx.observation, `${lastNote}\n${submissionReviewRequired ? 'SUBMISSION RESULT REVIEW: Read the current employer response. Finish with its actual receipt or an honest uncertain result. Use resume_after_rejected_submission only for an explicit employer rejection or a new required application step after a handoff. Read-only waits and snapshots are allowed; do not repeat the prior send.' : ''}\nOpen pages: ${JSON.stringify(pages)}\nDurable progress: ${recoveryNote}\n${interactionMemory.render()}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       const turnTools = agentOnlyTools.filter(tool => submissionReviewRequired
         ? ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result'].includes(tool.name)
         : tool.name !== 'resume_after_rejected_submission');
@@ -661,7 +665,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });
         trace.push({ step: steps, url: ctx.page.url(), tool: call.name, args: call.args, label: `${call.name} ${String(call.args.action ?? '')}`, result: text });
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }
-        else if (result.disposition === 'failed') { highEffort = true; interrupted = true; lastNote = 'The last action failed. Reason through the current evidence, then recover or finish honestly.'; }
+        else if (result.disposition === 'failed') {
+          interactionMemory.failed(call.name, call.args, ctx.page.url(), result.message);
+          highEffort = true; interrupted = true; lastNote = 'The last action failed. Reason through the current evidence, then recover or finish honestly.';
+        }
         else if (result.disposition === 'reobserve') {
           interrupted = true;
           interruptionNote = 'Not run: inspect the fresh observation and last tool result before replanning the remaining actions.';
