@@ -21,7 +21,7 @@ const requests: Array<{ kind: string; prompt: string; data: Record<string, unkno
 globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
   assert.match(String(url), /\/chat\/completions$/);
   const body = JSON.parse(String(init?.body));
-  const prompt = String(body.messages[0].content), schema = body.response_format.json_schema.schema;
+  const prompt = String(body.messages.find((message: { role: string }) => message.role === 'user').content), schema = body.response_format.json_schema.schema;
   const blocks = [...prompt.matchAll(/<untrusted role="job-listing">([\s\S]*?)<\/untrusted>/g)];
   assert.equal(blocks.length, 1, 'There is exactly one escaped job-data block.');
   assert.equal(prompt.includes(JOB_EVALUATION_POLICY), true);
