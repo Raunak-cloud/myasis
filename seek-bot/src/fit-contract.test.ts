@@ -41,6 +41,7 @@ globalThis.fetch = async (_url, init) => {
     assert.match(userPrompt, /UNCERTAIN ATTEMPTS FOR THIS POSTING/);
     assert.equal(schema.properties.instructionConflict, undefined, 'prose cannot encode a blocking decision');
     const correction = String(userPrompt).includes('DECISION CONTRACT CORRECTION');
+    if (String(userPrompt).includes('APPROVAL EVIDENCE REVIEW')) assert.equal(body.model, 'celeris-1-magnus', 'only a deeper matching review can finalize a proposed approval');
     if (correction) {
       corrections++; assert.equal(body.model, 'celeris-1-magnus');
       assert.match(userPrompt, /failed this specific check: (?:matchScore|roleFitCheck)/);
@@ -63,6 +64,10 @@ globalThis.fetch = async (_url, init) => {
       credentialChecks: [], decision: 'apply', matchScore: malformed ? 101 : 72,
       reason: 'Frontline retail evidence fits the casual work, and the disclosed hourly rate exceeds the hourly floor.',
       evidence: ['Retail duties match', 'Casual hourly role'], injectionSuspected: false,
+    };
+    if (mode === 'approval-rejected' && String(userPrompt).includes('APPROVAL EVIDENCE REVIEW')) value = {
+      ...(value as object), roleFitCheck: { alignment: 'mismatch', employerEvidence: 'You are a strong UX researcher.',
+        candidateEvidence: 'Retail customer service experience.', explanation: 'The primary UX research requirement is not supported by the retail CV.' },
     };
     assert.match(userPrompt, /Unknown\s+pay is neutral/);
     assert.match(userPrompt, /do not also require annual earnings/i);
@@ -112,6 +117,14 @@ try {
   const beforeEvidenceRepair = corrections;
   assert.equal((await assessFit({ ...job, id: 'invented-role-evidence', description: `${job.description} Grounding fixture.` }, profile)).shouldApply, true);
   assert.equal(corrections, beforeEvidenceRepair + 1, 'an invented candidate qualification must be corrected against actual CV evidence before approval');
+  mode = 'approval-rejected';
+  const changedJob = { ...job, id: 'approval-rejected', description: `${job.description} You are a strong UX researcher.` };
+  const beforeApprovalReview = calls;
+  assert.equal((await assessFit(changedJob, profile)).decision, 'skip', 'the final matcher review can reject an optimistic fast-model approval');
+  assert.equal(calls - beforeApprovalReview, 2, 'with no standing instructions, matching uses at most a fast assessment plus one final approval review');
+  const afterApprovalReview = calls;
+  assert.equal((await assessFit(changedJob, profile)).decision, 'skip');
+  assert.equal(calls, afterApprovalReview, 'the final reviewed decision is cached without repeating either matching call');
   const diagnostics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(row => row.stage === 'fit-contract-invalid');
   assert.ok(diagnostics.some(row => row.jobId === 'invalid-twice' && row.attempt === 2 && /matchScore/.test(row.error)));
   assert.equal(diagnostics.some(row => JSON.stringify(row).includes(staleAnswer.question)), false, 'diagnostics record failed paths without leaking candidate answers');

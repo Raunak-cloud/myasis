@@ -25,5 +25,7 @@ test('role evidence must come from the actual listing and candidate documents', 
   assert.ok(roleFitError({ ...role, alignment: 'aligned', candidateEvidence: '' }, job, candidate));
   const supported = { ...role, alignment: 'aligned', employerEvidence: 'Builds web applications', explanation: 'The developer duties align.' };
   assert.equal(roleFitError(supported, { ...job, description: 'Builds web applications' }, candidate), null);
+  assert.equal(roleFitError({ ...role, employerEvidence: '“You are a strong UX researcher … customer empathy to AI-enabled work.”' }, job, candidate), null);
+  assert.ok(roleFitError({ ...role, employerEvidence: 'You are a strong UX researcher ... Invented requirement' }, job, candidate));
   assert.equal(normalizeFitAssessment({ ...assessment, roleFitCheck: supported }, '', ['onsite', 'hybrid', 'remote'])?.decision, 'apply');
 });

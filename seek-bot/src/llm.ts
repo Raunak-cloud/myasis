@@ -1032,13 +1032,20 @@ Return JSON.`;
   return cachedAssessment({ version: FIT_ASSESSMENT_VERSION, prompt, trustedInstructions, schema, model, endpoint: config.celeris.baseUrl }, async () => {
     let raw = await measured('fit', () => json<unknown>(prompt, schema, model, undefined, undefined, undefined, llmMeter, trustedInstructions));
     let result = verified(withInstructionDecision(raw));
-    if (!result) {
+    const approvalReview = Boolean(result?.shouldApply && model !== 'celeris-1-magnus');
+    if (!result || approvalReview) {
       const error = evidenceError(withInstructionDecision(raw));
-      metric('fit-contract-invalid', 0, { jobId: job.id, attempt: 1, model, error });
-      raw = await measured('fit-contract-correction', () => json<unknown>(`${prompt}
+      if (error) metric('fit-contract-invalid', 0, { jobId: job.id, attempt: 1, model, error });
+      raw = await measured(approvalReview ? 'fit-approval-review' : 'fit-contract-correction', () => json<unknown>(`${prompt}
 
-DECISION CONTRACT CORRECTION
-The previous response failed this specific check: ${error}.
+${approvalReview ? `APPROVAL EVIDENCE REVIEW
+This is the final matching decision before an application opens. Independently verify the
+proposed approval against the complete job, CV, profile and CURRENT preferences above.
+Check all essential domain experience and primary duties, not only shared tools or a
+secondary AI task. Missing desirable experience alone does not exclude. A proposed high
+score is not proof; correct approval to skip or uncertain when the evidence warrants it.`
+  : `DECISION CONTRACT CORRECTION
+The previous response failed this specific check: ${error}.`}
 Return a complete fresh
 assessment of suitability, workArrangementCheck (offered arrangements and employer evidence)
 and mandatory eligibility. The current instruction decision is already complete; do not
