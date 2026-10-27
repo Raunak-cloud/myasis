@@ -147,15 +147,31 @@ export class PersonalAnswerCheck {
             id: { type: 'string', enum: group.map(answer => answer.id) },
           } },
         } } };
-        const reply = await (this.options.chat ?? celerisChat)({
+        const request: CelerisRequest = {
           model: 'celeris-1-magnus', thinking: true, reasoningEffort: 'medium', maxTokens: 8192,
           deadline: Math.min(deadline, Date.now() + 45_000, Date.now() + this.options.remainingMs() - 5000),
           meter: this.options.meter, responseSchema,
           messages: [{ role: 'system', content: PERSONAL_ANSWER_CHECK_POLICY },
             { role: 'user', content: JSON.stringify(batch).replace(/</g, '\\u003c') }],
-        });
-        if (reply.toolCalls.length) throw new Error('The source check returned an action instead of evidence.');
-        const checked = checkedPersonalReviews(JSON.parse(reply.text), group, sources);
+        };
+        let checked: Review[] | undefined;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (this.options.meter.exhausted || Date.now() >= request.deadline!) throw new Error('Personal-answer review budget ended.');
+          const reply = await (this.options.chat ?? celerisChat)(request);
+          if (reply.toolCalls.length) throw new Error('The source check returned an action instead of evidence.');
+          try {
+            checked = checkedPersonalReviews(JSON.parse(reply.text), group, sources);
+            break;
+          } catch (error) {
+            if (attempt !== 0) throw error;
+            // Repair only the review, never candidate facts or browser state.
+            // Keep exact binding: accepting punctuation substitutions would hide
+            // fabricated quotations rather than correcting the model's output.
+            request.messages = [...request.messages, { role: 'assistant', content: reply.text }, { role: 'user', content:
+              `Your review failed validation: ${(error as Error).message} Return the complete group again. Copy source passages verbatim, including punctuation and line breaks (encode those as JSON \\n). Never insert separators such as / or rewrite keys. If evidence does not establish a consequential answer, use missing, not an invented quotation.` }];
+          }
+        }
+        if (!checked) throw new Error('No complete personal-answer review was returned.');
         this.reviewed.set(batchKey, checked);
         reviews.push(...checked);
       }

@@ -180,3 +180,19 @@ test('a transient provider deadline allows one read-only retry while retaining t
   assert.ok(second?.kind === 'terminal' && second.outcome.status === 'skipped');
   assert.equal(calls, 2);
 });
+
+test('invalid source quotes get one read-only correction and still require exact binding', async () => {
+  for (const repair of [true, false]) {
+    let calls = 0;
+    const check = new PersonalAnswerCheck({ meter: new CostMeter(1), remainingMs: () => 120_000,
+      sources: async () => [{ id: 'saved', text: 'Question: Disability\nAnswer: No' }], chat: async request => {
+        calls++;
+        if (calls === 2) assert.match(String(request.messages.at(-1)?.content), /failed validation/);
+        return reply([review('field:0', 'supported', [{ source: 'saved', quote: repair && calls === 2 ? 'Question: Disability\nAnswer: No' : 'Question: Disability / Answer: No' }])]);
+      } });
+    const result = await check.check(ctx(), form());
+    if (repair) assert.equal(result, null);
+    else assert.ok(result?.kind === 'terminal' && result.outcome.status === 'skipped');
+    assert.equal(calls, 2);
+  }
+});
