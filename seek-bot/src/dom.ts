@@ -301,6 +301,10 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
       const label = labelFor(el);
       const description = descriptionFor(el, label);
       const section = sectionFor(el, label);
+      const interactionState = {
+        ...(el.readOnly || el.getAttribute('aria-readonly') === 'true' ? { readOnly: true } : {}),
+        ...(el.disabled || el.getAttribute('aria-disabled') === 'true' ? { disabled: true } : {}),
+      };
       /**
        * What the field's own markup calls it (name, id, autocomplete,
        * placeholder): machine words, but the answerer can tell from
@@ -321,6 +325,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
           ...(description ? { description } : {}),
           ...(section ? { section } : {}),
           kind: 'select',
+          ...interactionState,
           ...(hints ? { hints } : {}),
           required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
           options: [...sel.options].map((o) => o.textContent?.trim() ?? '').filter(Boolean),
@@ -348,6 +353,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
         ...(description ? { description } : {}),
         ...(section ? { section } : {}),
         kind: el.tagName === 'TEXTAREA' ? 'textarea' : el.type === 'checkbox' ? 'checkbox' : 'text',
+        ...interactionState,
         ...(hints ? { hints } : {}),
         required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
         currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,

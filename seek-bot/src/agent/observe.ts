@@ -36,6 +36,8 @@ interface AgentAction {
 }
 
 export interface Observation {
+  /** Visible modal layer can block controls underneath it. Untrusted page copy. */
+  dialogs?: string[];
   url: string;
   title: string;
   actions: AgentAction[];
@@ -461,6 +463,8 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
     actions,
     fields,
     text: clean(text),
+    dialogs: await page.locator('dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]').evaluateAll(nodes => nodes.filter(node => node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }))
+      .map(node => (node as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 4000)).filter((text, index, all) => Boolean(text) && all.indexOf(text) === index)).catch(() => []),
   };
 
   if (options.screenshot) {
@@ -490,7 +494,7 @@ export function renderObservation(observation: Observation): string {
       const options = f.options?.length ? `  options=${JSON.stringify(f.options)}` : '';
       const value = f.currentValue !== undefined ? `  current=${JSON.stringify(f.currentValue)}` : '';
       const error = f.validationError ? `  validation=${JSON.stringify(f.validationError)}` : '';
-      const control = [f.inputType && `input=${f.inputType}`, f.autocomplete && 'autocomplete: type then choose an observed suggestion',
+      const control = [f.inputType && `input=${f.inputType}`, f.readOnly && 'read-only', f.disabled && 'disabled', f.autocomplete && 'autocomplete: inspect the current widget before choosing an interaction',
         f.sensitive && 'private credential: use authentication tools'].filter(Boolean).join('; ');
       const description = f.description ? `  description=${JSON.stringify(f.description)}` : '';
       const hints = f.hints ? `  hints=${JSON.stringify(f.hints)}` : '';
@@ -501,6 +505,7 @@ export function renderObservation(observation: Observation): string {
   return [
     `URL: ${observation.url}`,
     `TITLE: ${observation.title}`,
+    ...(observation.dialogs?.length ? ['VISIBLE DIALOG LAYER (may block controls underneath):', '<untrusted role="page-content">', ...observation.dialogs, '</untrusted>'] : []),
     '',
     `ACTIONS (${observation.actions.length}):`,
     actions || '  (none)',

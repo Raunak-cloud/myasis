@@ -36,6 +36,8 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
       selected: node.tagName === 'SELECT' ? [...select.selectedOptions].map(option => ({ value: option.value, label: option.label })) : undefined,
       files: type === 'file' ? [...(input.files || [])].map(file => file.name) : undefined,
       required: input.required || node.getAttribute('aria-required') === 'true',
+      readOnly: input.readOnly || node.getAttribute('aria-readonly') === 'true',
+      disabled: input.disabled || node.getAttribute('aria-disabled') === 'true',
       min: input.min, max: input.max, step: input.step, maxLength: input.maxLength,
       placeholder: input.placeholder, invalid: node.getAttribute('aria-invalid'),
       validation: input.validationMessage || '', description: described,
@@ -55,8 +57,12 @@ export async function waitAfterAction(page: Page, args: Record<string, unknown>)
     if (wait.url) await page.waitForURL(String(wait.url), { timeout, waitUntil: 'domcontentloaded' });
     else await browserTarget(page, wait).waitFor({ state: (wait.state ?? 'visible') as 'visible', timeout });
   } catch (error) {
-    if (!(error instanceof Error) || error.name !== 'TimeoutError') throw error;
-    return `${args.action === 'wait' ? 'The requested wait' : 'The browser action completed, but its follow-up wait'} timed out. Inspect the current page and saved values before deciding the next action; this does not mean the preceding action failed.`;
+    // Waiting is observation after the action, not part of its execution.
+    // Ambiguous/invalid wait locators must not invite replay of a completed
+    // click, just as a timeout must not. Actual browser loss still propagates.
+    if (!(error instanceof Error) || page.isClosed() || /TargetClosed|closed|disconnected|session.*(?:gone|ended)/i.test(`${error.name} ${error.message}`)) throw error;
+    const detail = error.name === 'TimeoutError' ? 'timed out' : `could not be evaluated: ${error.message.slice(0, 1200)}`;
+    return `${args.action === 'wait' ? 'The requested wait' : 'The browser action completed, but its follow-up wait'} ${detail}. Inspect the current page and saved values before deciding the next action; this does not mean the preceding action failed.`;
   }
 }
 

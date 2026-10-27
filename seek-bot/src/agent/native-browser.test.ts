@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { chromium } from 'patchright';
 import { browserTarget } from './browser-target.js';
 import { nativeReadback, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
+import { observe, renderObservation } from './observe.js';
 
 test('native locators retain events across rerenders, scope frames/editors/shadow DOM, and inspect values together', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -43,6 +44,16 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     await page.getByRole('button', { name: 'Continue' }).click();
     assert.match((await waitAfterAction(page, { action: 'click', wait: { selector: '#never-arrives', timeout_ms: 20 } }))!, /action completed.*wait timed out/);
     assert.equal(await page.evaluate('window.clicks', undefined, undefined, false), 1, 'a timed-out follow-up wait preserves the already completed action');
+    await page.setContent('<button>One</button><button>Two</button>');
+    assert.match((await waitAfterAction(page, { action: 'click', wait: { selector: 'button' } }))!, /action completed.*could not be evaluated.*strict mode violation/s, 'ambiguous follow-up inspection cannot turn a successful action into an execution failure');
+    assert.match((await waitAfterAction(page, { action: 'click', wait: { selector: '#123-invalid-css' } }))!, /action completed.*could not be evaluated/s);
+    await page.setContent('<main><label>Contact method<input role=combobox readonly aria-haspopup=listbox></label><label>Locked answer<input disabled></label></main><div role=dialog aria-modal=true><h2>Privacy notice</h2><button>Close notice</button></div>');
+    const state = await observe(page);
+    assert.equal(state.fields.find(field => field.label === 'Contact method')?.readOnly, true);
+    assert.equal(state.fields.find(field => field.label === 'Locked answer')?.disabled, true);
+    assert.match(renderObservation(state), /read-only/);
+    assert.match(renderObservation(state), /VISIBLE DIALOG LAYER.*Privacy notice/s, 'modal context outside main must be shown to the agent');
+    assert.equal((await nativeReadback(page.getByRole('combobox')) as { readOnly: boolean }).readOnly, true);
     await page.setContent('<label>Password<input type=password value="private-fixture"></label>');
     const privateInput = await nativeReadback(page.getByLabel('Password')) as { private: boolean };
     assert.equal(privateInput.private, true); assert.equal(JSON.stringify(privateInput).includes('private-fixture'), false);

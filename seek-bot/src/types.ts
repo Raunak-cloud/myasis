@@ -256,6 +256,9 @@ export interface FormField {
    * answerer needs, not a rule to be guessed at from the label.
    */
   inputType?: string;
+  /** Native/ARIA interaction state, observed without choosing an interaction. */
+  readOnly?: boolean;
+  disabled?: boolean;
   /** A credential the candidate must set, not a question about them. Never stored or asked for. */
   sensitive?: boolean;
 }
