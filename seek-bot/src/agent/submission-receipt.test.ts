@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'patchright';
-import { isApplicationReceipt, submissionReceipt } from './submission-receipt.js';
+import { submissionReceipt } from './submission-receipt.js';
 
-for (const quote of ['Please wait...', 'Apply', 'Application submitting', 'Your application was not submitted', 'Once your application is submitted', 'No errors appeared', 'Account created successfully']) assert.equal(isApplicationReceipt(quote), false, quote);
-for (const quote of ['Thanks for applying', 'Your application for Sales Assistant has been submitted', 'We have received your application']) assert.equal(isApplicationReceipt(quote), true, quote);
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   const page = await browser.newPage();
@@ -16,6 +14,9 @@ try {
   assert.equal(await submissionReceipt(page, 'application is submitted'), null, 'a truncated quote from instructions is not receipt');
   await page.setContent('<main>Application submitted unsuccessfully.</main>');
   assert.equal(await submissionReceipt(page, 'Application submitted'), null, 'a truncated quote cannot hide rejection');
+  const employerMessage = 'Congratulations! You have applied to a new job as Sandwich Artist at the selected store.';
+  await page.setContent(`<main><h1>${employerMessage}</h1><p>Check your email for confirmation.</p></main>`);
+  assert.ok(await submissionReceipt(page, employerMessage), 'novel employer wording is grounded without an English success phrase allowlist');
   await page.setContent('<main>Thank you for applying. Your application has been successfully submitted.</main>');
   assert.ok(await submissionReceipt(page, 'Your application has been successfully submitted.'));
   await page.setContent('<main>Application sent</main>');
@@ -25,5 +26,5 @@ try {
   assert.ok(await submissionReceipt(page, 'Application received: FRAME123'), 'actual frame receipts remain supported');
   await page.locator('iframe').evaluate(node => (node as HTMLElement).style.display = 'none');
   assert.equal(await submissionReceipt(page, 'Application received: FRAME123'), null);
-  console.log('PASS: pending states, hallucinations, hidden/editable text and rejection cannot confirm; fresh real receipts and visible frames can. No real employer submission.');
+  console.log('PASS: control-only states, invented/truncated quotes and hidden/editable text rejected; complete fresh employer messages and visible frames grounded without success phrase rules. No real employer submission.');
 } finally { await browser.close(); }
