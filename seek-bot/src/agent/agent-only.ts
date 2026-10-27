@@ -481,7 +481,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const control = await submissionControl(ctx.page, hasBrowserTarget(args) ? target(ctx, args) : undefined,
         args.action === 'press' ? String(args.value) : undefined);
       sendsApplication = await isSubmitControl(control, { url: ctx.page.url(), title: ctx.observation.title,
-        text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length }).catch(() => true);
+        text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length },
+        { meter, deadline: Date.now() + Math.max(1, Math.min(30_000, remainingMs())) }).catch(() => true);
     }
     if (sendsApplication) {
       const sourceCheck = await personalAnswerCheck.check(ctx);

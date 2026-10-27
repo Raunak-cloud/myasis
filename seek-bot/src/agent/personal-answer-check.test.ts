@@ -4,6 +4,8 @@ import { CostMeter, type CelerisRequest, type CelerisReply } from './celeris.js'
 import { PersonalAnswerCheck, checkedPersonalReviews, personalAnswers, type PersonalAnswer } from './personal-answer-check.js';
 import type { SavedForm } from './saved-form.js';
 import type { ToolContext } from './context.js';
+import { isSubmitControl } from '../llm.js';
+import { withApplicationModel } from '../application-model.js';
 
 const ctx = (): ToolContext => ({
   page: new Proxy({}, { get() { throw new Error('The audit must not execute browser actions'); } }),
@@ -115,4 +117,20 @@ test('no new model call starts after the shared spending or time budget ends', a
     assert.ok(result?.kind === 'terminal' && result.outcome.status === 'skipped');
   }
   assert.equal(calls, 0);
+});
+
+test('automatic send classification charges the same application meter with bounded output', async () => {
+  const originalFetch = globalThis.fetch, meter = new CostMeter(1);
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.max_tokens, 128);
+    return Response.json({ choices: [{ message: { content: '{"sends_application":true}' } }], usage: { prompt_tokens: 1000, completion_tokens: 10 } });
+  };
+  try {
+    const sends = await withApplicationModel({ CELERIS_API_KEY: 'fixture-only', APPLICATION_AI_MODEL: 'celeris', COST_TRACKING: 'false' }, () =>
+      isSubmitControl({ label: 'Submit application' }, { url: 'https://fixture.invalid', title: 'Review application', text: '', fields: 2, entered: 2 }, { meter, deadline: Date.now() + 10_000 }));
+    assert.equal(sends, true);
+    assert.equal(meter.totals.calls, 1);
+    assert.ok(meter.totals.costUsd > 0);
+  } finally { globalThis.fetch = originalFetch; }
 });

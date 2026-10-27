@@ -142,6 +142,7 @@ async function json<T>(
   maxTokens?: number,
   reasoningEffort?: 'low' | 'medium' | 'xhigh',
   deadline?: number,
+  meter: CostMeter = llmMeter,
 ): Promise<T> {
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
   const request = {
@@ -154,7 +155,7 @@ async function json<T>(
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
     // The reasoning model is only worth its latency when it is allowed to reason.
     thinking: model === 'celeris-1-magnus',
-    meter: llmMeter,
+    meter,
   };
   const reply = await celerisChat(request);
   if (!reply.text) throw new ReplyUnusableError('Model returned an empty structured response');
@@ -1084,7 +1085,7 @@ export interface VerificationEmail {
  * rehearsal and grounding gates. The fast model reads the control in its page;
  * callers treat a failed check as a submit, so doubt only ever adds caution.
  */
-export async function isSubmitControl(control: { label: string; context?: string }, page: { url: string; title: string; text: string; fields: number; entered: number }): Promise<boolean> {
+export async function isSubmitControl(control: { label: string; context?: string }, page: { url: string; title: string; text: string; fields: number; entered: number }, budget?: { meter: CostMeter; deadline: number }): Promise<boolean> {
   const verdict = await json<{ sends_application: boolean }>(`${GUARD}
 A browser agent is filling in a job application. Would pressing the control below send the finished application to the employer (a final submit), as opposed to opening the form, moving to the next or review step, saving a draft, uploading a file, opening a list, or leaving the page?
 Signing in, creating an account, resetting a password and verifying an email are authentication, not application submission, even when the control is labelled Submit. Read the target's own form fields and headings, not just the surrounding job page. A keyboard action can select an autocomplete option, toggle a checkbox or insert a newline without sending an application. When implicitFormSubmit is true, Enter in the single-line input activates implicitSubmitter (or submits that form), unless an expanded autocomplete/list widget consumes that key to select an option. Classify that implicit submitter in the same way as clicking it: Enter in a Name field on a final review form with a Submit application button sends the application. Decide from the supplied key, target and form context. Do not treat type=submit or the word Submit alone as proof of application submission.
@@ -1092,6 +1093,6 @@ The page has ${page.fields} form field(s); ${page.entered} answer(s) have been e
 Return JSON {"sends_application": true|false}.
 <untrusted>${JSON.stringify({ control: control.label.slice(0, 200), context: control.context?.slice(0, 6_000), url: page.url, title: page.title, page_text: page.text.slice(0, 2_000) })}</untrusted>`, {
     type: 'OBJECT', properties: { sends_application: { type: 'BOOLEAN' } }, required: ['sends_application'],
-  }, 'celeris-1');
+  }, 'celeris-1', 128, undefined, budget?.deadline, budget?.meter);
   return verdict.sends_application === true;
 }
