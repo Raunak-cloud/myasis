@@ -19,7 +19,7 @@ import { launchBrowser, closeBrowser, getPage, jitter } from './browser.js';
 import { resetLiveWorkers } from './live-workers.js';
 import { search, fetchJobDetail } from './discovery.js';
 import { discoveryBatchEnd } from './discovery-policy.js';
-import { withinListingAge } from './listing-age.js';
+import { passesListingAge } from './listing-age.js';
 import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
 import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex, logOutcome } from './store.js';
@@ -176,7 +176,7 @@ async function build() {
         return false;
       });
     const priorRejections = new Set(shortlist.filter(job => reviewCache.prior(job, reviewContext)).map(job => job.id));
-    const reviewPriorities = await rankJobsForReview(shortlist.filter(job => withinListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(job.id)), profile).catch((error) => {
+    const reviewPriorities = await rankJobsForReview(shortlist.filter(job => passesListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(job.id)), profile).catch((error) => {
       console.warn(`  ! semantic pre-ranking unavailable: ${(error as Error).message}`);
       return new Map<string, { priority: number; reason: string }>();
     });
@@ -211,7 +211,7 @@ async function build() {
       }
       if (reviewCache.suppression(job, reviewContext)) { bump('unchanged rejection'); continue; }
 
-      const excluded = deterministicExclusion(job, true);
+      const excluded = deterministicExclusion(job);
       if (excluded) {
         bump(excluded.replace(/:.*/, '').trim());
         continue;

@@ -30,9 +30,10 @@ export function listingAgeDays(job: Pick<JobListing, 'ageDays' | 'listedAt'>, no
   return parseAgeDays(job.listedAt);
 }
 
-export function withinListingAge(job: Pick<JobListing, 'ageDays' | 'listedAt'>, maxAgeDays: number): boolean {
+/** Unknown dates remain eligible; only a confirmed age beyond the limit excludes. */
+export function passesListingAge(job: Pick<JobListing, 'ageDays' | 'listedAt'>, maxAgeDays: number): boolean {
   const age = listingAgeDays(job);
-  return age !== undefined && age <= maxAgeDays;
+  return age === undefined || age <= maxAgeDays;
 }
 
 /** Inclusive whole-day age, matching board labels such as "20 days ago". */

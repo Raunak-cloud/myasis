@@ -124,7 +124,7 @@ function looksTemplated(job: JobListing): string | null {
   return null;
 }
 
-export function deterministicExclusion(job: JobListing, requireListingAge = false): string | null {
+export function deterministicExclusion(job: JobListing): string | null {
   // Only explicit machine-readable facts may stop a listing before model
   // review. Meaning in prose belongs to assessFit(), which can use context
   // and express uncertainty rather than silently discarding the listing.
@@ -132,7 +132,6 @@ export function deterministicExclusion(job: JobListing, requireListingAge = fals
   if (excludedCompany) return `excluded company: matched “${excludedCompany}” to “${job.company}”`;
 
   const age = listingAgeDays(job);
-  if (age === undefined && requireListingAge) return 'The listing date could not be verified within your selected age range.';
   if (age !== undefined && age > config.rules.maxAgeDays)
     return `posted ${age}d ago (>${config.rules.maxAgeDays}d)`;
 

@@ -161,10 +161,12 @@ test('age-window discovery reaches fresh jobs beyond eight already-applied batch
   assert.ok(result.history.some(record => record.jobId === fresh.id && record.submittedByMyasis));
 });
 
-test('age-window verification keeps unknown and out-of-range jobs out of AI matching', () => {
-  const result = run([job('unknown', { ageDays: undefined }), job('old', { ageDays: 21 }), job('in-range', { ageDays: 20 })], { apply: true, maxAgeDays: 20 });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['in-range']);
-  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['in-range']);
+test('age-window policy matches undated jobs in Auto and Semi auto while excluding confirmed old jobs', () => {
+  for (const prepare of [false, true]) {
+    const result = run([job('unknown', { ageDays: undefined }), job('old', { ageDays: 21 }), job('in-range', { ageDays: 20 })], { apply: true, prepare, maxAgeDays: 20, cap: 2, reviews: 2 });
+    assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['unknown', 'in-range']);
+    assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['unknown', 'in-range']);
+  }
 });
 
 test('Semi auto fills only its run cap and records no submitted applications', () => {

@@ -119,7 +119,8 @@ Search depth has no page-count setting or ceiling. Discovery continues within
 `MAX_AGE_DAYS` until results end, repeat, or pass the age boundary on a date-ordered
 board. Review and application allowances still apply. Date filters are sent where
 the provider supports them; publication evidence is checked locally before AI
-matching. Listings without a verifiable date are not matched or applied to.
+matching. Listings without a verifiable date still proceed through normal matching
+and application; only a confirmed age beyond the selected maximum excludes them.
 Unfiltered homepage recommendations are not queried.
 
 Before any role-neutral model fit check, the preflight stops on a visible CAPTCHA and skips

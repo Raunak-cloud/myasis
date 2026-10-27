@@ -36,7 +36,7 @@ discoveryBatchEnd,
 shouldStopDiscovery,
 } from './discovery-policy.js';
 import { fetchJobDetail, search } from './discovery.js';
-import { withinListingAge } from './listing-age.js';
+import { passesListingAge } from './listing-age.js';
 import { EmployerFeedDiscovery } from './employer-feeds.js';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
@@ -321,7 +321,7 @@ async function main() {
 
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
-      jobs = jobs.filter(job => withinListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)));
+      jobs = jobs.filter(job => passesListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)));
       if (!jobs.length || !rankingAvailable || approvedApplications().length) return;
       try {
         for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
@@ -337,7 +337,7 @@ async function main() {
      * of them out as "outside run scope", so new search terms were never searched.
      */
     const isPromising = (job: JobListing): boolean =>
-      withinListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)) && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
+      passesListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)) && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
       && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
     const promisingCount = (): number => shortlist.filter(isPromising).length;
 
@@ -846,7 +846,7 @@ async function main() {
            * carry no age until the listing is open: over ten days 1,671 listings
            * waited out a 5–8 s pause and a page check only to be dropped as too old.
            */
-          const excluded = deterministicExclusion(job, true);
+          const excluded = deterministicExclusion(job);
           if (excluded) {
             bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
             logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
@@ -917,7 +917,7 @@ async function main() {
 
           // A loading retry can be the first read to reveal the board's applied marker.
           if (skipExistingApplication(job)) return;
-          const ageExclusion = deterministicExclusion(job, true);
+          const ageExclusion = deterministicExclusion(job);
           if (ageExclusion) {
             bump('listing age');
             logOutcome({ status: 'skipped', jobId: job.id, reason: ageExclusion, title: job.title, company: job.company });

@@ -4,7 +4,7 @@ import { boardAgeWindow, discoveryBatchEnd, discoveryTarget, shouldStopDiscovery
 import { parseAgeDays } from './discovery.js';
 import { searchUrl as seekSearchUrl } from './discovery.js';
 import { searchUrl as indeedSearchUrl } from './discovery-indeed.js';
-import { listingAgeDays, withinListingAge } from './listing-age.js';
+import { listingAgeDays, passesListingAge } from './listing-age.js';
 import type { JobListing } from './types.js';
 import { deterministicExclusion } from './scoring.js';
 import { config } from './config.js';
@@ -45,12 +45,13 @@ test('age-window queries always carry a date filter and use newest-first orderin
   } finally { config.rules.maxAgeDays = previous; }
 });
 
-test('listing-age evidence rejects unknown and future publication dates before matching', () => {
-  assert.equal(withinListingAge({}, 20), false);
-  assert.equal(withinListingAge({ ageDays: 20 }, 20), true);
-  assert.equal(withinListingAge({ ageDays: 21 }, 20), false);
+test('listing-age policy permits unknown dates and rejects only confirmed out-of-range ages', () => {
+  assert.equal(passesListingAge({}, 20), true);
+  assert.equal(passesListingAge({ listedAt: 'Date not provided' }, 20), true);
+  assert.equal(passesListingAge({ ageDays: 20 }, 20), true);
+  assert.equal(passesListingAge({ ageDays: 21 }, 20), false);
   assert.equal(listingAgeDays({ listedAt: '2026-10-28T00:00:00Z', ageDays: 0 }, Date.parse('2026-10-27T00:00:00Z')), undefined);
-  assert.ok(deterministicExclusion({ id: 'unknown', title: 'Role', company: 'Employer', location: 'Sydney', url: 'https://fixture.invalid' }, true));
+  assert.equal(deterministicExclusion({ id: 'unknown', title: 'Role', company: 'Employer', location: 'Sydney', url: 'https://fixture.invalid' }), null);
 });
 
 test('board age window rounds up to an offered window, never down', () => {
