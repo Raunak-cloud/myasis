@@ -19,7 +19,7 @@ export interface ApplicationCost {
  * historical attempt at the listing. Shared allocation keeps its original
  * denominator even when another job now has a more recent submission run.
  * Retired-provider records stay in the ledger but are excluded from this view. */
-export function summariseApplicationCosts(events: UsageEvent[]): Record<string, ApplicationCost> {
+export function summariseApplicationCosts(events: UsageEvent[], unconfirmed: ReadonlySet<string> = new Set()): Record<string, ApplicationCost> {
   const runs = new Map<string, UsageEvent[]>();
   const seen = new Set<string>();
   const submissions = new Map<string, { runId: string; at: string }>();
@@ -27,14 +27,14 @@ export function summariseApplicationCosts(events: UsageEvent[]): Record<string, 
     if (seen.has(event.id)) continue;
     seen.add(event.id);
     const run = runs.get(event.runId) ?? []; run.push(event); runs.set(event.runId, run);
-    if (event.kind === 'submitted' && event.jobId) {
+    if (event.kind === 'submitted' && event.jobId && !unconfirmed.has(event.jobId)) {
       const previous = submissions.get(event.jobId);
       if (!previous || Date.parse(event.at) > Date.parse(previous.at)) submissions.set(event.jobId, event);
     }
   }
   const result: Record<string, ApplicationCost> = Object.create(null);
   for (const run of runs.values()) {
-    const submitted = new Set(run.filter(e => e.kind === 'submitted' && e.jobId).map(e => e.jobId!));
+    const submitted = new Set(run.filter(e => e.kind === 'submitted' && e.jobId && !unconfirmed.has(e.jobId)).map(e => e.jobId!));
     const recipients = submitted.size ? submitted : new Set(run.filter(e => e.kind === 'usage' && e.jobId).map(e => e.jobId!));
     const finished = run.some(e => e.kind === 'finished');
     for (const e of run) {

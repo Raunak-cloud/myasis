@@ -30,7 +30,10 @@ export async function syncCostJournal(userId: string, dir: string): Promise<void
 /** The caller must check admin status before reading any cost data. userId always
  * comes from the authenticated session, never a query parameter. */
 export async function loadApplicationCosts(userId: string, dir: string) {
-  const rows = await query<{ payload: UsageEvent }>('SELECT payload FROM application_cost_events WHERE user_id = $1', [userId]);
+  const [rows, unconfirmed] = await Promise.all([
+    query<{ payload: UsageEvent }>('SELECT payload FROM application_cost_events WHERE user_id = $1', [userId]),
+    query<{ job_id: string }>("SELECT job_id FROM applications WHERE user_id = $1 AND confirmation_status = 'unconfirmed'", [userId]),
+  ]);
   // Includes current progress before run-close sync; event IDs deduplicate it.
-  return summariseApplicationCosts([...rows.map(r => r.payload), ...readCostJournal(dir)]);
+  return summariseApplicationCosts([...rows.map(r => r.payload), ...readCostJournal(dir)], new Set(unconfirmed.map(row => row.job_id)));
 }

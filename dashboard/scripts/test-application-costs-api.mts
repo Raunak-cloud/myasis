@@ -19,6 +19,7 @@ const fixture = { id: randomUUID(), runId, at: new Date().toISOString(), kind: '
 const retiredFixture = { ...fixture, id: randomUUID(), provider: 'Anthropic', model: 'claude-haiku-5-5', amountUsd: 4 };
 const stored = new Map<string, unknown>();
 let costReads = 0;
+let confirmationReads = 0;
 pool.query = (async (sql: string, params: unknown[] = []) => {
   if (sql.includes('FROM sessions')) return { rows: params[0] === 'admin-fixture' ? [{ id: '9000000000000', email: 'admin-cost-fixture@example.test' }] : params[0] === 'user-fixture' ? [{ id: '9000000000001', email: 'user-cost-fixture@example.test' }] : [] };
   if (sql.includes('INSERT INTO application_cost_events')) {
@@ -31,6 +32,10 @@ pool.query = (async (sql: string, params: unknown[] = []) => {
     costReads++; assert.equal(params[0], '9000000000000', 'cost query owner is the session, not the supplied userId');
     assert.match(sql, /WHERE user_id = \$1/);
     return { rows: [{ payload: fixture }, { payload: retiredFixture }] };
+  }
+  if (sql.includes('FROM applications') && sql.includes('confirmation_status')) {
+    confirmationReads++; assert.equal(params[0], '9000000000000', 'confirmation corrections are scoped to the authenticated owner');
+    return { rows: [] };
   }
   throw new Error(`Unexpected database access: ${sql}`);
 }) as typeof pool.query;
@@ -58,6 +63,7 @@ try {
     else assert.equal(body['fixture-job'], undefined);
   }
   assert.equal(costReads, 1, 'signed-out and normal users cannot even query cost data');
+  assert.equal(confirmationReads, 1);
   assert.equal((await fetch(`${origin}/api/applications/costs`, { method: 'POST' })).status, 405);
   console.log('Application-cost API: 401/403 admin boundary, session-owned query, method guard and idempotent journal sync passed.');
 } finally {
