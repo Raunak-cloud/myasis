@@ -5,6 +5,7 @@ import { GmailServiceError } from './gmail-mcp-service.js';
 import type { PreparedApplication } from './application-review-types.js';
 
 const routes = new Map<string, { port: number; account: string; active: boolean; browser?: Promise<Browser>; tail: Promise<unknown>; pages: Set<Page> }>();
+const THREAD_ROWS = 'tr[data-thread-id], tr[data-legacy-thread-id], tr [data-legacy-thread-id], tr [data-thread-id]';
 export function registerGmailBrowser(userId: string, port: number, account: string) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid private Gmail browser port.');
   const route = { port, account, active: true, tail: Promise.resolve(), pages: new Set<Page>() };
@@ -44,14 +45,16 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
 }
 export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {
   return withGmailBrowser(userId, async page => {
-    await page.waitForFunction(() => {
+    await page.waitForFunction(selector => {
       const main = document.querySelector('[role="main"]');
-      return main && (main.querySelector('tr[role="row"][data-thread-id], tr[role="row"] [data-legacy-thread-id]')
+      return main && (main.querySelector(selector)
         || /no conversations found|no results found|no conversations match/i.test(main.textContent || ''));
-    }, undefined, { timeout: 15_000 }).catch(() => {
+    }, THREAD_ROWS, { timeout: 15_000 }).catch(() => {
       throw new GmailServiceError('unavailable', 'Gmail opened, but the requested message list did not finish loading. Retry reading the mailbox; do not resend the verification email to repair this.');
     });
-    return page.locator('tr[role="row"][data-thread-id], tr[role="row"] [data-legacy-thread-id]').evaluateAll(nodes => [...new Set(nodes.map(node => (node as HTMLElement).getAttribute('data-thread-id') || (node as HTMLElement).getAttribute('data-legacy-thread-id') || '').filter(id => /^[\w-]{1,100}$/.test(id)))].slice(0, 20).map(id => ({ id })));
+    return page.locator(`[role="main"] :is(${THREAD_ROWS})`).evaluateAll(nodes => [...new Set(nodes.map(node =>
+      [node.getAttribute('data-legacy-thread-id'), node.getAttribute('data-thread-id')]
+        .find(id => id && /^[\w-]{1,100}$/.test(id)) || '').filter(Boolean))].slice(0, 20).map(id => ({ id })));
   }, `#search/${encodeURIComponent(`newer_than:2h -in:sent -in:draft (${query})`)}`);
 }
 export async function readBrowserGmail(userId: string, threadId: string): Promise<GmailMessage[]> {
