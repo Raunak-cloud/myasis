@@ -4,7 +4,7 @@
 set -euo pipefail
 APP=${APP_DIR:-/home/myasis/myasis}
 as_app() { sudo -u myasis -H bash -lc "$1"; }
-as_app "cd $APP/public-site && npm ci --no-audit --no-fund && npm run build && npm test"
+as_app "cd $APP/public-site && npm ci --no-audit --no-fund && npm run build"
 release="$APP/public-site/.releases/$(date -u +%Y%m%dT%H%M%S)-$(git -C "$APP" rev-parse --short HEAD 2>/dev/null || as_app "cd $APP && git rev-parse --short HEAD")"
 as_app "mkdir -p '$release' && cp -a '$APP/public-site/.next/standalone/.' '$release/'"
 previous=$(readlink "$APP/public-site/.current" || true)

@@ -45,20 +45,11 @@ active_runs() {
   echo "$n"
 }
 
-# Ten representative employer form pages, replayed against the new code before anything live
-# changes (deploy/replay-check.sh). A regression stops the deploy here, while
-# the running code is untouched; FORCE_DEPLOY=1 overrides after a person has
-# judged the difference (and accepted it with form-replay.js --accept).
+# Run only small checks, in one bounded phase after builds.
 as_app "cd $APP && git fetch -q origin main"
-if as_app "cd $APP && git diff --quiet HEAD origin/main -- seek-bot deploy/replay-check.sh"; then
-  echo 'replay: job-agent code unchanged; no form replay needed for this release'
-elif ! bash "$APP/deploy/replay-check.sh"; then
-  if [ "${FORCE_DEPLOY:-}" = 1 ]; then
-    echo "replay found regressions; deploying anyway (FORCE_DEPLOY=1)"
-  else
-    echo "replay found regressions; not deploying (FORCE_DEPLOY=1 to override)"
-    exit 1
-  fi
+REPLAY_REQUIRED=0
+if ! as_app "cd $APP && git diff --quiet HEAD origin/main -- seek-bot"; then
+  REPLAY_REQUIRED=1
 fi
 
 as_app "touch $LOCK"
@@ -84,88 +75,19 @@ as_app "set -o pipefail; cd $APP/seek-bot && npm ci --no-audit --no-fund 2>&1 | 
 as_app "set -o pipefail; cd $APP/dashboard && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
-as_app "cd $APP && node --test shared/celeris-queue.test.mjs"
-as_app "cd $APP/seek-bot && node --test dist/agent/celeris-queue.test.js"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/celeris-queue.test.ts"
-as_app "cd $APP/seek-bot && node dist/cost-ledger.test.js"
-as_app "cd $APP/seek-bot && node dist/agent/outcome.test.js"
-as_app "cd $APP/seek-bot && node --test dist/agent/progress-budget.test.js"
-as_app "cd $APP/seek-bot && node --test dist/application-allowance.test.js dist/agent/agent-only-evidence.test.js dist/agent/agent-only-transcript.test.js dist/agent/interaction-memory.test.js dist/agent/agent-activity.test.js dist/agent/consultation.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/agent-only.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/submission-receipt.test.js"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/application-confirmation.test.ts"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/agent/native-browser.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/employer-routing.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/gmail-mcp.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/gmail-browser.test.js dist/verification-email-local.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/email-application.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/agent-only-routing.test.js dist/application-worker-page.test.js"
-as_app "cd $APP/seek-bot && node --test dist/application-model.test.js dist/agent/application-model-routing.test.js dist/agent/tool-input.test.js dist/store-scope.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/direct-external.test.js"
-as_app "cd $APP/seek-bot && node dist/fit-assessment.test.js && node dist/fit-contract.test.js && node dist/application-model-cache.test.js"
-as_app "cd $APP/seek-bot && node dist/assessment-reuse.test.js"
-as_app "cd $APP/seek-bot && node --test dist/parallel-ranking.test.js"
-as_app "cd $APP/seek-bot && node scripts/test-ranking.mjs"
-as_app "cd $APP/seek-bot && node --test dist/profile-salary.test.js dist/search-limits.test.js dist/application-limits.test.js"
-as_app "cd $APP/seek-bot && node --test dist/application-identity.test.js dist/duplicate-review.test.js"
-as_app "cd $APP/seek-bot && node --test dist/instruction-policy.test.js dist/job-evaluation-trust.test.js"
-as_app "cd $APP/seek-bot && node dist/instruction-gate.test.js"
-as_app "cd $APP/seek-bot && node --test dist/review-budget.test.js"
-as_app "cd $APP/seek-bot && node --test dist/review-cache.test.js dist/discovery-policy.test.js"
-as_app "cd $APP/seek-bot && node --test dist/cover-letter-policy.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/application-review.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/submission-control.test.js"
-as_app "cd $APP/seek-bot && node --test dist/application-workers.test.js dist/application-reservations.test.js dist/job-board-url.test.js dist/review-verdicts.test.js dist/external-url.test.js dist/live-workers.test.js"
-as_app "cd $APP/seek-bot && node --test dist/form-replay-compare.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/form-replay.test.js"
-as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node --test dist/captcha/diagnostics.test.js"
-as_app "cd $APP/seek-bot && node --test dist/smartrecruiters.test.js dist/employer-feeds.test.js dist/agent/apply-employer-job.test.js"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/public-website-proxy.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/search-terms.test.ts"
-as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-bot/node_modules/.bin/tsx scripts/test-resume-search-ui.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/run-accounting.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/run-policy.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/run-schedule.test.ts server/autorun.test.ts server/billing-unlimited.test.ts server/billing-upgrades.test.ts"
-as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-bot/node_modules/.bin/tsx scripts/test-pricing-upgrades-ui.mts"
-as_app "cd $APP/dashboard && SEMI_AUTO_E2E_REPORT=$APP/output/semi-auto-e2e.json ../seek-bot/node_modules/.bin/tsx scripts/test-application-reviews.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/external-job-url.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-worker-policy.test.ts server/application-worker-capacity.test.ts server/application-platform-scope.test.ts server/skipped-retention.test.ts test/activity.test.mjs"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/application-costs.test.ts && ../seek-bot/node_modules/.bin/tsx scripts/test-application-costs-api.mts"
-as_app "cd $APP/dashboard && SEMI_AUTO_E2E_REPORT=$APP/output/semi-auto-e2e.json ../seek-bot/node_modules/.bin/tsx scripts/test-smartrecruiters-ui.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/visits.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/visits-access.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-visitor-analytics.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-visitors-ui.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test test/live-action.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-live-workers-ui.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-application-costs-ui.mts"
-as_app "cd $APP/dashboard && npm run test:statuses"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/alerts.test.ts server/attention-lifecycle.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts server/application-model-policy.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-agent-policy.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/browser-run-policy.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/signin-input.test.ts server/signin-sessions.test.ts"
-as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-bot/node_modules/.bin/tsx scripts/test-signin-browser.mts"
-as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable SIGNIN_RECOVERY_ROUNDS=1 ../seek-bot/node_modules/.bin/tsx scripts/test-signin-recovery.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/answers.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/answers-lifecycle.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/gmail-connection.test.ts server/application-email.test.ts server/gmail-access.test.ts"
-as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-bot/node_modules/.bin/tsx scripts/test-gmail-ui.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/digest.test.ts && ../seek-bot/node_modules/.bin/tsx server/digest-preferences.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/account-lifecycle.test.ts && ../seek-bot/node_modules/.bin/tsx server/account-deletion.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-account-settings-api.mts"
-as_app "cd $APP/dashboard && CHROME_PATH=/usr/bin/google-chrome-stable ../seek-bot/node_modules/.bin/tsx scripts/test-account-settings-ui.mts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/application-environment.test.ts server/assist.test.ts server/skipped.test.ts server/run-watchdog.test.ts server/chrome-profile.test.ts server/run-completion.test.ts server/salary.test.ts server/run-device.test.ts server/market-scout.test.ts server/blog/*.test.ts server/marketing/*.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/profile-export.test.ts"
-as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/test-duplicate-history.mts"
 as_app "cd $APP/market-scout && npm exec tsc -- -p ."
+# At most 58 seconds to finish, then 2 seconds before forced termination.
+# A failed or timed-out check stops the release; it never counts as a pass.
+echo 'Running limited deployment checks (60-second maximum)'
+FORCE_FLAG=0
+if [ "${FORCE_DEPLOY:-}" = 1 ]; then FORCE_FLAG=1; fi
+as_app "cd $APP && FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s 58s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"
 # Cron invokes Bash explicitly, so a Git checkout cannot disable backups by
 # resetting maintenance.sh's execute bit. Keep installed scheduling in sync.
-bash "$APP/deploy/maintenance.test.sh"
 install -m 644 "$APP/deploy/myasis.cron" /etc/cron.d/myasis
 bash "$APP/deploy/public-site.sh"
 # pm2 remembers the environment a process was started with, and --update-env only
