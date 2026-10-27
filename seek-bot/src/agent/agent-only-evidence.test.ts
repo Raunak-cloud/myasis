@@ -124,6 +124,14 @@ test('long documents stay bounded and focused retrieval accesses omitted evidenc
     assert.ok(focused.includes('UNIQUE_NEUROSURGERY_CERTIFICATE'));
     assert.ok(focused.length <= 24_000);
     assert.match(focused, /Omitted text is not evidence of absence/);
+    const economical = await agentOnlyEvidence('UNIQUE_NEUROSURGERY_CERTIFICATE specialist certificate Nepal', 0, 8000);
+    assert.ok(economical.length <= 8000 && economical.includes('UNIQUE_NEUROSURGERY_CERTIFICATE'));
+    const firstSmall = await agentOnlyEvidence('selected', 0, 8000);
+    const smallNext = Number(/NEXT_OFFSET: (\d+)/.exec(firstSmall)![1]);
+    const secondSmall = await agentOnlyEvidence('selected', smallNext, 8000);
+    assert.ok(secondSmall.length <= 8000);
+    assert.equal(Number(/OFFSET: (\d+)/.exec(secondSmall)![1]), smallNext, 'smaller reads retain complete source traversal');
+    assert.ok((await agentOnlyEvidence('selected', 0, 24000)).length > firstSmall.length, 'agent can request a larger passage without a separate model or document summary');
     let offset = 0, pages = 0, sawLast = false;
     do {
       const page = await agentOnlyEvidence('selected', offset);

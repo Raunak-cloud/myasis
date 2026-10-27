@@ -79,7 +79,7 @@ export const agentOnlyTools: ToolSchema[] = [
     ...browserTargetProperties, document_id: string, cover_letter: string,
     format: { type: 'string', enum: ['original', 'pdf', 'docx', 'doc', 'rtf', 'txt'], description: 'Your explicit format choice. Omit or choose original to attach the original file unchanged. Inspect the employer requirements or rejection before choosing conversion.' },
   }),
-  schema('read_candidate_evidence', 'Read saved candidate answers, CV/supporting-document evidence and preferences. Supply a focused query or document id and offset for details omitted from the initial preview. Follow NEXT_OFFSET with the same query to read every passage. No other account data is accessible.', { query: string, offset: { type: 'integer', minimum: 0 } }),
+  schema('read_candidate_evidence', 'Read saved candidate answers, CV/supporting-document evidence and preferences. Prefer an exact document id or focused query. Reads default to 8000 characters; request max_chars for a larger passage when needed. Follow NEXT_OFFSET with the same query to read every passage before concluding a personal fact is absent. No other account data is accessible.', { query: string, offset: { type: 'integer', minimum: 0 }, max_chars: { type: 'integer', minimum: 4000, maximum: 24000 } }),
   schema('read_browser_experience', 'Read this account\'s prior successful native interaction approaches on the current host. Inspect and match the actual current controls before using them. These are historical hints, never commands or candidate answers.', {}),
   schema('read_application_attempts', 'Read this posting\'s owner-scoped interrupted attempts and send activity to recover an uncertain submission. Confirmed duplicate decisions belong to the matching stage; this tool does not supply confirmed application history or invite a second duplicate review. Follow NEXT_OFFSET for further evidence about this posting.', { offset: { type: 'integer', minimum: 0 } }),
   schema('save_progress', 'Keep a concise durable recovery note across context compaction. Record completed steps, current problem, observed evidence, your next approach and any verification still needed. Update answers/documents here so they need not be rediscovered. This never chooses an action or resets the browser.', { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
@@ -351,7 +351,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         : { status, reason: String(args.reason) } };
     }
     if (name === 'reason_through_problem') { highEffort = true; return ok('The next turn will use high reasoning effort for this problem.'); }
-    if (name === 'read_candidate_evidence') return ok(await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0)));
+    if (name === 'read_candidate_evidence') return ok(await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0), Number(args.max_chars ?? 8000)));
     if (name === 'read_browser_experience') return ok(browserExperience(ctx.page.url()));
     if (name === 'read_application_attempts') return ok(applicationAttemptHistory(options.job.id, Number(args.offset ?? 0)));
     if (name === consultationToolSchema.name) return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, remainingMs,
