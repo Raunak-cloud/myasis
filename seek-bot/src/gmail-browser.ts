@@ -66,7 +66,7 @@ export async function readBrowserGmail(userId: string, threadId: string): Promis
       const subject = (main as HTMLElement).querySelector('h2')?.textContent || '';
       return [...(main as HTMLElement).querySelectorAll('[data-message-id]')].map((node, index) => ({ id: `${id}_${index}`, subject,
         sender: node.querySelector('[email]')?.getAttribute('email') || '',
-        date: new Date().toISOString(), plaintextBody: (node.querySelector('.a3s')?.textContent || '').slice(0, 12000),
+        plaintextBody: (node.querySelector('.a3s')?.textContent || '').slice(0, 12000),
         htmlBody: node.querySelector('.a3s')?.innerHTML.slice(0, 80000) || '' })).slice(-1);
     }, threadId);
   }, `#all/${threadId}`);

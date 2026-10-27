@@ -43,7 +43,12 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
         if (Date.now() >= deadline) break;
         messages.push(...await client.thread(thread.id));
       }
-      messages.sort((a, b) => Date.parse(b.date || '') - Date.parse(a.date || ''));
+      // Browser search is already newest first. Reading an email is not its
+      // delivery time; keep provider order when real dates are unavailable.
+      messages.sort((a, b) => {
+        const first = Date.parse(a.date || ''), second = Date.parse(b.date || '');
+        return Number.isFinite(first) && Number.isFinite(second) ? second - first : 0;
+      });
       const fresh = messages.filter(message => !examined.has(message.id)).slice(0, 10);
       if (fresh.length) {
         const found = readVerificationEmailsLocally(fresh.map(verificationMessage), { hint: options.hint || '', site: options.site || '', want: options.want || 'either' });

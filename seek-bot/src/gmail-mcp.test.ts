@@ -13,14 +13,16 @@ const { doEnterEmailedCode, doOpenEmailedLink } = await import('./agent/authenti
 const { observe } = await import('./agent/observe.js');
 const { findVerificationInGmail, gmailAvailable } = await import('./gmail-mailbox.js');
 const originalFetch = globalThis.fetch;
-let unavailable = false, sent = 0;
+let unavailable = false, sent = 0, browserOrder = false;
 const approval = randomUUID(), revision = 'a'.repeat(64);
 const service = new GmailMcpService({
   search: async user => {
     if (unavailable) throw new GmailServiceError('reconnect', 'Reconnect the fixture mailbox.');
+    if (browserOrder) return [{ id: 'browser-newest' }, { id: 'browser-older' }];
     return [{ id: user }];
   },
   thread: async (user, id) => {
+    if (browserOrder) return [{ id, subject: 'Fixture verification', plaintextBody: `Use ${id === 'browser-newest' ? '729184' : '111222'} to verify your Fixture account.` }];
     assert.equal(id, user);
     return [{ id: `${user}-email`, subject: 'Fixture: verify application', date: new Date().toISOString(),
       plaintextBody: `Use ${user === 'owner-a' ? '482913' : '628731'} to verify your account.`,
@@ -63,6 +65,10 @@ try {
   const link = await doOpenEmailedLink(ctx, {});
   assert.match(JSON.stringify(link), /Opened the emailed link/);
   assert.match(context.pages()[1].url(), /verified\/owner-a/); assert.equal(gmailPages, 0);
+  browserOrder = true;
+  const ordered = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
+  assert.ok(!('error' in ordered) && ordered.value === '729184', 'browser verification uses the newest search result, not the last email fetched');
+  browserOrder = false;
   unavailable = true;
   const failure = await findVerificationInGmail({ timeoutMs: 1000 });
   assert.ok('error' in failure && /Reconnect Gmail/.test(failure.error));

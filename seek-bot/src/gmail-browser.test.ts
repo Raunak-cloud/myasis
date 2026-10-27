@@ -49,6 +49,7 @@ try {
   mailboxUnavailable = false;
   assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'a temporary mailbox failure does not poison later reads');
   const messages = await client.thread(threads[0].id);
+  assert.equal(messages[0].date, undefined, 'a browser read must not invent a delivery timestamp that reverses verification-code order');
   assert.equal(readVerificationEmailsLocally(messages.map(verificationMessage), { hint: 'Fixture', want: 'code' })?.value, '482913');
   await assert.rejects(client.thread('foreignthread'), /Search this mailbox/);
   for (const draft of drafts.values()) await client.sendApproved(draft.id, draft.revision);
