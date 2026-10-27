@@ -3,6 +3,7 @@ import { chromium } from 'patchright';
 import { isApplicationReceipt, submissionReceipt } from './submission-receipt.js';
 
 for (const quote of ['Please wait...', 'Apply', 'Application submitting', 'Your application was not submitted', 'Once your application is submitted', 'No errors appeared', 'Account created successfully']) assert.equal(isApplicationReceipt(quote), false, quote);
+for (const quote of ['Thanks for applying', 'Your application for Sales Assistant has been submitted', 'We have received your application']) assert.equal(isApplicationReceipt(quote), true, quote);
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   const page = await browser.newPage();

@@ -385,6 +385,17 @@ try {
   assert.equal(delayedReceipt.outcome.status, 'applied');
   assert.equal(await page.evaluate('window.delayedPresses', undefined, undefined, false), 1, 'read-only pending review never repeats Apply');
 
+  await page.setContent(`<main><button id=start onclick="this.remove();document.querySelector('#next').hidden=false">Apply</button><form id=next hidden onsubmit="event.preventDefault();document.querySelector('main').textContent='Application received: HANDOFF123'"><label>Required work availability<input required id=availability></label><button id=send>Submit application</button></form></main>`);
+  script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#start', sends_application: true } }],
+    body => {
+      assert.match(observation(body), /Required work availability/);
+      return [{ name: 'resume_after_rejected_submission', args: { evidence: 'The next application step asks Required work availability' } }];
+    }, () => [{ name: 'browser_action', args: { action: 'fill', selector: '#availability', value: 'Weekends only' } },
+      { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
+    () => [{ name: 'finish', args: { status: 'applied', reason: 'Completed actual application after initial handoff', evidence: 'Application received: HANDOFF123', receipt: { quote: 'Application received: HANDOFF123' } } }]];
+  const handoffReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-start-handoff-receipt' }, profile, log: () => {} });
+  assert.equal(handoffReceipt.outcome.status, 'applied', 'a start-application handoff can continue through required steps to a genuine receipt');
+
   await page.goto(url);
   await page.setContent(`<button id=send onclick="history.replaceState({},'', '/apply/success');document.querySelector('main').textContent='We could not process your application. Try later.'">Submit</button><main></main>`);
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }], body => {

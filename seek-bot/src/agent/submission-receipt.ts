@@ -6,7 +6,7 @@ export const normaliseReceiptText = (text: string): string => text.replace(/\s+/
 export function isApplicationReceipt(quote: string): boolean {
   const text = normaliseReceiptText(quote);
   if (text.length < 12 || /\b(?:not|never|unable|cannot|couldn['’]?t|could not|failed|unsuccessful(?:ly)?|please wait|loading|processing|submitting|once|when|if|will be|to submit|before submitting)\b/i.test(text)) return false;
-  return /\bapplication\s+(?:(?:has|have)\s+been\s+|was\s+|is\s+)?(?:successfully\s+)?(?:submitted|received|sent|complete[d]?)\b|\b(?:received|submitted|sent)\s+(?:your|the)\s+application\b|\bthank\s+you\s+for\s+(?:applying|submitting\s+your\s+application)\b/i.test(text);
+  return /\bapplication(?:\s+for\s+[^.!?]{1,160}?)?\s+(?:(?:has|have)\s+been\s+|was\s+|is\s+)?(?:successfully\s+)?(?:submitted|received|sent|complete[d]?)\b|\b(?:received|submitted|sent)\s+(?:your|the)\s+application\b|\b(?:thank\s+you|thanks)\s+for\s+(?:applying|submitting\s+your\s+application)\b/i.test(text);
 }
 
 /** Fresh visible employer copy, including frames. Excludes hidden templates and
