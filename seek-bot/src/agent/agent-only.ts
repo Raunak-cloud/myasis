@@ -472,9 +472,11 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         return ok(result.length > 24000 ? `${result.slice(0, 24000)}\n[Result truncated. Request a focused slice or summary in your next inspection.]` : result);
       }
       case 'inspect': return ok(JSON.stringify(await nativeReadback(target(ctx, args))));
-      case 'wait':
+      case 'wait': {
         if (!hasWaitCondition(args)) throw new Error('Provide wait with a current locator/state or URL condition. timeout_ms is a maximum, not a delay.');
-        await waitAfterAction(ctx.page, args); return ok('Native wait completed; inspect the current page.');
+        const waitNote = await waitAfterAction(ctx.page, args);
+        return ok(waitNote || 'Native wait completed; inspect the current page.', waitNote ? 'reobserve' : undefined);
+      }
       case 'scroll': await ctx.page.mouse.wheel(Number(args.x ?? 0), Number(args.y ?? 650)); break;
       case 'press': if (hasBrowserTarget(args)) await target(ctx, args).press(value, { timeout: 8_000 }); else await ctx.page.keyboard.press(value); break;
       case 'click': {
@@ -502,7 +504,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         if (args.action === 'fill') await element.fill(value, { timeout: 8000 });
         else if (args.action === 'check') await element.setChecked(value !== 'false', { timeout: 8000 });
         else await element.selectOption({ label: value }, { timeout: 4000 }).catch(() => element.selectOption(value, { timeout: 4000 }));
-        await waitAfterAction(ctx.page, args);
+        const waitNote = await waitAfterAction(ctx.page, args);
         const readback = await nativeReadback(target(ctx, args)) as { private: boolean; value?: string; checked?: boolean; selected?: Array<{ label: string }> };
         browserMutated = true; // retain successful writes even if a later command in the batch fails
         const saved = args.action === 'check' ? String(readback.checked)
@@ -511,16 +513,15 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
           ctx.captured = [...ctx.captured.filter(answer => answer.question !== actionLabel), { question: actionLabel, answer: saved }];
           if (isCoverLetterField(actionLabel)) ctx.coverLetter = saved;
         }
-        return ok(JSON.stringify({ action: args.action, requested: readback.private ? '[private credential]' : value, current: readback, note: 'Current browser readback; inspect validation and selection before advancing. This is not server receipt.' }));
+        return ok(JSON.stringify({ action: args.action, requested: readback.private ? '[private credential]' : value, current: readback, note: `Current browser readback; inspect validation and selection before advancing. This is not server receipt.${waitNote ? ` ${waitNote}` : ''}` }), waitNote ? 'reobserve' : undefined);
       }
       default: throw new Error('Unknown browser action.');
     }
-    if (args.action !== 'click') await waitAfterAction(ctx.page, args);
     if (args.action === 'click' && await followPopup()) {
       return ok('The clicked control opened a new tab. Switched to that tab; inspect its fresh observation before continuing.', 'reobserve');
     }
-    if (args.action === 'click') await waitAfterAction(ctx.page, args);
-    return ok(`Action executed: ${args.action}${actionLabel ? ` on ${JSON.stringify(actionLabel)}` : ''}. Read the new observation to judge what saved or changed.`);
+    const waitNote = await waitAfterAction(ctx.page, args);
+    return ok(`Action executed: ${args.action}${actionLabel ? ` on ${JSON.stringify(actionLabel)}` : ''}. Read the new observation to judge what saved or changed.${waitNote ? ` ${waitNote}` : ''}`, waitNote ? 'reobserve' : undefined);
   };
 
   try {

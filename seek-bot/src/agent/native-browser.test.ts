@@ -39,6 +39,10 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.equal(hasWaitCondition({ wait: { selector: '#ready' } }), true);
     await waitAfterAction(page, { wait: { selector: '#ready', state: 'visible', timeout_ms: 1000 } });
     assert.equal(await page.locator('#ready').isVisible(), true);
+    await page.setContent('<button onclick="window.clicks=(window.clicks||0)+1">Continue</button>');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    assert.match((await waitAfterAction(page, { action: 'click', wait: { selector: '#never-arrives', timeout_ms: 20 } }))!, /action completed.*wait timed out/);
+    assert.equal(await page.evaluate('window.clicks', undefined, undefined, false), 1, 'a timed-out follow-up wait preserves the already completed action');
     await page.setContent('<label>Password<input type=password value="private-fixture"></label>');
     const privateInput = await nativeReadback(page.getByLabel('Password')) as { private: boolean };
     assert.equal(privateInput.private, true); assert.equal(JSON.stringify(privateInput).includes('private-fixture'), false);

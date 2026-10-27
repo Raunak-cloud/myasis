@@ -75,8 +75,10 @@ try {
     return [{ name: 'resume_after_rejected_submission', args: { evidence: 'Please choose a referral source' } }];
   }, () => [
     { name: 'browser_action', args: { action: 'select', locator: { by: 'role', value: 'combobox', name: 'Referral source' }, value: 'Company website' } },
-    { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } },
+    { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true, wait: { selector: '#never-arrives', timeout_ms: 20 } } },
   ], body => {
+    assert.doesNotMatch(JSON.stringify(body.messages.filter(message => message.role === 'tool')), /Browser\/tool error:/);
+    assert.match(JSON.stringify(body.messages), /action completed, but its follow-up wait timed out/);
     assert.match(observation(body), /Application received/); assert.match(observation(body), /ABC123/);
     return [{ name: 'finish', args: { status: 'applied', reason: 'Received after correcting referral source', evidence: 'Application received, Receipt ABC123', cover_letter: letter, resume_id: 'cv-1' } }];
   }];

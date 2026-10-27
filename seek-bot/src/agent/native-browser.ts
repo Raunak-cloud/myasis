@@ -44,15 +44,20 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
   }, undefined, { timeout: 5000 });
 }
 
-export async function waitAfterAction(page: Page, args: Record<string, unknown>): Promise<void> {
+export async function waitAfterAction(page: Page, args: Record<string, unknown>): Promise<string | undefined> {
   if (!args.wait) return;
   const wait = args.wait as Record<string, unknown>;
   // A timeout is only a bound, not a target. Never turn an already executed
   // click into a selector failure because the agent supplied only that bound.
   if (!wait.url && !hasBrowserTarget(wait)) return;
   const timeout = Math.min(15000, Math.max(1, Number(wait.timeout_ms ?? 8000)));
-  if (wait.url) await page.waitForURL(String(wait.url), { timeout, waitUntil: 'domcontentloaded' });
-  else await browserTarget(page, wait).waitFor({ state: (wait.state ?? 'visible') as 'visible', timeout });
+  try {
+    if (wait.url) await page.waitForURL(String(wait.url), { timeout, waitUntil: 'domcontentloaded' });
+    else await browserTarget(page, wait).waitFor({ state: (wait.state ?? 'visible') as 'visible', timeout });
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== 'TimeoutError') throw error;
+    return `${args.action === 'wait' ? 'The requested wait' : 'The browser action completed, but its follow-up wait'} timed out. Inspect the current page and saved values before deciding the next action; this does not mean the preceding action failed.`;
+  }
 }
 
 export function hasWaitCondition(args: Record<string, unknown>): boolean {
