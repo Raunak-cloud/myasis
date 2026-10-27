@@ -553,6 +553,18 @@ try {
   assert.equal(formDuplicate.outcome.status, 'already-applied');
   assert.equal(formDuplicate.submitPressed, false);
   assert.equal(script.length, 0);
+  await page.setContent('<h1>Employer careers</h1><iframe srcdoc="<main><p>You already applied for this position.</p></main>"></iframe>');
+  await page.frameLocator('iframe').getByText('You already applied for this position.').waitFor();
+  script = [() => [{ name: 'finish', args: {
+    status: 'already-applied', reason: 'The employer frame confirms the prior application',
+    evidence: 'You already applied for this position.',
+    duplicate_evidence: { quote: 'You already applied for this position.' },
+  } }]];
+  const frameDuplicate = await runApplicationAgent({ page, job: { ...job, id: 'employer-frame-duplicate' }, profile, log: () => {} });
+  assert.equal(frameDuplicate.outcome.status, 'already-applied', 'actual employer iframe evidence must not cause repeated rejected finish calls');
+  assert.equal(frameDuplicate.steps, 1);
+  assert.equal(frameDuplicate.submitPressed, false);
+  assert.equal(script.length, 0);
   console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and hCaptcha skip.');
 } finally {
   await browser.close();

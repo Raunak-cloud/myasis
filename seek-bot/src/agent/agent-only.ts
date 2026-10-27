@@ -44,6 +44,7 @@ import { JOB_FIT_POLICY, jobPreferenceContext } from '../job-fit-policy.js';
 import { currentFitReview } from '../review-cache.js';
 import type { FitRejection } from '../types.js';
 import { submissionReceipt } from './submission-receipt.js';
+import { employerMessageEvidence } from './employer-message.js';
 import { InteractionMemory } from './interaction-memory.js';
 
 const string = { type: 'string' };
@@ -323,9 +324,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     }
     if (name === 'finish') {
       if (args.status === 'already-applied') {
-        const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '').replace(/\s+/g, ' ').trim();
-        const observed = ctx.observation.text.replace(/\s+/g, ' ').trim();
-        if (quote.length < 8 || !observed.includes(quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied from the current observed page. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
+        const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '');
+        if (!await employerMessageEvidence(ctx.page, quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied as a complete visible employer message from the current page or its visible frames. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
       }
       if (fitReview && args.status === 'skipped' && (args.fit_rejection as FitRejection | undefined)?.source === 'listing') {
         return ok('The matcher already approved these unchanged listing facts using the current candidate evidence. Apply this approved job without repeating its suitability assessment. Only a new mandatory requirement found in the actual form can stop eligibility; report that observed requirement with source=form. Technical failures and uncertain sends remain honest outcomes.', 'failed');
