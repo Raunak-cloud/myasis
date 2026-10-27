@@ -15,6 +15,9 @@ export interface TraceStep {
   /** Human-readable version of the call, e.g. `click "Apply without an account"`. */
   label: string;
   result?: string;
+  /** Recorded before execution; a missing completion identifies outstanding work. */
+  startedAt?: string;
+  completedAt?: string;
   disposition?: string;
   screenshot?: string;
 }

@@ -565,6 +565,24 @@ try {
   assert.equal(frameDuplicate.steps, 1);
   assert.equal(frameDuplicate.submitPressed, false);
   assert.equal(script.length, 0);
+  await page.setContent('<main>Controlled pending-operation test</main>');
+  script = [() => [{ name: 'browser_action', args: { action: 'script', script:
+    'async () => { await new Promise(resolve => { window.releasePendingTrace = resolve; }); return "Controlled script completed"; }' } }],
+  () => [{ name: 'finish', args: { status: 'skipped', reason: 'Controlled test completed', evidence: 'The deferred script returned once.' } }]];
+  const pendingRun = runApplicationAgent({ page, job: { ...job, id: 'pending-operation-audit' }, profile, log: () => {} });
+  await page.waitForFunction(() => typeof (window as unknown as { releasePendingTrace?: unknown }).releasePendingTrace === 'function');
+  const pendingTrace = JSON.parse(readFileSync(join(directory, 'traces/pending-operation-audit.live.json'), 'utf8'));
+  assert.equal(pendingTrace.steps.at(-1).tool, 'browser_action');
+  assert.equal(pendingTrace.steps.at(-1).args.action, 'script');
+  assert.ok(pendingTrace.steps.at(-1).startedAt);
+  assert.equal(pendingTrace.steps.at(-1).completedAt, undefined, 'an outstanding operation must not be recorded as completed');
+  assert.equal(pendingTrace.steps.at(-1).result, undefined);
+  await page.evaluate(() => (window as unknown as { releasePendingTrace: () => void }).releasePendingTrace(), undefined, undefined, false);
+  assert.equal((await pendingRun).outcome.status, 'skipped');
+  const completedTrace = JSON.parse(readFileSync(join(directory, 'traces/pending-operation-audit.live.json'), 'utf8'));
+  assert.ok(completedTrace.steps[0].completedAt);
+  assert.match(completedTrace.steps[0].result, /Controlled script completed/);
+  assert.equal(script.length, 0);
   console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and hCaptcha skip.');
 } finally {
   await browser.close();
