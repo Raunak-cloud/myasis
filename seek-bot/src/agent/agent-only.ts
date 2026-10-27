@@ -46,6 +46,7 @@ import type { FitRejection } from '../types.js';
 import { submissionReceipt } from './submission-receipt.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { InteractionMemory } from './interaction-memory.js';
+import { PersonalAnswerCheck } from './personal-answer-check.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -114,7 +115,7 @@ export const agentOnlyTools: ToolSchema[] = [
   }, ['status', 'reason', 'evidence']),
 ];
 
-export const AGENT_ONLY_PROMPT = `You are the sole applying agent. Complete the specified job application using the candidate's evidence and preferences. You author answers, select/upload documents, write a tailored cover letter with paragraph breaks (including optional letter fields), inspect actual saved form values, recover errors, decide whether to submit or retry, and determine receipt. There is no separate form checker, answer gate, reservation veto or receipt verifier. You may consult a read-only specialist when useful; its advice is yours to assess.
+export const AGENT_ONLY_PROMPT = `You are the sole applying agent. Complete the specified job application using the candidate's evidence and preferences. You author answers, select/upload documents, write a tailored cover letter with paragraph breaks (including optional letter fields), inspect actual saved form values, recover errors, decide whether to submit or retry, and determine receipt. A read-only personal-answer source check runs before preparing or sending: consequential personal claims require saved candidate evidence. It cannot fill or repair the form. Mark ALL application-transmitting actions sends_application=true, including scripts and keyboard actions. There is no separate form handler, reservation veto or receipt verifier. You may consult a read-only specialist when useful; its advice is yours to assess.
 Read the authoritative profile, saved answers, CVs, supporting documents and matching-stage duplicate decision. The matching stage owns duplicate decisions from known history; do not review confirmed application records again or skip a cleared job based on similar company/title metadata. Only NEW evidence on the actual employer form can reveal an earlier application; finish already-applied with duplicate_evidence.quote copied from that observed page. A receipt for the submission you just made means applied, not already-applied. More evidence is available with read_candidate_evidence. Follow explicit candidate preferences, including reusing supplied cover-letter text unchanged when the selected letter mode is reuse; distinguish routine reasonable choices from unknown personal facts. Do not invent qualifications, legal/work rights, health history, identity or financial facts. Ask for attention only when a consequential unknown prevents truthful completion. Interrupted attempts and reservations remain advisory recovery evidence: inspect uncertain previous sends before deciding to repeat. They are not confirmed duplicates. A validation-rejected submit can be corrected and retried; do not call that a successful or uncertain receipt merely because Submit was pressed. Inspect the current page after sending; report applied only when you see receipt evidence. Keep answers and documents consistent and preserve letter paragraphs.
 When the form offers CV upload or parsing, upload the selected CV early, then inspect and correct the resulting saved fields. upload_document attaches the original document directly; the form's accept attribute is advisory, not an Owtomate rejection rule. You choose whether a different format is necessary from the actual employer requirements or response and request it explicitly with format. If an upload is rejected for its format, changing selectors cannot repair the document: inspect the employer error and choose another approved document or request the appropriate conversion. A file selected in the browser is not proof the employer accepted it. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless the form requires them or the candidate asks. Complete required sections truthfully and include the tailored cover letter. Use the fresh observation already provided before requesting another snapshot of the same information.
 If a role does not match the candidate's preferences, finish as skipped with the reason. For needs-human, include questions containing the exact observed required form labels, clear candidate-facing prompts and offered choices. Only ask about a consequential candidate fact or decision the saved evidence cannot answer. Browser failures and role mismatches are not unanswered application questions; never invent a question to create a task.
@@ -214,6 +215,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const interactionMemory = new InteractionMemory();
   const waitedForSurface = new Set<string>();
   const remainingMs = () => config.celeris.maxTotalMs - (Date.now() - started);
+  const personalAnswerCheck = new PersonalAnswerCheck({ meter, remainingMs });
   const watched = new Set<Page>();
   const ownedPages = new Set<Page>([options.page]);
   const dialogs = new Map<Page, import('patchright').Dialog>();
@@ -274,6 +276,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       if (name === 'browser_action' && args.action === 'dialog') {
         const value = String(args.value ?? '');
         if (reviewingApplications() && value !== 'dismiss') return ok('Use dismiss in Semi auto. Accepting a browser dialog can bypass candidate confirmation.', 'failed');
+        if (args.sends_application === true && value !== 'dismiss') {
+          const sourceCheck = await personalAnswerCheck.check(ctx, { url: ctx.page.url(), fields: [], text: pendingDialog.message() });
+          if (sourceCheck) return sourceCheck;
+        }
         dialogs.delete(ctx.page);
         if (value === 'dismiss') await pendingDialog.dismiss();
         else await pendingDialog.accept(value === 'accept' ? undefined : value);
@@ -310,6 +316,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     if (name === 'prepare_email_application') {
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: 'Inspected email application instructions; no email draft or send in dry-run.' } };
       if (!config.allowExternalApply || outsideScope('external')) return ok('Email applications are outside this run scope.', 'failed');
+      ctx.coverLetter = cleanCoverLetter(String(args.cover_letter ?? ''));
+      const sourceCheck = await personalAnswerCheck.check(ctx);
+      if (sourceCheck) return sourceCheck;
       return prepareEmailApplication(ctx, args);
     }
     if (name === 'prepare_application') {
@@ -330,6 +339,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const doc = agentOnlyDocuments().find(item => item.id === args.resume_id);
       if (!doc) return ok('Choose the selected resume ID from the account document inventory.', 'failed');
       ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName;
+      const sourceCheck = await personalAnswerCheck.check(ctx);
+      if (sourceCheck) return sourceCheck;
       return (await applicationApprovalGate(ctx)) ?? ok('The filled application matches the version the candidate confirmed. Use its final submit control.');
     }
     if (name === 'resume_after_rejected_submission') {
@@ -463,7 +474,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }, undefined, { timeout: 2500 }).catch(() => '');
     }
     let sendsApplication = args.sends_application === true;
-    if (reviewingApplications() && !sendsApplication && (args.action === 'click'
+    if (!sendsApplication && (args.action === 'click'
       || args.action === 'press' && needsSubmissionReview(String(args.value)))) {
       // Authentication, widget selection and final sending can all use Submit
       // or Enter. Review the actual scoped form, never the label/key alone.
@@ -471,6 +482,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         args.action === 'press' ? String(args.value) : undefined);
       sendsApplication = await isSubmitControl(control, { url: ctx.page.url(), title: ctx.observation.title,
         text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length }).catch(() => true);
+    }
+    if (sendsApplication) {
+      const sourceCheck = await personalAnswerCheck.check(ctx);
+      if (sourceCheck) return sourceCheck;
     }
     if (sendsApplication && reviewingApplications()) {
       const approval = await applicationApprovalGate(ctx);
@@ -596,6 +611,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       if (!pendingDialog && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
+      if (!pendingDialog && !submissionReviewRequired) personalAnswerCheck.remember(ctx.observation);
       // Inspect the results of already-executed actions before enforcing the
       // next-call budget. This does not run another model or replay a write.
       if (!pendingDialog) {

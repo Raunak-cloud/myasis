@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
 import type { JobListing } from '../types.js';
+import { personalAnswerFixtureResponse } from './personal-answer-check-fixture.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-agent-only-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', FORM_CORPUS_DIR: join(directory, 'form-corpus'),
@@ -24,7 +25,10 @@ const observation = (body: Body) => JSON.stringify(body.messages.filter(message 
 const reply = (calls: Call[]) => Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: completionTokens } });
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body)) as Body;
-  assert.ok(body.tools?.length, 'no independent checker, answerer, receipt verifier or script reviewer may be called');
+  const sourceCheck = personalAnswerFixtureResponse(body);
+  if (sourceCheck) return sourceCheck;
+  if (!body.tools?.length && JSON.stringify(body.messages).includes('Would pressing the control')) return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: false }) } }] });
+  assert.ok(body.tools?.length, 'only the applying agent, send-control classification and approved personal-source check may be called');
   turns.push(body);
   const next = script.shift();
   assert.ok(next, 'the parent makes only the scripted number of requests');
@@ -594,6 +598,52 @@ try {
   assert.equal(dialogRun.steps, 3);
   assert.equal(dialogRun.submitPressed, false);
   assert.equal(script.length, 0);
+  // The actual Auto loop must source-check an unmarked final click too. A
+  // plausible default No is not proof of a private personal fact.
+  const transportFetch = globalThis.fetch;
+  let sourceVerdict: 'missing' | 'supported' = 'missing', auditCalls = 0;
+  globalThis.fetch = (async (url, init) => {
+    const body = JSON.parse(String(init?.body));
+    if (String(body.messages?.[0]?.content).startsWith('You perform one read-only source check')) {
+      auditCalls++;
+      const payload = JSON.parse(body.messages[1].content);
+      const source = payload.sources.find((item: { text: string }) => item.text.includes('No disability. Explicitly confirmed'));
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ reviews: payload.answers.map((answer: {id:string}) => ({
+        id: answer.id, basis: sourceVerdict, reason: 'Explicit candidate medical evidence required.',
+        citations: sourceVerdict === 'supported' ? [{ source: source.id, quote: 'No disability. Explicitly confirmed' }] : [],
+      })) }) } }], usage: { prompt_tokens: 30, completion_tokens: 10 } });
+    }
+    if (!body.tools?.length) return Response.json({ choices: [{ message: { content: JSON.stringify({ sends_application: true }) } }] });
+    return transportFetch(url, init);
+  }) as typeof fetch;
+  const medicalForm = '<main><form onsubmit="event.preventDefault();window.medicalSends++;document.querySelector(\'main\').textContent=\'Application received: MEDICAL123\'"><label>Do you have a disability?<select required><option>No</option><option>Yes</option></select></label><button id=send>Submit application</button></form></main>';
+  try {
+    await page.setContent(medicalForm); await page.evaluate('window.medicalSends=0', undefined, undefined, false);
+    script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send' } }]];
+    const unknown = await runApplicationAgent({ page, job: { ...job, id: 'unknown-medical-source' }, profile, log: () => {} });
+    assert.equal(unknown.outcome.status, 'needs-human');
+    assert.equal(unknown.submitPressed, false);
+    assert.equal(await page.evaluate('window.medicalSends', undefined, undefined, false), 0);
+    assert.equal(script.length, 0);
+    process.env.APPLICATION_REVIEW_MODE = 'prepare';
+    await page.setContent(medicalForm); await page.evaluate('window.medicalSends=0', undefined, undefined, false);
+    script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send' } }]];
+    const unknownPrepared = await runApplicationAgent({ page, job: { ...job, id: 'unknown-medical-preparation' }, profile, log: () => {} });
+    assert.equal(unknownPrepared.outcome.status, 'needs-human', 'an attempted Semi auto send cannot bypass the source check by implicitly preparing a draft');
+    assert.equal(await page.evaluate('window.medicalSends', undefined, undefined, false), 0);
+    delete process.env.APPLICATION_REVIEW_MODE;
+    writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Do you have a disability?', answer: 'No disability. Explicitly confirmed by the candidate.' }]));
+    sourceVerdict = 'supported';
+    await page.setContent(medicalForm); await page.evaluate('window.medicalSends=0', undefined, undefined, false);
+    script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send' } }], () => [{ name: 'finish', args: {
+      status: 'applied', reason: 'Received with sourced personal facts', evidence: 'Application received: MEDICAL123', receipt: { quote: 'Application received: MEDICAL123' },
+    } }]];
+    const confirmed = await runApplicationAgent({ page, job: { ...job, id: 'confirmed-medical-source' }, profile, log: () => {} });
+    assert.equal(confirmed.outcome.status, 'applied');
+    assert.equal(await page.evaluate('window.medicalSends', undefined, undefined, false), 1);
+    assert.equal(auditCalls, 3);
+    assert.equal(script.length, 0);
+  } finally { globalThis.fetch = transportFetch; delete process.env.APPLICATION_REVIEW_MODE; }
   console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and hCaptcha skip.');
 } finally {
   await browser.close();

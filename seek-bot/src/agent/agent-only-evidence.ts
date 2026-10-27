@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { extractText } from '../knowledge.js';
 import { workPreferenceEvidence } from '../work-preferences.js';
 import { readAgentActivities } from './agent-activity.js';
+import type { CandidateProfile } from '../types.js';
 
 export interface AgentOnlyDocument { id: string; label: string; fileName: string }
 type ManifestRecord = Record<string, unknown>;
@@ -95,6 +96,27 @@ async function approvedText(path: string | null): Promise<string> {
 export function candidateSavedAnswers() {
   return records('answers.json').filter(item => typeof item.question === 'string' && typeof item.answer === 'string')
     .map(item => ({ question: item.question, answer: item.answer, ...(typeof item.createdAt === 'string' ? { createdAt: item.createdAt } : {}) }));
+}
+
+export interface CandidateAnswerSource { id: string; text: string }
+
+/** Complete, attributed evidence for the pre-send personal-answer check. Never
+ * silently truncate a record and then interpret the omission as a missing fact.
+ * Uses the same immutable owner boundary and enabled documents as agent reads. */
+export async function candidateAnswerSources(profile: CandidateProfile): Promise<CandidateAnswerSource[]> {
+  const sources: CandidateAnswerSource[] = [
+    { id: 'profile', text: Object.entries(profile).map(([key, value]) => `${key}:${typeof value === 'string' ? value : JSON.stringify(value)}`).join('\n') },
+    { id: 'preferences', text: preferenceEvidence() },
+    ...candidateSavedAnswers().map((answer, index) => ({ id: `saved-answer:${index}`, text: `Question:${answer.question}\nAnswer:${answer.answer}${answer.createdAt ? `\ncreatedAt:${answer.createdAt}` : ''}` })),
+    ...await Promise.all(resumeRecords().map(async item => ({ id: `resume:${item.id}`, text: `${item.label}\n${await approvedText(ownerFile(item.fileName, 'resumes'))}` }))),
+  ];
+  for (const item of records('knowledge.json')) {
+    if (item.enabled !== true || typeof item.id !== 'string' || typeof item.label !== 'string') continue;
+    if (item.kind === 'note' && typeof item.text === 'string') sources.push({ id: `knowledge:${item.id}`, text: `${item.label}\n${item.text}` });
+    if (item.kind === 'file' && typeof item.fileName === 'string' && ownerFile(item.fileName, 'knowledge')) sources.push({ id: `knowledge:${item.id}`, text: `${item.label}\n${await approvedText(ownerFile(item.fileName, 'knowledge'))}` });
+  }
+  if (JSON.stringify(sources).length > 160_000) throw new Error('Candidate evidence exceeds the personal-answer check window. No evidence was silently omitted.');
+  return sources;
 }
 
 export async function agentOnlyEvidence(query = '', offset = 0, maxChars = MAX_EVIDENCE): Promise<string> {

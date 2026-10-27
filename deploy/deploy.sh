@@ -90,7 +90,7 @@ as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx --test server/cel
 as_app "cd $APP/seek-bot && node dist/cost-ledger.test.js"
 as_app "cd $APP/seek-bot && node dist/agent/outcome.test.js"
 as_app "cd $APP/seek-bot && node --test dist/agent/progress-budget.test.js"
-as_app "cd $APP/seek-bot && node --test dist/application-allowance.test.js dist/agent/agent-only-evidence.test.js dist/agent/agent-only-transcript.test.js dist/agent/interaction-memory.test.js dist/agent/agent-activity.test.js dist/agent/consultation.test.js"
+as_app "cd $APP/seek-bot && node --test dist/application-allowance.test.js dist/agent/agent-only-evidence.test.js dist/agent/agent-only-transcript.test.js dist/agent/interaction-memory.test.js dist/agent/agent-activity.test.js dist/agent/consultation.test.js dist/agent/personal-answer-check.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/agent-only.test.js"
 as_app "cd $APP/seek-bot && CHROME_PATH=/usr/bin/google-chrome-stable node dist/agent/submission-receipt.test.js"
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx server/application-confirmation.test.ts"

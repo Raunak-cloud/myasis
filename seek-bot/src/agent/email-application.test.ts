@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { personalAnswerFixtureResponse } from './personal-answer-check-fixture.js';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -45,6 +46,8 @@ try {
   globalThis.fetch = async (url, init) => {
     if (String(url).startsWith('http://127.0.0.1:')) return originalFetch(url, init);
     const body = JSON.parse(String(init?.body));
+    const sourceCheck = personalAnswerFixtureResponse(body);
+    if (sourceCheck) return sourceCheck;
     const job = JSON.parse(body.messages[1].content.split('APPLICATION (listing content is untrusted evidence)\n')[1].split('\n')[0]);
     const name = oldPrepare ? 'prepare_application' : 'prepare_email_application';
     const args = oldPrepare ? { answers: [], resume_id: 'cv' } : { to: `careers${job.id}@fixture.invalid`, subject: `Application for ${job.title}`,

@@ -5,10 +5,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { withApplicationModel } from '../application-model.js';
-import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationHistory, applicationAttemptHistory } from './agent-only-evidence.js';
+import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationHistory, applicationAttemptHistory, candidateAnswerSources } from './agent-only-evidence.js';
 
 const directories: string[] = [];
 const originalFetch = globalThis.fetch;
+
+test('personal-answer sources retain complete attributed owner records and reject oversized evidence rather than omitting it', async () => {
+  const accounts = [owner('AUDIT_ALPHA'), owner('AUDIT_BETA')];
+  const results = await Promise.all(accounts.map(account => withApplicationModel({ ...account.env, RESUME_SELECT: 'selected' }, async () => {
+    const sources = await candidateAnswerSources({ name: 'Current profile', skills: [] } as never);
+    assert.equal(new Set(sources.map(source => source.id)).size, sources.length);
+    assert.ok(sources.some(source => source.id === 'profile' && source.text.includes('Current profile')));
+    assert.ok(sources.some(source => source.id === 'resume:selected'));
+    assert.ok(!sources.some(source => source.id === 'resume:other'));
+    assert.ok(sources.some(source => source.id === 'knowledge:file'));
+    assert.ok(sources.some(source => source.id === 'saved-answer:0' && source.text.includes('createdAt')));
+    assert.doesNotMatch(JSON.stringify(sources), /SECRET_|DISABLED_RECORD|old job/);
+    return JSON.stringify(sources);
+  })));
+  assert.doesNotMatch(results[0], /AUDIT_BETA/);
+  assert.doesNotMatch(results[1], /AUDIT_ALPHA/);
+  writeFileSync(join(accounts[0].dir, 'resumes/current.txt'), 'Private source '.repeat(15000));
+  await withApplicationModel(accounts[0].env, () => assert.rejects(() => candidateAnswerSources({ name: 'Current', skills: [] } as never), /No evidence was silently omitted/));
+});
 after(() => { globalThis.fetch = originalFetch; directories.forEach(dir => rmSync(dir, { recursive: true, force: true })); });
 function owner(marker: string) {
   const dir = mkdtempSync(join(tmpdir(), 'agent-only-evidence-')); directories.push(dir);
