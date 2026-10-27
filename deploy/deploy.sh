@@ -45,7 +45,7 @@ active_runs() {
   echo "$n"
 }
 
-# Real employer form pages, replayed against the new code before anything live
+# Ten representative employer form pages, replayed against the new code before anything live
 # changes (deploy/replay-check.sh). A regression stops the deploy here, while
 # the running code is untouched; FORCE_DEPLOY=1 overrides after a person has
 # judged the difference (and accepted it with form-replay.js --accept).
