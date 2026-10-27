@@ -57,6 +57,7 @@ try {
         profile: { name: 'Fixture Candidate', email: 'fixture@example.invalid', skills: [] } as never, log: () => {} });
       assert.equal(result.outcome.status, 'applied');
       assert.equal(result.submitPressed, true);
+      assert.equal(result.applicationUrl, 'https://employer.routing.invalid/apply', 'history retains the actual employer form instead of the board entry URL');
       assert.equal(turns, 4);
       assert.equal(browser.contexts().length, 1, 'no other browser or context is created');
       assert.ok(context.pages().every(tab => tab.context() === context));

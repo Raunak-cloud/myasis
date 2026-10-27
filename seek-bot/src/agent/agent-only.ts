@@ -30,7 +30,7 @@ import { observationMessage } from './loop/transcript.js';
 import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
 import { locate } from './browser-target.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget } from './browser-target.js';
-import { validToolInput } from './tool-input.js';
+import { toolInputIssue } from './tool-input.js';
 import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
 import { ok, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
 import { authenticationTools } from './auth-tools.js';
@@ -159,7 +159,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const isolated = options.simulation === 'isolated-form';
   if (isolated && (!config.dryRun || !new URL(options.job.url).hostname.endsWith('.invalid'))) throw new Error('Isolated tests require dry-run and an invalid domain.');
   const entryUrl = options.page.url();
-  const applicationUrl = isExternal(entryUrl) ? entryUrl : options.job.applicationUrl;
+  let applicationUrl = isExternal(entryUrl) ? entryUrl : options.job.applicationUrl;
   const duplicateReview = reviewCurrentDuplicate({ ...options.job, applicationUrl });
   if (duplicateReview.decision === 'duplicate') return {
     outcome: { status: 'already-applied', reason: duplicateReview.reason }, captured: [], actions: [],
@@ -456,6 +456,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
     }
     if (sendsApplication) {
+      // A board entry can lead through several native employer pages. Retain
+      // the actual send destination, rather than the old board handoff URL,
+      // for owner-scoped history and later exact-destination matching.
+      if (isExternal(ctx.page.url())) applicationUrl = ctx.page.url();
       ctx.submissionAttempted = true; // audit only, never authorisation
       submissionReviewRequired = true;
       activity.update({ status: 'running', submitted: true, detail: 'The agent marked this action as a submission; receipt is not established.' });
@@ -635,7 +639,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         } else {
           planActions++;
           try {
-            if (!tool || !validToolInput(call.args, tool.parameters)) throw new Error('Invalid tool input. Read the schema and retry with the correct arguments.');
+            if (!tool) throw new Error('This tool is unavailable in the current application stage. Read the currently offered tools.');
+            const issue = toolInputIssue(call.args, tool.parameters);
+            if (issue) throw new Error(`Invalid tool input: ${issue}`);
             const wasReviewingSubmission = submissionReviewRequired;
             result = await act(call.name, call.args);
             if (result.kind === 'ok' && result.disposition !== 'failed' && (call.name === 'browser_batch'

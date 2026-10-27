@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validToolInput } from './tool-input.js';
+import { validToolInput, toolInputIssue } from './tool-input.js';
 
 test('tool dispatch rejects missing, unknown and malformed nested arguments', () => {
   const schema = { type: 'object', properties: {
@@ -10,6 +10,18 @@ test('tool dispatch rejects missing, unknown and malformed nested arguments', ()
   for (const input of [{}, { action: null }, { action: { ref: '' } }, { action: { ref: 'a1', secret: true } }, { action: { ref: 1 } }]) {
     assert.equal(validToolInput(input, schema), false);
   }
+});
+
+test('nested contract diagnostics locate the error without repeating supplied private values', () => {
+  const schema = { type: 'object', properties: { actions: { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', properties: {
+    action: { type: 'string', enum: ['fill', 'click'] }, value: { type: 'string' },
+  }, required: ['action'] } } }, required: ['actions'] };
+  assert.equal(toolInputIssue({ actions: [{ action: 'fill', value: 'PRIVATE_CANDIDATE_FACT' }] }, schema), null);
+  const issue = toolInputIssue({ actions: [{ action: 'SECRET_INCORRECT_ENUM', value: 'PRIVATE_CANDIDATE_FACT' }] }, schema)!;
+  assert.match(issue, /\$\.actions\[0\]\.action/);
+  assert.match(issue, /fill.*click/);
+  assert.doesNotMatch(issue, /SECRET_|PRIVATE_/);
+  assert.match(toolInputIssue({ actions: [{}] }, schema)!, /\$\.actions\[0\]\.action is required/);
 });
 
 test('bounded batches and declared options are checked before any browser action', () => {
