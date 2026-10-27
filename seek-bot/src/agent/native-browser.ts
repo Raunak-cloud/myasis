@@ -1,11 +1,11 @@
 import type { Frame, Locator, Page } from 'patchright';
-import { browserTarget, browserTargetProperties } from './browser-target.js';
+import { browserTarget, browserTargetProperties, hasBrowserTarget } from './browser-target.js';
 
 export const MAX_BROWSER_BATCH = 12;
 export const browserWaitProperties = {
   wait: {
     type: 'object', additionalProperties: false,
-    description: 'Optional native wait after this action, in the same tool call. No separate model turn is needed.',
+    description: 'Optional native wait for a target/state or URL after this action. timeout_ms is a maximum, not a delay; timeout alone adds no wait beyond the action\'s native auto-waiting.',
     properties: {
       ...browserTargetProperties,
       state: { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] },
@@ -47,9 +47,17 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
 export async function waitAfterAction(page: Page, args: Record<string, unknown>): Promise<void> {
   if (!args.wait) return;
   const wait = args.wait as Record<string, unknown>;
+  // A timeout is only a bound, not a target. Never turn an already executed
+  // click into a selector failure because the agent supplied only that bound.
+  if (!wait.url && !hasBrowserTarget(wait)) return;
   const timeout = Math.min(15000, Math.max(1, Number(wait.timeout_ms ?? 8000)));
   if (wait.url) await page.waitForURL(String(wait.url), { timeout, waitUntil: 'domcontentloaded' });
   else await browserTarget(page, wait).waitFor({ state: (wait.state ?? 'visible') as 'visible', timeout });
+}
+
+export function hasWaitCondition(args: Record<string, unknown>): boolean {
+  const wait = args.wait as Record<string, unknown> | undefined;
+  return Boolean(wait && (wait.url || hasBrowserTarget(wait)));
 }
 
 /** Browser JavaScript only. No Node globals, host filesystem or arbitrary host-code executor. */

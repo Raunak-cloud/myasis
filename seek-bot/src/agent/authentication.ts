@@ -116,11 +116,11 @@ export async function fillEmailedCode(page: Page, fields: Observation['fields'],
   return true;
 }
 
-const cannotReadMailbox = (error: string) => /reconnect|authorization|MCP could not|connect Gmail/i.test(error);
+const cannotReadMailbox = (error: string) => /reconnect|authorization|MCP could not|connect Gmail|Gmail.*(?:unavailable|could not|did not)|mailbox request/i.test(error);
 
 export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!gmailAvailable()) {
-    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "skipped".');
+    return ok('Gmail is not connected for this candidate. Connect Gmail in Settings. Try another authentication option; otherwise finish with "skipped".');
   }
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [String(args.ref ?? '')];
   let fields = refs.map(ref => ctx.observation.fields.find(candidate => candidate.ref === ref));
@@ -139,7 +139,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
      * not fix it. Saying so ends the attempt in one step instead of spending
      * another ninety seconds finding out the same thing.
      */
-    if (cannotReadMailbox(found.error)) return ok(`${found.error} Reconnect Gmail from the dashboard before retrying this application; resending the code will not reconnect the mailbox.`);
+    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another code.`);
     return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
   }
 
@@ -165,14 +165,14 @@ export const EMAIL_WAIT_MS = 120_000;
 
 export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!gmailAvailable()) {
-    return ok('Gmail MCP is not connected for this candidate. Connect Gmail in Setup. Try another authentication option; otherwise finish with "skipped".');
+    return ok('Gmail is not connected for this candidate. Connect Gmail in Settings. Try another authentication option; otherwise finish with "skipped".');
   }
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
   ctx.log('  ✉ waiting for the emailed verification link');
   const found = await findVerificationInGmail({ hint, site: hostOf(ctx.page.url()), want: 'link', timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
-    if (cannotReadMailbox(found.error)) return ok(`${found.error} Reconnect Gmail from the dashboard before retrying this application; resending the link will not reconnect the mailbox.`);
+    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another link.`);
     return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
   }
   if (found.kind !== 'link') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a code, not a link. Call enter_emailed_code with the code field(s) instead.`);

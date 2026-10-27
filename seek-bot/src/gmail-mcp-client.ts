@@ -46,8 +46,11 @@ export class GmailMcpClient {
     try {
       const result = await (await this.connected()).callTool({ name, arguments: args }, undefined, { timeout: name === 'send_application_email' ? 120_000 : 60_000 });
       if (result.isError) {
-        const code = (result.structuredContent as Record<string, unknown> | undefined)?.code;
-        if (code === 'reconnect') throw new GmailConnectionError('Reconnect Gmail in Setup. Mailbox authorization is unavailable.');
+        const failure = result.structuredContent as Record<string, unknown> | undefined;
+        const code = failure?.code;
+        const message = typeof failure?.message === 'string' ? failure.message.slice(0, 500) : '';
+        if (code === 'reconnect') throw new GmailConnectionError(`Reconnect Gmail in Settings. ${message || 'Mailbox authorization is unavailable.'}`);
+        if (code === 'unavailable') throw new GmailConnectionError(message || 'Gmail is temporarily unavailable. Retry the mailbox request.');
         if (code === 'uncertain') throw new GmailConnectionError('The email send could not be confirmed. Check Gmail Sent before retrying; Owtomate will not send a duplicate.');
         if (code === 'unapproved') throw new GmailConnectionError(String((result.structuredContent as Record<string, unknown>)?.message || 'Review and confirm this email application again.').slice(0, 300));
         throw new GmailConnectionError('Gmail MCP could not complete this request. Check the Gmail connection and approved application.');

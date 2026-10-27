@@ -34,7 +34,7 @@ import { validToolInput } from './tool-input.js';
 import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
 import { ok, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
 import { authenticationTools } from './auth-tools.js';
-import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, waitAfterAction, evaluateBrowser } from './native-browser.js';
+import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { approvedApplication, applicationApprovalGate, preparingApplications, reviewingApplications } from '../application-review.js';
 import { isSubmitControl } from '../llm.js';
 import { prepareEmailApplication } from './prepare-email.js';
@@ -473,7 +473,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       case 'inspect': return ok(JSON.stringify(await nativeReadback(target(ctx, args))));
       case 'wait':
-        if (!args.wait) throw new Error('Provide wait with a current locator/state or URL condition.');
+        if (!hasWaitCondition(args)) throw new Error('Provide wait with a current locator/state or URL condition. timeout_ms is a maximum, not a delay.');
         await waitAfterAction(ctx.page, args); return ok('Native wait completed; inspect the current page.');
       case 'scroll': await ctx.page.mouse.wheel(Number(args.x ?? 0), Number(args.y ?? 650)); break;
       case 'press': if (hasBrowserTarget(args)) await target(ctx, args).press(value, { timeout: 8_000 }); else await ctx.page.keyboard.press(value); break;

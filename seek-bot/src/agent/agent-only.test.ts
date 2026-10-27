@@ -65,9 +65,11 @@ try {
       { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Email' }, value: 'fixture@example.invalid' } },
       { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Cover letter' }, value: letter } },
       { name: 'upload_document', args: { locator: { by: 'css', value: '#cv' }, document_id: 'cv-1' } },
-      { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Submit' }, sends_application: true } },
+      { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Submit' }, sends_application: true, wait: { timeout_ms: 5000 } } },
     ];
   }, body => {
+    assert.doesNotMatch(JSON.stringify(body.messages.filter(message => message.role === 'tool')), /Browser\/tool error:/,
+      'a timeout-only post-action wait must not report an executed submit as a selector failure');
     assert.match(observation(body), /Please choose a referral source/);
     assert.deepEqual(body.tools && (body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission']);
     return [{ name: 'resume_after_rejected_submission', args: { evidence: 'Please choose a referral source' } }];

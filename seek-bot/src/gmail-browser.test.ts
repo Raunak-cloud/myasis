@@ -16,11 +16,19 @@ const listener = createServer(); await new Promise<void>(done => listener.listen
 const port = (listener.address() as { port: number }).port; await new Promise<void>(done => listener.close(() => done()));
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-browser-gmail-'));
 const context = await chromium.launchPersistentContext(directory, { headless: true, args: [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
-let sends = 0, uploads = 0, confirmed = true, wrongAccount = false;
+let sends = 0, uploads = 0, confirmed = true, wrongAccount = false, mailboxUnavailable = false, emptySearch = false;
+const gmailNavigations: string[] = [];
 const letter = 'Dear team,\n\nThis is the exact approved cover letter.';
-const pageHtml = () => `<!doctype html><a aria-label="Google Account: ${wrongAccount ? 'other' : 'candidate'}@fixture.invalid"></a><main role="main"><h2>Search results</h2><table><tr role="row"><td data-legacy-thread-id="fixturethread">Fixture code</td></tr></table><article data-message-id="message"><h2>Fixture verification</h2><span email="noreply@fixture.invalid"></span><div class="a3s">Your Fixture verification code: 482913</div></article></main><button onclick="document.querySelector('[role=dialog]').hidden=false">Compose</button><section role="dialog" hidden><input name="to" onkeydown="if(event.key==='Enter'){const p=document.createElement('span');p.setAttribute('email',this.value);this.parentElement.append(p)}"><input name="subjectbox"><div role="textbox" contenteditable="true"></div><input type="file" multiple onchange="for(const f of this.files){const p=document.createElement('span');p.textContent=f.name;this.parentElement.append(p)}"><button onclick="fetch('/fixture-send',{method:'POST'}).then(()=>{${confirmed ? 'document.body.insertAdjacentHTML(\'beforeend\',\'<p role=status>Message sent</p>\')' : ''}})">Send</button></section>`;
-await context.route('**/*', route => { if (new URL(route.request().url()).pathname === '/fixture-send') { sends++; return route.fulfill({ body: '{}' }); } return route.fulfill({ contentType: 'text/html', body: pageHtml() }); });
-context.on('page', page => page.on('filechooser', () => uploads++));
+const pageHtml = () => `<!doctype html><a aria-label="Google Account: ${wrongAccount ? 'other' : 'candidate'}@fixture.invalid"></a><main role="main"><table><tr role="row"><td data-legacy-thread-id="fixturethread">Fixture code</td></tr></table><article data-message-id="message"><h2>Fixture verification</h2><span email="noreply@fixture.invalid"></span><div class="a3s">Your Fixture verification code: 482913</div></article></main><button onclick="document.querySelector('[role=dialog]').hidden=false">Compose</button><section role="dialog" hidden><input name="to" onkeydown="if(event.key==='Enter'){const p=document.createElement('span');p.setAttribute('email',this.value);this.parentElement.append(p)}"><input name="subjectbox"><div role="textbox" contenteditable="true"></div><input type="file" multiple onchange="for(const f of this.files){const p=document.createElement('span');p.textContent=f.name;this.parentElement.append(p)}"><button onclick="fetch('/fixture-send',{method:'POST'}).then(()=>{${confirmed ? 'document.body.insertAdjacentHTML(\'beforeend\',\'<p role=status>Message sent</p>\')' : ''}})">Send</button></section>`;
+await context.route('**/*', route => {
+  if (mailboxUnavailable) return route.abort();
+  if (new URL(route.request().url()).pathname === '/fixture-send') { sends++; return route.fulfill({ body: '{}' }); }
+  return route.fulfill({ contentType: 'text/html', body: emptySearch ? pageHtml().replace(/<table>.*?<\/table>/, '<p>No conversations found.</p>') : pageHtml() });
+});
+context.on('page', page => {
+  page.on('filechooser', () => uploads++);
+  page.on('framenavigated', frame => { if (frame === page.mainFrame()) gmailNavigations.push(frame.url()); });
+});
 const stop = registerGmailBrowser('browser-owner', port, 'candidate@fixture.invalid');
 const approvals = Array.from({ length: 5 }, () => randomUUID());
 const drafts = new Map<string, PreparedApplication>(approvals.map((id, i) => [id, { id, revision: String(i + 1).repeat(64), coverLetter: letter, email: { to: 'careers@fixture.invalid', subject: `Application ${i}`, attachCoverLetter: true } } as PreparedApplication]));
@@ -34,6 +42,12 @@ const gateway = new GmailMcpService({ search: searchBrowserGmail, thread: readBr
 const lease = await gateway.grant('browser-owner', 'candidate@fixture.invalid', approvals), client = new GmailMcpClient(lease.connection);
 try {
   const threads = await client.search('verification'); assert.equal(threads[0].id, 'fixturethread');
+  assert.ok(gmailNavigations.some(url => url.includes('#search/')), 'search opens the requested view directly, without reading a stale inbox');
+  emptySearch = true; assert.deepEqual(await client.search('no matching email'), []); emptySearch = false;
+  mailboxUnavailable = true;
+  await assert.rejects(client.search('verification'), /Gmail browser request could not finish/, 'navigation failures retain their real error rather than claiming authorization was revoked');
+  mailboxUnavailable = false;
+  assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'a temporary mailbox failure does not poison later reads');
   const messages = await client.thread(threads[0].id);
   assert.equal(readVerificationEmailsLocally(messages.map(verificationMessage), { hint: 'Fixture', want: 'code' })?.value, '482913');
   await assert.rejects(client.thread('foreignthread'), /Search this mailbox/);

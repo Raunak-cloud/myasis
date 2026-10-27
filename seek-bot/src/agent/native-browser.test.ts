@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'patchright';
 import { browserTarget } from './browser-target.js';
-import { nativeReadback, waitAfterAction, evaluateBrowser } from './native-browser.js';
+import { nativeReadback, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 
 test('native locators retain events across rerenders, scope frames/editors/shadow DOM, and inspect values together', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -34,6 +34,9 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     await page.locator('#shadow').evaluate(node => node.attachShadow({ mode: 'open' }).innerHTML = '<label>Phone<input></label>');
     await browserTarget(page, { locator: { by: 'label', value: 'Phone' } }).fill('0400000000');
     await page.locator('#delayed').click();
+    await waitAfterAction(page, { wait: { timeout_ms: 5000 } });
+    assert.equal(hasWaitCondition({ wait: { timeout_ms: 5000 } }), false);
+    assert.equal(hasWaitCondition({ wait: { selector: '#ready' } }), true);
     await waitAfterAction(page, { wait: { selector: '#ready', state: 'visible', timeout_ms: 1000 } });
     assert.equal(await page.locator('#ready').isVisible(), true);
     await page.setContent('<label>Password<input type=password value="private-fixture"></label>');
