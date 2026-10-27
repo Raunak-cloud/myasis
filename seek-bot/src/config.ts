@@ -246,12 +246,6 @@ export const config = {
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
     maxEvaluations: ceiling(150, process.env.MAX_EVALUATIONS, 40),
-    /**
-     * Result pages to read per keyword. SEEK returns 32 per page, so page 1
-     * alone caps discovery at 32 × keywords — and once the obvious listings are
-     * applied to, everything left worth having is on pages 2+.
-     */
-    pagesPerKeyword: boundedUserRunLimit('PAGES_PER_KEYWORD', process.env.PAGES_PER_KEYWORD, 1),
     maxApplicationsPerDay: dailyApplicationLimit(process.env.MAX_APPS_PER_DAY),
     /**
      * Employer-site applications SUBMITTED per day. Unset means no limit (a

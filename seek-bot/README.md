@@ -108,17 +108,19 @@ applied to by hand.
 ## Pipeline
 
 ```
-SEEK Recommended (priority) + keyword search (expansion)
+Date-filtered keyword searches, newest first
         → dedupe + age filter → detail fetch
         → visible CAPTCHA + application-route preflight
         → hard exclusions → keyword score → role-neutral model fit check
         → Quick Apply state machine → applied.json
 ```
 
-The signed-in SEEK homepage's personalised Recommended feed is always evaluated
-first. Keyword searches expand the pool only after those recommendations, and a
-recommendation still has to pass every explicit exclusion and model
-fit check before the bot applies.
+Search depth has no page-count setting or ceiling. Discovery continues within
+`MAX_AGE_DAYS` until results end, repeat, or pass the age boundary on a date-ordered
+board. Review and application allowances still apply. Date filters are sent where
+the provider supports them; publication evidence is checked locally before AI
+matching. Listings without a verifiable date are not matched or applied to.
+Unfiltered homepage recommendations are not queried.
 
 Before any role-neutral model fit check, the preflight stops on a visible CAPTCHA and skips
 known external applications when external apply is disabled. This prevents

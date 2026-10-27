@@ -9,13 +9,13 @@ import type { AppliedRecord, JobListing } from './types.js';
 
 type FixtureJob = JobListing & { searchPage?: number; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
-  id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney',
+  id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney', ageDays: 1,
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
 });
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { pages?: number; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[] } = {}) {
+function run(jobs: FixtureJob[], options: { priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[] } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -37,20 +37,19 @@ Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.w
 Object.assign(config.coverLetter, {mode:'tailored'});
 Object.assign(config.rules, {minScore:${options.minScore ?? 0},maxAgeDays:${options.maxAgeDays ?? 20}});
 config.excludedCompanies = ${JSON.stringify(options.excludedCompanies ?? [])};
-Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},pagesPerKeyword:${options.pages ?? 1},maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:${options.dailyCap ?? 100},maxExternalPerDay:${options.externalLimit ?? 10},
+Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:${options.dailyCap ?? 100},maxExternalPerDay:${options.externalLimit ?? 10},
   minDelayMs:${options.cooldownMs ?? 0},maxDelayMs:${options.cooldownMs ?? 0},minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
 `);
     writeFileSync(join(directory, 'discovery.mjs'), `
 import { jobs, record } from './boundary.mjs';
 const reads = new Map();
 const platform = new URL(import.meta.url).searchParams.get('platform');
-export const recommended = async () => jobs.filter(job => !job.searchOnlyJob && (${options.workers === 2} ? job.platform === platform : true));
 export const search = async (_page,_keyword,pageNumber) => {
   record('search',platform,{page:_page.worker,pageNumber});
   _page.currentJob='search:'+platform;
   await new Promise(done=>setTimeout(done,10));
   if(_page.currentJob!=='search:'+platform) throw Error('Discovery page was navigated by another worker');
-  return jobs.filter(job=>job.searchOnlyJob && job.platform===platform && (job.searchPage??1)===pageNumber);
+  return jobs.filter(job=>job.platform===platform && (job.searchPage??1)===pageNumber);
 };
 export const fetchJobDetail = async (_page, job) => {
   record('detail',job.id,{page:_page.worker});
@@ -149,6 +148,25 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
   }
 }
 
+test('age-window discovery reaches fresh jobs beyond eight already-applied batches without a depth cap', () => {
+  const old = Array.from({ length: 8 }, (_, index) => job(`applied-${index}`, { searchPage: index + 1 }));
+  const fresh = job('new-ninth-batch', { searchPage: 9, ageDays: 20 });
+  const result = run([...old, fresh], {
+    apply: true, maxAgeDays: 20,
+    history: old.map(item => ({ jobId: item.id, title: item.title, company: item.company, location: item.location, url: item.url,
+      appliedAt: new Date().toISOString(), platform: 'seek', score: 0, scoreReasons: [], submittedByMyasis: false })),
+  });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
+  assert.ok(result.events.some(event => event.stage === 'search' && event.pageNumber === 9));
+  assert.ok(result.history.some(record => record.jobId === fresh.id && record.submittedByMyasis));
+});
+
+test('age-window verification keeps unknown and out-of-range jobs out of AI matching', () => {
+  const result = run([job('unknown', { ageDays: undefined }), job('old', { ageDays: 21 }), job('in-range', { ageDays: 20 })], { apply: true, maxAgeDays: 20 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['in-range']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['in-range']);
+});
+
 test('Semi auto fills only its run cap and records no submitted applications', () => {
   const result = run([job('one'), job('two'), job('three')], { apply: true, prepare: true, cap: 2, reviews: 3 });
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['one', 'two']);
@@ -201,7 +219,7 @@ test('parallel revalidation does not reserve the evaluation allowance for unchan
 test('two pages of remembered jobs do not hide fresh listings on page three', () => {
   const old = Array.from({ length: 64 }, (_, i) => job(`rejected-${i}`, { searchOnlyJob: true, searchPage: i < 32 ? 1 : 2 }));
   const fresh = job('page-three-new', { searchOnlyJob: true, searchPage: 3 });
-  const result = run([...old, fresh], { apply: true, pages: 3, reviews: 1, cap: 1, priorReviews: old.map(job => ({ job })) });
+  const result = run([...old, fresh], { apply: true, reviews: 1, cap: 1, priorReviews: old.map(job => ({ job })) });
   assert.deepEqual(result.events.filter(event => event.stage === 'search').map(event => event.pageNumber), [1, 2, 3]);
   assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
   assert.ok(!result.events.some(event => event.stage === 'detail' && event.id.startsWith('rejected-')));

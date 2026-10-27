@@ -28,7 +28,7 @@ export const KEEP_SETTINGS_KEYS = [
   'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'SMARTRECRUITERS_COMPANIES', 'LEVER_COMPANIES', 'GREENHOUSE_BOARDS', 'PAGEUP_SITES', 'WORKDAY_SITES', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
-  'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
+  'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS',
   'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64', 'COVER_LETTER_INSTRUCTIONS',
   // The account's own standing instructions ("no manager roles"). Stored here
   // since launch but missing from this list, so it never reached a run.
@@ -105,7 +105,6 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   MAX_APPS_PER_RUN: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
   MAX_APPS_PER_DAY: String(USER_RUN_LIMITS.MAX_APPS_PER_DAY),
   MAX_EVALUATIONS: '40',
-  PAGES_PER_KEYWORD: '1',
   COVER_LETTER_MODE: 'tailored',
   COVER_LETTER_INSTRUCTIONS: '',
   AI_INSTRUCTIONS_B64: '',
@@ -157,6 +156,7 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
   // Stored verbatim; the ceilings are applied when a run is built, which is
   // the only place they can be waived for an operator of this installation.
   for (const row of rows) {
+    if (row.key === 'PAGES_PER_KEYWORD') continue; // Retired; old saved values have no effect.
     if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = 'celeris';
     else if (row.key === 'APPLICATION_AGENT_MODE') out[row.key] = 'agent-only';
     else if (row.key === 'APPLICATION_AGENT_MODE_AUTHORIZED') continue;

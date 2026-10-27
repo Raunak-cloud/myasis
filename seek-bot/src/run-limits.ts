@@ -2,14 +2,12 @@
 export const USER_RUN_LIMITS = {
   MAX_AGE_DAYS: 30,
   MAX_APPS_PER_DAY: 100,
-  PAGES_PER_KEYWORD: 6,
 } as const;
 
 type LimitKey = keyof typeof USER_RUN_LIMITS;
 const LABELS: Record<LimitKey, string> = {
   MAX_AGE_DAYS: 'Max listing age',
   MAX_APPS_PER_DAY: 'Daily application cap',
-  PAGES_PER_KEYWORD: 'Search pages per term',
 };
 
 export function userRunLimitError(updates: Record<string, unknown>): { key: LimitKey; message: string } | null {

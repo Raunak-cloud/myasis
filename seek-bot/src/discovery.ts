@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { jitter, waitForChallengeToClear } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
 import { boardAgeWindow } from './discovery-policy.js';
+import { parseAgeDays } from './listing-age.js';
 import type { JobListing } from './types.js';
 
 /**
@@ -15,25 +16,7 @@ import type { JobListing } from './types.js';
  * hooks, which are far stabler than CSS classes.
  */
 
-/** Relative board dates, keeping months distinct from minute abbreviations. */
-export function parseAgeDays(text?: string): number | undefined {
-  if (!text) return undefined;
-  const t = text.toLowerCase();
-  const m = t.match(/\b(\d+)\s*(\+)?\s*(years?|yrs?|y|months?|mos?|weeks?|wks?|w|days?|d|hours?|hrs?|h|minutes?|mins?|m)\b\s*(\+)?/);
-  if (!m) {
-    if (/\byesterday\b/.test(t)) return 1;
-    return /\b(?:just now|today)\b/.test(t) ? 0 : undefined;
-  }
-  const unit = m[3];
-  const amount = Number(m[1]);
-  if (/^h/.test(unit)) return Math.floor(amount / 24);
-  if (/^(?:m$|min)/.test(unit)) return Math.floor(amount / 1440);
-  const multiplier = /^y/.test(unit) ? 365 : /^mo/.test(unit) ? 30 : /^w/.test(unit) ? 7 : 1;
-  // "30+ days" and "over 30 days" are older than a 30-day maximum,
-  // rather than an unknown age that slips past the deterministic filter.
-  const olderThan = m[2] || m[4] || /\b(?:over|more than)\s*$/.test(t.slice(0, m.index));
-  return amount * multiplier + (olderThan ? 1 : 0);
-}
+export { parseAgeDays } from './listing-age.js';
 
 function daysSinceIso(iso?: string): number | undefined {
   if (!iso) return undefined;

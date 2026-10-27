@@ -27,17 +27,17 @@ import { config, loadProfile } from './config.js';
 import { runDirectExternalApplication } from './direct-external.js';
 import {
 fetchJobDetail as fetchJobDetailIndeed,
-recommended as recommendedIndeed,
 search as searchIndeed,
 } from './discovery-indeed.js';
 import {
 discoveryTarget as calculateDiscoveryTarget,
 DISCOVERY_PRIORITY_FLOOR,
-nextLowYieldStreak,
+discoveryBatchEnd,
 shouldStopDiscovery,
 } from './discovery-policy.js';
-import { fetchJobDetail, recommended, search } from './discovery.js';
-import { EMPLOYER_FEED_PAGE_SIZE, EmployerFeedDiscovery } from './employer-feeds.js';
+import { fetchJobDetail, search } from './discovery.js';
+import { withinListingAge } from './listing-age.js';
+import { EmployerFeedDiscovery } from './employer-feeds.js';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
@@ -50,7 +50,7 @@ import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 import { deterministicExclusion, meetsMinimumScore, scoreJob } from './scoring.js';
-import { SMARTRECRUITERS_PAGE_SIZE, SmartRecruitersDiscovery } from './smartrecruiters.js';
+import { SmartRecruitersDiscovery } from './smartrecruiters.js';
 import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
 import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -65,16 +65,15 @@ const doSync = process.argv.includes('--sync');
  * SEEK directly — it loops over `enabledPlatforms(config.platforms)` and
  * dispatches through this table, so SEEK-only, Indeed-only, or both in one
  * pass all go through the same discover → filter → score → apply pipeline.
- * `pageSize` is only used to decide when a search has run out of results.
+ * Search batches continue until the age boundary or actual result exhaustion.
  */
 interface PlatformAdapter {
   id: PlatformId;
   label: string;
-  pageSize: number;
   /** Public API discovery needs no sign-in or browser reading pause. */
   apiDiscovery?: boolean;
+  newestFirst?: boolean;
   assertSignedIn: (page: Page) => Promise<void>;
-  recommended: (page: Page) => Promise<JobListing[]>;
   search: (page: Page, keywords: string, pageNum: number) => Promise<JobListing[]>;
   fetchJobDetail: (page: Page, job: JobListing) => Promise<JobListing>;
   apply: (page: Page, job: JobListing, profile: CandidateProfile, deps: ApplyDeps) => Promise<ApplyOutcome>;
@@ -86,9 +85,8 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
     {
       id: 'seek',
       label: 'SEEK',
-      pageSize: 32,
+      newestFirst: true,
       assertSignedIn: ensureSignedIn,
-      recommended,
       search,
       fetchJobDetail,
       apply: applyToJobWithAgent,
@@ -99,9 +97,8 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
     {
       id: 'indeed',
       label: 'Indeed',
-      pageSize: 10,
+      newestFirst: true,
       assertSignedIn: ensureIndeedSignedIn,
-      recommended: recommendedIndeed,
       search: searchIndeed,
       fetchJobDetail: fetchJobDetailIndeed,
       apply: applyToIndeedJob,
@@ -111,11 +108,11 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
 
 if (employerFeedsEnabled(process.env)) {
   const discovery = new SmartRecruitersDiscovery(process.env.SMARTRECRUITERS_COMPANIES || undefined, {
-    warn: message => console.warn(`  ! ${message}`),
+    warn: message => console.warn(`  ! ${message}`), maxAgeDays: config.rules.maxAgeDays,
   });
   ADAPTERS.set('smartrecruiters', {
-    id: 'smartrecruiters', label: 'SmartRecruiters', pageSize: SMARTRECRUITERS_PAGE_SIZE, apiDiscovery: true,
-    assertSignedIn: async () => {}, recommended: async () => [],
+    id: 'smartrecruiters', label: 'SmartRecruiters', apiDiscovery: true,
+    assertSignedIn: async () => {},
     search: (_page, keyword, page) => discovery.search(keyword, page),
     fetchJobDetail: (_page, job) => discovery.detail(job),
     apply: async (page, job, profile, deps) => applyToEmployerJob(page, await discovery.detail(job), profile, deps),
@@ -127,8 +124,8 @@ if (employerFeedsEnabled(process.env)) {
     if (source.id === 'smartrecruiters' || !config.platforms.includes(source.id)) continue;
     const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, { warn: message => console.warn(`  ! ${message}`) });
     ADAPTERS.set(source.id, {
-      id: source.id, label: source.label, pageSize: EMPLOYER_FEED_PAGE_SIZE, apiDiscovery: true,
-      assertSignedIn: async () => {}, recommended: async () => [],
+      id: source.id, label: source.label, apiDiscovery: true,
+      assertSignedIn: async () => {},
       search: (_page, keyword, page) => discovery.search(keyword, page),
       fetchJobDetail: (_page, job) => discovery.detail(job),
       apply: async (page, job, profile, deps) => applyToEmployerJob(page, await discovery.detail(job), profile, deps),
@@ -324,7 +321,7 @@ async function main() {
 
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
-      jobs = jobs.filter(job => !priorRejections.has(listingKey(job)));
+      jobs = jobs.filter(job => withinListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)));
       if (!jobs.length || !rankingAvailable || approvedApplications().length) return;
       try {
         for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
@@ -340,13 +337,14 @@ async function main() {
      * of them out as "outside run scope", so new search terms were never searched.
      */
     const isPromising = (job: JobListing): boolean =>
-      !priorRejections.has(listingKey(job)) && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
+      withinListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)) && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
       && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
     const promisingCount = (): number => shortlist.filter(isPromising).length;
 
-    // Sign in to every board and collect every recommendation feed first.
+    // Sign in before querying date-filtered searches. Homepage recommendations
+    // have no date filter and are deliberately not part of automatic discovery.
     const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
-    const recommendedAccepted: JobListing[] = [];
+    const selectedAccepted: JobListing[] = [];
     for (const platform of platforms) {
       const adapter = ADAPTERS.get(platform.id);
       if (!adapter) {
@@ -365,7 +363,7 @@ async function main() {
 
       if (approvedApplications().length) {
         targetedAdapters.add(adapter.id);
-        recommendedAccepted.push(...ingest(approvedApplications().filter(item => (item.job.platform ?? 'seek') === adapter.id)
+        selectedAccepted.push(...ingest(approvedApplications().filter(item => (item.job.platform ?? 'seek') === adapter.id)
           .map(item => ({ ...item.job, source: 'chosen' as const })), adapter));
         continue;
       }
@@ -387,19 +385,10 @@ async function main() {
             url: `https://www.seek.com.au/job/${id}`,
           }));
         }
-        recommendedAccepted.push(...ingest(targetedJobs, adapter));
+        selectedAccepted.push(...ingest(targetedJobs, adapter));
         console.log(`  Targeted retry: ${targeted.length} listing(s); normal fit, scope and duplicate checks still apply.`);
         continue;
       }
-
-      const recommendations = await adapter.recommended(page).catch((error) => {
-        // A wall already up here would stand in front of every search and listing too.
-        if (isVerificationWall(error)) blockPlatform(adapter, error);
-        else console.warn(`  ${adapter.label} Recommended could not be loaded: ${(error as Error).message}`);
-        return [] as JobListing[];
-      });
-      recommendedAccepted.push(...ingest(recommendations, adapter));
-      console.log(`  ${adapter.label} Recommended -> ${recommendations.length} personalised jobs (priority)`);
     }
 
     if (!active.length) {
@@ -417,24 +406,25 @@ async function main() {
       const mine = chosen.filter((job) => job.platform === adapter.id);
       if (!mine.length || targetedAdapters.has(adapter.id)) continue;
       const accepted = ingest(mine, adapter);
-      recommendedAccepted.push(...accepted);
+      selectedAccepted.push(...accepted);
       if (accepted.length) console.log(`  ${adapter.label}: ${accepted.length} skipped job(s) you chose to apply to after all`);
     }
-    await rankNew(recommendedAccepted);
+    await rankNew(selectedAccepted);
 
     type SearchStream = {
       adapter: PlatformAdapter;
       keyword: string;
       total: number;
       pages: number;
-      lowYieldPages: number;
+      seen: Set<string>;
+      ended?: 'end' | 'age' | 'repeat';
       exhausted: boolean;
     };
     const terms = config.keywords.length ? config.keywords : [config.targetRole];
     const searchAdapters = active.filter((adapter) => !targetedAdapters.has(adapter.id));
     // Boards take turns, so one board's polite gap is spent searching the other.
     const streams: SearchStream[] = terms.flatMap((keyword) => searchAdapters.map((adapter) => ({
-      adapter, keyword, total: 0, pages: 0, lowYieldPages: 0, exhausted: false,
+      adapter, keyword, total: 0, pages: 0, seen: new Set<string>(), exhausted: false,
     })));
 
     /** Order of review: in-scope listings first, then the pre-ranking's priority. */
@@ -463,14 +453,14 @@ async function main() {
     };
 
     let nextPage = 1;
-    const liveStreams = () => streams.filter((stream) => !stream.exhausted && stream.lowYieldPages < 2 && !blockedPlatforms.has(stream.adapter.id));
+    const liveStreams = () => streams.filter((stream) => !stream.exhausted && !blockedPlatforms.has(stream.adapter.id));
     /** Whether the job-title searches have pages they have not read yet. */
-    const searchesLeft = () => nextPage <= config.limits.pagesPerKeyword && liveStreams().length > 0;
+    const searchesLeft = () => liveStreams().length > 0;
     const discoveryLeft = () => searchesLeft();
     /** Reads the next result page of every search still yielding. */
     const searchPageRound = async (): Promise<void> => {
       const pageNumber = nextPage++;
-      const round: Array<{ stream: SearchStream; accepted: JobListing[]; known: number }> = [];
+      const round: JobListing[][] = [];
       for (const stream of liveStreams()) {
         // The round's list was taken before it started: a board walled earlier in this round is not asked again.
         if (blockedPlatforms.has(stream.adapter.id)) {
@@ -500,32 +490,21 @@ async function main() {
         }
         stream.pages++;
         stream.total += results.length;
-        const accepted = ingest(results, stream.adapter);
-        const known = results.filter(job => index.hasApplication(job) || reviewCache.prior({ ...job, platform: job.platform ?? stream.adapter.id }, reviewContext)).length;
-        round.push({ stream, accepted, known });
-        if (!results.length || results.length < stream.adapter.pageSize) stream.exhausted = true;
+        stream.ended = discoveryBatchEnd(results, stream.seen, config.rules.maxAgeDays, stream.adapter.newestFirst === true);
+        stream.exhausted = Boolean(stream.ended);
+        round.push(ingest(results, stream.adapter));
       }
 
-      const newlyAccepted = round.flatMap((item) => item.accepted);
-      await rankNew(newlyAccepted);
-      for (const { stream, accepted, known } of round) {
-        stream.lowYieldPages = nextLowYieldStreak(
-          stream.lowYieldPages,
-          accepted.filter(isPromising).length,
-          known,
-        );
-      }
+      await rankNew(round.flat());
     };
 
     let stoppedEarly = shouldStopDiscovery({
-      pageNumber: 0,
-      maxPages: config.limits.pagesPerKeyword,
       promisingJobs: promisingCount(),
       target: discoveryTarget,
     });
     if (stoppedEarly) {
       console.log(
-        `  Adaptive discovery stopped after recommendations: ` +
+        `  Discovery paused after selected jobs: ` +
         `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
       );
     }
@@ -534,8 +513,6 @@ async function main() {
       await searchPageRound();
       const pageNumber = nextPage - 1;
       if (shouldStopDiscovery({
-        pageNumber,
-        maxPages: config.limits.pagesPerKeyword,
         promisingJobs: promisingCount(),
         target: discoveryTarget,
       })) {
@@ -551,7 +528,7 @@ async function main() {
       console.log(
         `  [${stream.adapter.label}] "${stream.keyword}" → ${stream.total} results` +
         (stream.pages > 1 ? ` (${stream.pages} pages)` : '') +
-        (stream.lowYieldPages >= 2 ? ' · stopped after 2 low-yield pages' : ''),
+        (stream.ended === 'age' ? ' · listing-age cutoff reached' : ''),
       );
     }
     console.log(
@@ -869,7 +846,7 @@ async function main() {
            * carry no age until the listing is open: over ten days 1,671 listings
            * waited out a 5–8 s pause and a page check only to be dropped as too old.
            */
-          const excluded = deterministicExclusion(job);
+          const excluded = deterministicExclusion(job, true);
           if (excluded) {
             bump(excluded.startsWith('excluded company:') ? 'excluded company' : 'listing age');
             logOutcome({ status: 'skipped', jobId: job.id, reason: excluded, title: job.title, company: job.company });
@@ -940,6 +917,12 @@ async function main() {
 
           // A loading retry can be the first read to reveal the board's applied marker.
           if (skipExistingApplication(job)) return;
+          const ageExclusion = deterministicExclusion(job, true);
+          if (ageExclusion) {
+            bump('listing age');
+            logOutcome({ status: 'skipped', jobId: job.id, reason: ageExclusion, title: job.title, company: job.company });
+            return;
+          }
 
           // Board application history must be checked before even the cheaper
           // instruction review, otherwise an old application rejected from its

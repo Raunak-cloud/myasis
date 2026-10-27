@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { boardAgeWindow, discoveryTarget, nextLowYieldStreak, shouldStopDiscovery } from './discovery-policy.js';
+import { boardAgeWindow, discoveryBatchEnd, discoveryTarget, shouldStopDiscovery } from './discovery-policy.js';
 import { parseAgeDays } from './discovery.js';
+import { searchUrl as seekSearchUrl } from './discovery.js';
+import { searchUrl as indeedSearchUrl } from './discovery-indeed.js';
+import { listingAgeDays, withinListingAge } from './listing-age.js';
+import type { JobListing } from './types.js';
 import { deterministicExclusion } from './scoring.js';
 import { config } from './config.js';
 
@@ -11,23 +15,42 @@ test('caps discovery at the smaller review or candidate budget', () => {
 });
 
 test('does not stop early until enough promising unseen jobs exist', () => {
-  assert.equal(shouldStopDiscovery({ pageNumber: 0, maxPages: 3, promisingJobs: 12, target: 12 }), true);
-  assert.equal(shouldStopDiscovery({ pageNumber: 1, maxPages: 3, promisingJobs: 11, target: 12 }), false);
-  assert.equal(shouldStopDiscovery({ pageNumber: 1, maxPages: 3, promisingJobs: 12, target: 12 }), true);
-  assert.equal(shouldStopDiscovery({ pageNumber: 3, maxPages: 3, promisingJobs: 50, target: 12 }), false);
+  assert.equal(shouldStopDiscovery({ promisingJobs: 11, target: 12 }), false);
+  assert.equal(shouldStopDiscovery({ promisingJobs: 12, target: 12 }), true);
 });
 
-test('two consecutive zero-yield pages stop a search stream', () => {
-  let streak = nextLowYieldStreak(0, 0);
-  assert.equal(streak, 1);
-  streak = nextLowYieldStreak(streak, 0);
-  assert.equal(streak, 2);
-  assert.equal(nextLowYieldStreak(streak, 1), 0);
+test('age-window discovery continues beyond six short batches, ending only on age, exhaustion or repeats', () => {
+  const seen = new Set<string>();
+  const listing = (id: string, ageDays?: number): JobListing => ({ id, title: 'Role', company: 'Employer', location: 'Sydney', url: 'https://fixture.invalid', ageDays });
+  for (let batch = 1; batch <= 8; batch++) assert.equal(discoveryBatchEnd([listing(String(batch), 20)], seen, 20, true), undefined);
+  assert.equal(discoveryBatchEnd([listing('old', 21)], seen, 20, true), 'age');
+  assert.equal(discoveryBatchEnd([listing('unordered-old', 21)], seen, 20, false), undefined);
+  assert.equal(discoveryBatchEnd([listing('unknown')], seen, 20, true), undefined);
+  assert.equal(discoveryBatchEnd([listing('unknown')], seen, 20, true), 'repeat');
+  assert.equal(discoveryBatchEnd([], seen, 20, true), 'end');
 });
 
-test('known applications and rejections do not prematurely end discovery', () => {
-  assert.equal(nextLowYieldStreak(1, 0, 20), 0);
-  assert.equal(nextLowYieldStreak(0, 0, 0), 1);
+test('age-window queries always carry a date filter and use newest-first ordering', () => {
+  const previous = config.rules.maxAgeDays;
+  try {
+    for (const limit of [1, 14, 20, 30]) {
+      config.rules.maxAgeDays = limit;
+      const seek = new URL(seekSearchUrl('developer', 9));
+      const indeed = new URL(indeedSearchUrl('developer', 9));
+      assert.ok(Number(seek.searchParams.get('daterange')) >= limit);
+      assert.equal(seek.searchParams.get('sortmode'), 'ListedDate');
+      assert.equal(indeed.searchParams.get('fromage'), String(limit + 1));
+      assert.equal(indeed.searchParams.get('sort'), 'date');
+    }
+  } finally { config.rules.maxAgeDays = previous; }
+});
+
+test('listing-age evidence rejects unknown and future publication dates before matching', () => {
+  assert.equal(withinListingAge({}, 20), false);
+  assert.equal(withinListingAge({ ageDays: 20 }, 20), true);
+  assert.equal(withinListingAge({ ageDays: 21 }, 20), false);
+  assert.equal(listingAgeDays({ listedAt: '2026-10-28T00:00:00Z', ageDays: 0 }, Date.parse('2026-10-27T00:00:00Z')), undefined);
+  assert.ok(deterministicExclusion({ id: 'unknown', title: 'Role', company: 'Employer', location: 'Sydney', url: 'https://fixture.invalid' }, true));
 });
 
 test('board age window rounds up to an offered window, never down', () => {

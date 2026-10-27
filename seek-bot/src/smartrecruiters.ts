@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { JobListing } from './types.js';
+import { listingAgeCutoff } from './listing-age.js';
 
 const SMARTRECRUITERS_DEFAULT_COMPANIES = 'Canva,KPMGAustralia1,Colliers';
 export const SMARTRECRUITERS_PAGE_SIZE = 50;
@@ -83,12 +84,12 @@ export class SmartRecruitersDiscovery {
   private readyAt = 0;
   private readonly options: {
     fetch?: typeof fetch; warn?: (message: string) => void;
-    gapMs?: number; timeoutMs?: number;
+    gapMs?: number; timeoutMs?: number; maxAgeDays?: number;
   };
 
   constructor(raw = SMARTRECRUITERS_DEFAULT_COMPANIES, options: {
     fetch?: typeof fetch; warn?: (message: string) => void;
-    gapMs?: number; timeoutMs?: number;
+    gapMs?: number; timeoutMs?: number; maxAgeDays?: number;
   } = {}) {
     this.companies = smartRecruitersCompanies(raw);
     this.options = options;
@@ -121,9 +122,10 @@ export class SmartRecruitersDiscovery {
   }
 
   async search(keyword: string, page: number): Promise<JobListing[]> {
-    if (!Number.isInteger(page) || page < 1 || page > 5) throw new Error('Invalid SmartRecruiters search page.');
+    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid SmartRecruiters search batch.');
     const params = new URLSearchParams({ country: 'au', destination: 'PUBLIC', q: keyword.trim().slice(0, 150),
       limit: String(SMARTRECRUITERS_PAGE_SIZE), offset: String((page - 1) * SMARTRECRUITERS_PAGE_SIZE) });
+    if (this.options.maxAgeDays !== undefined) params.set('releasedAfter', listingAgeCutoff(this.options.maxAgeDays));
     const jobs = new Map<string, JobListing>();
     let successful = 0;
     for (const company of this.companies) {

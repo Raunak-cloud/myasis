@@ -178,6 +178,7 @@ export function applyRunPolicy(
   boardsChosen = false,
 ): Record<string, string> {
   const resolved = { ...settings };
+  delete resolved.PAGES_PER_KEYWORD; // Retired discovery depth cannot influence runs.
   // Search traffic has the same cap for posted overrides, scheduled runs and admins.
   resolved.KEYWORDS = limitSearchTerms(resolved.KEYWORDS ?? '');
   // The field was removed. An old saved value or shared .env value must not

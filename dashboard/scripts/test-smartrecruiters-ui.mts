@@ -43,7 +43,7 @@ const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   COVER_LETTER_INSTRUCTIONS: letterInstructions,
-  MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40', PAGES_PER_KEYWORD: '1' });
+  MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40' });
 const server = createServer(async (req, res) => {
   const path = new URL(req.url!, 'http://fixture').pathname;
   if (path.startsWith('/api/')) {
@@ -216,7 +216,7 @@ try {
       assert.equal(testRun.overrides.SMARTRECRUITERS_COMPANIES, 'ALDIStores,MedHealth3');
       for (const source of EMPLOYER_SOURCES.filter(source => source.id !== 'smartrecruiters')) assert.equal(testRun.overrides[source.key], source.defaults);
       assert.equal(testRun.overrides.MAX_EVALUATIONS, '10');
-      assert.equal(testRun.overrides.PAGES_PER_KEYWORD, '1');
+      assert.equal(testRun.overrides.PAGES_PER_KEYWORD, undefined);
       assert.equal(writes.filter(write => write.path === '/api/settings').length, settingsWrites, 'test drafts must not be saved');
       await page.getByText('Search-only test. No application forms are opened or applications submitted.', { exact: true }).waitFor();
       assert.equal(await page.getByText('Search test', { exact: true }).count(), 1);
@@ -238,7 +238,7 @@ try {
       assert.equal(boardRun.scope, 'all');
       assert.equal(boardRun.overrides.PLATFORMS, 'seek');
       assert.equal(boardRun.overrides.MAX_EVALUATIONS, '2');
-      assert.equal(boardRun.overrides.PAGES_PER_KEYWORD, '1');
+      assert.equal(boardRun.overrides.PAGES_PER_KEYWORD, undefined);
       assert.equal(writes.filter(write => write.path === '/api/settings').length, settingsWrites);
       await page.getByRole('button', { name: 'View live action', exact: true }).waitFor();
     }

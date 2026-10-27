@@ -129,7 +129,7 @@ export async function migrateFilesToUser(email: string, name?: string) {
   const KEEP = new Set([
     'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
     'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
-    'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS', 'PAGES_PER_KEYWORD',
+    'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS',
     'COVER_LETTER_MODE', 'COVER_LETTER_TEXT_B64',
   ]);
   let settings = 0;

@@ -75,9 +75,9 @@ const adminTyped = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: '30', MAX_APPS_P
 check('legacy admin per-run values cannot reduce the daily application allowance', adminTyped.MAX_APPS_PER_RUN === '100' && adminTyped.MAX_APPS_PER_DAY === '80');
 for (const policy of [intensivePolicy, adminPolicy]) {
   const high = applyRunPolicy({ ...saved, MAX_AGE_DAYS:'99', MAX_APPS_PER_DAY:'999', PAGES_PER_KEYWORD:'99' }, policy, 'auto');
-  check(`${policy.tier} legacy settings obey the 30-day, 100-application and six-page maximums`, high.MAX_AGE_DAYS === '30' && high.MAX_APPS_PER_DAY === '100' && high.PAGES_PER_KEYWORD === '6');
+  check(`${policy.tier} legacy settings obey the 30-day and 100-application maximums and ignore retired depth`, high.MAX_AGE_DAYS === '30' && high.MAX_APPS_PER_DAY === '100' && high.PAGES_PER_KEYWORD === undefined);
   const boundary = applyRunPolicy({ ...saved, MAX_AGE_DAYS:'30', MAX_APPS_PER_DAY:'100', PAGES_PER_KEYWORD:'6' }, policy, 'auto');
-  check(`${policy.tier} can use all three upper boundaries`, boundary.MAX_AGE_DAYS === '30' && boundary.MAX_APPS_PER_DAY === '100' && boundary.PAGES_PER_KEYWORD === '6');
+  check(`${policy.tier} can use the age and daily upper boundaries`, boundary.MAX_AGE_DAYS === '30' && boundary.MAX_APPS_PER_DAY === '100' && boundary.PAGES_PER_KEYWORD === undefined);
 }
 check('Active Search listing-age settings also stop at 30 days', applyRunPolicy({ ...saved, MAX_AGE_DAYS:'99' }, jobSearchPolicy, 'auto').MAX_AGE_DAYS === '30');
 

@@ -1,3 +1,6 @@
+import { listingAgeDays } from './listing-age.js';
+import type { JobListing } from './types.js';
+
 /** Lightweight-ranking score that counts as useful discovery yield. */
 export const DISCOVERY_PRIORITY_FLOOR = 50;
 
@@ -10,20 +13,26 @@ export function discoveryTarget(maxEvaluations: number, candidateCap: number): n
   return Math.max(0, Math.min(maxEvaluations, candidateCap));
 }
 
-export function nextLowYieldStreak(previous: number, promisingJobsOnPage: number, knownJobsOnPage = 0): number {
-  // A page full of known jobs is not evidence that later pages lack new jobs.
-  return promisingJobsOnPage > 0 || knownJobsOnPage > 0 ? 0 : previous + 1;
-}
-
 export function shouldStopDiscovery(input: {
-  pageNumber: number;
-  maxPages: number;
   promisingJobs: number;
   target: number;
 }): boolean {
-  return input.pageNumber < input.maxPages
-    && input.target > 0
+  return input.target > 0
     && input.promisingJobs >= input.target;
+}
+
+/** Transport batches continue without a page budget. Only date-ordered boards
+ * may end at an age boundary; unordered feeds must reach actual exhaustion. */
+export function discoveryBatchEnd(jobs: JobListing[], seen: Set<string>, maxAgeDays: number, newestFirst: boolean): 'end' | 'age' | 'repeat' | undefined {
+  if (!jobs.length) return 'end';
+  const fresh = jobs.some(job => !seen.has(job.id));
+  for (const job of jobs) seen.add(job.id);
+  if (!fresh) return 'repeat';
+  if (newestFirst && jobs.every(job => {
+    const age = listingAgeDays(job);
+    return age !== undefined && age > maxAgeDays;
+  })) return 'age';
+  return undefined;
 }
 
 

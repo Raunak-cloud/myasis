@@ -39,24 +39,26 @@ test('listings preserve identity, Australian location and age without inventing 
   assert.throws(() => smartRecruitersListing(posting({ applyUrl: 'https://jobs.smartrecruiters.com/Canva/987654321' }), 'Canva'));
 });
 
-test('search uses only public Australian GET requests, paginates and removes duplicate postings', async () => {
+test('age-window search uses public date-filtered Australian requests without a six-batch ceiling', async () => {
   const calls: URL[] = [];
-  const client = new SmartRecruitersDiscovery('Canva', { gapMs: 0, fetch: (async (raw, options) => {
+  const client = new SmartRecruitersDiscovery('Canva', { maxAgeDays: 20, gapMs: 0, fetch: (async (raw, options) => {
     const url = new URL(String(raw)); calls.push(url);
     assert.equal(url.origin, 'https://api.smartrecruiters.com');
     assert.equal(url.searchParams.get('country'), 'au');
     assert.equal(url.searchParams.get('destination'), 'PUBLIC');
     assert.equal(url.searchParams.get('q'), 'software engineer');
     assert.equal(url.searchParams.get('limit'), '50');
+    const cutoff = Date.parse(url.searchParams.get('releasedAfter')!);
+    assert.ok(Math.abs(Date.now() - cutoff - 21 * 86400000) < 1000);
     assert.equal(options?.method, undefined, 'default GET, never application POST');
     assert.equal(options?.redirect, 'error');
     assert.equal(new Headers(options?.headers).has('Authorization'), false);
     return response({ content: [posting(), posting(), posting({ location: { country: 'us' } })] });
   }) as typeof fetch });
   assert.equal((await client.search('software engineer', 1)).length, 1);
-  await client.search('software engineer', 2);
+  await client.search('software engineer', 9);
   assert.equal(calls[0].searchParams.get('offset'), '0');
-  assert.equal(calls[1].searchParams.get('offset'), '50');
+  assert.equal(calls[1].searchParams.get('offset'), '400');
 });
 
 test('one employer outage preserves others, reports partial coverage and does not retry throttling', async () => {

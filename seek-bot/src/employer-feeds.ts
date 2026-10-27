@@ -3,6 +3,7 @@ import { parseHTML } from 'linkedom';
 import { careerTarget, employerTargets, identifierTarget, EMPLOYER_SOURCES, type EmployerSourceId } from './employer-source-config.js';
 import { smartRecruitersIdentity } from './smartrecruiters.js';
 import type { JobListing } from './types.js';
+import { parseAgeDays } from './listing-age.js';
 
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
 type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number };
@@ -151,12 +152,13 @@ export class EmployerFeedDiscovery {
       const identity = employerJobIdentity('pageup', url);
       if (identity.namespace !== site.url.href || expired(raw.closes, this.now())) return null;
       id = identity.posting; title = clean(raw.title, 300); company = site.name || `PageUp employer ${site.url.pathname.split('/')[1]}`;
-      location = clean(raw.location, 500); description = clean(raw.teaser, 1000);
+      location = clean(raw.location, 500); description = clean(raw.teaser, 1000); at = raw.published;
     }
     if (!title || !location) return null;
     const namespace = this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, target).url.href : this.source === 'lever' ? identifierTarget(target).identifier : target;
     return { id: key(this.source, namespace, id), title, company, location, url, applicationUrl: url,
       platform: this.source, applicationMode: 'external', source: 'search', ...dates(at, this.now()),
+      ...(this.source === 'workday' && parseAgeDays(raw.postedOn) !== undefined ? { ageDays: parseAgeDays(raw.postedOn), listedAt: clean(raw.postedOn) } : {}),
       ...(description ? { description, teaser: description.slice(0, 1000) } : {}), ...(arrangement ? { workArrangement: arrangement } : {}),
     };
   }
@@ -176,16 +178,21 @@ export class EmployerFeedDiscovery {
       if (this.source === 'greenhouse') {
         const data = await this.reader.json(`https://boards-api.greenhouse.io/v1/boards/${target}/jobs?content=true`);
         if (!Array.isArray(data.jobs)) throw new Error('Invalid Greenhouse board response.');
-        return data.jobs.slice(0, 2000);
+        return data.jobs;
       }
       const jobs: any[] = [];
       const board = identifierTarget(target);
-      for (let offset = 0; offset < 2000; offset += 100) {
+      const seen = new Set<string>();
+      for (let offset = 0; ; offset += 100) {
         const query = new URLSearchParams({ mode: 'json', limit: '100', skip: String(offset) });
         for (const location of board.locations) query.append('location', location);
         const data = await this.reader.json(`https://api.lever.co/v0/postings/${board.identifier}?${query}`);
         if (!Array.isArray(data)) throw new Error('Invalid Lever board response.');
-        jobs.push(...data.slice(0, 100)); if (data.length < 100) break;
+        const fresh = data.filter(row => typeof row.id === 'string' && !seen.has(row.id));
+        if (!fresh.length) break;
+        for (const row of fresh) seen.add(row.id);
+        jobs.push(...fresh);
+        if (data.length < 100) break;
       }
       return jobs;
     })());
@@ -193,7 +200,7 @@ export class EmployerFeedDiscovery {
   }
 
   async search(keyword: string, page: number): Promise<JobListing[]> {
-    if (!Number.isInteger(page) || page < 1 || page > 5) throw new Error('Invalid employer-feed search page.');
+    if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid employer-feed search batch.');
     const jobs = new Map<string, JobListing>(); let successful = 0;
     for (const target of this.targets) {
       try {
@@ -228,6 +235,7 @@ export class EmployerFeedDiscovery {
           rows = [...document.querySelectorAll('#search-results-content a.job-link')].slice(0, 20).map(anchor => {
             const row = anchor.closest('tr');
             return { url: anchor.getAttribute('href'), title: anchor.textContent, location: row?.querySelector('.location')?.textContent,
+              published: row?.querySelector('.open-date time')?.getAttribute('datetime'),
               closes: row?.querySelector('.close-date time')?.getAttribute('datetime'), teaser: row?.nextElementSibling?.classList.contains('summary') ? row.nextElementSibling.textContent : '' };
           });
           rows = this.normalise(target, rows);

@@ -631,7 +631,7 @@ export function RunPanel({
       // The pilot test uses this draft once, with bounded discovery and review.
       // Search mode is enforced by the server and never opens an application form.
       const runUpdates = mode === 'search' ? {
-        ...updates, PLATFORMS: platforms.join(','), PAGES_PER_KEYWORD: '1',
+        ...updates, PLATFORMS: platforms.join(','),
         MAX_EVALUATIONS: String(Math.min(Number(updates.MAX_EVALUATIONS) || 10, 10)),
       } : updates;
 
@@ -1167,7 +1167,7 @@ export function RunPanel({
                     {fieldError(source.key)}
                   </div>
                 ))}
-                {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">Admin pilot. No job-board sign-in required. The selected employer feeds share your normal fit checks and application limits. Test without applying checks one page per search term and up to 10 jobs, without saving drafts or opening application forms.</p>}
+                {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">Admin pilot. No job-board sign-in required. The selected employer feeds share your normal fit checks and application limits. Test without applying uses your listing-age filter and checks up to 10 jobs, without saving drafts or opening application forms.</p>}
                 <p className="job-meta recommended-first-note">
                   New jobs are prioritised. Unchanged rejected jobs do not use another AI review; changed listings or preferences can be checked again.
                 </p>
