@@ -21,7 +21,7 @@ import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, application
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
 import { agentOnlyTranscript } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
-import { ProgressBudget } from './progress-budget.js';
+import { ProgressBudget, ProgressStepBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
 import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
@@ -164,6 +164,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   };
   const started = Date.now();
   const meter = new ProgressBudget(config.celeris.budgetUsdPerApplication, config.celeris.progressBudgetUsdPerApplication);
+  const stepBudget = new ProgressStepBudget(config.celeris.maxSteps, config.celeris.progressMaxSteps);
   const log = options.log ?? console.log;
   const approved = approvedApplication(options.job);
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile,
@@ -525,7 +526,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   };
 
   try {
-    while (!finished && steps < config.celeris.maxSteps && remainingMs() > 0) {
+    while (!finished && remainingMs() > 0) {
       if (ctx.page.isClosed()) {
         const open = [...ownedPages].filter(page => !page.isClosed());
         if (!open.length) { terminal = { status: 'skipped', reason: 'The application browser closed.' }; break; }
@@ -551,7 +552,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       // next-call budget. This does not run another model or replay a write.
       meter.observe(ctx.observation.fields, browserMutated);
       browserMutated = false;
-      if (meter.exhausted) break;
+      if (meter.exhausted || !stepBudget.permits(steps, meter.progressCount)) break;
       if (approved) {
         // Keep actual readback for known answers across wizard steps, including
         // selections made by clicks rather than fill/select tools. Do not copy
@@ -576,7 +577,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const turnTools = agentOnlyTools.filter(tool => submissionReviewRequired
         ? tool.name === 'finish' || tool.name === 'resume_after_rejected_submission'
         : tool.name !== 'resume_after_rejected_submission');
-      steps++; // AGENT_MAX_STEPS counts model turns.
+      steps++; // Model turns; extra windows require fresh browser-confirmed progress.
       // Compact only at the threshold so ordinary turns retain a cacheable
       // prefix. An API context rejection retries generation in this SAME page;
       // no browser action, upload or assessment is replayed.

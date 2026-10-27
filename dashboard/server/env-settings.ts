@@ -112,7 +112,7 @@ const GROUPS: GroupSpec[] = [
     title: 'Browser agent limits',
     note: 'An agent loop has no natural end; these bound one application in steps, time and spend.',
     keys: [
-      { key: 'AGENT_MAX_STEPS', label: 'Max steps per application', help: 'Actions the agent may take on one application before giving up.', kind: 'number' },
+      { key: 'AGENT_MAX_STEPS', label: 'Normal steps per application', help: 'Model turns before new browser-confirmed progress is required. Progress can extend this to at most 120 turns; spending and time limits still apply.', kind: 'number' },
       { key: 'AGENT_MAX_MS', label: 'Max time per application (ms)', help: 'Wall-clock ceiling for one application.', kind: 'number' },
       { key: 'AGENT_BUDGET_USD', label: 'Spend ceiling per application (USD)', help: '0 means no ceiling.', kind: 'number' },
     ],
