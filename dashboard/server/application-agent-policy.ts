@@ -16,7 +16,7 @@ export function applicationAgentModeForAccount(_value: unknown, _admin: boolean)
   return 'agent-only';
 }
 
-/** Rechecked for every run, including saved choices after admin access is removed. */
+/** Every account gets screenshots; only admins may explicitly opt out for testing. */
 export function applicationScreenshotsForAccount(value: unknown, admin: boolean): 'true' | 'false' {
-  return admin && value === 'true' ? 'true' : 'false';
+  return admin && value === 'false' ? 'false' : 'true';
 }

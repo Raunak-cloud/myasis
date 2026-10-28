@@ -36,7 +36,7 @@ export function AdminScreenshotTest({ enabled, disabled, onSaved, onSavingChange
         </button>
         <span className="job-meta" role="status">{saving ? 'Saving…' : enabled ? 'On' : 'Off'}</span>
       </div>
-      <p className="job-meta">Gives Magnus a fresh screenshot before each decision, keeping only the latest picture. May increase cost and time. Saves immediately for your next run.</p>
+      <p className="job-meta">On by default for all users. Turn off here for an admin comparison. Saves immediately for your next run.</p>
       {error && <p className="field-error" role="alert">{error}</p>}
     </div>
   </section>;

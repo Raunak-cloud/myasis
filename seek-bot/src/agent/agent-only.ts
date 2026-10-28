@@ -172,8 +172,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const meter = new ProgressBudget(config.celeris.budgetUsdPerApplication, config.celeris.progressBudgetUsdPerApplication);
   const stepBudget = new ProgressStepBudget(config.celeris.maxSteps, config.celeris.progressMaxSteps);
   const log = options.log ?? console.log;
-  const screenshotsEveryTurn = applicationModelEnvironment().APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN === 'true';
-  if (screenshotsEveryTurn) log('Admin screenshot test: fresh screenshot each decision turn; only the latest image is sent.');
+  const screenshotsEveryTurn = applicationModelEnvironment().APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN !== 'false';
+  if (screenshotsEveryTurn) log('Application screenshots: fresh screenshot each decision turn; only the latest image is sent.');
   const approved = approvedApplication(options.job);
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile,
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' },

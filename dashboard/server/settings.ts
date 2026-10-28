@@ -87,7 +87,7 @@ function normalizeSetting(key: string, value: string): string {
 export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   APPLICATION_AI_MODEL: 'celeris',
   APPLICATION_AGENT_MODE: 'agent-only',
-  APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'false',
+  APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true',
   KEYWORDS: '',
   TARGET_ROLE: '',
   EXCLUDED_COMPANIES: '',

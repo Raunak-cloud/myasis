@@ -35,7 +35,7 @@ test('application environment rechecks active ownership and only returns that ow
   try {
     await assert.rejects(accountApplicationEnvironment('../owner-account'), /account is not available/);
     assert.equal(queries, 0);
-    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'false', CELERIS_API_KEY: 'fixture-only' });
+    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true', CELERIS_API_KEY: 'fixture-only' });
     available = false;
     await assert.rejects(accountApplicationEnvironment('owner-account', {}), /account is not available/);
     available = true;
@@ -69,8 +69,11 @@ test('runtime always selects Celeris and always uses Agent-only for admins and o
     assert.equal(defaultAdmin.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
     const enabled = { APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true' };
     assert.equal((await accountApplicationEnvironment('admin', enabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
-    assert.equal((await accountApplicationEnvironment('customer', enabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false', 'stale saved admin choices cannot enable customer screenshots');
-    assert.equal(defaultAdmin.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false');
+    assert.equal((await accountApplicationEnvironment('customer', enabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
+    const disabled = { APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'false' };
+    assert.equal((await accountApplicationEnvironment('customer', disabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true', 'legacy off values cannot disable normal account screenshots');
+    assert.equal((await accountApplicationEnvironment('admin', disabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false', 'admins retain an explicit comparison mode');
+    assert.equal(defaultAdmin.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
     assert.equal(applicationRunEnvironment(enabled).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, undefined, 'shared environment cannot bypass the account check');
   } finally {
     pool.query = originalQuery;

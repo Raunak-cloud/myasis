@@ -9,7 +9,7 @@ import { startRun } from './start-run.js';
 
 after(async () => { await getPool().end(); });
 
-test('screenshots each turn are opt-in and admin-only at save and execution time', () => {
+test('screenshots default on for every account; only admins can opt out', () => {
   const key = 'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN';
   for (const value of ['true', 'false']) {
     assert.equal(jobSourceSettingsError({ [key]: value }, true), null);
@@ -18,12 +18,13 @@ test('screenshots each turn are opt-in and admin-only at save and execution time
   assert.equal(jobSourceSettingsError({ [key]: 'everywhere' }, true)?.status, 400);
   assert.equal(mayEditRunSetting(key, { tier: 'standard', fineTune: true, advancedFilters: true }), false);
   assert.equal(mayEditRunSetting(key, { tier: 'admin', fineTune: true, advancedFilters: true }), true);
-  assert.equal(applicationScreenshotsForAccount(undefined, true), 'false');
-  assert.equal(applicationScreenshotsForAccount('true', true), 'true');
-  assert.equal(applicationScreenshotsForAccount('true', false), 'false');
-  const settings: Record<string, string> = { [key]: 'true' };
-  applyJobSourceAccess(settings, false);
-  assert.equal(settings[key], 'false');
+  for (const value of [undefined, '', 'retired', 'true', 'false']) {
+    assert.equal(applicationScreenshotsForAccount(value, false), 'true');
+    assert.equal(applicationScreenshotsForAccount(value, true), value === 'false' ? 'false' : 'true');
+    const settings: Record<string, string> = value === undefined ? {} : { [key]: value };
+    applyJobSourceAccess(settings, false);
+    assert.equal(settings[key], 'true');
+  }
 });
 
 test('legacy settings accept only Agent-only and no caller may supply authorization', () => {

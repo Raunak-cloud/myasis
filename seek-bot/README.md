@@ -12,13 +12,15 @@ recovers form errors, judges duplicate history and verifies receipt itself.
 Read-only specialist advice is optional and shares the parent spending budget.
 Normal turns use medium reasoning; failed actions receive higher effort.
 
-Administrators can enable **Admin screenshot test → Screenshots each step** on
-the Apply page. It saves for that administrator's future runs and defaults off.
-When enabled, every Magnus decision receives a fresh viewport screenshot alongside
-the normal form observation; previous observation images are removed before the
-next request while their text and action history remain. Normal accounts retain
-on-demand screenshots. The server rejects non-admin changes and rechecks admin
-access when building each worker environment.
+Every account defaults to a fresh viewport screenshot alongside the normal form
+observation for each Magnus decision. Previous observation images are removed
+before the next request while their text and action history remain. This applies
+to Auto apply, Semi auto preparation and confirmed prepared submissions.
+Administrators can explicitly turn screenshots off for comparisons using
+**Admin screenshot test → Screenshots each step** on the Apply page. The server
+rejects non-admin changes and enables screenshots for normal accounts even when
+an older saved setting says off. The worker also defaults to screenshots when
+the environment setting is absent.
 
 Run `npm run test:agent-screenshots` for isolated browser/transport checks.
 `npm run test:agent-screenshots-live` spends up to the normal per-application

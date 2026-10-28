@@ -21,7 +21,8 @@ const html = `<style>body{font:18px Arial;margin:25px}label{display:block;margin
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 const originalFetch = globalThis.fetch;
 try {
-  for (const enabled of [false, true]) {
+  for (const setting of [undefined, false, true]) {
+    const enabled = setting !== false;
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await context.route('**/*', route => new URL(route.request().url()).hostname.endsWith('.invalid')
       ? route.fulfill({ contentType: 'text/html', body: html }) : route.abort());
@@ -82,7 +83,10 @@ try {
         id: `turn-${turn}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) },
       })) } }], usage: { prompt_tokens: 100, completion_tokens: 20 } });
     }) as typeof fetch;
-    const result = await withApplicationModel({ ...process.env, APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: String(enabled) },
+    const env = { ...process.env };
+    delete env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN;
+    if (setting !== undefined) env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN = String(setting);
+    const result = await withApplicationModel(env,
       () => runApplicationAgent({ page, simulation: 'isolated-form',
         job: { id: `screenshot-test-${enabled}`, title: 'Fictional application', company: 'Fixture Employer', location: 'Sydney', platform: 'seek', url, source: 'chosen', applicationMode: 'external' } as JobListing,
         profile: { name: 'Alex Fixture', email: 'alex@example.invalid', phone: '0400000000', workRights: 'Citizen', workRightsCountry: 'Australia', skills: [] } as unknown as CandidateProfile,
@@ -90,7 +94,7 @@ try {
     assert.equal(result.outcome.status, 'rehearsed');
     assert.equal(turn, 5);
     assert.equal(await page.evaluate('window.sends', undefined, undefined, false), 1);
-    console.log(JSON.stringify({ mode: enabled ? 'every-turn' : 'on-demand', turns: turn, imagesPerRequest: imagesSeen, isolatedApplication: 'passed' }));
+    console.log(JSON.stringify({ mode: setting === undefined ? 'default-on' : enabled ? 'every-turn' : 'on-demand', turns: turn, imagesPerRequest: imagesSeen, isolatedApplication: 'passed' }));
     await context.close();
   }
 } finally {
