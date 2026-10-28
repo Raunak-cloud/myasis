@@ -389,6 +389,19 @@ test('an exhausted review allowance explains that remaining listings were not ru
   assert.equal(activityEvents(lines).at(-1).title, 'Run complete');
 });
 
+test('interleaved historical review-limit notices remain one event without hiding review failures', () => {
+  const events = activityEvents(log([
+    '[worker:seek] evaluation cap (100) reached',
+    '! fit check failed for MedHealth: The job match could not be verified after a second assessment.',
+    '[worker:indeed] evaluation cap (100) reached',
+    '! fit check failed for NCS Australia: The job match could not be verified after a second assessment.',
+    '[worker:seek] evaluation cap (100) reached',
+    '=== Run complete: 0 new application(s) ===',
+  ]), Infinity);
+  assert.equal(events.filter(event => event.title === 'Review limit reached').length, 1);
+  assert.equal(events.filter(event => event.title.startsWith('Could not review a job')).length, 2);
+});
+
 test('review limits do not contradict successful submissions or promise more matches', () => {
   const lines = log(['overrides: MAX_EVALUATIONS=100', '✓ 90 · Role @ Employer', '→ Applying: Role @ Employer', '✅ submitted (1/10)', 'evaluation cap (100) reached', '=== Run complete: 1 new application(s) ===']);
   assert.doesNotMatch(JSON.stringify(activityEvents(lines)), /zero submissions|nothing submitted/i);

@@ -69,6 +69,15 @@ globalThis.fetch = async (_url, init) => {
       ...(value as object), roleFitCheck: { alignment: 'mismatch', employerEvidence: 'You are a strong UX researcher.',
         candidateEvidence: 'Retail customer service experience.', explanation: 'The primary UX research requirement is not supported by the retail CV.' },
     };
+    if (mode === 'formatted-skip' || mode === 'formatted-apply') value = {
+      ...(value as object), decision: mode === 'formatted-skip' ? 'skip' : 'apply',
+      roleFitCheck: {
+        alignment: mode === 'formatted-skip' ? 'mismatch' : 'aligned',
+        employerEvidence: mode === 'formatted-skip' ? 'Assess communication skills. Provide clinical therapy.' : 'Advise customers. Maintain stock.',
+        candidateEvidence: 'Retail customer service experience.',
+        explanation: mode === 'formatted-skip' ? 'Clinical work is unsupported by the retail CV.' : 'The retail duties match the CV.',
+      },
+    };
     assert.match(userPrompt, /Unknown\s+pay is neutral/);
     assert.match(userPrompt, /do not also require annual earnings/i);
     assert.match(userPrompt, /Availability across several shift windows does not mean unlimited hours/);
@@ -125,6 +134,15 @@ try {
   const afterApprovalReview = calls;
   assert.equal((await assessFit(changedJob, profile)).decision, 'skip');
   assert.equal(calls, afterApprovalReview, 'the final reviewed decision is cached without repeating either matching call');
+  for (const scenario of ['formatted-skip', 'formatted-apply']) {
+    mode = scenario;
+    const before: number = calls, repairs: number = corrections;
+    const result = await assessFit({ ...job, id: scenario, description: scenario === 'formatted-skip'
+      ? 'Assess communication skills\nProvide clinical therapy' : 'Advise customers\nMaintain stock' }, profile);
+    assert.equal(result.decision, scenario === 'formatted-skip' ? 'skip' : 'apply');
+    assert.equal(corrections, repairs, 'source formatting must not trigger a paid contract correction');
+    assert.equal(calls - before, scenario === 'formatted-skip' ? 1 : 2, 'normal approval review remains; valid rejections need only one call');
+  }
   const diagnostics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(row => row.stage === 'fit-contract-invalid');
   assert.ok(diagnostics.some(row => row.jobId === 'invalid-twice' && row.attempt === 2 && /matchScore/.test(row.error)));
   assert.equal(diagnostics.some(row => JSON.stringify(row).includes(staleAnswer.question)), false, 'diagnostics record failed paths without leaking candidate answers');

@@ -362,6 +362,17 @@ test('an unusable fit review does not exhaust the review budget', () => {
   assert.match(result.output, /✓ 90 · Developer new/);
 });
 
+test('review-limit notice waits for failed in-flight reviews to return their slots and is printed once', () => {
+  const result = run([
+    job('bad-one', { fitError: true }), job('good-one', { fitReject: true }),
+    job('bad-two', { fitError: true }), job('good-two', { fitReject: true }),
+    job('unused'),
+  ], { concurrency: 3, reviews: 2 });
+  assert.equal(result.events.filter(event => event.stage === 'fit').length, 4);
+  assert.equal((result.output.match(/evaluation cap \(2\) reached/g) ?? []).length, 1);
+  assert.ok(result.output.indexOf('evaluation cap (2) reached') > result.output.lastIndexOf('fit check failed'));
+});
+
 test('an applied marker revealed by a loading retry returns the slot before fit review', () => {
   const result = run([job('old', { detailApplied: true, loadingFirst: true }), job('new')]);
   assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['new']);

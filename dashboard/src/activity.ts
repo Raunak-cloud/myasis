@@ -174,6 +174,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   let boards: string[] = [];
   let boardsEvent: ActivityEvent | null = null;
   let applicationLimitEvent: ActivityEvent | null = null;
+  let reviewLimitEvent: ActivityEvent | null = null;
   let review: ActivityEvent | null = null;
   let reviewed = 0;
   let suitable = 0;
@@ -363,7 +364,9 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
         applicationLimit(line, 'Applications saved for review', 'Prepared applications still need your confirmation before submission.');
       } else applicationLimit(line, 'This run reached its limit', `This run can prepare or submit up to ${match[1]} ${Number(match[1]) === 1 ? 'application' : 'applications'}.`);
     } else if ((match = text.match(/evaluation cap \((\d+)\) reached/i))) {
-      add(line, 'Review limit reached', 'warn', `This run reviewed up to its limit of ${match[1]} jobs. Other listings may still be available to review.`);
+      const detail = `This run reviewed up to its limit of ${match[1]} jobs. Other listings may still be available to review.`;
+      if (reviewLimitEvent) reviewLimitEvent.detail = detail;
+      else reviewLimitEvent = add(line, 'Review limit reached', 'warn', detail);
     } else if ((match = text.match(/^Submission not confirmed:\s*(.*)/i))) {
       if (application) {
         application.event.title = `Submission not confirmed: ${application.title}`;

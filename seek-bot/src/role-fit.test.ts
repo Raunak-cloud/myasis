@@ -29,3 +29,26 @@ test('role evidence must come from the actual listing and candidate documents', 
   assert.ok(roleFitError({ ...role, employerEvidence: 'You are a strong UX researcher ... Invented requirement' }, job, candidate));
   assert.equal(normalizeFitAssessment({ ...assessment, roleFitCheck: supported }, '', ['onsite', 'hybrid', 'remote'])?.decision, 'apply');
 });
+
+test('employer bullet points and CV formatting can be quoted as sentences without a paid repair', () => {
+  const listing = { ...job, description: "Assess participants' communication and swallowing / feeding skills\n• Provide therapy for a range of ages and clinical areas" };
+  const cv = 'Full-stack developer who builds products\nComfortable across JavaScript and Python';
+  assert.equal(roleFitError({ ...role,
+    employerEvidence: "Assess participants’ communication and swallowing / feeding skills. Provide therapy for a range of ages and clinical areas.",
+    candidateEvidence: 'Full-stack developer who builds products. Comfortable across JavaScript and Python.',
+  }, listing, cv), null);
+  assert.equal(roleFitError({ ...role, employerEvidence: 'Assess participants\' communication ... Provide therapy for a range of ages and clinical areas' }, listing, candidate), null);
+});
+
+test('formatting tolerance never invents words, numbers, technical skills or contractions', () => {
+  for (const [source, quote] of [
+    ['Requires C++ experience', 'Requires C experience'],
+    ['Requires C# experience', 'Requires C++ experience'],
+    ['Requires 3.5 years experience', 'Requires 35 years experience'],
+    ['Requires 3+ years experience', 'Requires 3 years experience'],
+    ['Score -1', 'Score 1'],
+    ["Candidate can't drive", 'Candidate can drive'],
+    ['Retail experience', 'tail experience'],
+    ['Assess communication skills', 'Assess advanced communication skills'],
+  ]) assert.ok(roleFitError({ ...role, employerEvidence: quote }, { ...job, description: source }, candidate), `${source} cannot support ${quote}`);
+});

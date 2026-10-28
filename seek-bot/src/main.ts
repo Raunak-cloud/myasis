@@ -766,7 +766,8 @@ async function main() {
       }
       // Checked before the listing is opened: the job that trips the cap no longer pays for a page load first.
       if (evaluated >= config.limits.maxEvaluations) {
-        console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
+        // These slots may still be in flight and can be returned on failure.
+        // Report exhaustion once, from the final settled run summary.
         reviewStopped = true;
         return;
       }
@@ -1054,6 +1055,9 @@ async function main() {
     };
 
     const printSummary = () => {
+      if (!limitReached() && evaluated >= config.limits.maxEvaluations) {
+        console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
+      }
       if (skips.size) {
         console.log('\nFiltered out:');
         for (const [reason, n] of [...skips].sort((a, b) => b[1] - a[1])) {
