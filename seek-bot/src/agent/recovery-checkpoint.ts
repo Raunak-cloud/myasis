@@ -107,7 +107,9 @@ export class RecoveryCheckpoint {
     }
     this.pending = []; this.seen.add(signature); this.observation = observation;
     if (signature !== this.previous) {
-      if (this.previous !== undefined && this.phase === 'act') this.phase = 'verify';
+      // A delayed render is evidence to inspect, not execution of the agent's
+      // newly recorded plan. Only endTurn after an attempted repair schedules
+      // its result check; otherwise recovery can loop without acting at all.
       this.unchanged = 0; this.failures = 0;
     }
     else if (this.browserTurn) this.unchanged++;

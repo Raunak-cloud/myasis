@@ -114,3 +114,18 @@ test('restart journal preserves historical diagnosis and uncertainty without rep
     assert.equal(JSON.parse(readFileSync(path, 'utf8')).status, 'interrupted');
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('delayed rerenders and inspections never execute a newly recorded repair plan', () => {
+  const state = new RecoveryCheckpoint();
+  state.observe(observation());
+  state.planned({ next_action: 'Close optional lookup and complete required language fields' });
+  state.endTurn();
+  state.observe({ ...observation(), text: 'Lookup finished rendering asynchronously' });
+  assert.equal(state.tool, undefined, 'a background render cannot trigger result assessment');
+  state.acted('take_snapshot', false); state.endTurn();
+  state.observe({ ...observation(), text: 'Another delayed validation message' });
+  assert.equal(state.tool, undefined, 'inspection plus async changes still does not execute the plan');
+  state.acted('browser_action', false, { action: 'press', value: 'Escape' }); state.endTurn();
+  state.observe(observation());
+  assert.equal(state.tool, 'record_recovery_result', 'an actual attempted repair still requires checking');
+});
