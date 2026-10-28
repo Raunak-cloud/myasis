@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
@@ -61,6 +61,10 @@ try {
           ] } }];
           break;
         case 1:
+          {
+            const live = JSON.parse(readFileSync(join(directory, 'traces', `screenshot-test-${enabled}.live.json`), 'utf8'));
+            assert.equal(live.steps[0].screenshot, enabled ? initialImage : undefined, 'in-progress history retains the actual decision image');
+          }
           assert.match(observation, /Alex Fixture/);
           assert.match(JSON.stringify(body.messages), /Company website/);
           calls = [{ name: 'browser_action', args: { action: 'click', selector: '#country' } }];
@@ -94,6 +98,13 @@ try {
     assert.equal(result.outcome.status, 'rehearsed');
     assert.equal(turn, 5);
     assert.equal(await page.evaluate('window.sends', undefined, undefined, false), 1);
+    const saved = JSON.parse(readFileSync(join(directory, 'traces', `screenshot-test-${enabled}.json`), 'utf8'));
+    assert.equal(saved.steps.length, 5);
+    for (const step of saved.steps) {
+      if (enabled) assert.match(step.screenshot, /^data:image\/jpeg;base64,/, 'every saved decision has its capture');
+      else assert.equal(step.screenshot, undefined, 'opt-out history does not invent screenshots');
+    }
+    if (enabled) assert.notEqual(saved.steps.at(-1).screenshot, saved.steps[0].screenshot, 'receipt history uses a fresh image, not the opening page');
     console.log(JSON.stringify({ mode: setting === undefined ? 'default-on' : enabled ? 'every-turn' : 'on-demand', turns: turn, imagesPerRequest: imagesSeen, isolatedApplication: 'passed' }));
     await context.close();
   }

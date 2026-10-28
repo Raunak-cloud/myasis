@@ -185,15 +185,16 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
       )}
       {error && <div className="job-meta">{userFacingError(error)}</div>}
       {!steps && !error && <div className="job-meta">Loading steps…</div>}
-      {steps?.map((s) => (
-        <div key={s.step} className="trace-step">
+      {steps && steps.length > 0 && !steps.some(step => step.screenshot) && (
+        <div className="trace-text-only job-meta">Screenshots weren’t saved for this application. Its recorded steps are shown below.</div>
+      )}
+      {steps?.map((s, index) => (
+        <div key={`${s.step}-${index}`} className={`trace-step${s.screenshot ? '' : ' trace-step-text'}`}>
           {s.screenshot ? (
             <button className="trace-shot-button" onClick={() => setEnlarged(s)} title="Open full size">
               <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" />
             </button>
-          ) : (
-            <div className="trace-shot-missing job-meta">no capture</div>
-          )}
+          ) : null}
           <div className="trace-caption job-meta">
             <strong>{s.step}.</strong> {s.label}
             {s.result ? <span className="trace-result"> → {s.result}</span> : null}

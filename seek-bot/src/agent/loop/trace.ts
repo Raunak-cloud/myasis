@@ -19,6 +19,7 @@ export interface TraceStep {
   startedAt?: string;
   completedAt?: string;
   disposition?: string;
+  /** The image observed before this decision, when a capture was available. */
   screenshot?: string;
 }
 

@@ -665,7 +665,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       let planActions = 0;
       for (const call of reply.toolCalls) {
         const traceStep: TraceStep = { step: steps, url: ctx.page.url(), tool: call.name, args: call.args,
-          label: `${call.name} ${String(call.args.action ?? '')}`, startedAt: new Date().toISOString() };
+          label: `${call.name} ${String(call.args.action ?? '')}`, startedAt: new Date().toISOString(),
+          // Reuse the decision's actual observation; saving history must not
+          // add browser captures or model calls, or show a later page as evidence.
+          screenshot: ctx.observation.screenshot };
         trace.push(traceStep);
         // A returned model reply is not proof its tool completed. Persist the
         // pending operation first so hangs and disconnects retain their cause.
