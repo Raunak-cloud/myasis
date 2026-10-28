@@ -77,6 +77,7 @@ interface ApplicationExportRow {
   work_arrangement: string | null;
   age_days_at_apply: number | null;
   cover_letter: string | null;
+  resume_name: string | null;
   answers: unknown;
   score_reasons: unknown;
   applied_at: Date | string;
@@ -113,7 +114,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
-            external, submitted_by_myasis, site, actions, application_url, confirmation_status
+            external, submitted_by_myasis, site, actions, application_url, confirmation_status, resume_name
        FROM applications WHERE user_id = $1 ORDER BY applied_at`,
     [userId],
   );
@@ -131,6 +132,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
     workArrangement: a.work_arrangement ?? undefined,
     ageDaysAtApply: a.age_days_at_apply ?? undefined,
     coverLetter: a.cover_letter ?? undefined,
+    ...(a.resume_name ? { resume: a.resume_name } : {}),
     answers: a.answers ?? [],
     scoreReasons: a.score_reasons ?? [],
     external: a.external === true,
