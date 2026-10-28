@@ -135,6 +135,8 @@ export interface CelerisRequest {
   tools?: ToolSchema[];
   /** Force a tool call rather than letting the model reply with prose. */
   requireTool?: boolean;
+  /** Non-streaming named tool selection; callers must still validate the reply. */
+  forceTool?: string;
   temperature?: number;
   /** Magnus only; ignored by celeris-1. */
   thinking?: boolean;
@@ -205,7 +207,9 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       type: 'function',
       function: { name: tool.name, description: tool.description, parameters: tool.parameters },
     }));
-    body.tool_choice = request.requireTool ? 'required' : 'auto';
+    if (request.forceTool && !request.tools.some(tool => tool.name === request.forceTool)) throw new Error('Forced tool is not in the offered tools.');
+    body.tool_choice = request.forceTool ? { type: 'function', function: { name: request.forceTool } }
+      : request.requireTool ? 'required' : 'auto';
   }
   if (request.responseSchema) {
     body.response_format = {

@@ -44,6 +44,7 @@ import { currentFitReview } from '../review-cache.js';
 import type { FitRejection } from '../types.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { InteractionMemory } from './interaction-memory.js';
+import { RecoveryCheckpoint, recoveryTools } from './recovery-checkpoint.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -89,6 +90,7 @@ export const agentOnlyTools: ToolSchema[] = [
   schema('read_application_attempts', 'Read this posting\'s owner-scoped interrupted attempts and send activity to recover an uncertain submission. Confirmed duplicate decisions belong to the matching stage; this tool does not supply confirmed application history or invite a second duplicate review. Follow NEXT_OFFSET for further evidence about this posting.', { offset: { type: 'integer', minimum: 0 } }),
   schema('save_progress', 'Keep a concise durable recovery note across context compaction. Record completed steps, current problem, observed evidence, your next approach and any verification still needed. Update answers/documents here so they need not be rediscovered. This never chooses an action or resets the browser.', { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
   schema('reason_through_problem', 'Request high reasoning effort for the next turn when medium reasoning has not resolved a semantic form error or repeated lack of progress.', { problem: string }, ['problem']),
+  ...recoveryTools,
   ...authenticationTools(),
   schema('record_authentication_result', 'After you observe the site accepted sign-in or registration, record that outcome and retain the prepared credential for this account. You judge acceptance; this is an audit write, not a separate verifier.', {
     purpose: { type: 'string', enum: ['sign_in', 'create_account'] }, evidence: string,
@@ -121,6 +123,7 @@ On ANY error, unexpected result or lack of meaningful progress, stop the current
 Use an evidence-led cycle: identify the observed cause, choose the smallest correction that addresses it, act, then inspect the saved result and employer response. Check whether the intended value or selection was committed, the attachment accepted, the error cleared or the next step reached. A tool returning success or the same page remaining open proves none of these. If the correction did not work, inspect the whole page and form again, revise the diagnosis using what changed or failed to change, and choose a materially different approach. Do not repeat a failed selector, hidden-control click, empty DOM query or unchanged wait. Preserve completed work; repair only what the evidence shows is wrong. Do not restart the application, repeat uploads or retype healthy fields merely because another control failed.
 Diagnose controls from their actual structure and browser errors. If several elements match, inspect the matches and target the intended visible control in its actual form section, frame and shadow-root context using observed refs, roles, labels or deliberately scoped locators. Do not guess an index or broaden a selector until something clicks. Ordinary document scripts do not automatically traverse iframe documents or shadow roots: an empty script query does not prove the visible control is absent. Prefer native locators in the correct context. For an intercepted click, inspect the named receiving element and screenshot, then address the observed overlay, scrolling or focus problem. For dropdowns and dates, inspect the open widget before choosing an observed option or supported keyboard interaction, and verify the committed value. Use a manual-entry alternative only when the form actually offers it. Never remove validation or fabricate a saved state to make the page appear complete.
 After two unsuccessful approaches to the same problem, stop spending turns on small variations. Reinspect the entire page and form, use reason_through_problem for higher reasoning effort, and consult the read-only specialist when useful with the observed error, prior approaches and current evidence. You assess its advice and act yourself. Keep a concise save_progress note with the observed cause, attempts ruled out, verified completed work and next check when recovery is prolonged; do not narrate or call extra tools for every healthy field. Batch independent actions only for inspected controls. When progress resumes, continue normally and verify the next milestone.
+When a RECOVERY CHECKPOINT is requested, return exactly its named record tool, with brief evidence-based conclusions, not a browser action. A plan must identify the observed failure, prior approaches, a different next action and an observable verification. You then act with your normal tools. At the result checkpoint compare fresh browser evidence with that verification: progress, no_progress, more_evidence, or complete. An unresolved cause is uncertainty to inspect, not an invented diagnosis. After no_progress revise the approach or consult the specialist; do not repeat an unchanged failing strategy. These checkpoints record your decisions and do not choose repairs, approve answers or confirm receipt for you.
 After Submit, inspect the whole employer response and form. An explicit validation rejection is a correction task: fix the identified field directly with your normal tools, verify its saved value and cleared error, and retry only when the evidence establishes that the prior submission was rejected. A handoff into another required application step means continue that step, not restart or repeat the previous action. A pending or uncertain send is different: inspect the complete response, relevant frames/tabs and available status evidence; use a targeted wait when a change is pending. Do not resend solely because a receipt is missing or inspect the same Submit button indefinitely. Finish applied only with observed employer receipt evidence; if delivery remains uncertain after checking the whole page and form, report that uncertainty honestly. If a required personal fact, genuine employer restriction or resource limit prevents completion, report the exact observed blocker rather than inventing facts, blaming security without evidence, looping or claiming success.
 Before entering consequential personal facts, compare the complete question and proposed answer with the authoritative profile, saved answers, selected resume and enabled supporting documents. Use read_candidate_evidence to retrieve missing passages; follow NEXT_OFFSET for the same query when a passage continues. Before preparing an online or email application or submitting, review actual saved form values and retained wizard answers against that evidence yourself. Correct conflicts in the actual form and verify the correction. Do not wait for another reviewer to catch an unsupported answer. Positive saved evidence is required for personal claims about identity, employment dates/history, qualifications, work rights, health, disability/adjustments, convictions, finances, referees, availability commitments and consent. A preselected answer, a missing resume entry, unrelated generic No, employer requirement or your own earlier guess is not evidence. A duration such as two years does not establish exact start/end months or whether roles were consecutive; use explicit dates or ask before filling required dates. Preserve qualifications, newer scoped confirmations, site-specific consent and weekly working-hour limits. Distinguish current possession from eligibility and read alternatives joined by or. Do not invent checkable facts in cover letters or narratives. Routine professional wording and ordinary form choices do not require proof. Clear optional unknown personal answers or use an offered non-disclosure choice; when a required consequential fact remains unknown after checking the available evidence, finish needs-human with the exact observed question, its section, and choices. Ask once per distinct fact; label repeated date questions by role and start/end so the candidate can distinguish them. This responsibility applies equally to browser actions, scripts, dialogs, Semi auto preparation and email drafts.
 Read the authoritative profile, saved answers, CVs, supporting documents and matching-stage duplicate decision. The matching stage owns duplicate decisions from known history; do not review confirmed application records again or skip a cleared job based on similar company/title metadata. Only NEW evidence on the actual employer form can reveal an earlier application; finish already-applied with duplicate_evidence.quote copied from that observed page. A receipt for the submission you just made means applied, not already-applied. More evidence is available with read_candidate_evidence. Follow explicit candidate preferences, including reusing supplied cover-letter text unchanged when the selected letter mode is reuse; distinguish routine reasonable choices from unknown personal facts. Do not invent qualifications, legal/work rights, health history, identity or financial facts. Ask for attention only when a consequential unknown prevents truthful completion. Interrupted attempts and reservations remain advisory recovery evidence: inspect uncertain previous sends before deciding to repeat. They are not confirmed duplicates. A validation-rejected submit can be corrected and retried; do not call that a successful or uncertain receipt merely because Submit was pressed. Inspect the current page after sending; report applied only when you see receipt evidence. Keep answers and documents consistent and preserve letter paragraphs.
@@ -223,6 +226,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   // frequent compaction can cost more by destroying provider cache hits.
   let contextLimit = 42_000;
   const interactionMemory = new InteractionMemory();
+  const recovery = new RecoveryCheckpoint();
   const waitedForSurface = new Set<string>();
   const remainingMs = () => config.celeris.maxTotalMs - (Date.now() - started);
   const watched = new Set<Page>();
@@ -278,6 +282,17 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const activity = startAgentActivity(options.job);
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if (name === 'record_recovery_plan') {
+      recovery.planned();
+      recoveryNote = `RECOVERY PLAN: ${JSON.stringify(args)}`;
+      return ok('Your recovery plan is recorded. Choose and execute your next action using the normal tools; inspect its fresh result against your verification before declaring progress.');
+    }
+    if (name === 'record_recovery_result') {
+      recovery.verified(String(args.assessment));
+      recoveryNote += `\nRECOVERY RESULT: ${JSON.stringify(args)}`;
+      recoveryNote = recoveryNote.slice(-6000);
+      return ok('Your browser-evidence assessment is recorded. Continue from verified work, or revise the unsuccessful approach. You still own final submission and receipt judgment.');
+    }
     if (retiredJobDestination(ctx.page.url())) return { kind: 'terminal', outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE } };
     // A native modal blocks renderer inspection, including locator.count().
     // Surface it before any DOM probe; the agent chooses the dialog response.
@@ -587,6 +602,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         browserMutated = false;
       }
       if (meter.exhausted) break;
+      recovery.observe(ctx.observation);
       if (approved) {
         // Keep actual readback for known answers across wizard steps, including
         // selections made by clicks rather than fill/select tools. Do not copy
@@ -608,6 +624,19 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         break;
       }
       messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\nDurable progress: ${recoveryNote}\n${interactionMemory.render()}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
+      const checkpoint = pendingDialog ? undefined : recovery.tool;
+      if (checkpoint) {
+        let wholePage = '';
+        if (checkpoint === 'record_recovery_plan') {
+          try {
+            const snapshot = await ctx.page.ariaSnapshot({ mode: 'ai', timeout: Math.max(1, Math.min(5000, remainingMs())) });
+            wholePage = snapshot.length <= 24000 ? snapshot : snapshot.slice(0, 16000) + '\n[Middle omitted; inspect the relevant section if needed.]\n' + snapshot.slice(-8000);
+          } catch (error) { wholePage = `Whole-page accessibility inspection failed: ${(error as Error).message}`; }
+        }
+        messages.push({ role: 'user', content: `RECOVERY CHECKPOINT: return exactly one ${checkpoint} tool call and no other calls. ${checkpoint === 'record_recovery_plan'
+          ? 'Repeated failure or unchanged browser state requires diagnosis before more attempts. Inspect the supplied whole page, form, latest screenshot and prior errors. Record a concise grounded plan and observable verification; choose a different approach or consult the read-only specialist if prior approaches failed.'
+          : 'Compare the latest browser observation with your recorded recovery verification. A successful tool response, your own note or an unchanged page is not proof of progress. Record the actual observed result and your next action.'}\n${wholePage ? `<untrusted-whole-page>\n${wholePage}\n</untrusted-whole-page>` : ''}` });
+      }
       steps++; // Audit counter only; spending and elapsed time bound the loop.
       // Compact only at the threshold so ordinary turns retain a cacheable
       // prefix. An API context rejection retries generation in this SAME page;
@@ -620,20 +649,39 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       };
       try {
         reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(), tools: agentOnlyTools,
-          requireTool: true, thinking: true, reasoningEffort: highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
+          requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort: checkpoint || highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
       } catch (error) {
         if (error instanceof ApplicationBudgetExhaustedError) break;
         if (!/Celeris (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
         try {
           reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(true), tools: agentOnlyTools,
-            requireTool: true, thinking: true, reasoningEffort: highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
+            requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort: checkpoint || highEffort ? 'xhigh' : 'medium', maxTokens: 8192, meter });
         } catch (retryError) {
           if (retryError instanceof ApplicationBudgetExhaustedError) break;
           throw retryError;
         }
       }
       messages.push(reply.message);
+      if (checkpoint) {
+        const call = reply.toolCalls[0];
+        const checkpointSchema = recoveryTools.find(tool => tool.name === checkpoint)!;
+        const issue = reply.toolCalls.length !== 1 || call?.name !== checkpoint
+          ? `Return exactly one ${checkpoint} tool call. No proposed browser actions were executed.`
+          : toolInputIssue(call.args, checkpointSchema.parameters);
+        if (issue) {
+          const feedback = `Recovery checkpoint response rejected: ${issue}`;
+          trace.push({ step: steps, url: ctx.page.url(), tool: checkpoint, label: 'Recovery checkpoint response rejected', args: {}, result: feedback,
+            screenshot: ctx.observation.screenshot, startedAt: new Date().toISOString(), completedAt: new Date().toISOString() });
+          for (const rejected of reply.toolCalls) messages.push({ role: 'tool', tool_call_id: rejected.id, content: feedback });
+          messages.push({ role: 'user', content: feedback });
+          saveLiveTrace();
+          if (recovery.rejected()) { terminal = { status: 'skipped', reason: ctx.submissionAttempted
+            ? 'Submission remains unconfirmed: the agent could not complete its recovery checkpoint.'
+            : 'The agent could not complete its recovery checkpoint after a correction request.' }; break; }
+          continue;
+        }
+      }
       highEffort = false;
       lastNote = 'Inspect saved values and the current page before choosing the next action.';
       let interrupted = false;
@@ -664,6 +712,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
             if (!tool) throw new Error('Unknown tool. Use the currently offered tools.');
             const issue = toolInputIssue(call.args, tool.parameters);
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
+            if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
             result = await act(call.name, call.args);
             if (result.kind === 'ok' && result.disposition !== 'failed' && (call.name === 'browser_batch'
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
@@ -679,6 +728,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });
         Object.assign(traceStep, { url: ctx.page.url(), result: text, completedAt: new Date().toISOString() });
         saveLiveTrace();
+        if (!checkpoint) recovery.acted(call.name, result.kind === 'ok' && result.disposition === 'failed');
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }
         else if (result.disposition === 'failed') {
           interactionMemory.failed(call.name, call.args, ctx.page.url(), result.message);
@@ -690,6 +740,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
           lastNote = 'Inspect the fresh observation and last tool result before replanning; remaining actions were not run.';
         }
       }
+      recovery.endTurn();
     }
     if (!finished && meter.exhausted) terminal = { status: 'skipped', reason: 'The application spending budget was reached.' };
     activity.update({ status: 'finished', submitted: Boolean(ctx.submissionAttempted), outcome: terminal.status, detail: JSON.stringify(terminal) });
