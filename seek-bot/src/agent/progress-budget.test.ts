@@ -6,6 +6,23 @@ import type { FormField } from '../types.js';
 const field = (label: string, value = '', extra: Partial<FormField> = {}): FormField => ({ ref: 'fresh-ref', label, kind: 'text', required: true, currentValue: value, ...extra });
 const spend = (meter: ProgressBudget, amountUsd: number) => meter.recordProvider({ prompt: 0, cached: 0, completion: 0, amountUsd });
 
+test('review reserve cannot authorize browser actions and never exceeds the maximum', () => {
+  const meter = new ProgressBudget(0.20, 0.70);
+  spend(meter, 0.19);
+  assert.equal(meter.needsReview, true);
+  meter.reviewing(true); spend(meter, 0.02);
+  assert.equal(meter.exhausted, false, 'a nonmutating review can finish');
+  assert.equal(meter.actionExhausted, true, 'reserve never authorizes writes');
+  meter.reviewing(false);
+  assert.equal(meter.exhausted, true, 'assessment alone cannot extend spending');
+  meter.reviewedProgress('fresh-calendar-state');
+  assert.ok(Math.abs(meter.limitUsd - 0.31) < 1e-9);
+  spend(meter, 0.09); meter.reviewedProgress('fresh-calendar-state');
+  assert.ok(Math.abs(meter.limitUsd - 0.31) < 1e-9, 'the same progress is credited once');
+  spend(meter, 0.40); meter.reviewedProgress('new-state'); meter.reviewing(true);
+  assert.equal(meter.exhausted, true, 'hard ceiling includes the review reserve');
+});
+
 test('unchanged pages and passive prefills keep the normal twenty-cent budget', () => {
   const meter = new ProgressBudget(0.20);
   meter.observe([field('Name')], false);

@@ -13,6 +13,7 @@ export class ProgressBudget extends CostMeter {
   private readonly stages = new Set<string>();
   private allowance: number;
   private progress = 0;
+  private reviewReserve = false;
   readonly maximum: number;
 
   constructor(base: number, maximum = 0.70) {
@@ -25,7 +26,11 @@ export class ProgressBudget extends CostMeter {
 
   get limitUsd(): number { return this.allowance; }
   get progressCount(): number { return this.progress; }
-  override get exhausted(): boolean { return this.totals.costUsd + 1e-9 >= this.allowance; }
+  get needsReview(): boolean { return this.totals.costUsd >= this.allowance - 0.035 && this.allowance < this.maximum; }
+  get actionExhausted(): boolean { return this.totals.costUsd + 1e-9 >= this.allowance; }
+  override get exhausted(): boolean { return this.totals.costUsd + 1e-9 >= Math.min(this.maximum, this.allowance + (this.reviewReserve ? 0.04 : 0)); }
+  reviewing(enabled: boolean): void { this.reviewReserve = enabled; }
+  reviewedProgress(state: string): void { this.credit(`agent-reviewed:${state}`); }
 
   private credit(key: string): void {
     if (this.credited.has(key)) return;

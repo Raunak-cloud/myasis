@@ -36,6 +36,8 @@ interface AgentAction {
 }
 
 export interface Observation {
+  /** Larger visible surface for local transition comparison, never model context. */
+  surfaceText?: string;
   /** Visible modal layer can block controls underneath it. Untrusted page copy. */
   dialogs?: string[];
   url: string;
@@ -451,7 +453,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
     .evaluate((limit) => {
       const region = document.querySelector('main, [role="main"], form') ?? document.body;
       return ((region as HTMLElement | null)?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
-    }, MAX_TEXT)
+    }, 60_000)
     .catch(() => '');
 
   const observation: Observation = {
@@ -459,7 +461,8 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
     title: await page.title().catch(() => ''),
     actions,
     fields,
-    text: clean(text),
+    text: clean(text).slice(0, MAX_TEXT),
+    surfaceText: clean(text).replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '[clock]'),
     dialogs: await page.locator('dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]').evaluateAll(nodes => nodes.filter(node => node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }))
       .map(node => (node as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 4000)).filter((text, index, all) => Boolean(text) && all.indexOf(text) === index)).catch(() => []),
   };
