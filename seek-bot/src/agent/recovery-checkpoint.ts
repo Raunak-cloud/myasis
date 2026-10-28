@@ -8,9 +8,10 @@ export const recoveryTools: ToolSchema[] = [
     parameters: { type: 'object', additionalProperties: false, properties: {
       observed_issue: text, evidence, previous_approaches: evidence, next_action: text, verification: text,
     }, required: ['observed_issue', 'evidence', 'previous_approaches', 'next_action', 'verification'] } },
-  { name: 'record_recovery_result', description: 'Required after acting on a recovery plan. Assess the fresh browser evidence against your recorded verification. Tool success alone is not progress. Records your judgment; does not submit or verify receipt independently.',
+  { name: 'record_recovery_result', description: 'Required after acting on a recovery plan. Assess the fresh browser evidence against your recorded verification. Tool success alone is not progress. complete means an actual submitted application with an observed employer receipt: include its complete receipt_quote, which records your applied judgment without another model call. Otherwise use progress, no_progress or more_evidence. Never submits or verifies receipt independently.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       assessment: { type: 'string', enum: ['progress', 'no_progress', 'more_evidence', 'complete'] }, evidence, next_action: text,
+      receipt_quote: { type: 'string', minLength: 1, maxLength: 4000 },
     }, required: ['assessment', 'evidence', 'next_action'] } },
 ];
 

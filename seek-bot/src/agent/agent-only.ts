@@ -288,6 +288,11 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       return ok('Your recovery plan is recorded. Choose and execute your next action using the normal tools; inspect its fresh result against your verification before declaring progress.');
     }
     if (name === 'record_recovery_result') {
+      if (args.assessment === 'complete') {
+        if (!String(args.receipt_quote ?? '').trim()) throw new Error('complete requires receipt_quote copied from the actual observed employer submission confirmation. A filled form or successful tool call is not a receipt.');
+        return act('finish', { status: 'applied', reason: 'The applying agent observed employer confirmation during recovery verification.',
+          evidence: JSON.stringify(args.evidence), receipt: { quote: args.receipt_quote } });
+      }
       recovery.verified(String(args.assessment));
       recoveryNote += `\nRECOVERY RESULT: ${JSON.stringify(args)}`;
       recoveryNote = recoveryNote.slice(-6000);
@@ -703,7 +708,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         // record an observed receipt even if that reply crossed the budget;
         // it needs no further model call or browser mutation. Never accept a
         // later judgement from a plan whose preceding action did not run.
-        if (interrupted || remainingMs() <= 0 || planActions >= 16 || (meter.exhausted && call.name !== 'finish')) {
+        const receiptResult = call.name === 'record_recovery_result' && call.args.assessment === 'complete'
+          && typeof call.args.receipt_quote === 'string' && Boolean(call.args.receipt_quote.trim());
+        if (interrupted || remainingMs() <= 0 || planActions >= 16 || (meter.exhausted && call.name !== 'finish' && !receiptResult)) {
           result = ok(interruptionNote);
           interrupted = true;
         } else {

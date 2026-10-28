@@ -37,6 +37,7 @@ let closeObservedReceipt = false;
 let normalTools: string[] | undefined;
 let checkpointWrongReplies = 0;
 let checkpointRequests = 0;
+let checkpointCompleteNext = false;
 const jobs = Array.from({ length: 5 }, (_, index) => ({ id: `auth-${index}`, title: 'Developer', company: 'Fixture Employer',
   location: 'Sydney', platform: 'workday' as const, url: `https://employer.fixture.invalid/login/${index}` }));
 const login = (id: string) => `<main><h1>Developer application</h1><h2>Sign In</h2>
@@ -64,13 +65,18 @@ globalThis.fetch = (async (_url, init) => {
     assert.equal(body.chat_template_kwargs.reasoning_effort, 'xhigh');
     assert.match(JSON.stringify(body.messages.at(-1)), /RECOVERY CHECKPOINT/);
     const wrong = checkpointWrongReplies-- > 0;
+    const complete = forced === 'record_recovery_result' && checkpointCompleteNext;
     const args = forced === 'record_recovery_plan' ? {
       observed_issue: 'Two browser scripts failed; City is still empty.', evidence: ['City is empty in the current form.'],
       previous_approaches: ['The previous browser scripts raised fixture errors.'],
       next_action: 'Fill the observed City input with Sydney.', verification: 'The current City input reads Sydney.',
-    } : { assessment: 'progress', evidence: ['City now reads Sydney in the fresh browser observation.'], next_action: 'Submit the completed application and inspect its receipt.' };
+    } : complete ? { assessment: 'complete', evidence: ['Application received RECOVERY-002 is visible on the employer page.'],
+      receipt_quote: 'Application received RECOVERY-002', next_action: 'Record the observed employer receipt.' }
+      : { assessment: 'progress', evidence: ['City now reads Sydney in the fresh browser observation.'], next_action: 'Submit the completed application and inspect its receipt.' };
+    if (complete) checkpointCompleteNext = false;
     return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `checkpoint-${++counter}`, type: 'function',
-      function: { name: wrong ? 'browser_action' : forced, arguments: JSON.stringify(wrong ? { action: 'script', script: 'window.unexpectedCheckpointActions=1; return true' } : args) } }] } }] });
+      function: { name: wrong ? 'browser_action' : forced, arguments: JSON.stringify(wrong ? { action: 'script', script: 'window.unexpectedCheckpointActions=1; return true' } : args) } }] } }],
+      ...(complete ? { usage: { prompt_tokens: 0, completion_tokens: 10_000_000 } } : {}) });
   }
   const call = calls.shift();
   assert.ok(call, `planned browser flow must complete without a workaround or human intervention; last result: ${body.messages.filter((item: { role: string }) => item.role === 'tool').at(-1)?.content?.slice(0, 1200)}`);
@@ -227,6 +233,17 @@ try {
   assert.equal(rejectedCheckpoint.outcome.status, 'skipped');
   assert.match(rejectedCheckpoint.outcome.status === 'skipped' ? rejectedCheckpoint.outcome.reason : '', /recovery checkpoint/);
   assert.equal(await page.evaluate('window.unexpectedCheckpointActions || 0', undefined, undefined, false), 0);
+  assert.equal(calls.length, 0);
+  await page.setContent(`<main><label>City<input id=city></label><button onclick="document.querySelector('main').textContent='Application received RECOVERY-002'">Submit application</button></main>`);
+  checkpointWrongReplies = 0;
+  checkpointCompleteNext = true;
+  calls = [
+    { name: 'browser_action', args: { action: 'script', script: "throw new Error('Fixture failed approach one')" } },
+    { name: 'browser_action', args: { action: 'script', script: "throw new Error('Fixture failed approach two')" } },
+    { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
+  ];
+  const finalRecoveryReceipt = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'checkpoint-budget-receipt' }, profile, log: () => {} });
+  assert.equal(finalRecoveryReceipt.outcome.status, 'applied', 'a recovery-result reply that crosses the budget retains the observed receipt');
   assert.equal(calls.length, 0);
   await context.close();
   console.log('PASS: agent-owned classification and receipts; five Semi auto login/widget/approval flows, Auto location entry, transient receipt, agent-directed correction and uncertain-send audit. No secondary model requests or real applications.');
