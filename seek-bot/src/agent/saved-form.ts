@@ -71,6 +71,3 @@ export async function readSavedForm(page: Page): Promise<SavedForm> {
   if (JSON.stringify(form).length > 120000) throw new Error('The saved form is too large to review completely.');
   return form;
 }
-
-/** Verification expires on any observed value, validation, frame or page change. */
-export const savedFormSignature = (form: SavedForm): string => JSON.stringify(form);

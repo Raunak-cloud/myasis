@@ -164,70 +164,24 @@ an unavailable/full queue fails closed. Rejected 429s are recorded as zero cost,
 while a network timeout remains an unknown possible charge. Marketing research
 is outside this queue.
 
-Every SEEK application is driven by a browser agent on
-[Celeris](https://docs.celeris.ai). The hand-written state machine that used to
-live in `apply.ts` is gone — there is no toggle and no second path.
+Magnus is the sole applying agent for job-board and employer-site forms. It reads
+candidate evidence, authors answers and letters, chooses native browser actions,
+handles documents and judges the employer receipt. Screenshots are enabled by
+default. There is no separate form filler or receipt-review model.
 
-**What the agent replaced:** navigation only. The ordered list of button labels
-to try, the per-site special cases, the modal-dismissal heuristics, the fixed
-step budget. The agent reads each step and decides which control to act on.
+Normal turns use medium reasoning. Failed actions receive higher effort. Repeated
+failures or unchanged form state require a named recovery-plan call followed by
+an assessment of fresh browser evidence. The model chooses the diagnosis and
+repair; the controller validates the checkpoint contract, permits one correction
+request and stops honestly if the contract still cannot be completed. All normal
+tools return after the checkpoint. Confirmed receipt judgments can be recorded
+without another call even when their response crosses the spending budget.
 
-**What it does not replace:** anything that decides whether an application may
-be transmitted. Those live in `src/agent/guards.ts`, run before and after every
-turn, and take no model output as input:
-
-| Rail | Behaviour |
-|---|---|
-| Submit gate | `canSubmit()` is the only route to a submit click. Dry run withholds; an ungrounded answer blocks; an external submit blocks unless enabled |
-| Grounding | Answers come from the grounded answer path. Anything it cannot support is recorded and blocks submission |
-| CAPTCHA / SEEK Pass | Attempts automated recovery; an unresolved technical wall skips the job without creating user attention |
-| Off-platform | Leaving SEEK with external apply disabled halts before anything is entered |
-| Employer authentication | Uses the candidate email, a unique site-specific credential and connected Gmail OTPs; payment destinations remain blocked |
-| Budgets | Step, wall-clock and per-application USD ceilings. An agent loop has no natural stopping point |
-| Success | Only `detectConfirmation()` can report `applied`. The agent is explicitly forbidden from declaring success, and an unconfirmed claim is skipped |
-
-**The agent cannot author selectors or code.** Each observation stamps a `ref`
-onto every visible control; the tools accept only those refs. The model can act
-on what it was just shown, and nothing else.
-
-**Model routing.** `celeris-1` handles the per-step decisions — it is a
-diffusion model built for exactly this shape of call (short, structured, tool
--shaped), and its prompt cache bills at a tenth of the uncached rate, which is
-why the system prompt and tool definitions sit ahead of anything that varies.
-A step that stalls twice escalates to `celeris-1-magnus`, which adds reasoning,
-and attaches a screenshot. Cover letters and screening answers go through their
-own grounded prompts: those are long-form and checked against the candidate
-profile, a different job from picking the next button.
-
-```bash
-npm run test:agent    # guards offline, a live Celeris tool call, and a full
-                      # multi-step application against a local fixture site
-```
-
-The fixture's controls are labelled "Proceed to the next stage" and "Almost
-done" — labels the deterministic matcher recognises none of. That is the case
-the agent exists for. The run drives to the final submit and withholds it,
-typically in 5 steps for about **$0.0011 per application** (prompt cache warm).
-
-Two things that harness caught, both worth keeping in mind:
-
-- **The agent will claim success if you let it.** An earlier `finish` tool
-  offered a `submitted` status and the system prompt told it never to use one;
-  on a live run it used it anyway, on an application it had not submitted. The
-  status is gone from the schema now. Prose is a request; a schema is a rule.
-- **A rehearsal submitted a real application.** `e2e.ts` set
-  `process.env.DRY_RUN='true'` at the top of the file and then imported config —
-  but ES imports are hoisted, so config had already snapshotted `DRY_RUN=false`
-  from `.env` and the withhold guard was silently disarmed. `canSubmit` now
-  reads the live environment as well as config, and `rehearsal-env.ts` exists so
-  a harness can set that flag before config loads. A safety rail must not be
-  defeatable by module ordering.
-- **`page.evaluate` needs a `__name` shim under tsx.** esbuild's `keepNames`
-  wraps named inner functions in a helper that does not exist in the browser,
-  so `extractFields` — and therefore every apply flow, on *both* engines —
-  threw "__name is not defined" under `npm run dev`. `launchBrowser` now
-  installs a no-op shim; the compiled build never emits the call, so it is
-  inert in production.
+Semi auto candidate confirmation, duplicate protection, account isolation,
+application allowances, dry-run boundaries and hCaptcha skipping remain active.
+Application loops have spending and elapsed-time ceilings, not a fixed step cap.
+The focused `node dist/agent/submission-control.test.js` uses reserved-domain
+browser fixtures and scripted replies, with no real submissions or model calls.
 
 ### Application writing
 
@@ -263,8 +217,8 @@ By design, not limitation:
 | SEEK Pass / work-rights wall | skips the job without creating a user task |
 | External application while external apply is disabled | logs `off-platform` before AI review, **enters nothing** |
 | Technical questions, project narratives and troubleshooting explanations | AI drafts the answer from documented projects and professional reasoning; undocumented details are framed as a proposed approach |
-| An unresolved required critical personal fact or decision | asks the candidate after checking the profile, documents, saved answers and preferences; a saved-form escalation is confirmed by the answerer first |
-| 2 friction signals in a row | aborts the whole run |
+| An unresolved required critical personal fact or decision | asks the candidate after checking the profile, documents, saved answers and preferences; the applying agent owns this decision |
+| Repeated form errors or unchanged values | requires an agent-authored recovery plan and result assessment |
 
 ### Optional CapMonster Cloud integration
 
@@ -323,10 +277,8 @@ against a local stand-in for the API. It spends nothing.
 
 ## Rate limits
 
-Defaults are deliberately conservative — 8 applications/run, 20/day, and a
-25–70s jittered gap after submissions or verification walls. Attempts that
-submit nothing use a shorter 3–8s paced gap. Raising the submission limits or
-removing their cooldown invites exactly the verification walls documented above.
+Every account has a daily maximum of 100 applications, with available credits and
+any lower user-selected daily cap also respected. Each run shares that allowance.
 
 ## Caveats
 

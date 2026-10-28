@@ -278,31 +278,3 @@ export interface BlockedQuestion {
   kind?: FormField['kind'];
   options?: string[];
 }
-
-export interface FieldAnswer {
-  /** Contextual classification, not a keyword-based question filter. */
-  risk?: 'low' | 'medium' | 'high';
-  ref: string;
-  value: string;
-  /** False when the observed control is page chrome or a misread heading, not part of the application. */
-  applicationQuestion?: boolean;
-  /** false when nothing supports an answer — triggers the human handoff. */
-  grounded: boolean;
-  /**
-   * Where a filled answer came from, recorded so an application can be
-   * audited afterwards:
-   *  - 'profile'  drawn from the candidate's own material
-   *  - 'composed' written by the model, asserting no checkable claim
-   *  - 'none'     not answerable; the candidate is asked
-   */
-  basis?: 'profile' | 'composed' | 'none';
-  rationale?: string;
-  /** What to ask the candidate when this answer cannot be grounded. */
-  candidatePrompt?: string;
-  /**
-   * The model's reading of which identity detail on file the field asks for:
-   * name, firstName, lastName, email or phone — or none. Such values are
-   * copied from the profile exactly, so a typo cannot reach an employer.
-   */
-  profileField?: string;
-}

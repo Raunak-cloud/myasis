@@ -4,6 +4,14 @@
 -- account removes everything belonging to it in one statement. That matters for
 -- a product holding resumes, contact details and application history.
 
+-- One-time setting changes retain their previous values and never overwrite
+-- choices made by users after that migration has been applied.
+CREATE TABLE IF NOT EXISTS application_setting_migrations (
+  name TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  previous_values JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id            BIGSERIAL PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
@@ -965,3 +973,21 @@ WHERE status IN ('ready','approved','failed') AND (
   OR concat_ws(' ', payload #>> '{job,url}', payload #>> '{job,applicationUrl}', payload ->> 'formUrl')
      ~* 'https://([^/]+\.)?(lever\.co|hub24management\.wd[0-9]+\.myworkdayjobs\.com|hub24\.com\.au)(/|[[:space:]]|$)'
 );
+
+-- Reset every existing account to the new 60% starting score exactly once.
+-- Defaults cover accounts without a saved MIN_SCORE. Subsequent user choices
+-- are preserved when schema.sql is run again on later deployments.
+DO $$
+DECLARE applied_name TEXT;
+BEGIN
+  INSERT INTO application_setting_migrations(name, previous_values)
+  SELECT 'match-score-60-20261029', COALESCE(jsonb_object_agg(user_id::text, value), '{}'::jsonb)
+    FROM settings WHERE key = 'MIN_SCORE'
+  ON CONFLICT (name) DO NOTHING
+  RETURNING name INTO applied_name;
+
+  IF applied_name IS NOT NULL THEN
+    UPDATE settings SET value = '60' WHERE key = 'MIN_SCORE' AND value IS DISTINCT FROM '60';
+  END IF;
+END;
+$$;

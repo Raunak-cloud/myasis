@@ -426,7 +426,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     // Only an account allowed to switch automatic runs off can have them off.
     autoApplyPaused: facts.autoApplyPaused,
     canPauseAutoApply,
-    // The editable plans can choose 60-100%; Free and Essential keep 75%.
+    // Every plan starts at 60%; editable plans may choose a higher threshold.
     scheduledMinScore: tier !== 'admin' && autoRunsPerDay
       ? (advancedFilters ? CUSTOM_MIN_SCORE : SCHEDULED_MIN_SCORE)
       : null,

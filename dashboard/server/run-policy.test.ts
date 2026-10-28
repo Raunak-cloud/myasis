@@ -47,12 +47,12 @@ check('standard accounts cannot retain custom cover-letter behavior', standardMa
 check('standard accounts cannot retain fine-tuning prompts', standardManual.AI_INSTRUCTIONS_B64 === '');
 
 const scheduled = applyRunPolicy(saved, freePolicy, 'auto');
-check('Free and Essential scheduled applications require a 75 percent match', scheduled.MIN_SCORE === String(SCHEDULED_MIN_SCORE) && applyRunPolicy(saved, essentialPolicy, 'auto').MIN_SCORE === '75');
+check('Free and Essential scheduled applications require a 60 percent match', scheduled.MIN_SCORE === String(SCHEDULED_MIN_SCORE) && applyRunPolicy(saved, essentialPolicy, 'auto').MIN_SCORE === '60');
 for (const policy of [jobSearchPolicy, intensivePolicy]) for (const trigger of ['manual', 'auto'] as const) {
   for (const score of ['60', '70', '75', '100']) {
     check(`${policy.tier} ${trigger} honours a ${score}% match threshold`, applyRunPolicy({ ...saved, MIN_SCORE: score }, policy, trigger).MIN_SCORE === score);
   }
-  for (const [score, expected] of [['22', '60'], ['101', '100'], ['invalid', '75']]) {
+  for (const [score, expected] of [['22', '60'], ['101', '100'], ['invalid', '60']]) {
     check(`${policy.tier} ${trigger} bounds a legacy ${score} threshold`, applyRunPolicy({ ...saved, MIN_SCORE: score }, policy, trigger).MIN_SCORE === expected);
   }
 }
@@ -136,7 +136,7 @@ const activeEntitlements = deriveEntitlements({ ...intensiveFacts,
   billing: { paid: { ...intensiveFacts.billing.paid, hasActiveIntensivePass: false, hasActiveJobSearchPass: true } },
 });
 check('editable plans expose a 60% minimum', activeEntitlements.scheduledMinScore === 60 && intensiveEntitlements.scheduledMinScore === 60);
-check('Free and Essential keep the 75% minimum', freeEntitlements.scheduledMinScore === 75 && essentialEntitlements.scheduledMinScore === 75);
+check('Free and Essential expose the 60% minimum', freeEntitlements.scheduledMinScore === 60 && essentialEntitlements.scheduledMinScore === 60);
 check('Essential allows two runs and 50 reviews per day', essentialEntitlements.autoRunsPerDay === 2 && essentialEntitlements.scheduledJobsPerDay === 50);
 for (const plan of [freeEntitlements, essentialEntitlements, intensiveEntitlements]) {
   check(`${plan.autoRunsPerDay}-run customers cannot bypass scheduled spacing with a direct manual start`, runControlRefusal('manual', plan)?.status === 403);

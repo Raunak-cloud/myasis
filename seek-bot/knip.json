@@ -7,7 +7,6 @@
     "src/e2e.ts",
     "src/external-e2e.ts",
     "src/external-real-rehearsal.ts",
-    "src/agent-e2e.ts",
     "src/form-replay.ts",
     "src/browser-benchmark.ts",
     "src/**/*.test.ts",

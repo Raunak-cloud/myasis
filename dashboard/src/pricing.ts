@@ -38,7 +38,7 @@ export const PLAN_LIMITS = {
   'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 80, employerSitesPerDay: 5 },
 } as const;
 
-export const SCHEDULED_MIN_SCORE = 75;
+export const SCHEDULED_MIN_SCORE = 60;
 export const CUSTOM_MIN_SCORE = 60;
 export const MAX_MATCH_SCORE = 100;
 

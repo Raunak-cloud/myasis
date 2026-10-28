@@ -360,11 +360,8 @@ async function withMarks<T>(page: Page, work: () => Promise<T>): Promise<T> {
 /**
  * Waits for the application itself to render, not merely for the page shell.
  *
- * `waitForInteractiveSurface` in browser.ts is satisfied by any visible button
- * anywhere — including SEEK's header avatar — so on a client-rendered apply
- * page it returns while the form is still empty. Observed live: the agent got a
- * bare shell, concluded there was nothing to apply to, and clicked "Employer
- * site". This looks specifically for content outside the site chrome.
+ * Header controls alone do not establish a rendered application form.
+ * This waits for application content outside the site chrome.
  */
 export async function waitForApplicationSurface(page: Page, timeout = 25_000): Promise<boolean> {
   return page

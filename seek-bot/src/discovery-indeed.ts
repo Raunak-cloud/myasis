@@ -67,39 +67,6 @@ function ageDaysFromEpochMs(ms?: number): number | undefined {
   return Math.max(0, Math.floor((Date.now() - ms) / 86_400_000));
 }
 
-/**
- * Walks an arbitrary object graph looking for the array of job records.
- * Shape-tolerant, mirroring discovery.ts's `deepFindJobArray` — Indeed's
- * provider key naming already differs between homepage and search (`-1`
- * suffix vs none), so a fixed path is not safe to assume stays put.
- */
-function deepFindJobArray(root: any, maxDepth = 6): any[] | null {
-  const seen = new Set<any>();
-  const looksLikeJob = (o: any) => o && typeof o === 'object' && typeof o.jobkey === 'string' && typeof o.title === 'string';
-
-  const walk = (node: any, depth: number): any[] | null => {
-    if (!node || typeof node !== 'object' || depth > maxDepth) return null;
-    if (seen.has(node)) return null;
-    seen.add(node);
-
-    if (Array.isArray(node)) {
-      if (node.length && node.filter(looksLikeJob).length >= Math.min(3, node.length)) return node;
-      for (const child of node) {
-        const hit = walk(child, depth + 1);
-        if (hit) return hit;
-      }
-      return null;
-    }
-    for (const key of Object.keys(node)) {
-      const hit = walk(node[key], depth + 1);
-      if (hit) return hit;
-    }
-    return null;
-  };
-
-  return walk(root, 0);
-}
-
 function annualSalaryMin(extracted?: { min?: number; max?: number; type?: string }): number | undefined {
   if (!extracted || typeof extracted.min !== 'number') return undefined;
   return extracted.type === 'YEARLY' ? extracted.min : undefined;
@@ -163,71 +130,6 @@ function normalise(raw: any): JobListing | null {
     applicationMode: hasApplyMode ? (raw.indeedApplyable ? 'hosted' : 'external') : 'unknown',
     applicationUrl: typeof raw?.thirdPartyApplyUrl === 'string' ? raw.thirdPartyApplyUrl : undefined,
   };
-}
-
-/** Reads the signed-in candidate's personalised "Jobs for you" homepage feed. */
-export async function recommended(page: Page): Promise<JobListing[]> {
-  // Same reasoning as SEEK's personalised feed — see discovery.ts. It carries
-  // no distance parameter, so it cannot honour a configured search radius.
-  if (config.search.location && config.search.radiusKm > 0) {
-    console.log(
-      `  Indeed "Jobs for you" skipped — the personalised feed cannot be limited to ${config.search.radiusKm} km`,
-    );
-    return [];
-  }
-
-  await page.goto(`${config.indeedBase}/`, { waitUntil: 'domcontentloaded' });
-  await requireIndeedPage(page, 'loading recommendations');
-  await page.waitForSelector('[data-jk]', { timeout: 15_000 }).catch(() => {});
-  await jitter(600, 1400);
-
-  const rows: any[] = await page.evaluate(() => {
-    const providerData = (window as any).mosaic?.providerData;
-    if (!providerData) return [];
-    const direct = providerData['mosaic-provider-jobcards-1']?.metaData?.mosaicProviderJobCardsModel?.results;
-    if (Array.isArray(direct)) return direct;
-    for (const key of Object.keys(providerData)) {
-      if (!/^mosaic-provider-jobcards/i.test(key)) continue;
-      const results = providerData[key]?.metaData?.mosaicProviderJobCardsModel?.results;
-      if (Array.isArray(results)) return results;
-    }
-    return [];
-  });
-
-  let jobs = rows.map(normalise).filter((j): j is JobListing => j !== null);
-  if (!jobs.length) {
-    // Deep-scan fallback in case the provider key ever moves entirely.
-    const raw = await page.evaluate(() => JSON.stringify((window as any).mosaic?.providerData ?? {})).catch(() => '');
-    const arr = raw ? deepFindJobArray(JSON.parse(raw)) ?? [] : [];
-    jobs = arr.map(normalise).filter((j): j is JobListing => j !== null);
-  }
-  if (!jobs.length) {
-    /**
-     * The feed renders the same cards as search. Without this it reported 0
-     * recommendations on every run. The signed-in home page (Sep 2026) opens
-     * on "Add pay / Add commute" prompts with no job links in view, so the
-     * feed is scrolled into loading before its cards are read.
-     */
-    for (let i = 0; i < 4 && !(await page.locator('a.jcs-JobTitle[data-jk]').count().catch(() => 0)); i++) {
-      await page.mouse.wheel(0, 1_600).catch(() => {});
-      await jitter(700, 1_300);
-    }
-    jobs = await readJobCards(page);
-    /**
-     * Checked on the live page (4 Oct 2026): for this kind of account Indeed's
-     * signed-in home page has no "Jobs for you" at all, only a welcome, "Add
-     * pay / Add commute" and the account's recent searches, so there is
-     * nothing to read. Said plainly rather than as a page-data dump; the
-     * dump is kept for a page that does show job cards Owtomate cannot read.
-     */
-    if (!jobs.length) {
-      const feedShown = await page.locator('a[href*="jk="], a[href*="/viewjob"], [data-jk]').count().catch(() => 0);
-      if (feedShown) await logPageDataShape(page, '"Jobs for you"');
-      else console.log('  Indeed shows no recommended jobs on this account\'s home page (only recent searches); its job-title searches carry Indeed this run.');
-    }
-  }
-
-  return jobs.map((job) => ({ ...job, source: 'recommended' as const }));
 }
 
 /** Primary path: pull the hydrated result set out of `window.mosaic`. */
