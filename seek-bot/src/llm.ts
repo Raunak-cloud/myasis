@@ -1067,46 +1067,6 @@ response as permission to apply.
   });
 }
 
-/** Picks the best-fitting resume from the candidate's library for one job. Only called when there is more than one to choose between. */
-export async function chooseResume(
-  job: JobListing,
-  profile: CandidateProfile,
-  resumes: Array<{ id: string; label: string; notes?: string; evidence?: string }>,
-): Promise<{ resumeId: string; reason: string }> {
-  const prompt = `${GUARD}
-
-The candidate has more than one resume on file, each aimed at a different kind
-of role. Choose the single best fit for this job. Judge only by how well each
-resume's actual evidence matches the role — do not judge the candidate's
-overall suitability for the job, that has already been decided.
-
-CANDIDATE PROFILE
-${profileBlock(profile)}
-
-AVAILABLE RESUMES
-${resumes
-  .map((r, i) => `${i + 1}. id="${r.id}" — "${r.label}"${r.notes ? `: ${r.notes}` : ''}\nEvidence: ${r.evidence ?? 'Text unavailable; label alone is weak evidence.'}`)
-  .join('\n')}
-
-<untrusted role="job-listing">
-Title: ${job.title}
-Company: ${job.company}
-Description: ${relevantEvidence(job.description ?? '', job.title + ' ' + profile.skills.join(' '), 16000)}
-</untrusted>
-
-If no resume is a clearly better fit than the others, choose whichever reads
-as the most general-purpose one rather than guessing at a narrow match.
-"resumeId" MUST be exactly one of the "id" values listed above. Return JSON.`;
-
-  return json(prompt, {
-    type: 'OBJECT',
-    properties: {
-      resumeId: { type: 'STRING' },
-      reason: { type: 'STRING' },
-    },
-    required: ['resumeId', 'reason'],
-  });
-}
 
 const preparedLetters = new Map<string, Promise<string>>();
 export function coverLetterForJob(job: JobListing, profile: CandidateProfile, revision?: CoverLetterRevision): Promise<string> {

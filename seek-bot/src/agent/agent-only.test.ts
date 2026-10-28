@@ -64,7 +64,8 @@ try {
       { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Name' }, value: 'Rinu Fixture' } },
       { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Email' }, value: 'fixture@example.invalid' } },
       { name: 'browser_action', args: { action: 'fill', locator: { by: 'label', value: 'Cover letter' }, value: letter } },
-      { name: 'upload_document', args: { locator: { by: 'css', value: '#cv' }, document_id: 'cv-1' } },
+      { name: 'browser_action', args: { action: 'set_input_files', locator: { by: 'css', value: '#cv' }, file_ids: ['cv-1'] } },
+      { name: 'save_progress', args: { note: 'Selected resume attached.', resume_id: 'cv-1' } },
       { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Submit' }, sends_application: true, wait: { timeout_ms: 5000 } } },
     ];
   }, body => {
@@ -159,8 +160,9 @@ try {
     await page.setContent(uploadForm(accept));
     await page.evaluate('window.uploadChanges=0', undefined, undefined, false);
     const before: number = turns.length;
-    script = [() => [{ name: 'upload_document', args: { document_id: 'cv-pdf', locator: { by: 'label', value: 'Resume', within: '#resume-section' } } }], body => {
-      assert.match(JSON.stringify(body.messages), /File selected: CV.pdf/);
+    script = [() => [{ name: 'browser_action', args: { action: 'set_input_files', file_ids: ['cv-pdf'], locator: { by: 'label', value: 'Resume', within: '#resume-section' } } },
+      { name: 'save_progress', args: { note: 'Original PDF attachment verified.', resume_id: 'cv-pdf' } }], body => {
+      assert.match(JSON.stringify(body.messages), /CV.pdf/);
       return [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
     }, body => {
       assert.match(observation(body), /Application received: UPLOAD123/);
@@ -177,21 +179,24 @@ try {
   }
 
   await page.setContent(`<main><label>Resume<input type=file id=resume accept='doc,docx,pdf,rtf' onchange="document.querySelector('#message').textContent=this.files[0].name.endsWith('.pdf')?'Resume accepted':'Only PDF accepted by this employer'"></label><p id=message></p><button id=send onclick="if(document.querySelector('#message').textContent==='Resume accepted')document.querySelector('main').textContent='Application received: CONVERT123'">Submit</button></main>`);
-  script = [() => [{ name: 'upload_document', args: { document_id: 'cv-1', selector: '#resume' } }], body => {
+  script = [() => [{ name: 'browser_action', args: { action: 'set_input_files', file_ids: ['cv-1'], selector: '#resume' } }], body => {
     assert.match(observation(body), /Only PDF accepted by this employer/);
-    assert.match(JSON.stringify(body.messages), /File selected: CV.txt/, 'the original must be attempted unchanged, not silently converted from accept');
-    return [{ name: 'upload_document', args: { document_id: 'cv-1', selector: '#resume', format: 'pdf' } }];
+    assert.match(JSON.stringify(body.messages), /CV.txt/, 'the original must be attempted unchanged, not silently converted from accept');
+    return [{ name: 'convert_file', args: { file_id: 'cv-1', format: 'pdf' } }];
+  }, body => {
+    const result = JSON.parse(String(body.messages.filter(message => message.role === 'tool').at(-1)?.content));
+    return [{ name: 'browser_action', args: { action: 'set_input_files', file_ids: [result.file_id], selector: '#resume' } }];
   }, body => {
     assert.match(observation(body), /Resume accepted/);
-    assert.match(JSON.stringify(body.messages), /File selected: CV.pdf/);
+    assert.match(JSON.stringify(body.messages), /CV.pdf/);
     return [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
   }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Agent chose PDF after actual employer rejection', evidence: 'Application received: CONVERT123', receipt: { quote: 'Application received: CONVERT123' } } }]];
   const convertedUpload = await runApplicationAgent({ page, job: { ...job, id: 'agent-requested-upload-format' }, profile, log: () => {} });
   assert.equal(convertedUpload.outcome.status, 'applied');
 
   await page.setContent(uploadForm('doc,docx,pdf,rtf'));
-  script = [() => [{ name: 'upload_document', args: { document_id: '../../another-account/CV.pdf', selector: '#resume' } }], body => {
-    assert.match(JSON.stringify(body.messages), /Choose a document_id from the account document inventory/);
+  script = [() => [{ name: 'browser_action', args: { action: 'set_input_files', file_ids: ['../../another-account/CV.pdf'], selector: '#resume' } }], body => {
+    assert.match(JSON.stringify(body.messages), /Choose a file ID from the candidate document inventory/);
     return [{ name: 'finish', args: { status: 'skipped', reason: 'Unknown document correctly refused', evidence: 'No account-owned document matched that ID' } }];
   }];
   await runApplicationAgent({ page, job: { ...job, id: 'direct-upload-owner-isolation' }, profile, log: () => {} });
@@ -329,7 +334,7 @@ try {
   await page.locator('#cv').setInputFiles(join(directory, 'resumes', 'CV.txt'));
   script = [
     () => expensive([{ name: 'take_snapshot', args: {} }]),
-    () => expensive([{ name: 'upload_document', args: { selector: '#cv', document_id: 'cv-1' } }]),
+    () => expensive([{ name: 'browser_action', args: { action: 'set_input_files', selector: '#cv', file_ids: ['cv-1'] } }]),
     () => expensive([{ name: 'browser_action', args: { action: 'fill', selector: '#q0', value: 'Must not execute' } }]),
   ];
   const unchangedUpload = await runApplicationAgent({ page, job: { ...job, id: 'native-progress-unchanged-upload' }, profile, log: () => {} });

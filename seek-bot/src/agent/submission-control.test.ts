@@ -85,7 +85,8 @@ try {
       { name: 'browser_action', args: { ...authAction, sends_application: false } },
       { name: 'browser_action', args: { action: 'click', ...at('#city'), sends_application: false } },
       { name: 'browser_action', args: { action: 'press', ...at('#city'), value: 'Enter', sends_application: false } },
-      { name: 'upload_document', args: { ...at('#cv'), document_id: 'cv' } },
+      { name: 'browser_action', args: { action: 'set_input_files', ...at('#cv'), file_ids: ['cv'] } },
+      { name: 'save_progress', args: { note: 'Selected fixture CV verified.', resume_id: 'cv' } },
       ...(index === 4 ? [{ name: 'browser_action', args: { action: 'press', ...at('#name'), value: 'Home' } }] : []),
       { name: 'browser_action', args: { ...unapprovedSend, sends_application: true } },
     ];
@@ -106,7 +107,8 @@ try {
     const sendAction = index === 0 ? { action: 'click', ...at('#send') }
       : { action: 'press', value: index === 4 ? 'NumpadEnter' : 'Enter', ...(index === 1 ? at('#send') : index === 3 ? at('#name') : {}) };
     calls = [
-      { name: 'upload_document', args: { ...at('#cv'), document_id: 'cv' } },
+      { name: 'browser_action', args: { action: 'set_input_files', ...at('#cv'), file_ids: ['cv'] } },
+      { name: 'save_progress', args: { note: 'Approved fixture CV verified.', resume_id: 'cv' } },
       { name: 'browser_action', args: { ...sendAction, sends_application: true } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' } } },
     ];

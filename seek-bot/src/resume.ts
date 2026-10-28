@@ -1,15 +1,9 @@
 import { execFile } from 'node:child_process';
-import { withJobCost } from './cost-ledger.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, basename, dirname, extname } from 'node:path';
 import { promisify } from 'node:util';
 import { config } from './config.js';
-import { applicationModelAvailable, applicationModelIdentity } from './application-model.js';
-import { extractText } from './knowledge.js';
-import { relevantEvidence } from './pipeline.js';
-import { chooseResume } from './llm.js';
-import type { CandidateProfile, JobListing } from './types.js';
 
 interface ResumeRecord {
   id: string;
@@ -68,84 +62,4 @@ export function resolveResume(idOrLabel?: string): ResumeRecord | null {
     all.find((r) => r.fileName.toLowerCase() === needle) ??
     null
   );
-}
-
-/**
- * Chooses which resume a specific job application should use.
- *
- * An explicit run-level override (`config.resume.select`) always wins — a
- * deliberate manual choice is never second-guessed. With zero or one resume
- * on file there is nothing to choose between either. Only with more than one
- * does this ask the model to pick, based on each resume's own label/notes —
- * never on the job's fit for the candidate, which is decided separately.
- * Falls back to the default resume on any failure or an unrecognised answer,
- * so a flaky model call can never block an application outright.
- */
-async function pickResumeUncached(
-  job: JobListing,
-  profile: CandidateProfile,
-): Promise<ResumeRecord | null> {
-  if (config.resume.select) return resolveResume(config.resume.select);
-
-  const all = loadResumes();
-  if (all.length <= 1 || !applicationModelAvailable()) return resolveResume();
-
-  try {
-    const { resumeId, reason } = await chooseResume(
-      job,
-      profile,
-      await Promise.all(all.map(async r => ({ id: r.id, label: r.label, notes: r.notes, evidence: relevantEvidence(await extractText(resolve(resumeDirectory(), r.fileName)).catch(() => ''), job.title + ' ' + (job.description ?? ''), 6000) }))),
-    );
-    const chosen = all.find((r) => r.id === resumeId);
-    if (chosen) {
-      console.log(`  🎯 resume: "${chosen.label}" — ${reason}`);
-      return chosen;
-    }
-    console.warn(`  ! resume choice "${resumeId}" matched none on file — using the default`);
-  } catch (error) {
-    console.warn(`  ! could not choose a resume automatically: ${(error as Error).message} — using the default`);
-  }
-  return resolveResume();
-}
-
-interface FileInputDescription {
-  accept: string;
-  identity: string;
-  context: string;
-}
-
-/**
- * Picks a resume/document uploader without confusing it with a profile-photo
- * control elsewhere on the application page. SEEK currently renders both as
- * hidden file inputs; choosing the first one opens its photo editor and leaves
- * the resume step untouched.
- */
-export function resumeFileInputIndex(inputs: FileInputDescription[]): number {
-  let best = { index: -1, score: Number.NEGATIVE_INFINITY };
-  inputs.forEach((input, index) => {
-    const accept = input.accept.toLowerCase();
-    const text = `${input.identity} ${input.context}`.toLowerCase();
-    let score = 0;
-    if (/\.pdf|\.doc|\.docx|\.rtf|\.txt|application\/pdf|msword|officedocument|text\/plain/.test(accept)) score += 120;
-    if (/image\/|\.jpe?g|\.png|\.gif|\.webp|\.heic/.test(accept)) score -= 200;
-    // Pages spell it either way (SEEK's step says "Resumé").
-    if (/\b(r[eé]sum[eé]?|cv|curriculum vitae|document)\b/.test(text)) score += 60;
-    if (/profile photo|profile picture|headshot|avatar/.test(text)) score -= 120;
-    if (/accepted file types[^\n]{0,100}(?:\.doc|\.pdf)|attach|upload/.test(text)) score += 10;
-    if (score > best.score) best = { index, score };
-  });
-  // A single unlabelled, non-image input is normal on external ATS forms.
-  if (best.index >= 0 && (best.score > 0 || (inputs.length === 1 && best.score >= 0))) return best.index;
-  return -1;
-}
-
-const resumeChoices = new Map<string, Promise<ResumeRecord | null>>();
-export function pickResumeForJob(job: JobListing, profile: CandidateProfile): Promise<ResumeRecord | null> {
-  return withJobCost(job.id, () => pickResumeForJobScoped(job, profile));
-}
-function pickResumeForJobScoped(job: JobListing, profile: CandidateProfile): Promise<ResumeRecord | null> {
-  const key = JSON.stringify([config.dataDir, applicationModelIdentity(), job, profile, config.resume.select, loadResumes()]);
-  let pending = resumeChoices.get(key);
-  if (!pending) { pending = pickResumeUncached(job, profile); resumeChoices.set(key, pending); }
-  return pending;
 }

@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { BrowserContext, Locator, Page, Route } from 'patchright';
 import { applicationAllowance } from '../application-allowance.js';
 import { WORK_RIGHTS_EVIDENCE_RULES, APPLICATION_WRITING_STYLE } from '../application-answer-policy.js';
@@ -13,11 +12,12 @@ import { hasHcaptchaChallenge } from '../captcha/detect.js';
 import { HCAPTCHA_SKIP_REASON } from '../captcha.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordFormPage } from '../form-corpus.js';
-import { convertDocument, type DocumentFormat } from '../resume.js';
+import type { DocumentFormat } from '../resume.js';
 import { outsideScope } from '../run-scope.js';
 import { commitAcceptedCredentials } from '../site-credentials.js';
 import { startAgentActivity } from './agent-activity.js';
-import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationAttemptHistory } from './agent-only-evidence.js';
+import { agentOnlyDocuments, agentOnlyEvidence, applicationAttemptHistory } from './agent-only-evidence.js';
+import { AgentFiles, fileIdsProperty } from './agent-files.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
 import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
@@ -63,21 +63,26 @@ export const agentOnlyTools: ToolSchema[] = [
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
   schema('browser_batch', 'Execute your own ordered native browser commands in one call. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
-      action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'wait'] },
+      action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'wait', 'set_input_files'] },
+      file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean' },
     }, required: ['action'] } },
   }, ['actions']),
   schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or section with ref, selector or a direct Playwright locator. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ...browserTargetProperties }),
   schema('browser_action', 'Act directly on the observed browser. You author values, choose interactions and decide when to submit. Fill/select/check report actual readback and validation. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
-    action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'scroll', 'navigate', 'script', 'select_page', 'dialog', 'wait', 'inspect'] },
+    action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'scroll', 'navigate', 'script', 'select_page', 'dialog', 'wait', 'inspect', 'set_input_files'] },
+    file_ids: fileIdsProperty,
+    file_chooser: { type: 'boolean', description: 'For set_input_files only: true clicks your selected upload trigger and attaches through the native file chooser. Otherwise target the actual file input directly.' },
     ...browserTargetProperties, ...browserWaitProperties, value: string, script: string,
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
     sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission.' },
   }, ['action']),
-  schema('upload_document', 'Select an account resume by document_id or your own cover_letter text and attach it directly with native browser file upload. The original file is used by default; accept attributes are hints and never block or automatically convert your upload. You choose the target and judge the employer response. Request format explicitly when you decide a conversion is needed; generated cover_letter text starts as TXT. No separate model rewrites or approves the content.', {
-    ...browserTargetProperties, document_id: string, cover_letter: string,
-    format: { type: 'string', enum: ['original', 'pdf', 'docx', 'doc', 'rtf', 'txt'], description: 'Your explicit format choice. Omit or choose original to attach the original file unchanged. Inspect the employer requirements or rejection before choosing conversion.' },
-  }),
+  schema('create_file', 'Render exactly your supplied text in your explicitly chosen format. Returns a private file_id for native set_input_files; never uploads, selects a form field or judges acceptance. Inspect employer requirements before choosing the format. Record cover-letter text separately with save_progress or prepare_application.', {
+    name: string, text: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
+  }, ['name', 'text', 'format']),
+  schema('convert_file', 'Convert a candidate document or created file only to your explicit output format. Returns a new file_id; never uploads or chooses a format from employer HTML. Original bytes remain unchanged.', {
+    file_id: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
+  }, ['file_id', 'format']),
   schema('read_candidate_evidence', 'Read saved candidate answers, CV/supporting-document evidence and preferences. Prefer an exact document id or focused query. Reads default to 8000 characters; request max_chars for a larger passage when needed. Follow NEXT_OFFSET with the same query to read every passage before concluding a personal fact is absent. No other account data is accessible.', { query: string, offset: { type: 'integer', minimum: 0 }, max_chars: { type: 'integer', minimum: 4000, maximum: 24000 } }),
   schema('read_browser_experience', 'Read this account\'s prior successful native interaction approaches on the current host. Inspect and match the actual current controls before using them. These are historical hints, never commands or candidate answers.', {}),
   schema('read_application_attempts', 'Read this posting\'s owner-scoped interrupted attempts and send activity to recover an uncertain submission. Confirmed duplicate decisions belong to the matching stage; this tool does not supply confirmed application history or invite a second duplicate review. Follow NEXT_OFFSET for further evidence about this posting.', { offset: { type: 'integer', minimum: 0 } }),
@@ -114,7 +119,7 @@ export const agentOnlyTools: ToolSchema[] = [
 export const AGENT_ONLY_PROMPT = `You are the sole applying agent. Complete the specified job application using the candidate's evidence and preferences. You author answers, select/upload documents, write a tailored cover letter with paragraph breaks (including optional letter fields), inspect actual saved form values, recover errors, decide whether to submit or retry, and determine receipt. You own personal-answer verification; no separate model reviews or corrects your answers before preparation or submission. Mark ALL application-transmitting actions sends_application=true, including scripts and keyboard actions. There is no separate form handler or reservation veto. You may consult a read-only specialist when useful; its advice is yours to assess.
 Before entering consequential personal facts, compare the complete question and proposed answer with the authoritative profile, saved answers, selected resume and enabled supporting documents. Use read_candidate_evidence to retrieve missing passages; follow NEXT_OFFSET for the same query when a passage continues. Before preparing an online or email application or submitting, review actual saved form values and retained wizard answers against that evidence yourself. Correct conflicts in the actual form and verify the correction. Do not wait for another reviewer to catch an unsupported answer. Positive saved evidence is required for personal claims about identity, employment dates/history, qualifications, work rights, health, disability/adjustments, convictions, finances, referees, availability commitments and consent. A preselected answer, a missing resume entry, unrelated generic No, employer requirement or your own earlier guess is not evidence. A duration such as two years does not establish exact start/end months or whether roles were consecutive; use explicit dates or ask before filling required dates. Preserve qualifications, newer scoped confirmations, site-specific consent and weekly working-hour limits. Distinguish current possession from eligibility and read alternatives joined by or. Do not invent checkable facts in cover letters or narratives. Routine professional wording and ordinary form choices do not require proof. Clear optional unknown personal answers or use an offered non-disclosure choice; when a required consequential fact remains unknown after checking the available evidence, finish needs-human with the exact observed question, its section, and choices. Ask once per distinct fact; label repeated date questions by role and start/end so the candidate can distinguish them. This responsibility applies equally to browser actions, scripts, dialogs, Semi auto preparation and email drafts.
 Read the authoritative profile, saved answers, CVs, supporting documents and matching-stage duplicate decision. The matching stage owns duplicate decisions from known history; do not review confirmed application records again or skip a cleared job based on similar company/title metadata. Only NEW evidence on the actual employer form can reveal an earlier application; finish already-applied with duplicate_evidence.quote copied from that observed page. A receipt for the submission you just made means applied, not already-applied. More evidence is available with read_candidate_evidence. Follow explicit candidate preferences, including reusing supplied cover-letter text unchanged when the selected letter mode is reuse; distinguish routine reasonable choices from unknown personal facts. Do not invent qualifications, legal/work rights, health history, identity or financial facts. Ask for attention only when a consequential unknown prevents truthful completion. Interrupted attempts and reservations remain advisory recovery evidence: inspect uncertain previous sends before deciding to repeat. They are not confirmed duplicates. A validation-rejected submit can be corrected and retried; do not call that a successful or uncertain receipt merely because Submit was pressed. Inspect the current page after sending; report applied only when you see receipt evidence. Keep answers and documents consistent and preserve letter paragraphs.
-When the form offers CV upload or parsing, upload the selected CV early, then inspect and correct the resulting saved fields. upload_document attaches the original document directly; the form's accept attribute is advisory, not an Owtomate rejection rule. You choose whether a different format is necessary from the actual employer requirements or response and request it explicitly with format. If an upload is rejected for its format, changing selectors cannot repair the document: inspect the employer error and choose another approved document or request the appropriate conversion. A file selected in the browser is not proof the employer accepted it. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless the form requires them or the candidate asks. Complete required sections truthfully and include the tailored cover letter. Use the fresh observation already provided before requesting another snapshot of the same information.
+You own document uploads. Inspect the actual employer requirements and controls, choose the exact candidate file IDs, and use browser_action set_input_files with file_ids on your chosen input. For a native file chooser, set file_chooser=true on the observed upload trigger instead. File inputs can be hidden; inspect their actual selectors rather than uploading to a neighbouring control. Native attachment never interprets accept attributes, selects documents or converts formats. Use create_file with your complete text, file name and explicit format for a cover-letter attachment; use convert_file only when you choose to convert a specific file. These tools return file_ids and do not attach anything. There is no default cover-letter format: choose one from the employer requirements. Reuse matching saved attachments; do not upload again simply because the input cleared after the employer stored the file. Inspect the actual saved attachment and employer response yourself; a browser-selected file is not proof of employer acceptance. After verifying uploads, record the selected original resume_id and complete cover_letter text with save_progress or prepare_application so history and candidate approval retain your choices. When CV parsing is offered, attach the selected CV early and correct resulting saved fields. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless required. Use the fresh observation before requesting another snapshot of the same information.
 If a role does not match the candidate's preferences, finish as skipped with the reason. For needs-human, include questions containing the exact observed required form labels, clear candidate-facing prompts and offered choices. Only ask about a consequential candidate fact or decision the saved evidence cannot answer. Browser failures and role mismatches are not unanswered application questions; never invent a question to create a task.
 For a genuine suitability rejection, include fit_rejection with the exact decisive employer quote and its source. This lets unchanged unsuitable listings be remembered; technical problems and uncertain sends must not be remembered as role mismatches.
 You identify every application-transmitting action yourself and mark it sends_application=true, including mouse, keyboard, batch, script and coordinate sends. Signing in, opening Apply, advancing wizard pages, uploading documents and selecting an autocomplete location are ordinary actions; do not mark them as application sends. There is no separate submission classifier. Semi auto confirmation and approved-content checks still apply to your marked sends.
@@ -173,6 +178,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const screenshotsEveryTurn = applicationModelEnvironment().APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN !== 'false';
   if (screenshotsEveryTurn) log('Application screenshots: fresh screenshot each decision turn; only the latest image is sent.');
   const approved = approvedApplication(options.job);
+  const files = new AgentFiles(options.job.id, approved);
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile,
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' },
     captured: approved?.answers.map(answer => ({ ...answer })) ?? [], actions: [], log };
@@ -409,37 +415,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       commitAcceptedCredentials(ctx.pendingCredentials, ctx.actions, ctx.profile.email);
       return ok('Recorded the agent-observed authentication outcome.');
     }
-    if (name === 'upload_document') {
-      await assertCurrentRef(ctx, args);
-      const input = target(ctx, args);
-      let file: string | null = null;
-      if (args.document_id) {
-        if (approved?.resumeId && args.document_id !== approved.resumeId) return ok('Upload the exact resume ID in the approved application.', 'failed');
-        file = agentOnlyResumePath(String(args.document_id));
-        if (!file) throw new Error('Choose a document_id from the account document inventory.');
-        const doc = agentOnlyDocuments().find(item => item.id === args.document_id)!;
-        ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName;
-      } else if (typeof args.cover_letter === 'string' && args.cover_letter.trim()) {
-        ctx.coverLetter = coverLetterForRun(args.cover_letter);
-        const dir = resolve(config.dataDir, 'agent-documents', createHash('sha256').update(options.job.id).digest('hex').slice(0, 20));
-        mkdirSync(dir, { recursive: true });
-        // Explicit conversions cache by source basename. Revised letters need
-        // their own basename so an older converted letter cannot be reused.
-        file = resolve(dir, `Cover letter-${createHash('sha256').update(ctx.coverLetter).digest('hex').slice(0, 12)}.txt`);
-        writeFileSync(file, ctx.coverLetter);
-      } else throw new Error('Provide document_id or cover_letter.');
-      if (args.format && args.format !== 'original') {
-        const converted = await convertDocument(file, args.format as DocumentFormat);
-        if (!converted) throw new Error(`Could not produce the requested ${args.format} document. The original file was not uploaded; choose the original or another available document/format.`);
-        file = converted;
-      }
-      const before = await nativeReadback(input).catch(() => null) as { files?: string[] } | null;
-      await input.setInputFiles(file, { timeout: 15_000 });
-      const readback = await nativeReadback(input).catch(() => null) as { files?: string[]; invalid?: boolean; validation?: string } | null;
-      if (before && readback?.files?.length && !readback.invalid && !readback.validation
-        && JSON.stringify(before.files) !== JSON.stringify(readback.files)) meter.uploaded(String(args.document_id ?? 'cover-letter'));
-      return ok(`File selected: ${basename(file)}. Browser readback: ${JSON.stringify(readback)}. Inspect the employer response and saved attachment; selecting a file is not proof of employer acceptance.`);
-    }
+    if (name === 'create_file') return ok(JSON.stringify(await files.create(String(args.name), String(args.text), args.format as DocumentFormat)));
+    if (name === 'convert_file') return ok(JSON.stringify(await files.convert(String(args.file_id), args.format as DocumentFormat)));
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
     if (reviewingApplications() && (args.action === 'script' || (args.action === 'click' && typeof args.x === 'number') || args.action === 'dialog' && args.value !== 'dismiss')) {
       return ok('Use the observed form controls in Semi auto. Scripts, coordinate clicks and accepting browser dialogs are unavailable because they can bypass application confirmation.', 'failed');
@@ -448,7 +425,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       return ok('Follow the observed application controls in Semi auto. Direct navigation is limited to this job listing so a send URL cannot bypass confirmation.', 'failed');
     }
     const coordinateClick = args.action === 'click' && typeof args.x === 'number' && typeof args.y === 'number';
-    if (!coordinateClick && ['click', 'fill', 'select', 'check', 'press', 'hover'].includes(String(args.action))) await assertCurrentRef(ctx, args);
+    if (!coordinateClick && ['click', 'fill', 'select', 'check', 'press', 'hover', 'set_input_files'].includes(String(args.action))) await assertCurrentRef(ctx, args);
     if (args.action === 'click' && !coordinateClick && hasBrowserTarget(args)) {
       const href = await target(ctx, args).evaluate(node => node.closest('a')?.getAttribute('href') || '', undefined, { timeout: 2500 });
       if (/^mailto:/i.test(href)) return ok('Use prepare_email_application for email applications. A mailto link does not submit an application.', 'failed');
@@ -487,6 +464,26 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     }
     const value = args.action === 'fill' && isCoverLetterField(actionLabel) ? coverLetterForRun(String(args.value ?? '')) : String(args.value ?? '');
     switch (args.action) {
+      case 'set_input_files': {
+        if (!Array.isArray(args.file_ids)) throw Error('Provide file_ids from the candidate inventory or create_file/convert_file results.');
+        const selected = args.file_ids.map(id => files.resolve(String(id)));
+        const input = target(ctx, args);
+        const before = await nativeReadback(input).catch(() => null) as { files?: string[] } | null;
+        let readback: { files?: string[]; invalid?: boolean; validation?: string } | null;
+        if (args.file_chooser === true) {
+          const [chooser] = await Promise.all([ctx.page.waitForEvent('filechooser', { timeout: 15000 }), input.click({ timeout: 8000 })]);
+          await chooser.setFiles(selected.map(file => file.path), { timeout: 15000 });
+          readback = await chooser.element().evaluate(node => ({ files: [...((node as HTMLInputElement).files ?? [])].map(file => file.name) })).catch(() => null);
+        } else {
+          await input.setInputFiles(selected.map(file => file.path), { timeout: 15000 });
+          readback = await nativeReadback(target(ctx, args)).catch(() => null) as typeof readback;
+        }
+        browserMutated = true;
+        if (before && readback?.files?.length && !readback.invalid && !readback.validation
+          && JSON.stringify(before.files) !== JSON.stringify(readback.files)) meter.uploaded(args.file_ids.join(','));
+        return ok(JSON.stringify({ action: 'set_input_files', file_ids: args.file_ids, current: readback,
+          note: 'Native browser operation completed. Inspect the employer response and saved attachment yourself; a selected file is not employer acceptance.' }));
+      }
       case 'navigate': {
         const url = new URL(value, ctx.page.url());
         if (url.hostname === 'mail.google.com') return ok('Access Gmail through MCP only. Do not open Gmail in a browser.', 'failed');
@@ -680,8 +677,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
             const wasReviewingSubmission = submissionReviewRequired;
             result = await act(call.name, call.args);
             if (result.kind === 'ok' && result.disposition !== 'failed' && (call.name === 'browser_batch'
-              || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link', 'upload_document'].includes(call.name)
-              || call.name === 'browser_action' && ['click', 'fill', 'select', 'check', 'press', 'navigate', 'script', 'dialog'].includes(String(call.args.action)))) browserMutated = true;
+              || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
+              || call.name === 'browser_action' && ['click', 'fill', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(call.args.action)))) browserMutated = true;
             if (!wasReviewingSubmission && submissionReviewRequired && result.kind === 'ok' && result.disposition !== 'failed') {
               result = ok(`${result.message}\nReview the fresh employer response before any further action.`, 'reobserve');
             }
