@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
-import { careerTarget, employerTargets, identifierTarget, EMPLOYER_SOURCES, type EmployerSourceId } from './employer-source-config.js';
+import { careerTarget, employerTargets, EMPLOYER_SOURCES, type EmployerSourceId } from './employer-source-config.js';
 import { smartRecruitersIdentity } from './smartrecruiters.js';
 import type { JobListing } from './types.js';
 import { parseAgeDays } from './listing-age.js';
@@ -8,7 +8,6 @@ import { parseAgeDays } from './listing-age.js';
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
 type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number };
 export const EMPLOYER_FEED_PAGE_SIZE = 20;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const key = (source: string, namespace: string, id: string) => `${source}-${createHash('sha256').update(`${namespace}:${id}`).digest('hex').slice(0, 32)}`;
 const clean = (value: unknown, limit = 50_000): string => typeof value === 'string' ? value.trim().slice(0, limit) : '';
 export function feedText(value: unknown): string {
@@ -49,9 +48,6 @@ export function employerJobIdentity(source: EmployerSourceId, raw: string): { na
   const url = new URL(raw);
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) throw new Error('Use a public employer job URL.');
   const path = url.pathname.split('/').filter(Boolean);
-  if (source === 'lever' && url.hostname === 'jobs.lever.co' && path.length >= 2 && path.length <= 3 && UUID.test(path[1]) && (!path[2] || path[2] === 'apply')) {
-    employerTargets('lever', path[0]); return { namespace: path[0], posting: path[1] };
-  }
   if (source === 'greenhouse' && ['job-boards.greenhouse.io', 'boards.greenhouse.io'].includes(url.hostname) && path.length === 3 && path[1] === 'jobs' && /^\d{1,20}$/.test(path[2])) {
     employerTargets('greenhouse', path[0]); return { namespace: path[0], posting: path[2] };
   }
@@ -120,6 +116,7 @@ export class EmployerFeedDiscovery {
   private readonly now: () => number;
   constructor(readonly source: NewSource, raw?: string, private options: FeedOptions = {}) {
     const spec = EMPLOYER_SOURCES.find(item => item.id === source)!;
+    if (!spec) throw new Error('This job source is no longer available.');
     this.targets = employerTargets(source, raw ?? spec.defaults);
     this.reader = new PublicReader(options); this.now = options.now ?? Date.now;
   }
@@ -127,16 +124,7 @@ export class EmployerFeedDiscovery {
   private listing(target: string, raw: any): JobListing | null {
     if (!raw || typeof raw !== 'object') return null;
     let id: string, title: string, company: string, location: string, url: string, description = '', at: unknown, arrangement: string | undefined;
-    if (this.source === 'lever') {
-      if (!UUID.test(String(raw.id)) || (raw.country && String(raw.country).toLowerCase() !== 'au')) return null;
-      const board = identifierTarget(target);
-      id = raw.id; title = clean(raw.text, 300); company = board.name || board.identifier; location = clean(raw.categories?.location, 500);
-      url = `https://jobs.lever.co/${board.identifier}/${id}`;
-      if (raw.hostedUrl && employerJobIdentity('lever', raw.hostedUrl).namespace !== board.identifier) throw new Error('Different Lever employer.');
-      description = [raw.descriptionPlain || feedText(raw.description), ...(Array.isArray(raw.lists) ? raw.lists.map((list: any) => `${clean(list.text)}\n${feedText(list.content)}`) : []), raw.additionalPlain || feedText(raw.additional)].filter(Boolean).join('\n\n').slice(0, 50_000);
-      // The public postings contract does not promise a publication date. Never invent it.
-      arrangement = ['remote', 'hybrid', 'on-site'].includes(raw.workplaceType) ? raw.workplaceType : undefined;
-    } else if (this.source === 'greenhouse') {
+    if (this.source === 'greenhouse') {
       if (!/^\d{1,20}$/.test(String(raw.id)) || expired(raw.application_deadline, this.now())) return null;
       id = String(raw.id); title = clean(raw.title, 300); company = clean(raw.company_name, 300) || target;
       location = clean(raw.location?.name, 500); url = `https://job-boards.greenhouse.io/${target}/jobs/${id}`;
@@ -155,7 +143,7 @@ export class EmployerFeedDiscovery {
       location = clean(raw.location, 500); description = clean(raw.teaser, 1000); at = raw.published;
     }
     if (!title || !location) return null;
-    const namespace = this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, target).url.href : this.source === 'lever' ? identifierTarget(target).identifier : target;
+    const namespace = this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, target).url.href : target;
     return { id: key(this.source, namespace, id), title, company, location, url, applicationUrl: url,
       platform: this.source, applicationMode: 'external', source: 'search', ...dates(at, this.now()),
       ...(this.source === 'workday' && parseAgeDays(raw.postedOn) !== undefined ? { ageDays: parseAgeDays(raw.postedOn), listedAt: clean(raw.postedOn) } : {}),
@@ -175,26 +163,9 @@ export class EmployerFeedDiscovery {
 
   private async board(target: string): Promise<any[]> {
     if (!this.boardCache.has(target)) this.boardCache.set(target, (async () => {
-      if (this.source === 'greenhouse') {
-        const data = await this.reader.json(`https://boards-api.greenhouse.io/v1/boards/${target}/jobs?content=true`);
-        if (!Array.isArray(data.jobs)) throw new Error('Invalid Greenhouse board response.');
-        return data.jobs;
-      }
-      const jobs: any[] = [];
-      const board = identifierTarget(target);
-      const seen = new Set<string>();
-      for (let offset = 0; ; offset += 100) {
-        const query = new URLSearchParams({ mode: 'json', limit: '100', skip: String(offset) });
-        for (const location of board.locations) query.append('location', location);
-        const data = await this.reader.json(`https://api.lever.co/v0/postings/${board.identifier}?${query}`);
-        if (!Array.isArray(data)) throw new Error('Invalid Lever board response.');
-        const fresh = data.filter(row => typeof row.id === 'string' && !seen.has(row.id));
-        if (!fresh.length) break;
-        for (const row of fresh) seen.add(row.id);
-        jobs.push(...fresh);
-        if (data.length < 100) break;
-      }
-      return jobs;
+      const data = await this.reader.json(`https://boards-api.greenhouse.io/v1/boards/${target}/jobs?content=true`);
+      if (!Array.isArray(data.jobs)) throw new Error('Invalid Greenhouse board response.');
+      return data.jobs;
     })());
     return this.boardCache.get(target)!;
   }
@@ -205,7 +176,7 @@ export class EmployerFeedDiscovery {
     for (const target of this.targets) {
       try {
         let rows: any[];
-        if (this.source === 'lever' || this.source === 'greenhouse') {
+        if (this.source === 'greenhouse') {
           // A board is a bounded snapshot, not a keyword result page. Artificial
           // paging let adaptive discovery stop before later vacancies were even
           // ranked. Give AI the whole snapshot once; normal review/apply limits
@@ -249,13 +220,10 @@ export class EmployerFeedDiscovery {
 
   async detail(stub: JobListing): Promise<JobListing> {
     const identity = employerJobIdentity(this.source, stub.url);
-    const target = this.targets.find(value => (this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, value).url.href : this.source === 'lever' ? identifierTarget(value).identifier : value) === identity.namespace);
+    const target = this.targets.find(value => (this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, value).url.href : value) === identity.namespace);
     if (!target || key(this.source, identity.namespace, identity.posting) !== stub.id) throw new Error('The job is outside the employer watchlist or its identity changed.');
     let job: JobListing | null;
-    if (this.source === 'lever') {
-      const raw = await this.reader.json(`https://api.lever.co/v0/postings/${identifierTarget(target).identifier}/${identity.posting}`);
-      job = this.listing(target, raw);
-    } else if (this.source === 'greenhouse') {
+    if (this.source === 'greenhouse') {
       const raw = await this.reader.json(`https://boards-api.greenhouse.io/v1/boards/${target}/jobs/${identity.posting}?content=true`);
       job = this.listing(target, raw);
     } else if (this.source === 'workday') {

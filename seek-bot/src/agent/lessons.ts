@@ -3,7 +3,6 @@ const PLATFORMS: Array<[RegExp, string]> = [
   [/myworkdayjobs|workday/i, 'Workday'],
   [/oraclecloud|taleo/i, 'Oracle Recruiting'],
   [/livehire|humanforce/i, 'LiveHire'],
-  [/lever\.co/i, 'Lever'],
   [/ashbyhq/i, 'Ashby'],
   [/successfactors|sapsf/i, 'SAP SuccessFactors'],
   [/pageuppeople|pageup/i, 'PageUp'],

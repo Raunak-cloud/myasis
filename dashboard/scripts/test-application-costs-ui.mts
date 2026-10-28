@@ -53,7 +53,7 @@ const server = createServer(async (req, res) => {
       '/api/run/status': { running: searchStarted, mode: searchStarted ? 'search' : null, startedAt: searchStarted ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
       '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [
-        { jobId:'tracked', title:'Fixture AI Engineer', company:'Example Employer', location:'Sydney NSW', appliedAt:new Date().toISOString(), score:90, platform:'lever', url:'https://fixture.invalid/job' },
+        { jobId:'tracked', title:'Fixture AI Engineer', company:'Example Employer', location:'Sydney NSW', appliedAt:new Date().toISOString(), score:90, platform:'greenhouse', url:'https://fixture.invalid/job' },
         { jobId:'legacy', title:'Historical Developer', company:'Historical Employer', location:'Sydney NSW', appliedAt:'2026-10-01T09:00:00Z', score:85, platform:'seek', url:'https://fixture.invalid/old' },
       ],
       '/api/applications/costs': costFixture, '/api/site-accounts': [], '/api/skipped': {items:[]} ,

@@ -339,7 +339,7 @@ test('search-only runs and unfinished runs do not report submissions or completi
 });
 
 test('users see a plain security-check explanation while admins retain diagnostics', () => {
-  const reason = 'jobs.lever.co is not attempted today: CapMonster could not clear the site security verification.';
+  const reason = 'employer.fixture.invalid is not attempted today: CapMonster could not clear the site security verification.';
   const lines = log([
     '→ Applying: Software Engineer @ Deputy.com',
     `– skipped: ${reason}`,

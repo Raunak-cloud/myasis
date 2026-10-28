@@ -229,14 +229,14 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       const title = `Signed in to ${boards.join(' and ')}`;
       if (boardsEvent) boardsEvent.title = title;
       else boardsEvent = add(line, title, 'done');
-    } else if (/(SmartRecruiters|Lever|Greenhouse|PageUp|Workday) public job feed ready/i.test(text)) {
-      add(line, `Searching ${text.match(/(SmartRecruiters|Lever|Greenhouse|PageUp|Workday) public job feed ready/i)?.[1]} jobs`, 'done', 'Looking for Australian vacancies at your selected employers.');
-    } else if (/! (SmartRecruiters|lever|greenhouse|pageup|workday) employer .+ could not be searched:/i.test(text)) {
+    } else if (/(SmartRecruiters|Greenhouse|PageUp|Workday) public job feed ready/i.test(text)) {
+      add(line, `Searching ${text.match(/(SmartRecruiters|Greenhouse|PageUp|Workday) public job feed ready/i)?.[1]} jobs`, 'done', 'Looking for Australian vacancies at your selected employers.');
+    } else if (/! (SmartRecruiters|greenhouse|pageup|workday) employer .+ could not be searched:/i.test(text)) {
       add(line, 'Some employer jobs could not be searched', 'warn', 'Your search will continue with the other employers.');
     } else if ((match = text.match(/(SEEK|Indeed) Recommended -> (\d+)/i))) {
       // A feed with nothing in it is not news.
       if (Number(match[2]) > 0) add(line, `${match[1]} recommended ${match[2]} jobs for you`, 'done', 'New listings take priority over previously rejected jobs.');
-    } else if ((match = text.match(/⚠ (SEEK|Indeed|SmartRecruiters|Lever|Greenhouse|PageUp|Workday):\s*(.*)/i))) {
+    } else if ((match = text.match(/⚠ (SEEK|Indeed|SmartRecruiters|Greenhouse|PageUp|Workday):\s*(.*)/i))) {
       const accountActionNeeded = /sign(?:ed)? in|verification|cloudflare|captcha/i.test(text);
       const leftOut = /left out for the rest of this run/i.test(text);
       add(

@@ -7,7 +7,7 @@ import { config } from './config.js';
  * job on the same site is not attempted for a while.
  *
  * A check that fails is a property of the site and this account's browser
- * and address, not of the job: one run pressed submit on three Lever forms
+ * and address, not of the job: one run pressed submit on three employer forms
  * (Deputy, Objective twice) and lost each to the same hCaptcha, two minutes
  * and a model bill apiece. A wall stands for a day, long enough to cover a
  * run and its automatic repeats, short enough that a changed address or a

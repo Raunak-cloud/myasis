@@ -137,7 +137,7 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
  * or a puzzle that has opened.
  *
  * hCaptcha's frames load with the page whether or not it will ever ask
- * anything. Invisible hCaptcha (Lever's application forms) keeps them hidden,
+ * anything. Invisible hCaptcha (some employer application forms) keeps them hidden,
  * scores the visitor in the background, and shows a puzzle after submit only
  * when the score demands it; most of the time it never does. Treating its mere
  * presence as a wall ended those applications before a field was filled, so

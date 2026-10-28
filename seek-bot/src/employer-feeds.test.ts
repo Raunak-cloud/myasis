@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EmployerFeedDiscovery, employerJobIdentity, feedText, workdayCountryFilter } from './employer-feeds.js';
-import { employerTargets, identifierTarget, EMPLOYER_SOURCES } from './employer-source-config.js';
+import { employerTargets, EMPLOYER_SOURCES } from './employer-source-config.js';
 
-const id = '11111111-2222-4333-8444-555555555555';
-const lever = { id, text: 'Product Engineer', country: 'au', categories: { location: 'Sydney' }, descriptionPlain: 'Build reliable products', lists: [{ text: 'Skills', content: '<p>React and Node</p>' }], workplaceType: 'hybrid' };
 const greenhouse = { id: 123, title: 'Product Engineer', company_name: 'Fixture Company', location: { name: 'Sydney, Australia' }, content: '&lt;p&gt;Build products&lt;/p&gt;', first_published: '2026-10-01T00:00:00Z', updated_at: '2026-10-12T00:00:00Z' };
 const wdRoot = 'https://fixture.wd105.myworkdayjobs.com/en-US/External';
 const puRoot = 'https://careers.pageuppeople.com/999/cw/en';
 const now = () => Date.parse('2026-10-12T00:00:00Z');
 const response = (data: unknown) => new Response(typeof data === 'string' ? data : JSON.stringify(data), { status: 200 });
+
+test('removed providers cannot instantiate a discovery adapter', () => {
+  assert.throws(() => new EmployerFeedDiscovery('lever' as never), /no longer available/);
+});
 
 for (const failure of ['timeout', 'network', 'server', 'body-timeout'] as const) test(`public career reads recover once from a transient ${failure}`, async () => {
   let calls = 0;
@@ -51,59 +53,20 @@ test('a native fetch redirect refusal is not treated as a transient network outa
 
 test('all source target contracts refuse local, credentialed, cross-provider and malformed addresses', () => {
   for (const source of EMPLOYER_SOURCES) assert.ok(employerTargets(source.id, source.defaults).length);
-  for (const source of ['lever', 'greenhouse'] as const) assert.throws(() => employerTargets(source, 'https://localhost'));
+  for (const source of ['greenhouse'] as const) assert.throws(() => employerTargets(source, 'https://localhost'));
   for (const [source, bad] of [['workday', 'https://localhost/en-US/External'], ['workday', 'https://fixture.wd105.myworkdayjobs.com.evil.test/en-US/External'], ['pageup', 'https://careers.pageuppeople.com/999/cw/en/job/123'], ['pageup', 'https://user:password@careers.pageuppeople.com/999/cw/en']] as const) assert.throws(() => employerTargets(source, bad));
-  assert.throws(() => employerJobIdentity('lever', 'https://jobs.lever.co/fixture/not-a-posting'));
   assert.deepEqual(employerTargets('pageup', 'Fixture Company|https://careers.pageuppeople.com/547/eon/en'), ['Fixture Company|https://careers.pageuppeople.com/547/eon/en']);
   assert.deepEqual(employerJobIdentity('pageup', 'https://careers.pageuppeople.com/547/eon/en/job/123/software-engineer'), { namespace: 'https://careers.pageuppeople.com/547/eon/en', posting: '123' });
   assert.throws(() => employerTargets('pageup', 'https://careers.pageuppeople.com/547/../en'));
 });
 
-test('Lever retrieves published Australian listings once, leaving relevance to AI and dates unknown', async () => {
-  const requests: string[] = [];
-  const api = new EmployerFeedDiscovery('lever', 'fixture', { now, gapMs: 0, fetch: async url => {
-    requests.push(String(url)); return response(String(url).includes(`/${id}`) ? lever : [lever, { ...lever, id: 'aaaaaaaa-2222-4333-8444-555555555555', country: 'us' }]);
-  } });
-  const jobs = await api.search('machine learning', 1);
-  assert.equal(jobs.length, 1); assert.equal(jobs[0].title, 'Product Engineer', 'no hard-coded keyword/fit filter');
-  assert.equal(jobs[0].ageDays, undefined); assert.equal(jobs[0].workArrangement, 'hybrid');
-  await api.search('different words', 1); assert.equal(requests.length, 1, 'board fetched once per run');
-  const detail = await api.detail(jobs[0]); assert.match(detail.description!, /React and Node/);
-  const before = requests.length; await assert.rejects(api.detail({ ...jobs[0], url: jobs[0].url.replace('/fixture/', '/other/') }), /watchlist/); assert.equal(requests.length, before);
-});
-
-test('Lever optional native locations narrow the provider snapshot without changing identity or candidate fit', async () => {
-  assert.deepEqual(identifierTarget('Fixture Company|fixture|Australia;Remote (AU)'), { name: 'Fixture Company', identifier: 'fixture', locations: ['Australia', 'Remote (AU)'] });
-  assert.deepEqual(employerTargets('lever', ' Fixture Company | fixture | Australia ; Australia '), ['Fixture Company|fixture|Australia']);
-  assert.deepEqual(identifierTarget(employerTargets('lever', 'Fixture Company|fixture|Sydney%2C Australia;Remote (AU)')[0]).locations, ['Sydney, Australia', 'Remote (AU)']);
-  for (const invalid of ['Name|fixture|', 'Name|fixture|A;B;C;D;E;F', 'Name|fixture|Australia|extra']) assert.throws(() => employerTargets('lever', invalid));
-  let requests = 0;
-  const api = new EmployerFeedDiscovery('lever', 'Fixture Company|fixture|Australia;Remote (AU)', { now, gapMs: 0, fetch: async url => {
-    requests++;
-    const parsed = new URL(String(url));
-    assert.equal(parsed.origin, 'https://api.lever.co');
-    if (parsed.pathname.endsWith(`/${id}`)) return response(lever);
-    assert.deepEqual(parsed.searchParams.getAll('location'), ['Australia', 'Remote (AU)']);
-    return response([lever]);
-  } });
-  const [job] = await api.search('unrelated words', 1);
-  assert.equal(job.company, 'Fixture Company');
-  assert.equal(job.title, 'Product Engineer', 'native location is not a role filter');
-  assert.equal(job.id, (await new EmployerFeedDiscovery('lever', 'fixture', { gapMs: 0, fetch: async () => response([lever]) }).search('any', 1))[0].id);
-  assert.equal((await api.detail(job)).id, job.id);
-  assert.equal(requests, 2);
-});
-
 test('complete board snapshots reach AI even when a vacancy follows the old discovery page limit', async () => {
-  for (const source of ['lever', 'greenhouse'] as const) {
+  for (const source of ['greenhouse'] as const) {
     let requests = 0;
-    const entries = Array.from({ length: 176 }, (_, i) => source === 'lever'
-      ? { ...lever, id: `${String(i).padStart(8, '0')}-2222-4333-8444-555555555555`, text: `Vacancy ${i}` }
-      : { ...greenhouse, id: i + 1, title: `Vacancy ${i}` });
-    const api = new EmployerFeedDiscovery(source, 'fixture', { now, gapMs: 0, fetch: async url => {
+    const entries = Array.from({ length: 176 }, (_, i) => ({ ...greenhouse, id: i + 1, title: `Vacancy ${i}` }));
+    const api = new EmployerFeedDiscovery(source, 'fixture', { now, gapMs: 0, fetch: async () => {
       requests++;
-      const offset = Number(new URL(String(url)).searchParams.get('skip') ?? 0);
-      return response(source === 'lever' ? entries.slice(offset, offset + 100) : { jobs: entries });
+      return response({ jobs: entries });
     } });
     const jobs = await api.search('any candidate direction', 1);
     assert.equal(jobs.length, 176);

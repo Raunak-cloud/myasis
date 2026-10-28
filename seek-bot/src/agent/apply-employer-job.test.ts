@@ -20,7 +20,6 @@ const job = smartRecruitersListing({
   location: { city: 'Sydney', country: 'au' }, visibility: 'PUBLIC',
 }, 'FixtureEmployer')!;
 const sourceJobs = [
-  { platform: 'lever', url: 'https://jobs.lever.co/FixtureEmployer/11111111-2222-4333-8444-555555555555' },
   { platform: 'greenhouse', url: 'https://job-boards.greenhouse.io/FixtureEmployer/jobs/123' },
   { platform: 'pageup', url: 'https://careers.pageuppeople.com/999/cw/en/job/123/fixture-developer' },
   { platform: 'workday', url: 'https://fixture.wd105.myworkdayjobs.com/en-US/External/job/Sydney/Fixture-Developer_JR123' },

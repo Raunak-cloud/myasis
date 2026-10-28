@@ -8,6 +8,7 @@ import { cleanCoverLetter, coverLetterInstructionPrompt, isCoverLetterField } fr
 import { readSavedForm } from './saved-form.js';
 import { waitForChallengeToClear, workingIn } from '../browser.js';
 import { config } from '../config.js';
+import { retiredJobSource, retiredJobDestination, RETIRED_SOURCE_MESSAGE } from '../retired-job-sources.js';
 import { hasHcaptchaChallenge } from '../captcha/detect.js';
 import { HCAPTCHA_SKIP_REASON } from '../captcha.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
@@ -161,6 +162,7 @@ async function assertCurrentRef(ctx: ToolContext, args: Record<string, unknown>)
 }
 
 export async function runAgentOnlyApplication(options: AgentRunOptions): Promise<AgentRunResult> {
+  if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
   const isolated = options.simulation === 'isolated-form';
   if (isolated && (!config.dryRun || !new URL(options.job.url).hostname.endsWith('.invalid'))) throw new Error('Isolated tests require dry-run and an invalid domain.');
@@ -274,6 +276,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const activity = startAgentActivity(options.job);
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if (retiredJobDestination(ctx.page.url())) return { kind: 'terminal', outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE } };
     // A native modal blocks renderer inspection, including locator.count().
     // Surface it before any DOM probe; the agent chooses the dialog response.
     const pendingDialog = dialogs.get(ctx.page);
@@ -563,6 +566,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
 
   try {
     while (!finished && remainingMs() > 0) {
+      if (retiredJobDestination(ctx.page.url())) { terminal = { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }; break; }
       if (ctx.page.isClosed()) {
         const open = [...ownedPages].filter(page => !page.isClosed());
         if (!open.length) { terminal = { status: 'skipped', reason: 'The application browser closed.' }; break; }

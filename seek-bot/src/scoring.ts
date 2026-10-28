@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { retiredJobSource, RETIRED_SOURCE_MESSAGE } from './retired-job-sources.js';
 import { listingAgeDays } from './listing-age.js';
 import type { CandidateProfile, JobListing, ScoreBreakdown } from './types.js';
 import { matchingExcludedCompany } from './company-match.js';
@@ -125,6 +126,7 @@ function looksTemplated(job: JobListing): string | null {
 }
 
 export function deterministicExclusion(job: JobListing): string | null {
+  if (retiredJobSource(job)) return RETIRED_SOURCE_MESSAGE;
   // Only explicit machine-readable facts may stop a listing before model
   // review. Meaning in prose belongs to assessFit(), which can use context
   // and express uncertainty rather than silently discarding the listing.

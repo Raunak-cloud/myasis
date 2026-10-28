@@ -15,7 +15,7 @@ function approved(job: JobListing): JobListing {
 }
 
 test('every employer feed retains an unchanged approval without another model call', async () => {
-  for (const platform of ['smartrecruiters', 'lever', 'greenhouse', 'pageup', 'workday'] as const) {
+  for (const platform of ['smartrecruiters', 'greenhouse', 'pageup', 'workday'] as const) {
     const previous = approved({ ...base, platform });
     const result = await refreshMatchedApplication(previous, { ...base, platform, ageDays: 2 }, profile, async () => { throw Error('Unchanged approved facts were reassessed'); });
     assert.ok('job' in result);

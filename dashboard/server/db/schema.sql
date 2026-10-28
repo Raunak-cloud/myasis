@@ -930,3 +930,38 @@ CREATE TABLE IF NOT EXISTS application_schedules (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS application_schedules_due_idx ON application_schedules(next_run_at, user_id) WHERE enabled;
+
+-- Retired job sources: remove saved discovery settings and dismiss unsent
+-- drafts. Submitted applications and the run/event audit history are retained.
+DELETE FROM settings WHERE key = 'LEVER_COMPANIES';
+UPDATE settings s SET value = COALESCE((
+  SELECT string_agg(trim(part), ',' ORDER BY n)
+    FROM unnest(string_to_array(s.value, ',')) WITH ORDINALITY AS p(part,n)
+   WHERE lower(trim(part)) <> 'lever' AND trim(part) <> ''
+), '') WHERE key = 'PLATFORMS' AND value ~* '(^|,)[[:space:]]*lever[[:space:]]*(,|$)';
+
+WITH cleaned AS (
+UPDATE settings s SET value = COALESCE((
+  SELECT string_agg(trim(part), ',' ORDER BY n)
+    FROM unnest(string_to_array(s.value, ',')) WITH ORDINALITY AS p(part,n)
+   WHERE part !~* '(hub24management\.|^[[:space:]]*hub[[:space:]]*24[[:space:]]*\|)'
+     AND trim(part) <> ''
+), '') WHERE key = 'WORKDAY_SITES' AND value ~* '(hub24management\.|(^|,)[[:space:]]*hub[[:space:]]*24[[:space:]]*\|)'
+RETURNING user_id, value
+)
+
+UPDATE settings s SET value = COALESCE((
+  SELECT string_agg(trim(part), ',' ORDER BY n)
+    FROM unnest(string_to_array(s.value, ',')) WITH ORDINALITY AS p(part,n)
+   WHERE lower(trim(part)) <> 'workday' AND trim(part) <> ''
+), '') WHERE key = 'PLATFORMS' AND EXISTS (
+  SELECT 1 FROM cleaned w WHERE w.user_id = s.user_id AND trim(w.value) = ''
+);
+
+UPDATE application_reviews SET status = 'dismissed', detail = 'This job source is no longer available.', updated_at = now()
+WHERE status IN ('ready','approved','failed') AND (
+  lower(payload #>> '{job,platform}') = 'lever'
+  OR lower(regexp_replace(COALESCE(payload #>> '{job,company}', ''), '[^a-zA-Z0-9]', '', 'g')) IN ('hub24','hub24limited','hub24ltd')
+  OR concat_ws(' ', payload #>> '{job,url}', payload #>> '{job,applicationUrl}', payload ->> 'formUrl')
+     ~* 'https://([^/]+\.)?(lever\.co|hub24management\.wd[0-9]+\.myworkdayjobs\.com|hub24\.com\.au)(/|[[:space:]]|$)'
+);

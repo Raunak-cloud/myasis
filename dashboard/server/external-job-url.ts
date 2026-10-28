@@ -1,5 +1,6 @@
 import { resolvesPublic } from './proxy-address.js';
 import { jobBoardForHost } from '../../seek-bot/src/job-board-url.js';
+import { retiredJobDestination, RETIRED_SOURCE_MESSAGE } from '../../seek-bot/src/retired-job-sources.js';
 
 const MAX_URL_LENGTH = 2_048;
 
@@ -23,6 +24,7 @@ export async function validateExternalJobUrl(value: unknown, resolveHost = resol
     return { error: 'Enter a complete HTTPS job URL.' };
   }
   if (url.protocol !== 'https:') return { error: 'External job URLs must use HTTPS.' };
+  if (retiredJobDestination(url.href)) return { error: RETIRED_SOURCE_MESSAGE };
   if (url.username || url.password) return { error: 'External job URLs cannot contain a username or password.' };
   if (url.port && url.port !== '443') return { error: 'External job URLs cannot use a custom port.' };
 
