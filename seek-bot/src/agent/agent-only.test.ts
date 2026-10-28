@@ -72,8 +72,10 @@ try {
     assert.doesNotMatch(JSON.stringify(body.messages.filter(message => message.role === 'tool')), /Browser\/tool error:/,
       'a timeout-only post-action wait must not report an executed submit as a selector failure');
     assert.match(observation(body), /Please choose a referral source/);
-    assert.deepEqual(body.tools && (body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result']);
-    return [{ name: 'resume_after_rejected_submission', args: { evidence: 'Please choose a referral source' } }];
+    const offered = (body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name);
+    assert.ok(offered.includes('browser_action') && offered.includes('reason_through_problem'));
+    assert.ok(!offered.includes('resume_after_rejected_submission'));
+    return [{ name: 'reason_through_problem', args: { problem: 'Please choose a referral source. Inspect the whole form and correct the observed validation error.' } }];
   }, () => [
     { name: 'browser_action', args: { action: 'select', locator: { by: 'role', value: 'combobox', name: 'Referral source' }, value: 'Company website' } },
     { name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true, wait: { selector: '#never-arrives', timeout_ms: 20 } } },
@@ -175,7 +177,7 @@ try {
       { action: 'fill', selector: '#letter', value: letter },
       { action: 'select', selector: 'select', value: 'Company website' },
       { action: 'click', selector: '#submit', sends_application: true, wait: { locator: { by: 'text', value: 'Receipt ABC123' } } },
-      { action: 'fill', selector: '#after', value: 'Never run after sending' },
+      { action: 'fill', selector: '#after', value: 'Agent-authored follow-up' },
     ] } }];
   }, body => {
     assert.match(observation(body), /Receipt ABC123/);
@@ -185,7 +187,7 @@ try {
   assert.equal(batched.outcome.status, 'applied');
   assert.equal(turns.length-beforeBatch,2,'five native commands and receipt inspection need only two scripted model turns');
   assert.equal(await page.evaluate('window.presses',undefined,undefined,false),1);
-  assert.equal(await page.inputValue('#after'), '', 'the remainder of a batch cannot mutate after a send before receipt review');
+  assert.equal(await page.inputValue('#after'), 'Agent-authored follow-up', 'a marked send does not lock the remainder of the agent-authored batch');
   assert.equal(batched.coverLetter,letter);
   assert.ok(batched.captured.some(answer=>answer.question.includes('Referral source') && answer.answer==='Company website'),'save the observed selected option for application history');
   const experience = readFileSync(join(directory,'site-hints.json'),'utf8');
@@ -309,7 +311,7 @@ try {
   const beforeBudget = turns.length;
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }], body => {
     assert.match(observation(body), /Application received: BUDGET123/);
-    assert.deepEqual((body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name).sort(), ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result'], 'Housing-style receipt review cannot waste its final response on a wait for an already-matched URL');
+    assert.ok((body.tools as Array<{ function: { name: string } }>).some(tool => tool.function.name === 'browser_action'), 'the agent retains normal tools after a send');
     completionTokens = 1_000_000;
     return [
       { name: 'finish', args: { status: 'applied', reason: 'Employer accepted the application', evidence: 'Application received: BUDGET123', receipt: { quote: 'Application received: BUDGET123' } } },
@@ -330,7 +332,7 @@ try {
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
     body => {
       assert.match(observation(body), /Please wait/);
-      assert.ok(!(body.tools as Array<{ function: { name: string } }>).some(tool => tool.function.name === 'browser_action'), 'receipt review cannot repeat a send');
+      assert.ok((body.tools as Array<{ function: { name: string } }>).some(tool => tool.function.name === 'browser_action'), 'the agent decides to stop an uncertain send despite retaining its normal tools');
       return [{ name: 'finish', args: { status: 'skipped', reason: 'Submission remains unconfirmed; no employer receipt', evidence: 'The button only says Please wait...' } }];
     }];
   const pendingReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-pending-receipt' }, profile, log: () => {} });
@@ -347,15 +349,15 @@ try {
     }];
   const delayedReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-delayed-receipt' }, profile, log: () => {} });
   assert.equal(delayedReceipt.outcome.status, 'applied');
-  assert.equal(await page.evaluate('window.delayedPresses', undefined, undefined, false), 1, 'read-only pending review never repeats Apply');
+  assert.equal(await page.evaluate('window.delayedPresses', undefined, undefined, false), 1, 'the agent waits for the delayed receipt without repeating Apply');
 
   await page.setContent(`<main><button id=start onclick="this.remove();document.querySelector('#next').hidden=false">Apply</button><form id=next hidden onsubmit="event.preventDefault();document.querySelector('main').textContent='Application received: HANDOFF123'"><label>Required work availability<input required id=availability></label><button id=send>Submit application</button></form></main>`);
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#start', sends_application: true } }],
     body => {
       assert.match(observation(body), /Required work availability/);
-      return [{ name: 'resume_after_rejected_submission', args: { evidence: 'The next application step asks Required work availability' } }];
-    }, () => [{ name: 'browser_action', args: { action: 'fill', selector: '#availability', value: 'Weekends only' } },
-      { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
+      return [{ name: 'browser_action', args: { action: 'fill', selector: '#availability', value: 'Weekends only' } },
+        { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
+    },
     () => [{ name: 'finish', args: { status: 'applied', reason: 'Completed actual application after initial handoff', evidence: 'Application received: HANDOFF123', receipt: { quote: 'Application received: HANDOFF123' } } }]];
   const handoffReceipt = await runApplicationAgent({ page, job: { ...job, id: 'native-start-handoff-receipt' }, profile, log: () => {} });
   assert.equal(handoffReceipt.outcome.status, 'applied', 'a start-application handoff can continue through required steps to a genuine receipt');

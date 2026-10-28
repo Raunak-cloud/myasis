@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { chromium, type Page } from 'patchright';
+import { closeCelerisQueues } from '../../../shared/celeris-queue.mjs';
 import type { PreparedApplication } from '../application-review-types.js';
 import { reviewContentFingerprint, reviewContextFingerprint } from '../review-cache.js';
 
@@ -13,6 +14,8 @@ process.env.COST_TRACKING = 'false';
 process.env.FORM_CORPUS_DIR = join(directory, 'corpus');
 process.env.APPLICATION_REVIEW_MODE = 'prepare';
 process.env.SITE_AUTH_SECRET = 'fixture-only';
+process.env.CELERIS_QUEUE_FILE = join(directory, 'queue.sqlite');
+process.env.CELERIS_MIN_INTERVAL_MS = '0';
 const { config } = await import('../config.js');
 const { runAgentOnlyApplication } = await import('./agent-only.js');
 config.dryRun = false;
@@ -31,6 +34,7 @@ let authPosts = 0;
 let applicationPosts = 0;
 const drafts: PreparedApplication[] = [];
 let closeObservedReceipt = false;
+let normalTools: string[] | undefined;
 const jobs = Array.from({ length: 5 }, (_, index) => ({ id: `auth-${index}`, title: 'Developer', company: 'Fixture Employer',
   location: 'Sydney', platform: 'workday' as const, url: `https://employer.fixture.invalid/login/${index}` }));
 const login = (id: string) => `<main><h1>Developer application</h1><h2>Sign In</h2>
@@ -47,6 +51,11 @@ const review = `<main><h1>Review application</h1><form method="post" action="/re
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
   assert.ok(body.tools?.length, 'no independent submission classifier or receipt reviewer may be called');
+  const offered: string[] = body.tools.map((tool: { function: { name: string } }) => tool.function.name).sort();
+  normalTools ??= offered;
+  assert.deepEqual(offered, normalTools, 'a marked send never narrows the tool surface');
+  for (const name of ['browser_action', 'browser_batch', 'take_snapshot', 'reason_through_problem', 'consult_application_specialist', 'save_progress']) assert.ok(offered.includes(name), `${name} remains available after a send`);
+  assert.ok(!offered.includes('resume_after_rejected_submission'), 'there is no recovery-unlock tool');
   const call = calls.shift();
   assert.ok(call, `planned browser flow must complete without a workaround or human intervention; last result: ${body.messages.filter((item: { role: string }) => item.role === 'tool').at(-1)?.content?.slice(0, 1200)}`);
   if (closeObservedReceipt && call.name === 'finish') {
@@ -145,7 +154,6 @@ try {
   await page.evaluate('window.correctedSends=0', undefined, undefined, false);
   calls = [
     { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
-    { name: 'resume_after_rejected_submission', args: { evidence: 'Required city is empty and required; the browser rejected the form.' } },
     { name: 'browser_action', args: { action: 'fill', selector: '#city', value: 'Sydney' } },
     { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
     { name: 'finish', args: { status: 'applied', reason: 'Employer received corrected form', evidence: 'The employer returned Submitted after receiving the corrected form.', receipt: { quote: 'Submitted' } } },
@@ -181,5 +189,7 @@ try {
 } finally {
   globalThis.fetch = originalFetch;
   await browser.close();
+  closeCelerisQueues();
+  assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-login-review-'));
   rmSync(directory, { recursive: true, force: true });
 }
