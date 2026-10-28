@@ -20,7 +20,7 @@ import { resetLiveWorkers } from './live-workers.js';
 import { search, fetchJobDetail } from './discovery.js';
 import { discoveryBatchEnd } from './discovery-policy.js';
 import { passesListingAge } from './listing-age.js';
-import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
+import { deterministicExclusion } from './scoring.js';
 import { assessFit, finishedCoverLetterForJob, rankJobsForReview, reviewKey } from './llm.js';
 import { AppliedIndex, logOutcome } from './store.js';
 import { judgePage } from './blocker.js';
@@ -224,13 +224,6 @@ async function build() {
         bump('not a fit');
         if (fit.decision === 'skip') logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, url: job.url,
           reason: `Fit check (skip): ${fit.reason}`, reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
-        continue;
-      }
-      if (!meetsMinimumScore(fit.matchScore)) {
-        console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — below minimum ${config.rules.minScore}`);
-        bump('below minimum match score');
-        logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, url: job.url,
-          reason: 'Below minimum match score', reviewCache: reviewCacheMetadata(job, 'below-score', reviewContext, REVIEW_TTL.fit) });
         continue;
       }
       const fitReason = fit.reason;

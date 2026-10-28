@@ -41,7 +41,7 @@ import { EmployerFeedDiscovery } from './employer-feeds.js';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
-import { assessFit, rankJobsForReview, reviewKey, ruleConflict, type FitAssessment } from './llm.js';
+import { assessFit, rankJobsForReview, reviewKey, type FitAssessment } from './llm.js';
 import { SitePacer } from './pacing.js';
 import { measured, metric } from './pipeline.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
@@ -685,14 +685,6 @@ async function main() {
           });
           return;
         }
-        if (!meetsMinimumScore(fit.matchScore)) {
-          const reason = `Model match score ${fit.matchScore} below minimum ${config.rules.minScore}`;
-          console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${reason}`);
-          bump('below minimum match score');
-          logOutcome({ status: 'skipped', jobId: job.id, reason, title: job.title, company: job.company, url: job.url,
-            reviewCache: reviewCacheMetadata(job, 'below-score', reviewContext, REVIEW_TTL.fit) });
-          return;
-        }
         why = fit.reason;
         decisionReasons = fit.evidence;
       } else if (!meetsMinimumScore(score)) {
@@ -924,25 +916,6 @@ async function main() {
             bump('listing age');
             logOutcome({ status: 'skipped', jobId: job.id, reason: ageExclusion, title: job.title, company: job.company });
             return;
-          }
-
-          // Board application history must be checked before even the cheaper
-          // instruction review, otherwise an old application rejected from its
-          // search card would still consume an evaluation. Feed descriptions go
-          // straight to their complete fit review as before.
-          if (!stub.description && stub.source !== 'chosen' && applicationModelAvailable() && config.aiInstructions.trim()) {
-            const cardRule = await ruleConflict(stub).catch(() => null);
-            if (limitReached()) return;
-            if (cardRule?.decision === 'skip' && cardRule.conflict) {
-              const reason = `Your instructions rule this out ("${cardRule.conflict}"). ${cardRule.because}`;
-              console.log(`  ✗ ${jobLabel(stub)} — ${reason} (from the search result)`);
-              metric('fit-decision', 0, { jobId: stub.id, decision: 'skip', basis: 'search-result' });
-              bump('fit mismatch');
-              logOutcome({ status: 'skipped', jobId: stub.id, reason: `Fit check (skip): ${reason}`, title: stub.title, company: stub.company, url: stub.url,
-                reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });
-              retained = true;
-              return;
-            }
           }
 
           // Both reviewers share the same model concurrency ceiling. Recheck after

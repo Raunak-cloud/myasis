@@ -21,7 +21,7 @@ const cases = [
 const originalFetch = globalThis.fetch;
 let correctionCalls = 0;
 globalThis.fetch = async (input, init) => {
-  if (init?.body && JSON.parse(String(init.body)).messages?.some(message => String(message.content).includes('DECISION CONTRACT CORRECTION'))) correctionCalls++;
+  if (init?.body && JSON.parse(String(init.body)).messages?.some(message => String(message.content).includes('RESPONSE FORMAT CORRECTION'))) correctionCalls++;
   return originalFetch(input, init);
 };
 try {

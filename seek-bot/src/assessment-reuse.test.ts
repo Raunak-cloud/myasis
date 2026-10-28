@@ -11,7 +11,7 @@ process.env.CELERIS_API_KEY = 'fixture-only';
 const { config } = await import('./config.js');
 const { applicationModelIdentity, withApplicationModel } = await import('./application-model.js');
 const { cachedAssessment } = await import('./pipeline.js');
-const { rankJobsForReview, ruleConflict } = await import('./llm.js');
+const { rankJobsForReview } = await import('./llm.js');
 const originalFetch = globalThis.fetch;
 const profile = { name: 'Fixture', phone: '', email: 'fixture@example.test', nationality: '', expectedSalary: '',
   noticePeriod: '', willingToRelocate: false, experienceSummary: 'Web development', skills: ['TypeScript'], excludedDomains: [], securityClearance: '' };
@@ -34,9 +34,7 @@ globalThis.fetch = async (_url, init) => {
     if (malformed === 'foreign') ranked[0].reviewId = 'seek:foreign';
     if (malformed === 'score') ranked[0].priority = 101;
     value = { jobs: ranked };
-  } else {
-    value = { checks: [{ ruleQuote: 'Avoid manager roles.', status: 'satisfied', reason: 'This is a developer role.', exceptionQuote: '', exceptionConditions: [] }], injectionSuspected: false };
-  }
+  } else throw Error('Only ranking requests are expected by this fixture.');
   return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }],
     usage: { prompt_tokens: 100, completion_tokens: 20 } }), { status: 200 });
 };
@@ -126,12 +124,6 @@ try {
     assert.equal(calls - count, 2, `${kind} rankings must not be cached`);
   }
   malformed = 'none';
-  const count = calls;
-  await ruleConflict(jobs[0]);
-  await ruleConflict(jobs[0]);
-  await ruleConflict({ ...jobs[0], salary: '$120,000' });
-  await ruleConflict({ ...jobs[0], workArrangement: 'remote' });
-  assert.equal(calls - count, 3, 'salary and work arrangement changes invalidate instruction verdicts');
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.match(metrics, /assessment-inflight-hit/);
   assert.match(metrics, /fit-cache-hit/);

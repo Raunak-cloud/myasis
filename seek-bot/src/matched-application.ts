@@ -1,6 +1,6 @@
 import { assessFit, type FitAssessment } from './llm.js';
 import { currentFitReview, reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
-import { deterministicExclusion, meetsMinimumScore } from './scoring.js';
+import { deterministicExclusion } from './scoring.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 /** Refresh provider facts without losing trusted matcher state. Changed facts
@@ -18,9 +18,9 @@ export async function refreshMatchedApplication(
   // An explicit selection remains the candidate's suitability decision.
   if (job.source === 'chosen') return { job };
   const fit = await match(job, profile);
-  if (!fit.shouldApply || !meetsMinimumScore(fit.matchScore)) return { outcome: {
+  if (!fit.shouldApply) return { outcome: {
     status: 'skipped', jobId: job.id,
-    reason: `Updated matching review: ${fit.shouldApply ? 'The updated match is below your minimum score. ' : ''}${fit.reason}`,
+    reason: `Updated matching review: ${fit.reason}`,
   } };
   const contentFingerprint = reviewContentFingerprint(job);
   if (!contentFingerprint) throw new Error('The refreshed listing has no description for its matching review.');

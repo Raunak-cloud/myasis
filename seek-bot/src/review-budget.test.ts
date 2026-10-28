@@ -81,14 +81,15 @@ export const jitter = async () => {};
 import { record } from './boundary.mjs';
 export const reviewKey = job => job.platform+':'+job.id;
 export const rankJobsForReview = async jobs => new Map(jobs.map(job => [reviewKey(job),{priority:90,reason:'Fixture priority'}]));
-export const ruleConflict = async job => {record('instruction',job.id);return {decision:job.cardConflict?'skip':'allow',conflict:job.cardConflict?'Avoid manager roles.':'',because:'Fixture instruction verdict',checks:[]};};
 export const finishedCoverLetterForJob = async () => 'Fixture letter';
+import { config } from './config.mjs';
 export const assessFit = async job => {
   record('fit',job.id);
   await new Promise(done => setTimeout(done,job.fitDelayMs||0));
   record('fit-finish',job.id);
-  if(job.fitError) { await new Promise(done => setTimeout(done,20)); throw Error('Instruction exception review violated its evidence schema'); }
-  return {decision:job.fitReject?'skip':'apply',shouldApply:!job.fitReject,matchScore:job.matchScore??90,reason:'Fixture fit',evidence:['Fixture'],injectionSuspected:false};
+  if(job.fitError) { await new Promise(done => setTimeout(done,20)); throw Error('The matching agent did not return a usable decision after a format retry.'); }
+  const rejected = job.fitReject || job.cardConflict || (job.matchScore??90)<config.rules.minScore;
+  return {decision:rejected?'skip':'apply',shouldApply:!rejected,matchScore:job.matchScore??90,reason:'Fixture fit',evidence:['Fixture'],injectionSuspected:false};
 };
 `);
     writeFileSync(join(directory, 'apply.mjs'), `
@@ -243,19 +244,19 @@ test('a large discovered queue cannot spend instruction calls beyond its reserve
   const result = run(Array.from({ length: 500 }, (_, index) => job(`queue-${index}`)), {
     instructions: 'Avoid manager roles.', reviews: 2,
   });
-  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 2);
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 0);
   assert.equal(result.events.filter(event => event.stage === 'detail').length, 2);
   assert.equal(result.events.filter(event => event.stage === 'fit').length, 2);
 });
 
-test('a card rejection consumes one shared review slot after checking the listing for an existing application', () => {
+test('instructions are judged by the full matcher after checking for an existing application', () => {
   const result = run([job('excluded', { cardConflict: true }), job('other', { platform: 'indeed' })], {
     instructions: 'Avoid manager roles.', workers: 2, reviews: 1, apply: true,
   });
-  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 1);
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 0);
   assert.deepEqual(result.events.filter(event => event.stage === 'detail').map(event => event.id), ['excluded']);
-  assert.equal(result.events.filter(event => ['fit', 'apply'].includes(event.stage)).length, 0);
-  assert.match(result.output, /Your instructions rule this out/);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['excluded']);
+  assert.equal(result.events.filter(event => event.stage === 'apply').length, 0);
   assert.equal(result.history.length, 0, 'a screening rejection must never become an application record');
 });
 
@@ -314,7 +315,8 @@ test('fifty known applications leave all one hundred evaluations available for f
       location: item.location, url: item.url, appliedAt: new Date().toISOString(), platform: 'seek',
       score: 0, scoreReasons: [], submittedByMyasis: false })),
   });
-  for (const stage of ['instruction', 'detail', 'fit']) {
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 0);
+  for (const stage of ['detail', 'fit']) {
     assert.deepEqual(result.events.filter(event => event.stage === stage).map(event => event.id), fresh.map(item => item.id));
   }
   assert.equal(result.history.length, 50);
@@ -322,7 +324,8 @@ test('fifty known applications leave all one hundred evaluations available for f
 
 test('an applied marker already present during discovery skips instruction screening and detail reads', () => {
   const result = run([job('old', { alreadyApplied: true, cardConflict: true }), job('new')], { instructions: 'Avoid manager roles.' });
-  for (const stage of ['instruction', 'detail', 'fit']) {
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 0);
+  for (const stage of ['detail', 'fit']) {
     assert.deepEqual(result.events.filter(event => event.stage === stage).map(event => event.id), ['new']);
   }
   assert.equal(result.history[0].jobId, 'old');
@@ -330,7 +333,8 @@ test('an applied marker already present during discovery skips instruction scree
 
 for (const loadingFirst of [false, true]) test(`an applied marker is checked before a card rejection can spend the slot (loading retry: ${loadingFirst})`, () => {
   const result = run([job('old', { detailApplied: true, cardConflict: true, loadingFirst }), job('new')], { instructions: 'Avoid manager roles.' });
-  for (const stage of ['instruction', 'fit']) {
+  assert.equal(result.events.filter(event => event.stage === 'instruction').length, 0);
+  for (const stage of ['fit']) {
     assert.deepEqual(result.events.filter(event => event.stage === stage).map(event => event.id), ['new']);
   }
   assert.equal(result.history[0].jobId, 'old');

@@ -40,10 +40,10 @@ test('changed listing or candidate evidence returns to the matcher before applic
   assert.equal(calls, 2);
 });
 
-test('a refreshed low-score or unidentified job cannot inherit an approval', async () => {
+test('a refreshed agent decision is authoritative while job identity stays enforced', async () => {
   const previous = approved(base);
   const result = await refreshMatchedApplication(previous, { ...base, description: 'Different duties.' }, profile,
     async () => ({ ...fit, matchScore: Math.max(0, config.rules.minScore - 1) }));
-  if (config.rules.minScore > 0) { assert.ok('outcome' in result); assert.equal(result.outcome.status, 'skipped'); }
+  assert.ok('job' in result, 'a final agent approval is not reclassified using its score');
   await assert.rejects(refreshMatchedApplication(previous, { ...base, id: 'another' }, profile), /different job/);
 });

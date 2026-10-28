@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Page } from 'patchright';
 import type { PreparedApplication } from '../application-review-types.js';
+import { reviewContentFingerprint, reviewContextFingerprint } from '../review-cache.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-login-review-'));
 process.env.DATA_DIR = directory;
@@ -166,6 +167,16 @@ try {
   assert.equal(pending.outcome.status, 'skipped');
   assert.equal(pending.submitPressed, true, 'an uncertain send is retained for duplicate protection');
   assert.equal(await page.evaluate('window.pendingSends', undefined, undefined, false), 1);
+  assert.equal(calls.length, 0);
+  await page.setContent('<main>Employer application facts have changed.</main>');
+  const reviewedJob = { ...autoJob, id: 'agent-owned-skip', description: 'Matched original duties.' };
+  calls = [{ name: 'finish', args: { status: 'skipped', reason: 'The applying agent decided to stop.',
+    evidence: 'Agent-observed evidence.', fit_rejection: { source: 'listing', evidence: 'Matched original duties.' } } }];
+  const agentSkip = await runAgentOnlyApplication({ page, job: { ...reviewedJob, fitReview: {
+    score: 90, reason: 'Prior match.', evidence: ['Matched original duties.'],
+    contentFingerprint: reviewContentFingerprint(reviewedJob)!, contextFingerprint: reviewContextFingerprint(profile),
+  } }, profile, log: () => {} });
+  assert.equal(agentSkip.outcome.status, 'skipped', 'Owtomate accepts the applying agent judgment without a semantic veto.');
   assert.equal(calls.length, 0);
   await context.close();
   console.log('PASS: agent-owned classification and receipts; five Semi auto login/widget/approval flows, Auto location entry, transient receipt, agent-directed correction and uncertain-send audit. No secondary model requests or real applications.');

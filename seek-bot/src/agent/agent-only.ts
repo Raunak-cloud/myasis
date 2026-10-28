@@ -361,9 +361,6 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '');
         if (!await employerMessageEvidence(ctx.page, quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied as a complete visible employer message from the current page or its visible frames. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
       }
-      if (fitReview && args.status === 'skipped' && (args.fit_rejection as FitRejection | undefined)?.source === 'listing') {
-        return ok('The matcher already approved these unchanged listing facts using the current candidate evidence. Apply this approved job without repeating its suitability assessment. Only a new mandatory requirement found in the actual form can stop eligibility; report that observed requirement with source=form. Technical failures and uncertain sends remain honest outcomes.', 'failed');
-      }
       if (Array.isArray(args.answers)) ctx.captured = [...new Map([
         ...(approved ? ctx.captured : []),
         ...(args.answers as typeof ctx.captured).map(answer => approved?.coverLetter !== undefined && isCoverLetterField(answer.question)
