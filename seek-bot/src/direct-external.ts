@@ -120,6 +120,7 @@ export async function runDirectExternalApplication(
       platform: 'external',
       coverLetter: outcome.coverLetter,
       answers: outcome.answers,
+      ...(outcome.resume ? { resume: outcome.resume } : {}),
       scoreReasons: ['Administrator supplied this exact employer job URL.'],
       external: true,
       ...(outcome.site ? { site: outcome.site } : {}),

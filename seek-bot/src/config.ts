@@ -302,7 +302,7 @@ export const config = {
     /** Resource ceilings; the agent owns form progress and recovery. */
     maxTotalMs: Number(process.env.AGENT_MAX_MS ?? 1_800_000),
     budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? 0.20),
-    progressBudgetUsdPerApplication: Number(process.env.AGENT_PROGRESS_BUDGET_USD ?? 0.50),
+    progressBudgetUsdPerApplication: Number(process.env.AGENT_PROGRESS_BUDGET_USD ?? 0.70),
 
 
   },

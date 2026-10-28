@@ -47,6 +47,7 @@ try {
       case 0:
         calls = [{ name: 'browser_action', args: { action: 'set_input_files', file_ids: ['cv'], locator: { by: 'label', value: 'Resume', within: '#cv-section' } } }]; break;
       case 1:
+        assert.match(JSON.stringify(body.messages.at(-1)), /Original.pdf/, 'chosen CV metadata is retained before save_progress');
         assert.deepEqual(Buffer.from(await page.evaluate('(async()=>Array.from(new Uint8Array(await window.original.arrayBuffer())))()', undefined, undefined, false)), pdf);
         assert.equal(await page.locator('#unused').evaluate(node => (node as HTMLInputElement).files?.length), 0);
         calls = [{ name: 'create_file', args: { name: 'Cover letter.docx', text, format: 'docx' } }]; break;
@@ -59,7 +60,7 @@ try {
       case 3:
         assert.equal(await page.evaluate('window.letter.name', undefined, undefined, false), 'Cover letter.docx');
         calls = [
-          { name: 'save_progress', args: { note: 'Verified the original CV and DOCX letter attachments.', resume_id: 'cv', cover_letter: text } },
+          { name: 'save_progress', args: { note: 'Verified the original CV and DOCX letter attachments.', cover_letter: text } },
           { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } },
         ]; break;
       case 4:

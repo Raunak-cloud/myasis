@@ -228,10 +228,12 @@ try {
   calls = [
     { name: 'browser_action', args: { action: 'script', script: "throw new Error('Fixture failed approach one')" } },
     { name: 'browser_action', args: { action: 'script', script: "throw new Error('Fixture failed approach two')" } },
+    { name: 'browser_action', args: { action: 'fill', selector: '#city', value: 'Sydney' } },
+    { name: 'finish', args: { status: 'skipped', reason: 'Fixture completed its correction without a submission.', evidence: 'City reads Sydney.' } },
   ];
   const rejectedCheckpoint = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'checkpoint-invalid' }, profile, log: () => {} });
   assert.equal(rejectedCheckpoint.outcome.status, 'skipped');
-  assert.match(rejectedCheckpoint.outcome.status === 'skipped' ? rejectedCheckpoint.outcome.reason : '', /recovery checkpoint/);
+  assert.equal(await page.locator('#city').inputValue(), 'Sydney', 'normal actions resume after malformed checkpoint responses');
   assert.equal(await page.evaluate('window.unexpectedCheckpointActions || 0', undefined, undefined, false), 0);
   assert.equal(calls.length, 0);
   await page.setContent(`<main><label>City<input id=city></label><button onclick="document.querySelector('main').textContent='Application received RECOVERY-002'">Submit application</button></main>`);

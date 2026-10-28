@@ -1,8 +1,8 @@
 import type { Observation } from './observe.js';
 import type { ToolSchema } from './celeris.js';
 
-const text = { type: 'string', minLength: 3, maxLength: 1600 };
-const evidence = { type: 'array', minItems: 1, maxItems: 4, items: text };
+const text = { type: 'string', minLength: 1 };
+const evidence = { type: 'array', minItems: 1, items: text };
 export const recoveryTools: ToolSchema[] = [
   { name: 'record_recovery_plan', description: 'Required recovery checkpoint when requested. Briefly diagnose the observed problem, distinguish evidence from uncertainty, choose a materially different next approach and specify its observable verification. Records your decision; performs no browser action.',
     parameters: { type: 'object', additionalProperties: false, properties: {
@@ -14,6 +14,13 @@ export const recoveryTools: ToolSchema[] = [
       receipt_quote: { type: 'string', minLength: 1, maxLength: 4000 },
     }, required: ['assessment', 'evidence', 'next_action'] } },
 ];
+
+/** Extra narration is harmless metadata, never an additional browser instruction.
+ * Preserve all declared content; do not invent missing reasoning or receipt text. */
+export function recoveryInput(name: string, value: Record<string, unknown>): Record<string, unknown> {
+  const properties = recoveryTools.find(tool => tool.name === name)?.parameters.properties as Record<string, unknown> | undefined;
+  return properties ? Object.fromEntries(Object.entries(value).filter(([key]) => key in properties)) : value;
+}
 
 /** Schedules an agent-authored plan/check, never answers or repairs a form.
  * Ref churn, screenshots, clocks and narration cannot clear a stalled state. */
@@ -32,7 +39,10 @@ export class RecoveryCheckpoint {
       field.section, field.label, field.kind, field.sensitive || field.inputType === 'password' ? '[private]' : field.currentValue,
       field.validationError, field.options, field.disabled,
     ])]);
-    if (signature !== this.previous) { this.unchanged = 0; this.failures = 0; }
+    if (signature !== this.previous) {
+      if (this.previous !== undefined && this.phase === 'act') this.phase = 'verify';
+      this.unchanged = 0; this.failures = 0;
+    }
     else if (this.browserTurn) this.unchanged++;
     this.previous = signature;
     this.browserTurn = false;
@@ -43,8 +53,14 @@ export class RecoveryCheckpoint {
     return this.phase === 'plan' ? 'record_recovery_plan' : this.phase === 'verify' ? 'record_recovery_result' : undefined;
   }
 
-  /** At most one correction request for a violated checkpoint contract. */
-  rejected(): boolean { return ++this.invalid >= 2; }
+  /** A formatting failure must not terminate an otherwise usable application.
+   * After one correction, release the checkpoint; normal tools and budgets remain. */
+  rejected(): boolean {
+    if (++this.invalid < 2) return false;
+    this.phase = 'normal'; this.invalid = 0; this.failures = 0; this.unchanged = 0;
+    this.browserTurn = false; this.actionPending = false;
+    return true;
+  }
 
   planned(): void {
     this.phase = 'act'; this.invalid = 0; this.failures = 0; this.unchanged = 0;
@@ -58,8 +74,13 @@ export class RecoveryCheckpoint {
     else { this.phase = 'normal'; this.failures = 0; this.unchanged = 0; this.furtherInspections = 0; }
   }
 
-  acted(tool: string, failed: boolean): void {
-    if (this.phase === 'act') this.actionPending = true;
+  acted(tool: string, failed: boolean, args: Record<string, unknown> = {}): void {
+    const changesPage = tool === 'browser_action'
+      ? ['click', 'fill', 'select', 'check', 'press', 'navigate', 'dialog', 'set_input_files'].includes(String(args.action)) || args.sends_application === true
+      : tool === 'browser_batch'
+        ? Array.isArray(args.actions) && args.actions.some(action => ['click', 'fill', 'select', 'check', 'press', 'set_input_files'].includes(String(action.action)))
+        : ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool);
+    if (this.phase === 'act' && changesPage) this.actionPending = true;
     if (['browser_action', 'browser_batch', 'take_snapshot', 'wait_for_submission_result',
       'complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool)) this.browserTurn = true;
     if (failed) { this.failures++; if (this.phase === 'normal' && this.failures >= 2) this.phase = 'plan'; }

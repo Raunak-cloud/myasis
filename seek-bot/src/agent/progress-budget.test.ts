@@ -17,9 +17,9 @@ test('unchanged pages and passive prefills keep the normal twenty-cent budget', 
   assert.equal(meter.exhausted, true);
 });
 
-test('recent new answers extend spending gradually up to fifty cents', () => {
+test('recent new answers extend spending gradually up to seventy cents', () => {
   const meter = new ProgressBudget(0.20);
-  const fields = [field('Name'), field('Email'), field('Phone'), field('Letter')];
+  const fields = [field('Name'), field('Email'), field('Phone'), field('Letter'), field('Availability'), field('City'), field('Skills')];
   meter.observe(fields, false);
   spend(meter, 0.15);
   fields[0].currentValue = 'Candidate'; meter.observe(fields, true);
@@ -32,7 +32,12 @@ test('recent new answers extend spending gradually up to fifty cents', () => {
   assert.ok(Math.abs(meter.limitUsd - 0.43) < 1e-9);
   spend(meter, 0.09);
   fields[3].currentValue = 'Dear team'; meter.observe(fields, true);
-  assert.equal(meter.limitUsd, 0.50);
+  assert.ok(Math.abs(meter.limitUsd - 0.52) < 1e-9);
+  for (let i = 4; i < fields.length; i++) {
+    spend(meter, 0.09);
+    fields[i].currentValue = 'Verified answer'; meter.observe(fields, true);
+  }
+  assert.equal(meter.limitUsd, 0.70);
   spend(meter, 0.08);
   assert.equal(meter.exhausted, true);
 });
@@ -84,7 +89,7 @@ test('a new form step counts once, revisiting steps and uploads cannot repeatedl
 test('invalid operator settings retain safe finite budget defaults', () => {
   const meter = new ProgressBudget(Number.NaN, Number.POSITIVE_INFINITY);
   assert.equal(meter.limitUsd, 0.20);
-  assert.equal(meter.maximum, 0.50);
+  assert.equal(meter.maximum, 0.70);
   spend(meter, 0.20);
   assert.equal(meter.exhausted, true);
 });

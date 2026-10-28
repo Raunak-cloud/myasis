@@ -15,9 +15,9 @@ export class ProgressBudget extends CostMeter {
   private progress = 0;
   readonly maximum: number;
 
-  constructor(base: number, maximum = 0.50) {
+  constructor(base: number, maximum = 0.70) {
     base = Number.isFinite(base) && base > 0 ? base : 0.20;
-    maximum = Number.isFinite(maximum) && maximum > 0 ? maximum : 0.50;
+    maximum = Number.isFinite(maximum) && maximum > 0 ? maximum : 0.70;
     super(base);
     this.allowance = base;
     this.maximum = Math.max(base, maximum);
@@ -32,7 +32,7 @@ export class ProgressBudget extends CostMeter {
     this.credited.add(key);
     this.progress++;
     // At most ten more cents after the latest new progress. One early success
-    // cannot fund an otherwise stuck application all the way to fifty cents.
+    // cannot fund an otherwise stuck application all the way to the maximum.
     this.allowance = Math.min(this.maximum, Math.max(this.allowance, this.totals.costUsd + 0.10));
   }
 

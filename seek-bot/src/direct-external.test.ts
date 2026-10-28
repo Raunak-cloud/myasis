@@ -80,6 +80,13 @@ test('agent-only direct orchestration treats duplicate history as advisory and d
       assert.equal(saved.status, 'needs-human');
       assert.deepEqual(saved.questions, questions);
 
+      await runDirectExternalApplication(page, url + '?metadata', profile, () => null, {
+        runAgent: async () => ({ outcome: { status: 'applied' as const }, captured: [], actions: [],
+          resumeUsed: 'fixture-cv', resumeName: 'Fixture CV.pdf', submitPressed: true, steps: 1, usage: 'offline fixture' }),
+      });
+      assert.equal(new AppliedIndex().all.find(item => item.url === url + '?metadata')?.resume, 'Fixture CV.pdf',
+        'direct employer application history retains the selected resume filename');
+
       config.allowExternalApply = false;
       await runDirectExternalApplication(page, url, profile, () => null, failureAgent);
       assert.equal(calls, 3, 'Decision mode must not override employer-site entitlement.');
