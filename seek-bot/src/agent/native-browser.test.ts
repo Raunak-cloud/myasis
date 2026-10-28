@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'patchright';
 import { browserTarget } from './browser-target.js';
-import { nativeReadback, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
+import { nativeReadback, nativeInspect, nativeSnapshot, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { observe, renderObservation } from './observe.js';
 
 test('native locators retain events across rerenders, scope frames/editors/shadow DOM, and inspect values together', async () => {
@@ -57,5 +57,31 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     await page.setContent('<label>Password<input type=password value="private-fixture"></label>');
     const privateInput = await nativeReadback(page.getByLabel('Password')) as { private: boolean };
     assert.equal(privateInput.private, true); assert.equal(JSON.stringify(privateInput).includes('private-fixture'), false);
+    await page.setContent('<main><section><label>City<input id=city value=Sydney></label></section><section><label>Password<input type=password value="private-fixture"></label></section></main>');
+    const multiple = await nativeInspect(page.locator('input')) as { matched: number; fields: Array<{label: string; value: string; id: string | null}> };
+    assert.equal(multiple.matched, 2);
+    assert.equal(multiple.fields[0].label, 'City'); assert.equal(multiple.fields[0].value, 'Sydney');
+    assert.equal(multiple.fields[0].id, 'city'); assert.equal(multiple.fields[1].value, '[private credential]');
+    assert.equal(JSON.stringify(multiple).includes('private-fixture'), false);
+    assert.deepEqual(await nativeInspect(page.locator('#missing')), { matched: 0, truncated: false, fields: [] });
+    await assert.rejects(nativeReadback(page.locator('input')), /strict mode violation/, 'mutation readback is still strict');
+    await assert.rejects(page.locator('input').fill('wrong', { timeout: 100 }), /strict mode violation/);
+    assert.equal(await page.locator('#city').inputValue(), 'Sydney', 'ambiguous writes execute nowhere');
+    const snapshot = await nativeSnapshot(page.locator('section'));
+    assert.match(snapshot, /Target 1 of 2/); assert.match(snapshot, /Target 2 of 2/); assert.match(snapshot, /City/);
+    assert.doesNotMatch(snapshot, /private-fixture/, 'accessibility snapshots do not expose password contents');
+    assert.match(await nativeSnapshot(page.locator('#missing')), /No matching snapshot targets/);
+    await page.locator('#city').evaluate(node => node.outerHTML = '<input id=city aria-label=City value=Melbourne>');
+    assert.equal((await nativeInspect(page.locator('#city')) as {value: string}).value, 'Melbourne', 'locators describe the replacement node');
+    await page.setContent(Array.from({ length: 81 }, (_, index) => `<label>Field ${index}<input></label>`).join(''));
+    const bounded = await nativeInspect(page.locator('input')) as { matched: number; truncated: boolean; fields: unknown[] };
+    assert.equal(bounded.matched, 81); assert.equal(bounded.truncated, true); assert.equal(bounded.fields.length, 80);
+    await page.setContent(`<section><label>Password<input type=password value="TOKENstart${'PRIVATE'.repeat(1500)}TOKENend"></label></section><section>Other</section>`);
+    assert.doesNotMatch(await nativeSnapshot(page.locator('section')), /TOKENstart|PRIVATE|TOKENend/, 'mask before truncating long sections');
+    await page.setContent('<label>Password<input type=password value="transient-private-fixture"></label>');
+    const originalSnapshot = page.ariaSnapshot.bind(page);
+    page.ariaSnapshot = async options => { const text = await originalSnapshot(options); await page.setContent('<p>Redirected</p>'); return text; };
+    assert.doesNotMatch(await nativeSnapshot(page), /transient-private-fixture/, 'a redirect after capture cannot erase the old secret from masking');
+    page.ariaSnapshot = originalSnapshot;
   } finally { await browser.close(); }
 });

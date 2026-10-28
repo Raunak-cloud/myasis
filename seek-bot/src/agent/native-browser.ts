@@ -15,9 +15,10 @@ export const browserWaitProperties = {
   },
 };
 
-/** Read actual current values and constraints together; never infer an answer or select a widget recipe. */
-export async function nativeReadback(target: Locator): Promise<unknown> {
-  return target.evaluate(node => {
+/** Shared browser-side description. No answers, actions or host dependencies. */
+function describeNativeTargets(targets: Element | Element[]) {
+  const nodes = Array.isArray(targets) ? targets : [targets];
+  return { matched: nodes.length, truncated: nodes.length > 80, fields: nodes.slice(0, 80).map(node => {
     const input = node as HTMLInputElement;
     const select = node as HTMLSelectElement;
     const element = node as HTMLElement;
@@ -28,6 +29,7 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
       .map(id => node.getRootNode() instanceof ShadowRoot
         ? (node.getRootNode() as ShadowRoot).getElementById(id)?.textContent : node.ownerDocument.getElementById(id)?.textContent).filter(Boolean);
     return {
+      id: node.id || null, ref: node.getAttribute('data-field-id') || node.getAttribute('data-ref-id') || null,
       tag: node.tagName.toLowerCase(), type, name: input.name || null,
       private: privateValue,
       label: [...(input.labels || [])].map(label => label.textContent).join(' ') || node.getAttribute('aria-label') || null,
@@ -43,7 +45,65 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
       validation: input.validationMessage || '', description: described,
       expanded: node.getAttribute('aria-expanded'), controls: node.getAttribute('aria-controls'),
     };
-  }, undefined, { timeout: 5000 });
+  }) };
+}
+
+/** Mutation readback remains strict: exactly the target the action addressed. */
+export async function nativeReadback(target: Locator): Promise<unknown> {
+  return (await target.evaluate(describeNativeTargets, undefined, { timeout: 5000 })).fields[0];
+}
+
+/** One evaluation reads the current matching nodes together, including privacy
+ * masking. Multiple matches are useful evidence, never permission for writes. */
+export async function nativeInspect(target: Locator): Promise<unknown> {
+  const result = await target.evaluateAll(describeNativeTargets);
+  return result.matched === 1 ? result.fields[0] : result;
+}
+
+/** Read every requested section with current locators, never retained handles.
+ * Keep large / changing pages bounded and make omitted sections explicit. */
+async function snapshotPrivateValues(page: Page): Promise<string[] | undefined> {
+  const reads = await Promise.allSettled(page.frames().map(frame => frame.locator('input, textarea').evaluateAll(nodes => nodes
+    .filter(node => {
+      const input = node as HTMLInputElement;
+      return input.type === 'password' || /password|one-time-code/.test(input.autocomplete || '')
+        || /password|passphrase|verification.?code|one.?time.?code|\botp\b/i.test(`${input.name} ${node.getAttribute('aria-label')} ${[...(input.labels || [])].map(label => label.textContent).join(' ')}`);
+    }).map(node => (node as HTMLInputElement).value).filter(Boolean))));
+  // Do not expose an old snapshot if privacy inspection lost its page/frame.
+  if (reads.some(read => read.status === 'rejected')) return undefined;
+  return reads.flatMap(read => read.status === 'fulfilled' ? read.value : []);
+}
+
+async function maskSnapshots(page: Page, snapshots: string[], before: string[] | undefined): Promise<string[]> {
+  const after = await snapshotPrivateValues(page);
+  if (!before || !after) return ['Snapshot not returned because a frame changed during private-value masking. Inspect the fresh page and retry a focused snapshot.'];
+  for (const secret of new Set([...before, ...after])) {
+    for (const representation of [secret, JSON.stringify(secret).slice(1, -1), secret.replaceAll("'", "''")]) {
+      if (representation) snapshots = snapshots.map(snapshot => snapshot.replaceAll(representation, '[private credential]'));
+    }
+  }
+  return snapshots;
+}
+
+export async function nativeSnapshot(target: Locator | Page, timeout = 15_000): Promise<string> {
+  const scoped = 'count' in target ? target : undefined;
+  const page = scoped ? scoped.page() : target as Page;
+  const before = await snapshotPrivateValues(page);
+  if (!scoped) return (await maskSnapshots(page, [await target.ariaSnapshot({ mode: 'ai', timeout })], before))[0];
+  const count = await scoped.count();
+  if (!count) return 'No matching snapshot targets are currently present. Inspect the fresh page or wait for an observed condition.';
+  if (count === 1) return (await maskSnapshots(page, [await scoped.ariaSnapshot({ mode: 'ai', timeout })], before))[0];
+  const parts: string[] = [];
+  for (let index = 0; index < Math.min(count, 8); index++) {
+    try {
+      const snapshot = await scoped.nth(index).ariaSnapshot({ mode: 'ai', timeout: Math.min(2000, timeout) });
+      parts.push(`Target ${index + 1} of ${count}:\n${snapshot}`);
+    } catch (error) { parts.push(`Target ${index + 1} changed or could not be inspected: ${(error as Error).message.slice(0, 600)}`); }
+  }
+  if (count > 8) parts.push(`${count - 8} further matching sections omitted; narrow the inspection to read them.`);
+  // Mask before truncation so a cut cannot expose a prefix of a secret.
+  return (await maskSnapshots(page, parts, before)).map(part => part.slice(0, 8000)
+    + (part.length > 8000 ? '\n[Section truncated; narrow the inspection for more detail.]' : '')).join('\n\n');
 }
 
 export async function waitAfterAction(page: Page, args: Record<string, unknown>): Promise<string | undefined> {

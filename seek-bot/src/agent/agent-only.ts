@@ -36,7 +36,7 @@ import { toolInputIssue } from './tool-input.js';
 import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
 import { ok, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
 import { authenticationTools } from './auth-tools.js';
-import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
+import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, nativeInspect, nativeSnapshot, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { approvedApplication, applicationApprovalGate, preparingApplications, reviewingApplications } from '../application-review.js';
 import { prepareEmailApplication } from './prepare-email.js';
 import { normaliseBlockedQuestions } from '../blocked-questions.js';
@@ -70,8 +70,8 @@ export const agentOnlyTools: ToolSchema[] = [
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean' },
     }, required: ['action'] } },
   }, ['actions']),
-  schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or section with ref, selector or a direct Playwright locator. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ...browserTargetProperties }),
-  schema('browser_action', 'Act directly on the observed browser. You author values, choose interactions and decide when to submit. Fill/select/check report actual readback and validation. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
+  schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or sections with ref, selector or a direct Playwright locator. Multiple matching sections return separately labelled snapshots, with explicit bounds. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ...browserTargetProperties }),
+  schema('browser_action', 'Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
     action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'scroll', 'navigate', 'script', 'select_page', 'dialog', 'wait', 'inspect', 'set_input_files'] },
     file_ids: fileIdsProperty,
     file_chooser: { type: 'boolean', description: 'For set_input_files only: true clicks your selected upload trigger and attaches through the native file chooser. Otherwise target the actual file input directly.' },
@@ -409,8 +409,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     if (name === 'take_snapshot') {
       await assertCurrentRef(ctx, args);
       screenshot = args.screenshot === true;
-      const snapshot = hasBrowserTarget(args) ? await target(ctx, args).ariaSnapshot({ mode: 'ai', timeout: 15_000 })
-        : await ctx.page.ariaSnapshot({ mode: 'ai', timeout: 15_000 });
+      const snapshot = await nativeSnapshot(hasBrowserTarget(args) ? target(ctx, args) : ctx.page);
       return ok(snapshot); // exactly once, as the tool result, not again in the next observation
     }
     if (config.dryRun && !isolated) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: 'Agent-only dry run inspected the page; browser mutations were not executed.' } };
@@ -528,7 +527,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         const result = JSON.stringify(await evaluateBrowser(ctx.page, args)) ?? 'Script completed.';
         return ok(result.length > 24000 ? `${result.slice(0, 24000)}\n[Result truncated. Request a focused slice or summary in your next inspection.]` : result);
       }
-      case 'inspect': return ok(JSON.stringify(await nativeReadback(target(ctx, args))));
+      case 'inspect': return ok(JSON.stringify(await nativeInspect(target(ctx, args))));
       case 'wait': {
         if (!hasWaitCondition(args)) throw new Error('Provide wait with a current locator/state or URL condition. timeout_ms is a maximum, not a delay.');
         const waitNote = await waitAfterAction(ctx.page, args);
@@ -644,7 +643,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         let wholePage = '';
         if (checkpoint === 'record_recovery_plan') {
           try {
-            const snapshot = await ctx.page.ariaSnapshot({ mode: 'ai', timeout: Math.max(1, Math.min(5000, remainingMs())) });
+            const snapshot = await nativeSnapshot(ctx.page, Math.max(1, Math.min(5000, remainingMs())));
             wholePage = snapshot.length <= 24000 ? snapshot : snapshot.slice(0, 16000) + '\n[Middle omitted; inspect the relevant section if needed.]\n' + snapshot.slice(-8000);
           } catch (error) { wholePage = `Whole-page accessibility inspection failed: ${(error as Error).message}`; }
         }
