@@ -96,46 +96,6 @@ try {
   assert.ok(existsSync(join(directory, 'form-corpus')), 'the sole agent retains private form replay recording');
   assert.equal(JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8')).length, 1, 'driver does not mutate history or reserve duplicate claims');
 
-  // Exercise the real loop across a small normal turn boundary. A completed
-  // browser field earns the extension; model-authored notes alone do not.
-  const normalSteps = config.celeris.maxSteps, progressSteps = config.celeris.progressMaxSteps;
-  try {
-    config.celeris.maxSteps = 3; config.celeris.progressMaxSteps = 8;
-    await page.goto(url);
-    script = [
-      () => [{ name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Rinu Fixture' } }],
-      () => [{ name: 'save_progress', args: { note: 'The name is filled.' } }],
-      () => [{ name: 'browser_action', args: { action: 'fill', selector: '#email', value: 'fixture@example.invalid' } }],
-      () => [{ name: 'browser_action', args: { action: 'select', selector: 'select', value: 'Company website' } }],
-      () => [{ name: 'browser_action', args: { action: 'click', selector: '#submit', sends_application: true } }],
-      body => {
-        assert.match(observation(body), /Application received/);
-        return [{ name: 'finish', args: { status: 'applied', reason: 'Completed after verified progress', evidence: 'Application received, Receipt ABC123', receipt: { quote: 'Application received' } } }];
-      },
-    ];
-    const extended = await runApplicationAgent({ page, job: { ...job, id: 'progress-turn-extension' }, profile, log: () => {} });
-    assert.equal(extended.outcome.status, 'applied');
-    assert.equal(extended.steps, 6);
-    assert.equal(script.length, 0);
-    assert.equal(await page.evaluate('window.presses', undefined, undefined, false), 1, 'one send beyond the normal boundary, one confirmed receipt');
-
-    await page.goto(url);
-    script = Array.from({ length: 3 }, () => () => [{ name: 'save_progress', args: { note: 'I claim to be making progress.' } }]);
-    const unchanged = await runApplicationAgent({ page, job: { ...job, id: 'no-turn-extension-for-notes' }, profile, log: () => {} });
-    assert.equal(unchanged.outcome.status, 'skipped');
-    assert.equal(unchanged.steps, 3);
-    assert.equal(unchanged.submitPressed, false);
-    assert.equal(script.length, 0);
-
-    await page.setContent(`<main>${Array.from({ length: 8 }, (_, index) => `<label>Question ${index}<input id="answer-${index}"></label>`).join('')}</main>`);
-    script = Array.from({ length: 8 }, (_, index) => () => [{ name: 'browser_action', args: { action: 'fill', selector: `#answer-${index}`, value: 'Fixture answer' } }]);
-    const capped = await runApplicationAgent({ page, job: { ...job, id: 'progress-turn-hard-cap' }, profile, log: () => {} });
-    assert.equal(capped.outcome.status, 'skipped');
-    assert.equal(capped.steps, 8, 'even genuine progress cannot generate beyond the configured hard cap');
-    assert.equal(capped.submitPressed, false);
-    assert.equal(script.length, 0);
-  } finally { config.celeris.maxSteps = normalSteps; config.celeris.progressMaxSteps = progressSteps; }
-
   // A genuine small PDF, without office software or network access. Conversion
   // selection uses a prebuilt variant; the production converter is unchanged.
   const pdfObjects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',

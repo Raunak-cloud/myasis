@@ -22,8 +22,7 @@ const { runAgentOnlyApplication } = await import('./agent-only.js');
 const { config } = await import('../config.js');
 const { submitApprovedEmail } = await import('../gmail-mailbox.js');
 const { withApplicationAllowance } = await import('../application-allowance.js');
-config.allowExternalApply = true; config.dryRun = false; config.celeris.maxSteps = 3;
-config.celeris.progressMaxSteps = 3;
+config.allowExternalApply = true; config.dryRun = false;
 const drafts: PreparedApplication[] = [], sends = new Map<string, string>();
 let calls = 0, oldPrepare = false;
 const service = new GmailMcpService({ search: async () => [], thread: async () => [], send: async (owner, id, revision) => {

@@ -11,7 +11,7 @@ Object.assign(process.env, { DATA_DIR: dir, DRY_RUN: 'false', COST_TRACKING: 'fa
   APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true', APPLICATION_REVIEW_MODE: '', RESUME_SELECT: 'cv',
   FORM_CORPUS_DIR: join(dir, 'corpus'), KEYWORDS: 'software developer', TARGET_ROLE: '',
   COVER_LETTER_MODE: 'tailored', COVER_LETTER_TEXT_B64: '', COVER_LETTER_INSTRUCTIONS: '', AI_INSTRUCTIONS_B64: '',
-  AGENT_BUDGET_USD: '0.20', AGENT_PROGRESS_BUDGET_USD: '0.20', AGENT_MAX_STEPS: '20', AGENT_PROGRESS_MAX_STEPS: '20', AGENT_MAX_MS: '180000' });
+  AGENT_BUDGET_USD: '0.20', AGENT_PROGRESS_BUDGET_USD: '0.20', AGENT_MAX_MS: '180000' });
 mkdirSync(join(dir, 'resumes'));
 writeFileSync(join(dir, 'resumes/CV.txt'), 'Alex Fixture. Freelance Software Developer. Two years of TypeScript and React development. Based in Sydney.');
 writeFileSync(join(dir, 'resumes.json'), JSON.stringify([{ id: 'cv', label: 'Fictional CV', fileName: 'CV.txt' }]));

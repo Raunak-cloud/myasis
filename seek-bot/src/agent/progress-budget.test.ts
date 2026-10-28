@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ProgressBudget, ProgressStepBudget } from './progress-budget.js';
+import { ProgressBudget } from './progress-budget.js';
 import type { FormField } from '../types.js';
 
 const field = (label: string, value = '', extra: Partial<FormField> = {}): FormField => ({ ref: 'fresh-ref', label, kind: 'text', required: true, currentValue: value, ...extra });
@@ -101,35 +101,4 @@ test('only newly verified work increments progress, not prefills, rewrites or re
   assert.equal(meter.progressCount, 1, 'a genuinely new wizard stage counts');
   meter.uploaded('cv'); meter.uploaded('cv');
   assert.equal(meter.progressCount, 2);
-});
-
-test('a stuck form or old early progress cannot extend sixty turns', () => {
-  const stuck = new ProgressStepBudget(60);
-  for (let turn = 0; turn < 60; turn++) assert.equal(stuck.permits(turn, 0), true);
-  assert.equal(stuck.permits(60, 0), false);
-  const early = new ProgressStepBudget(60);
-  for (let turn = 0; turn < 60; turn++) early.permits(turn, turn ? 1 : 0);
-  assert.equal(early.permits(60, 1), false);
-});
-
-test('recent progress renews twenty turns, needs new evidence each window and never exceeds 120', () => {
-  const turns = new ProgressStepBudget(60);
-  let progress = 0;
-  for (let turn = 0; turn <= 120; turn++) {
-    if ([58, 78, 98, 118].includes(turn)) progress++;
-    assert.equal(turns.permits(turn, progress), turn < 120, `turn ${turn}`);
-  }
-  const oneSuccess = new ProgressStepBudget(60);
-  for (let turn = 0; turn < 80; turn++) assert.equal(oneSuccess.permits(turn, turn >= 58 ? 1 : 0), true);
-  assert.equal(oneSuccess.permits(80, 1), false, 'notes, repeated actions and snapshots provide no new progress');
-});
-
-test('operator caps and invalid step settings remain bounded', () => {
-  const lower = new ProgressStepBudget(60, 30);
-  for (let turn = 0; turn < 30; turn++) assert.equal(lower.permits(turn, turn), true);
-  assert.equal(lower.permits(30, 30), false);
-  const high = new ProgressStepBudget(1000, 1000);
-  assert.equal(high.maximum, 120);
-  assert.equal(high.permits(120, 120), false);
-  assert.equal(new ProgressStepBudget(NaN, Infinity).maximum, 120);
 });

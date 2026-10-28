@@ -17,8 +17,6 @@ const { config } = await import('../config.js');
 const { runAgentOnlyApplication } = await import('./agent-only.js');
 config.dryRun = false;
 config.allowExternalApply = true;
-config.celeris.maxSteps = 10;
-config.celeris.progressMaxSteps = 10;
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'Fixture CV.txt'), 'Fixture applicant CV');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'cv', label: 'Fixture CV', fileName: 'Fixture CV.txt' }]));

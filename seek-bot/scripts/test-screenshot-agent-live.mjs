@@ -13,7 +13,7 @@ Object.assign(process.env, {
   APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true', RESUME_SELECT: 'fixture-cv', FORM_CORPUS_DIR: join(directory, 'corpus'),
   KEYWORDS: 'software developer', TARGET_ROLE: '', COVER_LETTER_MODE: 'tailored', COVER_LETTER_TEXT_B64: '',
   COVER_LETTER_INSTRUCTIONS: '', AI_INSTRUCTIONS_B64: '', AGENT_BUDGET_USD: '0.20', AGENT_PROGRESS_BUDGET_USD: '0.50',
-  AGENT_MAX_STEPS: '25', AGENT_PROGRESS_MAX_STEPS: '40', AGENT_MAX_MS: '180000',
+  AGENT_MAX_MS: '180000',
 });
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'Fixture CV.txt'), 'Alex Fixture. Software developer with two years of TypeScript and React work. Australian citizen living in Sydney, Australia. Available weekdays, two weeks after offer. Expected rate AUD 35 per hour. Contact alex@example.invalid.');

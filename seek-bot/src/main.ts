@@ -150,7 +150,7 @@ async function main() {
   if (!searchOnly) {
     console.log(
       `Browser agent: ${applicationModelIdentity().model} ` +
-        `(max ${config.celeris.maxSteps} turns, $${config.celeris.budgetUsdPerApplication.toFixed(3)}/application)`,
+        `($${config.celeris.budgetUsdPerApplication.toFixed(3)}/application; spending and time limits apply)`,
     );
   }
   console.log(

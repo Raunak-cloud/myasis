@@ -20,8 +20,6 @@ const { config } = await import('./config.js');
 const { applicationApprovalGate, applicationContent, approvedSeekReviewUrl } = await import('./application-review.js');
 const { runAgentOnlyApplication } = await import('./agent/agent-only.js');
 config.dryRun = false; config.allowExternalApply = true;
-config.celeris.maxSteps = 3;
-config.celeris.progressMaxSteps = 3;
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'Fixture CV.txt'), 'Fixture applicant CV');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'cv', label: 'Fixture CV', fileName: 'Fixture CV.txt' }]));
@@ -118,8 +116,6 @@ try {
   // entry link must not be mistaken for a filled application's final send.
   // Exercise five real browser forms, including employer popups and a final
   // "Apply now" control that does need confirmation.
-  config.celeris.maxSteps = 8;
-  config.celeris.progressMaxSteps = 8;
   const drafts: PreparedApplication[] = [];
   const submissions: string[] = [];
   const sentLetters: string[] = [];

@@ -22,7 +22,7 @@ import { AgentFiles, fileIdsProperty } from './agent-files.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
 import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
-import { ProgressBudget, ProgressStepBudget } from './progress-budget.js';
+import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
 import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
@@ -175,7 +175,6 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   };
   const started = Date.now();
   const meter = new ProgressBudget(config.celeris.budgetUsdPerApplication, config.celeris.progressBudgetUsdPerApplication);
-  const stepBudget = new ProgressStepBudget(config.celeris.maxSteps, config.celeris.progressMaxSteps);
   const log = options.log ?? console.log;
   const screenshotsEveryTurn = applicationModelEnvironment().APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN !== 'false';
   if (screenshotsEveryTurn) log('Application screenshots: fresh screenshot each decision turn; only the latest image is sent.');
@@ -594,7 +593,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         meter.observe(ctx.observation.fields, browserMutated);
         browserMutated = false;
       }
-      if (meter.exhausted || !stepBudget.permits(steps, meter.progressCount)) break;
+      if (meter.exhausted) break;
       if (approved) {
         // Keep actual readback for known answers across wizard steps, including
         // selections made by clicks rather than fill/select tools. Do not copy
@@ -619,7 +618,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       const turnTools = agentOnlyTools.filter(tool => submissionReviewRequired
         ? ['finish', 'resume_after_rejected_submission', 'take_snapshot', 'wait_for_submission_result', ...(pendingDialog ? ['browser_action'] : [])].includes(tool.name)
         : tool.name !== 'resume_after_rejected_submission');
-      steps++; // Model turns; extra windows require fresh browser-confirmed progress.
+      steps++; // Audit counter only; spending and elapsed time bound the loop.
       // Compact only at the threshold so ordinary turns retain a cacheable
       // prefix. An API context rejection retries generation in this SAME page;
       // no browser action, upload or assessment is replayed.

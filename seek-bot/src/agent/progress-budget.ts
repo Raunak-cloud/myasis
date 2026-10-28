@@ -57,32 +57,3 @@ export class ProgressBudget extends CostMeter {
 
   uploaded(documentKey: string): void { this.credit(`upload:${documentKey}`); }
 }
-
-/** Renew a short turn window only for new browser evidence, with a hard cap. */
-export class ProgressStepBudget {
-  private limit: number;
-  private seenProgress = 0;
-  private renewedProgress = 0;
-  private lastProgressTurn = -Infinity;
-  private readonly window: number;
-  readonly maximum: number;
-
-  constructor(normalTurns: number, maximum = 120) {
-    this.maximum = Number.isFinite(maximum) && maximum >= 1 ? Math.min(120, Math.floor(maximum)) : 120;
-    this.limit = Math.min(this.maximum, Number.isFinite(normalTurns) && normalTurns >= 1 ? Math.floor(normalTurns) : 60);
-    this.window = Math.min(20, this.limit);
-  }
-
-  permits(completedTurns: number, progressCount: number): boolean {
-    if (progressCount > this.seenProgress) {
-      this.seenProgress = progressCount;
-      this.lastProgressTurn = completedTurns;
-    }
-    if (completedTurns < this.limit) return true;
-    if (this.limit >= this.maximum || this.seenProgress <= this.renewedProgress
-      || completedTurns - this.lastProgressTurn > this.window) return false;
-    this.limit = Math.min(this.maximum, this.limit + this.window);
-    this.renewedProgress = this.seenProgress;
-    return completedTurns < this.limit;
-  }
-}
