@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'patchright';
-import { submissionReceipt } from './submission-receipt.js';
+// Shared visible-message grounding remains for employer-reported duplicates.
+import { employerMessageEvidence as submissionReceipt } from './employer-message.js';
 
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {

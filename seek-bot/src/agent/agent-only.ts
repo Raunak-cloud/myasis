@@ -36,14 +36,11 @@ import { ok, type AgentTermination, type ToolContext, type ToolResult } from './
 import { authenticationTools } from './auth-tools.js';
 import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { approvedApplication, applicationApprovalGate, preparingApplications, reviewingApplications } from '../application-review.js';
-import { isSubmitControl } from '../llm.js';
 import { prepareEmailApplication } from './prepare-email.js';
 import { normaliseBlockedQuestions } from '../blocked-questions.js';
-import { needsSubmissionReview, submissionControl } from './submission-control.js';
 import { JOB_FIT_POLICY, jobPreferenceContext } from '../job-fit-policy.js';
 import { currentFitReview } from '../review-cache.js';
 import type { FitRejection } from '../types.js';
-import { submissionReceipt } from './submission-receipt.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { InteractionMemory } from './interaction-memory.js';
 
@@ -99,7 +96,7 @@ export const agentOnlyTools: ToolSchema[] = [
   schema('finish', 'Report your final judgement after reading the actual page. Applied requires receipt.quote grounded in fresh visible employer text confirming completed application delivery. A press alone is not receipt. Record an uncertain result honestly.', {
     status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied'] },
     reason: string, evidence: string,
-    receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: copy a COMPLETE visible employer confirmation message or sentence, including its qualifications. You judge its meaning. A loading state, disabled button, account creation or URL is not receipt. Do not truncate a message to remove negation or conditions.', properties: { quote: { type: 'string', minLength: 12 } }, required: ['quote'] },
+    receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: copy a COMPLETE visible employer confirmation message or sentence, including its qualifications. You judge its meaning. A loading state, disabled button, account creation or URL is not receipt. Do not truncate a message to remove negation or conditions.', properties: { quote: { type: 'string', minLength: 1 } }, required: ['quote'] },
     questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED application questions needing a consequential candidate fact or decision. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
       type: 'object', additionalProperties: false,
       properties: { question: string, prompt: string, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
@@ -120,7 +117,8 @@ Read the authoritative profile, saved answers, CVs, supporting documents and mat
 When the form offers CV upload or parsing, upload the selected CV early, then inspect and correct the resulting saved fields. upload_document attaches the original document directly; the form's accept attribute is advisory, not an Owtomate rejection rule. You choose whether a different format is necessary from the actual employer requirements or response and request it explicitly with format. If an upload is rejected for its format, changing selectors cannot repair the document: inspect the employer error and choose another approved document or request the appropriate conversion. A file selected in the browser is not proof the employer accepted it. Do not manually recreate optional education or employment-history sections already covered by the attached CV unless the form requires them or the candidate asks. Complete required sections truthfully and include the tailored cover letter. Use the fresh observation already provided before requesting another snapshot of the same information.
 If a role does not match the candidate's preferences, finish as skipped with the reason. For needs-human, include questions containing the exact observed required form labels, clear candidate-facing prompts and offered choices. Only ask about a consequential candidate fact or decision the saved evidence cannot answer. Browser failures and role mismatches are not unanswered application questions; never invent a question to create a task.
 For a genuine suitability rejection, include fit_rejection with the exact decisive employer quote and its source. This lets unchanged unsuitable listings be remembered; technical problems and uncertain sends must not be remembered as role mismatches.
-After an action marked sends_application, review the fresh employer response before any more form actions. For applied, judge the employer response semantically and include receipt.quote copied as a COMPLETE visible employer message or sentence confirming completed application delivery. Preserve qualifications and negation; do not select a positive-looking fragment. Code grounds the quote, not its English vocabulary. A disabled button, Please wait, no validation errors, account creation and a success URL are not receipts. While pending, use wait_for_submission_result or take_snapshot to inspect, including frames. Finish skipped if receipt remains uncertain; never repeat a send because a receipt is missing. If the action instead opens another application step with required questions, use resume_after_rejected_submission with those observed questions and continue that step without repeating the prior action. Otherwise use it only for an explicit employer rejection requiring correction.
+You identify every application-transmitting action yourself and mark it sends_application=true, including mouse, keyboard, batch, script and coordinate sends. Signing in, opening Apply, advancing wizard pages, uploading documents and selecting an autocomplete location are ordinary actions; do not mark them as application sends. There is no separate submission classifier. Semi auto confirmation and approved-content checks still apply to your marked sends.
+After an action marked sends_application, review the fresh employer response before any more form actions. You alone judge whether the employer actually received the application. For applied, include receipt.quote copied as a COMPLETE visible employer message or sentence confirming completed application delivery. Preserve qualifications and negation; do not select a positive-looking fragment. The code records your judgement and quote without a second receipt reviewer or later DOM-text verdict. A disabled button, Please wait, no validation errors, account creation and a success URL are not receipts. While pending, use wait_for_submission_result or take_snapshot to inspect, including frames. Finish skipped if receipt remains uncertain; never repeat a send because a receipt is missing. If the action instead opens another application step with required questions, use resume_after_rejected_submission with those observed questions and continue that step without repeating the prior action. Otherwise use it only for an explicit employer rejection requiring correction.
 For verification email codes and links, use the Gmail MCP tools only. Never open Gmail in the browser. When an employer requires applications by email, use prepare_email_application with the observed recipient, tailored subject, complete cover letter and selected resume. Email applications always wait for explicit candidate confirmation. Saving content is not an email send or a successful application. For online applications, supply submit_ref or submit_selector when saving a prepared application.
 ${WORK_RIGHTS_EVIDENCE_RULES}
 Use browser_action or browser_batch directly to operate the actual form. You choose every interaction; there is no automatic custom-widget filler. Use observed refs or standard Playwright locators: for example locator={by:"role",value:"button",name:"Country"}, locator={by:"label",value:"Phone"}, or locator={by:"placeholder",value:"Search countries"}. Names must come from the observed page. Locators match exactly by default; narrow ambiguous matches with within (section CSS), frame (iframe CSS), or an index you deliberately choose after inspecting the matches. Native actions retain browser auto-waiting and normal input events. Native fill supports text inputs, textareas AND contenteditable rich-text editors, including an editable body inside an iframe: use a CSS locator for the observed editable element with frame set to its iframe selector. Prefer native fill over setting value or innerHTML; direct DOM writes can omit the events controlled React inputs and editors need. Use script only for browser-side DOM inspection or an interaction unavailable through these native actions; DOM methods require their proper receiver (for example node.click(), not an unbound click function).
@@ -371,9 +369,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
       const status = args.status as 'applied' | 'skipped' | 'needs-human' | 'already-applied';
       if (status === 'applied' && reviewingApplications() && !ctx.submissionAttempted) return ok('No application has been submitted. In Semi auto, finish filling and use prepare_application for candidate confirmation.', 'failed');
-      if (status === 'applied') {
-        const receipt = await submissionReceipt(ctx.page, String((args.receipt as { quote?: string } | undefined)?.quote ?? ''));
-        if (!receipt) return ok('Submission is not confirmed. Supply receipt.quote copied exactly from visible employer text confirming this application was received. Please wait, a disabled button, no validation errors, account creation and a success URL are not receipts. Inspect the response; finish skipped if it remains uncertain. Do not send again without an explicit employer rejection.', 'failed');
+      // The applying agent interprets the employer response. Require an audit
+      // record, not a second classification or a later DOM-text verdict.
+      if (status === 'applied' && !String((args.receipt as { quote?: string } | undefined)?.quote ?? '').trim()) {
+        return ok('Record receipt.quote from the employer confirmation you observed and judged before reporting applied. If delivery remains uncertain, report skipped with that uncertainty.', 'invalid-arguments');
       }
       if (status === 'skipped') return { kind: 'terminal', outcome: { status, reason: String(args.reason),
         ...(args.fit_rejection ? { fitRejection: args.fit_rejection as FitRejection } : {}) } };
@@ -466,17 +465,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         return `${legend} ${label}`.replace(/\s+/g, ' ').trim().slice(0, 350);
       }, undefined, { timeout: 2500 }).catch(() => '');
     }
-    let sendsApplication = args.sends_application === true;
-    if (!sendsApplication && (args.action === 'click'
-      || args.action === 'press' && needsSubmissionReview(String(args.value)))) {
-      // Authentication, widget selection and final sending can all use Submit
-      // or Enter. Review the actual scoped form, never the label/key alone.
-      const control = await submissionControl(ctx.page, hasBrowserTarget(args) ? target(ctx, args) : undefined,
-        args.action === 'press' ? String(args.value) : undefined);
-      sendsApplication = await isSubmitControl(control, { url: ctx.page.url(), title: ctx.observation.title,
-        text: ctx.observation.text, fields: ctx.observation.fields.length, entered: ctx.captured.length },
-        { meter, deadline: Date.now() + Math.max(1, Math.min(30_000, remainingMs())) }).catch(() => true);
-    }
+    const sendsApplication = args.sends_application === true;
     if (sendsApplication && reviewingApplications()) {
       const approval = await applicationApprovalGate(ctx);
       if (approval) return approval;

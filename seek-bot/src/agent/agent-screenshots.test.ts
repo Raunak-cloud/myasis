@@ -34,10 +34,7 @@ try {
     const imagesSeen: number[] = [];
     globalThis.fetch = (async (_url, init) => {
       const body = JSON.parse(String(init?.body));
-      if (!body.tools?.length && JSON.stringify(body.messages).includes('Would pressing the control')) {
-        return Response.json({ choices: [{ message: { role: 'assistant', content: '{"sends_application":false}' } }] });
-      }
-      assert.ok(body.tools?.length);
+      assert.ok(body.tools?.length, 'only the applying agent makes submission decisions');
       const latest = body.messages.filter((message: { role: string }) => message.role === 'user').at(-1);
       const allImages = body.messages.flatMap((message: { content: unknown }) => Array.isArray(message.content)
         ? message.content.filter((part: { type: string }) => part.type === 'image_url') : []);

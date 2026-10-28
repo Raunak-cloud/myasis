@@ -1142,29 +1142,3 @@ export interface VerificationEmail {
   text: string;
   links: Array<{ text: string; url: string }>;
 }
-
-/**
- * Whether a checkbox is the site's condition for accepting the application —
- * terms, privacy, data storage or handling, declarations of truth — rather
- * than a marketing, alert or optional preference. Sites word this every way
- * ("By using this form you agree with the storage and handling of your
- * data"), so the model judges the wording; marketing is always refused.
- */
-/**
- * Whether pressing this control would send the completed application to the
- * employer. A fixed label list cannot know every form's wording ("Send",
- * "Submit my application", "Finish"), and a submit it misses bypasses the
- * rehearsal and grounding gates. The fast model reads the control in its page;
- * callers treat a failed check as a submit, so doubt only ever adds caution.
- */
-export async function isSubmitControl(control: { label: string; context?: string }, page: { url: string; title: string; text: string; fields: number; entered: number }, budget?: { meter: CostMeter; deadline: number }): Promise<boolean> {
-  const verdict = await json<{ sends_application: boolean }>(`${GUARD}
-A browser agent is filling in a job application. Would pressing the control below send the finished application to the employer (a final submit), as opposed to opening the form, moving to the next or review step, saving a draft, uploading a file, opening a list, or leaving the page?
-Signing in, creating an account, resetting a password and verifying an email are authentication, not application submission, even when the control is labelled Submit. Read the target's own form fields and headings, not just the surrounding job page. A keyboard action can select an autocomplete option, toggle a checkbox or insert a newline without sending an application. When implicitFormSubmit is true, Enter in the single-line input activates implicitSubmitter (or submits that form), unless an expanded autocomplete/list widget consumes that key to select an option. Classify that implicit submitter in the same way as clicking it: Enter in a Name field on a final review form with a Submit application button sends the application. Decide from the supplied key, target and form context. Do not treat type=submit or the word Submit alone as proof of application submission.
-The page has ${page.fields} form field(s); ${page.entered} answer(s) have been entered so far.
-Return JSON {"sends_application": true|false}.
-<untrusted>${JSON.stringify({ control: control.label.slice(0, 200), context: control.context?.slice(0, 6_000), url: page.url, title: page.title, page_text: page.text.slice(0, 2_000) })}</untrusted>`, {
-    type: 'OBJECT', properties: { sends_application: { type: 'BOOLEAN' } }, required: ['sends_application'],
-  }, 'celeris-1', 128, undefined, budget?.deadline, budget?.meter);
-  return verdict.sends_application === true;
-}

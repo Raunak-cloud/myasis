@@ -14,7 +14,6 @@ process.env.APPLICATION_REVIEW_MODE = 'prepare';
 process.env.SITE_AUTH_SECRET = 'fixture-only';
 const { config } = await import('../config.js');
 const { runAgentOnlyApplication } = await import('./agent-only.js');
-const { submissionControl } = await import('./submission-control.js');
 config.dryRun = false;
 config.allowExternalApply = true;
 config.celeris.maxSteps = 10;
@@ -31,9 +30,8 @@ let calls: Call[] = [];
 let counter = 0;
 let authPosts = 0;
 let applicationPosts = 0;
-let classifierCalls = 0;
-let phase: 'login' | 'widget' | 'application' = 'login';
 const drafts: PreparedApplication[] = [];
+let closeObservedReceipt = false;
 const jobs = Array.from({ length: 5 }, (_, index) => ({ id: `auth-${index}`, title: 'Developer', company: 'Fixture Employer',
   location: 'Sydney', platform: 'workday' as const, url: `https://employer.fixture.invalid/login/${index}` }));
 const login = (id: string) => `<main><h1>Developer application</h1><h2>Sign In</h2>
@@ -49,19 +47,14 @@ const review = `<main><h1>Review application</h1><form method="post" action="/re
   <input type="file" id="cv"><button id="send">Submit</button></form></main>`;
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
-  if (!body.tools?.length) {
-    classifierCalls++;
-    const prompt = JSON.stringify(body.messages);
-    assert.match(prompt, /Signing in, creating an account/);
-    assert.ok(!prompt.includes('DO_NOT_EXPOSE_FIXTURE_PASSWORD'), 'control metadata never contains a password');
-    if (phase === 'login') { assert.match(prompt, /password/); assert.match(prompt, /Sign In/); }
-    if (phase === 'widget') assert.match(prompt, /combobox/);
-    return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: phase === 'application' }) } }] });
-  }
+  assert.ok(body.tools?.length, 'no independent submission classifier or receipt reviewer may be called');
   const call = calls.shift();
   assert.ok(call, `planned browser flow must complete without a workaround or human intervention; last result: ${body.messages.filter((item: { role: string }) => item.role === 'tool').at(-1)?.content?.slice(0, 1200)}`);
-  phase = call.args.test_phase as typeof phase ?? phase;
-  delete call.args.test_phase;
+  if (closeObservedReceipt && call.name === 'finish') {
+    assert.match(JSON.stringify(body.messages.at(-1)), /Receipt AUTO-001/, 'the applying agent observed the actual employer receipt');
+    await page.setContent('<main>Candidate home. No more tasks.</main>');
+    closeObservedReceipt = false;
+  }
   return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${++counter}`, type: 'function',
     function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
 }) as typeof fetch;
@@ -83,22 +76,18 @@ try {
     await page.goto(job.url);
     const scope = framed ? page.frameLocator('#employer') : page;
     const at = (value: string) => ({ locator: { by: 'css', value, ...(framed ? { frame: '#employer' } : {}) } });
-    const authTarget = scope.locator('#overlay');
-    const facts = await submissionControl(page, authTarget);
-    assert.equal(facts.label, 'Submit');
-    assert.ok(facts.context.includes('password'));
-    assert.ok(!facts.context.includes('DO_NOT_EXPOSE_FIXTURE_PASSWORD'));
     if (index === 2 || index === 4) await scope.locator('#password').focus();
     const authAction = index === 0 || index === 3 ? { action: 'click', ...at('#overlay') }
       : { action: 'press', value: 'Enter', ...(index === 1 ? at('#password') : {}) };
     const unapprovedSend = index === 0 ? { action: 'click', ...at('#send') }
       : { action: 'press', value: index === 3 ? 'Space' : index === 4 ? 'NumpadEnter' : 'Enter', ...(index === 1 || index === 3 ? at('#send') : index === 2 ? at('#name') : {}) };
     calls = [
-      { name: 'browser_action', args: { ...authAction, test_phase: 'login' } },
-      { name: 'browser_action', args: { action: 'press', ...at('#city'), value: 'Enter', test_phase: 'widget' } },
+      { name: 'browser_action', args: { ...authAction, sends_application: false } },
+      { name: 'browser_action', args: { action: 'click', ...at('#city'), sends_application: false } },
+      { name: 'browser_action', args: { action: 'press', ...at('#city'), value: 'Enter', sends_application: false } },
       { name: 'upload_document', args: { ...at('#cv'), document_id: 'cv' } },
       ...(index === 4 ? [{ name: 'browser_action', args: { action: 'press', ...at('#name'), value: 'Home' } }] : []),
-      { name: 'browser_action', args: { ...unapprovedSend, test_phase: 'application' } },
+      { name: 'browser_action', args: { ...unapprovedSend, sends_application: true } },
     ];
     const prepared = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
     assert.equal(prepared.outcome.status, 'prepared', `login flow ${index} reaches the completed form`);
@@ -118,7 +107,7 @@ try {
       : { action: 'press', value: index === 4 ? 'NumpadEnter' : 'Enter', ...(index === 1 ? at('#send') : index === 3 ? at('#name') : {}) };
     calls = [
       { name: 'upload_document', args: { ...at('#cv'), document_id: 'cv' } },
-      { name: 'browser_action', args: { ...sendAction, test_phase: 'application' } },
+      { name: 'browser_action', args: { ...sendAction, sends_application: true } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' } } },
     ];
     const sent = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
@@ -128,18 +117,56 @@ try {
     process.env.APPLICATION_REVIEW_MODE = 'prepare';
     await context.close();
   }
-  assert.equal(classifierCalls, 20, 'all authentication, widget and final actions use contextual classification');
-  const metadataPage = await browser.newPage();
-  await metadataPage.setContent(`<main><form id="signin"><h2>Sign In</h2><label>Password<input type="password" value="DO_NOT_EXPOSE_FIXTURE_PASSWORD"></label></form>
-    <button id="auth-submit" form="signin">Submit</button>
-    <form id="application"><h2>Review application</h2><label>Cover letter<textarea>Fixture letter</textarea></label><button id="final-submit">Submit</button></form></main>`);
-  const authContext = JSON.parse((await submissionControl(metadataPage, metadataPage.locator('#auth-submit'))).context);
-  const finalContext = JSON.parse((await submissionControl(metadataPage, metadataPage.locator('#final-submit'))).context);
-  assert.equal(authContext.fields.length, 1, 'a form-associated external button retains its own form context');
-  assert.equal(authContext.fields[0].type, 'password');
-  assert.equal(finalContext.fields.length, 1, 'a nearby sign-in form cannot misclassify the final application');
-  assert.equal(finalContext.fields[0].tag, 'TEXTAREA');
-  console.log('PASS: five native login flows, including Submit overlays, Enter and iframe focus, reach prepared applications without sending; five exact approvals then submit through click/keyboard.');
+  delete process.env.APPLICATION_REVIEW_MODE;
+  const context = await browser.newContext();
+  await context.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<main>Fictional application</main>' }));
+  page = await context.newPage();
+  await page.goto('https://employer.fixture.invalid/auto');
+  const autoJob = { ...jobs[0], id: 'agent-owned-auto', url: page.url() };
+  await page.setContent(`<main><form onsubmit="event.preventDefault();window.sends++;document.querySelector('main').innerHTML='<h1>Application received</h1><p>Receipt AUTO-001</p>'">
+    <label>City<input id=city required></label><button>Submit application</button></form></main>`);
+  await page.evaluate('window.sends=0', undefined, undefined, false);
+  closeObservedReceipt = true;
+  calls = [
+    { name: 'browser_action', args: { action: 'click', selector: '#city' } },
+    { name: 'browser_action', args: { action: 'fill', selector: '#city', value: 'Sydney' } },
+    { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
+    { name: 'finish', args: { status: 'applied', reason: 'Observed employer receipt', evidence: 'Application received. Receipt AUTO-001', receipt: { quote: 'Receipt AUTO-001' } } },
+  ];
+  const auto = await runAgentOnlyApplication({ page, job: autoJob, profile, log: () => {} });
+  assert.equal(auto.outcome.status, 'applied', 'agent receipt judgement survives an employer receipt disappearing after observation');
+  assert.equal(auto.submitPressed, true);
+  assert.equal(await page.evaluate('window.sends', undefined, undefined, false), 1);
+  assert.equal(calls.length, 0, 'ordinary location clicks did not restrict subsequent filling');
+
+  await page.setContent(`<main><form onsubmit="event.preventDefault();window.correctedSends++;document.querySelector('main').textContent='Submitted'">
+    <label>Required city<input id=city required></label><button>Submit application</button></form></main>`);
+  await page.evaluate('window.correctedSends=0', undefined, undefined, false);
+  calls = [
+    { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
+    { name: 'resume_after_rejected_submission', args: { evidence: 'Required city is empty and required; the browser rejected the form.' } },
+    { name: 'browser_action', args: { action: 'fill', selector: '#city', value: 'Sydney' } },
+    { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
+    { name: 'finish', args: { status: 'applied', reason: 'Employer received corrected form', evidence: 'The employer returned Submitted after receiving the corrected form.', receipt: { quote: 'Submitted' } } },
+  ];
+  const corrected = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'agent-owned-correction' }, profile, log: () => {} });
+  assert.equal(corrected.outcome.status, 'applied');
+  assert.equal(await page.evaluate('window.correctedSends', undefined, undefined, false), 1, 'agent-directed recovery submits only the corrected valid form');
+  assert.equal(calls.length, 0);
+
+  await page.setContent(`<main><button onclick="window.pendingSends++;this.disabled=true;this.textContent='Please wait...'">Submit application</button></main>`);
+  await page.evaluate('window.pendingSends=0', undefined, undefined, false);
+  calls = [
+    { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
+    { name: 'finish', args: { status: 'skipped', reason: 'Employer delivery remains unconfirmed', evidence: 'The button only says Please wait...' } },
+  ];
+  const pending = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'agent-owned-pending' }, profile, log: () => {} });
+  assert.equal(pending.outcome.status, 'skipped');
+  assert.equal(pending.submitPressed, true, 'an uncertain send is retained for duplicate protection');
+  assert.equal(await page.evaluate('window.pendingSends', undefined, undefined, false), 1);
+  assert.equal(calls.length, 0);
+  await context.close();
+  console.log('PASS: agent-owned classification and receipts; five Semi auto login/widget/approval flows, Auto location entry, transient receipt, agent-directed correction and uncertain-send audit. No secondary model requests or real applications.');
 } finally {
   globalThis.fetch = originalFetch;
   await browser.close();

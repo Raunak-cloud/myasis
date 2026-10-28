@@ -24,8 +24,7 @@ const observation = (body: Body) => JSON.stringify(body.messages.filter(message 
 const reply = (calls: Call[]) => Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: completionTokens } });
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body)) as Body;
-  if (!body.tools?.length && JSON.stringify(body.messages).includes('Would pressing the control')) return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: false }) } }] });
-  assert.ok(body.tools?.length, 'only the applying agent and send-control classification may be called');
+  assert.ok(body.tools?.length, 'only the applying agent may decide submission and receipt');
   turns.push(body);
   const next = script.shift();
   assert.ok(next, 'the parent makes only the scripted number of requests');
@@ -359,14 +358,13 @@ try {
   assert.equal(await page.inputValue('#after'), '');
   assert.match(readFileSync(join(directory, 'traces', 'native-budget-receipt.json'), 'utf8'), /BUDGET123/);
 
-  // Mimco regression: a disabled Please wait button is not an employer receipt,
-  // even when the model incorrectly calls it applied. No second send is allowed.
+  // The applying agent judges an uncertain response honestly; the transport
+  // retains send history and never retries the action on the agent's behalf.
   await page.goto(url);
   await page.setContent(`<main><button id=send onclick="window.pendingPresses=(window.pendingPresses||0)+1;this.disabled=true;this.textContent='Please wait...'">Apply</button></main>`);
   script = [() => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
-    () => [{ name: 'finish', args: { status: 'applied', reason: 'Button disabled', evidence: 'Please wait...', receipt: { quote: 'Please wait...' } } }],
     body => {
-      assert.match(JSON.stringify(body.messages), /Submission is not confirmed/);
+      assert.match(observation(body), /Please wait/);
       assert.ok(!(body.tools as Array<{ function: { name: string } }>).some(tool => tool.function.name === 'browser_action'), 'receipt review cannot repeat a send');
       return [{ name: 'finish', args: { status: 'skipped', reason: 'Submission remains unconfirmed; no employer receipt', evidence: 'The button only says Please wait...' } }];
     }];
