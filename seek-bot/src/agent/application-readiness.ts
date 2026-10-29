@@ -3,7 +3,7 @@ import type { ToolSchema } from './celeris.js';
 
 export const applicationReviewTool: ToolSchema = {
   name: 'record_application_review',
-  description: 'Your own pre-send review, not another reviewer. Compare actual saved answers, dates, consent, documents and vacancy with candidate sources. Historical wizard observations and intended drafts are not proof of the current employer state. Inspect uncertain sections; clear optional unsupported facts, correct conflicts or ask about required unknowns. This tool records your assessment and never sends or repairs.',
+  description: 'Your own pre-send review, not another reviewer. Return this when APPLICATION ACCURACY CHECKPOINT supplies canonical saved-form evidence. Before that checkpoint, choose the actual final send with sends_application=true to request the fresh readback; that first request neither sends nor queues an action. Review the supplied saved answers, dates, consent, documents and vacancy against candidate sources, then choose the current send anew. Historical wizard observations and drafts are not proof of saved state. Clear unsupported optional facts, correct conflicts or ask about required unknowns. Records your assessment; never sends or repairs.',
   parameters: { type: 'object', additionalProperties: false, properties: {
     assessment: { type: 'string', enum: ['ready', 'correct', 'needs_answer'] },
     vacancy: { type: 'string', minLength: 1, description: 'Actual employer vacancy and location compared with the authorized job.' },
