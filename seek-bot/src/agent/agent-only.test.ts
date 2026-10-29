@@ -264,8 +264,10 @@ try {
   const progressStart = turns.length;
   script = [0, 1, 2, 3, 4].map(i => () => expensive([{ name: 'browser_action', args: { action: 'fill', selector: `#q${i}`, value: `Answer ${i}` } }]));
   script.push(() => expensive([{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }]), body => {
-    assert.match(observation(body), /Application received: PROGRESS123/);
-    return expensive([{ name: 'finish', args: { status: 'applied', reason: 'Progressing application completed', evidence: 'Application received: PROGRESS123', receipt: { quote: 'Application received: PROGRESS123' } } }]);
+    assert.match(JSON.stringify(body.messages), /Application received: PROGRESS123/);
+    return expensive(/RECOVERY CHECKPOINT/.test(observation(body))
+      ? [{ name: 'record_recovery_result', args: { assessment: 'complete', evidence: ['Application received: PROGRESS123'], next_action: 'Complete with the observed receipt', receipt_quote: 'Application received: PROGRESS123' } }]
+      : [{ name: 'finish', args: { status: 'applied', reason: 'Progressing application completed', evidence: 'Application received: PROGRESS123', receipt: { quote: 'Application received: PROGRESS123' } } }]);
   });
   const extended = await runApplicationAgent({ page, job: { ...job, id: 'native-progress-budget' }, profile, log: () => {} });
   assert.equal(extended.outcome.status, 'applied');
