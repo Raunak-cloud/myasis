@@ -11,7 +11,7 @@ writeFileSync(join(directory,'resumes/CV.txt'),'Alex Fixture. Software developer
 writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv-1',label:'Fictional CV',fileName:'CV.txt'}]));
 writeFileSync(join(directory,'answers.json'),'[]');
 type Call={name:string;args:Record<string,unknown>};
-type Body={messages:Array<{role:string;content:unknown}>;tools?:unknown[]};
+type Body={messages:Array<{role:string;content:unknown}>;tools?:unknown[];chat_template_kwargs?:{reasoning_effort?:string}};
 let script:Array<(body:Body)=>Call[]>=[];
 let turn=0;
 const observation=(body:Body)=>{const content=body.messages.filter(message=>message.role==='user').at(-1)?.content;return typeof content==='string'?content:JSON.stringify(content);};
@@ -74,10 +74,12 @@ try {
     assert.match(observation(body), /APPLICATION ACCURACY CHECKPOINT/);
     assert.match(observation(body), /"label":"Month".*"value":"1"/);
     return [review('correct')];
-  }, () => [{ name: 'browser_batch', args: { actions: [
+  }, body => {
+    assert.equal(body.chat_template_kwargs?.reasoning_effort, 'xhigh', 'agent-authored correction keeps high effort while executing the repair');
+    return [{ name: 'browser_batch', args: { actions: [
     { action: 'fill', selector: '#month', value: '11' }, { action: 'fill', selector: '#day', value: '1' },
     { action: 'click', selector: '#send', sends_application: true },
-  ] } }], body => {
+  ] } }]; }, body => {
     assert.match(observation(body), /APPLICATION ACCURACY CHECKPOINT/);
     assert.match(observation(body), /"label":"Month".*"value":"11"/);
     return [review('ready')];

@@ -11,8 +11,12 @@ test('date review preserves actual components across pages and invalidates after
  const review = new ApplicationReadiness(); review.observe(page());
  assert.equal(review.request(), true);
  assert.match(review.render(), /"label":"Month".*"value":"1"/);
- review.record('correct'); assert.equal(review.request(), true, 'correction is not a ready judgment');
+ review.record('correct'); assert.equal(review.needsDeepReasoning, true);
+ review.observe(page('11','1'), 'wizard'); review.invalidate();
+ assert.equal(review.needsDeepReasoning, true, 'a repair or rerender cannot clear the agent-authored escalation');
+ assert.equal(review.request(), true, 'correction is not a ready judgment');
  review.record('ready'); review.observe({ ...page(), fields: [] }, 'wizard');
+ assert.equal(review.needsDeepReasoning, false, 'only the agent ends its correction assessment');
  assert.equal(review.request(), false, 'leaving a wizard page retains the reviewed evidence');
  review.observe(page('11','1')); assert.equal(review.request(), true, 'changed components need fresh assessment');
  review.record('ready'); review.invalidate(); assert.equal(review.request(), true, 'batch mutations cannot reuse an earlier judgment');

@@ -26,7 +26,12 @@ export class ApplicationReadiness {
   private revision = 0;
   private reviewed = -1;
   private canonicalSurface = '';
+  private correctionPending = false;
   requested = false;
+
+  /** Preserve the applying agent's own escalation through its repair turns.
+   * This changes reasoning effort only, never control selection or permission. */
+  get needsDeepReasoning(): boolean { return this.correctionPending; }
 
   observe(observation: Observation, source: 'canonical' | 'wizard' = 'canonical'): void {
     const records = source === 'canonical' ? this.records : this.wizard;
@@ -60,6 +65,7 @@ export class ApplicationReadiness {
   record(assessment: string, unresolved: string[] = []): void {
     if (assessment === 'ready' && unresolved.length) throw new Error('Resolve the listed conflicts before recording ready. No send ran.');
     if (assessment === 'ready') this.reviewed = this.revision;
+    this.correctionPending = assessment === 'correct';
     this.requested = false;
   }
 

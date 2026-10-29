@@ -657,6 +657,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       // The forced checkpoint already accepts only this named tool. Advertise
       // that exact contract; normal turns retain every available action.
       const turnTools = checkpoint ? offeredTools.filter(tool => tool.name === checkpoint) : offeredTools;
+      const reasoningEffort = checkpoint || highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning ? 'xhigh' : 'medium';
       const compact = (force = false) => {
         const transcript = agentOnlyTranscript(screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages, contextLimit, force);
         if (transcript !== messages) messages.splice(0, messages.length, ...transcript);
@@ -664,14 +665,14 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       };
       try {
         reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
-          requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort: checkpoint || highEffort || recovery.needsDeepReasoning ? 'xhigh' : 'medium', maxTokens: 8192, meter });
+          requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort, maxTokens: 8192, meter });
       } catch (error) {
         if (error instanceof ApplicationBudgetExhaustedError) break;
         if (!/Celeris (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
         try {
           reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
-            requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort: checkpoint || highEffort || recovery.needsDeepReasoning ? 'xhigh' : 'medium', maxTokens: 8192, meter });
+            requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort, maxTokens: 8192, meter });
         } catch (retryError) {
           if (retryError instanceof ApplicationBudgetExhaustedError) break;
           throw retryError;
