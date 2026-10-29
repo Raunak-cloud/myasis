@@ -116,17 +116,13 @@ export async function nativeSnapshot(target: Locator | Page, timeout = 15_000): 
   const count = await scoped.count();
   if (!count) return 'No matching snapshot targets are currently present. Inspect the fresh page or wait for an observed condition.';
   if (count === 1) return (await maskSnapshots(page, [await scoped.ariaSnapshot({ mode: 'ai', timeout })], before))[0];
-  const parts: string[] = [];
-  for (let index = 0; index < Math.min(count, 8); index++) {
-    try {
-      const snapshot = await scoped.nth(index).ariaSnapshot({ mode: 'ai', timeout: Math.min(2000, timeout) });
-      parts.push(`Target ${index + 1} of ${count}:\n${snapshot}`);
-    } catch (error) { parts.push(`Target ${index + 1} changed or could not be inspected: ${(error as Error).message.slice(0, 600)}`); }
-  }
-  if (count > 8) parts.push(`${count - 8} further matching sections omitted; narrow the inspection to read them.`);
-  // Mask before truncation so a cut cannot expose a prefix of a secret.
-  return (await maskSnapshots(page, parts, before)).map(part => part.slice(0, 8000)
-    + (part.length > 8000 ? '\n[Section truncated; narrow the inspection for more detail.]' : '')).join('\n\n');
+  // Patchright replaces its accessibility-ref map on every snapshot. Separate
+  // subtree captures make the earlier returned refs stale even on a static
+  // page. One capture gives every included target the same usable ref map.
+  const snapshot = (await maskSnapshots(page, [await page.ariaSnapshot({ mode: 'ai', timeout })], before))[0];
+  const bounded = snapshot.length <= 24000 ? snapshot : snapshot.slice(0,16000)
+    + '\n[Middle omitted; narrow your inspection to one intended section.]\n' + snapshot.slice(-8000);
+  return `Matched ${count} snapshot targets. Returning one fresh page snapshot with consistent references; narrow the locator for a focused section.\n${bounded}`;
 }
 
 export async function waitAfterAction(page: Page, args: Record<string, unknown>): Promise<string | undefined> {

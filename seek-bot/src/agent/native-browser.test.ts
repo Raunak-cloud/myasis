@@ -69,7 +69,7 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     await assert.rejects(page.locator('input').fill('wrong', { timeout: 100 }), /strict mode violation/);
     assert.equal(await page.locator('#city').inputValue(), 'Sydney', 'ambiguous writes execute nowhere');
     const snapshot = await nativeSnapshot(page.locator('section'));
-    assert.match(snapshot, /Target 1 of 2/); assert.match(snapshot, /Target 2 of 2/); assert.match(snapshot, /City/);
+    assert.match(snapshot, /Matched 2 snapshot targets/); assert.match(snapshot, /City/);
     assert.doesNotMatch(snapshot, /private-fixture/, 'accessibility snapshots do not expose password contents');
     assert.match(await nativeSnapshot(page.locator('#missing')), /No matching snapshot targets/);
     await page.locator('#city').evaluate(node => node.outerHTML = '<input id=city aria-label=City value=Melbourne>');
@@ -128,5 +128,12 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.equal(review.request(),true);
     const after = JSON.parse(review.render().split('): ')[1].split('\n')[0]);
     assert.equal(after.length,3);assert.deepEqual(after.map((v:{value:string})=>v.value),['11/2024','10/2022','']);
+    await page.setContent('<section><button onclick="document.body.dataset.clicked=\'first\'">First target</button></section><section><button>Second target</button></section><section><button>Third target</button></section>');
+    const multi = await nativeSnapshot(page.locator('section'));
+    const refs = [...multi.matchAll(/button[^\n]*\[ref=([^\]]+)\]/g)].map(match=>match[1]);
+    assert.equal(refs.length,3);
+    for (const ref of refs) assert.equal(await browserTarget(page,{ref}).count(),1,'every returned reference is usable after the complete inspection');
+    await browserTarget(page,{ref:refs[0]}).click();
+    assert.equal(await page.locator('body').getAttribute('data-clicked'),'first','first returned section still targets its own control');
   } finally { await browser.close(); }
 });
