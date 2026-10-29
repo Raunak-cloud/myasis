@@ -87,5 +87,19 @@ try {
   assert.equal(swappedDate.outcome.status, 'applied');
   assert.equal(await page.evaluate('window.dateSends', undefined, undefined, false), 1, 'withheld sends are never replayed; only the reviewed final choice sends');
   assert.equal(script.length, 0);
+  await page.setContent('<main><form onsubmit="event.preventDefault();window.noticeSends++"><label>Current notice period<select required><option>2 weeks</option><option>4 weeks</option></select></label><button>Submit application</button></form></main>');
+  await page.evaluate('window.noticeSends=0', undefined, undefined, false);
+  writeFileSync(join(directory, 'answers.json'), JSON.stringify([{question:'Current notice period',answer:'One week only; no alternative is authorized.'}]));
+  script = [body => {
+    assert.match(String(body.messages[0].content), /a nearest available choice is not an authorized substitute/);
+    return [{name:'read_candidate_evidence',args:{query:'notice period'}}];
+  }, body => {
+    assert.match(JSON.stringify(body.messages), /One week only/);
+    return [{name:'finish',args:{status:'needs-human',reason:'Required dropdown has no truthful option for confirmed one week.',evidence:'Only 2 weeks and 4 weeks are offered.',questions:[{question:'Current notice period',prompt:'The form offers only 2 weeks or 4 weeks. Is either an authorized alternative?',kind:'text'}]}}];
+  }];
+  const unsupportedNotice = await runApplicationAgent({page,job:{...job,id:'agent-owned-unsupported-notice'},profile,log:()=>{}});
+  assert.equal(unsupportedNotice.outcome.status,'needs-human');
+  assert.equal(await page.evaluate('window.noticeSends',undefined,undefined,false),0);
+  assert.equal(script.length,0);
   console.log('PASS: applying-agent date evidence, missing facts, corrected component readbacks and exactly one submission.');
 }finally{await browser.close();rmSync(directory,{recursive:true,force:true});}
