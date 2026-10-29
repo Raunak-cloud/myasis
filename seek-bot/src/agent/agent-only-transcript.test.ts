@@ -52,6 +52,26 @@ test('Celeris retains candidate facts, authored actions and current state while 
   assert.equal(JSON.stringify(messages), before, 'original audit conversation is unchanged');
 });
 
+test('recovery and accuracy guidance retain the fresh screenshot and observation through compaction', () => {
+  for (const checkpoint of ['RECOVERY CHECKPOINT:', 'APPLICATION ACCURACY CHECKPOINT:']) {
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'System' },
+      { role: 'user', content: 'CANDIDATE' },
+      { role: 'user', content: [{ type: 'text', text: 'URL: https://fixture.invalid/old\nOLD_PAGE' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,OLD' } }] },
+      { role: 'user', content: [{ type: 'text', text: 'URL: https://fixture.invalid/current\nCURRENT_PAGE_AND_VALIDATION' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,FRESH' } }] },
+      { role: 'user', content: checkpoint + ' Review the same current page.' },
+    ];
+    const current = latestObservationScreenshotOnly(messages);
+    const payload = JSON.stringify(agentOnlyTranscript(current, 42_000, true));
+    assert.match(payload, /base64,FRESH/);
+    assert.doesNotMatch(payload, /base64,OLD/);
+    assert.match(payload, /CURRENT_PAGE_AND_VALIDATION/);
+    assert.match(payload, /Review the same current page/);
+    const newerPage: ChatMessage[] = [...current, { role: 'user', content: 'New browser observation without a screenshot' }];
+    assert.doesNotMatch(JSON.stringify(latestObservationScreenshotOnly(newerPage)), /image_url/);
+  }
+});
+
 test('durable approval content survives both superseded observations and token-budget trimming', () => {
   const approval = 'SUBMIT ONLY THIS APPROVED APPLICATION ' + JSON.stringify({ revision: 'immutable-version', coverLetter: 'Exact user-edited letter', answers: [{ question: 'Exact recorded question', answer: 'Approved answer' }] });
   const messages: ChatMessage[] = [

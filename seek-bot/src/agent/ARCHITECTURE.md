@@ -13,6 +13,9 @@ Owtomate transports native browser operations, fresh screenshots, scoped
 candidate evidence and durable progress. Locators resolve current elements;
 writes remain strict and read-only inspection can label several matches.
 Browser observations and an action audit are not proof of employer acceptance.
+Checkpoint instructions retain the same fresh browser observation and its
+screenshot through transcript compaction. A newer browser observation without
+a picture retires the earlier picture, so stale images cannot imply new state.
 
 `application-policy.ts` defines the applying policy once. Ordinary turns use
 medium reasoning. Failed interactions and recovery retain deeper reasoning
