@@ -4,7 +4,7 @@ import { chromium } from 'patchright';
 import { browserTarget } from './browser-target.js';
 import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { observe, renderObservation } from './observe.js';
-import { DateReview } from './date-review.js';
+import { ApplicationReadiness } from './application-readiness.js';
 
 test('native locators retain events across rerenders, scope frames/editors/shadow DOM, and inspect values together', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -118,7 +118,7 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     const dates = await observe(page);
     assert.deepEqual(dates.fields.map(field=>field.section),['Experience','Experience','Education']);
     assert.equal(new Set(dates.fields.map(field=>field.controlIdentity)).size,3,'equal labels and hints in repeated editors remain distinct');
-    const review = new DateReview(); review.observe(dates);
+    const review = new ApplicationReadiness(); review.observe(dates);
     const before = JSON.parse(review.render().split('): ')[1].split('\n')[0]);
     assert.equal(before.length,3);assert.deepEqual(before.map((v:{value:string})=>v.value),['10/2024','10/2022','']);
     review.record('ready');

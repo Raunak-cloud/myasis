@@ -1,3 +1,5 @@
+import { createReadinessFixtureReply } from './agent/readiness-fixture.js';
+const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -74,6 +76,7 @@ try {
   let calls: Array<{ name: string; args: Record<string, unknown> }> = [{ name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } }];
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     if (!body.tools?.length) return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: true }) } }] });
     const call = calls.shift() ?? { name: 'finish', args: { status: 'skipped', reason: 'Fixture complete', evidence: 'Fixture only' } };
     return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${++turn}`, type: 'function',
@@ -146,6 +149,7 @@ try {
   });
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     if (!body.tools?.length) {
       classifierCalls++;
       assert.match(JSON.stringify(body.messages), /as opposed to opening the form/);

@@ -42,7 +42,7 @@ function context(marker = 'current'): ToolContext {
   } as unknown as ToolContext;
 }
 
-const options = (): ConsultationOptions => ({ enabled: true, meter: new CostMeter(1), remainingMs: () => 300_000,
+const options = (): ConsultationOptions => ({ enabled: true, meter: new CostMeter(1),
   applicationHistory: 'The last submit returned a required-field validation error; no receipt was observed.' });
 const message = (result: ToolResult) => result.kind === 'ok' ? result.message : '';
 function success(_model: string, content: unknown = advice) {
@@ -114,14 +114,12 @@ test('Celeris receives a read-only structured request without fallback or tools'
   }
 });
 
-test('consultations are optional, bounded per application and cannot cross parent budget or time boundaries', async () => {
+test('consultations are optional, bounded per application and cannot cross parent budget boundaries', async () => {
   const owner = account('BOUNDS'); let calls = 0;
   globalThis.fetch = async () => { calls++; return success('celeris'); };
   await withApplicationModel(owner.env, async () => {
     const ctx = context(), shared = options();
-    assert.match(message(await consultApplicationSpecialist(ctx, { question: 'Question' }, { ...shared, enabled: false })), /only.*enabled admin/);
-    assert.match(message(await consultApplicationSpecialist(ctx, { question: 'Question' }, { ...shared, remainingMs: () => 64_999 })), /No specialist request started/);
-    assert.match(message(await consultApplicationSpecialist(ctx, { question: 'Question' }, { ...shared, remainingMs: () => NaN })), /No specialist request started/);
+    assert.match(message(await consultApplicationSpecialist(ctx, { question: 'Question' }, { ...shared, enabled: false })), /application configuration/);
     assert.match(message(await consultApplicationSpecialist(ctx, { question: 'Question' }, { ...shared, meter: new CostMeter(0) })), /No specialist request started/);
     assert.equal(calls, 0);
     await consultApplicationSpecialist(ctx, { question: 'Question' }, shared);

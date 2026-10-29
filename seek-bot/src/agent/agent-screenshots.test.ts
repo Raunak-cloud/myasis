@@ -1,3 +1,5 @@
+import { createReadinessFixtureReply } from './readiness-fixture.js';
+const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,6 +36,7 @@ try {
     const imagesSeen: number[] = [];
     globalThis.fetch = (async (_url, init) => {
       const body = JSON.parse(String(init?.body));
+    const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
       assert.ok(body.tools?.length, 'only the applying agent makes submission decisions');
       const latest = body.messages.filter((message: { role: string }) => message.role === 'user').at(-1);
       const allImages = body.messages.flatMap((message: { content: unknown }) => Array.isArray(message.content)
@@ -96,7 +99,7 @@ try {
     assert.equal(turn, 5);
     assert.equal(await page.evaluate('window.sends', undefined, undefined, false), 1);
     const saved = JSON.parse(readFileSync(join(directory, 'traces', `screenshot-test-${enabled}.json`), 'utf8'));
-    assert.equal(saved.steps.length, 5);
+    assert.equal(saved.steps.length, 7, 'five original decisions plus the same-agent review and newly chosen send');
     for (const step of saved.steps) {
       if (enabled) assert.match(step.screenshot, /^data:image\/jpeg;base64,/, 'every saved decision has its capture');
       else assert.equal(step.screenshot, undefined, 'opt-out history does not invent screenshots');

@@ -1,3 +1,5 @@
+import { createReadinessFixtureReply } from './readiness-fixture.js';
+const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -53,6 +55,7 @@ const review = `<main><h1>Review application</h1><form method="post" action="/re
   <input type="file" id="cv"><button id="send">Submit</button></form></main>`;
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
+    const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
   assert.ok(body.tools?.length, 'no independent submission classifier or receipt reviewer may be called');
   const offered: string[] = body.tools.map((tool: { function: { name: string } }) => tool.function.name).sort();
   normalTools ??= offered;

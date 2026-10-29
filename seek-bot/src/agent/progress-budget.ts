@@ -2,7 +2,7 @@ import { CostMeter } from './celeris.js';
 import type { FormField } from '../types.js';
 
 const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
-const identity = (field: FormField) => JSON.stringify([normalise(field.section ?? ''), normalise(field.label), field.kind]);
+const identity = (field: FormField) => JSON.stringify([normalise(field.section ?? ''), field.controlIdentity, normalise(field.label), field.kind]);
 const usable = (field: FormField) => !field.sensitive && field.inputType !== 'password' && field.currentValue !== '[private credential]';
 const completed = (field: FormField) => Boolean(field.currentValue?.trim()) && !field.validationError;
 

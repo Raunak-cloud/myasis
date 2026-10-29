@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DateReview } from './date-review.js';
+import { ApplicationReadiness } from './application-readiness.js';
 import type { Observation } from './observe.js';
 
 const page = (month = '1', day = '11'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Form', actions: [], text: '',
@@ -8,7 +8,7 @@ const page = (month = '1', day = '11'): Observation => ({ url: 'https://employer
     { ref: 'f1', label: 'Day', section: 'Available start date', hints: 'start-day', required: true, kind: 'text', currentValue: day }] });
 
 test('date review preserves actual components across pages and invalidates after correction', () => {
- const review = new DateReview(); review.observe(page());
+ const review = new ApplicationReadiness(); review.observe(page());
  assert.equal(review.request(), true);
  assert.match(review.render(), /"label":"Month".*"value":"1"/);
  review.record('correct'); assert.equal(review.request(), true, 'correction is not a ready judgment');
@@ -19,11 +19,26 @@ test('date review preserves actual components across pages and invalidates after
 });
 
 test('unknown optional date components remain blank; credentials never enter evidence', () => {
- const review = new DateReview(); review.observe({ ...page(), fields: [
+ const review = new ApplicationReadiness(); review.observe({ ...page(), fields: [
    { ...page().fields[0], currentValue: '' },
    { ...page().fields[1], label: 'Password date', inputType: 'password', currentValue: 'private-fixture', sensitive: true },
  ] });
  assert.match(review.render(), /"value":""/); assert.doesNotMatch(review.render(), /private-fixture/);
- const ordinary = new DateReview(); ordinary.observe({ ...page(), fields: [{ ...page().fields[0], label: 'City', hints: 'city' }] });
- assert.equal(ordinary.request(), false, 'non-date forms need no extra review');
+ const ordinary = new ApplicationReadiness(); ordinary.observe({ ...page(), fields: [{ ...page().fields[0], label: 'City', hints: 'city' }] });
+ assert.equal(ordinary.request(), true, 'ordinary personal fields also need source review');
+});
+
+test('source review covers ordinary answers, cancelled editors and unresolved claims', () => {
+ const review = new ApplicationReadiness();
+ review.observe({ ...page(), fields: [{ ...page().fields[0], label: 'Previously employed here?', currentValue: 'No', controlIdentity: 'employment-history' }] });
+ assert.equal(review.request(), true);
+ assert.throws(() => review.record('ready', ['Employer history not confirmed']), /Resolve/);
+ assert.equal(review.request(), true, 'conflicting review cannot authorize a send');
+ review.record('needs_answer');
+ review.observe({ ...page(), fields: [] });
+ assert.match(review.render(), /earlier wizard observation; saving not established/);
+ review.record('ready');
+ assert.equal(review.request(), false);
+ review.invalidate();
+ assert.equal(review.request(), true, 'document or letter changes require a new review even with no date fields');
 });

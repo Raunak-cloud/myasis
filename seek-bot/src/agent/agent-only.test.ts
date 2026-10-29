@@ -1,3 +1,5 @@
+import { createReadinessFixtureReply } from './readiness-fixture.js';
+const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +26,7 @@ const observation = (body: Body) => JSON.stringify(body.messages.filter(message 
 const reply = (calls: Call[]) => Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: completionTokens } });
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body)) as Body;
+    const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
   assert.ok(body.tools?.length, 'only the applying agent may decide submission and receipt');
   turns.push(body);
   const next = script.shift();

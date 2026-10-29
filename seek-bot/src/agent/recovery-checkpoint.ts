@@ -75,6 +75,11 @@ export class RecoveryCheckpoint {
     return `${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}`;
   }
   get reviewingBudget(): boolean { return this.budgetReview; }
+  /** Keep deeper reasoning through diagnosis, repair and fresh verification.
+   * An accepted tool call or another inspection cannot end escalation. */
+  get needsDeepReasoning(): boolean {
+    return this.phase !== 'normal' || this.failures > 0 || this.unchanged >= 2;
+  }
   requestBudgetReview(): boolean {
     // Do not turn an unexecuted repair into a result checkpoint using older
     // reviewable work. A repair gets its own evidence assessment after acting;
@@ -94,7 +99,7 @@ export class RecoveryCheckpoint {
 
   observe(observation: Observation): void {
     const signature = createHash('sha256').update(JSON.stringify([observation.url, observation.fields.map(field => [
-      field.section, field.label, field.kind, field.sensitive || field.inputType === 'password' ? '[private]' : field.currentValue,
+      field.section, field.controlIdentity, field.label, field.kind, field.sensitive || field.inputType === 'password' ? '[private]' : field.currentValue,
       field.validationError, field.options, field.disabled,
     ]), observation.actions.map(action => [action.text, action.role, action.context, action.selected, action.disabled]),
     observation.surfaceText ?? observation.text.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '[clock]')])).digest('hex');

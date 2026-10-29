@@ -1,3 +1,5 @@
+import { createReadinessFixtureReply } from './readiness-fixture.js';
+const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,6 +41,7 @@ try {
   let turn = 0, fileId = '';
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     assert.ok(body.tools?.length, 'no secondary model or upload reviewer');
     const tools = body.tools.map((item: { function: { name: string } }) => item.function.name);
     assert.ok(!tools.includes('upload_document'), 'the custom upload handler is removed');

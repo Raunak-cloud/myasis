@@ -20,7 +20,6 @@ export const consultationToolSchema: ToolSchema = {
 export interface ConsultationOptions {
   enabled: boolean;
   meter: CostMeter;
-  remainingMs: () => number;
   /** Read-only records supplied by the parent, not a child-accessible database. */
   applicationHistory?: string;
 }
@@ -54,16 +53,14 @@ export async function consultApplicationSpecialist(
   args: { question: string; focus?: 'form' | 'candidate-evidence' },
   options: ConsultationOptions,
 ): Promise<ToolResult> {
-  if (!options.enabled) return ok('Specialist consultation is available only in the enabled admin agent-only experiment.', 'reobserve');
+  if (!options.enabled) return ok('Specialist consultation is available only in the application configuration.', 'reobserve');
   if (!validToolInput(args, consultationToolSchema.parameters)) return ok('Give one specific question and an optional form or candidate-evidence focus.', 'reobserve');
   const state = states.get(ctx) ?? { calls: 0, inFlight: false };
   states.set(ctx, state);
   if (state.inFlight) return ok('A specialist consultation is already in progress for this application.', 'reobserve');
   if (state.calls >= 2) return ok('The two optional specialist consultations for this application have been used. Continue using the current evidence.', 'reobserve');
-  // Provider clients bound their own requests, including retries. Do not start
-  // one that cannot fit inside the parent's remaining application time.
-  const requestWindow = 65_000;
-  if (options.meter.exhausted || !(options.remainingMs() >= requestWindow)) return ok('No specialist request started: use the existing evidence within the remaining application budget.', 'reobserve');
+  // The worker watchdog owns elapsed time; provider requests retain timeouts.
+  if (options.meter.exhausted) return ok('No specialist request started: use the existing evidence within the remaining application budget.', 'reobserve');
 
   state.calls++;
   state.inFlight = true;
@@ -74,7 +71,7 @@ export async function consultApplicationSpecialist(
       selectedResume: ctx.resumeUsed ?? null,
       supportingDocuments,
     };
-    if (options.meter.exhausted || !(options.remainingMs() >= requestWindow)) return ok('Specialist request not started because evidence loading left insufficient application budget.', 'reobserve');
+    if (options.meter.exhausted) return ok('Specialist request not started because evidence loading left insufficient application budget.', 'reobserve');
     const fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password'
       ? { ...field, currentValue: '[credential withheld]' } : field);
     const reply = await celerisChat({

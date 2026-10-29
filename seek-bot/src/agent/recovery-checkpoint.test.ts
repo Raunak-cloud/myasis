@@ -10,6 +10,18 @@ import { join } from 'node:path';
 const observation = (value = '', ref = 'f0'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Apply',
   actions: [], text: 'Apply', fields: [{ ref, label: 'City', kind: 'text', required: true, currentValue: value }] });
 
+test('higher reasoning persists through inspection, repair execution and result assessment', () => {
+ const state = new RecoveryCheckpoint(); state.observe(observation());
+ assert.equal(state.needsDeepReasoning, false);
+ state.acted('browser_action', true, { action: 'click' }); state.observe(observation());
+ assert.equal(state.needsDeepReasoning, true);
+ state.planned(); state.acted('take_snapshot', false); state.endTurn(); state.observe(observation());
+ assert.equal(state.needsDeepReasoning, true, 'reading another screenshot is not recovery');
+ state.acted('browser_action', false, { action: 'fill' }); state.endTurn(); state.observe(observation('Sydney'));
+ assert.equal(state.needsDeepReasoning, true, 'saved change still needs agent assessment');
+ state.verified('progress'); assert.equal(state.needsDeepReasoning, false);
+});
+
 test('repeated failures require a plan, a browser action, then fresh-result assessment', () => {
   const state = new RecoveryCheckpoint();
   state.observe(observation());
