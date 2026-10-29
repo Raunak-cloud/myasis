@@ -308,7 +308,8 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
     .map((action) => ({
       ...action,
       text: clean(action.text),
-      ...(action.question ? { question: clean(action.question), value: clean(action.value ?? '') } : {}),
+      ...(action.question ? { question: clean(action.question) } : {}),
+      ...(action.value !== undefined ? { value: clean(action.value) } : {}),
       ...(action.context ? { context: clean(action.context).slice(0, 1_200) } : {}),
       role: action.role as AgentAction['role'],
     }))
@@ -487,7 +488,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
  */
 export function renderObservation(observation: Observation): string {
   const actions = observation.actions
-    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}${a.fieldRef ? ` field=${a.fieldRef}` : ''}${a.multiSelect ? ` multi-select=true selected=${a.selected}` : ''}  ${a.text}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
+    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}${a.fieldRef ? ` field=${a.fieldRef}` : ''}${a.multiSelect ? ` multi-select=true selected=${a.selected}` : ''}  ${a.text}${a.role === 'option' && a.value !== undefined ? `  raw_option_text=${JSON.stringify(a.value)}${a.question ? ` question_context=${JSON.stringify(a.question)}` : ''}` : ''}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
     .join('\n');
   const fields = observation.fields
     .map((f) => {

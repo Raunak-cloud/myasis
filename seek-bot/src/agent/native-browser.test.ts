@@ -87,5 +87,12 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     const diagnostic = await browserFailureEvidence(page, { locator: { by: 'role', value: 'button', name: 'Add' } });
     assert.match(diagnostic, /Education/); assert.match(diagnostic, /Experience/); assert.match(diagnostic, /Chatbot/);
     assert.doesNotMatch(await browserFailureEvidence(page, { selector: 'input' }), /private-diagnostic-fixture/);
+    await page.setContent('<label for=decision>*</label><button id=decision aria-expanded=true aria-controls=choices>Choose</button><div id=choices role=listbox><div role=option>No</div></div>');
+    const optionObservation = await observe(page);
+    const option = optionObservation.actions.find(action => action.role === 'option');
+    assert.equal(option?.value, 'No');
+    assert.match(renderObservation(optionObservation), /raw_option_text="No"/);
+    assert.match(renderObservation(optionObservation), /question_context="\*"/);
+    await page.getByRole('option', { name: option!.value, exact: true }).click();
   } finally { await browser.close(); }
 });
