@@ -18,6 +18,9 @@ export const browserWaitProperties = {
 /** Shared browser-side description. No answers, actions or host dependencies. */
 function describeNativeTargets(targets: Element | Element[]) {
   const nodes = Array.isArray(targets) ? targets : [targets];
+  // Collapse markup indentation in descriptive metadata only. Candidate values,
+  // document names and validation messages retain their exact browser content.
+  const caption = (value: string | null | undefined) => value?.replace(/\s+/g, ' ').trim();
   // Hidden menus can contain hundreds of options before the open widget.
   // Prioritise visible evidence without filtering out hidden upload inputs or
   // changing locator indices. This never chooses a control or an action.
@@ -33,20 +36,21 @@ function describeNativeTargets(targets: Element | Element[]) {
     const privateValue = type === 'password' || /password|one-time-code/.test(input.autocomplete || '')
       || /password|passphrase|verification.?code|one.?time.?code|\botp\b/i.test(`${input.name} ${node.getAttribute('aria-label')} ${[...(input.labels || [])].map(label => label.textContent).join(' ')}`);
     const described = (node.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
-      .map(id => node.getRootNode() instanceof ShadowRoot
-        ? (node.getRootNode() as ShadowRoot).getElementById(id)?.textContent : node.ownerDocument.getElementById(id)?.textContent).filter(Boolean);
+      .map(id => caption(node.getRootNode() instanceof ShadowRoot
+        ? (node.getRootNode() as ShadowRoot).getElementById(id)?.textContent : node.ownerDocument.getElementById(id)?.textContent)).filter(Boolean);
     const context = [];
     for (let depth = 0, parent = node.parentElement ?? (node.getRootNode() as ShadowRoot).host; nodes.length > 1 && parent && depth < 4; depth++, parent = parent.parentElement ?? (parent.getRootNode() as ShadowRoot).host) {
       context.push({ tag: parent.tagName.toLowerCase(), id: parent.id || undefined,
-        label: parent.getAttribute('aria-label') || undefined,
-        heading: parent.querySelector(':scope > legend, :scope > label, :scope > h2, :scope > h3, :scope > h4')?.textContent?.trim().slice(0, 200) });
+        label: caption(parent.getAttribute('aria-label')) || undefined,
+        heading: caption(parent.querySelector(':scope > legend, :scope > label, :scope > h2, :scope > h3, :scope > h4')?.textContent)?.slice(0, 200) });
     }
     return {
       id: node.id || null, ref: node.getAttribute('data-field-id') || node.getAttribute('data-ref-id') || null,
       match_index: index, visible,
       tag: node.tagName.toLowerCase(), type, name: input.name || null,
+      role: node.getAttribute('role'), shadow_root: node.shadowRoot ? 'open' : undefined,
       private: privateValue,
-      label: [...(input.labels || [])].map(label => label.textContent).join(' ') || node.getAttribute('aria-label') || null,
+      label: caption([...(input.labels || [])].map(label => label.textContent).join(' ') || node.getAttribute('aria-label')) || null,
       context: nodes.length > 1 ? context : undefined,
       value: privateValue ? '[private credential]' : element.isContentEditable ? element.innerText : input.value ?? element.innerText,
       text: !privateValue && !node.matches('input,textarea,select') ? element.innerText?.trim().slice(0, 600) : undefined,

@@ -40,7 +40,8 @@ export function toolInputIssue(value: unknown, schema: Record<string, unknown>, 
     const object = value as Record<string, unknown>, properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
     const missing = (schema.required as string[] | undefined)?.find(key => !(key in object));
     if (missing) return `${path}.${missing} is required.`;
-    if (Object.keys(object).some(key => !properties[key])) return `${path} contains an undeclared property. Allowed: ${Object.keys(properties).join(', ')}.`;
+    const unknown = Object.keys(object).filter(key => !properties[key]);
+    if (unknown.length) return `${path} contains undeclared properties: ${unknown.map(key => JSON.stringify(key)).join(', ')}. Allowed: ${Object.keys(properties).join(', ')}. This tool call did not run; remove the undeclared properties or use the documented structure.`;
     for (const [key, item] of Object.entries(object)) {
       const issue = toolInputIssue(item, properties[key], `${path}.${key}`);
       if (issue) return issue;

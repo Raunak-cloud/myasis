@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { InteractionMemory } from './interaction-memory.js';
+import { changesBrowserState } from './browser-commands.js';
 
 const text = { type: 'string', minLength: 1 };
 const evidence = { type: 'array', minItems: 1, items: text };
@@ -173,9 +174,9 @@ export class RecoveryCheckpoint {
 
   acted(tool: string, failed: boolean, args: Record<string, unknown> = {}): void {
     const changesPage = tool === 'browser_action'
-      ? ['click', 'fill', 'type', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(args.action)) || args.sends_application === true
+      ? changesBrowserState(args)
       : tool === 'browser_batch'
-        ? Array.isArray(args.actions) && args.actions.some(action => ['click', 'fill', 'type', 'select', 'check', 'press', 'script', 'navigate', 'dialog', 'set_input_files'].includes(String(action.action)))
+        ? Array.isArray(args.actions) && args.actions.some(changesBrowserState)
         : ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool);
     if (this.phase === 'act' && changesPage) this.actionPending = true;
     if (changesPage) {

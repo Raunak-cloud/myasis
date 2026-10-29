@@ -3,9 +3,22 @@ import { renderObservation, type Observation } from '../observe.js';
 
 // Observation messages and transcript trimming used by the application agent.
 
-/** Rough token proxy; good enough to decide when to trim, and free. */
-const estimateTokens = (messages: ChatMessage[]): number =>
-  Math.ceil(JSON.stringify(messages).length / 4);
+/** Text proxy plus a conservative reserve per browser screenshot. Base64 is
+ * transport encoding, not text consumed by the model tokenizer. Counting its
+ * bytes used to compact healthy conversations on every screenshot turn.
+ * This is not billing: actual provider usage owns costs and context errors
+ * still trigger bounded compaction/retry without replaying browser actions. */
+export function estimateTranscriptTokens(messages: ChatMessage[]): number {
+  let images = 0;
+  const text = messages.map(message => !Array.isArray(message.content) ? message : {
+    ...message, content: message.content.map(part => {
+      if (part.type !== 'image_url') return part;
+      images++;
+      return { type: 'image_url', image_url: { url: '[image encoded separately]' } };
+    }),
+  });
+  return Math.ceil(JSON.stringify(text).length / 4) + images * 4096;
+}
 
 /**
  * Drops the oldest exchanges when the transcript outgrows its budget.
@@ -16,12 +29,12 @@ const estimateTokens = (messages: ChatMessage[]): number =>
  * model which job it is applying for.
  */
 export function trimTranscript(messages: ChatMessage[], maxTokens: number): ChatMessage[] {
-  if (estimateTokens(messages) <= maxTokens) return messages;
+  if (estimateTranscriptTokens(messages) <= maxTokens) return messages;
   const [system, application, ...rest] = messages;
   const kept = [...rest];
   // Drop from the front in pairs so an assistant tool_call is never separated
   // from its tool result, which the API rejects.
-  while (kept.length > 4 && estimateTokens([system, application, ...kept]) > maxTokens) {
+  while (kept.length > 4 && estimateTranscriptTokens([system, application, ...kept]) > maxTokens) {
     // Remove complete exchanges, ending at the next observation/user boundary.
     let end = 1;
     while (end < kept.length && kept[end].role !== 'user') end++;

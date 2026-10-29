@@ -33,7 +33,15 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.equal(await evaluateBrowser(page, { script: 'typeof process' }), 'undefined', 'scripts cannot access host Node globals');
     const salary = await nativeReadback(browserTarget(page, { locator: { by: 'label', value: 'Salary per hour' } }));
     assert.match(JSON.stringify(salary), /AUD per hour/); assert.match(JSON.stringify(salary), /"step":".01"/);
+    await page.locator('#name').evaluate(node => {
+      node.parentElement!.insertBefore(document.createTextNode('\n    \n   '), node);
+      (node as HTMLInputElement).value = 'Exact  value\n';
+    });
+    const compactName = await nativeReadback(page.locator('#name')) as {label: string; value: string};
+    assert.equal(compactName.label, 'Name', 'markup indentation is not useful label evidence');
+    assert.equal(compactName.value, await page.locator('#name').inputValue(), 'actual values are not normalized');
     await page.locator('#shadow').evaluate(node => node.attachShadow({ mode: 'open' }).innerHTML = '<label>Phone<input></label>');
+    assert.equal((await nativeInspect(page.locator('#shadow')) as {shadow_root: string}).shadow_root, 'open');
     await browserTarget(page, { locator: { by: 'label', value: 'Phone' } }).fill('0400000000');
     await page.locator('#delayed').click();
     await waitAfterAction(page, { wait: { timeout_ms: 5000 } });

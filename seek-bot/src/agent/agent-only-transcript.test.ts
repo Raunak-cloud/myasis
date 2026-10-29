@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ChatMessage } from './celeris.js';
 import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
+import { estimateTranscriptTokens } from './loop/transcript.js';
 
 test('screenshot testing removes old pictures before compaction while retaining text, approvals and tool history', () => {
   const messages: ChatMessage[] = [
@@ -88,4 +89,22 @@ test('durable approval content survives both superseded observations and token-b
   assert.ok(String(transcript[1].content).includes(approval));
   assert.match(JSON.stringify(transcript), /earlier steps omitted/);
   assert.match(JSON.stringify(transcript), /CURRENT_STATE/);
+});
+
+test('image encoding size does not falsely compact the cacheable browser conversation', () => {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'Sole applying agent' },
+    { role: 'user', content: 'CANDIDATE_AND_APPROVAL' },
+    { role: 'user', content: 'URL: https://fixture.invalid/start\nEarlier saved state' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'fill', type: 'function', function: { name: 'browser_action', arguments: '{"action":"fill"}' } }] },
+    { role: 'tool', tool_call_id: 'fill', content: 'Saved value' },
+    { role: 'user', content: [{ type: 'text', text: 'URL: https://fixture.invalid/current\nCurrent screenshot' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + 'A'.repeat(500_000) } }] },
+  ];
+  assert.ok(JSON.stringify(messages).length > 42_000 * 4);
+  assert.ok(estimateTranscriptTokens(messages) < 5000);
+  assert.equal(agentOnlyTranscript(messages, 42_000), messages, 'retains exact prefix and picture rather than prematurely compacting');
+  const smaller: ChatMessage[] = [...messages.slice(0, -1), { role: 'user', content: [{ type: 'text', text: 'URL: https://fixture.invalid/current\nCurrent screenshot' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' } }] }];
+  assert.equal(estimateTranscriptTokens(smaller), estimateTranscriptTokens(messages), 'recompression bytes are not model text tokens');
+  const textHeavy: ChatMessage[] = [...messages, { role: 'user', content: 'CURRENT_TEXT ' + 'x'.repeat(200_000) }];
+  assert.notEqual(agentOnlyTranscript(textHeavy, 42_000), textHeavy, 'real text pressure still invokes compaction');
 });

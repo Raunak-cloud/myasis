@@ -6,9 +6,22 @@ import type { Observation } from './observe.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { changesBrowserState } from './browser-commands.js';
 
 const observation = (value = '', ref = 'f0'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Apply',
   actions: [], text: 'Apply', fields: [{ ref, label: 'City', kind: 'text', required: true, currentValue: value }] });
+
+test('declared script inspection cannot masquerade as an executed recovery or earn progress', () => {
+  const state = new RecoveryCheckpoint(); state.observe(observation()); state.planned();
+  state.acted('browser_action', false, {action: 'script', script_intent: 'inspect'});
+  state.endTurn(); state.observe(observation());
+  assert.equal(state.tool, undefined, 'inspection gathers evidence; it has not executed the planned repair');
+  assert.equal(changesBrowserState({action: 'script', script_intent: 'inspect'}), false);
+  assert.equal(changesBrowserState({action: 'script'}), true, 'unlabelled script stays conservative');
+  assert.equal(changesBrowserState({action: 'script', script_intent: 'inspect', sends_application: true}), true, 'send intent overrides inspection label');
+  state.acted('browser_action', false, {action: 'press'}); state.endTurn();
+  assert.equal(state.tool, 'record_recovery_result', 'actual next repair still gets a fresh check');
+});
 
 test('higher reasoning persists through inspection, repair execution and result assessment', () => {
  const state = new RecoveryCheckpoint(); state.observe(observation());

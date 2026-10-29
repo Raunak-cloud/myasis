@@ -22,6 +22,10 @@ test('nested contract diagnostics locate the error without repeating supplied pr
   assert.match(issue, /fill.*click/);
   assert.doesNotMatch(issue, /SECRET_|PRIVATE_/);
   assert.match(toolInputIssue({ actions: [{}] }, schema)!, /\$\.actions\[0\]\.action is required/);
+  const unknown = toolInputIssue({ actions: [{ action: 'fill', value: 'PRIVATE_CANDIDATE_FACT', timeout_ms: 1000 }] }, schema)!;
+  assert.match(unknown, /\$\.actions\[0\].*undeclared properties: "timeout_ms"/);
+  assert.match(unknown, /This tool call did not run/);
+  assert.doesNotMatch(unknown, /PRIVATE_CANDIDATE_FACT|1000/);
 });
 
 test('bounded batches and declared options are checked before any browser action', () => {

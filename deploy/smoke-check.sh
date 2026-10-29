@@ -10,7 +10,7 @@ npm run test:statuses
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
-  node --test dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js
+  node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js
   node dist/fit-assessment.test.js
   shopt -s nullglob
   CORPORA=("$APP"/seek-bot/data/users/*/form-corpus)

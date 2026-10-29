@@ -16,6 +16,12 @@ Browser observations and an action audit are not proof of employer acceptance.
 Checkpoint instructions retain the same fresh browser observation and its
 screenshot through transcript compaction. A newer browser observation without
 a picture retires the earlier picture, so stale images cannot imply new state.
+Transcript pressure uses a text estimate plus an image-token reserve, never
+base64 byte length. Actual provider usage remains the billing source. Native
+inspection collapses markup indentation in metadata without changing values.
+Script inspection intent does not execute a recovery plan or earn spending;
+unlabelled scripts remain potentially mutating, and all script permissions and
+marked-send approval remain independent of this bookkeeping.
 
 `application-policy.ts` defines the applying policy once. Ordinary turns use
 medium reasoning. Failed interactions and recovery retain deeper reasoning

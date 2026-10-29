@@ -47,6 +47,7 @@ import { employerMessageEvidence } from './employer-message.js';
 import { RecoveryCheckpoint, recoveryInput, recoveryTools } from './recovery-checkpoint.js';
 import { AGENT_ONLY_PROMPT, applicationSuitabilityAuthority } from './application-policy.js';
 import { ApplicationReadiness, applicationReviewTool } from './application-readiness.js';
+import { changesBrowserState } from './browser-commands.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -79,6 +80,7 @@ export const agentOnlyTools: ToolSchema[] = [
     file_ids: fileIdsProperty,
     file_chooser: { type: 'boolean', description: 'For set_input_files only: true clicks your selected upload trigger and attaches through the native file chooser. Otherwise target the actual file input directly.' },
     ...browserTargetProperties, ...browserWaitProperties, value: string, script: string,
+    script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only evidence gathering, not execution of a repair. Use act for any DOM write, interaction or navigation. Default act. This does not grant permissions, bypass Semi auto or change send confirmation.' },
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
     sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission.' },
   }, ['action']),
@@ -724,9 +726,9 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
             result = await act(call.name, call.args);
-            if (result.kind === 'ok' && !readiness.requested && result.disposition !== 'failed' && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some((action: Record<string, unknown>) => !['inspect', 'wait', 'hover'].includes(String(action.action)))
+            if (result.kind === 'ok' && !readiness.requested && result.disposition !== 'failed' && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
-              || call.name === 'browser_action' && ['click', 'fill', 'type', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(call.args.action)))) browserMutated = true;
+              || call.name === 'browser_action' && changesBrowserState(call.args))) browserMutated = true;
             ownedPages.add(ctx.page);
           } catch (error) {
             result = error instanceof StaleObservedRefError
