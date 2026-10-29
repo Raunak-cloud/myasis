@@ -1,7 +1,35 @@
-import type { Locator, Page } from 'patchright';
+import type { Frame, Locator, Page } from 'patchright';
+
+const observedFrames = new WeakMap<Page, { next: number; frames: Map<string, Frame> }>();
+
+/** A reference stays bound to its actual browser frame, never its current array
+ * index. Locators still resolve fresh controls; detached frames cannot retarget
+ * an action to a replacement frame. No DOM handles or candidate data retained. */
+export function registerObservedFrame(page: Page, frame: Frame): string {
+  let registry = observedFrames.get(page);
+  if (!registry) { registry = { next: 1, frames: new Map() }; observedFrames.set(page, registry); }
+  for (const [ref, known] of registry.frames) {
+    if (known.isDetached()) registry.frames.delete(ref);
+    else if (known === frame) return ref;
+  }
+  const ref = `frame${registry.next++}`;
+  registry.frames.set(ref, frame); return ref;
+}
+
+export function observedFrame(page: Page, ref: string): Frame | undefined {
+  if (!/^frame\d+$/.test(ref)) return undefined;
+  const frame = observedFrames.get(page)?.frames.get(ref);
+  if (!frame || frame.isDetached()) throw new Error(`Observed ${ref} is no longer attached. Inspect the fresh page; no replacement frame was selected.`);
+  return frame;
+}
 
 /** Resolve afresh for every operation. Never retain an ElementHandle across a rerender. */
 export function locate(page: Page, ref: string): Locator | null {
+  const nested = /^(frame\d+):([af]\d+(?::\d+)?)$/.exec(ref);
+  if (nested) {
+    const frame = observedFrame(page, nested[1])!;
+    return frame.locator(`[${nested[2].startsWith('a') ? 'data-ref-id' : 'data-field-id'}="${nested[2]}"]`);
+  }
   if (/^a\d+$/.test(ref)) return page.locator(`[data-ref-id="${ref}"]`);
   if (/^f\d+(?::\d+)?$/.test(ref)) return page.locator(`[data-field-id="${ref}"]`);
   if (/^(?:f\d+)?e\d+$/.test(ref)) return page.locator(`aria-ref=${ref}`);
@@ -21,7 +49,7 @@ export const browserTargetProperties = {
       name: { type: 'string', description: 'Accessible name when by=role.' },
       exact: { type: 'boolean' },
       within: { type: 'string', minLength: 1, description: 'CSS selector for the containing section in the selected frame.' },
-      frame: { type: 'string', minLength: 1, description: 'CSS selector for the iframe containing this control.' },
+      frame: { type: 'string', minLength: 1, description: 'Observed frame reference (for example frame1) or CSS selector for the iframe containing this control.' },
       index: { type: 'integer', minimum: 0 },
     },
     required: ['by', 'value'],
@@ -35,7 +63,7 @@ export function hasBrowserTarget(args: Record<string, unknown>): boolean {
 export function browserTarget(page: Page, args: Record<string, unknown>): Locator {
   if (args.locator) {
     const spec = args.locator as { by: string; value: string; name?: string; exact?: boolean; within?: string; frame?: string; index?: number };
-    const frame = spec.frame ? page.frameLocator(spec.frame) : page;
+    const frame = spec.frame ? observedFrame(page, spec.frame) ?? page.frameLocator(spec.frame) : page;
     const scope = spec.within ? frame.locator(spec.within) : frame;
     const exact = spec.exact ?? true;
     let result: Locator;

@@ -77,7 +77,8 @@ export function persistTrace(job: JobListing, outcome: AgentTermination, trace: 
         ? step.args.actions as Record<string, unknown>[] : step.tool === 'browser_action' ? [step.args] : []);
       // Store only interaction types and explicit locators, never answer values,
       // private credentials, scripts or transient observation refs.
-      hints[host] = { steps: commands.filter(command => command.locator || command.selector)
+      hints[host] = { steps: commands.filter(command => (command.locator || command.selector)
+        && !/^frame\d+$/.test(String((command.locator as { frame?: string } | undefined)?.frame ?? '')))
         .map(command => JSON.stringify({ action: command.action, locator: command.locator, selector: command.selector })).slice(0, 40), updatedAt: new Date().toISOString() };
       writeFileSync(SITE_HINTS(), JSON.stringify(hints, null, 2));
     }

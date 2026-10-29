@@ -1,5 +1,5 @@
 import type { Frame, Locator, Page } from 'patchright';
-import { browserTarget, browserTargetProperties, hasBrowserTarget } from './browser-target.js';
+import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
 
 export const MAX_BROWSER_BATCH = 12;
 export const browserWaitProperties = {
@@ -168,12 +168,16 @@ export async function evaluateBrowser(page: Page, args: Record<string, unknown>)
   let scope: Page | Frame = page;
   const frameSelector = (args.locator as { frame?: string } | undefined)?.frame;
   if (frameSelector) {
+    const registered = observedFrame(page, frameSelector);
+    if (registered) scope = registered;
+    else {
     const handle = await page.locator(frameSelector).elementHandle({ timeout: 5000 });
     try {
       const frame = await handle?.contentFrame();
       if (!frame) throw new Error('The selected iframe is unavailable. Inspect the current page.');
       scope = frame;
     } finally { await handle?.dispose(); }
+    }
   }
   return scope.evaluate(async source => {
     let result;

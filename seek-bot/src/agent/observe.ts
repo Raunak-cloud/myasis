@@ -1,6 +1,7 @@
-import type { Page } from 'patchright';
+import type { Frame, Page } from 'patchright';
 import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
+import { registerObservedFrame } from './browser-target.js';
 
 /**
  * Turns the live page into the compact, ref-addressed state the agent reasons
@@ -48,6 +49,9 @@ export interface Observation {
   text: string;
   /** Base64 data URL, only when screenshots are enabled. */
   screenshot?: string;
+  frames?: Array<{ ref: string; parent?: string; url: string; name: string; fields: number; actions: number; error?: string }>;
+  /** Main-document copy for the offline corpus, which does not serialize remote frames. */
+  mainDocumentText?: string;
 }
 
 const MAX_TEXT = 6_000;
@@ -65,7 +69,7 @@ const clean = (s: string) => s.replace(/[​-‍⁠﻿ ]/g, ' ').replace(/\s+/g
  * SEEK's design system and several ATS vendors render their real buttons in
  * web components, where a plain `querySelectorAll` sees nothing at all.
  */
-async function collectActions(page: Page): Promise<AgentAction[]> {
+async function collectActions(page: Page | Frame): Promise<AgentAction[]> {
   const raw = await page.evaluate(() => {
     /**
      * Iterative, and with no named inner functions, on purpose.
@@ -441,12 +445,8 @@ export async function observe(page: Page, options: ObserveOptions = {}): Promise
   }
 }
 
-async function observeOnce(page: Page, options: ObserveOptions): Promise<Observation> {
-  // Stamp current field identities before associating popup actions with them.
-  // These observations are dependent; parallel stamping could read stale refs.
-  const fields = await extractFields(page);
-  const actions = await collectActions(page);
-  const errors = await page.evaluate(() => {
+async function validationErrors(scope: Page | Frame): Promise<Record<string, string>> {
+  return scope.evaluate(() => {
     const errors: Record<string, string> = {};
     const roots: Array<Document | ShadowRoot> = [document];
     for (let i = 0; i < roots.length; i++) {
@@ -463,22 +463,75 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
     }
     return errors;
   });
-  for (const field of fields) field.validationError = errors[field.ref];
+}
 
-  const text = await page
-    .evaluate((limit) => {
-      const region = document.querySelector('main, [role="main"], form') ?? document.body;
-      return ((region as HTMLElement | null)?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
-    }, 60_000)
-    .catch(() => '');
+async function surfaceText(scope: Page | Frame): Promise<string> {
+  return scope.evaluate(() => {
+    const region = document.querySelector('main, [role="main"], form') ?? document.body;
+    return ((region as HTMLElement | null)?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 60_000);
+  }).catch(() => '');
+}
+
+async function observeOnce(page: Page, options: ObserveOptions): Promise<Observation> {
+  // Stamp current field identities before associating popup actions with them.
+  // These observations are dependent; parallel stamping could read stale refs.
+  const fields = await extractFields(page);
+  const actions = await collectActions(page);
+  const errors = await validationErrors(page);
+  for (const field of fields) field.validationError = errors[field.ref];
+  const mainText = await surfaceText(page);
+  const texts = [mainText];
+  const frames: NonNullable<Observation['frames']> = [];
+  // Embedded employer forms are first-class browser contexts. Reading them
+  // through their native Frame avoids cross-origin document scripting and
+  // makes real in-frame changes visible to recovery and progress accounting.
+  for (const frame of page.frames().filter(frame => frame !== page.mainFrame()).slice(0, 20)) {
+    if (/recaptcha|hcaptcha|turnstile|challenges.cloudflare|arkoselabs|funcaptcha/i.test(frame.url())) continue;
+    let visible = true;
+    try {
+      for (let current: Frame | null = frame; current?.parentFrame(); current = current.parentFrame()) {
+        const host = await current.frameElement();
+        try { if (!await host.isVisible()) { visible = false; break; } }
+        finally { await host.dispose(); }
+      }
+    } catch { visible = false; }
+    if (!visible) continue;
+    const ref = registerObservedFrame(page, frame);
+    let url = frame.url();
+    try { const parsed = new URL(url); if (/^https?:$/.test(parsed.protocol)) url = parsed.origin + parsed.pathname; } catch { /* Blank/srcdoc frame. */ }
+    const parent = frame.parentFrame();
+    const context = `Frame ${url} ${frame.name()}`.trim();
+    try {
+      const nestedFields = await extractFields(frame);
+      const nestedActions = await collectActions(frame);
+      const nestedErrors = await validationErrors(frame);
+      fields.push(...nestedFields.map(field => ({ ...field, ref: `${ref}:${field.ref}`,
+        section: `${context}${field.section ? `: ${field.section}` : ''}`,
+        controlIdentity: `${context}:${field.controlIdentity ?? field.ref}`,
+        validationError: nestedErrors[field.ref] })));
+      actions.push(...nestedActions.map(action => ({ ...action, ref: `${ref}:${action.ref}`,
+        ...(action.fieldRef ? { fieldRef: `${ref}:${action.fieldRef}` } : {}),
+        context: `${context}${action.context ? `: ${action.context}` : ''}` })));
+      texts.push(`${context}\n${await surfaceText(frame)}`);
+      frames.push({ ref, ...(parent && parent !== page.mainFrame() ? { parent: registerObservedFrame(page, parent) } : {}),
+        url, name: frame.name(), fields: nestedFields.length, actions: nestedActions.length });
+    } catch {
+      // A removed/navigating child is missing evidence, not permission to choose
+      // a replacement frame or discard the rest of the current observation.
+      frames.push({ ref, url, name: frame.name(), fields: 0, actions: 0, error: 'Frame changed while reading; inspect its fresh state.' });
+    }
+  }
+  const text = texts.map(text => clean(text).slice(0, MAX_TEXT)).join('\n\n');
 
   const observation: Observation = {
     url: page.url(),
     title: await page.title().catch(() => ''),
     actions,
     fields,
-    text: clean(text).slice(0, MAX_TEXT),
+    text: text.slice(0, 20_000),
     surfaceText: clean(text).replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '[clock]'),
+    ...(frames.length ? { frames } : {}),
+    ...(frames.length ? { mainDocumentText: clean(mainText).slice(0, MAX_TEXT) } : {}),
     dialogs: await page.locator('dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]').evaluateAll(nodes => nodes.filter(node => node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }))
       .map(node => (node as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 4000)).filter((text, index, all) => Boolean(text) && all.indexOf(text) === index)).catch(() => []),
   };
@@ -521,6 +574,9 @@ export function renderObservation(observation: Observation): string {
   return [
     `URL: ${observation.url}`,
     `TITLE: ${observation.title}`,
+    ...(observation.frames?.length ? ['EMBEDDED FRAMES (native contexts; refs stay bound to their observed frame):',
+      '<untrusted role="page-content">', JSON.stringify(observation.frames), '</untrusted>',
+      'Use a scoped field/action ref such as frame1:f0, or locator.frame="frame1". Parent-document scripts do not read cross-origin frame documents.'] : []),
     ...(observation.dialogs?.length ? ['VISIBLE DIALOG LAYER (may block controls underneath):', '<untrusted role="page-content">', ...observation.dialogs, '</untrusted>'] : []),
     '',
     `ACTIONS (${observation.actions.length}):`,

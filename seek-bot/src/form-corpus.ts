@@ -54,7 +54,19 @@ export interface FormExpectation {
   captcha: boolean;
 }
 
+/** Remote child-frame documents are not part of the saved HTML. Keep its
+ * expectation equally scoped; dedicated live browser fixtures cover frames. */
+function mainDocumentObservation(observation: Observation): Observation {
+  if (!observation.frames?.length) return observation;
+  return { ...observation,
+    fields: observation.fields.filter(field => !/^frame\d+:/.test(field.ref)),
+    actions: observation.actions.filter(action => !/^frame\d+:/.test(action.ref)),
+    text: observation.mainDocumentText ?? observation.text,
+  };
+}
+
 export function expectationOf(observation: Observation, captcha: boolean, url: string, capturedAt = new Date().toISOString()): FormExpectation {
+  observation = mainDocumentObservation(observation);
   const host = new URL(url).hostname.toLowerCase();
   return {
     url,
@@ -123,6 +135,7 @@ async function fieldsStillShown(page: Page, observation: Observation): Promise<b
 /** Records this page into the corpus, once per distinct page; never fails an application. */
 export async function recordFormPage(page: Page, observation: Observation): Promise<void> {
   try {
+    observation = mainDocumentObservation(observation);
     const signal = AbortSignal.timeout(CAPTURE_BUDGET_MS);
     if (!observation.fields.length) return;
     const url = page.url();

@@ -140,7 +140,7 @@ class StaleObservedRefError extends Error {
 async function assertCurrentRef(ctx: ToolContext, args: Record<string, unknown>): Promise<void> {
   if (args.locator || args.selector) return; // Same explicit-target precedence as target().
   const ref = String(args.ref ?? '');
-  if (!/^(?:[af]\d+|f\d+:\d+|(?:f\d+)?e\d+|r\d+f\d+e\d+)$/.test(ref)) return;
+  if (!/^(?:[af]\d+|f\d+:\d+|(?:f\d+)?e\d+|r\d+f\d+e\d+|frame\d+:[af]\d+(?::\d+)?)$/.test(ref)) return;
   const locator = /^f\d+:\d+$/.test(ref) ? ctx.page.locator(`[data-field-id="${ref}"]`) : locate(ctx.page, ref);
   if (locator) {
     try { if (await locator.count()) return; }
