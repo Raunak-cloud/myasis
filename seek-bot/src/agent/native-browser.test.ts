@@ -64,7 +64,7 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.equal(multiple.fields[0].label, 'City'); assert.equal(multiple.fields[0].value, 'Sydney');
     assert.equal(multiple.fields[0].id, 'city'); assert.equal(multiple.fields[1].value, '[private credential]');
     assert.equal(JSON.stringify(multiple).includes('private-fixture'), false);
-    assert.deepEqual(await nativeInspect(page.locator('#missing')), { matched: 0, truncated: false, fields: [] });
+    assert.deepEqual(await nativeInspect(page.locator('#missing')), { matched: 0, visibleMatched: 0, truncated: false, fields: [] });
     await assert.rejects(nativeReadback(page.locator('input')), /strict mode violation/, 'mutation readback is still strict');
     await assert.rejects(page.locator('input').fill('wrong', { timeout: 100 }), /strict mode violation/);
     assert.equal(await page.locator('#city').inputValue(), 'Sydney', 'ambiguous writes execute nowhere');
@@ -128,6 +128,12 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.equal(review.request(),true);
     const after = JSON.parse(review.render().split('): ')[1].split('\n')[0]);
     assert.equal(after.length,3);assert.deepEqual(after.map((v:{value:string})=>v.value),['11/2024','10/2022','']);
+    await page.setContent('<div hidden>'+Array.from({length:90},(_,i)=>`<div role=option>Hidden ${i}</div>`).join('')+'</div><section aria-label="City suggestions"><div role=option>Sydney, Australia</div></section>');
+    const options = await nativeInspect(page.getByRole('option', {includeHidden:true})) as {matched:number;visibleMatched:number;truncated:boolean;fields:Array<{match_index:number;visible:boolean;text:string}>};
+    assert.equal(options.matched,91);assert.equal(options.visibleMatched,1);assert.equal(options.truncated,true);
+    assert.equal(options.fields[0].text,'Sydney, Australia');assert.equal(options.fields[0].visible,true);
+    assert.equal(options.fields[0].match_index,90,'visible-first inspection preserves the original locator index');
+    assert.equal(await page.getByRole('option',{includeHidden:true}).nth(options.fields[0].match_index).innerText(),'Sydney, Australia');
     await page.setContent('<section><button onclick="document.body.dataset.clicked=\'first\'">First target</button></section><section><button>Second target</button></section><section><button>Third target</button></section>');
     const multi = await nativeSnapshot(page.locator('section'));
     const refs = [...multi.matchAll(/button[^\n]*\[ref=([^\]]+)\]/g)].map(match=>match[1]);
