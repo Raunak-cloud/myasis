@@ -94,5 +94,21 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.match(renderObservation(optionObservation), /raw_option_text="No"/);
     assert.match(renderObservation(optionObservation), /question_context="\*"/);
     await page.getByRole('option', { name: option!.value, exact: true }).click();
+    await page.setContent('<div id=history aria-label="Employment history"><div id=experience aria-label="Add experience entry"></div></div><div id=education aria-label="Add education entry"></div>');
+    for (const id of ['experience', 'education']) await page.locator('#'+id).evaluate(node => {
+      const root=node.attachShadow({mode:'open'});root.innerHTML='<div><span><button>Add</button></span></div>';
+      root.querySelector('button')!.addEventListener('click',()=>node.setAttribute('data-opened','true'));
+    });
+    const reveals = (await observe(page)).actions.filter(action => action.text === 'Add');
+    assert.equal(reveals.length, 2);
+    const experience = reveals.find(action => action.context?.includes('Add experience entry'));
+    const education = reveals.find(action => action.context?.includes('Add education entry'));
+    assert.ok(experience); assert.ok(education);
+    assert.match(experience.context!, /Employment history/);
+    assert.doesNotMatch(education.context!, /Add experience entry/);
+    assert.notEqual(experience.ref, education.ref, 'separate controls retain their own observed identity');
+    await page.locator(`[data-ref-id="${experience.ref}"]`).click();
+    assert.equal(await page.locator('#experience').getAttribute('data-opened'), 'true');
+    assert.equal(await page.locator('#education').getAttribute('data-opened'), null);
   } finally { await browser.close(); }
 });

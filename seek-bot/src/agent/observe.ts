@@ -250,6 +250,20 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
       // form is duplicated into every action.
       let context = '';
       if (/^\+?\s*(?:add|attach|include|upload)\s*$/i.test(label)) {
+        // A real button can live in a shadow root while its semantic name is
+        // on a host several composed ancestors away. parentElement alone
+        // loses that identity and makes distinct Add controls look alike.
+        const semantic: string[] = [];
+        let composed: Element | null = element;
+        for (let depth = 0; composed && depth < 12; depth++) {
+          const scope = composed.getRootNode() as Document | ShadowRoot;
+          const namedBy = (composed.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean)
+            .map(id => scope.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '').filter(Boolean).join(' ');
+          const name = (composed.getAttribute('aria-label') || namedBy).replace(/\s+/g, ' ').trim();
+          if (name && name !== label && name.length <= 300 && !semantic.includes(name)) semantic.push(name);
+          const parent: Element | null = composed.parentElement;
+          composed = parent ?? (scope instanceof ShadowRoot ? scope.host : null);
+        }
         let ancestor = element.parentElement;
         for (let depth = 0; ancestor && depth < 7; depth++, ancestor = ancestor.parentElement) {
           const nearby = ancestor.innerText?.replace(/\s+/g, ' ').trim() ?? '';
@@ -286,6 +300,7 @@ async function collectActions(page: Page): Promise<AgentAction[]> {
           const section = parts.join(' ').slice(0, 1_200);
           if (section.length > context.length || /cover[\s-]?letter|supporting documents?/i.test(section)) context = section;
         }
+        if (semantic.length) context = [...semantic.slice(0, 3), context].filter(Boolean).join(' › ').slice(0, 1_200);
       }
       results.push({
         ref,
