@@ -65,9 +65,9 @@ export const agentOnlyTools: ToolSchema[] = [
     to: string, subject: string, cover_letter: string, resume_id: string,
     attach_cover_letter: { type: 'boolean', description: 'Also attach the approved letter as a text document if requested. The letter is always included in the email body.' },
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
-  schema('browser_batch', 'Execute your own ordered native browser commands in one call. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
+  schema('browser_batch', 'Execute your own ordered native browser commands and read-only inspections in one call. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
-      action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'wait', 'set_input_files'] },
+      action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'] },
       file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean' },
     }, required: ['action'] } },
@@ -748,7 +748,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
             result = await act(call.name, call.args);
-            if (result.kind === 'ok' && !dates.requested && result.disposition !== 'failed' && (call.name === 'browser_batch'
+            if (result.kind === 'ok' && !dates.requested && result.disposition !== 'failed' && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some((action: Record<string, unknown>) => !['inspect', 'wait', 'hover'].includes(String(action.action)))
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
               || call.name === 'browser_action' && ['click', 'fill', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(call.args.action)))) browserMutated = true;
             ownedPages.add(ctx.page);
