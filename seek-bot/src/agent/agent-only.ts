@@ -68,14 +68,14 @@ export const agentOnlyTools: ToolSchema[] = [
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
   schema('browser_batch', 'Execute your own ordered native browser commands and read-only inspections in one call. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
-      action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'] },
+      action: { type: 'string', enum: ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'] },
       file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean' },
     }, required: ['action'] } },
   }, ['actions']),
   schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or sections with ref, selector or a direct Playwright locator. Multiple matching sections return one bounded page snapshot so all included accessibility references remain consistent; narrow the locator for a focused section. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ...browserTargetProperties }),
-  schema('browser_action', 'Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
-    action: { type: 'string', enum: ['click', 'fill', 'select', 'check', 'press', 'hover', 'scroll', 'navigate', 'script', 'select_page', 'dialog', 'wait', 'inspect', 'set_input_files'] },
+  schema('browser_action', 'Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. type appends text with native keyboard events; fill replaces text using normal input events. Use type when an inspected widget needs key events, clearing first when replacing text. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
+    action: { type: 'string', enum: ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'scroll', 'navigate', 'script', 'select_page', 'dialog', 'wait', 'inspect', 'set_input_files'] },
     file_ids: fileIdsProperty,
     file_chooser: { type: 'boolean', description: 'For set_input_files only: true clicks your selected upload trigger and attaches through the native file chooser. Otherwise target the actual file input directly.' },
     ...browserTargetProperties, ...browserWaitProperties, value: string, script: string,
@@ -426,7 +426,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       return ok('Follow the observed application controls in Semi auto. Direct navigation is limited to this job listing so a send URL cannot bypass confirmation.', 'failed');
     }
     const coordinateClick = args.action === 'click' && typeof args.x === 'number' && typeof args.y === 'number';
-    if (!coordinateClick && ['click', 'fill', 'select', 'check', 'press', 'hover', 'set_input_files'].includes(String(args.action))) await assertCurrentRef(ctx, args);
+    if (!coordinateClick && ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'set_input_files'].includes(String(args.action))) await assertCurrentRef(ctx, args);
     if (args.action === 'click' && !coordinateClick && hasBrowserTarget(args)) {
       const href = await target(ctx, args).evaluate(node => node.closest('a')?.getAttribute('href') || '', undefined, { timeout: 2500 });
       if (/^mailto:/i.test(href)) return ok('Use prepare_email_application for email applications. A mailto link does not submit an application.', 'failed');
@@ -434,7 +434,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     const labelRef = args.locator || args.selector ? undefined : args.ref;
     let actionLabel = ctx.observation.fields.find(field => field.ref === labelRef || String(labelRef ?? '').startsWith(field.ref + ':'))?.label
       ?? ctx.observation.actions.find(action => action.ref === labelRef)?.text ?? '';
-    if (!actionLabel && hasBrowserTarget(args) && ['fill', 'select', 'check', 'click', 'press', 'hover'].includes(String(args.action))) {
+    if (!actionLabel && hasBrowserTarget(args) && ['fill', 'type', 'select', 'check', 'click', 'press', 'hover'].includes(String(args.action))) {
       const element = target(ctx, args);
       if (await element.count()) actionLabel = await element.evaluate(node => {
         const input = node as HTMLInputElement;
@@ -461,8 +461,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       ctx.submissionAttempted = true; // audit only, never authorisation
       activity.update({ status: 'running', submitted: true, detail: 'The agent marked this action as a submission; receipt is not established.' });
     }
-    const value = args.action === 'fill' && isCoverLetterField(actionLabel) ? coverLetterForRun(String(args.value ?? '')) : String(args.value ?? '');
-    if (!sendsApplication && ['fill', 'select', 'check', 'click', 'press', 'navigate', 'script', 'set_input_files'].includes(String(args.action))) readiness.invalidate();
+    const value = ['fill', 'type'].includes(String(args.action)) && isCoverLetterField(actionLabel) ? coverLetterForRun(String(args.value ?? '')) : String(args.value ?? '');
+    if (!sendsApplication && ['fill', 'type', 'select', 'check', 'click', 'press', 'navigate', 'script', 'set_input_files'].includes(String(args.action))) readiness.invalidate();
     switch (args.action) {
       case 'set_input_files': {
         if (!Array.isArray(args.file_ids)) throw Error('Provide file_ids from the candidate inventory or create_file/convert_file results.');
@@ -540,12 +540,14 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       case 'hover': await target(ctx, args).hover({ timeout: 8_000 }); break;
       case 'check':
       case 'select':
+      case 'type':
       case 'fill': {
-        if (args.action === 'fill' && typeof args.value !== 'string') throw new Error('Provide the complete value to fill.');
+        if (['fill', 'type'].includes(String(args.action)) && typeof args.value !== 'string') throw new Error('Provide the complete value to fill.');
         const element = target(ctx, args);
         // The locator resolves the current element for each call, including after
         // framework rerenders. No retained node or structural-fingerprint veto.
         if (args.action === 'fill') await element.fill(value, { timeout: 8000 });
+        else if (args.action === 'type') await element.pressSequentially(value, { timeout: 8000 });
         else if (args.action === 'check') await element.setChecked(value !== 'false', { timeout: 8000 });
         else await element.selectOption({ label: value }, { timeout: 4000 }).catch(() => element.selectOption(value, { timeout: 4000 }));
         const waitNote = await waitAfterAction(ctx.page, args);
@@ -723,7 +725,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
             result = await act(call.name, call.args);
             if (result.kind === 'ok' && !readiness.requested && result.disposition !== 'failed' && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some((action: Record<string, unknown>) => !['inspect', 'wait', 'hover'].includes(String(action.action)))
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
-              || call.name === 'browser_action' && ['click', 'fill', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(call.args.action)))) browserMutated = true;
+              || call.name === 'browser_action' && ['click', 'fill', 'type', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(call.args.action)))) browserMutated = true;
             ownedPages.add(ctx.page);
           } catch (error) {
             result = error instanceof StaleObservedRefError

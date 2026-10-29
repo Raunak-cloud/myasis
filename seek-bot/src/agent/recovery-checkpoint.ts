@@ -163,7 +163,9 @@ export class RecoveryCheckpoint {
     this.budgetReview = false;
     if (args) this.remember(`${this.note}\nRECOVERY RESULT: ${JSON.stringify(args)}`);
     this.invalid = 0;
-    if (assessment === 'no_progress') this.phase = 'plan';
+    // The result already records evidence and the agent's revised next_action.
+    // Do not force a duplicate plan before allowing that repair to execute.
+    if (assessment === 'no_progress') { this.phase = 'act'; this.failures = 0; this.unchanged = 0; }
     else if (assessment === 'more_evidence') this.phase = ++this.furtherInspections >= 2 ? 'plan' : 'act';
     else { this.phase = 'normal'; this.failures = 0; this.unchanged = 0; this.furtherInspections = 0; }
     return credit;
@@ -171,9 +173,9 @@ export class RecoveryCheckpoint {
 
   acted(tool: string, failed: boolean, args: Record<string, unknown> = {}): void {
     const changesPage = tool === 'browser_action'
-      ? ['click', 'fill', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(args.action)) || args.sends_application === true
+      ? ['click', 'fill', 'type', 'select', 'check', 'press', 'navigate', 'script', 'dialog', 'set_input_files'].includes(String(args.action)) || args.sends_application === true
       : tool === 'browser_batch'
-        ? Array.isArray(args.actions) && args.actions.some(action => ['click', 'fill', 'select', 'check', 'press', 'script', 'navigate', 'dialog', 'set_input_files'].includes(String(action.action)))
+        ? Array.isArray(args.actions) && args.actions.some(action => ['click', 'fill', 'type', 'select', 'check', 'press', 'script', 'navigate', 'dialog', 'set_input_files'].includes(String(action.action)))
         : ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool);
     if (this.phase === 'act' && changesPage) this.actionPending = true;
     if (changesPage) {

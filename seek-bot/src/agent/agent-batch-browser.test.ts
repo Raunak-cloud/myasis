@@ -24,6 +24,9 @@ globalThis.fetch=(async(_url,init)=>{
   calls=[{name:'browser_batch',args:{actions:[{action:'fill',selector:'input',value:'Wrong target'},{action:'fill',selector:'#other',value:'Should not run'}]}}];
  }else if(turn===2){
   const batch=JSON.parse(latest());assert.equal(batch.stopped,0);assert.equal(batch.remainingNotExecuted,true);assert.match(batch.results[0].error,/strict mode violation/);
+  calls=[{name:'browser_action',args:{action:'type',selector:'#keys',value:'Sydney'}}];
+ }else if(turn===3){
+  const readback=JSON.parse(latest());assert.equal(readback.current.value,'Sydney');
   calls=[{name:'finish',args:{status:'needs-human',reason:'Fixture checks complete: ambiguous write was refused.',evidence:'Inspection succeeded; ambiguous fill executed nowhere.',questions:[{question:'Fixture target',prompt:'Choose the intended control.',kind:'text'}]}}];
  }else throw Error('Unexpected model call');
  return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:calls.map((call,index)=>({id:`batch-${turn++}-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:30,completion_tokens:10}});
@@ -33,10 +36,12 @@ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{
 try{
  const context=await browser.newContext();await context.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:'<main>Fixture</main>'}):route.abort());
  const page=await context.newPage(),url='https://employer.batch.invalid/apply';await page.goto(url);
- await page.setContent('<main><label>Name<input id=name oninput="window.inputEvents=(window.inputEvents||0)+1"></label><label>Other<input id=other value=Untouched></label><label>Password<input type=password value=private-batch-fixture></label></main>');
+ await page.setContent('<main><label>Name<input id=name oninput="window.inputEvents=(window.inputEvents||0)+1"></label><label>Other<input id=other value=Untouched></label><label>Password<input type=password value=private-batch-fixture></label><div id=keys contenteditable onkeyup="window.keyEvents=(window.keyEvents||0)+1;this.dataset.committed=this.textContent"></div></main>');
  const result=await runApplicationAgent({page,job:{id:'batch-fixture',title:'Fixture',company:'Fictional employer',location:'Sydney',url,applicationMode:'external'} as JobListing,profile:{name:'Alex Fixture',email:'fixture@example.invalid',skills:['TypeScript'],willingToRelocate:false} as never,log:()=>{}});
- assert.equal(result.outcome.status,'needs-human');assert.equal(turn,3);
+ assert.equal(result.outcome.status,'needs-human');assert.equal(turn,4);
  assert.equal(await page.locator('#name').inputValue(),'Alex Fixture');assert.equal(await page.locator('#other').inputValue(),'Untouched');
  assert.equal(await page.evaluate('window.inputEvents',undefined,undefined,false),1,'normal input event fired exactly once');
+ assert.equal(await page.locator('#keys').getAttribute('data-committed'),'Sydney');
+ assert.equal(await page.evaluate('window.keyEvents',undefined,undefined,false),6,'native typing fires real key events for each character');
  console.log('PASS: mixed native fill/inspection batch, private-value masking, strict ambiguous writes and stop-on-error.');
 }finally{await browser.close();rmSync(directory,{recursive:true,force:true});}

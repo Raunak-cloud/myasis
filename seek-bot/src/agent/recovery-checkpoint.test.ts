@@ -43,7 +43,7 @@ test('repeated failures require a plan, a browser action, then fresh-result asse
   state.acted('browser_action', false, { action: 'fill' }); state.endTurn(); state.observe(observation('Sydney'));
   assert.equal(state.tool, 'record_recovery_result');
   state.verified('no_progress');
-  assert.equal(state.tool, 'record_recovery_plan', 'failed verification requires another approach');
+  assert.equal(state.tool, undefined, 'the result already records the revised next action; normal tools remain available');
   state.planned(); state.acted('consult_application_specialist', false); state.endTurn();
   assert.equal(state.tool, undefined, 'consultation is inspection, not executing a repair');
   state.acted('take_snapshot', false); state.endTurn(); state.observe(observation('Sydney'));
@@ -135,7 +135,10 @@ test('budget review cannot preempt a pending repair with evidence from an earlie
   state.acted('browser_action',false,{action:'click'});state.endTurn();state.observe(observation('Sydney'));
   assert.equal(state.tool,'record_recovery_result','actual repair receives its result check');
   assert.equal(state.verified('no_progress'),undefined,'unchanged repair cannot grant extra spend');
-  assert.equal(state.tool,'record_recovery_plan');
+  assert.equal(state.tool,undefined,'failed result already records the revised action; do not demand another plan');
+  assert.equal(state.requestBudgetReview(),false,'the revised action must run before a spending review');
+  state.acted('browser_action',false,{action:'type'});state.endTurn();state.observe(observation('Melbourne'));
+  assert.equal(state.tool,'record_recovery_result','the revised repair still receives a fresh result check');
 });
 
 test('restart journal preserves historical diagnosis and uncertainty without replaying actions', () => {
