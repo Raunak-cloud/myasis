@@ -5,7 +5,6 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withApplicationModel } from '../application-model.js';
-import { config } from '../config.js';
 import type { JobListing } from '../types.js';
 import { startAgentActivity, readAgentActivities } from './agent-activity.js';
 import { applicationHistory } from './agent-only-evidence.js';
@@ -72,7 +71,7 @@ test('stale running records are labelled interrupted without rewriting their evi
     const handle = startAgentActivity(job);
     const folder = join(account.dir, 'agent-activity'), file = join(folder, readdirSync(folder)[0]);
     const record = JSON.parse(readFileSync(file, 'utf8'));
-    record.startedAt = new Date(Date.now() - config.celeris.maxTotalMs - 301_000).toISOString();
+    record.startedAt = new Date(Date.now() - 66 * 60_000).toISOString();
     record.updatedAt = record.startedAt;
     record.submitted = true; record.detail = 'The submit result was not observed.';
     writeFileSync(file, JSON.stringify(record));

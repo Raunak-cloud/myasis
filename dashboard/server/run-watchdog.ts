@@ -2,7 +2,7 @@ import { execFile, type ChildProcess } from 'node:child_process';
 
 const RUN_STOP_GRACE_MS = 10_000;
 export const RUN_OUTPUT_DRAIN_MS = 1_000;
-const DEFAULT_RUN_MINUTES = 30;
+const DEFAULT_RUN_MINUTES = 60;
 
 /** Operator setting only; invalid values cannot disable the watchdog. */
 export function runTimeoutMs(value?: string): number {

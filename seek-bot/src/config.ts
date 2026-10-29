@@ -299,8 +299,7 @@ export const config = {
      */
     maxOutputTokens: Number(process.env.CELERIS_MAX_OUTPUT_TOKENS ?? 8192),
 
-    /** Resource ceilings; the agent owns form progress and recovery. */
-    maxTotalMs: Number(process.env.AGENT_MAX_MS ?? 1_800_000),
+    /** Spending ceilings; elapsed time is owned by the whole-run watchdog. */
     budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? 0.20),
     progressBudgetUsdPerApplication: Number(process.env.AGENT_PROGRESS_BUDGET_USD ?? 0.70),
 

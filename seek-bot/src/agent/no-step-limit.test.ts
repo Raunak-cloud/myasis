@@ -7,7 +7,7 @@ import { closeCelerisQueues } from '../../../shared/celeris-queue.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-no-step-limit-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false',
-  APPLICATION_REVIEW_MODE: '', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'false', AGENT_MAX_MS: '25000',
+  APPLICATION_REVIEW_MODE: '', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'false',
   CELERIS_QUEUE_FILE: join(directory, 'queue.sqlite'), CELERIS_MIN_INTERVAL_MS: '0',
   FORM_CORPUS_DIR: join(directory, 'corpus'), ALLOW_EXTERNAL_APPLY: 'true', DRY_RUN: 'false' });
 const { runAgentOnlyApplication } = await import('./agent-only.js');

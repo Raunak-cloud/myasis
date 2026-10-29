@@ -143,10 +143,9 @@ export function readAgentActivities(): unknown[] {
   const folder = directory(config.dataDir, false);
   if (!folder) return [];
   try {
-    const max = config.celeris.maxTotalMs;
-    const staleAfter = (Number.isFinite(max) ? Math.max(0, max) : max === Infinity ? Infinity : 1_800_000) + 300_000;
-    return readRecords(folder).slice(0, MAX_RECORDS_READ).map(({ record }) => record.status === 'running' && Date.now() - Date.parse(record.startedAt) > staleAfter
-      ? { ...record, status: 'interrupted', stale: true, detail: `The running activity exceeded the application time allowance. ${record.detail ?? ''}`.trim() }
+    const staleAfter = 65 * 60_000;
+    return readRecords(folder).slice(0, MAX_RECORDS_READ).map(({ record }) => record.status === 'running' && Date.now() - Date.parse(record.updatedAt) > staleAfter
+      ? { ...record, status: 'interrupted', stale: true, detail: `The running activity has not updated for over an hour. ${record.detail ?? ''}`.trim() }
       : record);
   } catch { warn(); return []; }
 }

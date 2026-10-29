@@ -582,10 +582,40 @@ try {
     assert.match(JSON.stringify(body.messages), /February 2024/);
     return [{ name: 'browser_action', args: { action: 'fill', selector: '#date', value: '2024-02' } }];
   }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
+  body => {
+    assert.match(observation(body), /DATE ACCURACY CHECKPOINT/);
+    return [{ name: 'record_date_review', args: { assessment: 'ready', checks: [{ question: 'Employment start month', source_evidence: 'Candidate saved February 2024', intended_meaning: 'February 2024', observed_parts: '2024-02', conclusion: 'Matches saved source' }], next_action: 'Submit the current form' } }];
+  }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
   () => [{ name: 'finish', args: { status: 'applied', reason: 'Employer confirmed receipt.', evidence: 'Application received: FACT123', receipt: { quote: 'Application received: FACT123' } } }]];
   const sourcedDates = await runApplicationAgent({ page, job: { ...job, id: 'agent-owned-saved-date' }, profile, log: () => {} });
   assert.equal(sourcedDates.outcome.status, 'applied');
   assert.equal(await page.evaluate('window.factSends', undefined, undefined, false), 1);
+  assert.equal(script.length, 0);
+  await page.setContent('<main><form onsubmit="event.preventDefault();window.dateSends++;document.querySelector(\'main\').textContent=\'Application received: DATE123\'"><fieldset><legend>Available start date</legend><label>Month<input id=month></label><label>Day<input id=day></label><label>Year<input id=year></label></fieldset><button id=send>Submit</button></form></main>');
+  await page.evaluate('window.dateSends=0', undefined, undefined, false);
+  const review = (assessment: string) => ({ name: 'record_date_review', args: { assessment,
+    checks: [{ question: 'Available start date', source_evidence: 'Synthetic candidate confirmed 1 November 2026', intended_meaning: '1 November 2026',
+      observed_parts: assessment === 'correct' ? 'Month 1, Day 11, Year 2026' : 'Month 11, Day 1, Year 2026',
+      conclusion: assessment === 'correct' ? 'Wrong: 11 January was filled; correct the component values' : 'Matches 1 November' }], next_action: assessment === 'correct' ? 'Correct the actual components' : 'Submit current form' } });
+  script = [() => [{ name: 'browser_batch', args: { actions: [
+    { action: 'fill', selector: '#month', value: '1' }, { action: 'fill', selector: '#day', value: '11' },
+    { action: 'fill', selector: '#year', value: '2026' }, { action: 'click', selector: '#send', sends_application: true },
+  ] } }], body => {
+    assert.match(observation(body), /DATE ACCURACY CHECKPOINT/);
+    assert.match(observation(body), /"label":"Month".*"value":"1"/);
+    return [review('correct')];
+  }, () => [{ name: 'browser_batch', args: { actions: [
+    { action: 'fill', selector: '#month', value: '11' }, { action: 'fill', selector: '#day', value: '1' },
+    { action: 'click', selector: '#send', sends_application: true },
+  ] } }], body => {
+    assert.match(observation(body), /DATE ACCURACY CHECKPOINT/);
+    assert.match(observation(body), /"label":"Month".*"value":"11"/);
+    return [review('ready')];
+  }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
+  () => [{ name: 'finish', args: { status: 'applied', reason: 'Employer receipt after date correction', evidence: 'Application received: DATE123', receipt: { quote: 'Application received: DATE123' } } }]];
+  const swappedDate = await runApplicationAgent({ page, job: { ...job, id: 'agent-owned-component-correction' }, profile, log: () => {} });
+  assert.equal(swappedDate.outcome.status, 'applied');
+  assert.equal(await page.evaluate('window.dateSends', undefined, undefined, false), 1, 'withheld sends are never replayed; only the reviewed final choice sends');
   assert.equal(script.length, 0);
   console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and hCaptcha skip.');
 } finally {

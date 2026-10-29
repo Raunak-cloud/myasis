@@ -114,7 +114,7 @@ test('Normal worker exit waits for final output and close before cleanup', async
 });
 
 test('Invalid operator limits cannot disable the watchdog', () => {
-  for (const value of [undefined, '', '0', '-5', 'NaN', 'Infinity']) assert.equal(runTimeoutMs(value), 30 * 60_000);
+  for (const value of [undefined, '', '0', '-5', 'NaN', 'Infinity']) assert.equal(runTimeoutMs(value), 60 * 60_000);
   assert.equal(runTimeoutMs('45'), 45 * 60_000);
   assert.equal(runTimeoutMs('1000'), 120 * 60_000);
 });

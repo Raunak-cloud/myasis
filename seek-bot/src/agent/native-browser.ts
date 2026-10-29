@@ -28,11 +28,18 @@ function describeNativeTargets(targets: Element | Element[]) {
     const described = (node.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
       .map(id => node.getRootNode() instanceof ShadowRoot
         ? (node.getRootNode() as ShadowRoot).getElementById(id)?.textContent : node.ownerDocument.getElementById(id)?.textContent).filter(Boolean);
+    const context = [];
+    for (let depth = 0, parent = node.parentElement; nodes.length > 1 && parent && depth < 4; depth++, parent = parent.parentElement) {
+      context.push({ tag: parent.tagName.toLowerCase(), id: parent.id || undefined,
+        label: parent.getAttribute('aria-label') || undefined,
+        heading: parent.querySelector(':scope > legend, :scope > label, :scope > h2, :scope > h3, :scope > h4')?.textContent?.trim().slice(0, 200) });
+    }
     return {
       id: node.id || null, ref: node.getAttribute('data-field-id') || node.getAttribute('data-ref-id') || null,
       tag: node.tagName.toLowerCase(), type, name: input.name || null,
       private: privateValue,
       label: [...(input.labels || [])].map(label => label.textContent).join(' ') || node.getAttribute('aria-label') || null,
+      context: nodes.length > 1 ? context : undefined,
       value: privateValue ? '[private credential]' : element.isContentEditable ? element.innerText : input.value ?? element.innerText,
       checked: typeof input.checked === 'boolean' ? input.checked : node.getAttribute('aria-checked'),
       selected: node.tagName === 'SELECT' ? [...select.selectedOptions].map(option => ({ value: option.value, label: option.label })) : undefined,
@@ -58,6 +65,22 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
 export async function nativeInspect(target: Locator): Promise<unknown> {
   const result = await target.evaluateAll(describeNativeTargets);
   return result.matched === 1 ? result.fields[0] : result;
+}
+
+/** Read-only evidence after a failed interaction. Never chooses an index,
+ * dismisses an overlay or repeats the operation. Credentials remain masked. */
+export async function browserFailureEvidence(page: Page, args: Record<string, unknown>): Promise<string> {
+  if (page.isClosed()) return '';
+  const matches = hasBrowserTarget(args) ? await nativeInspect(browserTarget(page, args)).catch(() => 'Target changed or cannot be inspected.') : undefined;
+  const frames = page.frames().slice(0, 20).map(frame => {
+    let url = ''; try { const parsed = new URL(frame.url()); url = parsed.origin + parsed.pathname; } catch { /* Blank frame. */ }
+    return { name: frame.name(), url, main: !frame.parentFrame() };
+  });
+  const hosts = await page.locator('iframe').evaluateAll(nodes => nodes.slice(0, 20).map(node => ({
+    id: node.id || undefined, name: node.getAttribute('name'), title: node.getAttribute('title'),
+    visible: node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }),
+  }))).catch(() => []);
+  return `\nFRESH FAILURE EVIDENCE (read only; no retry executed): ${JSON.stringify({ matchingTargets: matches, frames, iframeHosts: hosts }).slice(0, 6500)}\nInspect matching controls and their context before choosing a unique target. A control inside an iframe needs that frame or its current accessibility ref; a main-document selector does not search iframe contents.`;
 }
 
 /** Read every requested section with current locators, never retained handles.

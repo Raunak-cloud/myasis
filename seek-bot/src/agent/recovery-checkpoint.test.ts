@@ -129,3 +129,14 @@ test('delayed rerenders and inspections never execute a newly recorded repair pl
   state.observe(observation());
   assert.equal(state.tool, 'record_recovery_result', 'an actual attempted repair still requires checking');
 });
+
+test('unrelated rendering cannot erase failures and locator descriptions remain distinct', () => {
+ const state = new RecoveryCheckpoint(); state.observe(observation());
+ state.acted('browser_action', true, { action: 'click', locator: { by: 'text', value: 'Next', within: 'section' } });
+ state.observe({ ...observation(), text: 'Chat animation one' });
+ state.acted('browser_action', true, { action: 'click', locator: { by: 'role', value: 'button', name: 'Close', frame: '#chat' } });
+ state.observe({ ...observation(), text: 'Chat animation two' });
+ assert.equal(state.tool, 'record_recovery_plan');
+ assert.match(state.render(), /within/); assert.match(state.render(), /#chat/);
+ assert.doesNotMatch(state.render(), /\[object Object\]/);
+});

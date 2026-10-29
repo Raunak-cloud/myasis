@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'patchright';
 import { browserTarget } from './browser-target.js';
-import { nativeReadback, nativeInspect, nativeSnapshot, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
+import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { observe, renderObservation } from './observe.js';
 
 test('native locators retain events across rerenders, scope frames/editors/shadow DOM, and inspect values together', async () => {
@@ -83,5 +83,9 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     page.ariaSnapshot = async options => { const text = await originalSnapshot(options); await page.setContent('<p>Redirected</p>'); return text; };
     assert.doesNotMatch(await nativeSnapshot(page), /transient-private-fixture/, 'a redirect after capture cannot erase the old secret from masking');
     page.ariaSnapshot = originalSnapshot;
+    await page.setContent('<section id=education><h3>Education</h3><button>Add</button></section><section id=experience><h3>Experience</h3><button>Add</button></section><iframe id=chat title=Chatbot srcdoc="<button>Close chat</button>"></iframe><label>Password<input type=password value=private-diagnostic-fixture></label>');
+    const diagnostic = await browserFailureEvidence(page, { locator: { by: 'role', value: 'button', name: 'Add' } });
+    assert.match(diagnostic, /Education/); assert.match(diagnostic, /Experience/); assert.match(diagnostic, /Chatbot/);
+    assert.doesNotMatch(await browserFailureEvidence(page, { selector: 'input' }), /private-diagnostic-fixture/);
   } finally { await browser.close(); }
 });

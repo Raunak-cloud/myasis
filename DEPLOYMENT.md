@@ -201,7 +201,8 @@ the way down. Do not pull, build or `pm2 restart` by hand while runs can start:
 a run launched mid-build dies on half-written code, and a restart mid-run
 leaves a Chrome holding that account's profile.
 
-Workers and queue scans have a 30-minute whole-run deadline. Operators can set
+Workers and queue scans have a 60-minute whole-run deadline. Individual
+applications have no separate elapsed-time ceiling. Operators can set
 `RUN_TIMEOUT_MINUTES` in Admin → Config → Pacing or `seek-bot/.env` (maximum
 120 minutes; invalid or zero values use the default). Stop and deadline expiry
 send SIGTERM to the worker's isolated process group, escalating to SIGKILL

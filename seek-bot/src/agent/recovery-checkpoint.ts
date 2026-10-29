@@ -66,7 +66,9 @@ export class RecoveryCheckpoint {
 
   remember(note: string): void { this.note = note.slice(-6000); this.persist(); }
   failed(tool: string, args: Record<string, unknown>, url: string, error: string): void {
-    this.memory.failed(tool, args, url, error); this.persist();
+    const control = [...(this.observation?.actions ?? []), ...(this.observation?.fields ?? [])].find(item => item.ref === args.ref);
+    this.memory.failed(tool, control ? { ...args, observed_target: { label: 'label' in control ? control.label : control.text,
+      context: 'section' in control ? control.section : 'context' in control ? control.context : undefined } } : args, url, error); this.persist();
   }
   finish(status: string, sendAttempted: boolean): void { this.persist({ status, sendAttempted }); }
   render(): string {
@@ -105,12 +107,17 @@ export class RecoveryCheckpoint {
       this.transitions = this.transitions.slice(-12);
       if (count >= 2 && this.phase === 'normal') this.phase = 'plan';
     }
+    const completedChange = this.changedByAction && observation.fields.some(field => field.currentValue && !field.validationError
+      && this.observation?.fields.some(old => old.label === field.label && old.section === field.section && old.currentValue !== field.currentValue));
     this.pending = []; this.seen.add(signature); this.observation = observation;
     if (signature !== this.previous) {
       // A delayed render is evidence to inspect, not execution of the agent's
       // newly recorded plan. Only endTurn after an attempted repair schedules
       // its result check; otherwise recovery can loop without acting at all.
-      this.unchanged = 0; this.failures = 0;
+      this.unchanged = 0;
+      // Only a successful operation with a changed, valid field clears old
+      // failures. A chatbot animation or delayed error must not erase them.
+      if (completedChange) this.failures = 0;
     }
     else if (this.browserTurn) this.unchanged++;
     this.previous = signature;
@@ -167,7 +174,9 @@ export class RecoveryCheckpoint {
         const control = [...(this.observation?.actions ?? []), ...(this.observation?.fields ?? [])].find(item => item.ref === command.ref);
         // Do not retain typed values, credentials, executable scripts or stale refs.
         this.pending.push(JSON.stringify({ tool, action: command.action,
-          target: control ? ('label' in control ? control.label : control.text) : String(command.selector ?? command.locator ?? command.action ?? tool).slice(0, 180), failed }));
+          target: control ? { label: 'label' in control ? control.label : control.text,
+            context: 'section' in control ? control.section : 'context' in control ? control.context : undefined }
+            : command.locator ?? command.selector ?? command.action ?? tool, failed }));
       }
     }
     if (['browser_action', 'browser_batch', 'take_snapshot', 'wait_for_submission_result',

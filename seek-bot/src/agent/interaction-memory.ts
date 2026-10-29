@@ -6,7 +6,8 @@ export class InteractionMemory {
   failed(tool: string, args: Record<string, unknown>, url: string, error: string): void {
     let location = '';
     try { const parsed = new URL(url); location = parsed.origin + parsed.pathname; } catch { /* Unfinished navigation. */ }
-    const target = JSON.stringify({ tool, action: args.action, ref: args.ref, selector: args.selector, locator: args.locator, location });
+    const target = JSON.stringify({ tool, action: args.action,
+      target: args.observed_target ?? args.locator ?? args.selector ?? args.ref, location });
     const key = target + error.split('\n')[0];
     const count = (this.failures.get(key)?.count ?? 0) + 1;
     this.failures.delete(key);
