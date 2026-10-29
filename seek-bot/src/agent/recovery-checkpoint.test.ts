@@ -98,6 +98,25 @@ test('intermediate calendar progress needs an agent assessment and cannot fund a
   assert.equal(new RecoveryCheckpoint().verified('progress'), undefined, 'narration without actions earns nothing');
 });
 
+test('budget review cannot preempt a pending repair with evidence from an earlier action', () => {
+  const state = new RecoveryCheckpoint();
+  state.observe(observation());
+  state.acted('browser_action', false, {action:'fill'}); state.endTurn(); state.observe(observation('Sydney'));
+  state.acted('browser_action', true, {action:'click'}); state.endTurn(); state.observe(observation('Sydney'));
+  state.acted('browser_action', true, {action:'click'}); state.endTurn(); state.observe(observation('Sydney'));
+  assert.equal(state.tool,'record_recovery_plan');
+  state.planned({next_action:'Close the optional editor'}); state.endTurn();
+  assert.equal(state.requestBudgetReview(),false,'old completed work must not assess an unexecuted plan');
+  assert.equal(state.tool,undefined,'normal tools remain available to execute the chosen repair');
+  state.acted('browser_batch',false,{actions:[{action:'inspect',selector:'input'}]});state.endTurn();state.observe(observation('Sydney'));
+  assert.equal(state.requestBudgetReview(),false,'read-only inspection does not execute the repair');
+  assert.equal(state.tool,undefined);
+  state.acted('browser_action',false,{action:'click'});state.endTurn();state.observe(observation('Sydney'));
+  assert.equal(state.tool,'record_recovery_result','actual repair receives its result check');
+  assert.equal(state.verified('no_progress'),undefined,'unchanged repair cannot grant extra spend');
+  assert.equal(state.tool,'record_recovery_plan');
+});
+
 test('restart journal preserves historical diagnosis and uncertainty without replaying actions', () => {
   const directory = mkdtempSync(join(tmpdir(), 'application-recovery-'));
   try {

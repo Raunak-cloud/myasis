@@ -76,7 +76,10 @@ export class RecoveryCheckpoint {
   }
   get reviewingBudget(): boolean { return this.budgetReview; }
   requestBudgetReview(): boolean {
-    if (this.tool || !this.reviewable) return false;
+    // Do not turn an unexecuted repair into a result checkpoint using older
+    // reviewable work. A repair gets its own evidence assessment after acting;
+    // the normal spending ceiling still applies before every operation.
+    if (this.phase !== 'normal' || !this.reviewable) return false;
     this.budgetReview = true; this.phase = 'verify'; this.reviewable = false;
     return true;
   }
