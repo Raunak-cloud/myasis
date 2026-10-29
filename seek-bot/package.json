@@ -33,6 +33,7 @@
     "test:email-wait": "tsc && node dist/gmail-mcp.test.js",
     "test:headless-fixtures": "tsc && node scripts/test-headless-fixtures.mjs",
     "test:native-browser": "tsc && node --test dist/agent/native-browser.test.js",
+    "test:application-reliability": "tsc && node --test dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js dist/agent/native-browser.test.js && node dist/agent/application-readiness-browser.test.js && node dist/agent/agent-batch-browser.test.js",
     "test:saved-form": "tsc && node dist/application-review.test.js"
   },
   "dependencies": {
