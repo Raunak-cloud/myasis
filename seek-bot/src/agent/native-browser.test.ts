@@ -54,7 +54,17 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.match((await waitAfterAction(page, { action: 'click', wait: { selector: '#never-arrives', timeout_ms: 20 } }))!, /action completed.*wait timed out/);
     assert.equal(await page.evaluate('window.clicks', undefined, undefined, false), 1, 'a timed-out follow-up wait preserves the already completed action');
     await page.setContent('<button>One</button><button>Two</button>');
-    assert.match((await waitAfterAction(page, { action: 'click', wait: { selector: 'button' } }))!, /action completed.*could not be evaluated.*strict mode violation/s, 'ambiguous follow-up inspection cannot turn a successful action into an execution failure');
+    assert.equal(await waitAfterAction(page, { action: 'wait', selector: 'button', state: 'visible', timeout_ms: 100 }), undefined, 'a read-only existence wait allows multiple matches');
+    assert.equal(hasWaitCondition({ action: 'wait', selector: 'button', timeout_ms: 100 }), true);
+    assert.equal(hasWaitCondition({ action: 'wait', timeout_ms: 100 }), false);
+    await page.setContent('<button hidden>Hidden first</button><button id=visible>Visible second</button>');
+    assert.equal(await waitAfterAction(page, { action: 'wait', selector: 'button', state: 'visible', timeout_ms: 100 }), undefined, 'hidden first match cannot hide a visible later match');
+    assert.match((await waitAfterAction(page, { action: 'wait', selector: 'button', state: 'hidden', timeout_ms: 30 }))!, /timed out/, 'absence waits until all matches are hidden');
+    await page.locator('#visible').evaluate(node => (node as HTMLElement).hidden = true);
+    assert.equal(await waitAfterAction(page, { action: 'wait', selector: 'button', state: 'hidden', timeout_ms: 100 }), undefined);
+    assert.match((await waitAfterAction(page, { action: 'wait', selector: 'button', state: 'detached', timeout_ms: 30 }))!, /timed out/, 'hidden elements remain attached');
+    await page.locator('button').evaluateAll(nodes => nodes.forEach(node => node.remove()));
+    assert.equal(await waitAfterAction(page, { action: 'wait', selector: 'button', state: 'detached', timeout_ms: 100 }), undefined);
     assert.match((await waitAfterAction(page, { action: 'click', wait: { selector: '#123-invalid-css' } }))!, /action completed.*could not be evaluated/s);
     await page.setContent('<main><label>Contact method<input role=combobox readonly aria-haspopup=listbox></label><label>Locked answer<input disabled></label></main><div role=dialog aria-modal=true><h2>Privacy notice</h2><button>Close notice</button></div>');
     const state = await observe(page);
@@ -96,6 +106,17 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     const diagnostic = await browserFailureEvidence(page, { locator: { by: 'role', value: 'button', name: 'Add' } });
     assert.match(diagnostic, /Education/); assert.match(diagnostic, /Experience/); assert.match(diagnostic, /Chatbot/);
     assert.doesNotMatch(await browserFailureEvidence(page, { selector: 'input' }), /private-diagnostic-fixture/);
+    await page.setContent('<main>Contact details<iframe id=application srcdoc="<div id=shadow></div><label>Password<input type=password value=private-recovery-fixture></label>"></iframe></main>');
+    const formFrame = page.frameLocator('#application');
+    await formFrame.locator('#shadow').evaluate(node => {
+      node.attachShadow({mode:'open'}).innerHTML = '<button aria-label="Country" aria-expanded="true">Choose country</button><div role=listbox><button role=option onclick="this.getRootNode().querySelector(\'button\').textContent=this.textContent;this.parentElement.remove()">Australia</button></div><label><input type=checkbox>Consent to contact</label>';
+    });
+    const failure = await browserFailureEvidence(page, { action: 'click', selector: '#wrong-target' });
+    assert.match(failure, /untrusted-failure-page/);assert.match(failure, /Australia/);assert.match(failure, /Consent to contact/);
+    assert.doesNotMatch(failure, /private-recovery-fixture/);
+    assert.equal(await formFrame.getByRole('button', {name:'Country',exact:true}).innerText(), 'Choose country', 'diagnostics never execute a repair');
+    await browserTarget(page, { locator: { by:'role', value:'option', name:'Australia', exact:true, frame:'#application' } }).click();
+    assert.equal(await formFrame.getByRole('button', {name:'Country',exact:true}).innerText(), 'Australia', 'a fresh native locator reaches the actual shadow option inside an iframe');
     await page.setContent('<label for=decision>*</label><button id=decision aria-expanded=true aria-controls=choices>Choose</button><div id=choices role=listbox><div role=option>No</div></div>');
     const optionObservation = await observe(page);
     const option = optionObservation.actions.find(action => action.role === 'option');

@@ -2,15 +2,19 @@ import type { Frame, Locator, Page } from 'patchright';
 import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
 
 export const MAX_BROWSER_BATCH = 12;
+const waitState = { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] };
+const waitTimeout = { type: 'integer', minimum: 1, maximum: 15000 };
 export const browserWaitProperties = {
+  state: { ...waitState, description: 'For action=wait with a top-level ref/selector/locator. visible/attached waits for any matching target; hidden/detached waits until none remain in that state.' },
+  timeout_ms: { ...waitTimeout, description: 'For action=wait only: maximum wait, never a sleep. Put a follow-up wait after another action inside wait instead.' },
   wait: {
     type: 'object', additionalProperties: false,
     description: 'Optional native wait for a target/state or URL after this action. timeout_ms is a maximum, not a delay; timeout alone adds no wait beyond the action\'s native auto-waiting.',
     properties: {
       ...browserTargetProperties,
-      state: { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] },
+      state: waitState,
       url: { type: 'string', description: 'Exact URL or Playwright URL glob.' },
-      timeout_ms: { type: 'integer', minimum: 1, maximum: 15000 },
+      timeout_ms: waitTimeout,
     },
   },
 };
@@ -118,7 +122,18 @@ export async function browserFailureEvidence(page: Page, args: Record<string, un
     id: node.id || undefined, name: node.getAttribute('name'), title: node.getAttribute('title'),
     visible: node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }),
   }))).catch(() => []);
-  return `\nFRESH FAILURE EVIDENCE (read only; no retry executed): ${JSON.stringify({ matchingTargets: matches, frames, iframeHosts: hosts }).slice(0, 6500)}\nInspect matching controls and their context before choosing a unique target. A control inside an iframe needs that frame or its current accessibility ref; a main-document selector does not search iframe contents.`;
+  // The first failed interaction should expose the actual accessible controls,
+  // not require another failed guess before a recovery checkpoint supplies them.
+  // One whole-page capture preserves a single current accessibility-ref map.
+  let tree = '';
+  if (typeof args.action === 'string') {
+    try {
+      const snapshot = await nativeSnapshot(page, 2500);
+      tree = snapshot.length <= 16000 ? snapshot : snapshot.slice(0,11000)
+        + '\n[Middle omitted; inspect a focused section for missing context.]\n' + snapshot.slice(-5000);
+    } catch (error) { tree = `Accessibility inspection unavailable: ${(error as Error).message}`; }
+  }
+  return `\nFRESH FAILURE EVIDENCE (read only; no retry executed): ${JSON.stringify({ matchingTargets: matches, frames, iframeHosts: hosts }).slice(0, 6500)}\nInspect matching controls and their context before choosing a unique target. A control inside an iframe needs that frame or its current accessibility ref; a main-document selector does not search iframe contents.${tree ? `\n<untrusted-failure-page>\n${tree}\n</untrusted-failure-page>` : ''}`;
 }
 
 /** Read every requested section with current locators, never retained handles.
@@ -164,15 +179,24 @@ export async function nativeSnapshot(target: Locator | Page, timeout = 15_000): 
 }
 
 export async function waitAfterAction(page: Page, args: Record<string, unknown>): Promise<string | undefined> {
-  if (!args.wait) return;
-  const wait = args.wait as Record<string, unknown>;
+  const wait = args.wait as Record<string, unknown> | undefined
+    ?? (args.action === 'wait' && hasBrowserTarget(args) ? args : undefined);
+  if (!wait) return;
   // A timeout is only a bound, not a target. Never turn an already executed
   // click into a selector failure because the agent supplied only that bound.
   if (!wait.url && !hasBrowserTarget(wait)) return;
   const timeout = Math.min(15000, Math.max(1, Number(wait.timeout_ms ?? 8000)));
   try {
     if (wait.url) await page.waitForURL(String(wait.url), { timeout, waitUntil: 'domcontentloaded' });
-    else await browserTarget(page, wait).waitFor({ state: (wait.state ?? 'visible') as 'visible', timeout });
+    else {
+      const state = (wait.state ?? 'visible') as 'visible' | 'hidden' | 'attached' | 'detached';
+      const targets = browserTarget(page, wait);
+      // A wait observes existence, it never selects a target for a write.
+      // Dynamic first() follows the matching set: any visible/attached target
+      // satisfies presence; no visible/attached targets satisfies absence.
+      const condition = state === 'visible' || state === 'hidden' ? targets.filter({ visible: true }) : targets;
+      await condition.first().waitFor({ state, timeout });
+    }
   } catch (error) {
     // Waiting is observation after the action, not part of its execution.
     // Ambiguous/invalid wait locators must not invite replay of a completed
@@ -184,7 +208,8 @@ export async function waitAfterAction(page: Page, args: Record<string, unknown>)
 }
 
 export function hasWaitCondition(args: Record<string, unknown>): boolean {
-  const wait = args.wait as Record<string, unknown> | undefined;
+  const wait = args.wait as Record<string, unknown> | undefined
+    ?? (args.action === 'wait' && hasBrowserTarget(args) ? args : undefined);
   return Boolean(wait && (wait.url || hasBrowserTarget(wait)));
 }
 

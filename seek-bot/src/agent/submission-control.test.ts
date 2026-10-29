@@ -58,12 +58,9 @@ globalThis.fetch = (async (_url, init) => {
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
   assert.ok(body.tools?.length, 'no independent submission classifier or receipt reviewer may be called');
   const offered: string[] = body.tools.map((tool: { function: { name: string } }) => tool.function.name).sort();
-  normalTools ??= offered;
-  assert.deepEqual(offered, normalTools, 'a marked send never narrows the tool surface');
-  for (const name of ['browser_action', 'browser_batch', 'take_snapshot', 'reason_through_problem', 'consult_application_specialist', 'save_progress']) assert.ok(offered.includes(name), `${name} remains available after a send`);
-  assert.ok(!offered.includes('resume_after_rejected_submission'), 'there is no recovery-unlock tool');
   const forced = body.tool_choice?.function?.name;
   if (forced) {
+    assert.deepEqual(offered, [forced], 'a reasoning checkpoint advertises only the already required record tool');
     checkpointRequests++;
     assert.equal(body.chat_template_kwargs.reasoning_effort, 'xhigh');
     assert.match(JSON.stringify(body.messages.at(-1)), /RECOVERY CHECKPOINT/);
@@ -81,6 +78,11 @@ globalThis.fetch = (async (_url, init) => {
       function: { name: wrong ? 'browser_action' : forced, arguments: JSON.stringify(wrong ? { action: 'script', script: 'window.unexpectedCheckpointActions=1; return true' } : args) } }] } }],
       ...(complete ? { usage: { prompt_tokens: 0, completion_tokens: 10_000_000 } } : {}) });
   }
+  const sharedTools = offered.filter(name => name !== 'prepare_application'); // Semi auto alone offers preparation.
+  normalTools ??= sharedTools;
+  assert.deepEqual(sharedTools, normalTools, 'normal tools return after each checkpoint and remain available after a send');
+  for (const name of ['browser_action', 'browser_batch', 'take_snapshot', 'reason_through_problem', 'consult_application_specialist', 'save_progress']) assert.ok(offered.includes(name), `${name} remains available after a send`);
+  assert.ok(!offered.includes('resume_after_rejected_submission'), 'there is no recovery-unlock tool');
   const call = calls.shift();
   assert.ok(call, `planned browser flow must complete without a workaround or human intervention; last result: ${body.messages.filter((item: { role: string }) => item.role === 'tool').at(-1)?.content?.slice(0, 1200)}`);
   if (closeObservedReceipt && call.name === 'finish') {

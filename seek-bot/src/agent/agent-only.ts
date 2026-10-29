@@ -523,7 +523,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       }
       case 'inspect': return ok(JSON.stringify(await nativeInspect(target(ctx, args))));
       case 'wait': {
-        if (!hasWaitCondition(args)) throw new Error('Provide wait with a current locator/state or URL condition. timeout_ms is a maximum, not a delay.');
+        if (!hasWaitCondition(args)) throw new Error('Provide a current target for action=wait, or wait={locator/state/url} for a follow-up condition. timeout_ms is a maximum, not a delay.');
         const waitNote = await waitAfterAction(ctx.page, args);
         return ok(waitNote || 'Native wait completed; inspect the current page.', waitNote ? 'reobserve' : undefined);
       }
@@ -654,20 +654,23 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
       // prefix. An API context rejection retries generation in this SAME page;
       // no browser action, upload or assessment is replayed.
       let reply;
+      // The forced checkpoint already accepts only this named tool. Advertise
+      // that exact contract; normal turns retain every available action.
+      const turnTools = checkpoint ? offeredTools.filter(tool => tool.name === checkpoint) : offeredTools;
       const compact = (force = false) => {
         const transcript = agentOnlyTranscript(screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages, contextLimit, force);
         if (transcript !== messages) messages.splice(0, messages.length, ...transcript);
         return messages;
       };
       try {
-        reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(), tools: offeredTools,
+        reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
           requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort: checkpoint || highEffort || recovery.needsDeepReasoning ? 'xhigh' : 'medium', maxTokens: 8192, meter });
       } catch (error) {
         if (error instanceof ApplicationBudgetExhaustedError) break;
         if (!/Celeris (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
         try {
-          reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(true), tools: offeredTools,
+          reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
             requireTool: true, forceTool: checkpoint, thinking: true, reasoningEffort: checkpoint || highEffort || recovery.needsDeepReasoning ? 'xhigh' : 'medium', maxTokens: 8192, meter });
         } catch (retryError) {
           if (retryError instanceof ApplicationBudgetExhaustedError) break;
