@@ -262,16 +262,22 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
     };
     const identityFor = (el: Element): string => {
       const path: string[] = [];
+      let nearestId = '';
       let node: Element | null = el;
       for (let depth = 0; node && depth < 20; depth++) {
         const root = node.getRootNode();
+        if (!nearestId && node.id) nearestId = node.id.slice(0,80);
         const siblings = node.parentElement?.children ?? (root instanceof ShadowRoot ? root.children : []);
         const ordinal = [...siblings].filter(sibling => sibling.tagName === node!.tagName).indexOf(node);
         path.unshift(`${node.tagName}:${ordinal}${node.id ? '#'+node.id.slice(0,80) : ''}${node.getAttribute('name') ? '[name='+node.getAttribute('name')!.slice(0,80)+']' : ''}`);
         const parent: Element | null = node.parentElement;
         node = parent ?? (root instanceof ShadowRoot ? root.host : null);
       }
-      return path.join('/').slice(-1600);
+      // Keep the opaque key compact: full DOM paths otherwise inflate every
+      // saved-form readback and can exhaust its size budget on a large form.
+      let hash = 0xcbf29ce484222325n;
+      for (const char of path.join('/')) hash = BigInt.asUintN(64,(hash ^ BigInt(char.codePointAt(0)!))*0x100000001b3n);
+      return `${nearestId || el.tagName.toLowerCase()}@${hash.toString(16).padStart(16,'0')}`;
     };
 
     // Report actual markup evidence. The model interprets missing requirements
