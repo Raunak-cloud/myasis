@@ -6,6 +6,19 @@ import type { FormField } from '../types.js';
 const field = (label: string, value = '', extra: Partial<FormField> = {}): FormField => ({ ref: 'fresh-ref', label, kind: 'text', required: true, currentValue: value, ...extra });
 const spend = (meter: ProgressBudget, amountUsd: number) => meter.recordProvider({ prompt: 0, cached: 0, completion: 0, amountUsd });
 
+test('rerendered IDs cannot fund repeated login fills; repeated semantic fields stay distinct', () => {
+ const meter = new ProgressBudget(.20,.70);
+ const form = (id:string,first='',second='') => [field('Email',first,{controlIdentity:id+'-1'}),field('Email',second,{controlIdentity:id+'-2'})];
+ meter.observe(form('mount1'),false);spend(meter,.15);
+ meter.observe(form('mount1','confirmed@example.invalid'),true);
+ const first=meter.progressCount;assert.equal(first,1);
+ meter.observe(form('mount2'),true);spend(meter,.01);
+ meter.observe(form('mount2','confirmed@example.invalid'),true);
+ assert.equal(meter.progressCount,first,'new IDs on revisited controls are not new answers or stages');
+ meter.observe(form('mount2','confirmed@example.invalid','confirmed@example.invalid'),true);
+ assert.equal(meter.progressCount,first+1,'the genuinely second same-label field remains independently observable');
+});
+
 test('review reserve cannot authorize browser actions and never exceeds the maximum', () => {
   const meter = new ProgressBudget(0.20, 0.70);
   spend(meter, 0.19);

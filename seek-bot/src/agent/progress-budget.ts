@@ -2,7 +2,7 @@ import { CostMeter } from './celeris.js';
 import type { FormField } from '../types.js';
 
 const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
-const identity = (field: FormField) => JSON.stringify([normalise(field.section ?? ''), field.controlIdentity, normalise(field.label), field.kind]);
+const identity = (field: FormField) => JSON.stringify([normalise(field.section ?? ''), normalise(field.label), field.kind]);
 const usable = (field: FormField) => !field.sensitive && field.inputType !== 'password' && field.currentValue !== '[private credential]';
 const completed = (field: FormField) => Boolean(field.currentValue?.trim()) && !field.validationError;
 
@@ -42,7 +42,15 @@ export class ProgressBudget extends CostMeter {
   }
 
   observe(fields: FormField[], mutated: boolean): void {
-    const current = new Map(fields.filter(usable).map(field => [identity(field), { complete: completed(field) }]));
+    // DOM IDs distinguish actual controls for inspection, but may change on
+    // every mount. They cannot mint new progress or spending on a revisited form.
+    // Preserve repeated same-label fields with their semantic occurrence index.
+    const occurrences = new Map<string, number>();
+    const current = new Map(fields.filter(usable).map(field => {
+      const semantic = identity(field), occurrence = occurrences.get(semantic) ?? 0;
+      occurrences.set(semantic, occurrence + 1);
+      return [JSON.stringify([semantic, occurrence]), { complete: completed(field) }] as const;
+    }));
     const stage = JSON.stringify([...current.keys()].sort());
     if (this.previous && mutated) {
       for (const [key, field] of current) {

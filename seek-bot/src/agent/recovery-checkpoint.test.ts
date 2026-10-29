@@ -22,6 +22,15 @@ test('higher reasoning persists through inspection, repair execution and result 
  state.verified('progress'); assert.equal(state.needsDeepReasoning, false);
 });
 
+test('changing DOM identities do not disguise repeated unchanged pages', () => {
+ const state=new RecoveryCheckpoint();state.observe(observation());
+ for(let i=0;i<5;i++){
+  state.acted('take_snapshot',false);
+  state.observe({...observation(),fields:[{...observation().fields[0],controlIdentity:'new-generated-id-'+i}]});
+ }
+ assert.equal(state.tool,'record_recovery_plan');
+});
+
 test('repeated failures require a plan, a browser action, then fresh-result assessment', () => {
   const state = new RecoveryCheckpoint();
   state.observe(observation());

@@ -99,7 +99,7 @@ export class RecoveryCheckpoint {
 
   observe(observation: Observation): void {
     const signature = createHash('sha256').update(JSON.stringify([observation.url, observation.fields.map(field => [
-      field.section, field.controlIdentity, field.label, field.kind, field.sensitive || field.inputType === 'password' ? '[private]' : field.currentValue,
+      field.section, field.label, field.kind, field.sensitive || field.inputType === 'password' ? '[private]' : field.currentValue,
       field.validationError, field.options, field.disabled,
     ]), observation.actions.map(action => [action.text, action.role, action.context, action.selected, action.disabled]),
     observation.surfaceText ?? observation.text.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '[clock]')])).digest('hex');
