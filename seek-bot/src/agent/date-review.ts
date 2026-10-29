@@ -50,6 +50,6 @@ export class DateReview {
   }
 
   render(): string {
-    return `DATE READBACK EVIDENCE (browser facts across wizard pages; not candidate evidence): ${JSON.stringify([...this.records.values()])}\nCompare actual components with their full question and candidate source. State dates using month names. Never assume display order: Month=1, Day=11 means 11 January, not 1 November. One week's notice is a relative period, not permission to guess a calendar day. Leave optional unknown months blank; ask for a mandatory unsupported component. Inspect uncertain context or saved values before declaring ready. Never change the meaning of a date merely to satisfy validation.`;
+    return `DATE READBACK EVIDENCE (browser facts across wizard pages; not candidate evidence): ${JSON.stringify([...this.records.values()])}\nCompare actual components with their full question and candidate source. State dates using month names. Interpret each component by its label, not by an assumed numeric display order or locale. A relative notice period does not authorize a guessed calendar day. Leave optional unknown months blank; ask for a mandatory unsupported component. Inspect uncertain context or saved values before declaring ready. Never change the meaning of a date merely to satisfy validation.`;
   }
 }
