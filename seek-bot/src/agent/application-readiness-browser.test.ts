@@ -121,5 +121,17 @@ try {
   const historyResult=await runApplicationAgent({page,job:{...job,id:'ordinary-answer-review'},profile,log:()=>{}});
   assert.equal(historyResult.outcome.status,'applied');assert.equal(script.length,0);
   assert.equal(await page.evaluate('window.factSends',undefined,undefined,false),1,'conflicting ready did not send; correction was checked before one actual send');
-  console.log('PASS: applying-agent source review, dates, unsupported personal facts, corrected readbacks and exactly-once submission.');
+  await page.setContent('<main><form onsubmit="event.preventDefault();window.tagSends++;document.querySelector(\'main\').textContent=\'Application received: TAG123\'"><label>Work environment<input id=environment role=combobox aria-required=true aria-controls=chosen></label><ul id=chosen role=listbox aria-multiselectable=true><li role=option aria-selected=true>On Site</li></ul><button id=send>Submit application</button></form></main>');
+  await page.evaluate('window.tagSends=0',undefined,undefined,false);
+  let tagReviews=0;
+  script=[()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],body=>{
+    tagReviews++;assert.match(observation(body),/APPLICATION ACCURACY CHECKPOINT/);
+    assert.match(observation(body),/On Site/);
+    return [{name:'record_application_review',args:{assessment:'ready',vacancy:'Fictional employer Software Developer Sydney',documents:'Fixture needs no documents',unresolved:[],checks:[{question:'Work environment',source_evidence:'Fictional candidate confirmed onsite Sydney',intended_meaning:'On Site',observed_value:'Committed On Site tag, empty search input',conclusion:'Selection is committed; search text is not the saved answer'}],next_action:'Choose Submit'}}];
+  },()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],
+  ()=>[{name:'finish',args:{status:'applied',reason:'Employer receipt',evidence:'Application received: TAG123',receipt:{quote:'Application received: TAG123'}}}]];
+  const tagged=await runApplicationAgent({page,job:{...job,id:'canonical-tag-review'},profile,log:()=>{}});
+  assert.equal(tagged.outcome.status,'applied');assert.equal(script.length,0);assert.equal(tagReviews,1,'empty search input cannot trigger repeated review of an unchanged committed tag');
+  assert.equal(await page.evaluate('window.tagSends',undefined,undefined,false),1);
+  console.log('PASS: applying-agent source review, dates, unsupported facts, canonical tag readback and exactly-once submission.');
 }finally{await browser.close();rmSync(directory,{recursive:true,force:true});}

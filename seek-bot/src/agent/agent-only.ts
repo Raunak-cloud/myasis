@@ -604,7 +604,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         browserMutated = false;
       }
       recovery.observe(ctx.observation);
-      if (!pendingDialog) readiness.observe(ctx.observation);
+      if (!pendingDialog) readiness.observe(ctx.observation, 'wizard');
       if (!pendingDialog && meter.needsReview) recovery.requestBudgetReview();
       meter.reviewing(recovery.reviewingBudget);
       if (meter.exhausted) break;

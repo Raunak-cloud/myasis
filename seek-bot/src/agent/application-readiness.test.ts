@@ -12,7 +12,7 @@ test('date review preserves actual components across pages and invalidates after
  assert.equal(review.request(), true);
  assert.match(review.render(), /"label":"Month".*"value":"1"/);
  review.record('correct'); assert.equal(review.request(), true, 'correction is not a ready judgment');
- review.record('ready'); review.observe({ ...page(), fields: [] });
+ review.record('ready'); review.observe({ ...page(), fields: [] }, 'wizard');
  assert.equal(review.request(), false, 'leaving a wizard page retains the reviewed evidence');
  review.observe(page('11','1')); assert.equal(review.request(), true, 'changed components need fresh assessment');
  review.record('ready'); review.invalidate(); assert.equal(review.request(), true, 'batch mutations cannot reuse an earlier judgment');
@@ -36,9 +36,20 @@ test('source review covers ordinary answers, cancelled editors and unresolved cl
  assert.equal(review.request(), true, 'conflicting review cannot authorize a send');
  review.record('needs_answer');
  review.observe({ ...page(), fields: [] });
- assert.match(review.render(), /earlier wizard observation; saving not established/);
+ assert.match(review.render(), /earlier saved-form readback; recheck retained entries if uncertain/);
  review.record('ready');
  assert.equal(review.request(), false);
  review.invalidate();
  assert.equal(review.request(), true, 'document or letter changes require a new review even with no date fields');
+});
+
+test('raw autocomplete search values cannot overwrite reviewed committed tags', () => {
+ const review=new ApplicationReadiness();
+ const field={...page().fields[0],label:'Work environment',controlIdentity:'tag-widget',currentValue:'["On Site"]'};
+ review.observe({...page(),fields:[field]});review.record('ready');
+ review.observe({...page(),fields:[{...field,currentValue:''}]},'wizard');
+ assert.equal(review.request(),false,'ordinary inspection is historical evidence, not a conflicting canonical read');
+ review.observe({...page(),fields:[field]});assert.equal(review.request(),false,'unchanged committed selection permits the newly chosen send');
+ review.observe({...page(),fields:[{...field,currentValue:'["Remote"]'}]});
+ assert.equal(review.request(),true,'a genuinely changed committed selection still requires a new review');
 });
