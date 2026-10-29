@@ -4,6 +4,10 @@ Magnus owns answer selection, factual comparison, document choices, browser
 actions, diagnosis, repair and employer-receipt interpretation. The matcher
 owns the approved fit and known-duplicate decision. No second reviewer model
 approves an application.
+Explicit selections and approved matches receive one suitability instruction;
+only unreviewed work receives the fallback matching policy. Source review uses
+the canonical saved-form reader; raw wizard observations cannot overwrite a
+reviewed selected tag with its empty autocomplete search text.
 
 Owtomate transports native browser operations, fresh screenshots, scoped
 candidate evidence and durable progress. Locators resolve current elements;

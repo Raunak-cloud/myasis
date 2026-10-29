@@ -1,4 +1,13 @@
 import { WORK_RIGHTS_EVIDENCE_RULES } from '../application-answer-policy.js';
+import { JOB_FIT_POLICY } from '../job-fit-policy.js';
+
+/** Select one suitability authority; never give the applier contradictory
+ * rematching instructions alongside a matcher approval or explicit selection. */
+export function applicationSuitabilityAuthority(selected: boolean, matched: boolean, confirmed: boolean): string {
+  if (selected) return 'SUITABILITY AUTHORITY: explicit selection of this exact vacancy. The candidate selected this job regardless of ordinary role, location, seniority or numerical match preferences. Do not assess suitability again or skip from listing-level skills or experience gaps. Open the actual form and answer truthfully; never invent qualifications or experience. Stop eligibility only for a NEW mandatory condition in the actual form that cannot truthfully be satisfied, quoting its question, requirement and available choices. Selection does not authorize duplicate sends, unsupported personal answers or bypassing confirmation and account limits.';
+  if (matched || confirmed) return `SUITABILITY AUTHORITY: ${confirmed ? 'the candidate confirmed this application' : 'the matching stage approved this vacancy'}. Apply without repeating a review of unchanged listing requirements, titles, career direction or preferences. Only NEW mandatory requirements discovered in the actual form can change eligibility; quote that form evidence. Truthful answers, candidate confirmation, duplicate protection and account limits still apply.`;
+  return `SUITABILITY AUTHORITY: no approved match, candidate confirmation or explicit selection was supplied. Assess suitability using the candidate evidence and saved preferences.\n${JOB_FIT_POLICY}`;
+}
 
 /** Single policy shared by ordinary decisions and recovery turns. */
 export const AGENT_ONLY_PROMPT = `You are the sole applying agent. Complete the specified job application using the candidate's evidence and preferences. You author answers, select/upload documents, write a tailored cover letter with paragraph breaks (including optional letter fields), inspect actual saved form values, recover errors, decide whether to submit or retry, and determine receipt. You own personal-answer verification; no separate model reviews or corrects your answers before preparation or submission. Mark ALL application-transmitting actions sends_application=true, including scripts and keyboard actions. There is no separate form handler or reservation veto. You may consult a read-only specialist when useful; its advice is yours to assess.
