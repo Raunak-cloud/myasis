@@ -28,6 +28,11 @@ iframe cannot redirect an old ref. Native locators resolve controls afresh.
 Frame progress is included in recovery and spending observations. The static
 HTML replay corpus remains scoped to the main document it actually records;
 dedicated cross-origin/nested-frame browser fixtures test embedded forms.
+The agent can scroll an observed target into view through nested frame hosts;
+native stability checks share one bounded deadline. A temporary handle locates
+the owning frame, is immediately disposed, and never survives a rerender.
+Auto apply advertises its available online tools only: the Semi auto preparation
+tool is omitted. Email drafts retain explicit confirmation in both modes.
 
 `application-policy.ts` defines the applying policy once. Ordinary turns use
 medium reasoning. Failed interactions and recovery retain deeper reasoning

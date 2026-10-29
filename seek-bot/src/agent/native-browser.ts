@@ -80,6 +80,31 @@ export async function nativeInspect(target: Locator): Promise<unknown> {
   return result.matched === 1 ? result.fields[0] : result;
 }
 
+/** The agent chooses the target. Native scrolling reaches it through iframe
+ * and scroll-container boundaries without guessed wheel distances. */
+export async function nativeScroll(page: Page, args: Record<string, unknown>): Promise<void> {
+  if (!hasBrowserTarget(args)) { await page.mouse.wheel(Number(args.x ?? 0), Number(args.y ?? 650)); return; }
+  const deadline = Date.now() + 8000;
+  const remaining = () => Math.max(1, deadline - Date.now());
+  const target = browserTarget(page, args);
+  const handle = await target.elementHandle({timeout: remaining()});
+  let frame: Frame | null;
+  try { frame = await handle?.ownerFrame() ?? null; }
+  finally { await handle?.dispose(); }
+  // An offscreen cross-origin iframe can suspend requestAnimationFrame, so its
+  // child's native stability wait cannot finish until the frame host is visible.
+  // Reveal ancestors outside-in, then resolve the actual target afresh. No
+  // retained element handle, click, answer selection or arbitrary DOM write.
+  const parents: Frame[] = [];
+  for (; frame?.parentFrame(); frame = frame.parentFrame()) parents.push(frame);
+  for (const parent of parents.reverse()) {
+    const host = await parent.frameElement();
+    try { await host.scrollIntoViewIfNeeded({timeout: remaining()}); }
+    finally { await host.dispose(); }
+  }
+  await target.scrollIntoViewIfNeeded({timeout: remaining()});
+}
+
 /** Read-only evidence after a failed interaction. Never chooses an index,
  * dismisses an overlay or repeats the operation. Credentials remain masked. */
 export async function browserFailureEvidence(page: Page, args: Record<string, unknown>): Promise<string> {
