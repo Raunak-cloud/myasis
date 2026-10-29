@@ -27,8 +27,8 @@ export class DateReview {
         && !/^\s*(?:month|day|year|from|to)\s*\*?\s*$/i.test(field.label)
         && !/\bdate\b/i.test(`${field.label} ${field.hints ?? ''}`)
         && !/\b(?:start|end|completion|graduation|birth)\b.{0,40}\b(?:month|year)\b/i.test(field.label)) continue;
-      const key = JSON.stringify([observation.url, field.section, field.label, field.hints]);
-      const value = { section: field.section, label: field.label, markup: field.hints,
+      const key = JSON.stringify([observation.url, field.section, field.controlIdentity ?? [field.label, field.hints]]);
+      const value = { control_identity: field.controlIdentity, section: field.section, label: field.label, markup: field.hints,
         required: field.required, value: field.currentValue ?? '', validation: field.validationError };
       if (JSON.stringify(this.records.get(key)) !== JSON.stringify(value)) {
         this.records.set(key, value); this.revision++;

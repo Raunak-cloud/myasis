@@ -4,6 +4,7 @@ import { chromium } from 'patchright';
 import { browserTarget } from './browser-target.js';
 import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { observe, renderObservation } from './observe.js';
+import { DateReview } from './date-review.js';
 
 test('native locators retain events across rerenders, scope frames/editors/shadow DOM, and inspect values together', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -110,5 +111,22 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     await page.locator(`[data-ref-id="${experience.ref}"]`).click();
     assert.equal(await page.locator('#experience').getAttribute('data-opened'), 'true');
     assert.equal(await page.locator('#education').getAttribute('data-opened'), null);
+    await page.setContent('<h2>Experience</h2><div id=first></div><div id=second></div><h2>Education</h2><div id=study></div>');
+    for (const [id,value] of [['first','10/2024'],['second','10/2022'],['study','']]) await page.locator('#'+id).evaluate((node,value) => {
+      node.attachShadow({mode:'open'}).innerHTML=`<label>From<input placeholder="Pick a date" value="${value}"></label>`;
+    },value);
+    const dates = await observe(page);
+    assert.deepEqual(dates.fields.map(field=>field.section),['Experience','Experience','Education']);
+    assert.equal(new Set(dates.fields.map(field=>field.controlIdentity)).size,3,'equal labels and hints in repeated editors remain distinct');
+    const review = new DateReview(); review.observe(dates);
+    const before = JSON.parse(review.render().split('): ')[1].split('\n')[0]);
+    assert.equal(before.length,3);assert.deepEqual(before.map((v:{value:string})=>v.value),['10/2024','10/2022','']);
+    review.record('ready');
+    await page.locator('#first input').evaluate(node=>node.outerHTML='<input placeholder="Pick a date" value="11/2024">');
+    const refreshed = await observe(page);review.observe(refreshed);
+    assert.equal(refreshed.fields[0].controlIdentity,dates.fields[0].controlIdentity,'rerendered control retains its composed identity');
+    assert.equal(review.request(),true);
+    const after = JSON.parse(review.render().split('): ')[1].split('\n')[0]);
+    assert.equal(after.length,3);assert.deepEqual(after.map((v:{value:string})=>v.value),['11/2024','10/2022','']);
   } finally { await browser.close(); }
 });

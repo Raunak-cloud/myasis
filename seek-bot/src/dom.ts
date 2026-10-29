@@ -235,17 +235,43 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
     const sectionFor = (el: Element, label: string): string => {
       const parts: string[] = [];
       const groupSelector = 'fieldset, [role="group"], [role="radiogroup"]';
-      for (let group = el.parentElement?.closest(groupSelector) ?? null; group && parts.length < 2; group = group.parentElement?.closest(groupSelector) ?? null) {
-        const name = groupName(group);
-        if (nameable(name, label) && !parts.includes(name)) parts.unshift(name);
+      let group: Element | null = el;
+      for (let depth = 0; group && depth < 20 && parts.length < 2; depth++) {
+        if (group !== el && (group.matches(groupSelector) || group.hasAttribute('aria-label') || group.hasAttribute('aria-labelledby'))) {
+          const name = groupName(group);
+          if (nameable(name, label) && !parts.includes(name)) parts.unshift(name);
+        }
+        const root = group.getRootNode();
+        const parent: Element | null = group.parentElement;
+        group = parent ?? (root instanceof ShadowRoot ? root.host : null);
       }
       let heading = '';
-      for (const candidate of headings) {
-        if (candidate.contains(el)) continue;
-        if (candidate.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) heading = squash(candidate);
+      // compareDocumentPosition on disconnected shadow trees has arbitrary
+      // ordering. Compare within each real root, then climb its host.
+      let anchor: Element | null = el;
+      while (anchor && !heading) {
+        const root = anchor.getRootNode();
+        for (const candidate of headings) {
+          if (candidate.getRootNode() !== root || candidate.contains(anchor)) continue;
+          if (candidate.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING) heading = squash(candidate);
+        }
+        anchor = root instanceof ShadowRoot ? root.host : null;
       }
       if (nameable(heading, label) && !parts.includes(heading)) parts.unshift(heading);
       return parts.join(' › ');
+    };
+    const identityFor = (el: Element): string => {
+      const path: string[] = [];
+      let node: Element | null = el;
+      for (let depth = 0; node && depth < 20; depth++) {
+        const root = node.getRootNode();
+        const siblings = node.parentElement?.children ?? (root instanceof ShadowRoot ? root.children : []);
+        const ordinal = [...siblings].filter(sibling => sibling.tagName === node!.tagName).indexOf(node);
+        path.unshift(`${node.tagName}:${ordinal}${node.id ? '#'+node.id.slice(0,80) : ''}${node.getAttribute('name') ? '[name='+node.getAttribute('name')!.slice(0,80)+']' : ''}`);
+        const parent: Element | null = node.parentElement;
+        node = parent ?? (root instanceof ShadowRoot ? root.host : null);
+      }
+      return path.join('/').slice(-1600);
     };
 
     // Report actual markup evidence. The model interprets missing requirements
@@ -301,6 +327,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
       const label = labelFor(el);
       const description = descriptionFor(el, label);
       const section = sectionFor(el, label);
+      const controlIdentity = identityFor(el);
       const interactionState = {
         ...(el.readOnly || el.getAttribute('aria-readonly') === 'true' ? { readOnly: true } : {}),
         ...(el.disabled || el.getAttribute('aria-disabled') === 'true' ? { disabled: true } : {}),
@@ -321,6 +348,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
         const sel = el as unknown as HTMLSelectElement;
         fields.push({
           ref,
+          controlIdentity,
           label,
           ...(description ? { description } : {}),
           ...(section ? { section } : {}),
@@ -349,6 +377,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
 
       fields.push({
         ref,
+        controlIdentity,
         label,
         ...(description ? { description } : {}),
         ...(section ? { section } : {}),

@@ -228,6 +228,8 @@ export interface AppliedRecord {
 /** A single interactive field the apply form is asking about. */
 export interface FormField {
   ref: string;
+  /** Passive composed-DOM identity; keeps repeated editor controls distinct. */
+  controlIdentity?: string;
   label: string;
   /** Explanatory copy the form associates with this field. */
   description?: string;
