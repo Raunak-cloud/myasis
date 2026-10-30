@@ -43,7 +43,7 @@ interface AdminUser {
   emailedAt: string | null;
   resumes: number;
   boards: { seek: boolean | null; indeed: boolean | null };
-  autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
+  autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean; nextRunAt: string | null; applicationMode: 'auto' | 'semi-auto' | null };
   overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
   route: {
     homePort: number | null;
@@ -122,6 +122,15 @@ const when = (iso: string | null) =>
   iso ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: TIME_ZONE }).format(new Date(iso)) : '-';
 const clock = (iso: string) =>
   new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: TIME_ZONE }).format(new Date(iso));
+
+function NextRun({ user }: { user: Pick<AdminUser, 'autoApply' | 'blockedAt'> }) {
+  const { paused, nextRunAt, applicationMode } = user.autoApply;
+  if (user.blockedAt) return <span className="badge muted">Blocked</span>;
+  if (paused) return <span className="job-meta">Paused</span>;
+  if (!nextRunAt) return <span className="job-meta">Not scheduled</span>;
+  return <><time dateTime={nextRunAt}>{when(nextRunAt)}</time>
+    <div className="job-meta">{Date.parse(nextRunAt) <= Date.now() ? 'Waiting to start · ' : ''}{applicationMode === 'semi-auto' ? 'Semi auto' : 'Auto apply'}</div></>;
+}
 
 function duration(run: AdminRun): string {
   // Runs from before finish times were recorded have no end to measure to.
@@ -505,6 +514,8 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                   <dd>{user.resumes}</dd>
                   <dt>Runs today</dt>
                   <dd>{user.autoApply.usedToday} scheduled</dd>
+                  <dt>Next run (Sydney)</dt>
+                  <dd><NextRun user={user} /></dd>
                   {user.setupMissing.length > 0 && (
                     <>
                       <dt>Setup still needed</dt>
@@ -910,6 +921,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
               <th>Setup</th>
               <th>Boards</th>
               <th>Auto apply</th>
+              <th title="Scheduled start in Sydney time. Busy runs may start later.">Next run (Sydney)</th>
               <th>Applications</th>
               <th>Last run</th>
             </tr>
@@ -951,6 +963,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                       : user.autoApply.paused ? <span className="badge muted">Off</span>
                       : `${user.autoApply.usedToday} of ${user.autoApply.runsPerDay}`}
                   </td>
+                  <td className="nowrap"><NextRun user={user} /></td>
                   <td>{user.applications.total}<div className="job-meta">{user.applications.today} today</div></td>
                   <td className="nowrap">
                     {last ? when(last.startedAt) : '-'}

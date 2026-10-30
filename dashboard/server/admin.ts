@@ -72,7 +72,7 @@ interface AdminUserRow {
   emailedAt: string | null;
   resumes: number;
   boards: { seek: boolean | null; indeed: boolean | null };
-  autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean };
+  autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean; nextRunAt: string | null; applicationMode: 'auto' | 'semi-auto' | null };
   /** An operator's per-account overrides for control: how many jobs a run reviews, and how many it may apply to. Null means the plan decides. */
   overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
   /**
@@ -94,7 +94,7 @@ interface AdminUserRow {
 }
 
 async function userRow(user: UserRecord): Promise<AdminUserRow> {
-  const [billing, entitlements, overrides, setup, counts, lastRun, lastEmail] = await Promise.all([
+  const [billing, entitlements, overrides, setup, counts, lastRun, lastEmail, schedule] = await Promise.all([
     billingStatus(user.id, user.email),
     entitlementsFor(user.id, user.email),
     adminOverridesFor(user.id),
@@ -113,6 +113,7 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
       [user.id],
     ),
     one<{ sent_at: Date }>('SELECT sent_at FROM admin_emails WHERE user_id = $1 ORDER BY sent_at DESC LIMIT 1', [user.id]),
+    scheduleFor(user.id),
   ]);
   const admin = isAdmin(user.email);
   return {
@@ -138,8 +139,10 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
     autoApply: {
       runsPerDay: entitlements.autoRunsPerDay,
       usedToday: entitlements.autoRunsUsedToday,
-      paused: entitlements.autoApplyPaused,
+      paused: !schedule?.enabled,
       canPause: entitlements.canPauseAutoApply,
+      nextRunAt: schedule?.enabled && schedule.next_run_at ? new Date(schedule.next_run_at).toISOString() : null,
+      applicationMode: schedule?.application_mode ?? null,
     },
     overrides,
     route: {
