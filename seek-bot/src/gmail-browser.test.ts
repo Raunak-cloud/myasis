@@ -69,6 +69,27 @@ try {
   await assert.rejects(client.search('verification'), /Gmail browser request could not finish/, 'navigation failures retain their real error rather than claiming authorization was revoked');
   mailboxUnavailable = false;
   assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'a temporary mailbox failure does not poison later reads');
+  const openBefore = context.pages().length;
+  await assert.rejects(withGmailBrowser('browser-owner', async () => new Promise<never>(() => {}), '', 500), /reading the requested mailbox view/, 'a stalled read reports its phase instead of poisoning the mailbox queue');
+  assert.equal(context.pages().length, openBefore, 'read timeout closes its owned mailbox tab');
+  assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'the account can read again after a stalled request');
+  let releasePrior!: () => void, priorStarted!: () => void;
+  const started = new Promise<void>(resolve => { priorStarted = resolve; });
+  const prior = withGmailBrowser('browser-owner', async () => { priorStarted(); await new Promise<void>(resolve => { releasePrior = resolve; }); });
+  await started;
+  let abandonedStarted = false, nextStarted = false;
+  const beforeQueueWarning = console.warn;
+  let queueDiagnostic = '';
+  try {
+    console.warn = (...parts) => { queueDiagnostic = parts.join(' '); };
+    await assert.rejects(withGmailBrowser('browser-owner', async () => { abandonedStarted = true; }, '', 100), /waiting for the mailbox reader/);
+  } finally { console.warn = beforeQueueWarning; }
+  assert.match(queueDiagnostic, /"closed":false/, 'queue waiting is not evidence of a disconnected browser');
+  const next = withGmailBrowser('browser-owner', async () => { nextStarted = true; });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(nextStarted, false, 'a timed-out queued read cannot let work overtake a still-running approved operation');
+  releasePrior(); await prior; await next;
+  assert.equal(abandonedStarted, false, 'expired queued reads never execute later');
   const messages = await client.thread(threads[0].id);
   assert.equal(messages[0].date, undefined, 'a browser read must not invent a delivery timestamp that reverses verification-code order');
   const originalWarn = console.warn;

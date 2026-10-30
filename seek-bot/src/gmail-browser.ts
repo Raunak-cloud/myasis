@@ -3,6 +3,7 @@ import { chromium, type Browser, type Page } from 'patchright';
 import type { GmailMessage, GmailThread } from './gmail-mcp-client.js';
 import { GmailServiceError } from './gmail-mcp-service.js';
 import type { PreparedApplication } from './application-review-types.js';
+import { browserDeadline, browserCleanup, assertBrowserOperationActive } from './browser-deadline.js';
 
 const routes = new Map<string, { port: number; account: string; active: boolean; browser?: Promise<Browser>; tail: Promise<unknown>; pages: Set<Page> }>();
 const THREAD_ROWS = 'tr[data-thread-id], tr[data-legacy-thread-id], tr [data-legacy-thread-id], tr [data-thread-id]';
@@ -14,12 +15,21 @@ export function registerGmailBrowser(userId: string, port: number, account: stri
   routes.set(userId, route);
   return () => { route.active = false; for (const page of route.pages) void page.close().catch(() => {}); if (routes.get(userId) === route) routes.delete(userId); };
 }
-export async function withGmailBrowser<T>(userId: string, action: (page: Page) => Promise<T>, fragment = ''): Promise<T> {
+export async function withGmailBrowser<T>(userId: string, action: (page: Page) => Promise<T>, fragment = '', readOnlyBudgetMs?: number): Promise<T> {
   const route = routes.get(userId);
   if (!route?.active) throw new GmailServiceError('reconnect', 'Start a run with your connected Gmail browser.');
-  let phase = 'connecting to the private browser';
+  let phase = 'waiting for the mailbox reader';
   let connection: Browser | undefined;
-  const work = route.tail.catch(() => {}).then(async () => {
+  let ownedPage: Page | undefined;
+  const preceding = route.tail;
+  const cleanup = async () => {
+    if (!ownedPage) return;
+    route.pages.delete(ownedPage);
+    await browserCleanup('Close private mailbox reader', () => ownedPage!.close());
+  };
+  const work = () => preceding.catch(() => {}).then(async () => {
+    assertBrowserOperationActive();
+    phase = 'connecting to the private browser';
     if (!route.active) throw new GmailServiceError('reconnect', 'The Gmail browser session ended.');
     if (!route.browser) {
       const connecting = chromium.connectOverCDP(`http://127.0.0.1:${route.port}`, { timeout: 15_000 }).then(browser => {
@@ -33,6 +43,7 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
     }
     const browser = await route.browser;
     connection = browser;
+    assertBrowserOperationActive();
     const context = browser.contexts()[0];
     if (!browser.isConnected() || !context) {
       route.browser = undefined;
@@ -40,26 +51,39 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
     }
     phase = 'opening a mailbox tab';
     const page = await context.newPage();
+    ownedPage = page;
     route.pages.add(page);
     try {
+      assertBrowserOperationActive();
       // Open the requested view from a new page. A later hash-only navigation
       // can otherwise read the previous inbox while Gmail renders the search.
       phase = 'opening Gmail';
       await page.goto(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(route.account)}${fragment}`, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+      assertBrowserOperationActive();
       phase = 'waiting for the mailbox';
-      await page.locator('[role="main"]').waitFor({ timeout: 15_000 }).catch(() => { throw new GmailServiceError('reconnect', 'Sign in to Gmail in Settings. The mailbox did not open.'); });
+      await page.locator('[role="main"]').waitFor({ timeout: 15_000 }).catch(() => {
+        if (new URL(page.url()).hostname === 'accounts.google.com') throw new GmailServiceError('reconnect', 'Sign in to Gmail in Settings.');
+        throw new GmailServiceError('unavailable', 'Gmail has not finished loading. Retry reading the mailbox before requesting another verification email.');
+      });
+      assertBrowserOperationActive();
       phase = 'checking the signed-in account';
       const labels = await page.locator('a[aria-label^="Google Account:"], button[aria-label^="Google Account:"]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).getAttribute('aria-label') || '').join('\n'));
       const displayed = labels.match(/[^\s()<>]+@[^\s()<>]+/g) || [];
+      assertBrowserOperationActive();
       if (!displayed.some(email => email.toLowerCase() === route.account.toLowerCase())) throw new GmailServiceError('reconnect', 'Gmail opened a different account. Connect the address in your profile.');
       phase = 'reading the requested mailbox view';
       return await action(page);
-    } finally { route.pages.delete(page); await page.close().catch(() => {}); }
+    } finally { await cleanup(); }
   });
-  route.tail = work;
-  return work.catch(error => {
+  // Read deadlines release abandoned work and close only its own reader tab.
+  // Retain preceding work in the queue: a read timing out behind an approved
+  // send must not let another operation overtake that still-running send.
+  const operation = (readOnlyBudgetMs === undefined ? work() : browserDeadline('Gmail browser read', readOnlyBudgetMs, work))
+    .finally(() => readOnlyBudgetMs === undefined ? undefined : cleanup());
+  route.tail = Promise.allSettled([preceding, operation]);
+  return operation.catch(error => {
     if (error instanceof GmailServiceError) throw error;
-    const closed = !connection?.isConnected() || /Target closed|Target page, context or browser has been closed|Session closed|has been disconnected/i.test(String((error as Error)?.message));
+    const closed = Boolean(connection && !connection.isConnected()) || /Target closed|Target page, context or browser has been closed|Session closed|has been disconnected/i.test(String((error as Error)?.message));
     if (closed) {
       route.browser = undefined;
       void connection?.close().catch(() => {});
@@ -89,11 +113,14 @@ export async function searchBrowserGmail(userId: string, query: string): Promise
     // newest first, including when a mailbox has received replacement codes.
     const relevant = page.getByRole('button', { name: /^Showing most relevant$/i });
     if (await relevant.isVisible()) {
+      assertBrowserOperationActive();
       await relevant.click({ timeout: 5_000 });
+      assertBrowserOperationActive();
       await page.getByRole('menuitemradio', { name: /^Most recent\b/i }).click({ timeout: 5_000 });
       await page.getByRole('button', { name: /^Showing most recent$/i }).waitFor({ timeout: 5_000 });
       // The label can update before the list. A fresh load discards the old
       // relevance-ranked rows and retains Gmail's saved chronological choice.
+      assertBrowserOperationActive();
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
       await page.getByRole('button', { name: /^Showing most recent$/i }).waitFor({ timeout: 15_000 });
       await waitForSearchResults(page);
@@ -101,7 +128,7 @@ export async function searchBrowserGmail(userId: string, query: string): Promise
     return page.locator(`[role="main"] :is(${THREAD_ROWS})`).evaluateAll(nodes => [...new Set(nodes.map(node =>
       [node.getAttribute('data-legacy-thread-id'), node.getAttribute('data-thread-id')]
         .find(id => id && /^[\w-]{1,100}$/.test(id)) || '').filter(Boolean))].slice(0, 20).map(id => ({ id })));
-  }, `#search/${encodeURIComponent(`newer_than:2h -in:sent -in:draft (${query})`)}`);
+  }, `#search/${encodeURIComponent(`newer_than:2h -in:sent -in:draft (${query})`)}`, 55_000);
 }
 export async function readBrowserGmail(userId: string, threadId: string): Promise<GmailMessage[]> {
   if (!/^[\w-]{1,100}$/.test(threadId)) throw new GmailServiceError('unapproved', 'Invalid Gmail thread.');
@@ -115,7 +142,7 @@ export async function readBrowserGmail(userId: string, threadId: string): Promis
         plaintextBody: (node.querySelector('.a3s')?.textContent || '').slice(0, 12000),
         htmlBody: node.querySelector('.a3s')?.innerHTML.slice(0, 80000) || '' })).slice(-1);
     }, threadId);
-  }, `#all/${threadId}`);
+  }, `#all/${threadId}`, 55_000);
 }
 export async function sendBrowserApplication(page: Page, draft: PreparedApplication, account: string, resume: Buffer, filename: string): Promise<{ id: string }> {
   const letter = draft.coverLetter;
