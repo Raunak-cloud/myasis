@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { extractText } from '../knowledge.js';
 import { workPreferenceEvidence } from '../work-preferences.js';
 import { readAgentActivities } from './agent-activity.js';
+import { recentReviewFeedback } from '../store.js';
 
 export interface AgentOnlyDocument { id: string; label: string; fileName: string }
 type ManifestRecord = Record<string, unknown>;
@@ -166,12 +167,22 @@ export function applicationHistory(query = '', offset = 0, includeApplied = true
     } catch { /* History remains advisory even for an old or unavailable journal. */ }
     finally { db?.close(); }
   }
-  const body = JSON.stringify({ applied, attempts, agentActivities: readAgentActivities()
+  // Reservation states and activity summaries alone lose the reason a prior
+  // attempt stopped. Give the agent the actual operational outcome and exact
+  // unanswered questions, so recovery can build on evidence rather than
+  // repeating a rejected login or rediscovering an unchanged missing fact.
+  // This is advisory context; it never suppresses a posting or chooses an action.
+  const attemptOutcomes = [...recentReviewFeedback()].map(([key, value]) => {
+    const [jobId, title, company] = JSON.parse(key) as string[];
+    return { jobId, title, company, ...value };
+  }).filter(record => includeApplied || !['applied', 'already-applied'].includes(record.status))
+    .filter(matches).sort((a, b) => b.at.localeCompare(a.at));
+  const body = JSON.stringify({ applied, attemptOutcomes, attempts, agentActivities: readAgentActivities()
     .filter(record => includeApplied || !['applied', 'already-applied'].includes(String((record as Record<string, unknown>).outcome)))
     .filter(record => matches(record as Record<string, unknown>)) }).replace(/</g, '\\u003c');
   const start = Number.isFinite(offset) ? Math.min(body.length, Math.max(0, Math.floor(offset))) : 0;
   const end = Math.min(body.length, start + 23_000);
-  return `ADVISORY ACCOUNT APPLICATION HISTORY. Historical reservation states may reflect an interrupted or rejected attempt and are not proof of receipt or a new submission prohibition. Agent activities include other workers: submitted=true records a marked send attempt, not confirmed receipt. Interpret finished/interrupted/uncertain results from their detail and actual page evidence. This read changes no records. Query a job id/title/company/URL for older matches. Follow NEXT_OFFSET with the same query for all records.\nOFFSET: ${start}; NEXT_OFFSET: ${end < body.length ? end : 'null'}\n${body.slice(start, end)}`;
+  return `ADVISORY ACCOUNT APPLICATION HISTORY. Historical reservation states may reflect an interrupted or rejected attempt and are not proof of receipt or a new submission prohibition. Prior outcomes describe the earlier attempt, not current candidate facts or suitability; the matching stage owns the current fit decision. Compare unresolved questions and failed recovery approaches with current saved evidence and browser state before repeating them. Agent activities include other workers: submitted=true records a marked send attempt, not confirmed receipt. Interpret finished/interrupted/uncertain results from their detail and actual page evidence. This read changes no records. Query a job id/title/company/URL for older matches. Follow NEXT_OFFSET with the same query for all records.\nOFFSET: ${start}; NEXT_OFFSET: ${end < body.length ? end : 'null'}\n${body.slice(start, end)}`;
 }
 
 /** The applier can recover an interrupted send without redoing the matcher's

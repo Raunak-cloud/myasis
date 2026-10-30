@@ -10,6 +10,25 @@ import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, application
 const directories: string[] = [];
 const originalFetch = globalThis.fetch;
 
+test('attempt recovery includes prior failure reasons and exact questions without another account or confirmed history', () => {
+  const record = owner('RECOVERY'), foreign = owner('OTHER_RECOVERY');
+  const now = new Date().toISOString();
+  writeFileSync(join(record.dir, 'review-history.jsonl'), [
+    { ts: now, jobId: '12345678', title: 'Analytics Manager', company: 'Fixture', status: 'skipped', reason: 'The portal rejected the stored password; the reset link was not available.' },
+    { ts: now, jobId: '23456789', title: 'BI Developer', company: 'Fixture', status: 'needs-human', reason: 'Required education dates are missing.', questions: [{ question: 'When did your MBA start?' }] },
+    { ts: now, jobId: '34567890', title: 'Completed role', company: 'Fixture', status: 'applied', reason: 'CONFIRMED_HISTORY_BELONGS_TO_MATCHER' },
+  ].map(row => JSON.stringify(row)).join('\n'));
+  withApplicationModel(record.env, () => {
+    const exact = applicationAttemptHistory('12345678');
+    assert.match(exact, /portal rejected the stored password/);
+    assert.ok(!exact.includes('When did your MBA start?'));
+    const questions = applicationAttemptHistory('23456789');
+    assert.match(questions, /When did your MBA start\?/);
+    assert.ok(!applicationAttemptHistory().includes('CONFIRMED_HISTORY_BELONGS_TO_MATCHER'));
+  });
+  withApplicationModel(foreign.env, () => assert.ok(!applicationAttemptHistory().includes('portal rejected the stored password')));
+});
+
 after(() => { globalThis.fetch = originalFetch; directories.forEach(dir => rmSync(dir, { recursive: true, force: true })); });
 function owner(marker: string) {
   const dir = mkdtempSync(join(tmpdir(), 'agent-only-evidence-')); directories.push(dir);
