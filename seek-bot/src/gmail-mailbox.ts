@@ -1,7 +1,7 @@
 import { parseHTML } from 'linkedom';
 import { GmailMcpClient, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
 import type { VerificationEmail } from './llm.js';
-import { readVerificationEmailsLocally } from './verification-email-local.js';
+import { readVerificationEmailsLocally, verificationContextWords } from './verification-email-local.js';
 import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
 import { config } from './config.js';
@@ -35,25 +35,44 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
   const lifetime = AbortSignal.timeout(timeoutMs);
   const network: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, lifetime]) : lifetime });
   const client = gmailClient(network), examined = new Set<string>();
+  const context = verificationContextWords(options).filter(word => word.length <= 100).slice(0, 12);
+  const query = '(code OR verify OR verification OR confirm OR activation OR password OR passcode OR OTP OR "sign in")'
+    + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
+  const report = (found: NonNullable<ReturnType<typeof readVerificationEmailsLocally>>) => {
+    options.log?.(`  Read the verification ${found.kind} through Gmail MCP.`); return found;
+  };
   try {
     while (Date.now() < deadline) {
-      const threads = await client.search('(code OR verify OR verification OR confirm OR activation OR password OR passcode OR OTP OR "sign in")');
+      const threads = await client.search(query);
       const messages: GmailMessage[] = [];
       for (const thread of threads.slice(0, 5)) {
         if (Date.now() >= deadline) break;
-        messages.push(...await client.thread(thread.id));
+        const batch = await client.thread(thread.id);
+        messages.push(...batch);
+        messages.sort((a, b) => {
+          const first = Date.parse(a.date || ''), second = Date.parse(b.date || '');
+          return Number.isFinite(first) && Number.isFinite(second) ? second - first : 0;
+        });
+        const fresh = messages.filter(message => !examined.has(message.id)).slice(0, 10);
+        for (const message of fresh) {
+          const found = readVerificationEmailsLocally([verificationMessage(message, 0)], { hint: options.hint || '', site: options.site || '', want: options.want || 'either' });
+          if (!found) continue;
+          const foundAt = Date.parse(message.date || ''), batchDates = batch.map(item => Date.parse(item.date || ''));
+          // Search is newest-thread first. Stop only when this match reaches
+          // the timestamp frontier, or the browser supplied its single latest
+          // message without a timestamp. A new reply above an older code must
+          // not hide a newer code in the following thread.
+          if (batchDates.length && batchDates.every(Number.isFinite) && Number.isFinite(foundAt)
+            && foundAt >= Math.max(...batchDates)) return report(found);
+          if (batch.length === 1 && message === batch[0] && !Number.isFinite(batchDates[0])) return report(found);
+          break;
+        }
       }
-      // Browser search is already newest first. Reading an email is not its
-      // delivery time; keep provider order when real dates are unavailable.
-      messages.sort((a, b) => {
-        const first = Date.parse(a.date || ''), second = Date.parse(b.date || '');
-        return Number.isFinite(first) && Number.isFinite(second) ? second - first : 0;
-      });
       const fresh = messages.filter(message => !examined.has(message.id)).slice(0, 10);
       if (fresh.length) {
         const found = readVerificationEmailsLocally(fresh.map(verificationMessage), { hint: options.hint || '', site: options.site || '', want: options.want || 'either' });
         for (const message of fresh) examined.add(message.id);
-        if (found) { options.log?.(`  Read the verification ${found.kind} through Gmail MCP.`); return found; }
+        if (found) return report(found);
       }
       await new Promise(done => setTimeout(done, Math.min(2000, Math.max(0, deadline - Date.now()))));
     }

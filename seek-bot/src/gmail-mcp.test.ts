@@ -13,16 +13,26 @@ const { doEnterEmailedCode, doOpenEmailedLink } = await import('./agent/authenti
 const { observe } = await import('./agent/observe.js');
 const { findVerificationInGmail, gmailAvailable } = await import('./gmail-mailbox.js');
 const originalFetch = globalThis.fetch;
-let unavailable = false, sent = 0, browserOrder = false;
+let unavailable = false, sent = 0, browserOrder = false, olderCodeBelowReply = false, staleCandidate = false;
+const reads: string[] = [], queries: string[] = [];
 const approval = randomUUID(), revision = 'a'.repeat(64);
 const service = new GmailMcpService({
-  search: async user => {
+  search: async (user, query) => {
+    queries.push(query);
     if (unavailable) throw new GmailServiceError('reconnect', 'Reconnect the fixture mailbox.');
     if (browserOrder) return [{ id: 'browser-newest' }, { id: 'browser-older' }];
     return [{ id: user }];
   },
   thread: async (user, id) => {
-    if (browserOrder) return [{ id, subject: 'Fixture verification', plaintextBody: `Use ${id === 'browser-newest' ? '729184' : '111222'} to verify your Fixture account.` }];
+    reads.push(id);
+    if (browserOrder) {
+      if (olderCodeBelowReply) {
+        const code = { id, subject: 'Fixture verification', date: id === 'browser-newest' ? '2026-10-30T09:00:00Z' : '2026-10-30T10:00:00Z', plaintextBody: `Use ${id === 'browser-newest' ? '111222' : '729184'} to verify your Fixture account.` };
+        return id === 'browser-newest' ? [code, { id: 'reply', date: '2026-10-30T11:00:00Z', subject: 'Thanks', plaintextBody: 'Thank you.' }] : [code];
+      }
+      if (id === 'browser-older' && staleCandidate) throw new Error('Unrelated thread must not be read after finding the newest verification.');
+      return [{ id, subject: 'Fixture verification', plaintextBody: `Use ${id === 'browser-newest' ? '729184' : '111222'} to verify your Fixture account.` }];
+    }
     assert.equal(id, user);
     return [{ id: `${user}-email`, subject: 'Fixture: verify application', date: new Date().toISOString(),
       plaintextBody: `Use ${user === 'owner-a' ? '482913' : '628731'} to verify your account.`,
@@ -68,6 +78,15 @@ try {
   browserOrder = true;
   const ordered = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
   assert.ok(!('error' in ordered) && ordered.value === '729184', 'browser verification uses the newest search result, not the last email fetched');
+  reads.length = 0; staleCandidate = true;
+  const immediate = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
+  assert.ok(!('error' in immediate) && immediate.value === '729184');
+  assert.deepEqual(reads, ['browser-newest'], 'a later failing thread cannot discard an already verified newest result');
+  assert.ok(queries.at(-1)?.includes('"fixture"'), 'mailbox search uses the same relevance context as local parsing');
+  staleCandidate = false; olderCodeBelowReply = true;
+  const dated = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
+  assert.ok(!('error' in dated) && dated.value === '729184', 'a recent unrelated reply must not make an older code win');
+  olderCodeBelowReply = false;
   browserOrder = false;
   unavailable = true;
   const failure = await findVerificationInGmail({ timeoutMs: 1000 });

@@ -1,9 +1,13 @@
 import type { VerificationEmail } from './llm.js';
 
+export function verificationContextWords(ask: { hint?: string; site?: string }): string[] {
+  return [...new Set(`${ask.site || ''} ${ask.hint || ''}`.toLowerCase().replace(/https?:\/\//g, '').split(/[^a-z0-9]+/)
+    .filter(word => word.length > 2 && !['www', 'com', 'net', 'org', 'sign', 'login', 'email', 'verification', 'code', 'account', 'site', 'the', 'application'].includes(word)))];
+}
+
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */
 export function readVerificationEmailsLocally(emails: VerificationEmail[], ask: { hint?: string; site?: string; want: 'code' | 'link' | 'either' }) {
-  const words = `${ask.site || ''} ${ask.hint || ''}`.toLowerCase().replace(/https?:\/\//g, '').split(/[^a-z0-9]+/)
-    .filter(word => word.length > 2 && !['www', 'com', 'net', 'org', 'sign', 'login', 'email', 'verification', 'code', 'account', 'site', 'the', 'application'].includes(word));
+  const words = verificationContextWords(ask);
   if (!words.length) return null;
   for (const email of emails) {
     const content = `${email.subject}\n${email.text}`;
