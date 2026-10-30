@@ -1,6 +1,9 @@
 import type { AppliedRecord, JobListing } from './types.js';
 
-/** Preserve vacancy, tenant and form parameters; remove advertising attribution only. */
+/** Preserve vacancy, tenant and routing parameters; omit attribution and
+ * SEEK's per-candidate/job/session handoff token from identity only. Keep the
+ * original browser URL intact for the employer's application-complete signal.
+ * https://developer.seek.com/use-cases/apply-with-seek/send-application-complete-signal */
 export function applicationUrlKey(raw: string): string | null {
   try {
     const url = new URL(raw);
@@ -8,7 +11,7 @@ export function applicationUrlKey(raw: string): string | null {
     url.hostname = url.hostname.replace(/^www\./, '');
     if (!/^#[/!]/.test(url.hash)) url.hash = '';
     for (const name of [...url.searchParams.keys()]) {
-      if (/^utm_|^(?:fbclid|gclid|msclkid)$/i.test(name)) url.searchParams.delete(name);
+      if (/^utm_|^(?:fbclid|gclid|msclkid|seek-token)$/i.test(name)) url.searchParams.delete(name);
     }
     url.searchParams.sort();
     return url.href;

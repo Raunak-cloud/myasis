@@ -29,6 +29,16 @@ test('a shared generic form template cannot suppress unrelated vacancies', () =>
   const posting = template + '?requisition=123';
   assert.equal(applicationFormKey(job, posting), applicationFormKey({ ...job, title: 'Renamed listing' }, posting));
 });
+
+test('a new SEEK handoff session keeps the same vacancy identity and preserves routing', () => {
+  const first = 'https://jobs.smartrecruiters.com/oneclick-ui/company/Fixture/publication/11111111-2222-3333-4444-555555555555/screening?tenant=one&seek-token=first';
+  const second = first.replace('seek-token=first', 'seek-token=second');
+  assert.equal(applicationFormKey(job, first), applicationFormKey(job, second));
+  assert.equal(new URL(first).searchParams.get('seek-token'), 'first', 'canonicalization never changes the live handoff URL');
+  for (const changed of [second.replace('tenant=one', 'tenant=two'), second.replace('555555555555', '666666666666'), second + '&job=another', second + '&token=unknown']) {
+    assert.notEqual(applicationFormKey(job, first), applicationFormKey(job, changed), 'vacancy, tenant and unknown token parameters remain part of identity');
+  }
+});
 test('unreadable owned history stops the run rather than appearing to be an empty account', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-identity-history-'));
   process.env.DATA_DIR = directory;

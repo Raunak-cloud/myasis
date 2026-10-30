@@ -72,7 +72,10 @@ export async function applicationApprovalGate(ctx: ToolContext): Promise<ToolRes
   };
   draft.revision = applicationRevision(draft);
   const approved = approvedApplication(ctx.job);
-  if (!preparingApplications() && approved?.revision === draft.revision) return null;
+  // The server supplied the candidate-confirmed content. Recompute its identity
+  // using the current canonicalization, so a legacy hash containing a rotating
+  // handoff token cannot force another approval of unchanged answers/documents.
+  if (!preparingApplications() && approved && applicationRevision(approved) === draft.revision) return null;
   ctx.log(`  Ready for your confirmation: ${ctx.job.title} @ ${ctx.job.company}${approved ? ' (the application changed)' : ''}`);
   return { kind: 'terminal', outcome: { status: 'prepared', draft } };
 }
