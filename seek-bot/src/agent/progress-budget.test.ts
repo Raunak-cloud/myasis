@@ -36,6 +36,19 @@ test('review reserve cannot authorize browser actions and never exceeds the maxi
   assert.equal(meter.exhausted, true, 'hard ceiling includes the review reserve');
 });
 
+test('canonical finalization has bounded reasoning room without funding extra browser writes',()=>{
+ const meter=new ProgressBudget(.20,.70);
+ spend(meter,.19);meter.finalizing(true);spend(meter,.10);
+ assert.equal(meter.exhausted,false);
+ assert.equal(meter.actionExhausted,true);
+ meter.reviewedProgress('canonical-application-review-ready');
+ assert.equal(meter.actionExhausted,false,'a completed canonical review is a once-only verified milestone');
+ spend(meter,.10);meter.reviewedProgress('canonical-application-review-ready');
+ assert.equal(meter.actionExhausted,true,'repeated ready claims cannot renew the allowance');
+ spend(meter,.31);
+ assert.equal(meter.exhausted,true,'the seventy-cent ceiling still includes finalization');
+});
+
 test('unchanged pages and passive prefills keep the normal twenty-cent budget', () => {
   const meter = new ProgressBudget(0.20);
   meter.observe([field('Name')], false);

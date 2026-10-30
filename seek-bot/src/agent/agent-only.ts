@@ -221,6 +221,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   let finished = false;
   let browserMutated = false;
   let letterShortcutAttempted = false;
+  let finalizingApplication = false;
   // Keep the cacheable prefix stable. Smaller evidence reads reduce payload;
   // frequent compaction can cost more by destroying provider cache hits.
   let contextLimit = 42_000;
@@ -292,7 +293,9 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     if (name === applicationReviewTool.name) {
+      const canonicalReview = readiness.requested;
       readiness.record(String(args.assessment), args.unresolved as string[]);
+      if (canonicalReview && args.assessment === 'ready') meter.reviewedProgress('canonical-application-review-ready');
       recovery.remember(`APPLYING AGENT APPLICATION REVIEW: ${JSON.stringify(args)}`);
       return ok('Your application assessment is recorded. Correct mismatches or ask about unsupported mandatory facts using normal tools. If ready, choose the current send control yourself; no send was queued or executed.');
     }
@@ -673,6 +676,8 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       if (!pendingDialog && !ctx.observation.inspectionError) readiness.observe(ctx.observation, 'wizard');
       if (!pendingDialog && meter.needsReview) recovery.requestBudgetReview();
       meter.reviewing(recovery.reviewingBudget);
+      if (readiness.requested) finalizingApplication = true;
+      meter.finalizing(finalizingApplication);
       if (meter.exhausted) break;
       if (!pendingDialog && !ctx.observation.inspectionError) {
         // Capture a committed selection after typing only from that same
@@ -789,8 +794,12 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         // later judgement from a plan whose preceding action did not run.
         const receiptResult = call.name === 'record_recovery_result' && call.args.assessment === 'complete'
           && typeof call.args.receipt_quote === 'string' && Boolean(call.args.receipt_quote.trim());
-        const assessmentOnly = checkpoint === 'record_recovery_result' && call.name === checkpoint;
-        if (interrupted || planActions >= 16 || (meter.actionExhausted && call.name !== 'finish' && !receiptResult && !assessmentOnly)) {
+        const assessmentOnly = ['record_recovery_result', applicationReviewTool.name].includes(checkpoint ?? '') && call.name === checkpoint;
+        // Saving a prepared draft or asking for its canonical review cannot
+        // transmit an application. Do not discard that paid final record just
+        // because its generation crossed the ordinary browser-action allowance.
+        const preparationRecord = reviewingApplications() && call.name === 'prepare_application';
+        if (interrupted || planActions >= 16 || (meter.actionExhausted && call.name !== 'finish' && !receiptResult && !assessmentOnly && !preparationRecord)) {
           result = ok(interruptionNote);
           interrupted = true;
         } else {

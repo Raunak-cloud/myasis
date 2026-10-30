@@ -14,6 +14,7 @@ export class ProgressBudget extends CostMeter {
   private allowance: number;
   private progress = 0;
   private reviewReserve = false;
+  private finalizationReserve = false;
   readonly maximum: number;
 
   constructor(base: number, maximum = 0.70) {
@@ -28,8 +29,11 @@ export class ProgressBudget extends CostMeter {
   get progressCount(): number { return this.progress; }
   get needsReview(): boolean { return this.totals.costUsd >= this.allowance - 0.035 && this.allowance < this.maximum; }
   get actionExhausted(): boolean { return this.totals.costUsd + 1e-9 >= this.allowance; }
-  override get exhausted(): boolean { return this.totals.costUsd + 1e-9 >= Math.min(this.maximum, this.allowance + (this.reviewReserve ? 0.04 : 0)); }
+  override get exhausted(): boolean { return this.totals.costUsd + 1e-9 >= Math.min(this.maximum, this.allowance + (this.finalizationReserve ? 0.15 : this.reviewReserve ? 0.04 : 0)); }
   reviewing(enabled: boolean): void { this.reviewReserve = enabled; }
+  /** Canonical final review may need a generation retry. This funds model
+   * assessment/local final records, never browser writes above the allowance. */
+  finalizing(enabled: boolean): void { this.finalizationReserve = enabled; }
   reviewedProgress(state: string): void { this.credit(`agent-reviewed:${state}`); }
 
   private credit(key: string): void {

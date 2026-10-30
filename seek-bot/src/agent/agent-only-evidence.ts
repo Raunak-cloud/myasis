@@ -61,14 +61,31 @@ function resumeRecords(): AgentOnlyDocument[] {
   });
 }
 
-/** Upload inventory consists only of candidate-approved resumes. Knowledge
- * attachments remain available as supporting evidence, not arbitrary uploads. */
+/** Resume selection stays separate from supporting attachments. */
 export function agentOnlyDocuments(): AgentOnlyDocument[] { return resumeRecords(); }
 
 /** Exact inventory id, not a model-authored path, URL, label or file name. */
 export function agentOnlyResumePath(id: string): string | null {
   const record = resumeRecords().find(item => item.id === id);
   return record ? ownerFile(record.fileName, 'resumes') : null;
+}
+
+/** Explicit upload capabilities for this owner's selected resumes and enabled
+ * supporting files. Namespaces separate supporting IDs from resume IDs; notes,
+ * disabled evidence, missing files and symlinks never become uploadable. */
+export function agentOnlyUploadInventory() {
+  return [
+    ...resumeRecords().map(record => ({ ...record, file_id: record.id, folder: 'resumes' as const })),
+    ...records('knowledge.json').flatMap(record => record.enabled === true && record.kind === 'file'
+      && typeof record.id === 'string' && typeof record.label === 'string' && typeof record.fileName === 'string'
+      && ownerFile(record.fileName, 'knowledge')
+      ? [{ id: record.id, label: record.label, fileName: record.fileName, file_id: `supporting:${record.id}`, folder: 'knowledge' as const }] : []),
+  ];
+}
+
+export function agentOnlyUploadPath(fileId: string): string | null {
+  const record = agentOnlyUploadInventory().find(item => item.file_id === fileId);
+  return record ? ownerFile(record.fileName, record.folder) : null;
 }
 
 function preferenceEvidence(): string {
@@ -104,11 +121,12 @@ export async function agentOnlyEvidence(query = '', offset = 0, maxChars = MAX_E
     .filter(record => record.kind === 'note' && typeof record.text === 'string'
       || record.kind === 'file' && typeof record.fileName === 'string' && Boolean(ownerFile(record.fileName, 'knowledge')));
   const answers = candidateSavedAnswers();
-  // Retrieval IDs and upload IDs are different capabilities. Supporting
-  // evidence can be read, but its original bytes are not an upload inventory.
+  // Retrieval IDs and upload IDs are different capabilities. The agent chooses
+  // any attachment explicitly; supplying evidence never uploads it by itself.
   const inventory = JSON.stringify({ resumes: resumes.map(record => ({ ...record, file_id: record.id, uploadable: true })),
-    supportingDocuments: knowledge.map(record => ({ id: record.id, label: record.label, kind: record.kind, uploadable: false,
-      attachment: 'Read this evidence by id. If you choose to attach its text, create_file returns an uploadable file_id.' })), savedAnswerCount: answers.length });
+    supportingDocuments: knowledge.map(record => ({ id: record.id, label: record.label, kind: record.kind, uploadable: record.kind === 'file',
+      ...(record.kind === 'file' ? { file_id: `supporting:${record.id}`, fileName: record.fileName }
+        : { attachment: 'Read this note by id. If you choose to attach its text, create_file returns an uploadable file_id.' }) })), savedAnswerCount: answers.length });
   if (query === 'document-inventory') return evidencePage(inventory, inventory, offset, maxChars);
   const sections = [preferenceEvidence(), 'SAVED CANDIDATE ANSWERS\n' + JSON.stringify(answers),
     ...(await Promise.all(resumes.map(async item => `### Resume ${item.id}: ${item.label}\n${await approvedText(ownerFile(item.fileName, 'resumes'))}`))),
