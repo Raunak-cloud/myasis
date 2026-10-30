@@ -43,6 +43,10 @@ export class AgentFiles {
 
   async create(name: string, text: string, format: DocumentFormat) {
     if (!formats.includes(format) || !text.trim()) throw Error('Provide the complete document text and an explicit supported format.');
+    // The agent already chose the format explicitly. A plain title without
+    // an extension is sufficient; filename punctuation must not force another
+    // paid reasoning turn. Conflicting extensions and paths remain invalid.
+    if (name && !extname(name)) name += '.' + format;
     if (!name || basename(name) !== name || /[\\/\x00-\x1f]/.test(name) || name.length > 160 || extname(name).toLowerCase() !== '.' + format) {
       throw Error('Choose a plain file name whose extension matches your explicit format.');
     }

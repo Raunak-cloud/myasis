@@ -53,7 +53,7 @@ try {
         assert.match(JSON.stringify(body.messages.at(-1)), /Original.pdf/, 'chosen CV metadata is retained before save_progress');
         assert.deepEqual(Buffer.from(await page.evaluate('(async()=>Array.from(new Uint8Array(await window.original.arrayBuffer())))()', undefined, undefined, false)), pdf);
         assert.equal(await page.locator('#unused').evaluate(node => (node as HTMLInputElement).files?.length), 0);
-        calls = [{ name: 'create_file', args: { name: 'Cover letter.docx', text, format: 'docx' } }]; break;
+        calls = [{ name: 'create_file', args: { name: 'Cover letter', text, format: 'docx' } }]; break;
       case 2: {
         const file = JSON.parse(body.messages.filter((item: { role: string }) => item.role === 'tool').at(-1).content);
         assert.equal(file.format, 'docx'); fileId = file.file_id;
@@ -85,6 +85,8 @@ try {
 
   const files = new AgentFiles('file-service-check');
   const first = await files.create('Letter.docx', text, 'docx');
+  assert.equal((await files.create('Letter', text, 'docx')).file_id, first.file_id, 'an extensionless title uses the agent-selected format and the same artifact');
+  await assert.rejects(files.create('Letter.pdf', text, 'docx'), /extension matches/);
   const revised = await files.create('Letter.docx', text.replace('First factual', 'Revised factual'), 'docx');
   assert.notEqual(first.file_id, revised.file_id, 'revised content cannot reuse a stale conversion');
   assert.match(await extractText(files.resolve(revised.file_id).path), /Revised factual paragraph/);

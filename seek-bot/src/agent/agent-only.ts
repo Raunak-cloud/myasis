@@ -86,7 +86,7 @@ export const agentOnlyTools: ToolSchema[] = [
     sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission.' },
   }, ['action']),
   schema('create_file', 'Render exactly your supplied text in your explicitly chosen format. Returns a private file_id for native set_input_files; never uploads, selects a form field or judges acceptance. Inspect employer requirements before choosing the format. Record cover-letter text separately with save_progress or prepare_application.', {
-    name: string, text: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
+    name: { type: 'string', description: 'Plain document filename or title. If an extension is supplied, it must match format; otherwise the explicitly chosen format is appended.' }, text: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
   }, ['name', 'text', 'format']),
   schema('convert_file', 'Convert a candidate document or created file only to your explicit output format. Returns a new file_id; never uploads or chooses a format from employer HTML. Original bytes remain unchanged.', {
     file_id: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
