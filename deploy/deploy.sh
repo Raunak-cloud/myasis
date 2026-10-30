@@ -47,10 +47,6 @@ active_runs() {
 
 # Run only small checks, in one bounded phase after builds.
 as_app "cd $APP && git fetch -q origin main"
-REPLAY_REQUIRED=0
-if ! as_app "cd $APP && git diff --quiet HEAD origin/main -- seek-bot"; then
-  REPLAY_REQUIRED=1
-fi
 
 as_app "touch $LOCK"
 trap 'as_app "rm -f $LOCK"' EXIT
@@ -65,7 +61,17 @@ if [ "$(active_runs)" != 0 ]; then
   exit 1
 fi
 
-as_app "cd $APP && git pull -q origin main && git log --oneline -1"
+# A deployment may wait while new commits arrive. Freeze the release only
+# after runs drain, then use that same revision for checks and fast-forwarding.
+# Comparing before the wait and pulling afterwards could skip required bot
+# replays for changes that arrived in between.
+as_app "cd $APP && git fetch -q origin main"
+RELEASE_SHA=$(as_app "cd $APP && git rev-parse origin/main")
+REPLAY_REQUIRED=0
+if ! as_app "cd $APP && git diff --quiet HEAD $RELEASE_SHA -- seek-bot"; then
+  REPLAY_REQUIRED=1
+fi
+as_app "cd $APP && git merge --ff-only $RELEASE_SHA && git log --oneline -1"
 # Dependencies exactly as the lock file says, never rewriting it. A server whose
 # npm differs from the one that wrote the lock would otherwise leave a modified
 # package-lock.json behind, and the next pull refuses to overwrite it — which is
