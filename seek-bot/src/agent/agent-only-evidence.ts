@@ -104,7 +104,11 @@ export async function agentOnlyEvidence(query = '', offset = 0, maxChars = MAX_E
     .filter(record => record.kind === 'note' && typeof record.text === 'string'
       || record.kind === 'file' && typeof record.fileName === 'string' && Boolean(ownerFile(record.fileName, 'knowledge')));
   const answers = candidateSavedAnswers();
-  const inventory = JSON.stringify({ resumes, supportingDocuments: knowledge.map(record => ({ id: record.id, label: record.label, kind: record.kind })), savedAnswerCount: answers.length });
+  // Retrieval IDs and upload IDs are different capabilities. Supporting
+  // evidence can be read, but its original bytes are not an upload inventory.
+  const inventory = JSON.stringify({ resumes: resumes.map(record => ({ ...record, file_id: record.id, uploadable: true })),
+    supportingDocuments: knowledge.map(record => ({ id: record.id, label: record.label, kind: record.kind, uploadable: false,
+      attachment: 'Read this evidence by id. If you choose to attach its text, create_file returns an uploadable file_id.' })), savedAnswerCount: answers.length });
   if (query === 'document-inventory') return evidencePage(inventory, inventory, offset, maxChars);
   const sections = [preferenceEvidence(), 'SAVED CANDIDATE ANSWERS\n' + JSON.stringify(answers),
     ...(await Promise.all(resumes.map(async item => `### Resume ${item.id}: ${item.label}\n${await approvedText(ownerFile(item.fileName, 'resumes'))}`))),

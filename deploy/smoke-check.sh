@@ -12,7 +12,7 @@ npm run test:statuses
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
   node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js dist/discovery-search.test.js dist/discovery-policy.test.js
-  node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js
+  node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/observe-frames.test.js dist/agent/indeed-cover-letter.test.js dist/gmail-browser-readiness.test.js
   node dist/fit-assessment.test.js
   shopt -s nullglob

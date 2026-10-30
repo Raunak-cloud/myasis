@@ -4,12 +4,12 @@ import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path
 import { config } from '../config.js';
 import { convertDocument, type DocumentFormat } from '../resume.js';
 import type { PreparedApplication } from '../application-review-types.js';
-import { agentOnlyResumePath } from './agent-only-evidence.js';
+import { agentOnlyDocuments, agentOnlyResumePath } from './agent-only-evidence.js';
 
 interface AgentFile { id: string; path: string; sourceId?: string; text?: string }
 const formats = ['pdf', 'docx', 'doc', 'rtf', 'txt'];
 export const fileIdsProperty = { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 },
-  description: 'Exact candidate document IDs or file IDs returned by create_file/convert_file. Empty array clears the selected input. Host paths and URLs are unavailable.' };
+  description: 'Exact uploadable resume file_id values from the inventory, or file_id values returned by create_file/convert_file. Supporting-document retrieval IDs are evidence-only; read their text and use create_file when you choose to attach it. Empty array clears the selected input. Host paths and URLs are unavailable.' };
 
 /** Private file transport only. The agent chooses the content, format and target.
  * Rendering and conversion never inspect a form or decide whether to upload. */
@@ -20,7 +20,7 @@ export class AgentFiles {
   resolve(id: string): AgentFile {
     const generated = this.generated.get(id);
     const path = generated?.path ?? agentOnlyResumePath(id);
-    if (!path) throw Error('Choose a file ID from the candidate document inventory or your created files; host paths and other accounts are unavailable.');
+    if (!path) throw Error(`Choose a file ID from the uploadable resume file_id values (${JSON.stringify(agentOnlyDocuments().map(file => file.id))}) or a file_id returned by create_file/convert_file. Supporting-document retrieval IDs are evidence-only: read the text and create_file if you choose to attach it. Host paths and other accounts are unavailable.`);
     const file = generated ?? { id, path, sourceId: id };
     if (this.approved && file.sourceId !== this.approved.resumeId && !(typeof file.text === 'string' && file.text === this.approved.coverLetter)) {
       throw Error('This file is outside the candidate-approved resume and cover letter. Save changed content for candidate confirmation first.');
