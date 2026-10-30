@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { COVER_LETTER_INSTRUCTION_WORD_LIMIT, instructionWordCount } from '../../../seek-bot/src/cover-letter-policy.js';
 import { plainReason, preparedStatusLabel, userFacingError } from '../run-messages';
+import { decodeSettingText, encodeSettingText } from '../runSettings';
 interface Review {
   id: string; status: string; detail: string | null;
   application: {
@@ -21,16 +22,28 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
   const [instructions, setInstructions] = useState('');
   const [savedInstructions, setSavedInstructions] = useState('');
   const [coverLetterMode, setCoverLetterMode] = useState<'tailored' | 'reuse'>('tailored');
+  const [savedCoverLetterMode, setSavedCoverLetterMode] = useState<'tailored' | 'reuse'>('tailored');
+  const [reusableLetter, setReusableLetter] = useState('');
+  const [savedReusableLetter, setSavedReusableLetter] = useState('');
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [savingInstructions, setSavingInstructions] = useState(false);
   const [notice, setNotice] = useState('');
   const words = instructionWordCount(instructions);
+  const encodedLetter = encodeSettingText(reusableLetter);
+  const letterTooLong = encodedLetter.length > 20_000;
+  const modeChanged = canChangeCoverLetterMode === true && (coverLetterMode !== savedCoverLetterMode || reusableLetter !== savedReusableLetter);
+  const preferencesChanged = instructions !== savedInstructions || modeChanged;
   useEffect(() => {
     let alive = true;
     void fetch('/api/settings').then(async response => {
       if (!response.ok) throw new Error('Could not load cover letter instructions.');
       const data = await response.json();
-      if (alive) { setInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setSavedInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setCoverLetterMode(data.COVER_LETTER_MODE === 'reuse' ? 'reuse' : 'tailored'); setPreferencesLoaded(true); }
+      if (alive) {
+        const mode = data.COVER_LETTER_MODE === 'reuse' ? 'reuse' : 'tailored';
+        const letter = decodeSettingText(data.COVER_LETTER_TEXT_B64 ?? '');
+        setInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setSavedInstructions(data.COVER_LETTER_INSTRUCTIONS ?? '');
+        setCoverLetterMode(mode); setSavedCoverLetterMode(mode); setReusableLetter(letter); setSavedReusableLetter(letter); setPreferencesLoaded(true);
+      }
     }).catch(reason => { if (alive) setError(reason.message); });
     return () => { alive = false; };
   }, []);
@@ -55,15 +68,23 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
   }, [running, onCountChange, Boolean(editing), busy]);
   const chosen = reviews.filter(item => item.status === 'ready' && selected.has(item.id));
   async function saveInstructions() {
-    if (savingInstructions || !preferencesLoaded || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT) return;
+    if (savingInstructions || !preferencesLoaded || !preferencesChanged || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT
+      || (modeChanged && (letterTooLong || coverLetterMode === 'reuse' && !reusableLetter.trim()))) return;
     setSavingInstructions(true); setError(''); setNotice('');
     try {
+      const updates = { COVER_LETTER_INSTRUCTIONS: instructions,
+        ...(modeChanged ? { COVER_LETTER_MODE: coverLetterMode, COVER_LETTER_TEXT_B64: encodedLetter } : {}) };
       const response = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates: { COVER_LETTER_INSTRUCTIONS: instructions } }) });
+        body: JSON.stringify({ updates }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save cover letter instructions.');
+      if (modeChanged && (data.settings?.COVER_LETTER_MODE !== coverLetterMode || data.settings?.COVER_LETTER_TEXT_B64 !== encodedLetter)) {
+        throw new Error('Could not save cover letter settings. Please try again.');
+      }
       const saved = data.settings?.COVER_LETTER_INSTRUCTIONS ?? instructions.trim();
-      setInstructions(saved); setSavedInstructions(saved); setNotice('Instructions saved for future cover letters.');
+      setInstructions(saved); setSavedInstructions(saved);
+      if (modeChanged) { setSavedCoverLetterMode(coverLetterMode); setSavedReusableLetter(reusableLetter); }
+      setNotice(modeChanged ? 'Cover letter settings saved.' : 'Instructions saved for future cover letters.');
     } catch (reason) { setError((reason as Error).message); }
     finally { setSavingInstructions(false); }
   }
@@ -100,17 +121,26 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
   }
   return <section className="card prepared-applications" aria-label="Prepared applications">
     <details className="prepared-letter-preferences"><summary>Cover letter instructions</summary>
-      {preferencesLoaded && canChangeCoverLetterMode !== undefined && <p className="prepared-letter-mode job-meta">
-        <span>Current setting: <strong>{canChangeCoverLetterMode && coverLetterMode === 'reuse' ? 'Reuse one letter' : 'Tailored by AI'}</strong></span>
-        {canChangeCoverLetterMode && <a href="/?tab=run">Change in run settings</a>}
-      </p>}
       <form onSubmit={event => { event.preventDefault(); void saveInstructions(); }}>
+        {preferencesLoaded && canChangeCoverLetterMode !== undefined && (canChangeCoverLetterMode ? <fieldset className="prepared-letter-mode">
+          <legend>Cover letter setting</legend>
+          <label><input type="radio" name="prepared-cover-letter-mode" checked={coverLetterMode === 'tailored'} disabled={savingInstructions}
+            onChange={() => { setCoverLetterMode('tailored'); setNotice(''); }}/> Tailored by AI</label>
+          <label><input type="radio" name="prepared-cover-letter-mode" checked={coverLetterMode === 'reuse'} disabled={savingInstructions}
+            onChange={() => { setCoverLetterMode('reuse'); setNotice(''); }}/> Reuse one letter</label>
+        </fieldset> : <p className="prepared-letter-mode job-meta">Current setting: <strong>Tailored by AI</strong></p>)}
+        {canChangeCoverLetterMode && coverLetterMode === 'reuse' && <>
+          <label htmlFor="prepared-reusable-letter">Letter to reuse</label>
+          <textarea id="prepared-reusable-letter" rows={7} maxLength={12000} value={reusableLetter} disabled={!preferencesLoaded || savingInstructions}
+            aria-invalid={modeChanged && (!reusableLetter.trim() || letterTooLong)} onChange={event => { setReusableLetter(event.target.value); setNotice(''); }}/>
+          {modeChanged && letterTooLong && <span className="job-meta" role="alert">The letter is too long to save.</span>}
+        </>}
         <label htmlFor="cover-letter-instructions">Instructions for all future cover letters</label>
         <textarea id="cover-letter-instructions" rows={3} maxLength={2000} value={instructions} disabled={!preferencesLoaded || savingInstructions}
           aria-describedby="cover-letter-instructions-count" aria-invalid={words > COVER_LETTER_INSTRUCTION_WORD_LIMIT}
           onChange={event => { setInstructions(event.target.value); setNotice(''); }}/>
         <div className="prepared-editor-actions"><span className="job-meta" id="cover-letter-instructions-count">{words} / {COVER_LETTER_INSTRUCTION_WORD_LIMIT} words</span>
-          <button className="btn" type="submit" disabled={!preferencesLoaded || savingInstructions || instructions === savedInstructions || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT}>{savingInstructions ? 'Saving…' : 'Save instructions'}</button></div>
+          <button className="btn" type="submit" disabled={!preferencesLoaded || savingInstructions || !preferencesChanged || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT || (modeChanged && (letterTooLong || coverLetterMode === 'reuse' && !reusableLetter.trim()))}>{savingInstructions ? 'Saving…' : modeChanged ? 'Save settings' : 'Save instructions'}</button></div>
       </form>
     </details>
     {reviews.length > 0 && <p className="job-meta prepared-intro">Review and select the jobs you want to apply to.</p>}

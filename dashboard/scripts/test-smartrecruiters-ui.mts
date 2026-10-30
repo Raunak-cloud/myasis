@@ -29,6 +29,7 @@ let remainingCredits = 5;
 const approvedIds = new Set<string>();
 const letterEdits = new Map<string, any>();
 let letterInstructions = '';
+let letterMode = 'tailored', reusableLetter = '';
 let failedLetterFixture = false;
 const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')).prepared : null;
 const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
@@ -42,6 +43,7 @@ const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   COVER_LETTER_INSTRUCTIONS: letterInstructions,
+  COVER_LETTER_MODE: letterMode, COVER_LETTER_TEXT_B64: reusableLetter,
   MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40' });
 const server = createServer(async (req, res) => {
   const path = new URL(req.url!, 'http://fixture').pathname;
@@ -51,6 +53,9 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST') writes.push({ path, body: JSON.parse(body || '{}') });
     if (path === '/api/settings' && req.method === 'POST' && JSON.parse(body || '{}').updates?.COVER_LETTER_INSTRUCTIONS !== undefined) {
       letterInstructions = JSON.parse(body).updates.COVER_LETTER_INSTRUCTIONS.trim();
+      const updates = JSON.parse(body).updates;
+      if (updates.COVER_LETTER_MODE !== undefined) letterMode = updates.COVER_LETTER_MODE;
+      if (updates.COVER_LETTER_TEXT_B64 !== undefined) reusableLetter = updates.COVER_LETTER_TEXT_B64;
     }
     let editedLetter;
     if (path === '/api/application-reviews/cover-letter' && req.method === 'POST') {
@@ -267,6 +272,8 @@ try {
     await page.getByRole('heading', { name: 'Prepared Applications', exact: true }).waitFor();
     assert.equal(await page.locator('.prepared-actions').count(), 0, 'actions appear only after selecting an application');
     await page.locator('.prepared-letter-preferences > summary').click();
+    await page.getByText('Current setting:', { exact: false }).waitFor();
+    assert.equal(await page.getByRole('radio', { name: 'Reuse one letter', exact: true }).count(), 0, 'standard plans cannot change the restricted mode');
     const instructionInput = page.getByLabel('Instructions for all future cover letters', { exact: true });
     await instructionInput.fill(Array.from({ length: 51 }, () => 'word').join(' '));
     assert.equal(await page.getByRole('button', { name: 'Save instructions', exact: true }).isDisabled(), true);
@@ -321,6 +328,34 @@ try {
     await page.screenshot({ path: resolve(import.meta.dirname, `../../output/semi-auto-${width}.png`), fullPage: true });
     await context.close();
   }
+  scheduleFixture = true;
+  for (const width of [1280, 390]) {
+    letterMode = 'tailored'; reusableLetter = ''; letterInstructions = '';
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    await page.goto(`${origin}/?tab=prepared`);
+    await page.locator('.prepared-letter-preferences > summary').click();
+    await page.getByRole('radio', { name: 'Reuse one letter', exact: true }).check();
+    const save = page.getByRole('button', { name: 'Save settings', exact: true });
+    assert.equal(await save.isDisabled(), true, 'reuse requires a letter');
+    const letter = 'Dear employer,\n\nI build reliable systems. Café.\n\nRegards';
+    await page.getByLabel('Letter to reuse', { exact: true }).fill(letter);
+    await save.click();
+    await page.getByText('Cover letter settings saved.', { exact: true }).waitFor();
+    await page.reload();
+    await page.locator('.prepared-letter-preferences > summary').click();
+    assert.equal(await page.getByRole('radio', { name: 'Reuse one letter', exact: true }).isChecked(), true);
+    assert.equal(await page.getByLabel('Letter to reuse', { exact: true }).inputValue(), letter, 'saved Unicode and paragraphs are retained');
+    await page.getByRole('radio', { name: 'Tailored by AI', exact: true }).check();
+    await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+    await page.getByText('Cover letter settings saved.', { exact: true }).waitFor();
+    await page.getByRole('radio', { name: 'Reuse one letter', exact: true }).check();
+    assert.equal(await page.getByLabel('Letter to reuse', { exact: true }).inputValue(), letter, 'switching modes does not erase the letter');
+    assert.equal(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
+    await context.close();
+  }
+  scheduleFixture = false; letterMode = 'tailored'; reusableLetter = '';
   remainingCredits = 0;
   failedLetterFixture = true; approvedFixture = false; approvedIds.clear(); letterEdits.clear();
   const failedContext = await browser.newContext();
