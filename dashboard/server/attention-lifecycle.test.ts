@@ -26,6 +26,14 @@ check(
   'a later critical question remains visible',
   resolveAttention([event('skipped', 1), event('needs-human', 2, ['Required answer'])], new Set()).length === 1,
 );
+for (const status of ['skipped', 'error', 'off-platform', 'needs-human']) {
+  check(`a later ${status} without answers preserves the unresolved candidate question`,
+    resolveAttention([event('needs-human', 1, ['Street address']), event(status, 2)], new Set())[0]?.questions?.[0]?.question === 'Street address');
+}
+for (const status of ['answered', 'prepared', 'rehearsed', 'applied']) {
+  check(`a later ${status} resolves the candidate question`,
+    resolveAttention([event('needs-human', 1, ['Street address']), event(status, 2)], new Set()).length === 0);
+}
 check(
   'an application record clears all blockers for that job',
   resolveAttention([event('needs-human', 1, ['Required answer'])], new Set(['job-1'])).length === 0,

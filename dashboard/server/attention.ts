@@ -38,22 +38,22 @@ export interface RunEventRow {
 }
 
 const ATTENTION_STATUSES = new Set(['needs-human']);
+const RESOLVED_STATUSES = ['answered', 'prepared', 'rehearsed', 'applied', 'already-applied'];
 
 /**
- * Items are deduped to the latest attempt per job, and anything since
- * applied drops off automatically.
+ * Questions remain until answered, dismissed or a completed application
+ * resolves them. An unsuccessful technical retry cannot answer a question.
  */
 export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<string>): AttentionItem[] {
   const latest = new Map<string, AttentionItem>();
 
   for (const e of [...events].sort((a, b) => Date.parse(String(a.ts)) - Date.parse(String(b.ts)))) {
     if (!e.job_id || applied.has(e.job_id)) continue;
-    // Every event participates in the lifecycle. A later resolved outcome
-    // clears an older blocker instead of being hidden by the attention query.
-    if (!ATTENTION_STATUSES.has(e.status)) {
+    if (RESOLVED_STATUSES.includes(e.status)) {
       latest.delete(e.job_id);
       continue;
     }
+    if (!ATTENTION_STATUSES.has(e.status)) continue;
 
     const reason = e.reason ?? 'stopped';
     const questions = normaliseQuestions(e.questions);
@@ -61,7 +61,6 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
     // task. Authentication, CAPTCHA, navigation and provider failures remain
     // run outcomes and never enter Needs attention.
     if (!questions.length) {
-      latest.delete(e.job_id);
       continue;
     }
 
@@ -90,11 +89,14 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
                   id, job_id, status, title, company, reason, url, ts, questions, dismissed_at
              FROM run_events
             WHERE user_id = $1 AND job_id IS NOT NULL
+              AND (status = ANY($2::text[]) OR (status = 'needs-human'
+                AND CASE WHEN jsonb_typeof(questions) = 'array'
+                  THEN jsonb_array_length(questions) > 0 ELSE false END))
             ORDER BY job_id, ts DESC, id DESC
          ) AS latest
         WHERE dismissed_at IS NULL
         ORDER BY ts`,
-      [userId],
+      [userId, RESOLVED_STATUSES],
     ),
     query<{ job_id: string }>(`SELECT job_id FROM applications WHERE user_id = $1`, [userId]),
   ]);
