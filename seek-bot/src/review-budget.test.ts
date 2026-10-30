@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, JobListing } from './types.js';
 
-type FixtureJob = JobListing & { searchPage?: number; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { searchPage?: number; searchScope?: 'office' | 'remote' | 'unscoped'; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney', ageDays: 1,
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[] } = {}) {
+function run(jobs: FixtureJob[], options: { priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -35,7 +35,8 @@ export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},allowExternalApply:${options.externalLimit !== 0}});
 Object.assign(config.coverLetter, {mode:'tailored'});
-Object.assign(config.rules, {minScore:${options.minScore ?? 0},maxAgeDays:${options.maxAgeDays ?? 20}});
+Object.assign(config.rules, {minScore:${options.minScore ?? 0},maxAgeDays:${options.maxAgeDays ?? 20},workArrangements:${JSON.stringify(options.workArrangements ?? ['onsite'])},onsiteCity:${JSON.stringify(options.onsiteCity ?? 'Sydney')}});
+Object.assign(config.search, {location:'',radiusKm:0});
 config.excludedCompanies = ${JSON.stringify(options.excludedCompanies ?? [])};
 Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurrency:${options.concurrency ?? 1},maxApplicationsPerRun:${options.cap ?? 1},maxApplicationsPerDay:${options.dailyCap ?? 100},maxExternalPerDay:${options.externalLimit ?? 10},
   minDelayMs:${options.cooldownMs ?? 0},maxDelayMs:${options.cooldownMs ?? 0},minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
@@ -44,12 +45,13 @@ Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurre
 import { jobs, record } from './boundary.mjs';
 const reads = new Map();
 const platform = new URL(import.meta.url).searchParams.get('platform');
-export const search = async (_page,_keyword,pageNumber) => {
-  record('search',platform,{page:_page.worker,pageNumber});
+export const search = async (_page,_keyword,pageNumber,scope) => {
+  record('search',platform,{page:_page.worker,pageNumber,scope});
   _page.currentJob='search:'+platform;
   await new Promise(done=>setTimeout(done,10));
   if(_page.currentJob!=='search:'+platform) throw Error('Discovery page was navigated by another worker');
-  return jobs.filter(job=>job.platform===platform && (job.searchPage??1)===pageNumber);
+  const searchScope=scope ? scope.arrangements.every(value=>value==='remote')?'remote':'office' : 'unscoped';
+  return jobs.filter(job=>job.platform===platform && (job.searchPage??1)===pageNumber && (!job.searchScope || job.searchScope===searchScope));
 };
 export const fetchJobDetail = async (_page, job) => {
   record('detail',job.id,{page:_page.worker});
@@ -148,6 +150,21 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} searches the office city and nationwide remote before using the review allowance`, () => {
+  const wrongCity = Array.from({ length: 15 }, (_, i) => job(`wrong-city-${i}`, { searchScope: 'unscoped', location: 'Brisbane QLD', cardConflict: true }));
+  const result = run([...wrongCity,
+    job('local-fit', { searchScope: 'office', location: 'Wollongong NSW', workArrangement: 'On-site' }),
+    job('remote-fit', { searchScope: 'remote', location: 'Melbourne VIC', workArrangement: 'Remote' }),
+  ], { apply: true, prepare, onsiteCity: 'Wollongong', workArrangements: ['onsite', 'hybrid', 'remote'], reviews: 15, cap: 2 });
+  const searches = result.events.filter(event => event.stage === 'search');
+  assert.deepEqual(searches.slice(0, 2).map(event => [event.scope.location, event.scope.arrangements]), [['Wollongong', ['onsite', 'hybrid']], ['', ['remote']]]);
+  const firstFit = result.events.findIndex(event => event.stage === 'fit');
+  assert.ok(result.events.findIndex(event => event.stage === 'search' && event.scope.arrangements[0] === 'remote') < firstFit, 'local candidates cannot stop discovery before the remote stream is searched');
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['local-fit', 'remote-fit']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['local-fit', 'remote-fit']);
+  assert.equal(result.history.length, prepare ? 0 : 2);
+});
 
 test('age-window discovery reaches fresh jobs beyond eight already-applied batches without a depth cap', () => {
   const old = Array.from({ length: 8 }, (_, index) => job(`applied-${index}`, { searchPage: index + 1 }));
@@ -510,7 +527,10 @@ test('parallel workers resume fallback discovery once and share its new listings
   ], { apply: true, workers: 2, cap: 1, reviews: 1 });
   assert.equal(result.events.filter(event => event.stage === 'search' && event.id === 'seek').length, 1);
   assert.equal(result.events.filter(event => event.stage === 'search' && event.id === 'indeed').length, 1);
-  assert.equal(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length, 1);
+  // Either platform may claim the final shared slot first. If the fresh job
+  // submits first, the old listing need not be opened at all.
+  assert.ok(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length <= 1);
+  assert.equal(result.events.filter(event => event.stage === 'fit' && event.id === 'fallback').length, 1);
   assert.ok(result.history.some(record => record.jobId === 'fallback' && record.submittedByMyasis));
 });
 test('the coordinator defers destinations unknown until form opening to the agent and permits distinct cross-platform applications', () => {

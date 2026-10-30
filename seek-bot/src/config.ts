@@ -134,8 +134,8 @@ export const config = {
    * coordinates, so we would have to geocode them to do any better.
    *
    * `location` is filled from the candidate's own address by the dashboard;
-   * a zero radius means "no geographic limit", which is the previous
-   * behaviour.
+   * a zero radius removes the address-distance restriction. Discovery still
+   * uses the selected office city and searches separately for remote roles.
    */
   search: {
     location: process.env.SEARCH_LOCATION ?? '',

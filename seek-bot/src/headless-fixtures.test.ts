@@ -35,6 +35,12 @@ const server = createServer((req, res) => {
   if (/^\/status\//.test(url.pathname)) { res.statusCode = Number(url.pathname.split('/')[2]); res.end(html('<main>Service unavailable</main>')); return; }
   if (url.pathname === '/jobs') {
     const keyword = url.searchParams.get('keywords');
+    if (keyword === 'scoped') {
+      const local = url.searchParams.get('where') === 'Wollongong' && url.searchParams.get('distance') === '0' && url.searchParams.get('workarrangement') === '1,2';
+      const remote = !url.searchParams.has('where') && url.searchParams.get('workarrangement') === '3';
+      res.end(html(`<article data-automation="normalJob" data-job-id="${local ? 'local' : remote ? 'remote' : 'wrong-city'}"><a data-automation="jobTitle">Student Operations Officer</a><span data-automation="jobCompany">Fixture</span><span data-automation="jobCardLocation">${local ? 'Wollongong NSW' : remote ? 'Melbourne VIC' : 'Perth WA'}</span><span data-automation="jobWorkArrangement">${remote ? 'Remote' : 'On-site'}</span></article>`));
+      return;
+    }
     if (keyword === 'empty') { res.end(html('<main id="empty">No matching jobs</main>')); return; }
     const payload = cards(url.searchParams.has('page') ? 200 : 100, 3, keyword === 'sparse');
     res.end(keyword === 'delayed' ? html(`<main id="results">Loading</main><script>fetch('/payload').then(r=>r.text()).then(t=>document.querySelector('#results').innerHTML=t)</script>`) : html(payload)); return;
@@ -66,6 +72,7 @@ const { searchViaDom, searchUrl, fetchJobDetail } = await import('./discovery.js
 const { detectChallenge, hasCaptchaSurface } = await import('./captcha/detect.js');
 const { extractFields } = await import('./dom.js');
 const { config } = await import('./config.js');
+const { discoverySearches } = await import('./discovery-search.js');
 const checks: Array<{ name: string; ok: boolean; ms: number; error?: string }> = [];
 const measurements: Record<string, unknown> = {};
 let ctx: BrowserContext | undefined, page: Page;
@@ -144,6 +151,13 @@ try {
     assert.deepEqual(jobs.map(j => j.id), ['100', '101', '102']);
     assert.equal(jobs[0].title, 'Engineer & AI — café 0'); assert.equal(jobs[0].company, 'Fixture & Co');
     assert.equal(jobs[0].location, 'Sydney NSW'); assert.equal(jobs[0].ageDays, 3); assert.equal(jobs[0].salary, '$90,000 – $120,000');
+  });
+  await check('office and nationwide remote searches reach the reader with distinct provider filters', async () => {
+    const scopes = discoverySearches({ location: 'Robertson NSW 2577', radiusKm: 0 }, { onsiteCity: 'Wollongong', workArrangements: ['onsite', 'hybrid', 'remote'] });
+    const local = await searchViaDom(page, 'scoped', 1, scopes[0]);
+    const remote = await searchViaDom(page, 'scoped', 1, scopes[1]);
+    assert.deepEqual(local.map(job => [job.id, job.location]), [['local', 'Wollongong NSW']]);
+    assert.deepEqual(remote.map(job => [job.id, job.location, job.workArrangement]), [['remote', 'Melbourne VIC', 'Remote']]);
   });
   await check('pagination reads a different set without stale cards', async () => {
     const jobs = await searchViaDom(page, 'normal', 2);

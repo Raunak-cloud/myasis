@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { jitter, waitForChallengeToClear } from './browser.js';
 import { judgePage, WALL_STATES } from './blocker.js';
 import { boardAgeWindow } from './discovery-policy.js';
+import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
 import { parseAgeDays } from './listing-age.js';
 import type { JobListing } from './types.js';
 
@@ -171,22 +172,25 @@ const SEEK_DATE_RANGES = [1, 3, 7, 14, 31] as const;
 /**
  * Search URL for one keyword and page.
  *
- * `where`/`distance` are only appended when a radius is actually configured,
- * so an unset radius produces exactly the URL this used to build. SEEK 308s
- * this query form to its canonical `/{role}-jobs/in-{Location}?distance=N`
- * path and applies the filter server-side (verified live).
+ * Office searches use the selected city even without a distance limit.
+ * A separate remote search has no city restriction. Explicit radii retain
+ * the profile-address centre. SEEK applies these filters before returning cards.
  */
-export function searchUrl(keywords: string, pageNum = 1): string {
+export function searchUrl(keywords: string, pageNum = 1, scope = discoverySearches(config.search, config.rules)[0]): string {
   const params = new URLSearchParams({ keywords, sortmode: 'ListedDate' });
-  const { location, radiusKm } = config.search;
-  if (location && radiusKm > 0) {
+  const { location, radiusKm, arrangements } = scope;
+  if (location) {
     // SEEK rejects a city combined with another suburb's postcode (for
     // example "Sydney NSW 2141") as an unknown location and returns no jobs.
     // A supplied Australian postcode resolves the radius centre on its own.
-    const postcode = location.trim().match(/(?:^|\s)(\d{4})$/)?.[1];
+    const postcode = radiusKm > 0 ? location.trim().match(/(?:^|\s)(\d{4})$/)?.[1] : undefined;
     params.set('where', postcode ?? location);
+    // Zero means the board's selected location, not its default nearby radius.
+    // Sydney resolves to All Sydney; an address radius still uses its postcode.
     params.set('distance', String(radiusKm));
   }
+  const codes = { onsite: '1', hybrid: '2', remote: '3' };
+  if (arrangements.length && arrangements.length < 3) params.set('workarrangement', arrangements.map(value => codes[value]).join(','));
   // Listings older than the candidate allows used to fill result pages and be opened only to be dropped.
   const listedWithin = boardAgeWindow(config.rules.maxAgeDays, SEEK_DATE_RANGES);
   if (listedWithin) params.set('daterange', String(listedWithin));
@@ -195,8 +199,8 @@ export function searchUrl(keywords: string, pageNum = 1): string {
 }
 
 /** Fallback: read the rendered cards via SEEK's own data-automation hooks. */
-export async function searchViaDom(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const url = searchUrl(keywords, pageNum);
+export async function searchViaDom(page: Page, keywords: string, pageNum = 1, scope?: DiscoverySearch): Promise<JobListing[]> {
+  const url = searchUrl(keywords, pageNum, scope);
   if (!page.url().startsWith(url)) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await waitForChallengeToClear(page);
@@ -254,8 +258,8 @@ export class SeekVerificationBlockedError extends Error {
   }
 }
 
-export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const jobs = await searchViaDom(page, keywords, pageNum);
+export async function search(page: Page, keywords: string, pageNum = 1, scope?: DiscoverySearch): Promise<JobListing[]> {
+  const jobs = await searchViaDom(page, keywords, pageNum, scope);
   // No cards is the only signal worth a model call: a wall, or simply no more results.
   if (!jobs.length && WALL_STATES.has((await judgePage(page, `SEEK search results for "${keywords}"`, { attemptSolve: false })).state)) {
     throw new SeekVerificationBlockedError('SEEK search requires human verification. Open SEEK login, complete verification, close that Chrome window and retry. No search results were evaluated.');

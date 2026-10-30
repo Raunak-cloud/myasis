@@ -1281,7 +1281,7 @@ export function RunPanel({
                   <label className="field">
                     <FieldLabel
                       label="Distance from your address"
-                      help="Searches only jobs within this many kilometres of the address in your profile, using SEEK's own location filter. Choose Anywhere to search the whole country."
+                      help="Limits searches to this distance from your profile address. Anywhere removes the distance limit; onsite and hybrid jobs still use your selected city."
                     />
                     <select
                       className="input"

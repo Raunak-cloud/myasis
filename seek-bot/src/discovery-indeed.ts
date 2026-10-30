@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { jitter, waitForChallengeToClear } from './browser.js';
 import type { JobListing } from './types.js';
 import { runScope } from './run-scope.js';
+import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
 
 /**
  * How Indeed actually works (verified live against au.indeed.com, signed in,
@@ -73,17 +74,21 @@ function annualSalaryMin(extracted?: { min?: number; max?: number; type?: string
 }
 
 
-export function searchUrl(keywords: string, pageNum: number, selectedJobId?: string): string {
+export function searchUrl(keywords: string, pageNum: number, selectedJobId?: string, scope?: DiscoverySearch): string {
   const start = (pageNum - 1) * 10;
-  const location = config.search.location || 'Australia';
+  // Detail navigation keeps its explicit job selection independent of discovery filters.
+  const plan = scope ?? (selectedJobId ? undefined : discoverySearches(config.search, config.rules)[0]);
+  const area = plan ?? config.search;
+  const remote = plan?.arrangements.length === 1 && plan.arrangements[0] === 'remote' && !plan.location;
+  const location = remote ? 'Remote' : area.location || 'Australia';
   const params = new URLSearchParams({ q: keywords, l: location, sort: 'date' });
   if (start > 0) params.set('start', String(start));
   // Listings older than the candidate allows used to fill result pages and be opened only to be dropped.
   // Include the whole final day, matching relative board labels. Providers may
   // widen/ignore date filters; publication evidence is always checked locally.
   params.set('fromage', String(config.rules.maxAgeDays + 1));
-  if (config.search.location && config.search.radiusKm > 0) {
-    params.set('radius', String(config.search.radiusKm));
+  if (area.location && area.radiusKm > 0) {
+    params.set('radius', String(area.radiusKm));
   }
   if (selectedJobId) params.set('vjk', selectedJobId);
   return `${config.indeedBase}/jobs?${params.toString()}`;
@@ -133,8 +138,8 @@ function normalise(raw: any): JobListing | null {
 }
 
 /** Primary path: pull the hydrated result set out of `window.mosaic`. */
-async function searchViaMosaic(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const url = searchUrl(keywords, pageNum);
+async function searchViaMosaic(page: Page, keywords: string, pageNum = 1, scope?: DiscoverySearch): Promise<JobListing[]> {
+  const url = searchUrl(keywords, pageNum, undefined, scope);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await requireIndeedPage(page, `searching for "${keywords}"`);
   await page.waitForSelector('[data-jk]', { timeout: 15_000 }).catch(() => {});
@@ -157,8 +162,8 @@ async function searchViaMosaic(page: Page, keywords: string, pageNum = 1): Promi
 }
 
 /** Fallback: read the rendered cards via Indeed's own `data-jk`/`data-testid` hooks. */
-async function searchViaDom(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const url = searchUrl(keywords, pageNum);
+async function searchViaDom(page: Page, keywords: string, pageNum = 1, scope?: DiscoverySearch): Promise<JobListing[]> {
+  const url = searchUrl(keywords, pageNum, undefined, scope);
   if (!page.url().startsWith(url)) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await requireIndeedPage(page, `loading the rendered results for "${keywords}"`);
@@ -237,8 +242,8 @@ async function readJobCards(page: Page): Promise<JobListing[]> {
     }));
 }
 
-export async function search(page: Page, keywords: string, pageNum = 1): Promise<JobListing[]> {
-  const viaMosaic = await searchViaMosaic(page, keywords, pageNum).catch((error) => {
+export async function search(page: Page, keywords: string, pageNum = 1, scope?: DiscoverySearch): Promise<JobListing[]> {
+  const viaMosaic = await searchViaMosaic(page, keywords, pageNum, scope).catch((error) => {
     // A CAPTCHA failure is not an empty result page. Preserve it so the run
     // exits safely and remains retryable instead of reporting zero jobs.
     if (error instanceof IndeedVerificationBlockedError) throw error;
@@ -247,7 +252,7 @@ export async function search(page: Page, keywords: string, pageNum = 1): Promise
   if (viaMosaic.length) return viaMosaic.map((job) => ({ ...job, source: 'search' as const }));
   console.warn(`  [discovery-indeed] mosaic data empty for "${keywords}" p${pageNum} — using DOM`);
   await logPageDataShape(page, 'search');
-  return (await searchViaDom(page, keywords, pageNum)).map((job) => ({ ...job, source: 'search' as const }));
+  return (await searchViaDom(page, keywords, pageNum, scope)).map((job) => ({ ...job, source: 'search' as const }));
 }
 
 /**

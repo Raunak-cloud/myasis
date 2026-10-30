@@ -36,6 +36,7 @@ discoveryBatchEnd,
 shouldStopDiscovery,
 } from './discovery-policy.js';
 import { fetchJobDetail, search } from './discovery.js';
+import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
 import { passesListingAge } from './listing-age.js';
 import { EmployerFeedDiscovery } from './employer-feeds.js';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
@@ -74,7 +75,7 @@ interface PlatformAdapter {
   apiDiscovery?: boolean;
   newestFirst?: boolean;
   assertSignedIn: (page: Page) => Promise<void>;
-  search: (page: Page, keywords: string, pageNum: number) => Promise<JobListing[]>;
+  search: (page: Page, keywords: string, pageNum: number, scope?: DiscoverySearch) => Promise<JobListing[]>;
   fetchJobDetail: (page: Page, job: JobListing) => Promise<JobListing>;
   apply: (page: Page, job: JobListing, profile: CandidateProfile, deps: ApplyDeps) => Promise<ApplyOutcome>;
 }
@@ -414,6 +415,7 @@ async function main() {
     type SearchStream = {
       adapter: PlatformAdapter;
       keyword: string;
+      scope?: DiscoverySearch;
       total: number;
       pages: number;
       seen: Set<string>;
@@ -423,9 +425,10 @@ async function main() {
     const terms = config.keywords.length ? config.keywords : [config.targetRole];
     const searchAdapters = active.filter((adapter) => !targetedAdapters.has(adapter.id));
     // Boards take turns, so one board's polite gap is spent searching the other.
-    const streams: SearchStream[] = terms.flatMap((keyword) => searchAdapters.map((adapter) => ({
-      adapter, keyword, total: 0, pages: 0, seen: new Set<string>(), exhausted: false,
-    })));
+    const streams: SearchStream[] = terms.flatMap((keyword) => searchAdapters.flatMap((adapter) =>
+      (adapter.apiDiscovery ? [undefined] : discoverySearches(config.search, config.rules)).map(scope => ({
+        adapter, keyword, scope, total: 0, pages: 0, seen: new Set<string>(), exhausted: false,
+      }))));
 
     /** Order of review: in-scope listings first, then the pre-ranking's priority. */
     const scopeRank = (job: JobListing): number => {
@@ -474,7 +477,7 @@ async function main() {
             try {
               return await measured(
                 'discovery',
-                () => stream.adapter.search(page, stream.keyword, pageNumber),
+                () => stream.adapter.search(page, stream.keyword, pageNumber, stream.scope),
                 { platform: stream.adapter.id },
               );
             } finally {
@@ -527,6 +530,7 @@ async function main() {
     for (const stream of [...streams].sort((a, b) => searchAdapters.indexOf(a.adapter) - searchAdapters.indexOf(b.adapter))) {
       console.log(
         `  [${stream.adapter.label}] "${stream.keyword}" → ${stream.total} results` +
+        (stream.scope ? ` · ${stream.scope.label}` : '') +
         (stream.pages > 1 ? ` (${stream.pages} pages)` : '') +
         (stream.ended === 'age' ? ' · listing-age cutoff reached' : ''),
       );
