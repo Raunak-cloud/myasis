@@ -1,4 +1,5 @@
 import type { Page } from 'patchright';
+import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
 import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
 
@@ -18,9 +19,14 @@ export interface SavedForm {
 }
 
 export async function readSavedForm(page: Page): Promise<SavedForm> {
+  return browserDeadline('Saved application inspection', 15_000, () => readSavedFormNow(page));
+}
+
+async function readSavedFormNow(page: Page): Promise<SavedForm> {
   const fields: SavedFormField[] = [];
   const sections: string[] = [];
   for (const [frameIndex, frame] of page.frames().entries()) {
+    assertBrowserOperationActive();
     if (!/^https?:|^about:(blank|srcdoc)$/.test(frame.url())) continue;
     if (/recaptcha|hcaptcha|turnstile|challenges.cloudflare|arkoselabs|funcaptcha/i.test(frame.url())) continue;
     if (frame.parentFrame()) {
@@ -29,6 +35,7 @@ export async function readSavedForm(page: Page): Promise<SavedForm> {
       finally { await host.dispose(); }
     }
     const observed = await extractFields(frame);
+    assertBrowserOperationActive();
     const state = await frame.evaluate(() => {
       const roots: Array<Document | ShadowRoot> = [document];
       const controls: Record<string, { expanded: string | null; invalid: string | null; error: string; selectedValues?: string[] }> = {};

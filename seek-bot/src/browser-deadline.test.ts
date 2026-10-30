@@ -4,13 +4,15 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Page } from 'patchright';
 import { browserDeadline, browserDelay, browserCleanup, BrowserOperationTimeout } from './browser-deadline.js';
 import { hasCaptchaSurface, hasHcaptchaChallenge } from './captcha/detect.js';
+import { readSavedForm } from './agent/saved-form.js';
 
 test('a frozen renderer fails promptly instead of being reported as no security challenge', async () => {
-  const frame = { url: () => 'https://fixture.invalid', evaluate: () => new Promise(() => {}) };
+  const frame = { url: () => 'https://fixture.invalid', parentFrame: () => null, evaluate: () => new Promise(() => {}) };
   const page = { frames: () => [frame], evaluate: frame.evaluate } as unknown as Page;
   for (const inspect of [hasHcaptchaChallenge, hasCaptchaSurface]) {
     await assert.rejects(browserDeadline('Fixture read', 30, () => inspect(page)), BrowserOperationTimeout);
   }
+  await assert.rejects(browserDeadline('Fixture saved application', 30, () => readSavedForm(page)), BrowserOperationTimeout);
 });
 
 test('cancelled work cannot navigate or inject a token later; cleanup remains possible', async () => {
