@@ -64,7 +64,7 @@ const intensive = applyRunPolicy({ ...saved, MIN_SCORE: '70' }, intensivePolicy,
 check('Intensive accounts keep their fine tuning', intensive.MIN_SCORE === '70');
 check('Intensive live runs keep the saved prompt', intensive.AI_INSTRUCTIONS_B64 === saved.AI_INSTRUCTIONS_B64);
 check('removed target roles cannot influence Intensive runs', intensive.TARGET_ROLE === '');
-check('Intensive runs assess 80 jobs', intensive.MAX_EVALUATIONS === '80');
+check('Intensive runs assess 100 jobs', intensive.MAX_EVALUATIONS === '100');
 
 const admin = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '500' }, adminPolicy, 'manual');
 check('admins keep a review limit they set, unclamped', admin.MAX_EVALUATIONS === '500');
@@ -180,7 +180,7 @@ check('a review override holds for an admin\'s scheduled runs too', adminOverrid
 
 // What a manual run posts goes through the plan, not around it.
 const posted = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '40', PLATFORMS: 'seek' }, intensivePolicy, 'manual');
-check('a posted evaluation count cannot lower or raise the Intensive plan', posted.MAX_EVALUATIONS === '80');
+check('a posted evaluation count cannot lower or raise the Intensive plan', posted.MAX_EVALUATIONS === '100');
 check('a posted default board list still includes the Indeed an Intensive Pass pays for', posted.PLATFORMS === 'seek,indeed,smartrecruiters,greenhouse,pageup,workday');
 
 // A board list the account picked is used exactly as picked (Rinu Thapa unticked Indeed and got it anyway, 5 Oct).
@@ -208,7 +208,7 @@ check('Active Search and Get Owtomated advertise the editable 60-100% range', ['
 check('Free says the scheduled run and reviews it gets', said('free').includes('1 scheduled run each day') && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Essential says it gets two scheduled runs', said('essential-pass').includes('2 scheduled runs each day'));
 check('Active Search says the scheduled runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} scheduled runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Intensive says scheduled runs, both modes, reviews and employer-site applications', said('intensive-pass').includes('Up to 4 scheduled runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 80 jobs') && said('intensive-pass').includes('employer-site applications'));
+check('Intensive says scheduled runs, both modes, reviews and employer-site applications', said('intensive-pass').includes('Up to 4 scheduled runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 100 jobs') && said('intensive-pass').includes('employer-site applications'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 
