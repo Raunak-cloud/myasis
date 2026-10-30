@@ -20,6 +20,7 @@ let scheduleMode: 'auto' | 'semi-auto' = 'auto';
 let searchStarted = false;
 let adminBoards = 'smartrecruiters';
 let adminSeekSignedIn = false;
+let customerBoards = 'seek', customerSeekSignedIn = true;
 let attentionFixture = false;
 let skippedFixture = false;
 let preparedFixture = false;
@@ -40,7 +41,7 @@ const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ i
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
   APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true',
-  PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
+  PLATFORMS: admin ? adminBoards : customerBoards, SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   COVER_LETTER_INSTRUCTIONS: letterInstructions,
   COVER_LETTER_MODE: letterMode, COVER_LETTER_TEXT_B64: reusableLetter,
@@ -81,12 +82,13 @@ const server = createServer(async (req, res) => {
       '/api/auth/me': { user: { id: 'fixture', email: 'fixture@example.test', name: 'Fixture Candidate' }, googleConfigured: true },
       '/api/entitlements': { tier: admin ? 'admin' : scheduleFixture ? 'intensive' : 'standard', manualRuns: true, firstRunRequired: !admin,
         autoRunsPerDay: scheduleFixture ? 4 : 1, autoApplyPaused: !scheduleEnabled, canPauseAutoApply: scheduleFixture, autoRunsUsedToday: 0,
-        scheduledMinScore: null, scheduledJobsPerDay: admin ? null : PLAN_LIMITS.free.evaluationsPerRun,
-        evaluationsPerRun: admin ? null : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
-        fineTune: admin || scheduleFixture, advancedFilters: admin || scheduleFixture, indeedApplications: admin, runScopes: admin },
+        scheduledMinScore: null, scheduledJobsPerDay: admin ? null : scheduleFixture ? PLAN_LIMITS['intensive-pass'].evaluationsPerRun * 4 : PLAN_LIMITS.free.evaluationsPerRun,
+        evaluationsPerRun: admin ? null : scheduleFixture ? PLAN_LIMITS['intensive-pass'].evaluationsPerRun : PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null,
+        fineTune: admin || scheduleFixture, advancedFilters: admin || scheduleFixture, indeedApplications: admin || scheduleFixture,
+        employerSources: admin || scheduleFixture, runScopes: admin },
       '/api/billing/status': { configured: true, totalRemaining: remainingCredits, free: { allowance: 5, used: 5 - remainingCredits, remaining: remainingCredits },
         paid: { remaining: 0, employerSiteRemaining: 0, expiresAt: scheduleFixture ? '2026-12-23T00:00:00Z' : null, hasActivePass: scheduleFixture, hasActiveIntensivePass: scheduleFixture, unlimitedApplications: scheduleFixture } },
-      '/api/signin/session': { supported: false, session: null, seek: { signedIn: !admin || adminSeekSignedIn }, indeed: { signedIn: false } },
+      '/api/signin/session': { supported: false, session: null, seek: { signedIn: admin ? adminSeekSignedIn : customerSeekSignedIn }, indeed: { signedIn: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: searchStarted || preparingFixture || adminManualRunning, mode: searchStarted ? 'search' : preparingFixture || adminManualRunning ? 'live' : null, applicationMode: adminManualRunning ? adminManualMode : preparingFixture ? 'semi-auto' : null, prepared: 0, startedAt: searchStarted || preparingFixture || adminManualRunning ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
@@ -232,6 +234,45 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
+  // Customer employer sources are a pass entitlement, independent of Admin mode.
+  admin = false; scheduleFixture = true; customerSeekSignedIn = false;
+  for (const width of [1280, 390]) {
+    for (const mode of ['auto', 'semi-auto'] as const) {
+      customerBoards = 'smartrecruiters'; scheduleEnabled = false; scheduleMode = mode; searchStarted = false;
+      const context = await browser.newContext({ viewport: { width, height: 900 } });
+      const page = await context.newPage();
+      const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+      await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+      const directRunsBefore = writes.filter(write => write.path === '/api/run').length;
+      await page.goto(`${origin}/?tab=run`);
+      const label = mode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply';
+      await page.getByRole('button', { name: label, exact: true }).waitFor();
+      assert.equal(await page.getByRole('switch', { name: 'Admin mode', exact: true }).count(), 0);
+      await page.getByRole('button', { name: label, exact: true }).click();
+      const dialog = page.getByRole('dialog'); await dialog.waitFor();
+      const sources = dialog.locator('[data-field=PLATFORMS]');
+      for (const source of EMPLOYER_SOURCES) {
+        const button = sources.getByRole('button', { name: new RegExp(source.label) });
+        assert.equal(await button.isEnabled(), true, `${source.label} is available to a normal pass holder`);
+        assert.equal(await dialog.locator(`[data-field=${source.key}]`).count(), 0, 'employer configuration stays managed by Owtomate');
+        if (source.id !== 'smartrecruiters') await button.click();
+      }
+      await dialog.getByText('Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.', { exact: true }).waitFor();
+      await dialog.getByText(/^AI reviews up to 100 jobs each run\./).waitFor();
+      assert.equal(await dialog.getByRole('button', { name: 'Test without applying', exact: true }).count(), 0);
+      await dialog.getByRole('button', { name: label, exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      const started = writes.filter(write => write.path === '/api/auto-apply').at(-1)!.body;
+      assert.equal(started.enabled, true); assert.equal(started.confirm, true); assert.equal(started.applicationMode, mode);
+      assert.deepEqual(started.overrides.PLATFORMS.split(',').sort(), EMPLOYER_SOURCES.map(source => source.id).sort());
+      for (const source of EMPLOYER_SOURCES) assert.equal(source.key in started.overrides, false);
+      assert.equal(writes.filter(write => write.path === '/api/run').length, directRunsBefore, 'a customer schedules work instead of using the admin run endpoint');
+      assert.deepEqual(errors, []);
+      console.log(`PASS ${width}px ${mode}: normal Get Owtomated employer sources, 100-review limit, scheduled confirmation, no Admin mode or board sign-in.`);
+      await context.close();
+    }
+  }
+  scheduleFixture = false; scheduleEnabled = false; customerBoards = 'seek'; customerSeekSignedIn = true;
   admin = false; preparedFixture = true; searchStarted = false;
   for (const width of [1280, 390]) {
     remainingCredits = 5;
