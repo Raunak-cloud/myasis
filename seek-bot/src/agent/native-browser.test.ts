@@ -18,7 +18,7 @@ test('action observations distinguish accessibility-hidden proxy buttons without
     assert.match(renderObservation(observation), /aria-hidden=true/);
     assert.ok(observation.actions.some(action => action.role === 'file'), 'hidden native file targets remain available');
     await browserTarget(page, {ref:buttons.find(action => !action.ariaHidden)!.ref}).click();
-    assert.equal(await page.evaluate('window.activated'), true);
+    assert.equal(await evaluateBrowser(page, {script:'window.activated'}), true);
   } finally { await browser.close(); }
 });
 
