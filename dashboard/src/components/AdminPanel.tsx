@@ -132,7 +132,7 @@ function NextRun({ user }: { user: Pick<AdminUser, 'autoApply' | 'blockedAt'> })
     <div className="job-meta">{Date.parse(nextRunAt) <= Date.now() ? 'Waiting to start · ' : ''}{applicationMode === 'semi-auto' ? 'Semi auto' : 'Auto apply'}</div></>;
 }
 
-function duration(run: AdminRun): string {
+function duration(run: Pick<AdminRun, 'startedAt' | 'finishedAt' | 'running'>): string {
   // Runs from before finish times were recorded have no end to measure to.
   if (!run.finishedAt && !run.running) return '-';
   const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
@@ -969,6 +969,9 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                       <div className="job-meta">
                         {user.running ? 'running' : !last.finishedAt ? '-' : last.exitCode === 0 ? 'finished' : last.exitCode === null ? 'stopped' : 'failed'}
                         {' · '}{runDeviceLabel(last.initiatorDevice, last.trigger)}
+                        <div>{last.finishedAt ? 'Took ' : user.running ? 'Elapsed ' : ''}
+                          {last.finishedAt || user.running ? duration({ ...last, running: user.running && !last.finishedAt }) : 'Duration not recorded'}
+                        </div>
                       </div>
                     )}
                   </td>
