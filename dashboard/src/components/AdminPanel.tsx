@@ -943,16 +943,14 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                   </td>
                   <td className="nowrap">
                     {user.setupMissing.length ? <span className="badge warn" title={user.setupMissing.join(', ')}>{user.setupMissing.length} left</span> : <span className="badge ok">Done</span>}
-                    {user.setupMissing.length > 0 && (
-                      <button
-                        type="button"
-                        className="btn btn-small admin-email-button"
-                        title={user.emailedAt ? `Last emailed ${when(user.emailedAt)}` : 'Draft an email to help them finish'}
-                        onClick={(event) => { event.stopPropagation(); setEmailing(user.id); }}
-                      >
-                        {user.emailedAt ? 'Emailed' : 'Email'}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="btn btn-small admin-email-button"
+                      title={user.emailedAt ? `Draft an email · Last emailed ${when(user.emailedAt)}` : 'Draft an email to this user'}
+                      onClick={(event) => { event.stopPropagation(); setEmailing(user.id); }}
+                    >
+                      Email
+                    </button>
                   </td>
                   <td className="nowrap">
                     <span className={`admin-board ${user.boards.seek ? 'on' : ''}`}>SEEK</span>{' '}
