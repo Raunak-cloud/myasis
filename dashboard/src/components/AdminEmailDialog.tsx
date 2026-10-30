@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../adminApi';
 import { AdminEmailHistory } from './AdminEmailHistory';
 
 /**
  * A personal email to one account. The standard draft (built from the setup
- * steps still open) shows at once; Celeris Magnus then rewrites it around
- * this person's situation. The operator can steer a rewrite, edit freely,
+ * steps still open) loads without a model request. Only the explicit rewrite
+ * button asks Celeris Magnus for another version. The operator can edit freely,
  * and send from here or from their own mail app. Magnus never overwrites
  * text the operator has started editing: its version waits to be taken.
  */
@@ -26,6 +26,7 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
   const [tailoring, setTailoring] = useState(false);
@@ -35,7 +36,8 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
   const edited = useRef(false);
   const request = useRef(0);
 
-  const tailor = useCallback((focus: string) => {
+  const tailor = (focus: string) => {
+    if (tailoring || sending || sent) return;
     const id = ++request.current;
     setTailoring(true);
     setTailorError(null);
@@ -49,7 +51,7 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
       })
       .catch((reason) => { if (id === request.current) setTailorError((reason as Error).message); })
       .finally(() => { if (id === request.current) setTailoring(false); });
-  }, [userId]);
+  };
 
   useEffect(() => {
     let closed = false;
@@ -59,24 +61,19 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
       .then((next) => {
         if (closed) return;
         setDraft(next); setSubject(next.subject); setBody(next.body);
-        tailor('');
       })
       .catch((reason) => { if (!closed) setError((reason as Error).message); });
     return () => { closed = true; pendingRequest.current++; };
-  }, [userId, tailor]);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !sending) onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, sending]);
+  }, [userId]);
 
   const send = async () => {
-    if (!draft) return;
+    if (!draft || sending || sent) return;
     setSending(true);
     setError(null);
     try {
       await api(`/users/${userId}/email`, { method: 'POST', json: { subject, body } });
+      setSent(true);
+      setSending(false);
       onSent(draft.to);
     } catch (reason) {
       setError((reason as Error).message);
@@ -87,10 +84,11 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
   const mailto = draft ? `mailto:${draft.to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` : '';
 
   return (
-    <div className="overlay center" onClick={() => !sending && onClose()}>
+    <div className="overlay center">
       <div className="card confirm admin-email" role="dialog" aria-modal="true" aria-labelledby="admin-email-title" onClick={(event) => event.stopPropagation()}>
         <h2 id="admin-email-title">Email {draft?.to ?? '…'}</h2>
-        <AdminEmailHistory key={userId} userId={userId} />
+        <AdminEmailHistory key={`${userId}:${sent}`} userId={userId} />
+        {sent && <div className="banner" role="status">Email sent to {draft?.to}.</div>}
         {error && <div className="banner banner-bad" role="alert">{error}</div>}
         {!draft ? (
           !error && <p className="job-meta">Drafting…</p>
@@ -98,7 +96,7 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
           <>
             {draft.missing.length > 0 && <p className="job-meta">Still to do: {draft.missing.join(', ')}.</p>}
             {draft.optedOut && <div className="banner" role="status">They switched off automatic emails. Only send this if it will help them.</div>}
-            <form className="admin-email-tailor" onSubmit={(event) => { event.preventDefault(); tailor(instruction); }}>
+            <div className="admin-email-tailor">
               <input
                 className="input"
                 value={instruction}
@@ -106,8 +104,8 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
                 placeholder="Tell Magnus what to focus on (optional), e.g. they are a nurse, keep it very short"
                 onChange={(event) => setInstruction(event.target.value)}
               />
-              <button type="submit" className="btn" disabled={tailoring}>{tailoring ? 'Writing…' : 'Rewrite with Magnus'}</button>
-            </form>
+              <button type="button" className="btn" onClick={() => tailor(instruction)} disabled={tailoring || sending || sent}>{tailoring ? 'Writing…' : 'Rewrite with Magnus'}</button>
+            </div>
             {tailoring && <p className="job-meta" role="status">Magnus is tailoring this to them. You can edit meanwhile; it will not overwrite your changes.</p>}
             {tailorError && <div className="banner banner-bad" role="alert">{tailorError} The standard draft is below.</div>}
             {waiting && (
@@ -129,11 +127,11 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
           </>
         )}
         <div className="confirm-actions">
-          <button type="button" className="btn" onClick={onClose} disabled={sending}>Cancel</button>
+          <button type="button" className="btn" onClick={onClose} disabled={sending}>Close</button>
           {draft && <a className="btn" href={mailto}>Open in mail app</a>}
           {draft && (
-            <button type="button" className="btn primary" onClick={send} disabled={sending || !draft.canSend || !subject.trim() || !body.trim()} title={draft.canSend ? undefined : 'Email sending is not configured on this server.'}>
-              {sending ? 'Sending…' : 'Send'}
+            <button type="button" className="btn primary" onClick={send} disabled={sending || sent || !draft.canSend || !subject.trim() || !body.trim()} title={draft.canSend ? undefined : 'Email sending is not configured on this server.'}>
+              {sent ? 'Sent' : sending ? 'Sending…' : 'Send'}
             </button>
           )}
         </div>

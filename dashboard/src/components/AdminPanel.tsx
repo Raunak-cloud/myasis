@@ -988,9 +988,10 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
       {open && <UserDrawer key={open} userId={open} onClose={() => setOpen(null)} onChanged={load} onOpenRun={onOpenRun} onEmail={setEmailing} />}
       {emailing && (
         <AdminEmailDialog
+          key={emailing}
           userId={emailing}
           onClose={() => setEmailing(null)}
-          onSent={(to) => { setEmailing(null); setNotice(`Email sent to ${to}.`); load(); }}
+          onSent={(to) => { setNotice(`Email sent to ${to}.`); load(); }}
         />
       )}
     </div>
