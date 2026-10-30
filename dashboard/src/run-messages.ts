@@ -17,6 +17,7 @@ const PLAIN: Array<[RegExp, string]> = [
     'The job could not be checked reliably against your instructions. Please try again later.'],
   [/capmonster|captcha|cloudflare|security (?:check|verification)|anti-bot/i,
     "The site's security check could not be completed."],
+  [/\bGmail\s+MCP\b[\s\S]*\b(?:unreachable|unavailable|failed|timeout|timed out|could not|cannot)\b/i, 'Email verification is pending.'],
   [/CELERIS_API_KEY|matching service is not configured|\bAPI[ _-]?key\b/i,
     'A service needed for this run is unavailable. Please try again later.'],
   [/browser has disconnected|has been closed|Target closed/i,
@@ -68,7 +69,7 @@ export function plainReason(reason: string): string {
     translated = wording.includes('$1') ? withoutInternalRefs.replace(pattern, wording) : wording;
     break;
   }
-  const plain = translated.replace(METER, '').trim();
+  const plain = translated.replace(METER, '').replace(/\bGmail\s+MCP\b/gi, 'Gmail').trim();
   // Unknown diagnostic text must not become product copy, including provider
   // errors nested inside an otherwise readable reason.
   if (/\b(?:[A-Z][A-Z_]+_(?:KEY|TOKEN|URL)|[A-Za-z]+Error|HTTP\s*\d{3}|status(?: code)?[\s:=]+[45]\d{2})\b|\b(?:token|prompt|completion)\s*(?:count|budget|limit|[:=]\s*\d)|https?:\/\/|\bat .+\.(?:ts|js):\d+|\b(?:locator|page|browser|context)\.[a-z]+|Call log:|\b(?:selector|stack trace)\b/i.test(plain)) {

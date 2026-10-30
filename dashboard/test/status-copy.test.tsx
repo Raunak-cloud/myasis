@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { AttentionPanel } from '../src/components/AttentionPanel';
 import { ApplicationsPanel } from '../src/components/ApplicationsPanel';
 import { PreparedApplications } from '../src/components/PreparedApplications';
-import { preparedStatusLabel, userFacingError } from '../src/run-messages';
+import { plainReason, preparedStatusLabel, userFacingError } from '../src/run-messages';
 
 test('attention loading and errors never claim the list is empty', () => {
   for (const props of [{ loading: true }, { loadError: 'Could not check your jobs. Please try again.' }]) {
@@ -40,4 +40,13 @@ test('normal users see their actual question without diagnostic logs or a trace 
   assert.doesNotMatch(html, /TypeError|HTTP|View steps/);
   assert.match(renderToStaticMarkup(<AttentionPanel items={[item]} isAdmin />), /View steps/);
   assert.doesNotMatch(userFacingError(new Error('TypeError: HTTP 503 at https://private.example')), /TypeError|503|private/);
+});
+
+test('mailbox transport failures show a pending verification state without changing successful reads', () => {
+  const reason = 'The account requires email verification. The Gmail MCP is unreachable, so the link cannot be retrieved programmatically.';
+  const item = { jobId: 'mail-test', title: 'Analyst', company: 'Employer', kind: 'verification' as const, reason, url: 'https://example.test', at: '2026-10-30T00:00:00Z' };
+  const html = renderToStaticMarkup(<AttentionPanel items={[item]} />);
+  assert.match(html, /Email verification is pending/);
+  assert.doesNotMatch(html, /MCP|unreachable|programmatically/);
+  assert.equal(plainReason('Read the verification link through Gmail MCP.'), 'Read the verification link through Gmail.');
 });
