@@ -660,10 +660,12 @@ export async function handleAdminRequest(
         return send({ ok: true, user: await userRow(target) });
       }
       case 'run': {
+        const schedule = await scheduleFor(target.id);
         const result = await startRun({
           userId: target.id,
           email: target.email,
           mode: 'live',
+          applicationMode: body?.applicationMode ?? schedule?.application_mode ?? 'auto',
           trigger: 'admin',
           startedBy: actor.id,
           initiatorDevice: runDeviceFromHeaders(req.headers ?? {}),
