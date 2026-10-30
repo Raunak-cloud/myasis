@@ -226,7 +226,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: request.reasoningEffort ?? 'low' } : {}) };
 
   const startedAt = performance.now();
-  const deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
+  let deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
   let lastError: unknown;
   let unusableReply: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -347,6 +347,15 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         // Ask for a fresh concise response rather than repeating a degenerate
         // punctuation loop until the same token limit is reached.
         body.messages = [...request.messages, { role: 'user', content: 'Your previous response was unusable. Return one concise, complete response in the required format, with no repeated filler or punctuation.' }];
+        // A completed but truncated generation is not a slow network retry.
+        // Give its one resample a full request window and more output room;
+        // otherwise a long first generation leaves only seconds to produce
+        // the same required tool call. Explicit enclosing deadlines and the
+        // charged application spending meter still take precedence.
+        deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
+        if (error instanceof ReplyTruncatedError && Number(body.max_tokens) < 16_384) {
+          body.max_tokens = Math.min(16_384, Number(body.max_tokens) * 2);
+        }
         continue;
       }
       const detail = (error as Error).message ?? String(error);

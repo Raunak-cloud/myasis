@@ -127,3 +127,29 @@ test('truncated generation followed by a timeout reports both failures instead o
     error => /provider timed out/.test(String(error)) && /length limit/.test(String(error)) && !/no new request was sent/.test(String(error)));
   assert.equal(calls, 2);
 });
+
+test('a long truncated generation gets one fresh request window and room for its complete reply', async () => {
+  const originalNow = Date.now, originalTimeout = AbortSignal.timeout;
+  let elapsed = 0, calls = 0;
+  const windows: number[] = [];
+  Date.now = () => originalNow() + elapsed;
+  AbortSignal.timeout = milliseconds => { windows.push(milliseconds); return originalTimeout(milliseconds); };
+  try {
+    globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      calls++;
+      if (calls === 1) {
+        assert.equal(body.max_tokens, 8192);
+        elapsed = 55_000; // Simulate a long generation without a slow test.
+        return Response.json({ choices: [{ message: { content: '' }, finish_reason: 'length' }], usage: { completion_tokens: 8192 } });
+      }
+      assert.equal(body.max_tokens, 16_384);
+      assert.ok(windows.at(-1)! > 10_000, 'resample is not confined to the first generation\'s remaining five seconds');
+      assert.match(body.messages.at(-1).content, /concise, complete/);
+      return success();
+    };
+    const result = await withApplicationModel(environment('long-generation-resample'), () => celerisChat({ ...request, maxTokens: 8192 }));
+    assert.equal(result.text, 'fixture answer');
+    assert.equal(calls, 2);
+  } finally { Date.now = originalNow; AbortSignal.timeout = originalTimeout; }
+});
