@@ -5,7 +5,7 @@ export interface ApplicationWorkPreferences {
 }
 
 /** Shared reasoning policy for answering and independently reviewing a form. */
-export const WORK_PREFERENCE_POLICY = `ROUTINE WORK-ARRANGEMENT POLICY
+const WORK_PREFERENCE_POLICY = `ROUTINE WORK-ARRANGEMENT POLICY
 The candidate's saved application preferences are evidence of willingness to
 work in those arrangements, not merely job-discovery filters. Resolve ordinary
 questions about comfort or willingness to attend the office, including a stated

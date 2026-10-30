@@ -1,4 +1,4 @@
-export const APPLICATION_MODELS = ['celeris'] as const;
+const APPLICATION_MODELS = ['celeris'] as const;
 
 export function applicationModelSettingsError(updates: Record<string, unknown>, admin: boolean): { status: number; error: string } | null {
   if (updates.APPLICATION_AI_MODEL === undefined) return null;

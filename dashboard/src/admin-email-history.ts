@@ -1,4 +1,4 @@
-export interface SentAdminEmail {
+interface SentAdminEmail {
   id: string;
   subject: string;
   body: string;

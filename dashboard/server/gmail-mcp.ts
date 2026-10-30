@@ -5,7 +5,7 @@ import { GmailMcpClient, type GmailMessage } from '../../seek-bot/src/gmail-mcp-
 import { gmailAccess } from './gmail-access.js';
 import { registerGmailBrowser, searchBrowserGmail, readBrowserGmail } from '../../seek-bot/src/gmail-browser.js';
 
-export function gmailApiMessage(raw: Record<string, any>): GmailMessage {
+function gmailApiMessage(raw: Record<string, any>): GmailMessage {
   const headers = raw.payload?.headers || [];
   const header = (name: string) => headers.find((entry: { name: string }) => entry.name?.toLowerCase() === name)?.value || '';
   const text: string[] = [], html: string[] = [];
@@ -23,7 +23,7 @@ export function gmailApiMessage(raw: Record<string, any>): GmailMessage {
     date: Number.isFinite(stamp) && stamp > 0 ? new Date(stamp).toISOString() : header('date'),
     plaintextBody: text.join('\n').slice(0, 20_000), htmlBody: html.join('\n').slice(0, 80_000), snippet: raw.snippet, labelIds: raw.labelIds };
 }
-export const gmailMcp = new GmailMcpService({
+const gmailMcp = new GmailMcpService({
   search: async (userId, query) => {
     const access = await gmailAccess(userId);
     if (!access.connected) throw new Error('Reconnect Gmail in Settings.');

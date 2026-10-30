@@ -4,7 +4,10 @@ interface GmailStatus { eligible?: boolean; needed?: boolean; connected: boolean
   provider?: 'browser' | 'mcp'; providers?: Array<'browser' | 'mcp'>; admin?: boolean }
 export function GmailConnect({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<GmailStatus | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    const result = new URLSearchParams(location.search);
+    return result.get('gmail') === 'error' ? result.get('gmail_error') || 'Gmail could not connect.' : '';
+  });
   const [busy, setBusy] = useState(false);
   async function load() {
     const response = await fetch('/api/gmail/status');
@@ -12,9 +15,9 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
     setStatus(await response.json());
   }
   useEffect(() => {
-    void load().catch(reason => setError(reason.message));
-    const result = new URLSearchParams(location.search);
-    if (result.get('gmail') === 'error') setError(result.get('gmail_error') || 'Gmail could not connect.');
+    void (async () => {
+      try { await load(); } catch (reason) { setError((reason as Error).message); }
+    })();
     const refresh = () => { void load().catch(reason => setError(reason.message)); };
     window.addEventListener('gmail-connection-changed', refresh);
     window.addEventListener('setup-status-changed', refresh);

@@ -11,7 +11,7 @@ export const MAX_SEARCH_CANDIDATES = MAX_SEARCH_TERMS * 2;
 export const MAX_RESUME_CHARS = 40_000;
 export const MAX_COMBINED_RESUME_CHARS = 60_000;
 
-export function searchTermKey(value: string): string {
+function searchTermKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim();
 }
 

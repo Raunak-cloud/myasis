@@ -119,8 +119,7 @@ export default function App() {
   const [appsError, setAppsError] = useState<string | null>(null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
   const [preparedCount, setPreparedCount] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  const [loadedLastRunAt, setLastRunAt] = useState<string | null>(null);
   const [today, setToday] = useState<TodayStats>({ runs: 0, reviewed: 0, submitted: 0 });
   const [todayAvailable, setTodayAvailable] = useState(false);
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref());
@@ -134,9 +133,7 @@ export default function App() {
   const [boardsOpen, setBoardsOpen] = useState(false);
   /** Operator pages are only offered to admins; their APIs enforce the same restriction. */
   const isAdmin = entitlements?.tier === 'admin';
-  useEffect(() => {
-    if (entitlements && !isAdmin && (tab === 'admin' || tab === 'marketing')) setTab('run');
-  }, [entitlements, isAdmin, tab]);
+  if (entitlements && !isAdmin && (tab === 'admin' || tab === 'marketing')) setTab('run');
   /** What is in front of the visitor: the landing page while signed out, otherwise the tab. */
   useEffect(() => {
     // A first-time visitor already has the landing page in front of them while
@@ -199,11 +196,15 @@ export default function App() {
     if (validToday) setToday(todayStats as TodayStats);
   }, []);
 
-  useEffect(() => {
+  const [loadedUserId, setLoadedUserId] = useState(user?.id);
+  if (loadedUserId !== user?.id) {
+    setLoadedUserId(user?.id);
     setApps([]); setAttention([]); setPreparedCount(0);
     setAppsLoading(true); setAttentionLoading(true);
     setAppsError(null); setAttentionError(null); setTodayAvailable(false);
-    if (user?.id) void load();
+  }
+  useEffect(() => {
+    if (user?.id) void (async () => { await load(); })();
   }, [load, user?.id]);
 
   useEffect(() => {
@@ -217,18 +218,27 @@ export default function App() {
    * say so.
    */
   const runStatus = useRunStatus();
+  const running = Boolean(runStatus?.running);
+  const lastRunAt = runStatus?.startedAt ?? loadedLastRunAt;
+  const { exitCode, applicationMode, prepared, applied } = runStatus ?? {};
   const wasRunning = useRef(false);
   useEffect(() => {
-    if (!runStatus) return;
-    setRunning(Boolean(runStatus.running));
-    if (typeof runStatus.startedAt === 'string') setLastRunAt(runStatus.startedAt);
-    if (wasRunning.current && !runStatus.running) {
-      void load();
-      setToast(runStatus.exitCode !== null && runStatus.exitCode !== 0 ? 'The run stopped. Check Activity for the result.' : runStatus.applicationMode === 'semi-auto' ? `Preparation finished, ${runStatus.prepared ?? 0} ready for review` : `Run finished${runStatus.applied ? `, ${runStatus.applied} submitted` : ''}`);
-      window.setTimeout(() => setToast(null), 6000);
-    }
-    wasRunning.current = Boolean(runStatus.running);
-  }, [runStatus, load]);
+    const finished = wasRunning.current && !running;
+    wasRunning.current = running;
+    if (!finished) return;
+    let active = true;
+    void (async () => {
+      await load();
+      if (!active) return;
+      setToast(exitCode != null && exitCode !== 0 ? 'The run stopped. Check Activity for the result.' : applicationMode === 'semi-auto' ? `Preparation finished, ${prepared ?? 0} ready for review` : `Run finished${applied ? `, ${applied} submitted` : ''}`);
+    })();
+    return () => { active = false; };
+  }, [running, exitCode, applicationMode, prepared, applied, load]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const stats = useMemo(() => {
     const week = apps.filter((app) => !app.confirmationStatus && daysSince(app.appliedAt) <= 7).length;

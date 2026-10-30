@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { COVER_LETTER_INSTRUCTION_WORD_LIMIT, instructionWordCount } from '../../../seek-bot/src/cover-letter-policy.js';
 import { plainReason, preparedStatusLabel, userFacingError } from '../run-messages';
 import { decodeSettingText, encodeSettingText } from '../runSettings';
@@ -47,7 +47,7 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
     }).catch(reason => { if (alive) setError(reason.message); });
     return () => { alive = false; };
   }, []);
-  const load = async (signal?: AbortSignal) => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     const response = await fetch('/api/application-reviews', { signal });
     if (!response.ok) throw new Error('Could not load prepared applications.');
     const data = await response.json();
@@ -57,15 +57,16 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
     setReviews(applications);
     setLoading(false); setLoadError('');
     onCountChange(applications.filter(item => item.status === 'ready').length);
-  };
+  }, [onCountChange]);
+  const editingLetter = editing !== null;
   useEffect(() => {
-    if (editing || busy) return;
+    if (editingLetter || busy) return;
     const controller = new AbortController();
     const refresh = () => { void load(controller.signal).catch(() => { if (!controller.signal.aborted) { setLoadError('Could not load prepared applications. Please try again.'); setLoading(false); } }); };
     refresh();
     const timer = window.setInterval(refresh, 10000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [running, onCountChange, Boolean(editing), busy]);
+  }, [running, load, editingLetter, busy]);
   const chosen = reviews.filter(item => item.status === 'ready' && selected.has(item.id));
   async function saveInstructions() {
     if (savingInstructions || !preferencesLoaded || !preferencesChanged || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT

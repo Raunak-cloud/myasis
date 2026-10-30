@@ -155,6 +155,10 @@ interface TraceStep {
  * the form that actually blocked the application.
  */
 export function TraceSteps({ jobId, questions = [], endpoint }: { jobId: string; questions?: BlockedQuestion[]; endpoint?: string }) {
+  return <TraceContent key={JSON.stringify([jobId, endpoint])} jobId={jobId} questions={questions} endpoint={endpoint} />;
+}
+
+function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions: BlockedQuestion[]; endpoint?: string }) {
   const [steps, setSteps] = useState<TraceStep[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** A capture opened over the page, for when full-row width still is not enough. */
@@ -162,8 +166,6 @@ export function TraceSteps({ jobId, questions = [], endpoint }: { jobId: string;
 
   useEffect(() => {
     let cancelled = false;
-    setSteps(null);
-    setError(null);
     void (async () => {
       try {
         const response = await fetch(endpoint ?? `/api/trace?jobId=${encodeURIComponent(jobId)}`);

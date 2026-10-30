@@ -1,4 +1,4 @@
-export type SearchArrangement = 'onsite' | 'hybrid' | 'remote';
+type SearchArrangement = 'onsite' | 'hybrid' | 'remote';
 
 export interface DiscoverySearch {
   location: string;

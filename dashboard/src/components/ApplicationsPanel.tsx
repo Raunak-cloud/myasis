@@ -94,11 +94,16 @@ const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
 export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false, showCosts = false, loading = false, loadError = null }: Props) {
   const [costs, setCosts] = useState<Record<string, ApplicationCost>>({});
   const [costError, setCostError] = useState(false);
-  const [costLoading, setCostLoading] = useState(false);
+  const costsEnabled = showCosts && !loading && !loadError;
+  const [costLoading, setCostLoading] = useState(Boolean(costsEnabled));
+  const [costContext, setCostContext] = useState({ apps, enabled: costsEnabled });
+  if (costContext.apps !== apps || costContext.enabled !== costsEnabled) {
+    setCostContext({ apps, enabled: costsEnabled });
+    setCosts({}); setCostError(false); setCostLoading(Boolean(costsEnabled));
+  }
   useEffect(() => {
-    if (!showCosts || loading || loadError) { setCosts({}); return; }
+    if (!showCosts || loading || loadError) return;
     let cancelled = false;
-    setCostLoading(true);
     fetch('/api/applications/costs').then(async response => {
       if (!response.ok) throw new Error('Cost data unavailable');
       const data = await response.json();

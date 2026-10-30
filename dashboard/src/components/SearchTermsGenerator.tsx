@@ -31,8 +31,10 @@ export function SearchTermsGenerator({
   const [priorSuggestedTerms, setPriorSuggestedTerms] = useState<string[]>([]);
   const entitlements = useEntitlements();
   /** Null until known and when unlimited; a number on the free plan. */
-  const [left, setLeft] = useState<number | null>(null);
-  useEffect(() => setLeft(entitlements?.searchTermSuggestionsLeft ?? null), [entitlements]);
+  const allowance = entitlements?.searchTermSuggestionsLeft ?? null;
+  const [usage, setUsage] = useState<{ allowance: number | null; used: number }>({ allowance, used: 0 });
+  if (usage.allowance !== allowance) setUsage({ allowance, used: 0 });
+  const left = allowance === null ? null : Math.max(0, allowance - usage.used);
   const exhausted = left !== null && left <= 0;
 
   useEffect(() => {
@@ -128,7 +130,7 @@ export function SearchTermsGenerator({
         [...new Set([...previous, ...current, ...terms].map((term) => term.toLowerCase()))]
       ));
       onGenerated(terms.join(', '));
-      if (left !== null) setLeft(left - 1);
+      if (left !== null) setUsage(current => ({ ...current, used: current.used + 1 }));
       const label = typeof result.resumeLabel === 'string' ? result.resumeLabel : 'your selected resumes';
       setMessage(`Suggested ${terms.length} job titles from ${label}. Review them, then save.`);
     } catch (error) {

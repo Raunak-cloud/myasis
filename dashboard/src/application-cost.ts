@@ -5,7 +5,7 @@ export interface UsageEvent {
   provider?: string; model?: string; amountUsd?: number | null;
   basis?: 'provider' | 'estimated' | 'unknown'; detail?: string; quantity?: number; unit?: string;
 }
-export interface CostLine {
+interface CostLine {
   provider: string; model?: string; allocation: 'direct' | 'shared';
   amountUsd: number; knownCharges: number; unknownCharges: number;
   calls: number; details: string[];

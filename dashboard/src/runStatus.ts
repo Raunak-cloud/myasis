@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 /**
  * The state of this account's run, polled once for the whole page.
@@ -32,7 +32,7 @@ interface RunStatus {
 /** The faster of the two rates the components used, so nothing became less responsive. */
 const POLL_MS = 1_500;
 
-const subscribers = new Set<(status: RunStatus) => void>();
+const subscribers = new Set<() => void>();
 let timer: number | null = null;
 /** The last answer, handed to a new subscriber so it need not wait for the next tick. */
 let latest: RunStatus | null = null;
@@ -44,35 +44,33 @@ async function poll(): Promise<void> {
     const status = (await response.json()) as RunStatus;
     if (typeof status.running !== 'boolean') throw new Error('Status unavailable');
     latest = status;
-    for (const notify of subscribers) notify(status);
+    for (const notify of subscribers) notify();
   } catch {
     // The server may be restarting; the next tick will pick it up.
     if (latest) {
       latest = { ...latest, connectionLost: true };
-      for (const notify of subscribers) notify(latest);
+      for (const notify of subscribers) notify();
     }
   }
 }
 
-export function useRunStatus(): RunStatus | null {
-  const [status, setStatus] = useState<RunStatus | null>(latest);
-
-  useEffect(() => {
-    subscribers.add(setStatus);
-    // A tab reopened mid-run should not show a blank panel until the next tick.
-    if (latest) setStatus(latest);
-    if (timer === null) {
-      void poll();
-      timer = window.setInterval(() => void poll(), POLL_MS);
+function subscribe(notify: () => void) {
+  subscribers.add(notify);
+  if (timer === null) {
+    void poll();
+    timer = window.setInterval(() => void poll(), POLL_MS);
+  }
+  return () => {
+    subscribers.delete(notify);
+    if (subscribers.size === 0 && timer !== null) {
+      window.clearInterval(timer);
+      timer = null;
     }
-    return () => {
-      subscribers.delete(setStatus);
-      if (subscribers.size === 0 && timer !== null) {
-        window.clearInterval(timer);
-        timer = null;
-      }
-    };
-  }, []);
+  };
+}
+const snapshot = () => latest;
+const serverSnapshot = () => null;
 
-  return status;
+export function useRunStatus(): RunStatus | null {
+  return useSyncExternalStore(subscribe, snapshot, serverSnapshot);
 }

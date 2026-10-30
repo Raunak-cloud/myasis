@@ -53,6 +53,8 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
 
   useEffect(() => {
     let closed = false;
+    // This counter belongs to the request lifecycle, rather than a DOM node.
+    const pendingRequest = request;
     api<Draft>(`/users/${userId}/email`)
       .then((next) => {
         if (closed) return;
@@ -60,7 +62,7 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
         tailor('');
       })
       .catch((reason) => { if (!closed) setError((reason as Error).message); });
-    return () => { closed = true; request.current++; };
+    return () => { closed = true; pendingRequest.current++; };
   }, [userId, tailor]);
 
   useEffect(() => {

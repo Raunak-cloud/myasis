@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PAID_PLANS, PASS_PLAN_KEYS, aud } from '../pricing';
 import { api } from '../adminApi';
+import { useNow } from '../useNow';
 import { ServerView } from './ServerView';
 import { EnvView } from './EnvView';
 import { SimulateView } from './SimulateView';
@@ -124,12 +125,13 @@ const clock = (iso: string) =>
   new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: TIME_ZONE }).format(new Date(iso));
 
 function NextRun({ user }: { user: Pick<AdminUser, 'autoApply' | 'blockedAt'> }) {
+  const now = useNow();
   const { paused, nextRunAt, applicationMode } = user.autoApply;
   if (user.blockedAt) return <span className="badge muted">Blocked</span>;
   if (paused) return <span className="job-meta">Paused</span>;
   if (!nextRunAt) return <span className="job-meta">Not scheduled</span>;
   return <><time dateTime={nextRunAt}>{when(nextRunAt)}</time>
-    <div className="job-meta">{Date.parse(nextRunAt) <= Date.now() ? 'Waiting to start · ' : ''}{applicationMode === 'semi-auto' ? 'Semi auto' : 'Auto apply'}</div></>;
+    <div className="job-meta">{Date.parse(nextRunAt) <= now ? 'Waiting to start · ' : ''}{applicationMode === 'semi-auto' ? 'Semi auto' : 'Auto apply'}</div></>;
 }
 
 function duration(run: Pick<AdminRun, 'startedAt' | 'finishedAt' | 'running'>): string {
@@ -370,7 +372,6 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
     api<UserDetail>(`/users/${userId}`).then(setUser).catch((reason) => setError((reason as Error).message));
   }, [userId]);
   useEffect(load, [load]);
-  useEffect(() => setExternalConfirmation(null), [userId]);
   useEffect(() => {
     if (!externalConfirmation) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -386,11 +387,13 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   }, [externalConfirmation]);
   // Reflects the server's own numbers, including after a save is clamped to
   // the platform ceiling — not just what was typed.
-  useEffect(() => {
+  const [formUser, setFormUser] = useState(user);
+  if (formUser !== user) {
+    setFormUser(user);
     setEvaluationsInput(user?.overrides.evaluationsPerRun != null ? String(user.overrides.evaluationsPerRun) : '');
     setHomeRouteInput(user?.route.homePort != null ? String(user.route.homePort) : '');
     setProxyInput(user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '');
-  }, [user]);
+  }
 
   function saveLimits() {
     const parse = (raw: string): number | null | 'invalid' => {
@@ -982,7 +985,7 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
         </StackedTable>
         {!rows.length && <p className="job-meta admin-empty">No accounts match.</p>}
       </div>
-      {open && <UserDrawer userId={open} onClose={() => setOpen(null)} onChanged={load} onOpenRun={onOpenRun} onEmail={setEmailing} />}
+      {open && <UserDrawer key={open} userId={open} onClose={() => setOpen(null)} onChanged={load} onOpenRun={onOpenRun} onEmail={setEmailing} />}
       {emailing && (
         <AdminEmailDialog
           userId={emailing}

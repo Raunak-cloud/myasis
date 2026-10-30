@@ -91,7 +91,7 @@ async function allocate(): Promise<Lease> {
   throw new Error('No free sign-in display or local browser port. Please retry shortly.');
 }
 
-export async function vncReady(port: number): Promise<boolean> {
+async function vncReady(port: number): Promise<boolean> {
   return new Promise(done => {
     const socket = createConnection({ host: '127.0.0.1', port });
     let bytes = Buffer.alloc(0);

@@ -14,7 +14,7 @@ export function parseCostEvent(line: string): UsageEvent | null {
     return value;
   } catch { return null; }
 }
-export function readCostJournal(dir: string): UsageEvent[] {
+function readCostJournal(dir: string): UsageEvent[] {
   const path = resolve(dir, 'cost-ledger.jsonl');
   if (!existsSync(path)) return [];
   return readFileSync(path, 'utf8').split('\n').flatMap(line => { const event = parseCostEvent(line); return event ? [event] : []; });

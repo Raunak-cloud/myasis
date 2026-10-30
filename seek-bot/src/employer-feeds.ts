@@ -7,7 +7,6 @@ import { parseAgeDays } from './listing-age.js';
 
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
 type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number };
-export const EMPLOYER_FEED_PAGE_SIZE = 20;
 const key = (source: string, namespace: string, id: string) => `${source}-${createHash('sha256').update(`${namespace}:${id}`).digest('hex').slice(0, 32)}`;
 const clean = (value: unknown, limit = 50_000): string => typeof value === 'string' ? value.trim().slice(0, limit) : '';
 export function feedText(value: unknown): string {

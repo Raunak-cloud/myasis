@@ -6,7 +6,7 @@ import { config } from '../config.js';
 import { applicationModelEnvironment, withApplicationModel } from '../application-model.js';
 import { captchaDiagnosticSecrets, safeCaptchaDiagnostic } from '../captcha/diagnostics.js';
 
-export interface AttemptIdentity {
+interface AttemptIdentity {
   attemptId: string; runStartId?: string; jobId: string; title: string; company: string;
   startedAt: string; mode: string;
 }
@@ -19,7 +19,7 @@ export function bindAttemptCallback<T extends (...args: any[]) => any>(callback:
   const env = applicationModelEnvironment();
   return (identity ? (...args: Parameters<T>) => withApplicationModel(env, () => scope.run(identity, () => callback(...args))) : callback) as T;
 }
-export const diagnosticRunId = () => /^\d+$/.test(applicationModelEnvironment().OWTOMATE_RUN_START_ID ?? '') ? applicationModelEnvironment().OWTOMATE_RUN_START_ID : undefined;
+const diagnosticRunId = () => /^\d+$/.test(applicationModelEnvironment().OWTOMATE_RUN_START_ID ?? '') ? applicationModelEnvironment().OWTOMATE_RUN_START_ID : undefined;
 
 export function recordDiagnostic(input: {
   severity: 'info' | 'warning' | 'error'; category: string; stage: string;

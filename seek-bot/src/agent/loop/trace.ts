@@ -34,7 +34,7 @@ function hostOf(url: string): string {
 }
 
 const SITE_HINTS = () => resolve(config.dataDir, 'site-hints.json');
-export const TRACE_DIR = () => resolve(config.dataDir, 'traces');
+const TRACE_DIR = () => resolve(config.dataDir, 'traces');
 
 /** Keep the latest-job aliases for compatibility; retain a distinct, atomic attempt record. */
 export function persistLiveTrace(job: JobListing, trace: TraceStep[]): void {

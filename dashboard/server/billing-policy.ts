@@ -2,7 +2,7 @@ import { PAID_PLANS, PASS_PLAN_KEYS, isPassPlanKey, type PaidPlanKey, type PassP
 import type { BillingOffer, BillingOffers } from '../src/billing-offers.js';
 
 export const DAY_MS = 86_400_000;
-export const QUOTE_LIFETIME_MS = 10 * 60_000;
+const QUOTE_LIFETIME_MS = 10 * 60_000;
 export const CHECKOUT_LIFETIME_SECONDS = 31 * 60;
 export class BillingPolicyError extends Error {
   status: number;
@@ -26,7 +26,7 @@ export interface CheckoutQuote extends BillingOffer {
   target: { priceCents: number; durationDays: number; applications: number; employerSiteApplications: number };
   periodStartedAt: string | null;
 }
-export function planRank(key: PassPlanKey): number { return PASS_PLAN_KEYS.indexOf(key); }
+function planRank(key: PassPlanKey): number { return PASS_PLAN_KEYS.indexOf(key); }
 
 function prorate(deltaNumerator: bigint, denominator: bigint, remainingMs: number, roundUp: boolean): number {
   if (deltaNumerator <= 0n) return 0;

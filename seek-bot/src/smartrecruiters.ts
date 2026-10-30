@@ -3,7 +3,7 @@ import type { JobListing } from './types.js';
 import { listingAgeCutoff } from './listing-age.js';
 
 const SMARTRECRUITERS_DEFAULT_COMPANIES = 'Canva,KPMGAustralia1,Colliers';
-export const SMARTRECRUITERS_PAGE_SIZE = 50;
+const SMARTRECRUITERS_PAGE_SIZE = 50;
 
 /** Employer identifiers, never URLs; all API requests use the fixed public host. */
 export function smartRecruitersCompanies(raw: string): string[] {

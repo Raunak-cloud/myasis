@@ -5,12 +5,12 @@ export type { LiveActivity } from './live-activity.js';
 
 export type LiveWorkerId = 'main' | 'seek' | 'indeed';
 export const LIVE_WORKERS_FILE = 'live-workers.json';
-export const LIVE_WORKER_LABELS: Record<LiveWorkerId, string> = {
+const LIVE_WORKER_LABELS: Record<LiveWorkerId, string> = {
   main: 'Browser', seek: 'SEEK worker', indeed: 'Indeed / employer feeds worker',
 };
 export interface LiveWorker { id: LiveWorkerId; label: string }
 export interface LiveTarget { targetId?: string; finished?: boolean; activity?: LiveActivity }
-export const liveTargetFile = (id: LiveWorkerId) => id === 'main' ? 'live-target.json' : `live-target-${id}.json`;
+const liveTargetFile = (id: LiveWorkerId) => id === 'main' ? 'live-target.json' : `live-target-${id}.json`;
 
 function atomicWrite(directory: string, name: string, value: unknown): void {
   mkdirSync(directory, { recursive: true });

@@ -7,6 +7,9 @@ const sentTime = (iso: string) => new Intl.DateTimeFormat('en-AU', {
 }).format(new Date(iso));
 
 export function AdminEmailHistory({ userId }: { userId: string }) {
+  return <EmailHistory key={userId} userId={userId} />;
+}
+function EmailHistory({ userId }: { userId: string }) {
   const [history, setHistory] = useState<AdminEmailHistoryPage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -25,8 +28,9 @@ export function AdminEmailHistory({ userId }: { userId: string }) {
   }, [userId]);
   useEffect(() => {
     controller.current = new AbortController();
-    setHistory(null); void load();
-    return () => controller.current?.abort();
+    const pending = controller.current;
+    void (async () => { await load(); })();
+    return () => pending.abort();
   }, [load]);
 
   return <section className="admin-email-history" aria-label="Sent email history">

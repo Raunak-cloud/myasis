@@ -23,7 +23,7 @@ import type { Brief } from './core/types.js';
  *   published that it changes citations, so it is reported as optional.
  */
 
-export interface CrawlerRule {
+interface CrawlerRule {
   token: string;
   vendor: string;
   role: 'search' | 'user-fetch' | 'training';
@@ -31,7 +31,7 @@ export interface CrawlerRule {
   effect: string;
 }
 
-export const AI_CRAWLERS: CrawlerRule[] = [
+const AI_CRAWLERS: CrawlerRule[] = [
   { token: 'OAI-SearchBot', vendor: 'OpenAI', role: 'search', effect: 'Sites that block OAI-SearchBot are not shown in ChatGPT search answers.' },
   { token: 'ChatGPT-User', vendor: 'OpenAI', role: 'user-fetch', effect: 'Stops ChatGPT opening your pages when a user asks about them; robots rules may not apply to user-triggered visits.' },
   { token: 'GPTBot', vendor: 'OpenAI', role: 'training', effect: 'Excludes future content from OpenAI training. Does not affect ChatGPT search inclusion.' },
@@ -144,7 +144,7 @@ export interface PageReadiness {
   lang: string;
 }
 
-export interface ReadinessFinding {
+interface ReadinessFinding {
   id: string;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   area: 'crawler access' | 'rendering' | 'content' | 'structured data' | 'entity' | 'visibility' | 'files';

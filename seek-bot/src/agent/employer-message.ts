@@ -1,6 +1,6 @@
 import type { Page } from 'patchright';
 
-export const normaliseEmployerText = (text: string): string => text.replace(/\s+/g, ' ').trim();
+const normaliseEmployerText = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
 /** Magnus judges meaning. Code grounds its complete quoted message in fresh,
  * visible employer copy, without a vocabulary of success phrases.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { MarketingSite, MarketingWorkspace } from '../marketingTypes';
 import { marketingApi as api } from './marketingApi';
 import type { GrowthView } from './MarketingGrowth';
@@ -13,7 +13,6 @@ export function MarketingAutopilot({data,path,busy,running,act,onView}:{
   const [goal,setGoal]=useState<NonNullable<MarketingSite['growthGoal']>>(site.growthGoal || 'traffic');
   const [provider,setProvider]=useState<NonNullable<MarketingSite['growthAIProvider']>>(site.growthAIProvider || 'off');
   const [day,setDay]=useState(site.scheduleDay),[time,setTime]=useState(site.scheduleTime),[zone,setZone]=useState(site.timezone);
-  useEffect(()=>{setEnabled(site.scheduleEnabled);setMode(site.publishMode);setGoal(site.growthGoal || 'traffic');setProvider(site.growthAIProvider || 'off');setDay(site.scheduleDay);setTime(site.scheduleTime);setZone(site.timezone);},[site.scheduleEnabled,site.publishMode,site.growthGoal,site.growthAIProvider,site.scheduleDay,site.scheduleTime,site.timezone]);
   const latest=data.jobs.find(j=>j.growthRun),report=latest?.growthRun;
   const connected=data.growth?.connection.connected && Boolean(data.growth.connection.searchProperty || data.growth.connection.gaProperty);
   return <section className="ma-card ma-autopilot">

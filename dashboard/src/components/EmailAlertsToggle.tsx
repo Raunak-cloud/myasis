@@ -1,20 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 function EmailPreferenceToggle({ endpoint, title, description }: { endpoint: string; title: string; description: string }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  async function load() {
-    setError('');
+  const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch(endpoint);
+      const response = await fetch(endpoint, { signal });
       const value = await response.json();
+      if (signal?.aborted) return;
       if (!response.ok || typeof value.enabled !== 'boolean') throw new Error();
-      setEnabled(value.enabled);
-    } catch { setError('Could not load this email preference. Please retry.'); }
-  }
-  useEffect(() => { void load(); }, [endpoint]);
+      setEnabled(value.enabled); setError('');
+    } catch { if (!signal?.aborted) setError('Could not load this email preference. Please retry.'); }
+  }, [endpoint]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => { await load(controller.signal); })();
+    return () => controller.abort();
+  }, [load]);
 
   async function toggle() {
     setSaving(true); setError('');

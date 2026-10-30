@@ -4,7 +4,7 @@ import { browserTargetProperties } from './browser-target.js';
 
 const targets = { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', additionalProperties: false, properties: browserTargetProperties }, description: 'Agent-selected native locators for the actual credential/code inputs, including frame and section scopes. Prefer these to refs for embedded forms.' };
 
-export const AUTHENTICATION_TOOL: ToolSchema = {
+const AUTHENTICATION_TOOL: ToolSchema = {
     name: 'complete_authentication',
     description:
       'Fill sign-in or account-creation fields using the candidate profile and the private site credential. ' +
@@ -43,7 +43,7 @@ export const AUTHENTICATION_TOOL: ToolSchema = {
     },
   };
 
-export const EMAILED_CODE_TOOL: ToolSchema = {
+const EMAILED_CODE_TOOL: ToolSchema = {
   name: 'enter_emailed_code',
   description:
     'When the page asks for a code that was emailed to the candidate (verification code, one-time passcode, sign-in code), ' +
@@ -61,7 +61,7 @@ export const EMAILED_CODE_TOOL: ToolSchema = {
   },
 };
 
-export const EMAILED_LINK_TOOL: ToolSchema = {
+const EMAILED_LINK_TOOL: ToolSchema = {
   name: 'open_emailed_link',
   description:
     'When the page says a verification, activation, confirmation or password-reset LINK was emailed to the candidate ' +

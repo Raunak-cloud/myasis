@@ -9,7 +9,7 @@ export function editablePath(raw:string,origin:string):string|null {
     return url.pathname==='/' || url.pathname==='/blog' || url.pathname==='/automate-job-applications-australia' || /^\/blog\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(url.pathname) ? url.pathname : null;
   } catch {return null;}
 }
-export const escapeHtml=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+const escapeHtml=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const decode=(text:string)=>text.replace(/&(?:amp|lt|gt|quot|apos|#39|#\d+|#x[\da-f]+);/gi,e=>{
   const named:Record<string,string>={'&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&apos;':"'",'&#39;':"'"};
   if(named[e.toLowerCase()]) return named[e.toLowerCase()];
@@ -17,7 +17,7 @@ const decode=(text:string)=>text.replace(/&(?:amp|lt|gt|quot|apos|#39|#\d+|#x[\d
   return n>0 && n<=0x10ffff?String.fromCodePoint(n):e;
 });
 const attr=(tag:string,key:string)=>decode(tag.match(new RegExp(`\\b${key}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,'i'))?.slice(1).find(v=>v!==undefined) || '');
-export const plainText=(html:string)=>decode(html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,' ').replace(/<[^>]*>/g,' ')).replace(/\s+/g,' ').trim();
+const plainText=(html:string)=>decode(html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,' ').replace(/<[^>]*>/g,' ')).replace(/\s+/g,' ').trim();
 const tags=(html:string,name:string)=>html.match(new RegExp(`<${name}\\b[^>]*>`,'gi')) || [];
 export function readPageFields(html:string) {
   return {
@@ -42,7 +42,7 @@ function headTag(html:string,match:(tag:string)=>boolean,name:string,replacement
   const result=html.replace(new RegExp(`<${name}\\b[^>]*>`,'gi'),tag=>{if(!match(tag)) return tag;if(replaced) return '';replaced=true;return replacement;});
   return replaced?result:result.replace(/<\/head\s*>/i,`${replacement}\n</head>`);
 }
-export function enhancementSection(patch:WebsitePatch):string {
+function enhancementSection(patch:WebsitePatch):string {
   if(!patch.summary && !patch.links?.length) return '';
   return `<section data-marketing-enhancements="true" aria-label="Page summary and related reading">${patch.summary?`<p>${escapeHtml(patch.summary)}</p>`:''}${patch.links?.length?`<nav aria-label="Related reading"><ul>${patch.links.map(l=>`<li><a href="${escapeHtml(l.href)}">${escapeHtml(l.text)}</a></li>`).join('')}</ul></nav>`:''}</section>`;
 }

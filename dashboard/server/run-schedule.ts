@@ -2,7 +2,7 @@ import { getPool, one } from './db/index.js';
 import type { PoolClient } from 'pg';
 
 export type ApplicationMode = 'auto' | 'semi-auto';
-export const SCHEDULE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const SCHEDULE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DAY_MS = SCHEDULE_INTERVAL_MS * 4;
 const latest = (a: Date | null, b: Date | null): Date | null => a || b ? new Date(Math.max(a ? +new Date(a) : 0, b ? +new Date(b) : 0)) : null;
 

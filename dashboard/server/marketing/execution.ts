@@ -28,7 +28,7 @@ async function writableSite(userId:string,siteId:string,requireProfile=true) {
   if(requireProfile && !site.profileConfirmed) throw new MarketingError('Confirm the website profile before applying improvements.',409);
   return site;
 }
-export async function readLivePage(raw:string) {
+async function readLivePage(raw:string) {
   const url=new URL(raw);url.searchParams.set('_marketing_check',randomUUID());
   const response=await publicFetch(url.href,{headers:{'Cache-Control':'no-cache','Accept':'text/html'},redirectOrigin:url.origin,timeoutMs:20000});
   if(response.status!==200 || !/text\/html/i.test(response.headers.get('content-type') || '')) throw new MarketingError('The public page did not return readable HTML. No change was verified.',409);

@@ -16,11 +16,16 @@ export interface BrowserSigninSession {
 /** Transport reconnects preserve the form. Process recovery is owned by the
  * server and announced through session revisions; never launch a second browser.
  */
-export function SigninViewer({ session, onConnectionChange, onRetry }: {
+interface ViewerProps {
   session: BrowserSigninSession;
   onConnectionChange: (connected: boolean) => void;
   onRetry: () => void;
-}) {
+}
+export function SigninViewer(props: ViewerProps) {
+  const session = props.session;
+  return <ViewerConnection key={JSON.stringify([session.id ?? session.startedAt, session.revision, session.state])} {...props} />;
+}
+function ViewerConnection({ session, onConnectionChange, onRetry }: ViewerProps) {
   const screen = useRef<HTMLDivElement>(null);
   const [retry, setRetry] = useState(0);
   const [connected, setConnected] = useState(false);
@@ -28,9 +33,8 @@ export function SigninViewer({ session, onConnectionChange, onRetry }: {
   const attempts = useRef(0);
   const state = session.state ?? 'ready';
   const identity = session.id ?? String(session.startedAt);
-  useEffect(() => { attempts.current = 0; setExhausted(false); }, [identity, session.revision]);
   useEffect(() => {
-    setConnected(false); onConnectionChange(false);
+    onConnectionChange(false);
     if (state !== 'ready' || !screen.current) return;
     let cancelled = false;
     let client: {disconnect: () => void} | undefined;

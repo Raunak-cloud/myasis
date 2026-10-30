@@ -9,7 +9,7 @@ import { applicationAllowance } from './application-allowance.js';
 
 export const gmailAvailable = () => Boolean(process.env.GMAIL_MCP_URL && process.env.GMAIL_MCP_TOKEN && process.env.GMAIL_MCP_ACCOUNT);
 export const gmailAccount = () => process.env.GMAIL_MCP_ACCOUNT || '';
-export function gmailClient(network?: typeof fetch) {
+function gmailClient(network?: typeof fetch) {
   if (!gmailAvailable()) throw new Error('Connect Gmail in Setup before reading verification emails or submitting email applications.');
   return new GmailMcpClient({ url: process.env.GMAIL_MCP_URL!, token: process.env.GMAIL_MCP_TOKEN!, account: gmailAccount() }, network);
 }

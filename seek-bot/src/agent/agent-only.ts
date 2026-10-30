@@ -58,7 +58,7 @@ const schema = (name: string, description: string, properties: Record<string, un
 });
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
-export const agentOnlyTools: ToolSchema[] = [
+const agentOnlyTools: ToolSchema[] = [
   applicationReviewTool,
   schema('add_cover_letter', 'Indeed fast path: supply your complete truthful tailored letter. Opens the known Supporting documents → Add → Write a cover letter flow, fills with normal input events, saves locally and reads back. Does not draft or submit the application. Use once when the application offers a letter channel. On fallback, inspect the live page and finish with normal browser tools; preserve completed work and do not call this shortcut repeatedly. Approved submissions always use the exact approved letter.', { text: { type: 'string', minLength: 1 } }, ['text']),
   schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the complete cover letter and selected account resume ID.', {

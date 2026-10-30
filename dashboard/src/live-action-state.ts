@@ -1,6 +1,6 @@
 import type { LiveActivity } from '../../seek-bot/src/live-activity.js';
 
-export interface LiveMessage {
+interface LiveMessage {
   type: 'attached' | 'ready' | 'frame' | 'navigated' | 'detached' | 'error' | 'waiting' | 'activity';
   activity?: LiveActivity | null;
   workerId?: string;

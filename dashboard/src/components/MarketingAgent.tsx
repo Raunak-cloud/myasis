@@ -9,19 +9,23 @@ const markets:Record<string,string>={AU:'Australia',US:'United States',GB:'Unite
 const date=(value:string)=>new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
 
 export function MarketingAgent() {
-  const [view,setView]=useState<GrowthView>('overview');
+  const [initialConnection]=useState(()=>new URLSearchParams(window.location.search).get('marketingConnection'));
+  const [view,setView]=useState<GrowthView>(initialConnection?'results':'overview');
   const [sites,setSites]=useState<MarketingSite[]>([]),[selected,setSelected]=useState(''),[data,setData]=useState<MarketingWorkspace|null>(null);
-  const selectedRef=useRef(selected);selectedRef.current=selected;
-  const [url,setUrl]=useState(''),[country,setCountry]=useState('AU'),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[configured,setConfigured]=useState(true);
+  const selectedRef=useRef(selected);
+  useEffect(()=>{selectedRef.current=selected;},[selected]);
+  const [dataSite,setDataSite]=useState(selected);
+  if(dataSite!==selected){setDataSite(selected);setData(null);}
+  const [url,setUrl]=useState(''),[country,setCountry]=useState('AU'),[error,setError]=useState(''),[notice,setNotice]=useState(initialConnection==='connected'?'Google reporting connected. Choose the reporting properties.':initialConnection?'Google reporting authorization was not completed.':''),[busy,setBusy]=useState(false),[configured,setConfigured]=useState(true);
   const loadSites=useCallback(async()=>{const requested=new URLSearchParams(window.location.search).get('marketingSite');const r=await api<{sites:MarketingSite[];writerConfigured:boolean}>('sites');setSites(r.sites);setConfigured(r.writerConfigured);setSelected(prev=>r.sites.some(s=>s.id===prev)?prev:r.sites.find(s=>s.id===requested)?.id || r.sites[0]?.id || '');},[]);
   const refresh=useCallback(async()=>{if(selected){const result=await api<MarketingWorkspace>(`sites/${selected}`);if(selectedRef.current===selected) setData(result);}},[selected]);
-  useEffect(()=>{void loadSites().catch(e=>setError(e.message));},[loadSites]);
-  useEffect(()=>{setData(null);void refresh().catch(e=>setError(e.message));},[refresh]);
+  useEffect(()=>{let active=true;void(async()=>{try{await loadSites();}catch(e){if(active)setError((e as Error).message);}})();return()=>{active=false;};},[loadSites]);
+  useEffect(()=>{let active=true;void(async()=>{try{await refresh();}catch(e){if(active)setError((e as Error).message);}})();return()=>{active=false;};},[refresh]);
   const running=data?.jobs.some(j=>j.status==='queued'||j.status==='running') || false;
   useEffect(()=>{if(!selected) return;const timer=setInterval(()=>void refresh().catch(e=>setError(e.message)),running?3000:15000);return()=>clearInterval(timer);},[selected,running,refresh]);
   const act=async(work:()=>Promise<unknown>,message='Saved')=>{setBusy(true);setError('');setNotice('');try{await work();await refresh();await loadSites();setNotice(message);return true;}catch(e){setError((e as Error).message);return false;}finally{setBusy(false);}};
   const path=`sites/${selected}`;
-  useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('marketingConnection')) {setView('results');setNotice(params.get('marketingConnection')==='connected'?'Google reporting connected. Choose the reporting properties.':'Google reporting authorization was not completed.');params.delete('marketingConnection');params.delete('marketingSite');history.replaceState(null,'',`${window.location.pathname}?${params}`);}},[]);
+  useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('marketingConnection')) {params.delete('marketingConnection');params.delete('marketingSite');history.replaceState(null,'',`${window.location.pathname}?${params}`);}},[]);
   return <div className="marketing-agent">
     <div className="ma-intro"><span className="ma-badge">Marketing agent</span><h2>Your ongoing marketing workspace.</h2><p>Enter your website, confirm your products and set a business goal. The agent researches opportunities, prepares useful content and reviews measured results each week.</p><ol className="ma-steps"><li>Enter website</li><li>Check your products</li><li>Improve and publish</li><li>Measure results</li></ol></div>
     {error && <div className="ma-alert" role="alert">{error}</div>}{notice && <p role="status" className="ma-notice">{notice}</p>}
@@ -36,7 +40,7 @@ export function MarketingAgent() {
       {data.jobs.filter(j=>j.status==='queued'||j.status==='running').map(j=><div className="ma-progress" role="status" key={j.id}><strong>{j.status==='queued'?'Queued':'Working'} · {j.kind==='cycle'?'Weekly growth cycle':j.kind==='growth'?'Growth review':j.kind}</strong><p>{j.progress}</p>{j.error && <p>{j.error}</p>}<small>Work continues if you close this page. Browser blocks are reported as research gaps.</small></div>)}
       {!running && data.jobs[0]?.status==='failed' && <div className="ma-alert">{data.jobs[0].error}<p>Refresh research, or open the topic or draft below and try again.</p></div>}
       <nav className="ma-growth-nav" aria-label="Marketing tools">{([['overview','Overview'],['health','Website health'],['strategy','Content strategy'],['changes','Website changes'],['visibility','AI visibility'],['results','Results'],['blogs','Blogs']] as const).map(([id,label])=><button key={id} className={view===id?'':'ma-secondary'} aria-pressed={view===id} onClick={()=>setView(id)}>{label}</button>)}</nav>
-      {(view==='overview'||view==='blogs') && <MarketingAutopilot key={`autopilot:${data.site.id}`} data={data} path={path} busy={busy} running={running} act={act} onView={setView}/>}
+      {(view==='overview'||view==='blogs') && <MarketingAutopilot key={JSON.stringify([data.site.id,data.site.scheduleEnabled,data.site.publishMode,data.site.growthGoal,data.site.growthAIProvider,data.site.scheduleDay,data.site.scheduleTime,data.site.timezone])} data={data} path={path} busy={busy} running={running} act={act} onView={setView}/>}
       <MarketingGrowth key={`growth:${data.site.id}`} data={data} view={view} path={path} disabled={busy||running} act={act} onView={setView}/>
       {(view==='overview'||view==='blogs') && <>{data.site.profile ? <Profile key={data.site.id} site={data.site} disabled={busy||running} onSave={b=>act(()=>api(path,'PATCH',b),'Website profile saved.')} onResearch={()=>act(()=>api(`${path}/research`,'POST',{}),'Research queued.')} /> : <div className="ma-card"><h3>1. Website scan</h3><p>The scan will identify your products and suggest an audience. You’ll confirm it before any drafts or schedules start.</p>{!running && <button disabled={busy} onClick={()=>void act(()=>api(`${path}/research`,'POST',{}),'Research queued.')}>Retry website research</button>}</div>}
       </>}
@@ -53,7 +57,8 @@ export function MarketingAgent() {
 
 function Profile({site,disabled,onSave,onResearch}:{site:MarketingSite;disabled:boolean;onSave:(b:unknown)=>Promise<boolean>;onResearch:()=>Promise<boolean>}) {
   const [voice,setVoice]=useState(site.voice),[audience,setAudience]=useState(site.audience || site.profile?.suggestedAudience || ''),[ctaLabel,setCtaLabel]=useState(site.ctaLabel),[ctaUrl,setCtaUrl]=useState(site.ctaUrl),[confirmed,setConfirmed]=useState(site.profileConfirmed);
-  useEffect(()=>setConfirmed(site.profileConfirmed),[site.profileConfirmed]);
+  const [savedConfirmed,setSavedConfirmed]=useState(site.profileConfirmed);
+  if(savedConfirmed!==site.profileConfirmed){setSavedConfirmed(site.profileConfirmed);setConfirmed(site.profileConfirmed);}
   return <section className="ma-card"><div className="ma-row"><h3>1. Check your website profile</h3><button className="ma-secondary" disabled={disabled} onClick={()=>void onResearch()}>Refresh research</button></div><p><strong>What you sell:</strong> {site.profile?.sells}</p><details><summary>Product evidence · {site.profile?.pages.length} pages scanned</summary>{site.profile?.productQuotes.map((q,i)=><blockquote key={i}>{q.quote}<br/><a href={q.url} target="_blank" rel="noreferrer">Check source ↗</a></blockquote>)}</details><form onSubmit={e=>{e.preventDefault();void onSave({voice,audience,ctaLabel,ctaUrl,profileConfirmed:confirmed});}}><div className="ma-grid"><label>Audience <small>(suggested; edit for your customers)</small><textarea value={audience} onChange={e=>setAudience(e.target.value)} maxLength={1200}/></label><label>Brand voice<textarea value={voice} onChange={e=>setVoice(e.target.value)} maxLength={600}/></label><label>Call to action<input required value={ctaLabel} onChange={e=>setCtaLabel(e.target.value)} maxLength={100}/></label><label>Call-to-action URL <small>(on your website)</small><input type="url" required value={ctaUrl} onChange={e=>setCtaUrl(e.target.value)}/></label></div><label className="ma-check"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I checked the product description and target audience.</label><button disabled={disabled}>Save website profile</button></form></section>;
 }
 
@@ -62,7 +67,8 @@ function CustomTopic({disabled,onAdd}:{disabled:boolean;onAdd:(b:unknown)=>Promi
 
 function Draft({post,path,disabled,canPublish,act}:{post:MarketingPost;path:string;disabled:boolean;canPublish:boolean;act:(work:()=>Promise<unknown>,message?:string)=>Promise<boolean>}) {
   const [editing,setEditing]=useState(false),[article,setArticle]=useState<MarketingArticle|null>(post.article),[copied,setCopied]=useState(false);
-  useEffect(()=>{if(!editing) setArticle(post.article);},[post.updatedAt,post.article,editing]);
+  const [savedArticle,setSavedArticle]=useState(post.article);
+  if(!editing && savedArticle!==post.article){setSavedArticle(post.article);setArticle(post.article);}
   if(!post.article || !article) return <div className="ma-draft"><h4>{post.status==='failed'?'Writing needs attention':'Preparing draft…'}</h4></div>;
   const endpoint=`${path}/posts/${post.id}`;
   const set=(key:'title'|'metaDescription'|'lead',value:string)=>setArticle({...article,[key]:value});

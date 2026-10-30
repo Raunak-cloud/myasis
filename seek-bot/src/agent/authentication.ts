@@ -97,7 +97,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   );
 }
 
-export async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string, targets?: Locator[]): Promise<boolean> {
+async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string, targets?: Locator[]): Promise<boolean> {
   if (!fields.length || new Set(fields.map(f => f.ref)).size !== fields.length) return false;
   if (fields.length > 1 && fields.length !== code.length) return false;
   const inputs = targets ?? fields.map(field => browserTarget(page, { ref: field.ref }));
@@ -164,7 +164,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
 }
 
 /** How long the inbox is watched for a site's email before the agent is told to resend. */
-export const EMAIL_WAIT_MS = 120_000;
+const EMAIL_WAIT_MS = 120_000;
 
 export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (!gmailAvailable()) {

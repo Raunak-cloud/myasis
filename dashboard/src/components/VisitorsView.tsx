@@ -158,10 +158,14 @@ function useReport<T>(path: string, interval: number) {
     updated: string | null;
   }>({ data: null, error: null, updated: null });
   const [revision, setRevision] = useState(0);
+  const [requestKey, setRequestKey] = useState(path);
+  if (requestKey !== path) {
+    setRequestKey(path);
+    setState({ data: null, error: null, updated: null });
+  }
   useEffect(() => {
     let disposed = false;
     let controller: AbortController | null = null;
-    setState({ data: null, error: null, updated: null });
     const load = async () => {
       if (document.visibilityState === 'hidden' || controller) return;
       const request = new AbortController();

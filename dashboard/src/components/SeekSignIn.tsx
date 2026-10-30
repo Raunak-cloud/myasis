@@ -54,7 +54,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
   const previousSession = useRef<Session | null>(null);
   const reopening = useRef(false);
   const reopenTimes = useRef<number[]>([]);
-  previousSession.current = status?.session ?? null;
+  useEffect(() => { previousSession.current = status?.session ?? null; }, [status?.session]);
 
   const refresh = useCallback(async (verify = false) => {
     if (acting.current || polling.current) return;
@@ -100,7 +100,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     // Load the last confirmed state immediately. A full browser verification
     // happens after the person presses Done; runs independently re-check and
     // repair expired sessions, so opening Apply never blocks on a browser.
-    void refresh();
+    void (async () => { await refresh(); })();
     const changed = (event: Event) => {
       // Use the successful open response immediately, even if an older status
       // request is still in flight. Its late response must not hide the viewer.

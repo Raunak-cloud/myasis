@@ -159,6 +159,7 @@ export function RunPanel({
   const [activityOpen, setActivityOpen] = useState(false);
   /** Every account explicitly starts Auto apply or Semi auto. */
   const entitlements = useEntitlements();
+  if (!entitlements?.autoRunsPerDay && autoSchedule) setAutoSchedule(null);
   const billing = useBillingStatus();
   const boards = useBoardsStatus();
   /** Employer sources are usable independently of these job-board sessions. */
@@ -187,6 +188,8 @@ export function RunPanel({
   /** Operator diagnostic: limit the next run to one application flow. */
   const [scope, setScope] = useState<'all' | 'external' | 'hosted'>('all');
   const [stopConfirming, setStopConfirming] = useState(false);
+  if (!status?.running && stopConfirming) setStopConfirming(false);
+  if (!status?.running && liveViewOpen) setLiveViewOpen(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -257,7 +260,6 @@ export function RunPanel({
   // The shared poll supplies the status; this only reacts to a run ending.
   useEffect(() => {
     if (!status) return;
-    if (!status.running) setStopConfirming(false);
     if (wasRunning.current && !status.running) {
       onFinished();
       window.dispatchEvent(new Event('entitlements-refresh'));
@@ -319,11 +321,7 @@ export function RunPanel({
     };
   }, [confirming]);
   useEffect(() => {
-    if (!running) setLiveViewOpen(false);
-  }, [running]);
-  useEffect(() => {
     if (!entitlements?.autoRunsPerDay) {
-      setAutoSchedule(null);
       return;
     }
     let cancelled = false;

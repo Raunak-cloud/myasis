@@ -1,7 +1,7 @@
 import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
 export const FREE_APPLICATIONS = 5;
-export const DAILY_APPLICATION_MAX = USER_RUN_LIMITS.MAX_APPS_PER_DAY;
+const DAILY_APPLICATION_MAX = USER_RUN_LIMITS.MAX_APPS_PER_DAY;
 
 /** One-off, non-renewing products. Prices include GST where it applies. */
 export const PAID_PLANS = {

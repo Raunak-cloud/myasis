@@ -8,7 +8,7 @@ import { GmailServiceError } from '../../seek-bot/src/gmail-mcp-service.js';
 const SCOPES = ['openid', 'email', GMAIL_READ_SCOPE, GMAIL_SEND_SCOPE];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const active = new Map<string, { encrypted: string; oauth: InstanceType<typeof OAuth2Client> }>();
-export function gmailConfig() {
+function gmailConfig() {
   const env = { ...readEnv(), ...process.env };
   const clientId = env.GOOGLE_CLIENT_ID ?? '', clientSecret = env.GOOGLE_CLIENT_SECRET ?? '';
   const base = (env.APP_BASE_URL || 'http://localhost:5180').replace(/\/$/, '');

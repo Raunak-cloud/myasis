@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mts",
-    "lint": "oxlint",
+    "lint": "oxlint --deny-warnings",
     "test:statuses": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.app.json --test test/activity.test.mjs test/status-copy.test.tsx",
+    "test:files-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-files-panel-ui.mts",
     "preview": "vite preview"
   },
   "dependencies": {

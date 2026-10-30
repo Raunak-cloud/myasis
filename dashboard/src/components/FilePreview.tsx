@@ -16,7 +16,11 @@ interface Props {
  * actually receives. A DOCX that renders fine but extracts to nothing would
  * look healthy in a normal file viewer and be invisible to the bot.
  */
-export function FilePreview({ kind, id, label, fileName, onClose }: Props) {
+export function FilePreview(props: Props) {
+  return <PreviewContent key={`${props.kind}:${props.id}`} {...props} />;
+}
+
+function PreviewContent({ kind, id, label, fileName, onClose }: Props) {
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,8 +32,6 @@ export function FilePreview({ kind, id, label, fileName, onClose }: Props) {
 
   useEffect(() => {
     const controller = new AbortController();
-    setText(null);
-    setError(null);
     fetch(`/api/preview?kind=${kind}&id=${encodeURIComponent(id)}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((r) => {
