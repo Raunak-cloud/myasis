@@ -125,3 +125,19 @@ test('structured prompts permit abstention and inspect task context rather than 
   assert.match(request.prompt, /not merely generic communication/);
   assert.match(searchReviewRequest(JSON.stringify([resume]), []).prompt, /negated experience/);
 });
+
+test('generation and review receive the same account preferences without leaking them to another request', async () => {
+  const instructions = 'Only medical receptionist roles; no nursing roles.';
+  let calls = 0;
+  const ask: Ask = async (_system, prompt) => {
+    assert.ok(prompt.includes(instructions));
+    assert.match(prompt, /Alternative searches must remain within these preferences/);
+    return ++calls === 1
+      ? { ok: true, value: { searches: [generated()] } }
+      : { ok: true, value: { decisions: [{ ...accepted('s1'), supported: false }] } };
+  };
+  assert.deepEqual(await suggestResumeSearches([resume], [], ask, instructions), { ok: true, suggestions: [] });
+  assert.equal(calls, 2);
+  assert.ok(!searchTermsRequest(JSON.stringify([resume]), []).prompt.includes(instructions));
+  assert.ok(!searchReviewRequest(JSON.stringify([resume]), []).prompt.includes(instructions));
+});
