@@ -48,6 +48,16 @@ assert.equal(correctionCalls,beforeSources,'current-source contracts avoid paid 
 config.aiInstructions = 'Do not apply for retail positions.';
 const restricted = await assessFit({...retailJob,id:'actual-current-retail-exclusion'},profile);
 assert.equal(restricted.shouldApply,false,'the same exclusion is binding when it is actually a current instruction');
+config.aiInstructions = '';
+config.rules.onsiteCity = 'Sydney';
+config.rules.workArrangements = ['remote', 'hybrid'];
+const suburbanProfile = {...profile, suburb:'Hebersham', state:'NSW', postcode:'2770'};
+for (const [city, arrangement, expected] of [['Sydney', 'hybrid', true], ['Melbourne', 'hybrid', false], ['Melbourne', 'remote', true]]) {
+  const result = await assessFit({...retailJob, id:`office-city-${city}-${arrangement}`, location:city,
+    description:`Current part-time retail customer service vacancy. ${arrangement === 'hybrid' ? `Hybrid: two days each week in our ${city} office and the rest from home.` : `Fully remote anywhere in Australia; the company office is in ${city}.`} Help customers, process payments and handle stock enquiries. Two years customer service experience required. No mandatory licences. $35 per hour.`}, suburbanProfile);
+  console.log(`Office city ${city}/${arrangement}: ${result.decision} — ${result.reason}`);
+  assert.equal(result.shouldApply,expected,'office-city permission and arrangement selection govern; do not invent relocation or commute conflicts');
+}
 console.log('PASS: real model, role-neutral fit, transferable skills, mandatory credentials, source-scoped rules and current instruction veto. No applications submitted.');
 } finally {
   globalThis.fetch = originalFetch;
