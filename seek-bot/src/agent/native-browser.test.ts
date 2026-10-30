@@ -6,6 +6,30 @@ import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, 
 import { observe, renderObservation } from './observe.js';
 import { ApplicationReadiness } from './application-readiness.js';
 
+test('observations capture a usable viewport while a web font remains pending', async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+  try {
+    const page = await browser.newPage();
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    await page.route('**/pending-font.woff2', async route => { await pending; await route.abort().catch(() => {}); });
+    try {
+      await page.setContent(`<style>@font-face{font-family:Pending;src:url(https://fixture.invalid/pending-font.woff2)}label{font-family:Pending, sans-serif}</style><main><label>Name<input value="Saved answer"></label><button>Continue</button></main>`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => document.fonts.status === 'loading');
+      const started = Date.now();
+      const observation = await observe(page, { screenshot: true });
+      assert.ok(Date.now() - started < 8_000, 'font loading does not consume the observation deadline');
+      assert.ok(observation.screenshot?.startsWith('data:image/jpeg;base64,'));
+      const jpeg = Buffer.from(observation.screenshot!.split(',')[1], 'base64');
+      assert.ok(jpeg.length > 1000);
+      assert.equal(jpeg.readUInt16BE(0), 0xffd8);
+      assert.ok(observation.fields.some(field => field.currentValue === 'Saved answer'));
+      assert.equal(await page.locator('#__agent_marks').count(), 0);
+      assert.equal(await page.locator('input').inputValue(), 'Saved answer');
+    } finally { release(); }
+  } finally { await browser.close(); }
+});
+
 test('action observations distinguish accessibility-hidden proxy buttons without removing native uploads', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   try {

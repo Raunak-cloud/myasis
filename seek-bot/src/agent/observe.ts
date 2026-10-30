@@ -1,5 +1,5 @@
 import type { Frame, Page } from 'patchright';
-import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
+import { browserDeadline, browserCleanup, assertBrowserOperationActive } from '../browser-deadline.js';
 import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
 import { registerObservedFrame } from './browser-target.js';
@@ -441,6 +441,27 @@ interface ObserveOptions {
   screenshot?: boolean;
 }
 
+/** Capture what Chromium currently displays. Agent evidence must not wait
+ * for every web font: a stalled font request otherwise outlives the entire
+ * observation, losing both the screenshot and already-read form controls. */
+async function captureViewport(page: Page): Promise<Buffer> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    return await browserDeadline('Application screenshot', 5_000, async () => {
+      assertBrowserOperationActive();
+      const shot = await session.send('Page.captureScreenshot', {
+        format: 'jpeg', quality: 60, fromSurface: true, captureBeyondViewport: false,
+      });
+      assertBrowserOperationActive();
+      return Buffer.from(shot.data, 'base64');
+    });
+  } finally {
+    // Detaching this short-lived protocol client cancels an unfinished capture;
+    // it never closes or navigates the application's page.
+    await browserCleanup('Detach screenshot client', () => session.detach());
+  }
+}
+
 export async function observe(page: Page, options: ObserveOptions = {}): Promise<Observation> {
   for (let attempt = 0; ; attempt++) {
     try { return await browserDeadline('Browser observation', 15_000, () => observeOnce(page, options)); }
@@ -551,7 +572,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
 
   if (options.screenshot) {
     const shot = await withMarks(page, () =>
-      page.screenshot({ type: 'jpeg', quality: 60, fullPage: false }).catch(error => {
+      captureViewport(page).catch(error => {
         recordDiagnostic({ severity: 'warning', category: 'screenshot_error', stage: 'observation', message: 'Application screenshot failed.', error });
         return null;
       }),
