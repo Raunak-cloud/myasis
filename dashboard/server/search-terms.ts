@@ -209,7 +209,7 @@ const searchPreferenceContext = (instructions: string) => [
 export function searchTermsRequest(resumeBlock: string, excludedTerms: readonly string[], instructions = ''): { prompt: string; schema: Record<string, unknown> } {
   const evidenceSchema = {
     type: 'object',
-    properties: { resumeId: { type: 'string' }, quote: { type: 'string' } },
+    properties: { resumeId: { type: 'string' }, quote: { type: 'string', maxLength: 600 } },
     required: ['resumeId', 'quote'],
   };
   const schema = {
@@ -222,9 +222,9 @@ export function searchTermsRequest(resumeBlock: string, excludedTerms: readonly 
         items: {
           type: 'object',
           properties: {
-            query: { type: 'string', description: 'The literal short phrase to enter in a job-board search box.' },
+            query: { type: 'string', maxLength: 70, description: 'The literal short phrase to enter in a job-board search box.' },
             matchType: { type: 'string', enum: ['direct', 'transferable'] },
-            reason: { type: 'string', description: 'A short factual explanation of the demonstrated tasks supporting this role, without invented claims.' },
+            reason: { type: 'string', maxLength: 400, description: 'One concise factual sentence, at most 400 characters, explaining the demonstrated tasks supporting this role without invented claims.' },
             resumeEvidence: {
               type: 'array',
               minItems: 1,
@@ -234,6 +234,7 @@ export function searchTermsRequest(resumeBlock: string, excludedTerms: readonly 
             },
             australianCredentialRequired: {
               type: 'string',
+              maxLength: 200,
               description: 'The Australian registration, licence or admission most jobs from this search legally require (for example "AHPRA general registration"), or "" when the work needs none.',
             },
             australianCredentialEvidence: {
@@ -255,6 +256,7 @@ Rules:
 - Think like the candidate at the keyboard. Use the common wording a person would naturally search, such as "medical receptionist", "admin assistant" or "retail jobs", when supported. Do not copy a formal resume heading just because it appears in the document.
 - Read the full work history, responsibilities, dates, projects, education and credentials before choosing roles. Compare tasks and complexity, not just title or keyword overlap. Prioritise substantial demonstrated experience; never invent duration or add overlapping jobs together.
 - Ground every query in exact quotations from the supplied resume text, attributed to its resumeId. Quotes must be contiguous and preserve negation and context. Do not quote document labels as experience.
+- Keep each reason to one concise sentence of at most 400 characters. Put source quotations in resumeEvidence, not a long explanation.
 - A direct match means the candidate performed the role's core tasks in work, placements or substantial projects; an equivalent local title is allowed. A transferable match needs multiple demonstrated relevant tasks, not merely generic communication, Excel, teamwork or a degree. Explain the bridge honestly.
 - A skills list, course, aspiration or hobby alone does not demonstrate professional experience. Distinguish studied, assisted, supervised, led and independently delivered work. Never promote a student project into senior professional experience.
 - Choose distinct searches that expose meaningfully different suitable vacancies. Avoid several title variants for the same work.

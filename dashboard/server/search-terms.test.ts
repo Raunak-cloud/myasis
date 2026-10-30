@@ -124,6 +124,10 @@ test('structured prompts permit abstention and inspect task context rather than 
   assert.equal(schema.properties.searches.minItems, 0);
   assert.match(request.prompt, /not merely generic communication/);
   assert.match(searchReviewRequest(JSON.stringify([resume]), []).prompt, /negated experience/);
+  const item = (request.schema as any).properties.searches.items.properties;
+  assert.equal(item.reason.maxLength, 400, 'provider response bounds agree with local grounding validation');
+  assert.equal(item.resumeEvidence.items.properties.quote.maxLength, 600);
+  assert.equal(item.query.maxLength, 70);
 });
 
 test('generation and review receive the same account preferences without leaking them to another request', async () => {
