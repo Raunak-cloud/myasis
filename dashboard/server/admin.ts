@@ -669,6 +669,7 @@ export async function handleAdminRequest(
           trigger: 'admin',
           startedBy: actor.id,
           initiatorDevice: runDeviceFromHeaders(req.headers ?? {}),
+          clientOverrides: body?.settings,
           scope: body?.scope,
           jobIds: body?.jobIds,
           externalUrl: body?.externalUrl,

@@ -523,8 +523,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
             }
           : undefined,
         runStartId,
-        // Diagnostic searches must not rewrite the account's next-run keywords.
-        mode === 'live' && !selections ? {
+        // A direct/targeted diagnostic reviewed one chosen posting, not the
+        // saved search. Its result cannot establish that those terms are spent.
+        // One-off search terms are separately protected by the conditional renewal.
+        mode === 'live' && !selections && !directExternalUrl && request.jobIds === undefined ? {
           termsUsed: overrides.KEYWORDS ?? '',
           expectedSavedTerms: settingsSnapshot.saved.KEYWORDS ?? '',
         } : undefined,
