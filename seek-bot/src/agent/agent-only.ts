@@ -151,6 +151,10 @@ async function assertCurrentRef(ctx: ToolContext, args: Record<string, unknown>)
       if (!/^f\d+e\d+$/.test(ref) || !/Invalid frame in aria-ref selector/.test((error as Error).message)) throw error;
     }
   }
+  const radioQuestion = ctx.observation.fields.find(field => field.ref === ref && field.kind === 'radio');
+  if (radioQuestion) {
+    throw new Error(`Observed radio question ${JSON.stringify(radioQuestion.label)} (${ref}) does not resolve to a current individual option. No action was attempted. Inspect its visible options and use the intended option's current ref or a scoped role/label locator. The check action targets one checkbox or radio input; its value argument does not select an option from a question group. Do not repeat this unresolved group ref.`);
+  }
   throw new StaleObservedRefError(ref);
 }
 
