@@ -1,7 +1,6 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import type { BrowserContext, Locator, Page, Route } from 'patchright';
+import type { Browser, BrowserContext, Locator, Page, Route, Request } from 'patchright';
 import { applicationAllowance } from '../application-allowance.js';
 import { APPLICATION_WRITING_STYLE } from '../application-answer-policy.js';
 import { applicationModelEnvironment } from '../application-model.js';
@@ -27,7 +26,8 @@ import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
 import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
-import { TRACE_DIR, persistTrace, browserExperience, type TraceStep } from './loop/trace.js';
+import { persistLiveTrace, persistTrace, browserExperience, type TraceStep } from './loop/trace.js';
+import { withApplicationAttempt, recordDiagnostic, recordToolDiagnostic, bindAttemptCallback } from './attempt-diagnostics.js';
 import { observationMessage } from './loop/transcript.js';
 import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
 import { locate } from './browser-target.js';
@@ -154,6 +154,10 @@ async function assertCurrentRef(ctx: ToolContext, args: Record<string, unknown>)
 }
 
 export async function runAgentOnlyApplication(options: AgentRunOptions): Promise<AgentRunResult> {
+  return withApplicationAttempt(options.job, () => runApplicationAttempt(options));
+}
+
+async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRunResult> {
   // Do not offer a preparation-only tool to an Auto apply run. Email drafts
   // retain their explicit-confirmation path in both modes.
   const offeredTools = reviewingApplications() ? agentOnlyTools : agentOnlyTools.filter(tool => tool.name !== 'prepare_application');
@@ -195,13 +199,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const trace: TraceStep[] = [];
   const readiness = new ApplicationReadiness();
   const saveLiveTrace = () => {
-    try {
-      mkdirSync(TRACE_DIR(), { recursive: true });
-      writeFileSync(resolve(TRACE_DIR(), `${options.job.id}.live.json`), JSON.stringify({
-        jobId: options.job.id, title: options.job.title, company: options.job.company,
-        mode: 'agent-only', status: 'in-progress', steps: trace, savedAt: new Date().toISOString(),
-      }));
-    } catch { /* Diagnostics do not decide application outcomes. */ }
+    persistLiveTrace(options.job, trace);
   };
   let steps = 0;
   let highEffort = false;
@@ -223,6 +221,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
   const dialogs = new Map<Page, import('patchright').Dialog>();
   const popups = new Map<Page, Page[]>();
   const popupListeners = new Map<Page, (popup: Page) => void>();
+  const diagnosticListeners = new Map<Page, () => void>();
+  const browserListeners = new Map<Browser, () => void>();
   const listen = (page: Page) => {
     if (watched.has(page)) return;
     watched.add(page);
@@ -230,15 +230,29 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     const opened = (popup: Page) => { if (ownedPages.has(page)) ownedPages.add(popup); popups.set(page, [...(popups.get(page) ?? []), popup]); };
     popupListeners.set(page, opened);
     page.on('popup', opened);
+    const pageError = bindAttemptCallback((error: Error) => recordDiagnostic({ severity: 'warning', category: 'page_runtime_error', stage: 'browser', message: error.message, error }));
+    const crash = bindAttemptCallback(() => recordDiagnostic({ severity: 'error', category: 'page_crash', stage: 'browser', message: 'Application browser page crashed.' }));
+    const failedRequest = bindAttemptCallback((request: Request) => {
+      if (request.isNavigationRequest()) recordDiagnostic({ severity: 'warning', category: 'navigation_error', stage: 'browser',
+        message: `Navigation failed: ${request.failure()?.errorText ?? 'Unknown network error'}` });
+    });
+    page.on('pageerror', pageError); page.on('crash', crash); page.on('requestfailed', failedRequest);
+    diagnosticListeners.set(page, () => { page.off('pageerror', pageError); page.off('crash', crash); page.off('requestfailed', failedRequest); });
   };
   const onDialog = (dialog: import('patchright').Dialog) => { const page = dialog.page(); if (page) dialogs.set(page, dialog); };
   listen(ctx.page);
-  const onPage = (page: Page) => listen(page);
+  const onPage = bindAttemptCallback((page: Page) => listen(page));
   const browserContext = options.page.context();
   const contexts = new Set<BrowserContext>();
   const watchContext = (context: BrowserContext) => {
     if (contexts.has(context)) return;
     contexts.add(context); context.on('page', onPage);
+    const browser = context.browser?.();
+    if (browser && !browserListeners.has(browser)) {
+      const disconnected = bindAttemptCallback(() => recordDiagnostic({ severity: 'error', category: 'browser_disconnected', stage: 'browser', message: 'Application browser disconnected.' }));
+      browser.on('disconnected', disconnected);
+      browserListeners.set(browser, () => browser.off('disconnected', disconnected));
+    }
     for (const page of context.pages()) listen(page);
   };
   watchContext(browserContext);
@@ -642,7 +656,10 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
           try {
             const snapshot = await nativeSnapshot(ctx.page, 5000);
             wholePage = snapshot.length <= 24000 ? snapshot : snapshot.slice(0, 16000) + '\n[Middle omitted; inspect the relevant section if needed.]\n' + snapshot.slice(-8000);
-          } catch (error) { wholePage = `Whole-page accessibility inspection failed: ${(error as Error).message}`; }
+          } catch (error) {
+            wholePage = `Whole-page accessibility inspection failed: ${(error as Error).message}`;
+            recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'checkpoint', step: steps, tool: checkpoint, message: wholePage, error });
+          }
         }
         if (checkpoint === applicationReviewTool.name) messages.push({ role: 'user', content: `APPLICATION ACCURACY CHECKPOINT: return exactly one record_application_review tool call. You are the applying agent and own this decision; no other model reviews it. Review the actual employer state, consequential answers, dates, consent, letter and attachments against identifiable candidate sources. Historical observations can include cancelled editors. Inspect uncertain saved values before declaring ready. If required facts are missing choose needs_answer; for conflicts choose correct and repair them. No send is queued.\n${readiness.render()}\nSelected resume: ${JSON.stringify({ id: ctx.resumeUsed, name: ctx.resumeName })}\n${wholePage ? `<untrusted-whole-page>\n${wholePage}\n</untrusted-whole-page>` : ''}` });
         else messages.push({ role: 'user', content: `RECOVERY CHECKPOINT: return exactly one ${checkpoint} tool call and no other calls. ${checkpoint === 'record_recovery_plan'
@@ -688,6 +705,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
           : toolInputIssue(call.args, checkpointSchema.parameters);
         if (issue) {
           const feedback = `Recovery checkpoint response rejected: ${issue}`;
+          recordDiagnostic({ severity: 'warning', category: 'checkpoint_format_error', stage: 'checkpoint', step: steps, tool: checkpoint, message: feedback });
           trace.push({ step: steps, url: ctx.page.url(), tool: checkpoint, label: 'Recovery checkpoint response rejected', args: {}, result: feedback,
             screenshot: ctx.observation.screenshot, startedAt: new Date().toISOString(), completedAt: new Date().toISOString() });
           for (const rejected of reply.toolCalls) messages.push({ role: 'tool', tool_call_id: rejected.id, content: feedback });
@@ -714,6 +732,7 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
         // pending operation first so hangs and disconnects retain their cause.
         saveLiveTrace();
         let result: ToolResult;
+        let diagnosticError: unknown;
         const tool = offeredTools.find(item => item.name === call.name);
         // Usage is charged when the reply arrives. Its final judgement can
         // record an observed receipt even if that reply crossed the budget;
@@ -738,14 +757,17 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
               || call.name === 'browser_action' && changesBrowserState(call.args))) browserMutated = true;
             ownedPages.add(ctx.page);
           } catch (error) {
+            diagnosticError = error;
             result = error instanceof StaleObservedRefError
               ? ok(error.message, 'reobserve')
               : ok(`Browser/tool error: ${(error as Error).message}${call.name === 'browser_action' ? await browserFailureEvidence(ctx.page, call.args).catch(() => '') : ''}`, 'failed');
           }
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
+        const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
+        recordToolDiagnostic(steps, call.name, text, disposition, diagnosticError);
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });
-        Object.assign(traceStep, { url: ctx.page.url(), result: text, completedAt: new Date().toISOString() });
+        Object.assign(traceStep, { url: ctx.page.url(), result: text, disposition, completedAt: new Date().toISOString() });
         saveLiveTrace();
         if (!checkpoint && !readiness.requested) recovery.acted(call.name, result.kind === 'ok' && result.disposition === 'failed', call.args);
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }
@@ -776,6 +798,8 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
     throw error;
   } finally {
     activity.close();
+    for (const remove of diagnosticListeners.values()) remove();
+    for (const remove of browserListeners.values()) remove();
     for (const context of contexts) context.off('page', onPage);
     for (const page of watched) {
       page.off('dialog', onDialog);

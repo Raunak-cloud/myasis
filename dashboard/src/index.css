@@ -2324,6 +2324,11 @@ textarea.run-instructions-input {
 .admin-log-line time { color: var(--text-faint); }
 .admin-log-line.err { color: var(--bad); }
 .admin-log-line.sys { color: var(--accent); }
+.run-diagnostics { padding: 12px 16px; overflow: auto; max-height: 55vh; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.run-diagnostics h3 { margin: 0 0 8px; }
+.run-issue, .run-attempt { margin: 10px 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; overflow-wrap: anywhere; }
+.run-issue summary { cursor: pointer; }
+.run-issue pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 @media (max-width: 700px) {
   .admin-facts { grid-template-columns: 1fr; }
   .admin-facts dt { margin-top: 6px; }

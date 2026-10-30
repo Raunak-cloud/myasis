@@ -1,6 +1,6 @@
 import { cpus, totalmem } from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { exportUserForRun, syncRunResultsToDb } from './db/run-sync.js';
@@ -272,6 +272,16 @@ class Run {
         text: raw,
       };
       this.lines.push(line);
+      // Persist before bounding the live backlog; a crash must not discard earlier errors.
+      if (this.runStartId) {
+        try {
+          const dir = resolve(userDir(this.userId), 'run-logs');
+          mkdirSync(dir, { recursive: true });
+          const file = resolve(dir, `${this.runStartId}.jsonl`);
+          if (!existsSync(file)) writeFileSync(file, this.lines.map(value => JSON.stringify(value)).join('\n') + '\n', { mode: 0o600 });
+          else appendFileSync(file, JSON.stringify(line) + '\n');
+        } catch { console.warn('[diagnostics-unavailable] Could not persist a run console line; live console remains available.'); }
+      }
       if (this.lines.length > MAX_LINES) this.lines.shift();
       // Cheap progress signal for the UI without re-reading applied.json.
       const submitted = raw.match(/✅ submitted(?: \[(external)\])?/);
@@ -396,6 +406,7 @@ class Run {
       ...browserOverrides,
       ...accountOverrides,
       CDP_PORT: String(cdpPort),
+      OWTOMATE_RUN_START_ID: runStartId ?? '',
       // Only a live run may submit; a search-only run never opens a form.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
       APPLICATION_REVIEW_MODE: overrides.APPLICATION_REVIEW_MODE || '',
@@ -519,6 +530,7 @@ class Run {
       ...browserOverrides,
       ...accountOverrides,
       CDP_PORT: String(cdpPort),
+      OWTOMATE_RUN_START_ID: runStartId ?? '',
       // Always last: no override may point a scan at another account's files.
       DATA_DIR: dataDir,
       COST_TRACKING: 'true',
@@ -649,7 +661,7 @@ class Run {
     const dir = resolve(userDir(userId), 'run-logs');
     mkdirSync(dir, { recursive: true });
     const file = `${runStartId}.jsonl`;
-    writeFileSync(resolve(dir, file), this.lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+    if (!existsSync(resolve(dir, file))) writeFileSync(resolve(dir, file), this.lines.map((line) => JSON.stringify(line)).join('\n') + '\n', { mode: 0o600 });
     const saved = readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort((a, b) => Number(b.split('.')[0]) - Number(a.split('.')[0]));
     for (const old of saved.slice(RUN_LOGS_KEPT)) rmSync(resolve(dir, old), { force: true });
     await query(

@@ -2,6 +2,7 @@ import type { Frame, Page } from 'patchright';
 import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
 import { registerObservedFrame } from './browser-target.js';
+import { recordDiagnostic } from './attempt-diagnostics.js';
 
 /**
  * Turns the live page into the compact, ref-addressed state the agent reasons
@@ -438,6 +439,8 @@ export async function observe(page: Page, options: ObserveOptions = {}): Promise
   for (let attempt = 0; ; attempt++) {
     try { return await observeOnce(page, options); }
     catch (error) {
+      recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',
+        retry: attempt + 1, message: error instanceof Error ? error.message : String(error), error });
       if (attempt >= 2 || !/Execution context was destroyed|Cannot find context with specified id/i.test(String(error))) throw error;
       // Only retry observation, never replay an action or submit click.
       await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
@@ -538,7 +541,10 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
 
   if (options.screenshot) {
     const shot = await withMarks(page, () =>
-      page.screenshot({ type: 'jpeg', quality: 60, fullPage: false }).catch(() => null),
+      page.screenshot({ type: 'jpeg', quality: 60, fullPage: false }).catch(error => {
+        recordDiagnostic({ severity: 'warning', category: 'screenshot_error', stage: 'observation', message: 'Application screenshot failed.', error });
+        return null;
+      }),
     );
     if (shot) observation.screenshot = `data:image/jpeg;base64,${shot.toString('base64')}`;
   }

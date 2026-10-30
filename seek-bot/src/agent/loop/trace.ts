@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { config } from '../../config.js';
 import type { JobListing } from '../../types.js';
 import { isExternal } from '../browser-boundaries.js';
 import type { AgentTermination } from '../context.js';
+import { currentAttempt, recordDiagnostic } from '../attempt-diagnostics.js';
 
 // Audit records shared by the active application agent.
 
@@ -34,6 +36,28 @@ function hostOf(url: string): string {
 const SITE_HINTS = () => resolve(config.dataDir, 'site-hints.json');
 export const TRACE_DIR = () => resolve(config.dataDir, 'traces');
 
+/** Keep the latest-job aliases for compatibility; retain a distinct, atomic attempt record. */
+export function persistLiveTrace(job: JobListing, trace: TraceStep[]): void {
+  saveTrace(job, { mode: 'agent-only', status: 'in-progress', steps: trace }, `${job.id}.live.json`);
+}
+
+function saveTrace(job: JobListing, body: Record<string, unknown>, latest: string): void {
+  try {
+    const identity = currentAttempt();
+    const dir = TRACE_DIR();
+    mkdirSync(dir, { recursive: true });
+    const payload = JSON.stringify({ jobId: job.id, title: job.title, company: job.company, ...identity,
+      ...body, savedAt: new Date().toISOString() });
+    for (const name of [...(identity ? [`attempt-${identity.attemptId}.json`] : []), latest]) {
+      const file = resolve(dir, name), temporary = file + `.${randomUUID()}.tmp`;
+      writeFileSync(temporary, payload, { mode: 0o600 });
+      renameSync(temporary, file);
+    }
+  } catch (error) {
+    recordDiagnostic({ severity: 'error', category: 'trace_write_error', stage: 'logging', message: 'Could not save application steps.', error });
+  }
+}
+
 interface SiteHint {
   steps: string[];
   updatedAt: string;
@@ -63,13 +87,7 @@ export function persistTrace(job: JobListing, outcome: AgentTermination, trace: 
   try {
     // Successful applications need the same audit trail: recovery mistakes
     // can happen before confirmation too. Existing trace retention applies.
-    if (outcome.status === 'needs-human' || outcome.status === 'skipped' || outcome.status === 'applied' || outcome.status === 'rehearsed') {
-      mkdirSync(TRACE_DIR(), { recursive: true });
-      writeFileSync(
-        resolve(TRACE_DIR(), `${job.id}.json`),
-        JSON.stringify({ jobId: job.id, title: job.title, company: job.company, outcome, finalUrl, savedAt: new Date().toISOString(), steps: trace }),
-      );
-    }
+    saveTrace(job, { outcome, finalUrl, steps: trace }, `${job.id}.json`);
     const host = hostOf(finalUrl);
     if (outcome.status === 'applied' && host && isExternal(finalUrl) && trace.length) {
       const hints = loadSiteHints();

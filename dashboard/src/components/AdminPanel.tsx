@@ -8,6 +8,7 @@ import { ProxiesView } from './ProxiesView';
 import { BlogView } from './BlogView';
 import { VisitorsView } from './VisitorsView';
 import { AdminEmailDialog } from './AdminEmailDialog';
+import { RunDiagnostics } from './RunDiagnostics';
 import type { RouteStatus } from '../route';
 import { StackedTable } from './StackedTable';
 import { runDeviceLabel, type RunDevice } from '../run-device';
@@ -195,6 +196,7 @@ function RunLog({ run, onClose }: { run: AdminRun; onClose: () => void }) {
           <button className="btn" onClick={onClose}>Close</button>
         </div>
         {error && <div className="banner banner-bad">{error}</div>}
+        <RunDiagnostics runId={run.id} />
         <pre ref={body} className="admin-log-body">
           {lines.length
             ? lines.map((line, index) => (
@@ -249,9 +251,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
                 <td>{run.applied ?? '-'}</td>
                 <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
                 <td className="nowrap">
-                  {(run.hasLog || run.running) && (
-                    <button className="btn btn-small" onClick={() => onOpen(run)}>{run.running ? 'Watch' : 'Console'}</button>
-                  )}
+                  <button className="btn btn-small" onClick={() => onOpen(run)}>{run.running ? 'Watch / errors' : 'Errors / log'}</button>
                 </td>
               </tr>
             );

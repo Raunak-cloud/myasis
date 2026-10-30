@@ -1,4 +1,5 @@
 import { metric } from '../pipeline.js';
+import { recordDiagnostic } from './attempt-diagnostics.js';
 import { applicationModelEnvironment } from '../application-model.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
@@ -328,6 +329,8 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
         message: { role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls },
       };
     } catch (error) {
+      if (!(error instanceof ApplicationBudgetExhaustedError)) recordDiagnostic({ severity: 'warning', category: 'provider_error',
+        stage: 'model_request', tool: request.model, retry: attempt + 1, message: error instanceof Error ? error.message : String(error), error });
       if (sent && !costRecorded) recordCelerisCost(request.model, null);
       endCostRequest();
       // Release before sleeping: another worker may use the allowance while

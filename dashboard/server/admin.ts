@@ -1,4 +1,5 @@
 import { simulations } from './simulate.js';
+import { readRunDiagnostics, readRunAttempt } from './run-diagnostics.js';
 import { previewAccountAlerts } from './alerts.js';
 import { previewOperatorAlerts } from './operator-alerts.js';
 import { homeRoutePort, proxySummary, routeStatus, setHomeRoutePort, setProxy, type RouteStatus } from './route.js';
@@ -414,13 +415,13 @@ async function runLog(runId: string): Promise<{ lines: Array<{ stream: string; t
     [runId],
   );
   if (!run) return null;
-  if (run.log_file) {
-    const path = resolve(userDir(run.user_id), 'run-logs', basename(run.log_file));
+  {
+    const path = resolve(userDir(run.user_id), 'run-logs', basename(run.log_file ?? `${runId}.jsonl`));
     if (existsSync(path)) {
       const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => {
         try { return JSON.parse(line); } catch { return null; }
       }).filter(Boolean);
-      return { lines, live: false, userId: run.user_id };
+      return { lines, live: !run.finished_at, userId: run.user_id };
     }
   }
   if (!run.finished_at && runner.stateFor(run.user_id).running) {
@@ -561,6 +562,15 @@ export async function handleAdminRequest(
       return send({ ok: true, ignored: await ignoredAddresses() });
     }
 
+    if ((match = path.match(/^\/runs\/(\d+)\/diagnostics$/)) && method === 'GET') {
+      const log = await runLog(match[1]);
+      return log ? send(readRunDiagnostics(match[1], userDir(log.userId), log.lines)) : send({ error: 'No such run.' }, 404);
+    }
+    if ((match = path.match(/^\/runs\/(\d+)\/attempts\/([a-f0-9-]+)$/i)) && method === 'GET') {
+      const owner = await one<{ user_id: string }>('SELECT user_id::text AS user_id FROM run_starts WHERE id=$1', [match[1]]);
+      const trace = owner ? readRunAttempt(match[1], userDir(owner.user_id), match[2]) : null;
+      return trace ? send(trace) : send({ error: 'No saved attempt for this run.' }, 404);
+    }
     if ((match = path.match(/^\/runs\/(\d+)\/log$/)) && method === 'GET') {
       const log = await runLog(match[1]);
       return log ? send(log) : send({ error: 'No such run.' }, 404);

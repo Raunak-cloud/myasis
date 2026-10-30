@@ -140,6 +140,9 @@ interface TraceStep {
   label: string;
   result?: string;
   screenshot?: string;
+  disposition?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 /**
@@ -151,7 +154,7 @@ interface TraceStep {
  * at roughly a third of its real size — present, but far too small to read
  * the form that actually blocked the application.
  */
-function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: BlockedQuestion[] }) {
+export function TraceSteps({ jobId, questions = [], endpoint }: { jobId: string; questions?: BlockedQuestion[]; endpoint?: string }) {
   const [steps, setSteps] = useState<TraceStep[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** A capture opened over the page, for when full-row width still is not enough. */
@@ -159,9 +162,11 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
 
   useEffect(() => {
     let cancelled = false;
+    setSteps(null);
+    setError(null);
     void (async () => {
       try {
-        const response = await fetch(`/api/trace?jobId=${encodeURIComponent(jobId)}`);
+        const response = await fetch(endpoint ?? `/api/trace?jobId=${encodeURIComponent(jobId)}`);
         const body = await response.json();
         if (cancelled) return;
         if (!response.ok) throw new Error(body.error ?? 'No trace available.');
@@ -173,7 +178,7 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
     return () => {
       cancelled = true;
     };
-  }, [jobId]);
+  }, [jobId, endpoint]);
 
   return (
     <div className="trace">
@@ -197,6 +202,10 @@ function TraceSteps({ jobId, questions = [] }: { jobId: string; questions?: Bloc
           ) : null}
           <div className="trace-caption job-meta">
             <strong>{s.step}.</strong> {s.label}
+            {s.disposition === 'failed' && <span className="badge bad">Tool error</span>}
+            {s.disposition === 'reobserve' && <span className="badge warn">Reinspection needed</span>}
+            {s.startedAt && !s.completedAt && <span className="badge warn">No completion recorded</span>}
+            {s.result && <details><summary>Full tool result</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{s.result}</pre></details>}
             {s.result ? <span className="trace-result"> → {s.result}</span> : null}
           </div>
         </div>
