@@ -143,6 +143,9 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
     return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
   }
 
+  if (fields.length > 1 && fields.length !== found.value.length) {
+    return ok(`The email yielded a ${found.value.length}-character code, but ${fields.length} individual code inputs were selected. Nothing was entered. Inspect whether the complete input group is selected. If it is, report a mailbox/code format mismatch; do not truncate, guess, or repeat the same request unchanged.`, 'failed');
+  }
   try {
     if (!await fillEmailedCode(ctx.page, fields as Observation['fields'], found.value, targets)) return ok('Code entry needs a different input selection. Select all current digit boxes in order; inspect the current page before retrying.');
   } catch {

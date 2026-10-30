@@ -22,6 +22,7 @@ for (const code of ['482913', 'A8X2K9P4']) {
 assert.equal(verificationMessage({ id: 'plain', plaintextBody: 'Exact plaintext\n482913', htmlBody: '<p>Other body</p>' }, 0).text, 'Exact plaintext\n482913');
 const originalFetch = globalThis.fetch;
 let unavailable = false, sent = 0, browserOrder = false, olderCodeBelowReply = false, staleCandidate = false, unorderedApi = false;
+let malformedCode = false;
 const reads: string[] = [], queries: string[] = [];
 const approval = randomUUID(), revision = 'a'.repeat(64);
 const service = new GmailMcpService({
@@ -44,7 +45,7 @@ const service = new GmailMcpService({
     }
     assert.equal(id, user);
     return [{ id: `${user}-email`, subject: 'Fixture: verify application', date: new Date().toISOString(),
-      plaintextBody: `Use ${user === 'owner-a' ? '482913' : '628731'} to verify your account.`,
+      plaintextBody: malformedCode ? 'Your Fixture verification code: 482913Code' : `Use ${user === 'owner-a' ? '482913' : '628731'} to verify your account.`,
       htmlBody: `<p>Verify</p><a href="https://employer.mailbox.invalid/verified/${user}?token=fixture">Verify account</a>` }];
   },
   send: async (user, id, version) => { assert.equal(user, 'owner-a'); assert.equal(id, approval); assert.equal(version, revision); sent++; return { messageId: 'fixture-message' }; },
@@ -81,6 +82,13 @@ try {
   const code = await doEnterEmailedCode(ctx, { ref: ctx.observation.fields[0].ref });
   assert.match(JSON.stringify(code), /Entered the emailed code/);
   assert.equal(await page.locator('input').inputValue(), '482913'); assert.equal(context.pages().length, 1);
+  await page.setContent('<main>' + Array.from({ length: 6 }, (_, i) => `<label>Digit ${i + 1}<input maxlength="1"></label>`).join('') + '</main>');
+  ctx.observation = await observe(page); malformedCode = true;
+  const mismatch = await doEnterEmailedCode(ctx, { refs: ctx.observation.fields.map(field => field.ref) });
+  assert.match(JSON.stringify(mismatch), /10-character code.*6 individual code inputs/);
+  assert.doesNotMatch(JSON.stringify(mismatch), /482913/, 'a format diagnostic must never disclose the private code');
+  assert.deepEqual(await page.locator('input').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value)), Array(6).fill(''), 'a length mismatch cannot partially type or truncate the code');
+  malformedCode = false;
   const link = await doOpenEmailedLink(ctx, {});
   assert.match(JSON.stringify(link), /Opened the emailed link/);
   assert.match(context.pages()[1].url(), /verified\/owner-a/); assert.equal(gmailPages, 0);
