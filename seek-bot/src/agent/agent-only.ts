@@ -58,7 +58,7 @@ const schema = (name: string, description: string, properties: Record<string, un
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
 export const agentOnlyTools: ToolSchema[] = [
   applicationReviewTool,
-  schema('prepare_application', 'Semi auto only: after filling and inspecting the final application review, save it for the candidate to confirm. Nothing is submitted. Supply every answer, the complete cover letter and the selected account resume ID.', {
+  schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the complete cover letter and selected account resume ID.', {
     resume_id: string, cover_letter: string,
     submit_ref: { type: 'string', description: 'Observed ref of the actual final send control on this completed online application.' },
     submit_selector: { type: 'string', description: 'CSS selector for that final send control when a ref is unavailable.' },
@@ -645,10 +645,11 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       if (!pendingDialog && meter.needsReview) recovery.requestBudgetReview();
       meter.reviewing(recovery.reviewingBudget);
       if (meter.exhausted) break;
-      if (approved) {
-        // Keep actual readback for known answers across wizard steps, including
-        // selections made by clicks rather than fill/select tools. Do not copy
-        // unrelated search/login fields from a listing into the application.
+      if (!pendingDialog && !ctx.observation.inspectionError) {
+        // Both preparation and approved reconstruction retain actual values
+        // across wizard steps, including selections made by clicks. A typed
+        // autocomplete query is not its subsequently committed option label.
+        // Do not add unrelated search/login fields to the application.
         for (const field of ctx.observation.fields) {
           if (field.sensitive || field.inputType === 'password' || field.currentValue === undefined || field.currentValue === '') continue;
           const position = ctx.captured.findIndex(answer => answer.question.replace(/\s+/g, ' ').trim() === field.label.replace(/\s+/g, ' ').trim());
