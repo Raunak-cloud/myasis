@@ -334,6 +334,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
       const description = descriptionFor(el, label);
       const section = sectionFor(el, label);
       const controlIdentity = identityFor(el);
+      el.setAttribute('data-field-identity', controlIdentity);
       const interactionState = {
         ...(el.readOnly || el.getAttribute('aria-readonly') === 'true' ? { readOnly: true } : {}),
         ...(el.disabled || el.getAttribute('aria-disabled') === 'true' ? { disabled: true } : {}),

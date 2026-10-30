@@ -51,6 +51,7 @@ function describeNativeTargets(targets: Element | Element[]) {
     }
     return {
       id: node.id || null, ref: node.getAttribute('data-field-id') || node.getAttribute('data-ref-id') || null,
+      controlIdentity: node.getAttribute('data-field-identity') || undefined,
       match_index: index, visible,
       tag: node.tagName.toLowerCase(), type, name: input.name || null,
       role: node.getAttribute('role'), shadow_root: node.shadowRoot ? 'open' : undefined,
