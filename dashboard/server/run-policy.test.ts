@@ -1,4 +1,4 @@
-import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, effectivePlatforms, PLATFORMS_CHOSEN_KEY, SCHEDULED_MIN_SCORE } from './entitlements.js';
+import { applyRunPolicy, automaticRunsPerDay, deriveEntitlements, effectivePlatforms, PLATFORMS_CHOSEN_KEY, EMPLOYER_SOURCES_CHOSEN_KEY, SCHEDULED_MIN_SCORE } from './entitlements.js';
 import { manualRunRefusal, runControlRefusal } from './start-run.js';
 import { PLAN_LIMITS, PLAN_PRESENTATION } from '../src/pricing.js';
 import { matchThresholdError } from '../src/runSettings.js';
@@ -25,8 +25,8 @@ const saved = {
 const freePolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null };
 const essentialPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS['essential-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
 const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
-const intensivePolicy = { tier: 'intensive' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
-const adminPolicy = { tier: 'admin' as const, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: null, maxApplicationsPerRunOverride: null };
+const intensivePolicy = { tier: 'intensive' as const, employerSources: true, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
+const adminPolicy = { tier: 'admin' as const, employerSources: true, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: null, maxApplicationsPerRunOverride: null };
 
 for (const policy of [freePolicy, essentialPolicy, jobSearchPolicy, intensivePolicy, adminPolicy]) {
   for (const trigger of ['manual', 'auto'] as const) {
@@ -181,16 +181,26 @@ check('a review override holds for an admin\'s scheduled runs too', adminOverrid
 // What a manual run posts goes through the plan, not around it.
 const posted = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '40', PLATFORMS: 'seek' }, intensivePolicy, 'manual');
 check('a posted evaluation count cannot lower or raise the Intensive plan', posted.MAX_EVALUATIONS === '80');
-check('a posted default board list still includes the Indeed an Intensive Pass pays for', posted.PLATFORMS === 'seek,indeed');
+check('a posted default board list still includes the Indeed an Intensive Pass pays for', posted.PLATFORMS === 'seek,indeed,smartrecruiters,greenhouse,pageup,workday');
 
 // A board list the account picked is used exactly as picked (Rinu Thapa unticked Indeed and got it anyway, 5 Oct).
 const chosenSeek = applyRunPolicy({ ...saved, PLATFORMS: 'seek' }, jobSearchPolicy, 'manual', true);
 check('SEEK alone, picked by the account, stays SEEK alone on a pass that includes Indeed', chosenSeek.PLATFORMS === 'seek');
-check('Indeed alone, picked by the account, stays Indeed alone', applyRunPolicy({ ...saved, PLATFORMS: 'indeed' }, intensivePolicy, 'manual', true).PLATFORMS === 'indeed');
+check('Indeed alone, picked by the account, stays Indeed alone', applyRunPolicy({ ...saved, PLATFORMS: 'indeed' }, intensivePolicy, 'manual', true, true).PLATFORMS === 'indeed');
 check('the plan default still adds Indeed when nothing was picked', effectivePlatforms({ PLATFORMS: 'seek' }, jobSearchPolicy) === 'seek,indeed');
 check('nothing saved at all: the plan default', effectivePlatforms({}, jobSearchPolicy) === 'seek,indeed' && effectivePlatforms({}, freePolicy) === 'seek');
-check('a picked SEEK-only list is reported as SEEK only', effectivePlatforms({ PLATFORMS: 'seek', [PLATFORMS_CHOSEN_KEY]: '1' }, intensivePolicy) === 'seek');
+check('a picked SEEK-only list is reported as SEEK only', effectivePlatforms({ PLATFORMS: 'seek', [PLATFORMS_CHOSEN_KEY]: '1', [EMPLOYER_SOURCES_CHOSEN_KEY]: '1' }, intensivePolicy) === 'seek');
 check('a free account is never given Indeed', effectivePlatforms({ PLATFORMS: 'seek' }, freePolicy) === 'seek');
+
+check('new and existing Get Owtomated accounts default to all employer sources',
+  effectivePlatforms({}, intensivePolicy).endsWith('smartrecruiters,greenhouse,pageup,workday') &&
+  effectivePlatforms({PLATFORMS:'seek', [PLATFORMS_CHOSEN_KEY]:'1'}, intensivePolicy) === 'seek,smartrecruiters,greenhouse,pageup,workday');
+check('both run modes honor explicit employer source opt-out', ['manual','auto'].every(trigger =>
+  applyRunPolicy({...saved,PLATFORMS:'seek'}, intensivePolicy, trigger as 'manual'|'auto', true, true).PLATFORMS === 'seek'));
+check('expiry removes employer sources and preserves the saved preference',
+  effectivePlatforms({PLATFORMS:'seek,greenhouse,workday',[PLATFORMS_CHOSEN_KEY]:'1',[EMPLOYER_SOURCES_CHOSEN_KEY]:'1'}, freePolicy) === 'seek');
+check('employer sources are a Get Owtomated/admin capability',
+  intensiveEntitlements.employerSources && adminEntitlements.employerSources && !freeEntitlements.employerSources && !activeEntitlements.employerSources && !essentialEntitlements.employerSources);
 
 // Every number a plan advertises is the number the server enforces.
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');

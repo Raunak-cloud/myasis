@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } from './job-sources.js';
 import { USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
-import { getPool } from './db/index.js';
-import { startRun } from './start-run.js';
 
-test('customer settings and every run trigger refuse SmartRecruiters before any database or browser action', async () => {
+test('source access is validated independently of admin-only model and configuration access', () => {
   assert.equal(jobSourceSettingsError({ PLATFORMS: 'indeed, SmartRecruiters' }, false)?.status, 403);
   assert.equal(jobSourceSettingsError({ SMARTRECRUITERS_COMPANIES: 'Canva' }, false)?.status, 403);
   assert.equal(jobSourceSettingsError({ PLATFORMS: 'smartrecruiters', SMARTRECRUITERS_COMPANIES: 'Canva' }, true), null);
@@ -18,18 +16,12 @@ test('customer settings and every run trigger refuse SmartRecruiters before any 
     assert.equal(jobSourceSettingsError({ [source.key]: source.defaults }, false)?.status, 403);
     assert.equal(jobSourceSettingsError({ PLATFORMS: source.id, [source.key]: source.defaults }, true), null);
   }
-  const pool = getPool();
-  const original = pool.query;
-  pool.query = (async () => { throw new Error('Unauthorised source reached database'); }) as typeof original;
-  try {
-    for (const trigger of ['manual', 'auto', 'admin', 'onboarding'] as const) {
-      for (const mode of ['search', 'live'] as const) for (const source of EMPLOYER_SOURCES) {
-        const result = await startRun({ userId: 'source-test', email: 'source-customer@example.test', mode, trigger,
-          clientOverrides: { PLATFORMS: source.id, SMARTRECRUITERS_ADMIN_ENABLED: 'true', EMPLOYER_FEEDS_ADMIN_ENABLED: 'true' } });
-        assert.ok(!result.ok && result.status === 403, `${trigger}/${mode}`);
-      }
-    }
-  } finally { pool.query = original; await pool.end(); }
+  for (const source of EMPLOYER_SOURCES) {
+    assert.equal(jobSourceSettingsError({ PLATFORMS: source.id }, false, true), null);
+    assert.equal(jobSourceSettingsError({ [source.key]: source.defaults }, false, true)?.status, 403);
+  }
+  assert.equal(jobSourceSettingsError({ APPLICATION_AI_MODEL: 'celeris' }, false, true)?.status, 403);
+
 });
 
 test('old saved settings and server environment cannot enable the feed on customer runs', () => {
@@ -66,4 +58,19 @@ test('admin feed-only runs need no SEEK or Indeed session and mixed runs retain 
    assert.deepEqual(availableJobSources(feeds, false, () => false), { supported: [], usable: [], unavailable: [] });
    const settings: Record<string, string> = { PLATFORMS: feeds.join(','), EMPLOYER_FEEDS_ADMIN_ENABLED: 'true' };
    applyJobSourceAccess(settings, false); assert.equal(settings.PLATFORMS, 'seek'); assert.equal(settings.EMPLOYER_FEEDS_ADMIN_ENABLED, 'false');
+ });
+
+ test('Get Owtomated can use every employer source without a board session, with managed employer lists', () => {
+   const feeds = EMPLOYER_SOURCES.map(source => source.id);
+   assert.deepEqual(availableJobSources(feeds, true, () => false), { supported: feeds, usable: feeds, unavailable: [] });
+   const settings: Record<string, string> = { PLATFORMS: feeds.join(','), SMARTRECRUITERS_COMPANIES: 'UntrustedOldOverride' };
+   applyJobSourceAccess(settings, false, true);
+   assert.equal(settings.PLATFORMS, feeds.join(','));
+   assert.equal(settings.EMPLOYER_FEEDS_ADMIN_ENABLED, 'true');
+   for (const source of EMPLOYER_SOURCES) assert.equal(settings[source.key], source.defaults);
+   assert.equal(settings.APPLICATION_AI_MODEL, 'celeris');
+   // Expiry rechecks actual access rather than trusting the old enabled flag.
+   applyJobSourceAccess(settings, false, false);
+   assert.equal(settings.PLATFORMS, 'seek');
+   assert.equal(settings.EMPLOYER_FEEDS_ADMIN_ENABLED, 'false');
  });

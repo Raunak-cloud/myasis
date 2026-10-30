@@ -71,7 +71,7 @@ const JOB_BOARDS = [
   { id: 'seek', label: 'SEEK' },
   { id: 'indeed', label: 'Indeed' },
 ];
-const ADMIN_JOB_BOARDS = [...JOB_BOARDS, ...EMPLOYER_SOURCES.map(source => ({ id: source.id, label: source.label }))];
+const ALL_JOB_SOURCES = [...JOB_BOARDS, ...EMPLOYER_SOURCES.map(source => ({ id: source.id, label: source.label }))];
 
 /**
  * A number that climbs to its new value instead of jumping, so a count going
@@ -161,16 +161,17 @@ export function RunPanel({
   const entitlements = useEntitlements();
   const billing = useBillingStatus();
   const boards = useBoardsStatus();
-  /** No board signed in means no run can apply, so automatic runs have nothing to do until that is fixed. */
+  /** Employer sources are usable independently of these job-board sessions. */
   const signedOutEverywhere = boards !== null && !boards.seek?.signedIn && !boards.indeed?.signedIn;
   const firstRun = Boolean(entitlements?.firstRunRequired && !entitlements.manualRuns);
   const driving = Boolean(entitlements?.manualRuns || firstRun);
   /** On-demand runs use the authenticated admin path; normal application caps still apply. */
   const isAdmin = entitlements?.tier === 'admin';
+  const employerSourcesEnabled = entitlements?.employerSources === true;
   const [adminModeEnabled, setAdminModeEnabled] = useState(false);
   const adminMode = isAdmin && adminModeEnabled;
   const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
-  const jobBoards = isAdmin ? ADMIN_JOB_BOARDS : JOB_BOARDS;
+  const jobBoards = employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS;
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -465,7 +466,8 @@ export function RunPanel({
   };
   const platforms = val('PLATFORMS').split(',').map((item) => item.trim()).filter(Boolean);
   /** Unknown until read; then only a board confirmed signed in can be used. */
-  const boardUsable = (id: string) => isEmployerSource(id) ? isAdmin : boardSignedIn === null || boardSignedIn[id] === true;
+  const boardUsable = (id: string) => isEmployerSource(id) ? employerSourcesEnabled : boardSignedIn === null || boardSignedIn[id] === true;
+  const employerSourceSelected = employerSourcesEnabled && platforms.some(isEmployerSource);
   const unusableBoards = jobBoards.filter((board) => !boardUsable(board.id));
   const togglePlatform = (id: string) => {
     const next = new Set(platforms);
@@ -758,8 +760,8 @@ export function RunPanel({
               <ResumeSourceNote />
               <button
                 className="btn primary lg"
-                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && (boards === null || signedOutEverywhere)) || outOfAllowance}
-                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
+                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && !employerSourceSelected && (boards === null || signedOutEverywhere)) || outOfAllowance}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && !employerSourceSelected && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && !employerSourceSelected && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
                 onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('all'); setConfirming(true); }}
               >
                 {applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
@@ -790,7 +792,7 @@ export function RunPanel({
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
               )}
               {!accountSetupIncomplete && signedOutEverywhere && (
-                <span className="job-meta">{isAdmin ? 'Choose employer feeds in run settings, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
+                <span className="job-meta">{employerSourcesEnabled ? 'You can search employer sites, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
               )}
             </>
           )}
@@ -1124,7 +1126,7 @@ export function RunPanel({
               <section className="run-review-section run-review-search">
                 <h3>What to find</h3>
                 <div className="field run-review-wide">
-                  <FieldLabel label="Job sources" help={isAdmin ? 'Selected sources are searched, scored and deduplicated together. Employer feeds read public vacancies and apply on employer websites.' : 'Selected job boards are searched, scored and deduplicated together.'} />
+                  <FieldLabel label="Job sources" help="Choose where Owtomate searches for jobs. Employer sources open applications on the employer’s website." />
                   <div className="chips" data-field="PLATFORMS">
                     {jobBoards.map((board) => {
                       const usable = boardUsable(board.id);
@@ -1152,6 +1154,7 @@ export function RunPanel({
                   )}
                   {fieldError('PLATFORMS')}
                 </div>
+                {employerSourceSelected && !isAdmin && <p className="job-meta">Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.</p>}
                 {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (
                   <div key={source.id} className="field run-review-wide" data-field={source.key}>
                     <FieldLabel label={`${source.label} employers`} help={`${source.help} Up to 20 employers per source.`} />

@@ -10,6 +10,7 @@ import {
 import {
   applyRunPolicy,
   PLATFORMS_CHOSEN_KEY,
+  EMPLOYER_SOURCES_CHOSEN_KEY,
   discardRunStart,
   entitlementsFor,
   recordRunStart,
@@ -145,10 +146,14 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
   const admin = isAdmin(email);
-  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin);
-  if (sourceError) return { ok: false, ...sourceError };
+  // Reject malformed sources and admin-only controls before loading account facts.
+  // Source eligibility itself is checked against the current pass below.
+  const invalidSettings = jobSourceSettingsError(request.clientOverrides ?? {}, admin, true);
+  if (invalidSettings) return { ok: false, ...invalidSettings };
   let borrowFreeProxy = false;
   const entitlements = await entitlementsFor(userId, email);
+  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources);
+  if (sourceError) return { ok: false, ...sourceError };
   const controlRefused = runControlRefusal(trigger, entitlements, request.approvals !== undefined);
   if (controlRefused) return controlRefused;
   if (request.applicationMode !== undefined && !['auto', 'semi-auto'].includes(request.applicationMode)) return { ok: false, status: 400, error: 'Choose Auto apply or Semi auto.' };
@@ -234,7 +239,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */
-  const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1');
+  const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1', settingsSnapshot.saved[EMPLOYER_SOURCES_CHOSEN_KEY] === '1');
   overrides.APPLICATION_REVIEW_MODE = request.applicationMode === 'semi-auto' ? 'prepare' : '';
   overrides.PENDING_APPLICATION_KEYS_JSON = JSON.stringify(await pendingReviewKeys(userId));
   let selections;
@@ -257,11 +262,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * that includes Indeed, so "SEEK only" searched and applied on Indeed too.
    */
   const narrowedBoards = trigger === 'admin' ? String(request.clientOverrides?.PLATFORMS ?? '').trim() : '';
-  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', ...(admin ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
+  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', ...(entitlements.employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
     overrides.PLATFORMS = narrowedBoards;
   }
   try {
-    applyJobSourceAccess(overrides, admin);
+    applyJobSourceAccess(overrides, admin, entitlements.employerSources);
   }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;
@@ -437,7 +442,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     // of stays out until they sign in again.
     if (!state || (state.signedIn === false && !state.signedOutByPerson)) await checkSignin(userId, board);
   }
-  const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, admin, board => readSiteState(userId, board)?.signedIn === true);
+  const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, entitlements.employerSources, board => readSiteState(userId, board)?.signedIn === true);
   if (!directExternalUrl && usable.length && usable.every(isEmployerSource) && overrides.APPLY_ONLY === 'hosted') {
     return { ok: false, status: 400, error: 'Employer feeds use employer-site applications. Choose a normal or employer-sites run.' };
   }

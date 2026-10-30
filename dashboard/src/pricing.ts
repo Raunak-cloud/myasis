@@ -101,6 +101,7 @@ export const PLAN_PRESENTATION = {
       'SEEK and Indeed applications',
       'Advanced match and listing-age filters',
       'Supported employer-site applications',
+      'SmartRecruiters, Greenhouse, PageUp and Workday job sources',
       'Priority support',
     ],
   },

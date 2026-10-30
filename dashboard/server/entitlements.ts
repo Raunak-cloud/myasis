@@ -7,6 +7,7 @@ import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql, RUN_TIME_ZONE } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
 import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 
 export { SCHEDULED_MIN_SCORE, RUN_TIME_ZONE };
 
@@ -146,11 +147,13 @@ export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, '
  */
 /** Set once the account picks its job boards itself; from then on its list is used exactly as picked. */
 export const PLATFORMS_CHOSEN_KEY = 'PLATFORMS_CHOSEN';
+/** Separate from the legacy board choice, which predates customer employer sources. */
+export const EMPLOYER_SOURCES_CHOSEN_KEY = 'EMPLOYER_SOURCES_CHOSEN';
 
 /**
  * The boards a run uses. A list the account picked is used exactly as
- * picked. Otherwise the plan decides: SEEK and Indeed when the pass includes
- * Indeed, SEEK alone when it does not.
+ * picked. A newly included employer-source entitlement adds its defaults once;
+ * later customer source choices survive both scheduled runs and pass renewals.
  *
  * A saved "seek" is not itself a choice: the run screen saves every field when
  * a run starts, so the product default lands in the database for accounts
@@ -160,11 +163,15 @@ export const PLATFORMS_CHOSEN_KEY = 'PLATFORMS_CHOSEN';
  */
 export function effectivePlatforms(
   saved: Record<string, string | undefined>,
-  entitlement: Pick<Entitlements, 'indeedApplications'>,
+  entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier'>>,
 ): string {
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
-  if (saved[PLATFORMS_CHOSEN_KEY] === '1') return value;
-  return entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
+  const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
+  const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources));
+  if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
+    selected.push(...EMPLOYER_SOURCES.map(source => source.id));
+  }
+  return [...new Set(selected)].join(',') || RUN_SETTING_DEFAULTS.PLATFORMS;
 }
 
 export function applyRunPolicy(
@@ -172,10 +179,11 @@ export function applyRunPolicy(
   entitlement: Pick<
     Entitlements,
     'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'maxApplicationsPerRunOverride'
-  >,
+  > & Partial<Pick<Entitlements, 'employerSources'>>,
   trigger: 'manual' | 'auto',
   /** Whether the account picked its boards itself (see effectivePlatforms). */
   boardsChosen = false,
+  employerSourcesChosen = false,
 ): Record<string, string> {
   const resolved = { ...settings };
   delete resolved.PAGES_PER_KEYWORD; // Retired discovery depth cannot influence runs.
@@ -190,7 +198,7 @@ export function applyRunPolicy(
     }
   }
   // A pass that includes Indeed adds it, unless the account picked its boards itself.
-  resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '' }, entitlement);
+  resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '', [EMPLOYER_SOURCES_CHOSEN_KEY]: employerSourcesChosen ? '1' : '' }, entitlement);
   // Review overrides remain independent of the application allowance.
   if (entitlement.evaluationsPerRun !== null) {
     resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);
@@ -248,6 +256,8 @@ export interface Entitlements {
   runScopes: boolean;
   /** May search and apply to jobs hosted on Indeed as well as SEEK. */
   indeedApplications: boolean;
+  /** May discover vacancies directly from the supported employer sources. */
+  employerSources: boolean;
   /**
    * Search-term suggestions from resumes left. Null means no limit. The free
    * plan gets one: enough to see what it does, and the reason to buy a pass
@@ -439,6 +449,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     advancedFilters,
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
+    employerSources: tier === 'admin' || tier === 'intensive',
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,
   };

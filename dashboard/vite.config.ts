@@ -60,7 +60,7 @@ import { checkGmailMcp } from './server/gmail-mcp.js';
 import { gmailAccess, selectGmailProvider, allowBrowserGmail, disableBrowserGmail } from './server/gmail-access.js';
 import { GmailConnectionError } from '../seek-bot/src/gmail-mcp-client.js';
 import { GmailServiceError } from '../seek-bot/src/gmail-mcp-service.js';
-import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
+import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, EMPLOYER_SOURCES_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
 import { routeStatus } from './server/route.js';
 import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
@@ -450,9 +450,9 @@ function dataApi(): Plugin {
              * actually withholds them.
              */
             const settingsUser = await currentUser(req.headers?.cookie);
-            const sourceError = jobSourceSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email));
-            if (sourceError) return send({ error: sourceError.error }, sourceError.status);
             const entitlements = await entitlementsFor(userId, settingsUser?.email);
+            const sourceError = jobSourceSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email), entitlements.employerSources);
+            if (sourceError) return send({ error: sourceError.error }, sourceError.status);
             const updates: Record<string, string> = {};
             for (const [key, value] of Object.entries(body?.updates ?? {})) {
               if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
@@ -471,6 +471,10 @@ function dataApi(): Plugin {
               await upsertSettingRow(userId, PLATFORMS_CHOSEN_KEY, '1');
             }
             const settings = await saveUserSettings(userId, updates);
+            if (updates.PLATFORMS !== undefined && entitlements.employerSources) {
+              await upsertSettingRow(userId, EMPLOYER_SOURCES_CHOSEN_KEY, '1');
+              settings[EMPLOYER_SOURCES_CHOSEN_KEY] = '1';
+            }
             if (updates.MAX_APPS_PER_DAY !== undefined) {
               await upsertSettingRow(userId, DAILY_APPLICATION_CAP_CHOSEN, '1');
               settings[DAILY_APPLICATION_CAP_CHOSEN] = '1';

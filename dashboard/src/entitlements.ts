@@ -27,6 +27,7 @@ export interface Entitlements {
   advancedFilters: boolean;
   runScopes: boolean;
   indeedApplications: boolean;
+  employerSources: boolean;
   /** Suggestions from resumes left; null means no limit. */
   searchTermSuggestionsLeft: number | null;
   timeZone: string;

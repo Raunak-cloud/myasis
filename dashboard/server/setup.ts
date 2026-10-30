@@ -2,6 +2,8 @@ import { listResumes } from './files.js';
 import { profileGaps } from './profile.js';
 import { loadUserSettings } from './settings.js';
 import { readSiteState } from './seek-state.js';
+import { effectivePlatforms, entitlementsFor } from './entitlements.js';
+import { isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 
 interface SetupCheck {
   id: string;
@@ -94,6 +96,8 @@ export async function setupStatus(
   // separate waitingForBoard state in accountSetupComplete unchanged.
   const connectedBoards = (['seek', 'indeed'] as const)
     .filter((site) => readSiteState(userId, site)?.signedIn === true);
+  const [settings, entitlement] = await Promise.all([loadUserSettings(userId), entitlementsFor(userId)]);
+  const employerSourceSelected = entitlement.employerSources && effectivePlatforms(settings, entitlement).split(',').some(isEmployerSource);
   // Job titles and location are one step on screen, so they are one check here too.
   const looking: SetupCheck = {
     id: 'looking',
@@ -109,9 +113,9 @@ export async function setupStatus(
     looking,
     {
       id: 'boards',
-      label: 'Job board connected',
-      done: connectedBoards.length > 0,
-      hint: connectedBoards.length
+      label: employerSourceSelected ? 'Job sources ready' : 'Job board connected',
+      done: employerSourceSelected || connectedBoards.length > 0,
+      hint: employerSourceSelected ? 'Employer job sources are ready. You can also connect SEEK or Indeed.' : connectedBoards.length
         ? `Connected to ${connectedBoards.map((site) => site === 'seek' ? 'SEEK' : 'Indeed').join(' and ')}.`
         : 'Connect SEEK, or Indeed if available.',
       fix: 'boards',
