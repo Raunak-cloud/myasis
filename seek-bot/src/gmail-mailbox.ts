@@ -35,6 +35,9 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
   const lifetime = AbortSignal.timeout(timeoutMs);
   const network: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, lifetime]) : lifetime });
   const client = gmailClient(network), examined = new Set<string>();
+  // The browser adapter explicitly selects Most recent. Do not assume an API
+  // provider's thread ordering; retain the complete timestamp comparison there.
+  const orderedBrowserResults = process.env.GMAIL_ACCESS_MODE === 'browser';
   const context = verificationContextWords(options).filter(word => word.length <= 100).slice(0, 12);
   const query = '(code OR verify OR verification OR confirm OR activation OR password OR passcode OR OTP OR "sign in")'
     + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
@@ -62,9 +65,9 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
           // the timestamp frontier, or the browser supplied its single latest
           // message without a timestamp. A new reply above an older code must
           // not hide a newer code in the following thread.
-          if (batchDates.length && batchDates.every(Number.isFinite) && Number.isFinite(foundAt)
+          if (orderedBrowserResults && batchDates.length && batchDates.every(Number.isFinite) && Number.isFinite(foundAt)
             && foundAt >= Math.max(...batchDates)) return report(found);
-          if (batch.length === 1 && message === batch[0] && !Number.isFinite(batchDates[0])) return report(found);
+          if (orderedBrowserResults && batch.length === 1 && message === batch[0] && !Number.isFinite(batchDates[0])) return report(found);
           break;
         }
       }

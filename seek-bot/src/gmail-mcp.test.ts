@@ -13,7 +13,7 @@ const { doEnterEmailedCode, doOpenEmailedLink } = await import('./agent/authenti
 const { observe } = await import('./agent/observe.js');
 const { findVerificationInGmail, gmailAvailable } = await import('./gmail-mailbox.js');
 const originalFetch = globalThis.fetch;
-let unavailable = false, sent = 0, browserOrder = false, olderCodeBelowReply = false, staleCandidate = false;
+let unavailable = false, sent = 0, browserOrder = false, olderCodeBelowReply = false, staleCandidate = false, unorderedApi = false;
 const reads: string[] = [], queries: string[] = [];
 const approval = randomUUID(), revision = 'a'.repeat(64);
 const service = new GmailMcpService({
@@ -26,6 +26,7 @@ const service = new GmailMcpService({
   thread: async (user, id) => {
     reads.push(id);
     if (browserOrder) {
+      if (unorderedApi) return [{ id, subject: 'Fixture verification', date: id === 'browser-newest' ? '2026-10-30T09:00:00Z' : '2026-10-30T10:00:00Z', plaintextBody: `Use ${id === 'browser-newest' ? '111222' : '729184'} to verify your Fixture account.` }];
       if (olderCodeBelowReply) {
         const code = { id, subject: 'Fixture verification', date: id === 'browser-newest' ? '2026-10-30T09:00:00Z' : '2026-10-30T10:00:00Z', plaintextBody: `Use ${id === 'browser-newest' ? '111222' : '729184'} to verify your Fixture account.` };
         return id === 'browser-newest' ? [code, { id: 'reply', date: '2026-10-30T11:00:00Z', subject: 'Thanks', plaintextBody: 'Thank you.' }] : [code];
@@ -76,6 +77,7 @@ try {
   assert.match(JSON.stringify(link), /Opened the emailed link/);
   assert.match(context.pages()[1].url(), /verified\/owner-a/); assert.equal(gmailPages, 0);
   browserOrder = true;
+  process.env.GMAIL_ACCESS_MODE = 'browser';
   const ordered = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
   assert.ok(!('error' in ordered) && ordered.value === '729184', 'browser verification uses the newest search result, not the last email fetched');
   reads.length = 0; staleCandidate = true;
@@ -87,6 +89,11 @@ try {
   const dated = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
   assert.ok(!('error' in dated) && dated.value === '729184', 'a recent unrelated reply must not make an older code win');
   olderCodeBelowReply = false;
+  unorderedApi = true; reads.length = 0; process.env.GMAIL_ACCESS_MODE = 'mcp';
+  const apiOrder = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
+  assert.ok(!('error' in apiOrder) && apiOrder.value === '729184', 'API results without a guaranteed thread order still compare delivery times');
+  assert.deepEqual(reads, ['browser-newest', 'browser-older']);
+  unorderedApi = false; delete process.env.GMAIL_ACCESS_MODE;
   browserOrder = false;
   unavailable = true;
   const failure = await findVerificationInGmail({ timeoutMs: 1000 });
