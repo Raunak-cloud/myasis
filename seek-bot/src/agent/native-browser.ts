@@ -2,7 +2,7 @@ import type { Frame, Locator, Page } from 'patchright';
 import { browserDeadline } from '../browser-deadline.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
 
-export const MAX_BROWSER_BATCH = 12;
+export const MAX_BROWSER_BATCH = 32;
 const waitState = { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] };
 const waitTimeout = { type: 'integer', minimum: 1, maximum: 15000 };
 export const browserWaitProperties = {
