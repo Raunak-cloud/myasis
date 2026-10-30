@@ -303,7 +303,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       const unlimitedApplications = allowance.paid.unlimitedApplications === true;
       if (unlimitedApplications && !admin) {
         overrides.APPLICATIONS_UNLIMITED = 'true';
-        overrides.MAX_APPS_PER_RUN = 'none';
+        // Unlimited ordinary runs still honor an administrator's explicit
+        // one-time diagnostic cap and a direct single-vacancy preparation.
+        if (request.oneTime?.maxApplications === undefined && !directExternalUrl) overrides.MAX_APPS_PER_RUN = 'none';
         // Every account has a daily ceiling, including unlimited passes.
         const chosenDailyCap = String(request.clientOverrides?.MAX_APPS_PER_DAY
           ?? (settingsSnapshot.saved[DAILY_APPLICATION_CAP_CHOSEN] === '1' ? settingsSnapshot.saved.MAX_APPS_PER_DAY : '') ?? '').trim();
