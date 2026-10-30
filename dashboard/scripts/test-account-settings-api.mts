@@ -8,7 +8,7 @@ import config from '../vite.config.js';
 import { getPool } from '../server/db/index.js';
 import { userDir, USERS_DIR } from '../server/userdata.js';
 import { accountRequest, accountUnavailable } from '../server/account-lifecycle.js';
-import { runSettingsSnapshotForUser, replaceSearchTermsIfUnchanged } from '../server/settings.js';
+import { runSettingsSnapshotForUser } from '../server/settings.js';
 import { runner } from '../server/runner.js';
 import { applyRunPolicy, entitlementsFor } from '../server/entitlements.js';
 
@@ -55,8 +55,7 @@ try {
     assert.equal(shown.KEYWORDS,cappedTerms,'legacy titles are capped in the editor for every tier');
     const snapshot = await runSettingsSnapshotForUser(id,{unlimited});
     assert.equal(snapshot.settings.KEYWORDS,cappedTerms,'manual and scheduled runs use three titles, including unlimited admins');
-    assert.equal(snapshot.saved.KEYWORDS,oldTerms,'retain exact saved value for concurrent-edit protection');
-    assert.equal(await replaceSearchTermsIfUnchanged(id,snapshot.saved.KEYWORDS,oldTerms),true,'renewal still compares against the original legacy value');
+    assert.equal(snapshot.saved.KEYWORDS,oldTerms,'reading run settings preserves the exact saved keywords');
     const response = await request('/api/settings','POST',{updates:{KEYWORDS:oldTerms}},cookie);
     assert.equal(response.status,200);
     const saved = await response.json() as {settings:{KEYWORDS:string}};

@@ -31,7 +31,9 @@ The interface shows **Why these suggestions?** with the supporting quotations an
 source resume labels. Ordinary suggestions can retain the strongest existing
 search. **Find alternatives** explicitly excludes earlier suggestions for the
 selected documents; an unsuccessful request preserves existing search terms.
-Onboarding and sparse-run renewal use the same verification workflow.
+Onboarding uses the same verification workflow to fill an initially empty search.
+Saved search terms stay fixed across runs, including runs with no matches.
+Only an explicit user edit or accepted suggestion changes them.
 
 The task-based design follows the [ABS OSCA conceptual model](https://www.abs.gov.au/statistics/classifications/osca-occupation-standard-classification-australia/2024-version-1-0/conceptual-model).
 Occupation classifications inform the design; no live taxonomy lookup or licence

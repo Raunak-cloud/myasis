@@ -180,24 +180,3 @@ export async function saveUserSettings(
   }
   return loadUserSettings(userId);
 }
-
-/**
- * Saves AI-renewed search terms only if the account still has exactly the
- * value it had when the run began. UPDATE ... WHERE ... RETURNING makes the
- * check and write one database operation; a user's intervening edit wins.
- */
-export async function replaceSearchTermsIfUnchanged(
-  userId: string,
-  expectedValue: string,
-  nextValue: string,
-): Promise<boolean> {
-  const normalized = normalizeSetting('KEYWORDS', nextValue);
-  const updated = await query<{ value: string }>(
-    `UPDATE settings
-        SET value = $3
-      WHERE user_id = $1 AND key = 'KEYWORDS' AND value = $2
-      RETURNING value`,
-    [userId, expectedValue, normalized],
-  );
-  return updated.length === 1;
-}

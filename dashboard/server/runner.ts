@@ -104,13 +104,6 @@ interface RunState {
   ownerUserId: string | null;
 }
 
-interface KeywordRenewalContext {
-  /** The normalized terms the child actually searched. */
-  termsUsed: string;
-  /** Exact database value at start, used for a conditional post-run save. */
-  expectedSavedTerms: string;
-}
-
 const MAX_LINES = 2000;
 
 /**
@@ -153,7 +146,7 @@ const IDLE_STATE: RunState = {
 
 /** A clean run that submitted or prepared applications completed its work, even when the
  * application cap ended it before the search could review every listing.
- * Review completeness still controls search-term renewal separately. */
+ * A partial review alone cannot establish a completed search. */
 export function runSucceeded(facts: {
   exitCode: number | null;
   stoppedByPerson: boolean;
@@ -246,9 +239,8 @@ class Run {
   private timedOut = false;
   private supervisor: ReturnType<typeof superviseRun> | null = null;
   private completion: Promise<void> = Promise.resolve();
-  /** Keeps the account's next run out until result sync and keyword renewal finish. */
+  /** Keeps the account's next run out until result sync finishes. */
   private postProcessing = false;
-  private keywordRenewal: KeywordRenewalContext | null = null;
   /** A parallel admin run consumes two machine slots, including preparation. */
   workerSlots = 1;
   private lines: LogLine[] = [];
@@ -353,7 +345,6 @@ class Run {
     onApplicationSubmitted?: (external: boolean) => void | Promise<void>,
     onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
-    keywordRenewal?: KeywordRenewalContext,
     reserveExtraWorker?: () => boolean,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
@@ -433,7 +424,6 @@ class Run {
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
     this.onFinished = onFinished ?? null;
     this.runStartId = runStartId ?? null;
-    this.keywordRenewal = keywordRenewal ?? null;
     this.stoppedByPerson = false;
     this.timedOut = false;
     this.state = {
@@ -544,7 +534,6 @@ class Run {
     this.push('sys', '  application decisions: Agent-only');
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;
-    this.keywordRenewal = null;
     this.stoppedByPerson = false;
     this.timedOut = false;
     this.spawnChild(spawn(process.execPath, ['dist/queue.js'], { cwd: BOT_DIR, env, detached: process.platform !== 'win32' }), userId, dataDir, 'scan');
@@ -584,8 +573,6 @@ class Run {
     const onFinished = this.onFinished;
     this.onFinished = null;
     this.postProcessing = true;
-    const renewal = this.keywordRenewal;
-    this.keywordRenewal = null;
     this.push('sys', `■ ${kind} finished (exit ${code}${signal ? `, ${signal}` : ''})`);
 
     // Keep this account's slot occupied until its browser and descendants are gone.
@@ -616,30 +603,9 @@ class Run {
     }
 
     const qualifyingJobs = kind === 'run' && code === 0 ? readQualifyingJobs(dataDir) : null;
-    if (renewal && !this.timedOut && !this.stoppedByPerson && qualifyingJobs !== null && qualifyingJobs < 2) {
-      postRunTasks.push(
-        import('./search-terms.js')
-          .then(({ renewSearchTermsAfterSparseRun }) => (
-            renewSearchTermsAfterSparseRun(userId, renewal.termsUsed, renewal.expectedSavedTerms)
-          ))
-          .then((result) => {
-            if (result.status === 'renewed') {
-              this.push('sys', `  ↻ Search terms renewed for the next run: ${result.terms.join(', ')}`);
-            } else if (result.status === 'not-saved-terms') {
-              // A run on one-off terms says nothing about the saved ones.
-            } else if (result.status === 'user-changed') {
-              this.push('sys', '  Search terms were not auto-renewed because you changed them during the run.');
-            } else {
-              this.push('err', `Could not auto-renew search terms: ${result.error}`);
-            }
-          })
-          .catch((error) => this.push('err', `Could not auto-renew search terms: ${(error as Error).message}`)),
-      );
-    }
-
     try {
-      // Keep this account out of another run until its next-run settings and
-      // result records are durable.
+      // Keep this account out of another run until its result records are durable.
+      // Run outcomes never rewrite the account's saved search preferences.
       await Promise.all(postRunTasks);
       // A run that reached its application cap may have no complete review
       // count. Its confirmed submissions still make it a completed run.
@@ -818,7 +784,6 @@ export class RunPool {
     onApplicationSubmitted?: (external: boolean) => void | Promise<void>,
     onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
-    keywordRenewal?: KeywordRenewalContext,
   ): Promise<{ ok: boolean; error?: string }> {
     if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
     this.sweep();
@@ -834,7 +799,6 @@ export class RunPool {
       onApplicationSubmitted,
       onFinished,
       runStartId,
-      keywordRenewal,
       () => {
         if (this.activeCount() >= MAX_CONCURRENT) return false;
         allocation.slots = 2;

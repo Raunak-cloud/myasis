@@ -1,10 +1,10 @@
 import { listResumes, previewText } from './files.js';
 import { accountApplicationEnvironment, readEnv } from './runner.js';
 import { MAX_SEARCH_TERMS } from '../src/search-limits.js';
-import { loadUserSettings, replaceSearchTermsIfUnchanged } from './settings.js';
+import { loadUserSettings } from './settings.js';
 import { acquireCelerisPermit, celerisRetryDelay, waitForCelerisRetry, type CelerisPermit } from '../../shared/celeris-queue.mjs';
 import type { ResumeSearchSuggestion } from '../src/resume-search.js';
-import { groundGeneratedSearches, reviewedSearches, resumeContextError, searchTermKey, normalizeSearchTerms,
+import { groundGeneratedSearches, reviewedSearches, resumeContextError, normalizeSearchTerms,
   MAX_SEARCH_CANDIDATES, type SearchResume, type GroundedSearch } from './resume-search-grounding.js';
 
 /** Never hand back more search terms than an account may save. */
@@ -26,12 +26,6 @@ interface SearchTermsInput {
   excludeTerms?: unknown;
   alternatives?: unknown;
 }
-
-type SearchTermsRenewalResult =
-  | { status: 'renewed'; terms: string[] }
-  | { status: 'user-changed'; terms: string[] }
-  | { status: 'not-saved-terms' }
-  | { status: 'failed'; error: string };
 
 interface ModelJsonResult {
   ok: boolean;
@@ -303,7 +297,7 @@ export function searchReviewRequest(resumeBlock: string, candidates: readonly Gr
   };
 }
 
-/** The same grounded workflow is used by onboarding, the button and sparse-run renewal. */
+/** Used by initial onboarding and explicit requests for resume-based suggestions. */
 export async function suggestResumeSearches(
   resumes: readonly SearchResume[], excludedTerms: readonly string[] = [],
   ask: typeof askModelForJson = askModelForJson,
@@ -411,38 +405,4 @@ export async function generateSearchTerms(
       error: `Could not generate search terms: ${(error as Error).message}`,
     };
   }
-}
-
-/**
- * Prepares the next run after a successfully completed sparse run. All
- * resumes are considered, and the terms just used are hard exclusions. The
- * final write is conditional so a user's edit during the run or generation
- * always wins.
- */
-export async function renewSearchTermsAfterSparseRun(
-  userId: string,
-  termsUsed: string,
-  expectedSavedTerms: string,
-): Promise<SearchTermsRenewalResult> {
-  /**
-   * Only a run on the account's own saved terms says those terms are spent.
-   * An operator's run with one-off terms (run-account.mjs KEYWORDS=...) came
-   * back sparse on 27 Sep and replaced the candidate's saved terms.
-   */
-  const key = (terms: string) => splitSearchTerms(terms).map((term) => searchTermKey(term)).sort().join('|');
-  if (key(termsUsed) !== key(expectedSavedTerms)) return { status: 'not-saved-terms' };
-  const generated = await generateSearchTerms(userId, {
-    alternatives: true,
-    currentTerms: termsUsed,
-    excludeTerms: splitSearchTerms(expectedSavedTerms),
-  });
-  if (!generated.ok || !generated.terms?.length) {
-    return { status: 'failed', error: generated.error ?? 'No resume-matched alternatives were generated.' };
-  }
-
-  const nextValue = generated.terms.join(', ');
-  const saved = await replaceSearchTermsIfUnchanged(userId, expectedSavedTerms, nextValue);
-  return saved
-    ? { status: 'renewed', terms: generated.terms }
-    : { status: 'user-changed', terms: generated.terms };
 }
