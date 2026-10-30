@@ -2911,6 +2911,8 @@ textarea.run-instructions-input {
 .prepared-empty p { margin: 0; color: var(--text-dim); }
 .prepared-letter-preferences { padding: 16px 24px; border-bottom: 1px solid var(--border); }
 .prepared-letter-preferences summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.prepared-letter-mode { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 16px 0 0; }
+.prepared-letter-mode strong { color: var(--text); }
 .prepared-letter-preferences form { display: grid; gap: 10px; margin-top: 16px; }
 .prepared-letter-preferences label { font-size: 13px; font-weight: 600; }
 .prepared-letter-preferences textarea, .prepared-letter-editor textarea {

@@ -10,7 +10,7 @@ interface Review {
   };
 }
 
-export function PreparedApplications({ running, onStarted, onCountChange }: { running: boolean; onStarted: () => void; onCountChange: (count: number) => void }) {
+export function PreparedApplications({ running, onStarted, onCountChange, canChangeCoverLetterMode }: { running: boolean; onStarted: () => void; onCountChange: (count: number) => void; canChangeCoverLetterMode: boolean | undefined }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -20,6 +20,7 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
   const [editing, setEditing] = useState<{ id: string; revision: string; text: string } | null>(null);
   const [instructions, setInstructions] = useState('');
   const [savedInstructions, setSavedInstructions] = useState('');
+  const [coverLetterMode, setCoverLetterMode] = useState<'tailored' | 'reuse'>('tailored');
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [savingInstructions, setSavingInstructions] = useState(false);
   const [notice, setNotice] = useState('');
@@ -29,7 +30,7 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
     void fetch('/api/settings').then(async response => {
       if (!response.ok) throw new Error('Could not load cover letter instructions.');
       const data = await response.json();
-      if (alive) { setInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setSavedInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setPreferencesLoaded(true); }
+      if (alive) { setInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setSavedInstructions(data.COVER_LETTER_INSTRUCTIONS ?? ''); setCoverLetterMode(data.COVER_LETTER_MODE === 'reuse' ? 'reuse' : 'tailored'); setPreferencesLoaded(true); }
     }).catch(reason => { if (alive) setError(reason.message); });
     return () => { alive = false; };
   }, []);
@@ -99,6 +100,10 @@ export function PreparedApplications({ running, onStarted, onCountChange }: { ru
   }
   return <section className="card prepared-applications" aria-label="Prepared applications">
     <details className="prepared-letter-preferences"><summary>Cover letter instructions</summary>
+      {preferencesLoaded && canChangeCoverLetterMode !== undefined && <p className="prepared-letter-mode job-meta">
+        <span>Current setting: <strong>{canChangeCoverLetterMode && coverLetterMode === 'reuse' ? 'Reuse one letter' : 'Tailored by AI'}</strong></span>
+        {canChangeCoverLetterMode && <a href="/?tab=run">Change in run settings</a>}
+      </p>}
       <form onSubmit={event => { event.preventDefault(); void saveInstructions(); }}>
         <label htmlFor="cover-letter-instructions">Instructions for all future cover letters</label>
         <textarea id="cover-letter-instructions" rows={3} maxLength={2000} value={instructions} disabled={!preferencesLoaded || savingInstructions}

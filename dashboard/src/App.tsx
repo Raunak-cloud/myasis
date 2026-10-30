@@ -552,7 +552,7 @@ export default function App() {
             />
           )}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} loading={attentionLoading} loadError={attentionError} isAdmin={isAdmin} />}
-          {tab === 'prepared' && <PreparedApplications running={running} onCountChange={setPreparedCount} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
+          {tab === 'prepared' && <PreparedApplications running={running} canChangeCoverLetterMode={entitlements?.fineTune} onCountChange={setPreparedCount} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
             <ApplicationsPanel apps={apps} loading={appsLoading} loadError={appsError} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />
