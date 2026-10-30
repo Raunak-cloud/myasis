@@ -1,4 +1,5 @@
 import type { Frame, Page } from 'patchright';
+import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
 import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
 import { registerObservedFrame } from './browser-target.js';
@@ -38,6 +39,8 @@ interface AgentAction {
 }
 
 export interface Observation {
+  /** Transport failure, never evidence of an empty form or changed values. */
+  inspectionError?: string;
   /** Larger visible surface for local transition comparison, never model context. */
   surfaceText?: string;
   /** Visible modal layer can block controls underneath it. Untrusted page copy. */
@@ -437,7 +440,7 @@ interface ObserveOptions {
 
 export async function observe(page: Page, options: ObserveOptions = {}): Promise<Observation> {
   for (let attempt = 0; ; attempt++) {
-    try { return await observeOnce(page, options); }
+    try { return await browserDeadline('Browser observation', 15_000, () => observeOnce(page, options)); }
     catch (error) {
       recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',
         retry: attempt + 1, message: error instanceof Error ? error.message : String(error), error });
@@ -479,8 +482,11 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
   // Stamp current field identities before associating popup actions with them.
   // These observations are dependent; parallel stamping could read stale refs.
   const fields = await extractFields(page);
+  assertBrowserOperationActive();
   const actions = await collectActions(page);
+  assertBrowserOperationActive();
   const errors = await validationErrors(page);
+  assertBrowserOperationActive();
   for (const field of fields) field.validationError = errors[field.ref];
   const mainText = await surfaceText(page);
   const texts = [mainText];
@@ -489,6 +495,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
   // through their native Frame avoids cross-origin document scripting and
   // makes real in-frame changes visible to recovery and progress accounting.
   for (const frame of page.frames().filter(frame => frame !== page.mainFrame()).slice(0, 20)) {
+    assertBrowserOperationActive();
     if (/recaptcha|hcaptcha|turnstile|challenges.cloudflare|arkoselabs|funcaptcha/i.test(frame.url())) continue;
     let visible = true;
     try {

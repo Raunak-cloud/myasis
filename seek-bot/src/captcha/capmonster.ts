@@ -1,4 +1,5 @@
 import type { Frame, Page } from 'patchright';
+import { browserDeadline, browserOperationSignal, browserOperationExpiresAt, browserCleanup, browserDelay } from '../browser-deadline.js';
 import { countHealth, providerOutOfCredit } from '../run-health.js';
 import { metric } from '../pipeline.js';
 import { beginCostRequest, recordCost } from '../cost-ledger.js';
@@ -61,7 +62,7 @@ async function call<T extends ApiReply>(method: string, body: Record<string, unk
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ clientKey: apiKey(), ...body }),
-    signal: AbortSignal.timeout(15_000),
+    signal: browserOperationSignal(15_000),
   });
   const reply = (await response.json()) as T;
   if (reply.errorId) {
@@ -74,7 +75,7 @@ async function call<T extends ApiReply>(method: string, body: Record<string, unk
   return reply;
 }
 
-const sleep = (ms: number) => new Promise(done => setTimeout(done, ms));
+const sleep = browserDelay;
 
 export async function solveTask(
   task: Record<string, unknown>,
@@ -150,7 +151,7 @@ export async function reportRejectedToken(page: Page): Promise<void> {
  * inner functions — see the esbuild note in browser.ts.
  */
 const inPage = <Arg, R>(frame: Frame, fn: (arg: Arg) => R, arg: Arg): Promise<R> =>
-  frame.evaluate(fn as never, arg as never, undefined, false) as Promise<R>;
+  browserDeadline('Verification page callback', 3000, () => frame.evaluate(fn as never, arg as never, undefined, false) as Promise<R>);
 
 async function solveTurnstile(challenge: Extract<Challenge, { kind: 'turnstile' }>): Promise<number | null> {
   if (!challenge.siteKey) throw new CapMonsterError('NO_SITEKEY', 'the Turnstile widget exposes no site key');
@@ -161,7 +162,8 @@ async function solveTurnstile(challenge: Extract<Challenge, { kind: 'turnstile' 
     ...(challenge.action && { pageAction: challenge.action }),
     ...(challenge.cData && { data: challenge.cData }),
   });
-  const placed = await inPage(challenge.host, (token: string) => {
+  const placed = await inPage(challenge.host, ({ token, expiresAt }: { token: string; expiresAt: number }) => {
+    if (Date.now() >= expiresAt) return false;
     let done = false;
     for (const input of document.querySelectorAll<HTMLInputElement>('input[name="cf-turnstile-response"]')) {
       input.value = token;
@@ -176,7 +178,7 @@ async function solveTurnstile(challenge: Extract<Challenge, { kind: 'turnstile' 
       done = true;
     }
     return done;
-  }, String(solution.token ?? ''));
+  }, { token: String(solution.token ?? ''), expiresAt: browserOperationExpiresAt(3000) });
   return placed ? taskId : null;
 }
 
@@ -196,7 +198,8 @@ async function solveRecaptcha(challenge: Extract<Challenge, { kind: 'recaptcha-v
         isInvisible: challenge.invisible,
         ...(challenge.dataS && { recaptchaDataSValue: challenge.dataS }),
       });
-  const placed = await inPage(challenge.host, ([token, siteKey]: [string, string]) => {
+  const placed = await inPage(challenge.host, ([token, siteKey, expiresAt]: [string, string, number]) => {
+    if (Date.now() >= expiresAt) return false;
     let done = false;
     // A page can carry a v3 badge and a separate v2 submit challenge. Match
     // the response field to this widget's site key; filling every response
@@ -242,7 +245,7 @@ async function solveRecaptcha(challenge: Extract<Challenge, { kind: 'recaptcha-v
       } catch {}
     }
     return done;
-  }, [String(solution.gRecaptchaResponse ?? ''), challenge.siteKey]);
+  }, [String(solution.gRecaptchaResponse ?? ''), challenge.siteKey, browserOperationExpiresAt(3000)]);
   return placed ? taskId : null;
 }
 
@@ -268,31 +271,44 @@ const CHALLENGE_HOOK = `(() => {
 interface ChallengeParams { siteKey?: string; action?: string; cData?: string; pageData?: string }
 
 async function solveCloudflareChallenge(page: Page): Promise<number | null> {
-  const session = await page.context().newCDPSession(page);
+  const sessionPromise = page.context().newCDPSession(page);
+  let ended = false;
+  const session = await browserDeadline('Verification browser connection', 3000, () => sessionPromise).catch(error => {
+    void sessionPromise.then(value => browserCleanup('Late verification connection cleanup', () => value.detach())).catch(() => {});
+    throw error;
+  });
   try {
     // New-document scripts only run on a session that has the Page domain enabled.
-    await session.send('Page.enable');
-    const { identifier } = await session.send('Page.addScriptToEvaluateOnNewDocument', { source: CHALLENGE_HOOK });
+    await browserDeadline('Verification page connection', 3000, () => session.send('Page.enable'));
+    const registration = session.send('Page.addScriptToEvaluateOnNewDocument', { source: CHALLENGE_HOOK });
+    void registration.then(({ identifier }) => {
+      if (ended) return browserCleanup('Late verification script cleanup', () => session.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }));
+    }).catch(() => {});
+    const { identifier } = await browserDeadline('Verification script registration', 3000, () => registration);
     let params: ChallengeParams | null = null;
     try {
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      for (let tries = 0; tries < 30 && !params; tries += 1) {
-        await sleep(500);
-        params = await inPage(page.mainFrame(), (key: string) => {
-          const found = (window as unknown as Record<string, { params?: Record<string, string> }>)[key]?.params;
-          return found ? { siteKey: found.sitekey, action: found.action, cData: found.cData, pageData: found.chlPageData } : null;
-        }, CAPTURE_KEY).catch(() => null);
-      }
+      params = await browserDeadline('Verification widget discovery', 15_000, async () => {
+        let found: ChallengeParams | null = null;
+        await browserDeadline('Verification page reload', 10_000, () => page.reload({ waitUntil: 'domcontentloaded', timeout: 10_000 }));
+        for (let tries = 0; tries < 30 && !found; tries += 1) {
+          await sleep(500);
+          found = await inPage(page.mainFrame(), (key: string) => {
+            const found = (window as unknown as Record<string, { params?: Record<string, string> }>)[key]?.params;
+            return found ? { siteKey: found.sitekey, action: found.action, cData: found.cData, pageData: found.chlPageData } : null;
+          }, CAPTURE_KEY);
+        }
+        return found;
+      });
     } finally {
-      await session.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }).catch(() => {});
+      await browserCleanup('Verification script cleanup', () => session.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }));
     }
     if (!params?.siteKey || !params.pageData) throw new CapMonsterError('NO_PARAMS', 'the challenge page never rendered its widget');
 
     // Challenge tasks are only accepted with the User-Agent CapMonster currently solves as.
-    const userAgent = await fetch('https://capmonster.cloud/api/useragent/actual', { signal: AbortSignal.timeout(10_000) })
+    const userAgent = await fetch('https://capmonster.cloud/api/useragent/actual', { signal: browserOperationSignal(10_000) })
       .then(response => response.text())
       .then(text => text.trim())
-      .catch(() => page.evaluate(() => navigator.userAgent));
+      .catch(() => browserDeadline('Verification user agent inspection', 3000, () => page.evaluate(() => navigator.userAgent)));
     const { taskId, solution } = await solveTask({
       type: 'TurnstileTask',
       cloudflareTaskType: 'token',
@@ -303,22 +319,24 @@ async function solveCloudflareChallenge(page: Page): Promise<number | null> {
       pageData: params.pageData,
       userAgent,
     });
-    const called = await inPage(page.mainFrame(), ([key, token]: [string, string]) => {
+    const called = await inPage(page.mainFrame(), ([key, token, expiresAt]: [string, string, number]) => {
+      if (Date.now() >= expiresAt) return false;
       const callback = (window as unknown as Record<string, { params?: { callback?: unknown } }>)[key]?.params?.callback;
       if (typeof callback !== 'function') return false;
       callback(token);
       return true;
-    }, [CAPTURE_KEY, String(solution.token ?? '')]);
+    }, [CAPTURE_KEY, String(solution.token ?? ''), browserOperationExpiresAt(3000)]);
     if (!called) throw new CapMonsterError('NO_CALLBACK', 'the challenge page navigated before the token arrived');
     // Cloudflare verifies the token and navigates to the real page.
-    for (let tries = 0; tries < 20 && (await page.locator(INTERSTITIAL).count().catch(() => 1)); tries += 1) await sleep(1_000);
+    for (let tries = 0; tries < 20 && (await browserDeadline('Verification result inspection', 3000, () => page.locator(INTERSTITIAL).count())); tries += 1) await sleep(1_000);
     return taskId;
   } catch (error) {
     // The stand-in is already unregistered; a reload gives a person the real challenge back.
-    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+    await browserDeadline('Restore verification page', 10_000, () => page.reload({ waitUntil: 'domcontentloaded', timeout: 10_000 })).catch(() => {});
     throw error;
   } finally {
-    await session.detach().catch(() => {});
+    ended = true;
+    await browserCleanup('Verification connection cleanup', () => session.detach());
   }
 }
 
@@ -338,36 +356,38 @@ export const capMonsterSolver: Solver = {
   name: 'capmonster',
   supports: capMonsterReady,
   async solve(page, challenge) {
-    /**
-     * Every solve is recorded, not only the failures: a success used to log
-     * nothing, so a check CapMonster cleared looked exactly like one that
-     * cleared by itself, and its success rate and cost could not be read
-     * from any run.
-     */
-    const startedAt = Date.now();
-    let site = '';
-    try { site = new URL(page.url()).host; } catch { /* a page with no address yet */ }
-    const record = (solved: boolean) => {
-      const ms = Date.now() - startedAt;
-      countHealth(solved ? 'captchaSolved' : 'captchaFailed');
-      metric('captcha', ms, { kind: challenge.kind, site, solved });
-      return `${challenge.kind} on ${site || 'this page'} in ${Math.round(ms / 1000)}s`;
-    };
-    try {
-      const taskId = challenge.kind === 'turnstile' ? await solveTurnstile(challenge)
-        : challenge.kind === 'recaptcha-v2' ? await solveRecaptcha(challenge)
-        : await solveCloudflareChallenge(page);
-      if (!taskId) {
-        console.warn(`[captcha] capmonster: solved ${record(false)}, but the page offers nowhere to put the token.`);
+    return browserDeadline('CAPTCHA solver', SOLVE_DEADLINE_MS + 60_000, async () => {
+      /**
+       * Every solve is recorded, not only the failures: a success used to log
+       * nothing, so a check CapMonster cleared looked exactly like one that
+       * cleared by itself, and its success rate and cost could not be read
+       * from any run.
+       */
+      const startedAt = Date.now();
+      let site = '';
+      try { site = new URL(page.url()).host; } catch { /* a page with no address yet */ }
+      const record = (solved: boolean) => {
+        const ms = Date.now() - startedAt;
+        countHealth(solved ? 'captchaSolved' : 'captchaFailed');
+        metric('captcha', ms, { kind: challenge.kind, site, solved });
+        return `${challenge.kind} on ${site || 'this page'} in ${Math.round(ms / 1000)}s`;
+      };
+      try {
+        const taskId = challenge.kind === 'turnstile' ? await solveTurnstile(challenge)
+          : challenge.kind === 'recaptcha-v2' ? await solveRecaptcha(challenge)
+          : await solveCloudflareChallenge(page);
+        if (!taskId) {
+          console.warn(`[captcha] capmonster: solved ${record(false)}, but the page offers nowhere to put the token.`);
+          return false;
+        }
+        applied.set(page, taskId);
+        console.log(`[captcha] capmonster: solved ${record(true)}.`);
+        return true;
+      } catch (error) {
+        console.warn(`[captcha] capmonster: not solved — ${record(false)} (${(error as Error).message}).`);
+        if (accountError) console.warn(`[captcha] capmonster: disabled for this run — ${accountError}.`);
         return false;
       }
-      applied.set(page, taskId);
-      console.log(`[captcha] capmonster: solved ${record(true)}.`);
-      return true;
-    } catch (error) {
-      console.warn(`[captcha] capmonster: not solved — ${record(false)} (${(error as Error).message}).`);
-      if (accountError) console.warn(`[captcha] capmonster: disabled for this run — ${accountError}.`);
-      return false;
-    }
+    });
   },
 };

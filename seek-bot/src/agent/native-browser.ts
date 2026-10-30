@@ -1,4 +1,5 @@
 import type { Frame, Locator, Page } from 'patchright';
+import { browserDeadline } from '../browser-deadline.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
 
 export const MAX_BROWSER_BATCH = 12;
@@ -74,12 +75,20 @@ function describeNativeTargets(targets: Element | Element[]) {
 
 /** Mutation readback remains strict: exactly the target the action addressed. */
 export async function nativeReadback(target: Locator): Promise<unknown> {
+  return browserDeadline('Browser field readback', 5000, () => nativeReadbackNow(target));
+}
+
+async function nativeReadbackNow(target: Locator): Promise<unknown> {
   return (await target.evaluate(describeNativeTargets, undefined, { timeout: 5000 })).fields[0];
 }
 
 /** One evaluation reads the current matching nodes together, including privacy
  * masking. Multiple matches are useful evidence, never permission for writes. */
 export async function nativeInspect(target: Locator): Promise<unknown> {
+  return browserDeadline('Browser field inspection', 5000, () => nativeInspectNow(target));
+}
+
+async function nativeInspectNow(target: Locator): Promise<unknown> {
   const result = await target.evaluateAll(describeNativeTargets);
   return result.matched === 1 ? result.fields[0] : result;
 }
@@ -112,6 +121,10 @@ export async function nativeScroll(page: Page, args: Record<string, unknown>): P
 /** Read-only evidence after a failed interaction. Never chooses an index,
  * dismisses an overlay or repeats the operation. Credentials remain masked. */
 export async function browserFailureEvidence(page: Page, args: Record<string, unknown>): Promise<string> {
+  return browserDeadline('Browser failure inspection', 5000, () => browserFailureEvidenceNow(page, args));
+}
+
+async function browserFailureEvidenceNow(page: Page, args: Record<string, unknown>): Promise<string> {
   if (page.isClosed()) return '';
   const matches = hasBrowserTarget(args) ? await nativeInspect(browserTarget(page, args)).catch(() => 'Target changed or cannot be inspected.') : undefined;
   const frames = page.frames().slice(0, 20).map(frame => {
@@ -162,6 +175,10 @@ async function maskSnapshots(page: Page, snapshots: string[], before: string[] |
 }
 
 export async function nativeSnapshot(target: Locator | Page, timeout = 15_000): Promise<string> {
+  return browserDeadline('Browser accessibility inspection', timeout, () => nativeSnapshotNow(target, timeout));
+}
+
+async function nativeSnapshotNow(target: Locator | Page, timeout: number): Promise<string> {
   const scoped = 'count' in target ? target : undefined;
   const page = scoped ? scoped.page() : target as Page;
   const before = await snapshotPrivateValues(page);

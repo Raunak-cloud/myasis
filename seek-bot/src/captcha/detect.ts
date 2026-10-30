@@ -1,4 +1,5 @@
 import type { Frame, Page } from 'patchright';
+import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
 
 /**
  * What kind of bot check is on the page, and the parameters a solver needs.
@@ -65,10 +66,15 @@ async function readTurnstile(host: Frame, frameUrl?: string): Promise<Challenge 
 }
 
 export async function detectChallenge(page: Page): Promise<Challenge | null> {
+  return browserDeadline('Security challenge inspection', 5000, () => detectChallengeNow(page));
+}
+
+async function detectChallengeNow(page: Page): Promise<Challenge | null> {
   const interstitial = await page
     .evaluate((selector) =>
       /just a moment|performing security verification/i.test(document.title) || Boolean(document.querySelector(selector)), INTERSTITIAL)
     .catch(() => false);
+  assertBrowserOperationActive();
   if (interstitial) return { kind: 'cloudflare-challenge' };
 
   const frames = page.frames();
@@ -150,8 +156,13 @@ export async function detectChallenge(page: Page): Promise<Challenge | null> {
  * any of it is showing.
  */
 export async function hasHcaptchaChallenge(page: Page): Promise<boolean> {
+  return browserDeadline('hCaptcha inspection', 5000, () => hasHcaptchaChallengeNow(page));
+}
+
+async function hasHcaptchaChallengeNow(page: Page): Promise<boolean> {
   const hosts = page.frames().filter((frame) => !/hcaptcha\.com/i.test(frame.url()));
   for (const host of hosts) {
+    assertBrowserOperationActive();
     const showing = await host
       .evaluate(() => {
         for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[src*="hcaptcha.com"]')) {
@@ -183,6 +194,10 @@ export async function hasHcaptchaChallenge(page: Page): Promise<boolean> {
  * cannot solve ends safely instead of becoming an AI click target.
  */
 export async function hasCaptchaSurface(page: Page): Promise<boolean> {
+  return browserDeadline('Security surface inspection', 5000, () => hasCaptchaSurfaceNow(page));
+}
+
+async function hasCaptchaSurfaceNow(page: Page): Promise<boolean> {
   if (await detectChallenge(page)) return true;
   if (page.frames().some(frame =>
     /(?:arkoselabs\.com|funcaptcha\.com|geetest\.com|captcha-delivery\.com|awswaf\.com|imperva\.com)/i.test(frame.url()))) {

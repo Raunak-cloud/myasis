@@ -7,6 +7,7 @@ import { applicationModelEnvironment } from '../application-model.js';
 import { cleanCoverLetter, coverLetterInstructionPrompt, isCoverLetterField } from '../cover-letter-policy.js';
 import { readSavedForm } from './saved-form.js';
 import { waitForChallengeToClear, workingIn } from '../browser.js';
+import { BrowserOperationTimeout } from '../browser-deadline.js';
 import { config } from '../config.js';
 import { retiredJobSource, retiredJobDestination, RETIRED_SOURCE_MESSAGE } from '../retired-job-sources.js';
 import { hasHcaptchaChallenge } from '../captcha/detect.js';
@@ -313,7 +314,11 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       }
       return ok(`Pending browser ${pendingDialog.type()} dialog: ${pendingDialog.message()}. The page cannot be inspected while it is open. Choose browser_action with action=dialog to answer it; do not repeat the prior page action.`, 'reobserve');
     }
-    if (await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
+    // A blocked renderer must not prevent saving evidence, recording a result,
+    // or switching away from it. Check security before page interactions.
+    const interactsWithPage = name === 'browser_action' && changesBrowserState(args) && !['navigate', 'select_page'].includes(String(args.action))
+      || ['prepare_application', 'prepare_email_application', 'complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(name);
+    if (interactsWithPage && await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
     if (name === 'browser_batch') {
       const results: unknown[] = [];
       for (const [index, command] of (args.actions as Record<string, unknown>[]).entries()) {
@@ -600,31 +605,39 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       }
       if (await followPopup()) lastNote = 'The previous control opened a new tab. Read the new page before acting.';
       const pendingDialog = dialogs.get(ctx.page);
-      if (!pendingDialog && await hasHcaptchaChallenge(ctx.page)) {
-        terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
-        finished = true;
-        break;
+      try {
+        if (!pendingDialog && await hasHcaptchaChallenge(ctx.page)) {
+          terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
+          finished = true;
+          break;
+        }
+        ctx.observation = pendingDialog ? { url: ctx.page.url(), title: ctx.observation.title,
+          actions: [], fields: [], text: `Native browser ${pendingDialog.type()} dialog blocks the page: ${pendingDialog.message()}` }
+          : await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
+      } catch (error) {
+        if (!(error instanceof BrowserOperationTimeout)) throw error;
+        recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation', message: error.message, error });
+        ctx.observation = { url: ctx.page.url(), title: '', actions: [], fields: [], inspectionError: error.message,
+          text: `LIVE BROWSER INSPECTION FAILED: ${error.message} No current form values or receipt were obtained. This is not an empty form or progress. You can save evidence, select another open page, navigate away, or finish honestly. Do not repeat a possible send without fresh employer evidence.` };
+        recovery.failed('take_snapshot', {}, ctx.page.url(), error.message);
       }
-      ctx.observation = pendingDialog ? { url: ctx.page.url(), title: ctx.observation.title,
-        actions: [], fields: [], text: `Native browser ${pendingDialog.type()} dialog blocks the page: ${pendingDialog.message()}` }
-        : await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
-      if (!pendingDialog && !waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
+      if (!pendingDialog && !ctx.observation.inspectionError && !waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
         || !ctx.observation.fields.length && /\b(?:loading|please wait)\b/i.test(ctx.observation.text))) {
         waitedForSurface.add(ctx.observation.url);
         const ready = await waitForApplicationSurface(ctx.page, 15_000);
         ctx.observation = await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
         if (!ready) lastNote += ' Waited for the application surface; it has not rendered yet. Inspect loading/blocking evidence instead of repeatedly requesting the same snapshot.';
       }
-      if (!pendingDialog && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
+      if (!pendingDialog && !ctx.observation.inspectionError && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
       // Inspect the results of already-executed actions before enforcing the
       // next-call budget. This does not run another model or replay a write.
-      if (!pendingDialog) {
+      if (!pendingDialog && !ctx.observation.inspectionError) {
         meter.observe(ctx.observation.fields, browserMutated);
         browserMutated = false;
       }
-      recovery.observe(ctx.observation);
-      if (!pendingDialog) readiness.observe(ctx.observation, 'wizard');
+      if (!ctx.observation.inspectionError) recovery.observe(ctx.observation);
+      if (!pendingDialog && !ctx.observation.inspectionError) readiness.observe(ctx.observation, 'wizard');
       if (!pendingDialog && meter.needsReview) recovery.requestBudgetReview();
       meter.reviewing(recovery.reviewingBudget);
       if (meter.exhausted) break;
@@ -643,7 +656,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
-      if (!pendingDialog && await hasHcaptchaChallenge(ctx.page)) {
+      if (!pendingDialog && !ctx.observation.inspectionError && await hasHcaptchaChallenge(ctx.page)) {
         terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
         finished = true;
         break;

@@ -1,5 +1,24 @@
 # Inspecting application errors
 
+Browser reads have wall-clock I/O deadlines, including security detection,
+accessibility masking and observation. A frozen renderer is an inspection
+error, never an empty form, progress, or proof that CAPTCHA cleared. Magnus
+can still record evidence, change pages or finish with an honest blocker.
+No failed send is automatically repeated. Solver polling keeps its separate
+200-second allowance; widget discovery, protocol operations and cleanup have
+shorter bounds. Cancellation prevents subsequent solver work and expired
+callbacks from applying late tokens.
+
+Admins see prepaid Celeris credit on Apply. The separate read-only
+`CELERIS_MANAGEMENT_TOKEN` reads `https://console.celeris.ai/api/agent/context`;
+it is never used for inference or forwarded to application workers.
+`CELERIS_BILLING_WORKSPACE_ID` must match the connected workspace. Reads share
+a 30-second cache; the visible card refreshes each minute. Expired/revoked
+access requires reconnection; provider failure shows unavailable, never zero.
+Use Celeris's official agent pairing to obtain the management token, retaining
+only management access for this display and preserving the existing inference
+key. Balance is never estimated from local application costs.
+
 In Admin, open a run's **Errors / log** button. The **Errors and recovery** panel shows tool failures, stale targets, nested batch errors, checkpoint-format errors, provider errors/retries, screenshot errors, page crashes, navigation failures, disconnects and run-console errors/warnings. Successful submissions do not hide earlier errors. Expand an entry for details, or open its application attempt's steps and full tool results.
 
 The administrative endpoints check the signed-in administrator before resolving the run's owning account:

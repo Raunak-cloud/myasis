@@ -476,7 +476,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * existing captcha check then reports.
  */
 export async function waitForChallengeToClear(page: Page, timeoutMs = 45_000): Promise<boolean> {
-  const showing = () => hasCaptchaSurface(page).catch(() => false);
+  const showing = () => hasCaptchaSurface(page);
   const deadline = Date.now() + timeoutMs;
   if (await hasHcaptchaChallenge(page)) return false;
   if (!(await showing())) return true;

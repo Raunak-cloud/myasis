@@ -7,11 +7,11 @@ cd "$APP"
 for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh; do bash -n "$script"; done
 cd "$APP/dashboard"
 npm run test:statuses
-../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts server/celeris-balance.test.ts
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
-  node --test dist/agent/attempt-diagnostics.test.js
+  node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js
   node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/observe-frames.test.js
   node dist/fit-assessment.test.js

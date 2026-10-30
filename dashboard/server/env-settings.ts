@@ -102,6 +102,8 @@ const GROUPS: GroupSpec[] = [
     title: 'Models',
     keys: [
       { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and job-application model calls.', kind: 'secret' },
+      { key: 'CELERIS_MANAGEMENT_TOKEN', label: 'Celeris read-only management token', help: 'Reads the workspace credit balance for admins. Never sent to inference or application workers. Obtain through Celeris agent connection.', kind: 'secret' },
+      { key: 'CELERIS_BILLING_WORKSPACE_ID', label: 'Celeris billing workspace ID', help: 'Must match the workspace selected when connecting Celeris balance access.', kind: 'text' },
       { key: 'CELERIS_BASE_URL', label: 'Celeris base URL', help: 'Root only; the model id is added per request.', kind: 'url' },
       { key: 'CELERIS_TIMEOUT_MS', label: 'Celeris timeout (ms)', help: 'How long one model call may take before it is abandoned.', kind: 'number' },
       { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },
