@@ -80,7 +80,7 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
     : 'Connect the Gmail address used in your profile. Owtomate reads recent verification emails and sends only the email applications you confirm. Message bodies are processed locally. See our privacy policy.';
   if (compact) return <div className="seek-connect">
     {error && <div className="banner banner-bad" role="alert">{error}</div>}<a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy policy</a>
-    <div className="seek-connect-row"><div><h3>Gmail</h3><p className="job-meta">{description}</p></div><div className="gmail-actions">{controls}</div></div>
+    <div className="seek-connect-row gmail-connect-card"><div><h3>Gmail</h3><p className="job-meta">{description}</p></div><div className="gmail-actions">{controls}</div></div>
   </div>;
   return <div className="card step">
     <div className="step-head"><span className={`step-n ${status?.connected ? 'done' : ''}`}>{status?.connected ? '✓' : '5'}</span>

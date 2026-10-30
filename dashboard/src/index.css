@@ -2060,6 +2060,11 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
    across the card the way the shared .run-actions rule leaves it. */
 .gmail-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .gmail-actions .btn { flex: 0 0 auto; }
+.gmail-connect-card { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.gmail-connect-card > div { min-width: 0; }
+.gmail-connect-card .gmail-actions { display: grid; gap: 10px; justify-items: start; }
+.gmail-connect-card .gmail-actions > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.gmail-connect-card .gmail-actions .btn { white-space: normal; }
 
 /* The scheduled-runs count sits where the start button would be. */
 
