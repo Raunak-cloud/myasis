@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FilePreview } from './FilePreview';
 
 interface ResumeRecord {
@@ -27,6 +27,16 @@ interface KnowledgeItem {
 const MAX_RESUMES = 4;
 
 const kb = (n = 0) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(0)} KB`);
+
+async function writeFileChange(endpoint: string, method: string, body: unknown): Promise<void> {
+  const response = await fetch(endpoint, {
+    method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw new Error(result?.error || 'Could not save this change. Please retry.');
+  }
+}
 
 function toBase64(file: File): Promise<string> {
   return new Promise((res, rej) => {
@@ -58,19 +68,30 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [reading, setReading] = useState(false);
   const [autofillError, setAutofillError] = useState<string | null>(null);
 
-  async function refresh(notify = false) {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     const [r, k] = await Promise.all([
-      fetch('/api/resumes').then((x) => x.json()),
-      fetch('/api/knowledge').then((x) => x.json()),
+      fetch('/api/resumes', { signal }).then(async response => {
+        if (!response.ok) throw new Error('Could not load resumes.');
+        return response.json();
+      }),
+      fetch('/api/knowledge', { signal }).then(async response => {
+        if (!response.ok) throw new Error('Could not load extra details.');
+        return response.json();
+      }),
     ]);
+    if (signal?.aborted) return;
     setResumes(Array.isArray(r) ? r : []);
     setItems(k.items ?? []);
-    if (notify) onChanged?.();
-  }
+  }, []);
 
   useEffect(() => {
-    refresh().catch((e) => setError(e.message));
-  }, []);
+    const controller = new AbortController();
+    void (async () => {
+      try { await refresh(controller.signal); }
+      catch (reason) { if (!controller.signal.aborted) setError((reason as Error).message); }
+    })();
+    return () => controller.abort();
+  }, [refresh]);
 
   async function upload(kind: 'resume' | 'knowledge', file: File) {
     setBusy(true);
@@ -89,7 +110,8 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
         setAutofilled(Array.isArray(json.autofilled) && json.autofilled.length ? json.autofilled : null);
         setAutofillError(kind === 'resume' && typeof json.autofillError === 'string' ? json.autofillError : null);
         if (kind === 'resume') setSetUp({ terms: Array.isArray(json.terms) ? json.terms.length : 0, city: typeof json.city === 'string' ? json.city : null });
-        await refresh(kind === 'resume');
+        await refresh();
+        if (kind === 'resume') onChanged?.();
       }
     } catch (e) {
       setError((e as Error).message);
@@ -99,65 +121,54 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
     }
   }
 
-  const patchResume = async (id: string, patch: Partial<ResumeRecord>) => {
-    await fetch('/api/resumes', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, patch }),
-    });
-    refresh();
+  async function changeFile(endpoint: string, method: string, body: unknown, notify = false) {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      await writeFileChange(endpoint, method, body);
+      await refresh();
+      if (notify) onChanged?.();
+    } catch (reason) { setError((reason as Error).message); }
+    finally { setBusy(false); }
+  }
+  const patchResume = (id: string, patch: Partial<ResumeRecord>) => {
+    return changeFile('/api/resumes', 'PATCH', { id, patch });
   };
 
   const removeResume = async (id: string, label: string) => {
     if (!confirm(`Delete "${label}"? Your SEEK profile is not changed.`)) return;
-    await fetch('/api/resumes', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    refresh(true);
+    await changeFile('/api/resumes', 'DELETE', { id }, true);
   };
 
-  const patchItem = async (id: string, patch: Partial<KnowledgeItem>) => {
-    await fetch('/api/knowledge', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, patch }),
-    });
-    refresh();
+  const patchItem = (id: string, patch: Partial<KnowledgeItem>) => {
+    return changeFile('/api/knowledge', 'PATCH', { id, patch });
   };
 
   const removeItem = async (id: string, label: string) => {
     if (!confirm(`Delete "${label}"?`)) return;
-    await fetch('/api/knowledge', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    refresh();
+    await changeFile('/api/knowledge', 'DELETE', { id });
   };
 
   async function addNote() {
     const text = noteText.trim();
-    if (!text) return;
-    setBusy(true);
+    if (!text || busy) return;
+    setBusy(true); setError(null);
     // The note names itself: its opening words are all a list needs to tell notes apart.
     const label = text.split(/\s+/).slice(0, 6).join(' ').replace(/[.,;:!?]+$/, '') || 'Note';
-    await fetch('/api/knowledge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'note', label, text }),
-    });
-    setNoteText('');
-    setBusy(false);
-    refresh();
+    try {
+      await writeFileChange('/api/knowledge', 'POST', { kind: 'note', label, text });
+      setNoteText(current => current.trim() === text ? '' : current);
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not save this detail. Please retry.');
+    } finally { setBusy(false); }
   }
 
   const atLimit = resumes.length >= MAX_RESUMES;
 
   return (
     <div className="files-grid">
-      {error && <div className="banner banner-bad" style={{ gridColumn: '1/-1' }}>{error}</div>}
+      {error && <div role="alert" className="banner banner-bad" style={{ gridColumn: '1/-1' }}>{error}</div>}
 
       {reading && (
         <div className="banner" style={{ gridColumn: '1/-1' }}>
