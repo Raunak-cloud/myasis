@@ -6,6 +6,22 @@ import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, 
 import { observe, renderObservation } from './observe.js';
 import { ApplicationReadiness } from './application-readiness.js';
 
+test('action observations distinguish accessibility-hidden proxy buttons without removing native uploads', async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<div style="position:relative;width:200px;height:50px"><button aria-hidden="true" style="width:100%;height:100%">Create Account</button><div role="button" aria-label="Create Account" style="position:absolute;inset:0" onclick="window.activated=true"></div></div><label>Resume<input type="file" hidden aria-hidden="true"></label>`);
+    const observation = await observe(page);
+    const buttons = observation.actions.filter(action => action.text === 'Create Account');
+    assert.equal(buttons.length, 2);
+    assert.equal(buttons.filter(action => action.ariaHidden).length, 1);
+    assert.match(renderObservation(observation), /aria-hidden=true/);
+    assert.ok(observation.actions.some(action => action.role === 'file'), 'hidden native file targets remain available');
+    await browserTarget(page, {ref:buttons.find(action => !action.ariaHidden)!.ref}).click();
+    assert.equal(await page.evaluate('window.activated'), true);
+  } finally { await browser.close(); }
+});
+
 test('native locators retain events across rerenders, scope frames/editors/shadow DOM, and inspect values together', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   try {

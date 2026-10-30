@@ -29,6 +29,8 @@ interface AgentAction {
    */
   role: 'button' | 'link' | 'file' | 'option' | 'toggle';
   disabled: boolean;
+  /** DOM accessibility state; the agent still chooses the actual control. */
+  ariaHidden?: boolean;
   /** Grounded context for a currently open custom dropdown option. */
   question?: string;
   value?: string;
@@ -320,6 +322,7 @@ async function collectActions(page: Page | Frame): Promise<AgentAction[]> {
         ...(isOption && grouped?.getAttribute('aria-multiselectable') === 'true'
           ? { multiSelect: true, selected: element.getAttribute('aria-selected') === 'true' || element.getAttribute('aria-checked') === 'true' } : {}),
         ...(context && context !== label ? { context } : {}),
+        ...(element.getAttribute('aria-hidden') === 'true' ? { ariaHidden: true } : {}),
         disabled:
           (element as HTMLButtonElement).disabled || element.getAttribute('aria-disabled') === 'true',
       });
@@ -569,7 +572,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
  */
 export function renderObservation(observation: Observation): string {
   const actions = observation.actions
-    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}${a.fieldRef ? ` field=${a.fieldRef}` : ''}${a.multiSelect ? ` multi-select=true selected=${a.selected}` : ''}  ${a.text}${a.role === 'option' && a.value !== undefined ? `  raw_option_text=${JSON.stringify(a.value)}${a.question ? ` question_context=${JSON.stringify(a.question)}` : ''}` : ''}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
+    .map((a) => `  ${a.ref}  [${a.role}]${a.disabled ? ' (disabled)' : ''}${a.ariaHidden ? ' (aria-hidden=true)' : ''}${a.fieldRef ? ` field=${a.fieldRef}` : ''}${a.multiSelect ? ` multi-select=true selected=${a.selected}` : ''}  ${a.text}${a.role === 'option' && a.value !== undefined ? `  raw_option_text=${JSON.stringify(a.value)}${a.question ? ` question_context=${JSON.stringify(a.question)}` : ''}` : ''}${a.context ? `  context=${JSON.stringify(a.context)}` : ''}`)
     .join('\n');
   const fields = observation.fields
     .map((f) => {
