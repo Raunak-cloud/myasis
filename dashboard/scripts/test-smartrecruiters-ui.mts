@@ -160,7 +160,7 @@ try {
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       }
     } else {
-      await dialog.getByText('AI reviews up to 15 jobs each run. Each submitted application uses one credit.', { exact: true }).waitFor();
+      await dialog.getByText('AI reviews up to 30 jobs each run. Each submitted application uses one credit.', { exact: true }).waitFor();
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0);
       assert.equal(await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).count(), 0);
@@ -247,7 +247,7 @@ try {
     await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByText('This run fills applications and saves them for your review. Owtomate submits only the jobs you later confirm from the prepared list.', { exact: true }).waitFor();
-    await dialog.getByText('AI reviews up to 15 jobs each run. Each prepared application uses one credit. Confirming it uses no additional credit.', { exact: true }).waitFor();
+    await dialog.getByText('AI reviews up to 30 jobs each run. Each prepared application uses one credit. Confirming it uses no additional credit.', { exact: true }).waitFor();
     await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     assert.equal(writes.filter(write => write.path === '/api/run').at(-1)!.body.applicationMode, 'semi-auto');

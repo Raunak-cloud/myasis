@@ -32,7 +32,7 @@ export const PASS_PLAN_KEYS = ['essential-pass', 'job-search-pass', 'intensive-p
 export type PassPlanKey = typeof PASS_PLAN_KEYS[number];
 
 export const PLAN_LIMITS = {
-  free: { autoRunsPerDay: 1, evaluationsPerRun: 15 },
+  free: { autoRunsPerDay: 1, evaluationsPerRun: 30 },
   'essential-pass': { autoRunsPerDay: 2, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
   'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 80, employerSitesPerDay: 5 },

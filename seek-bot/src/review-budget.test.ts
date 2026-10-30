@@ -286,23 +286,24 @@ test('feed descriptions go directly through the full fit review without a redund
 test('the four run-518 review URLs submit through the real coordinator with free-plan external allowance zero', () => {
   const ids = ['95237902', '95234091', '95299570', '95220951'];
   const result = run(ids.map(id => job(id, { url: `https://www.seek.com.au/job/${id}`, formUrl: `https://au.seek.com/job/${id}/apply/review` })), {
-    apply: true, cap: 5, reviews: 15, externalLimit: 0,
+    apply: true, cap: 5, reviews: 30, externalLimit: 0,
   });
   assert.equal(result.events.filter(event => event.stage === 'denied').length, 0);
   assert.deepEqual(result.history.filter(record => record.submittedByMyasis).map(record => record.jobId), ids);
   assert.match(result.output, /Run complete: 4 new application/);
 });
 
-test('a free-plan run can review fifteen jobs without reviewing the sixteenth', () => {
-  const result = run(Array.from({ length: 16 }, (_, i) => job(`free-${i}`)), { cap: 5, reviews: 15, externalLimit: 0 });
-  assert.equal(result.events.filter(event => event.stage === 'fit').length, 15);
-  assert.equal(result.events.filter(event => event.stage === 'detail').length, 15);
-  assert.equal(result.events.some(event => event.id === 'free-15' && event.stage === 'fit'), false);
+test('a free-plan run can review thirty jobs without reviewing the thirty-first', () => {
+  const result = run(Array.from({ length: 31 }, (_, i) => job(`free-${i}`, { fitReject: i < 30 })), { apply: true, cap: 5, reviews: 30, externalLimit: 0 });
+  assert.equal(result.events.filter(event => event.stage === 'fit').length, 30);
+  assert.equal(result.events.filter(event => event.stage === 'detail').length, 30);
+  assert.equal(result.events.some(event => event.id === 'free-30' && event.stage === 'fit'), false);
+  assert.equal(result.events.filter(event => event.stage === 'apply').length, 0);
 });
 
 test('a free account with one application left cannot send a second application', () => {
   const result = run(['first', 'second'].map(id => job(id, { formUrl: `https://au.seek.com/job/${id}/apply/review` })), {
-    apply: true, cap: 1, reviews: 15, externalLimit: 0,
+    apply: true, cap: 1, reviews: 30, externalLimit: 0,
   });
   assert.equal(result.events.filter(event => event.stage === 'finish').length, 1);
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, 1);

@@ -82,8 +82,8 @@ for (const policy of [intensivePolicy, adminPolicy]) {
 check('Active Search listing-age settings also stop at 30 days', applyRunPolicy({ ...saved, MAX_AGE_DAYS:'99' }, jobSearchPolicy, 'auto').MAX_AGE_DAYS === '30');
 
 const standardAuto = applyRunPolicy(saved, freePolicy, 'auto');
-check('Free runs assess 15 jobs', standardAuto.MAX_EVALUATIONS === '15');
-check('Free first-run policy also assesses 15 jobs', standardManual.MAX_EVALUATIONS === '15');
+check('Free runs assess 30 jobs', standardAuto.MAX_EVALUATIONS === '30');
+check('Free first-run policy also assesses 30 jobs', standardManual.MAX_EVALUATIONS === '30');
 check('Essential runs assess 25 jobs', applyRunPolicy(saved, essentialPolicy, 'auto').MAX_EVALUATIONS === '25');
 const adminAuto = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '100' }, adminPolicy, 'auto');
 check('admin scheduled runs keep their review limit and the global daily ceiling', adminAuto.MAX_EVALUATIONS === '100' && adminAuto.MAX_APPS_PER_DAY === '100');
@@ -126,7 +126,7 @@ const freeEntitlements = deriveEntitlements({ ...intensiveFacts, hasSuccessfulRu
   billing: { paid: { ...intensiveFacts.billing.paid, remaining: 0, employerSiteRemaining: 0, expiresAt: null,
     hasActivePass: false, hasActiveEssentialPass: false, hasActiveJobSearchPass: false, hasActiveIntensivePass: false } },
 });
-check('new free accounts receive 15 reviews per run and up to 15 per day', freeEntitlements.evaluationsPerRun === 15 && freeEntitlements.scheduledJobsPerDay === 15);
+check('new free accounts receive 30 reviews per run and up to 30 per day', freeEntitlements.evaluationsPerRun === 30 && freeEntitlements.scheduledJobsPerDay === 30);
 check('a failed empty free onboarding run remains retryable', freeEntitlements.firstRunRequired && manualRunRefusal(freeEntitlements) === null);
 check('free accounts receive one daily run and SEEK-only access', freeEntitlements.autoRunsPerDay === 1 && !freeEntitlements.indeedApplications);
 const essentialEntitlements = deriveEntitlements({ ...intensiveFacts,
