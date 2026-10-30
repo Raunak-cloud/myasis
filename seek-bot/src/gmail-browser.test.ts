@@ -18,9 +18,10 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-browser-gmail-'));
 const context = await chromium.launchPersistentContext(directory, { headless: true, args: [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 let sends = 0, uploads = 0, confirmed = true, wrongAccount = false, mailboxUnavailable = false, emptySearch = false;
 let emptyMessage = 'No conversations found.', relevanceSearch = false, chronological = false, sortRejected = false, sortSelections = 0;
+let messageBody = 'Your Fixture verification code: 482913';
 const gmailNavigations: string[] = [];
 const letter = 'Dear team,\n\nThis is the exact approved cover letter.';
-const pageHtml = () => `<!doctype html><a aria-label="Google Account: ${wrongAccount ? 'other' : 'candidate'}@fixture.invalid"></a><main role="main"><table><tr><td data-thread-id="#thread-f:123456789" data-legacy-thread-id="fixturethread">Fixture code</td></tr></table><article data-message-id="message"><h2>Fixture verification</h2><span email="noreply@fixture.invalid"></span><div class="a3s">Your Fixture verification code: 482913</div></article></main><button onclick="document.querySelector('[role=dialog]').hidden=false">Compose</button><section role="dialog" hidden><input name="to" onkeydown="if(event.key==='Enter'){const p=document.createElement('span');p.setAttribute('email',this.value);this.parentElement.append(p)}"><input name="subjectbox"><div role="textbox" contenteditable="true"></div><input type="file" multiple onchange="for(const f of this.files){const p=document.createElement('span');p.textContent=f.name;this.parentElement.append(p)}"><button onclick="fetch('/fixture-send',{method:'POST'}).then(()=>{${confirmed ? 'document.body.insertAdjacentHTML(\'beforeend\',\'<p role=status>Message sent</p>\')' : ''}})">Send</button></section>`;
+const pageHtml = () => `<!doctype html><a aria-label="Google Account: ${wrongAccount ? 'other' : 'candidate'}@fixture.invalid"></a><main role="main"><table><tr><td data-thread-id="#thread-f:123456789" data-legacy-thread-id="fixturethread">Fixture code</td></tr></table><article data-message-id="message"><h2>Fixture verification</h2><span email="noreply@fixture.invalid"></span><div class="a3s">${messageBody}</div></article></main><button onclick="document.querySelector('[role=dialog]').hidden=false">Compose</button><section role="dialog" hidden><input name="to" onkeydown="if(event.key==='Enter'){const p=document.createElement('span');p.setAttribute('email',this.value);this.parentElement.append(p)}"><input name="subjectbox"><div role="textbox" contenteditable="true"></div><input type="file" multiple onchange="for(const f of this.files){const p=document.createElement('span');p.textContent=f.name;this.parentElement.append(p)}"><button onclick="fetch('/fixture-send',{method:'POST'}).then(()=>{${confirmed ? 'document.body.insertAdjacentHTML(\'beforeend\',\'<p role=status>Message sent</p>\')' : ''}})">Send</button></section>`;
 await context.route('**/*', route => {
   if (mailboxUnavailable) return route.abort();
   if (new URL(route.request().url()).pathname === '/fixture-send') { sends++; return route.fulfill({ body: '{}' }); }
@@ -103,6 +104,10 @@ try {
   assert.match(diagnostic, /OTHER_NETWORK_ERROR/);
   assert.doesNotMatch(diagnostic, /private-message-body|private-mailbox-name|ERR_PRIVATE_MESSAGE_BODY/, 'diagnostics cannot log browser error contents or arbitrary error names');
   assert.equal(readVerificationEmailsLocally(messages.map(verificationMessage), { hint: 'Fixture', want: 'code' })?.value, '482913');
+  messageBody = '<p>Your Fixture one-time pass code:</p><div><span>482</span><span>913</span></div><p>Code: This code will expire in 10 minutes.</p>';
+  const structured = await client.thread(threads[0].id);
+  assert.match(structured[0].plaintextBody!, /482913\s+Code:/, 'rendered block boundaries must not append the next word to a private code');
+  assert.equal(readVerificationEmailsLocally(structured.map(verificationMessage), { hint: 'Fixture', want: 'code' })?.value, '482913');
   await assert.rejects(client.thread('foreignthread'), /Search this mailbox/);
   for (const draft of drafts.values()) await client.sendApproved(draft.id, draft.revision);
   assert.equal(sends, 5); assert.equal(receipts.size, 5);

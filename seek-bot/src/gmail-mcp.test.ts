@@ -11,7 +11,15 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-gmail-mcp-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 const { doEnterEmailedCode, doOpenEmailedLink } = await import('./agent/authentication.js');
 const { observe } = await import('./agent/observe.js');
-const { findVerificationInGmail, gmailAvailable } = await import('./gmail-mailbox.js');
+const { findVerificationInGmail, gmailAvailable, verificationMessage } = await import('./gmail-mailbox.js');
+const { readVerificationEmailsLocally } = await import('./verification-email-local.js');
+for (const code of ['482913', 'A8X2K9P4']) {
+  const email = verificationMessage({ id: 'html-only', subject: 'Fixture verification',
+    htmlBody: `<p>Your Fixture verification code:</p><table><tr><td>${code}</td></tr></table><p>Code expires soon.</p><script>123456</script>` }, 0);
+  assert.match(email.text, new RegExp(`${code}\\s+Code`));
+  assert.equal(readVerificationEmailsLocally([email], { hint: 'Fixture', want: 'code' })?.value, code, 'HTML fallback preserves code boundaries and legitimate alphanumeric codes');
+}
+assert.equal(verificationMessage({ id: 'plain', plaintextBody: 'Exact plaintext\n482913', htmlBody: '<p>Other body</p>' }, 0).text, 'Exact plaintext\n482913');
 const originalFetch = globalThis.fetch;
 let unavailable = false, sent = 0, browserOrder = false, olderCodeBelowReply = false, staleCandidate = false, unorderedApi = false;
 const reads: string[] = [], queries: string[] = [];

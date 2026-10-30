@@ -16,6 +16,12 @@ export function gmailClient(network?: typeof fetch) {
 export function verificationMessage(message: GmailMessage, position: number): VerificationEmail {
   const document = parseHTML(`<html><body>${message.htmlBody || ''}</body></html>`).document;
   for (const node of document.querySelectorAll('script,style')) node.remove();
+  // HTML-only messages have no rendered innerText. Preserve structural breaks
+  // so a code in its own paragraph/cell cannot merge with the following word.
+  for (const node of document.querySelectorAll('br,p,div,li,tr,td,th,table,h1,h2,h3,h4,h5,h6,section,article,header,footer,blockquote,pre,hr')) {
+    node.before(document.createTextNode('\n'));
+    node.after(document.createTextNode('\n'));
+  }
   const text = (message.plaintextBody || document.body?.textContent || message.snippet || '').slice(0, 12_000);
   const links: Array<{ text: string; url: string }> = [];
   for (const anchor of document.querySelectorAll('a[href]')) {
