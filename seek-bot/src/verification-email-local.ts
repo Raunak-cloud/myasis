@@ -41,6 +41,12 @@ export function readVerificationEmailsLocally(emails: VerificationEmail[], ask: 
       }
     }
     if (ask.want !== 'code') {
+      // Newsletters can mention the requested employer and contain a generic
+      // "Sign in" footer. That does not make the message an authentication
+      // email. Require authentication purpose before considering its links.
+      const authenticationSubject = /\b(?:verify|verification|confirm|confirmation|activat\w*|password|passcode|one.time|sign.in|log.in|magic link)\b/i.test(email.subject);
+      const authenticationInstruction = /\b(?:verify|confirm|activate)\s+(?:your\s+)?(?:email|account|registration|identity)\b|\breset\s+(?:your\s+)?password\b|\b(?:one.time|magic|verification|activation|password.reset)\s+link\b/i.test(email.text);
+      if (!authenticationSubject && !authenticationInstruction) continue;
       const links = email.links.filter(link => {
         try {
           const url = new URL(link.url);

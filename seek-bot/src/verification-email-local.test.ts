@@ -25,4 +25,6 @@ test('verification links correlate with the requested employer, not shared reset
   const fragment = { ...unrelated, subject: 'Transport: verify your account' };
   assert.equal(read([fragment], { hint: 'Transport for NSW', want: 'link' }), null, 'one fragment of a multiword sender is insufficient');
   assert.equal(read([unrelated], { hint: 'password reset link for your account', want: 'link' }), null, 'generic authentication text is not a sender identity');
+  const newsletter = { ...unrelated, subject: 'Data & Reporting Analyst at Angle Finance. More jobs for you', text: 'Recommended jobs: Transport for NSW, SuccessFactors roles. Sign in to see more opportunities.' };
+  assert.equal(read([newsletter], ask), null, 'an employer mention plus a newsletter sign-in footer is not a verification message');
 });
