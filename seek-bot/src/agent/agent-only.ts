@@ -49,6 +49,8 @@ import { RecoveryCheckpoint, recoveryInput, recoveryTools } from './recovery-che
 import { AGENT_ONLY_PROMPT, applicationSuitabilityAuthority } from './application-policy.js';
 import { ApplicationReadiness, applicationReviewTool } from './application-readiness.js';
 import { changesBrowserState } from './browser-commands.js';
+import { addIndeedCoverLetter } from './indeed-cover-letter.js';
+import { jobBoardForUrl } from '../job-board-url.js';
 
 const string = { type: 'string' };
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
@@ -58,6 +60,7 @@ const schema = (name: string, description: string, properties: Record<string, un
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
 export const agentOnlyTools: ToolSchema[] = [
   applicationReviewTool,
+  schema('add_cover_letter', 'Indeed fast path: supply your complete truthful tailored letter. Opens the known Supporting documents → Add → Write a cover letter flow, fills with normal input events, saves locally and reads back. Does not draft or submit the application. Use once when the application offers a letter channel. On fallback, inspect the live page and finish with normal browser tools; preserve completed work and do not call this shortcut repeatedly. Approved submissions always use the exact approved letter.', { text: { type: 'string', minLength: 1 } }, ['text']),
   schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the complete cover letter and selected account resume ID.', {
     resume_id: string, cover_letter: string,
     submit_ref: { type: 'string', description: 'Observed ref of the actual final send control on this completed online application.' },
@@ -213,6 +216,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   let terminal: AgentTermination = { status: 'skipped', reason: 'The application spending allowance ended before the agent finished.' };
   let finished = false;
   let browserMutated = false;
+  let letterShortcutAttempted = false;
   // Keep the cacheable prefix stable. Smaller evidence reads reduce payload;
   // frequent compaction can cost more by destroying provider cache hits.
   let contextLimit = 42_000;
@@ -321,7 +325,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     // A blocked renderer must not prevent saving evidence, recording a result,
     // or switching away from it. Check security before page interactions.
     const interactsWithPage = name === 'browser_action' && changesBrowserState(args) && !['navigate', 'select_page'].includes(String(args.action))
-      || ['prepare_application', 'prepare_email_application', 'complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(name);
+      || ['add_cover_letter', 'prepare_application', 'prepare_email_application', 'complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(name);
     if (interactsWithPage && await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
     if (name === 'browser_batch') {
       const results: unknown[] = [];
@@ -434,6 +438,24 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     if (!isExternal(ctx.page.url()) && outsideScope('hosted') && (options.job.applicationMode === 'hosted' || /(?:smartapply\.|\/(?:apply|application)\b)/i.test(ctx.page.url()))) return ok('This run is limited to employer-site applications.', 'failed');
     if (isExternal(ctx.page.url())) options.job.applicationMode = 'external';
     if (!(await applicationAllowance(isExternal(ctx.page.url())))) return { kind: 'terminal', outcome: { status: 'skipped', reason: 'The account application allowance has been reached.' } };
+    if (name === 'add_cover_letter') {
+      if (jobBoardForUrl(ctx.page.url()) !== 'indeed' && !(isolated && options.job.platform === 'indeed')) return ok('This shortcut supports Indeed only. Inspect the current employer form and use normal browser tools.', 'reobserve');
+      if (letterShortcutAttempted) return ok('The shortcut was already attempted. Continue with normal browser tools from the current page; do not restart or repeat the shortcut.', 'reobserve');
+      letterShortcutAttempted = true;
+      if (approved && !approved.coverLetter) return ok('This approved draft has no letter. Inspect the offered option and prepare changed content for fresh candidate approval with normal tools.', 'reobserve');
+      const letter = coverLetterForRun(String(args.text));
+      if (letter !== ctx.coverLetter) readiness.invalidate();
+      ctx.coverLetter = letter; // Draft evidence, not a claim of saved inclusion.
+      const result = await addIndeedCoverLetter(ctx.page, letter);
+      browserMutated = true; // A fallback can leave an opened or filled editor.
+      if (result.status === 'saved') {
+        const known = ctx.captured.some(answer => isCoverLetterField(answer.question));
+        ctx.captured = known ? ctx.captured.map(answer => isCoverLetterField(answer.question) ? { ...answer, answer: letter } : answer)
+          : [...ctx.captured, { question: 'Cover letter', answer: letter }];
+      }
+      log(`  Cover-letter shortcut: ${result.status} (${result.stage}); ${result.completed.join('; ')}`);
+      return ok(JSON.stringify(result), 'reobserve');
+    }
     if (name === 'complete_authentication') return doCompleteAuthentication(ctx, args);
     if (name === 'enter_emailed_code') return doEnterEmailedCode(ctx, args);
     if (name === 'open_emailed_link') return doOpenEmailedLink(ctx, args);
