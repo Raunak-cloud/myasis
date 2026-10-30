@@ -54,7 +54,7 @@ try {
     await page.getByRole('alert').filter({ hasText: /fetch|network/i }).waitFor();
     assert.equal(await input.inputValue(), draft); assert.equal(await save.isEnabled(), true);
     mode = 'success'; await save.click();
-    await page.getByText(draft, { exact: true }).waitFor();
+    await page.locator('.files-detail-text').filter({ hasText: draft }).waitFor();
     assert.equal(await input.inputValue(), ''); assert.equal(notes.length, 1); assert.equal(await page.getByRole('alert').count(), 0);
     mode = 'delayed'; await input.fill('First submitted detail'); await save.click();
     await delayedRequest;
@@ -62,7 +62,7 @@ try {
     await input.fill('New draft typed while the earlier detail saves');
     await input.press('Control+Enter');
     release();
-    await page.getByText('First submitted detail', { exact: true }).waitFor();
+    await page.locator('.files-detail-text').filter({ hasText: 'First submitted detail' }).waitFor();
     assert.equal(await input.inputValue(), 'New draft typed while the earlier detail saves');
     assert.equal(notes.length, 2); assert.equal(writes, 4, 'a busy keyboard shortcut cannot send a duplicate save');
     assert.deepEqual(errors, []);
