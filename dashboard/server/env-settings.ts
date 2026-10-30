@@ -102,8 +102,6 @@ const GROUPS: GroupSpec[] = [
     title: 'Models',
     keys: [
       { key: 'CELERIS_API_KEY', label: 'Celeris API key', help: 'Drives the browser agent and job-application model calls.', kind: 'secret' },
-      { key: 'CELERIS_MANAGEMENT_TOKEN', label: 'Celeris read-only management token', help: 'Reads the workspace credit balance for admins. Never sent to inference or application workers. Obtain through Celeris agent connection.', kind: 'secret' },
-      { key: 'CELERIS_BILLING_WORKSPACE_ID', label: 'Celeris billing workspace ID', help: 'Must match the workspace selected when connecting Celeris balance access.', kind: 'text' },
       { key: 'CELERIS_BASE_URL', label: 'Celeris base URL', help: 'Root only; the model id is added per request.', kind: 'url' },
       { key: 'CELERIS_TIMEOUT_MS', label: 'Celeris timeout (ms)', help: 'How long one model call may take before it is abandoned.', kind: 'number' },
       { key: 'CELERIS_MAX_OUTPUT_TOKENS', label: 'Celeris reply limit (tokens)', help: 'The longest reply one model call may give. Celeris stops at 2,048 when none is sent; the default here is 8,192.', kind: 'number' },
@@ -252,8 +250,8 @@ const KNOWN_PREFIX = /^(sk_live_|sk_test_|rk_live_|rk_test_|whsec_|pk_live_|pk_t
 
 const KNOWN = new Map<string, Spec>();
 for (const group of GROUPS) for (const spec of group.keys) KNOWN.set(spec.key, spec);
-// Older installs can still carry this setting; blog writing now uses Gemini only.
-const RETIRED = new Set(['BLOG_PROVIDER']);
+// Hide configuration left over from removed features on older installs.
+const RETIRED = new Set(['BLOG_PROVIDER', 'CELERIS_MANAGEMENT_TOKEN', 'CELERIS_BILLING_WORKSPACE_ID']);
 
 /** A name that looks like it holds a credential is treated as one even when the catalogue has never heard of it. */
 const SECRET_NAME = /(SECRET|API_KEY|TOKEN|PASSWORD|PASSWD|PRIVATE|_URL$)/;

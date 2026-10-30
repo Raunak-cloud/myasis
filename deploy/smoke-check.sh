@@ -7,7 +7,7 @@ cd "$APP"
 for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh; do bash -n "$script"; done
 cd "$APP/dashboard"
 npm run test:statuses
-../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts server/celeris-balance.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"

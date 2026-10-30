@@ -14,7 +14,3 @@
   font-size: 12px;
   white-space: nowrap;
 }
-.celeris-credit { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px; margin-bottom: 12px; border: 1px solid var(--line, #d6e0ec); border-radius: 14px; background: var(--surface, #fff); }
-.celeris-credit > div:first-child { display: grid; gap: 4px; }
-.celeris-credit-amount { font-size: 1.25rem; font-weight: 700; }
-.celeris-credit-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 12px; }

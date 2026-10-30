@@ -15,7 +15,6 @@ import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { TermsInput } from './TermsInput';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
-import { CelerisBalance } from './CelerisBalance';
 import { LiveActionViewer } from './LiveActionViewer';
 import { MascotLogo } from './MascotLogo';
 import { useRunStatus } from '../runStatus';
@@ -684,7 +683,6 @@ export function RunPanel({
         <BoardResumesNote />
       </div>
       <div className="run-side">
-      {isAdmin && <CelerisBalance />}
       <div className="card run-controls-card">
         <div className="panel-body">
         {status && !status.hasKey && !isAdmin && (

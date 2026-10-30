@@ -1,5 +1,4 @@
 import { simulations } from './simulate.js';
-import { celerisBalance } from './celeris-balance.js';
 import { readRunDiagnostics, readRunAttempt } from './run-diagnostics.js';
 import { previewAccountAlerts } from './alerts.js';
 import { previewOperatorAlerts } from './operator-alerts.js';
@@ -460,7 +459,6 @@ export async function handleAdminRequest(
   let match: RegExpMatchArray | null;
 
   try {
-    if (path === '/celeris/balance' && method === 'GET') return send(await celerisBalance());
     if (path === '/overview' && method === 'GET') return send(await adminOverview());
     if (path === '/users' && method === 'GET') return send(await adminUsers());
     if (path === '/runs' && method === 'GET') {
