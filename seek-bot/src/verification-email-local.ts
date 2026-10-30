@@ -1,8 +1,24 @@
 import type { VerificationEmail } from './llm.js';
 
+// Shared authentication language cannot establish which employer sent a
+// message. In particular, "for" in a company name must not match every
+// unrelated "a link for your account" email in the mailbox.
+const COMMON = new Set('www com net org edu gov co au uk http https sign signin login log email verification verify code account site the application for your you with and from please this that our password reset link activation confirm careers career jobs apply'.split(' '));
+const contextWords = (value: string): string[] => [...new Set(value.toLowerCase().split(/[^a-z0-9]+/)
+  .filter(word => word.length > 2 && !COMMON.has(word) && !/^(?:wd|career|jobs|apply)\d+$/.test(word)))];
+
 export function verificationContextWords(ask: { hint?: string; site?: string }): string[] {
-  return [...new Set(`${ask.site || ''} ${ask.hint || ''}`.toLowerCase().replace(/https?:\/\//g, '').split(/[^a-z0-9]+/)
-    .filter(word => word.length > 2 && !['www', 'com', 'net', 'org', 'sign', 'login', 'email', 'verification', 'code', 'account', 'site', 'the', 'application'].includes(word)))];
+  return contextWords(`${ask.site || ''} ${ask.hint || ''}`);
+}
+
+function matchesContext(content: string, ask: { hint?: string; site?: string }): boolean {
+  const contains = (word: string) => new RegExp(`\\b${word}\\b`, 'i').test(content);
+  // Site identity and each explicit sender alias are alternative evidence.
+  // An alias containing multiple words requires all of them, rather than
+  // allowing a generic fragment to select another employer's reset email.
+  const site = contextWords(ask.site || '');
+  const aliases = (ask.hint || '').split(/[/|,;]+/).map(contextWords).filter(words => words.length);
+  return site.some(contains) || aliases.some(words => words.every(contains));
 }
 
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */
@@ -11,7 +27,8 @@ export function readVerificationEmailsLocally(emails: VerificationEmail[], ask: 
   if (!words.length) return null;
   for (const email of emails) {
     const content = `${email.subject}\n${email.text}`;
-    if (!words.some(word => new RegExp(`\\b${word}\\b`, 'i').test(content))) continue;
+    const identity = `${content}\n${email.links.map(link => link.url).join('\n')}`;
+    if (!matchesContext(identity, ask)) continue;
     if (!/verif|passcode|one.time|security code|sign.in|activation|confirm|reset.*password/i.test(content)) continue;
     if (ask.want !== 'link') {
       const patterns = [/(?:verification|security|sign.in|login|one.time|confirmation|access|authentication|passcode|OTP)[^\n]{0,45}?(?:code|password|pin)?\s*[:\-]?\s*\n?\s*\b(\d{3}[ -]?\d{3}|\d{4,8})\b/i,
