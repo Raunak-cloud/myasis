@@ -58,7 +58,10 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
       // Open the requested view from a new page. A later hash-only navigation
       // can otherwise read the previous inbox while Gmail renders the search.
       phase = 'opening Gmail';
-      await page.goto(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(route.account)}${fragment}`, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+      // Gmail's shell can be usable while an unrelated deferred script keeps
+      // DOMContentLoaded pending. Navigation commit is only transport evidence;
+      // the mailbox and signed-in identity checks below establish readiness.
+      await page.goto(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(route.account)}${fragment}`, { waitUntil: 'commit', timeout: 20_000 });
       assertBrowserOperationActive();
       phase = 'waiting for the mailbox';
       await page.locator('[role="main"]').waitFor({ timeout: 15_000 }).catch(() => {
@@ -121,7 +124,7 @@ export async function searchBrowserGmail(userId: string, query: string): Promise
       // The label can update before the list. A fresh load discards the old
       // relevance-ranked rows and retains Gmail's saved chronological choice.
       assertBrowserOperationActive();
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
+      await page.reload({ waitUntil: 'commit', timeout: 20_000 });
       await page.getByRole('button', { name: /^Showing most recent$/i }).waitFor({ timeout: 15_000 });
       await waitForSearchResults(page);
     }
