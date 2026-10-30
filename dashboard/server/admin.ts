@@ -20,7 +20,7 @@ import { pruneAllProfiles } from './profile-prune.js';
 import { pruneAllTraces, TRACE_RETENTION_DAYS } from './trace-retention.js';
 import { runner, readEnv, writeEnv, MAX_CONCURRENT } from './runner.js';
 import { setupStatus } from './setup.js';
-import { draftSetupEmail, sendAdminEmail, tailorSetupEmail } from './admin-email.js';
+import { draftSetupEmail, sendAdminEmail, tailorSetupEmail, adminEmailHistory, validEmailHistoryCursor } from './admin-email.js';
 import { readSiteState } from './seek-state.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
@@ -602,6 +602,11 @@ export async function handleAdminRequest(
 
     if (!action && method === 'GET') return send(await adminUserDetail(target.id));
     if (action === 'email' && method === 'GET') return send(await draftSetupEmail(target, actor));
+    if (action === 'email-history' && method === 'GET') {
+      const before = url.searchParams.get('before') ?? undefined;
+      if (before !== undefined && !validEmailHistoryCursor(before)) return send({ error: 'Invalid email history cursor.' }, 400);
+      return send(await adminEmailHistory(target.id, before));
+    }
 
     if (method === 'DELETE' && !action) {
       const body = await readBody();

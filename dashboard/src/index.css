@@ -502,6 +502,13 @@ tbody tr.clickable { cursor: pointer; }
 /* Tall enough for the whole draft, growing with it where the browser can size to content. */
 .admin-email textarea.admin-email-body { min-height: min(480px, 58dvh); field-sizing: content; resize: vertical; font: inherit; line-height: 1.55; padding: 10px 12px; }
 .admin-email-button { margin-left: 8px; }
+.admin-email-history { border-bottom: 1px solid var(--border); padding-bottom: 12px; min-width: 0; }
+.admin-email-history h3 { margin: 0; font-size: 14px; }
+.admin-email-history-list { max-height: 260px; overflow-y: auto; margin-bottom: 8px; }
+.admin-email-history-list details { padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.admin-email-history-list summary { cursor: pointer; }
+.admin-email-history-list summary > span { display: block; margin-top: 3px; }
+.admin-email-history-message { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 0; line-height: 1.5; }
 .admin-email-tailor { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-email-tailor .input { flex: 1 1 280px; min-width: 0; }
 

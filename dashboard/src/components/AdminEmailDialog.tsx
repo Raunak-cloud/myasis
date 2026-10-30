@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../adminApi';
+import { AdminEmailHistory } from './AdminEmailHistory';
 
 /**
  * A personal email to one account. The standard draft (built from the setup
@@ -18,14 +19,6 @@ interface Draft {
   optedOut: boolean;
   canSend: boolean;
   lastSent: { at: string; subject: string } | null;
-}
-
-function ago(iso: string): string {
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (minutes < 60) return `${Math.max(1, minutes)} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} days ago`;
 }
 
 export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; onClose: () => void; onSent: (to: string) => void }) {
@@ -95,13 +88,13 @@ export function AdminEmailDialog({ userId, onClose, onSent }: { userId: string; 
     <div className="overlay center" onClick={() => !sending && onClose()}>
       <div className="card confirm admin-email" role="dialog" aria-modal="true" aria-labelledby="admin-email-title" onClick={(event) => event.stopPropagation()}>
         <h2 id="admin-email-title">Email {draft?.to ?? '…'}</h2>
+        <AdminEmailHistory key={userId} userId={userId} />
         {error && <div className="banner banner-bad" role="alert">{error}</div>}
         {!draft ? (
           !error && <p className="job-meta">Drafting…</p>
         ) : (
           <>
             {draft.missing.length > 0 && <p className="job-meta">Still to do: {draft.missing.join(', ')}.</p>}
-            {draft.lastSent && <div className="banner" role="status">Already emailed {ago(draft.lastSent.at)}: “{draft.lastSent.subject}”.</div>}
             {draft.optedOut && <div className="banner" role="status">They switched off automatic emails. Only send this if it will help them.</div>}
             <form className="admin-email-tailor" onSubmit={(event) => { event.preventDefault(); tailor(instruction); }}>
               <input

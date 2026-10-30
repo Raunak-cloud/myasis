@@ -9,6 +9,23 @@ import { askCelerisForJson } from './search-terms.js';
 import { readSiteState } from './seek-state.js';
 import { loadUserSettings } from './settings.js';
 import { setupStatus } from './setup.js';
+import type { AdminEmailHistoryPage } from '../src/admin-email-history.js';
+
+export const validEmailHistoryCursor = (value: string) => /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
+
+/** Newest first, scoped to the selected recipient; older messages remain accessible. */
+export async function adminEmailHistory(userId: string, before?: string, read = query): Promise<AdminEmailHistoryPage> {
+  if (before !== undefined && !validEmailHistoryCursor(before)) throw new Error('Invalid email history cursor.');
+  const rows = await read<{ id: string; subject: string; body: string; sent_at: Date; sender_name: string | null; sender_email: string | null }>(
+    `SELECT e.id::text, e.subject, e.body, e.sent_at, u.name AS sender_name, u.email AS sender_email
+     FROM admin_emails e LEFT JOIN users u ON u.id=e.sent_by
+     WHERE e.user_id=$1 AND ($2::bigint IS NULL OR (e.sent_at,e.id) <
+       (SELECT sent_at,id FROM admin_emails WHERE user_id=$1 AND id=$2::bigint))
+     ORDER BY e.sent_at DESC,e.id DESC LIMIT 51`, [userId, before ?? null]);
+  const items = rows.slice(0, 50).map(row => ({ id: row.id, subject: row.subject, body: row.body,
+    sentAt: new Date(row.sent_at).toISOString(), sentBy: row.sender_email ? { name: row.sender_name, email: row.sender_email } : null }));
+  return { items, nextCursor: rows.length > 50 ? items.at(-1)!.id : null };
+}
 
 /**
  * A personal email from an operator to one account, drafted from where that
