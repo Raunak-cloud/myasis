@@ -73,15 +73,31 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
     throw new GmailServiceError('unavailable', `The Gmail browser request could not finish while ${phase}. Retry the mailbox request; this does not establish that Gmail is disconnected.`);
   });
 }
+async function waitForSearchResults(page: Page): Promise<void> {
+  await page.waitForFunction(selector => {
+    const main = document.querySelector('[role="main"]');
+    return main && (main.querySelector(selector)
+      || /no conversations found|no results found|no conversations match|no messages matched your search/i.test((main as HTMLElement).innerText || ''));
+  }, THREAD_ROWS, { timeout: 15_000 }).catch(() => {
+    throw new GmailServiceError('unavailable', 'Gmail opened, but the requested message list did not finish loading. Retry reading the mailbox; do not resend the verification email to repair this.');
+  });
+}
 export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {
   return withGmailBrowser(userId, async page => {
-    await page.waitForFunction(selector => {
-      const main = document.querySelector('[role="main"]');
-      return main && (main.querySelector(selector)
-        || /no conversations found|no results found|no conversations match/i.test(main.textContent || ''));
-    }, THREAD_ROWS, { timeout: 15_000 }).catch(() => {
-      throw new GmailServiceError('unavailable', 'Gmail opened, but the requested message list did not finish loading. Retry reading the mailbox; do not resend the verification email to repair this.');
-    });
+    await waitForSearchResults(page);
+    // Gmail can rank search results by relevance. Verification parsing needs
+    // newest first, including when a mailbox has received replacement codes.
+    const relevant = page.getByRole('button', { name: /^Showing most relevant$/i });
+    if (await relevant.isVisible()) {
+      await relevant.click({ timeout: 5_000 });
+      await page.getByRole('menuitemradio', { name: /^Most recent\b/i }).click({ timeout: 5_000 });
+      await page.getByRole('button', { name: /^Showing most recent$/i }).waitFor({ timeout: 5_000 });
+      // The label can update before the list. A fresh load discards the old
+      // relevance-ranked rows and retains Gmail's saved chronological choice.
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
+      await page.getByRole('button', { name: /^Showing most recent$/i }).waitFor({ timeout: 15_000 });
+      await waitForSearchResults(page);
+    }
     return page.locator(`[role="main"] :is(${THREAD_ROWS})`).evaluateAll(nodes => [...new Set(nodes.map(node =>
       [node.getAttribute('data-legacy-thread-id'), node.getAttribute('data-thread-id')]
         .find(id => id && /^[\w-]{1,100}$/.test(id)) || '').filter(Boolean))].slice(0, 20).map(id => ({ id })));

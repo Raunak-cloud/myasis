@@ -17,13 +17,20 @@ const port = (listener.address() as { port: number }).port; await new Promise<vo
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-browser-gmail-'));
 const context = await chromium.launchPersistentContext(directory, { headless: true, args: [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 let sends = 0, uploads = 0, confirmed = true, wrongAccount = false, mailboxUnavailable = false, emptySearch = false;
+let emptyMessage = 'No conversations found.', relevanceSearch = false, chronological = false, sortRejected = false, sortSelections = 0;
 const gmailNavigations: string[] = [];
 const letter = 'Dear team,\n\nThis is the exact approved cover letter.';
 const pageHtml = () => `<!doctype html><a aria-label="Google Account: ${wrongAccount ? 'other' : 'candidate'}@fixture.invalid"></a><main role="main"><table><tr><td data-thread-id="#thread-f:123456789" data-legacy-thread-id="fixturethread">Fixture code</td></tr></table><article data-message-id="message"><h2>Fixture verification</h2><span email="noreply@fixture.invalid"></span><div class="a3s">Your Fixture verification code: 482913</div></article></main><button onclick="document.querySelector('[role=dialog]').hidden=false">Compose</button><section role="dialog" hidden><input name="to" onkeydown="if(event.key==='Enter'){const p=document.createElement('span');p.setAttribute('email',this.value);this.parentElement.append(p)}"><input name="subjectbox"><div role="textbox" contenteditable="true"></div><input type="file" multiple onchange="for(const f of this.files){const p=document.createElement('span');p.textContent=f.name;this.parentElement.append(p)}"><button onclick="fetch('/fixture-send',{method:'POST'}).then(()=>{${confirmed ? 'document.body.insertAdjacentHTML(\'beforeend\',\'<p role=status>Message sent</p>\')' : ''}})">Send</button></section>`;
 await context.route('**/*', route => {
   if (mailboxUnavailable) return route.abort();
   if (new URL(route.request().url()).pathname === '/fixture-send') { sends++; return route.fulfill({ body: '{}' }); }
-  return route.fulfill({ contentType: 'text/html', body: emptySearch ? pageHtml().replace(/<table>.*?<\/table>/, '<p>No conversations found.</p>') : pageHtml() });
+  if (new URL(route.request().url()).pathname === '/fixture-sort') { sortSelections++; chronological = !sortRejected; return route.fulfill({ body: '{}' }); }
+  let html = pageHtml();
+  if (emptySearch) html = html.replace(/<table>.*?<\/table>/, `<p>${emptyMessage}</p>`);
+  else if (relevanceSearch) html = html.replace(/<table>.*?<\/table>/, `<button id="sort" onclick="document.getElementById('sort-menu').hidden=false">Showing most ${chronological ? 'recent' : 'relevant'}</button>
+    <div id="sort-menu" role="menu" hidden><button role="menuitemradio" onclick="fetch('/fixture-sort').then(()=>{${sortRejected ? '' : "document.getElementById('sort').textContent='Showing most recent';document.getElementById('sort-menu').hidden=true"}})">Most recent Exact matches</button></div>
+    <table>${(chronological ? ['newestthread', 'olderthread'] : ['olderthread', 'newestthread']).map(id => `<tr data-legacy-thread-id="${id}"><td>Verification</td></tr>`).join('')}</table>`);
+  return route.fulfill({ contentType: 'text/html', body: html });
 });
 context.on('page', page => {
   page.on('filechooser', () => uploads++);
@@ -46,7 +53,18 @@ try {
   await readerConnection.close();
   assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'a dropped reader connection must reconnect instead of poisoning all later mailbox reads');
   assert.ok(gmailNavigations.some(url => url.includes('#search/')), 'search opens the requested view directly, without reading a stale inbox');
-  emptySearch = true; assert.deepEqual(await client.search('no matching email'), []); emptySearch = false;
+  emptySearch = true;
+  for (emptyMessage of ['No conversations found.', 'No results found.', 'No conversations match your search.', 'No messages matched your search. Try using search options such as sender, date, size and more.']) {
+    assert.deepEqual(await client.search('no matching email'), [], 'an empty mailbox search is a successful empty result');
+  }
+  emptySearch = false; relevanceSearch = true;
+  assert.deepEqual((await client.search('verification')).map(thread => thread.id), ['newestthread', 'olderthread'], 'discard stale relevance-ranked rows after selecting Most recent');
+  assert.equal(sortSelections, 1);
+  assert.equal((await client.search('verification'))[0].id, 'newestthread');
+  assert.equal(sortSelections, 1, 'an already chronological search needs no sort action or extra reload');
+  chronological = false; sortRejected = true;
+  await assert.rejects(client.search('verification'), /could not finish/, 'failed sort selection must not return relevance-ranked codes');
+  sortRejected = false; relevanceSearch = false;
   mailboxUnavailable = true;
   await assert.rejects(client.search('verification'), /Gmail browser request could not finish/, 'navigation failures retain their real error rather than claiming authorization was revoked');
   mailboxUnavailable = false;
@@ -74,5 +92,5 @@ try {
   await assert.rejects(withGmailBrowser('browser-owner', page => sendBrowserApplication(page, first, 'candidate@fixture.invalid', Buffer.from('CV'), 'CV.txt')), /did not confirm/);
   stop(); await assert.rejects(client.search('verification'), /authorization|Reconnect/);
   assert.equal(uploads, 0, 'file input receives server-owned approved bytes without an external file picker');
-  console.log('PASS: five browser-backed email applications over real MCP, exact approved letters and attachments, local code parsing, repeat receipts, wrong-account denial, uncertain sends and revoked browser routes; no real Gmail or employer email.');
+  console.log('PASS: Gmail empty-result wording, chronological searches without stale rows, failed-sort refusal, five browser-backed email applications over real MCP, exact approved letters and attachments, local code parsing, repeat receipts, wrong-account denial, uncertain sends and revoked browser routes; no real Gmail or employer email.');
 } finally { stop(); lease.revoke(); await client.close(); await gateway.close(); await context.close(); rmSync(directory, { recursive: true, force: true }); }
