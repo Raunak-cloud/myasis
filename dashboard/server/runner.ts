@@ -311,6 +311,10 @@ class Run {
     return this.state.running;
   }
 
+  get currentRunId(): string | null {
+    return this.runStartId;
+  }
+
   get browserPort(): number | null {
     return this.cdpPort;
   }
@@ -747,6 +751,10 @@ export class RunPool {
 
   stateFor(userId: string): RunState {
     return this.runs.get(userId)?.state ?? { ...IDLE_STATE, ownerUserId: null };
+  }
+
+  runIdFor(userId: string): string | null {
+    return this.runs.get(userId)?.currentRunId ?? null;
   }
 
   /**

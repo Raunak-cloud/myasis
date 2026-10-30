@@ -415,16 +415,17 @@ async function runLog(runId: string): Promise<{ lines: Array<{ stream: string; t
     [runId],
   );
   if (!run) return null;
+  const live = !run.finished_at && runner.stateFor(run.user_id).running && runner.runIdFor(run.user_id) === runId;
   {
     const path = resolve(userDir(run.user_id), 'run-logs', basename(run.log_file ?? `${runId}.jsonl`));
     if (existsSync(path)) {
       const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => {
         try { return JSON.parse(line); } catch { return null; }
       }).filter(Boolean);
-      return { lines, live: !run.finished_at, userId: run.user_id };
+      return { lines, live, userId: run.user_id };
     }
   }
-  if (!run.finished_at && runner.stateFor(run.user_id).running) {
+  if (live) {
     return { lines: runner.backlog(run.user_id, 0), live: true, userId: run.user_id };
   }
   return { lines: [], live: false, userId: run.user_id };
