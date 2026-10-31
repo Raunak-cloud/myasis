@@ -1,5 +1,5 @@
 import { getPool, query } from './db/index.js';
-import { loadAttention } from './attention.js';
+import { blockedQuestionKey, isCredentialQuestion } from '../../seek-bot/src/blocked-questions.js';
 
 /**
  * The candidate's answer bank: questions a run could not answer from the
@@ -14,23 +14,33 @@ interface SavedAnswer {
 }
 
 /** A form label is an interaction key; the full question is the reusable fact's context. */
-function answerQuestion(item: { question?: unknown; prompt?: unknown }): string {
-  const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
-  return (prompt || String(item?.question ?? '')).replace(/\s+/g, ' ').trim().slice(0, 500);
+const answerQuestion = blockedQuestionKey;
+
+export class AnswersValidationError extends Error {}
+
+function validAnswer(item: unknown): item is { question: string; prompt?: string; answer: string } {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const value = item as Record<string, unknown>;
+  return typeof value.question === 'string' && Boolean(blockedQuestionKey({ question: value.question }))
+    && (value.prompt === undefined || typeof value.prompt === 'string')
+    && typeof value.answer === 'string' && Boolean(value.answer.trim())
+    && value.question.replace(/\s+/g, ' ').trim().length <= 500
+    && (typeof value.prompt !== 'string' || value.prompt.replace(/\s+/g, ' ').trim().length <= 500)
+    && value.answer.trim().length <= 4000 && !isCredentialQuestion(value);
 }
 
-export function normaliseSavedAnswers(
-  answers: ReadonlyArray<{ question?: unknown; prompt?: unknown; answer?: unknown }>,
-): Array<{ question: string; answer: string }> {
+export function normaliseSavedAnswers(answers: unknown): Array<{ question: string; answer: string }> {
+  if (!Array.isArray(answers)) return [];
   return answers.flatMap((item) => {
+    if (!validAnswer(item)) return [];
     const question = answerQuestion(item);
-    const answer = String(item?.answer ?? '').trim().slice(0, 4000);
+    const answer = item.answer.trim();
     return question && answer ? [{ question, answer }] : [];
   });
 }
 
-export async function listAnswers(userId: string): Promise<SavedAnswer[]> {
-  const rows = await query<{ question: string; answer: string; created_at: Date }>(
+export async function listAnswers(userId: string, read: typeof query = query): Promise<SavedAnswer[]> {
+  const rows = await read<{ question: string; answer: string; created_at: Date }>(
     `SELECT question, answer, created_at FROM saved_answers WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId],
   );
@@ -44,23 +54,28 @@ export async function listAnswers(userId: string): Promise<SavedAnswer[]> {
  */
 export async function saveAnswers(
   userId: string,
-  answers: Array<{ question: string; prompt?: string; answer: string }>,
+  answers: unknown,
   jobId?: string,
 ): Promise<{ saved: number }> {
+  if (!Array.isArray(answers) || !answers.length || answers.length > 30 || !answers.every(validAnswer)) {
+    throw new AnswersValidationError('Provide between 1 and 30 complete answers. Questions may contain up to 500 characters and answers up to 4000.');
+  }
+  if (jobId !== undefined && (typeof jobId !== 'string' || !jobId.trim() || jobId.length > 256)) {
+    throw new AnswersValidationError('Provide a valid application identifier.');
+  }
   const normalised = normaliseSavedAnswers(answers);
-  if (!normalised.length) return { saved: 0 };
+  const unique = new Map<string, string>();
+  for (const item of normalised) {
+    if (unique.has(item.question) && unique.get(item.question) !== item.answer) throw new AnswersValidationError('Provide one answer for each question.');
+    unique.set(item.question, item.answer);
+  }
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
-    // Concurrent partial saves must observe the preceding save's remaining
-    // questions rather than putting an already answered question back.
+    // Keep saves for the same owner and job ordered, including their facts
+    // and lifecycle event. Each event describes only the answers it saved.
     if (jobId) await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`candidate-answers:${userId}:${jobId}`]);
-    const read: typeof query = async (text, params) => (await client.query(text, params)).rows;
-    const pending = jobId ? (await loadAttention(userId, read)).find(item => item.jobId === jobId) : undefined;
-    const supplied = new Set(normalised.map(item => item.question));
-    const labelOnly = new Set(normaliseSavedAnswers(answers.filter(item => typeof item?.prompt !== 'string' || !item.prompt.trim())).map(item => item.question));
-    const remaining = pending?.questions?.filter(question => !supplied.has(answerQuestion(question)) && !labelOnly.has(answerQuestion({ question: question.question }))) ?? [];
-    for (const { question, answer } of normalised) {
+    for (const [question, answer] of unique) {
       await client.query(
         `INSERT INTO saved_answers (user_id, question, answer)
          VALUES ($1, $2, $3)
@@ -68,26 +83,17 @@ export async function saveAnswers(
         [userId, question, answer],
       );
     }
-    if (jobId && pending && remaining.length) {
-      // Append the reduced question group; preserve the original audit event.
+    if (jobId) {
       await client.query(
-        `INSERT INTO run_events(user_id, job_id, status, title, company, reason, url, questions, ts)
-         VALUES ($1, $2, 'needs-human', $3, $4, $5, $6, $7::jsonb, clock_timestamp())`,
-        [userId, jobId, pending.title, pending.company, pending.reason, pending.url, JSON.stringify(remaining)],
-      );
-    } else if (jobId) {
-      await client.query(
-        // A delayed run-log import must not resurrect an older group after
-        // all its answers were saved.
-        `WITH dismissed AS (UPDATE run_events SET dismissed_at = now()
-          WHERE user_id = $1 AND job_id = $2 AND status = 'needs-human' AND dismissed_at IS NULL)
-         INSERT INTO run_events(user_id, job_id, status, reason, ts)
-         VALUES ($1, $2, 'answered', 'Candidate answers saved for this application.', clock_timestamp())`,
-        [userId, jobId],
+        // A save can precede a delayed run-log import. Record the precise facts
+        // answered, so an unimported, unanswered question is never cleared.
+        `INSERT INTO run_events(user_id, job_id, status, reason, questions, ts)
+         VALUES ($1, $2, 'answered', 'Candidate answers saved for this application.', $3::jsonb, clock_timestamp())`,
+        [userId, jobId, JSON.stringify([...unique.keys()].map(question => ({ question })))],
       );
     }
     await client.query('COMMIT');
-    return { saved: normalised.length };
+    return { saved: unique.size };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

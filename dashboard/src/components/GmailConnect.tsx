@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface GmailStatus { eligible?: boolean; needed?: boolean; connected: boolean; configured: boolean; account: string | null; error?: string | null;
   provider?: 'browser' | 'mcp'; providers?: Array<'browser' | 'mcp'>; admin?: boolean }
@@ -9,60 +9,78 @@ export function GmailConnect({ compact = false }: { compact?: boolean }) {
     return result.get('gmail') === 'error' ? result.get('gmail_error') || 'Gmail could not connect.' : '';
   });
   const [busy, setBusy] = useState(false);
-  async function load() {
-    const response = await fetch('/api/gmail/status');
-    if (!response.ok) throw new Error('Could not load the Gmail connection.');
-    setStatus(await response.json());
-  }
+  const requestEpoch = useRef(0);
+  const acting = useRef(false);
+  const invalidateRequests = useCallback(() => { requestEpoch.current++; }, []);
+  const load = useCallback(async () => {
+    const epoch = ++requestEpoch.current;
+    try {
+      const response = await fetch('/api/gmail/status');
+      if (!response.ok) throw new Error('Could not load the Gmail connection.');
+      const body = await response.json();
+      if (epoch === requestEpoch.current) setStatus(body);
+    } catch (reason) {
+      if (epoch === requestEpoch.current) setError(reason instanceof Error ? reason.message : 'Could not load the Gmail connection.');
+    }
+  }, []);
   useEffect(() => {
-    void (async () => {
-      try { await load(); } catch (reason) { setError((reason as Error).message); }
-    })();
-    const refresh = () => { void load().catch(reason => setError(reason.message)); };
+    void (async () => { await load(); })();
+    const refresh = () => { void load(); };
     window.addEventListener('gmail-connection-changed', refresh);
     window.addEventListener('setup-status-changed', refresh);
     return () => {
+      invalidateRequests();
       window.removeEventListener('gmail-connection-changed', refresh);
       window.removeEventListener('setup-status-changed', refresh);
     };
-  }, []);
+  }, [invalidateRequests, load]);
   async function connect() {
-    if (busy) return;
+    if (acting.current) return;
+    acting.current = true;
+    requestEpoch.current++;
     setBusy(true); setError('');
     try {
       if (status?.provider === 'browser') {
-        const state = await fetch('/api/signin/session').then(response => response.json());
+        const stateResponse = await fetch('/api/signin/session');
+        const state = await stateResponse.json();
+        if (!stateResponse.ok || typeof state.supported !== 'boolean') throw new Error(state.error || 'Could not check browser sign-in. Retry connecting Gmail.');
         const response = await fetch(state.supported ? '/api/signin/session' : '/api/browser/manual-login?target=gmail&consent=true', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'gmail', consent: true }) });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || 'Gmail could not open.');
         if (state.supported) window.dispatchEvent(new CustomEvent('signin-session-changed', { detail: body.session }));
         else setError('Chrome opened on this computer. Sign in to your profile Gmail address, close Chrome, then refresh Settings.');
-        setBusy(false);
         return;
       }
       const response = await fetch('/api/gmail/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Gmail could not connect.');
       window.location.assign(body.url);
-    } catch (reason) { setError((reason as Error).message); setBusy(false); }
+    } catch (reason) { setError((reason as Error).message); }
+    finally { acting.current = false; setBusy(false); }
   }
   async function choose(provider: string) {
+    if (acting.current) return;
+    acting.current = true;
+    requestEpoch.current++;
     setBusy(true); setError('');
     try {
       const response = await fetch('/api/gmail/connection', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Gmail method could not change.');
       await load();
-    } catch (reason) { setError((reason as Error).message); } finally { setBusy(false); }
+    } catch (reason) { setError((reason as Error).message); } finally { acting.current = false; setBusy(false); }
   }
   async function disconnect() {
+    if (acting.current) return;
+    acting.current = true;
+    requestEpoch.current++;
     setBusy(true); setError('');
     try {
       const response = await fetch('/api/gmail/connection', { method: 'DELETE' });
       if (!response.ok) throw new Error('Gmail could not disconnect.');
       await load();
     } catch (reason) { setError((reason as Error).message); }
-    finally { setBusy(false); }
+    finally { acting.current = false; setBusy(false); }
   }
   if (status?.eligible === false && !status.connected) return null;
   if (compact && status?.connected && !status.error && !error) return null;

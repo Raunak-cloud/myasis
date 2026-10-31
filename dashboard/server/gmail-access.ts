@@ -14,6 +14,7 @@ export function browserGmailStatus(account: string | null, accounts: string[], c
   const error = !account ? 'Save your profile email before connecting Gmail.'
     : !matched && saved.length ? `Your profile uses ${account}, but this browser is signed in as ${saved.join(', ')}. Connect your profile Gmail address or update your profile email.`
     : matched && consent !== account ? `Connect browser Gmail to allow mailbox access for ${account}.`
+    : !matched ? `Sign in to ${account} in your private browser, then connect browser Gmail.`
     : null;
   return { connected, account: matched ? account : null, configured: true, error };
 }

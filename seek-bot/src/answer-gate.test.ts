@@ -27,3 +27,24 @@ test('a record that cannot say fails open', () => {
   assert.equal(waitingForAnswers(undefined, new Map()), false);
   assert.equal(waitingForAnswers({ ...blocked, status: 'skipped' }, new Map()), false);
 });
+
+test('every required question in a group needs an answer in its full context', () => {
+  const group = { ...blocked, questions: [{ question: 'Tell us more', prompt: 'What is your notice period?' }, { question: 'Tell us more', prompt: 'Why do you want this role?' }] };
+  const times = new Map([[answerKey('What is your notice period?'), after]]);
+  assert.equal(waitingForAnswers(group, times), true, 'one answer cannot release the other question');
+  times.set(answerKey('Tell us more'), after);
+  assert.equal(waitingForAnswers(group, times), true, 'a reused caption is not the second question context');
+  times.set(answerKey('Why do you want this role?'), after);
+  assert.equal(waitingForAnswers(group, times), false);
+});
+
+test('the current exported question snapshot supersedes historical outcomes and answer times', () => {
+  assert.equal(waitingForAnswers({ ...blocked, status: 'skipped', unansweredQuestions: [{ question: 'Still required' }] }, null), true);
+  assert.equal(waitingForAnswers({ ...blocked, unansweredQuestions: [] }, new Map()), false);
+});
+
+test('required markers normalize consistently for old bank keys and full question prompts', () => {
+  assert.equal(answerKey(' Current clearance * '), answerKey('Current clearance'));
+  const marked = { ...blocked, questions: [{ question: 'Clearance', prompt: 'Current clearance *' }] };
+  assert.equal(waitingForAnswers(marked, new Map([[answerKey('Current clearance'), after]])), false);
+});

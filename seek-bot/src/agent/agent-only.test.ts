@@ -1,6 +1,7 @@
 import { createReadinessFixtureReply } from './readiness-fixture.js';
 const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,20 +19,31 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'cv-1', lab
 writeFileSync(join(directory, 'applied.json'), JSON.stringify([{ id: 'old-job', title: 'Prior role', platform: 'seek', appliedAt: new Date().toISOString() }]));
 
 type Call = { name: string; args: Record<string, unknown> };
-type Body = { messages: Array<{ role: string; content: unknown }>; tools?: unknown[]; output_config?: { effort?: string }; chat_template_kwargs?: { reasoning_effort?: string } };
-let script: Array<(body: Body) => Call[]> = [];
+type Body = { messages: Array<{ role: string; content: unknown }>; tools?: unknown[]; tool_choice?: { function?: { name?: string } }; output_config?: { effort?: string }; chat_template_kwargs?: { reasoning_effort?: string } };
+let script: Array<(body: Body) => Call[] | Promise<Call[]>> = [];
+let checkpointResponder: ((body: Body) => Promise<Call[] | undefined>) | undefined;
 const turns: Body[] = [];
 let completionTokens = 10;
-const observation = (body: Body) => JSON.stringify(body.messages.filter(message => message.role === 'user').at(-1)?.content);
-const reply = (calls: Call[]) => Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${turns.length}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: 30, completion_tokens: completionTokens } });
+let responseSequence = 0;
+const observation = (body: Body) => {
+  const content = body.messages.filter(message => message.role === 'user').at(-1)?.content;
+  return typeof content === 'string' ? content : Array.isArray(content)
+    ? content.filter(part => part?.type === 'text').map(part => part.text).join('\n') : '';
+};
+const reply = (calls: Call[], tokens = completionTokens) => {
+  const sequence = ++responseSequence;
+  return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({ id: `turn-${sequence}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } })) } }], usage: { prompt_tokens: tokens ? 30 : 0, completion_tokens: tokens } });
+};
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body)) as Body;
+  const checkpointCalls = await checkpointResponder?.(body);
+  if (checkpointCalls) return reply(checkpointCalls, 0);
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
   assert.ok(body.tools?.length, 'only the applying agent may decide submission and receipt');
   turns.push(body);
   const next = script.shift();
   assert.ok(next, 'the parent makes only the scripted number of requests');
-  const response = reply(next(body));
+  const response = reply(await next(body));
   completionTokens = 10;
   return response;
 }) as typeof fetch;
@@ -94,7 +106,8 @@ try {
   assert.equal(run.outcome.status, 'applied');
   assert.equal(await page.evaluate('window.presses', undefined, undefined, false), 2);
   assert.equal(run.coverLetter, letter); assert.equal(run.resumeUsed, 'cv-1'); assert.equal(run.submitPressed, true);
-  assert.equal(script.length, 0); assert.equal(turns.length, 4); assert.equal(quotaChecks, 7);
+  assert.equal(script.length, 0); assert.equal(turns.length, 4);
+  assert.equal(quotaChecks, 9, 'both checkpoint-held sends and their explicit post-review retries retain allowance checks');
   const effort = (body: Body) => body.chat_template_kwargs?.reasoning_effort;
   assert.equal(effort(turns[0]), 'medium'); assert.equal(effort(turns[2]), 'xhigh');
   assert.match(readFileSync(join(directory, 'traces', 'agent-only-retry.json'), 'utf8'), /ABC123/);
@@ -143,6 +156,11 @@ try {
     assert.deepEqual(Buffer.from(uploadedBytes as number[]), Buffer.from(pdf), 'the original PDF bytes are uploaded unchanged');
   }
 
+  const conversionJobId = 'agent-requested-upload-format';
+  const conversionKey = createHash('sha256').update(readFileSync(join(directory, 'resumes', 'CV.txt'))).update(JSON.stringify(['CV.txt', 'pdf'])).digest('hex');
+  const conversionDirectory = join(directory, 'agent-documents', createHash('sha256').update(conversionJobId).digest('hex').slice(0, 20), conversionKey);
+  mkdirSync(conversionDirectory, { recursive: true });
+  writeFileSync(join(conversionDirectory, 'CV.pdf'), pdf);
   await page.setContent(`<main><label>Resume<input type=file id=resume accept='doc,docx,pdf,rtf' onchange="document.querySelector('#message').textContent=this.files[0].name.endsWith('.pdf')?'Resume accepted':'Only PDF accepted by this employer'"></label><p id=message></p><button id=send onclick="if(document.querySelector('#message').textContent==='Resume accepted')document.querySelector('main').textContent='Application received: CONVERT123'">Submit</button></main>`);
   script = [() => [{ name: 'browser_action', args: { action: 'set_input_files', file_ids: ['cv-1'], selector: '#resume' } }], body => {
     assert.match(observation(body), /Only PDF accepted by this employer/);
@@ -156,12 +174,12 @@ try {
     assert.match(JSON.stringify(body.messages), /CV.pdf/);
     return [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }];
   }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Agent chose PDF after actual employer rejection', evidence: 'Application received: CONVERT123', receipt: { quote: 'Application received: CONVERT123' } } }]];
-  const convertedUpload = await runApplicationAgent({ page, job: { ...job, id: 'agent-requested-upload-format' }, profile, log: () => {} });
+  const convertedUpload = await runApplicationAgent({ page, job: { ...job, id: conversionJobId }, profile, log: () => {} });
   assert.equal(convertedUpload.outcome.status, 'applied');
 
   await page.setContent(uploadForm('doc,docx,pdf,rtf'));
   script = [() => [{ name: 'browser_action', args: { action: 'set_input_files', file_ids: ['../../another-account/CV.pdf'], selector: '#resume' } }], body => {
-    assert.match(JSON.stringify(body.messages), /Choose a file ID from the candidate document inventory/);
+    assert.match(String(body.messages.filter(message => message.role === 'tool').at(-1)?.content), /Choose a file ID from the uploadable inventory file_id values/);
     return [{ name: 'finish', args: { status: 'skipped', reason: 'Unknown document correctly refused', evidence: 'No account-owned document matched that ID' } }];
   }];
   await runApplicationAgent({ page, job: { ...job, id: 'direct-upload-owner-isolation' }, profile, log: () => {} });
@@ -184,13 +202,16 @@ try {
     ] } }];
   }, body => {
     assert.match(observation(body), /Receipt ABC123/);
-    return [{ name: 'finish', args: { status: 'applied', reason: 'Batched native actions received', evidence: 'Receipt ABC123', receipt: { quote: 'Application received' } } }];
+    return [
+      { name: 'browser_action', args: { action: 'fill', selector: '#after', value: 'Agent-authored follow-up' } },
+      { name: 'finish', args: { status: 'applied', reason: 'Batched native actions received', evidence: 'Receipt ABC123', receipt: { quote: 'Application received' } } },
+    ];
   }];
   const batched = await runApplicationAgent({ page, job: { ...job, id: 'agent-native-batch' }, profile, log: () => {} });
   assert.equal(batched.outcome.status, 'applied');
   assert.equal(turns.length-beforeBatch,2,'five native commands and receipt inspection need only two scripted model turns');
   assert.equal(await page.evaluate('window.presses',undefined,undefined,false),1);
-  assert.equal(await page.inputValue('#after'), 'Agent-authored follow-up', 'a marked send does not lock the remainder of the agent-authored batch');
+  assert.equal(await page.inputValue('#after'), 'Agent-authored follow-up', 'the agent can explicitly choose an unexecuted follow-up after the checkpoint-held send');
   assert.equal(batched.coverLetter,letter);
   assert.ok(batched.captured.some(answer=>answer.question.includes('Referral source') && answer.answer==='Company website'),'save the observed selected option for application history');
   const experience = readFileSync(join(directory,'site-hints.json'),'utf8');
@@ -270,7 +291,14 @@ try {
     assert.match(observation(body), /Application received: PROGRESS123/);
     return expensive([{ name: 'finish', args: { status: 'applied', reason: 'Progressing application completed', evidence: 'Application received: PROGRESS123', receipt: { quote: 'Application received: PROGRESS123' } } }]);
   });
+  checkpointResponder = async body => {
+    if (body.tool_choice?.function?.name !== 'record_recovery_result') return;
+    const received = (await page.locator('main').innerText()).includes('Application received: PROGRESS123');
+    if (!received) assert.equal(await page.locator('#q4').inputValue(), 'Answer 4');
+    return [{ name: 'record_recovery_result', args: { assessment: 'progress', evidence: [received ? 'The controlled employer receipt is now visible.' : 'Five controlled answers are saved, including Question 4 = Answer 4.'], next_action: 'Continue with the explicitly scripted current send or receipt judgement.' } }];
+  };
   const extended = await runApplicationAgent({ page, job: { ...job, id: 'native-progress-budget' }, profile, log: () => {} });
+  checkpointResponder = undefined;
   assert.equal(extended.outcome.status, 'applied');
   assert.equal(turns.length - progressStart, 7, 'real saved answers allow completion beyond twenty cents');
   assert.match(extended.usage, /\$0\.490/);
@@ -413,9 +441,10 @@ try {
     assert.match(readFileSync(join(directory, 'traces', 'native-budget-semi-confirmation.json'), 'utf8'), /No application has been submitted/);
   } finally { delete process.env.APPLICATION_REVIEW_MODE; }
 
-  script = [() => { completionTokens = 1_000_000; return [{ name: 'finish', args: {
+  await page.setContent('<main><label>Earliest start date<input id=earliest-start required></label></main>');
+  script = [async () => { completionTokens = 1_000_000; return [{ name: 'finish', args: {
     status: 'needs-human', reason: 'A required candidate fact is missing', evidence: 'Required availability question',
-    questions: [{ question: 'Earliest start date', prompt: 'When can you start?', kind: 'text' }],
+    questions: [{ field_ref: await page.locator('#earliest-start').getAttribute('data-field-id'), form_quote: 'Earliest start date', kind: 'text' }],
   } }]; }];
   const budgetQuestion = await runApplicationAgent({ page, job: { ...job, id: 'native-budget-question' }, profile, log: () => {} });
   assert.equal(budgetQuestion.outcome.status, 'needs-human', 'retain valid unanswered questions at the boundary too');
@@ -428,16 +457,14 @@ try {
     contentFingerprint: reviewContentFingerprint(reviewedJob)!, contextFingerprint: reviewContextFingerprint(profile) };
   script = [body => {
     assert.match(JSON.stringify(body.messages), /APPROVED FIT REVIEW.*candidate matches these development duties/s);
-    return [{ name: 'finish', args: { status: 'skipped', reason: 'Repeated assessment of the same title', evidence: 'Onsite Sydney application development.',
-      fit_rejection: { source: 'listing', evidence: 'Onsite Sydney application development.' } } }];
-  }, body => {
-    assert.match(JSON.stringify(body.messages), /matcher already approved these unchanged listing facts/);
+    assert.match(JSON.stringify(body.messages), /SUITABILITY AUTHORITY: the matching stage approved this vacancy/);
+    assert.match(JSON.stringify(body.messages), /Apply without repeating a review of unchanged listing requirements/);
     return [{ name: 'browser_batch', args: { actions: [
       { action: 'fill', selector: '#name', value: 'Rinu Fixture' },
       { action: 'click', selector: '#send', sends_application: true },
     ] } }];
   }, () => [{ name: 'finish', args: { status: 'applied', reason: 'Approved job completed', evidence: 'Application received: APPROVED123', receipt: { quote: 'Application received: APPROVED123' } } }]];
-  assert.equal((await runApplicationAgent({ page, job: reviewedJob, profile, log: () => {} })).outcome.status, 'applied', 'the applier cannot overturn unchanged approved listing facts');
+  assert.equal((await runApplicationAgent({ page, job: reviewedJob, profile, log: () => {} })).outcome.status, 'applied', 'the agent receives matcher authority and follows it without a second listing review');
 
   await page.setContent('<main>Current NV1 clearance must be held before applying.</main>');
   script = [() => [{ name: 'finish', args: { status: 'skipped', reason: 'The form introduced a mandatory clearance requirement', evidence: 'Current NV1 clearance must be held before applying.',
@@ -571,10 +598,10 @@ try {
     assert.match(String(body.messages[0].content), /You own personal-answer verification/);
     assert.match(String(body.messages[0].content), /duration such as two years does not establish exact start\/end months/);
     return [{ name: 'read_candidate_evidence', args: { query: 'employment dates' } }];
-  }, body => {
+  }, async body => {
     assert.match(JSON.stringify(body.messages), /OWNER-SCOPED CANDIDATE EVIDENCE/);
     return [{ name: 'finish', args: { status: 'needs-human', reason: 'Exact start month is not in saved evidence.',
-      evidence: 'The form requires Employment start month.', questions: [{ question: 'Employment start month', prompt: 'What month and year did this role start?', kind: 'text' }] } }];
+      evidence: 'The form requires Employment start month.', questions: [{ field_ref: await page.locator('#date').getAttribute('data-field-id'), form_quote: 'Employment start month', kind: 'text' }] } }];
   }];
   const missingDates = await runApplicationAgent({ page, job: { ...job, id: 'agent-owned-unknown-date' }, profile, log: () => {} });
   assert.equal(missingDates.outcome.status, 'needs-human');

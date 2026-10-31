@@ -19,6 +19,10 @@ export class BodyTooLarge extends Error {
   }
 }
 
+export class InvalidJsonBody extends Error {
+  constructor() { super('The request body must be a valid JSON object.'); }
+}
+
 /** Plenty for a form, a profile or a cover letter; a resume upload passes its own limit. */
 export const DEFAULT_BODY_LIMIT = 256 * 1024;
 /** Uploads arrive base64-encoded, so an 8 MB file needs a little under 11 MB of body. */
@@ -54,13 +58,15 @@ export function readRawBodyLimited(req: IncomingMessage, limit: number): Promise
   });
 }
 
-/** A JSON body, or `{}` when it is not JSON. Multi-byte characters survive chunk boundaries. */
+/** Reject broken request data before a route can apply its default action. */
 export async function readJsonBody(req: IncomingMessage, limit = DEFAULT_BODY_LIMIT): Promise<any> {
   const raw = (await readRawBodyLimited(req, limit)).toString('utf8');
   try {
-    return JSON.parse(raw || '{}');
+    const body = JSON.parse(raw || '{}');
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new InvalidJsonBody();
+    return body;
   } catch {
-    return {};
+    throw new InvalidJsonBody();
   }
 }
 

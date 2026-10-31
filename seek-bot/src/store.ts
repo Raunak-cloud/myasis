@@ -7,6 +7,8 @@ import type { ReviewCacheMetadata } from './review-cache.js';
 import { recordSubmittedCost } from './cost-ledger.js';
 import { sameApplication } from './application-identity.js';
 import type { JobListing } from './types.js';
+import { blockedQuestionKey, normaliseBlockedQuestions } from './blocked-questions.js';
+import type { BlockedQuestion } from './types.js';
 
 const appliedPath = () => resolve(config.dataDir, 'applied.json');
 const outcomeLogPath = () => resolve(config.dataDir, 'run-log.jsonl');
@@ -93,18 +95,50 @@ interface ReviewFeedback {
   status: string;
   reason: string;
   /** The questions a needs-human stop was waiting on, when it was. */
-  questions?: Array<{ question?: unknown }>;
+  questions?: Array<{ question?: unknown; prompt?: unknown }>;
+  /** Current owner state; an empty array explicitly resolves historical questions. */
+  unansweredQuestions?: BlockedQuestion[];
 }
 
 /** Past outcomes are context for model triage, never a permanent rejection. */
 export function recentReviewFeedback(): Map<string, ReviewFeedback> {
   const result = new Map<string, ReviewFeedback>();
+  let snapshotAt: number | undefined;
+  const outstanding = new Map<string, { title: string; company: string; reason: string; at: string; questions: BlockedQuestion[] }>();
+  try {
+    const state = JSON.parse(readFileSync(resolve(config.dataDir, 'attention.json'), 'utf8'));
+    const at = Date.parse(state.asOf);
+    if (Number.isFinite(at) && Array.isArray(state.items)) {
+      snapshotAt = at;
+      for (const item of state.items) {
+        const questions = normaliseBlockedQuestions(item?.questions);
+        if (typeof item?.jobId === 'string' && typeof item.title === 'string' && typeof item.company === 'string' && typeof item.reason === 'string' && typeof item.at === 'string' && questions.length) {
+          outstanding.set(item.jobId, { title: item.title, company: item.company, reason: item.reason, at: item.at, questions });
+        }
+      }
+    }
+  } catch { /* Legacy exports have no current question snapshot. */ }
   try {
     const paths = [resolve(config.dataDir, 'review-history.jsonl'), outcomeLogPath()];
     const lines = paths.filter(existsSync).flatMap(path => readFileSync(path, 'utf8').trim().split('\n'));
     for (const line of lines.slice(-2000)) {
       try {
         const row = JSON.parse(line);
+          if (snapshotAt !== undefined && typeof row.jobId === 'string' && Date.parse(row.ts) > snapshotAt) {
+            const questions = normaliseBlockedQuestions(row.questions);
+            if (row.status === 'needs-human' && questions.length && typeof row.title === 'string' && typeof row.company === 'string') {
+              outstanding.set(row.jobId, { title: row.title, company: row.company, reason: row.reason ?? '', at: row.ts, questions });
+            } else if (row.status === 'answered' && Array.isArray(row.questions) && row.questions.length) {
+              const answered = new Set(questions.map(blockedQuestionKey));
+              const current = outstanding.get(row.jobId);
+              if (current) {
+                const remaining = current.questions.filter(question => !answered.has(blockedQuestionKey(question)));
+                if (remaining.length) outstanding.set(row.jobId, { ...current, questions: remaining });
+                else outstanding.delete(row.jobId);
+              }
+            } else if (['prepared', 'rehearsed', 'applied', 'already-applied'].includes(row.status)
+              || (row.status === 'answered' && (row.questions == null || (Array.isArray(row.questions) && !row.questions.length)))) outstanding.delete(row.jobId);
+          }
         const age = Date.now() - Date.parse(row.ts);
         if (!Number.isFinite(age) || age < 0 || age > 7 * 86400_000 || !row.jobId || !row.title || !row.company) continue;
         const reason = row.reason || row.error || row.redirectedTo;
@@ -116,6 +150,17 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
       } catch { /* A partial log line must not break discovery. */ }
     }
   } catch { /* A new account has no history. */ }
+  if (snapshotAt !== undefined) {
+    const represented = new Set<string>();
+    for (const [key, feedback] of result) {
+      const [jobId] = JSON.parse(key) as string[];
+      represented.add(jobId);
+      result.set(key, { ...feedback, unansweredQuestions: outstanding.get(jobId)?.questions ?? [] });
+    }
+    for (const [jobId, item] of outstanding) {
+      if (!represented.has(jobId)) result.set(JSON.stringify([jobId, item.title, item.company]), { at: item.at, status: 'needs-human', reason: item.reason, unansweredQuestions: item.questions });
+    }
+  }
   return result;
 }
 

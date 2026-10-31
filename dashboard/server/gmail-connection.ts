@@ -109,12 +109,19 @@ export async function gmailRequest<T = Record<string, any>>(userId: string, path
   try {
     return (await entry.oauth.request<T>({ url: `https://gmail.googleapis.com/gmail/v1/users/me/${path}`, ...options, retry: false, timeout: 20_000, maxContentLength: 2_000_000 })).data;
   } catch (error) {
-    const status = (error as { response?: { status?: number } }).response?.status;
-    if (status === 400 || status === 401 || status === 403) {
-      const message = status === 403 ? 'Gmail access was refused. Enable Gmail API in the Google OAuth project and reconnect Gmail.' : 'Reconnect Gmail in Setup. Google authorization expired or was revoked.';
-      await query('UPDATE google_connections SET last_error=$2 WHERE user_id=$1', [userId, message]); active.delete(userId);
+    const response = (error as { response?: { status?: number; data?: { error?: string | { errors?: Array<{ reason?: string }> } } } }).response;
+    const status = response?.status, providerError = response?.data?.error;
+    const reasons = typeof providerError === 'object' ? providerError?.errors?.map(detail => detail.reason) || [] : [];
+    const quota = reasons.some(reason => ['dailyLimitExceeded', 'userRateLimitExceeded', 'rateLimitExceeded', 'quotaExceeded'].includes(reason || ''));
+    const reconnect = status === 401 || status === 400 && providerError === 'invalid_grant' || status === 403 && !quota;
+    if (reconnect) {
+      const message = status === 403 ? 'Gmail access was refused. Check Gmail API permissions and project access, then reconnect Gmail.' : 'Reconnect Gmail in Setup. Google authorization expired or was revoked.';
+      // A failing request can finish after the user reconnects. It must not
+      // mark that replacement grant disconnected or evict its fresh client.
+      await query('UPDATE google_connections SET last_error=$2 WHERE user_id=$1 AND refresh_token=$3', [userId, message, row.refresh_token]);
+      if (active.get(userId) === entry) active.delete(userId);
     }
-    const failure = new GmailServiceError(status === 400 || status === 401 || status === 403 ? 'reconnect' : 'unavailable', 'Gmail request could not complete.');
+    const failure = new GmailServiceError(reconnect ? 'reconnect' : 'unavailable', quota ? 'Gmail is temporarily rate limited. Retry the mailbox request later.' : 'Gmail request could not complete.');
     Object.assign(failure, { providerStatus: status }); throw failure;
   }
 }

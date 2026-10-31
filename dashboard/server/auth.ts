@@ -56,7 +56,8 @@ export function parseCookies(header: string | undefined): Record<string, string>
   for (const part of (header ?? '').split(';')) {
     const i = part.indexOf('=');
     if (i === -1) continue;
-    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); }
+    catch { /* A malformed cookie must not invalidate unrelated session/state cookies. */ }
   }
   return out;
 }
@@ -159,42 +160,57 @@ export async function handleGoogleCallback(
   if (!code) return { ok: false, error: 'No authorisation code returned.' };
   if (!validState(state, cookieHeader)) return { ok: false, error: 'Invalid state, possible CSRF. Sign-in aborted.' };
 
-  const tokenRes = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: c.clientId,
-      client_secret: c.clientSecret,
-      redirect_uri: c.redirectUri,
-      grant_type: 'authorization_code',
-    }),
-  });
-  if (!tokenRes.ok) {
-    return { ok: false, error: `Token exchange failed (${tokenRes.status}): ${(await tokenRes.text()).slice(0, 200)}` };
-  }
-  const tokens = (await tokenRes.json()) as { access_token?: string };
-  if (!tokens.access_token) return { ok: false, error: 'Google did not return an access token.' };
+  let info: { sub?: unknown; email?: unknown; name?: unknown; picture?: unknown; email_verified?: unknown };
+  try {
+    const signal = AbortSignal.timeout(20_000);
+    const tokenRes = await fetch(TOKEN_URL, {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: c.clientId,
+        client_secret: c.clientSecret,
+        redirect_uri: c.redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+    if (!tokenRes.ok) {
+      return { ok: false, error: `Token exchange failed (${tokenRes.status}). Please try signing in again.` };
+    }
+    const tokens = (await tokenRes.json()) as { access_token?: string };
+    if (!tokens.access_token) return { ok: false, error: 'Google did not return an access token.' };
 
-  const infoRes = await fetch(USERINFO_URL, {
-    headers: { Authorization: `Bearer ${tokens.access_token}` },
-  });
-  if (!infoRes.ok) return { ok: false, error: `Could not read Google profile (${infoRes.status}).` };
-  const info = (await infoRes.json()) as {
-    sub: string;
-    email?: string;
-    name?: string;
-    picture?: string;
-    email_verified?: boolean;
-  };
-  if (!info.email) return { ok: false, error: 'Google account has no email address.' };
+    const infoRes = await fetch(USERINFO_URL, {
+      signal,
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (!infoRes.ok) return { ok: false, error: `Could not read Google profile (${infoRes.status}).` };
+    info = await infoRes.json();
+  } catch {
+    return { ok: false, error: 'Could not complete Google sign-in. Please try again.' };
+  }
+  if (!info || typeof info.sub !== 'string' || !info.sub.trim()) return { ok: false, error: 'Google account has no valid identity.' };
+  if (typeof info.email !== 'string' || !info.email.trim()) return { ok: false, error: 'Google account has no email address.' };
+  if (info.email_verified !== true) return { ok: false, error: 'Google has not verified this email address.' };
+  const email = info.email.trim().toLowerCase();
+  const values = [email, typeof info.name === 'string' ? info.name : null, typeof info.picture === 'string' ? info.picture : null, info.sub];
+
+  // Google subjects survive email changes. Reuse that identity before trying
+  // the email-based link retained for accounts migrated from local files.
+  const existing = await one<{ id: string }>('SELECT id FROM users WHERE google_id = $1', [info.sub]);
 
   // Matching on email links a Google login to an account already migrated from
   // the local files, rather than creating a second empty one.
   // `xmax` is zero only on a row this statement inserted, so the upsert says
   // which of the two things it did. A sign-up is a conversion worth reporting;
   // the same person signing in next week is not.
-  const user = await one<{ id: string; blocked_at: Date | null; is_new: boolean }>(
+  const user = existing
+    ? await one<{ id: string; blocked_at: Date | null; is_new: boolean }>(
+      `UPDATE users SET email = $1, name = COALESCE($2, name), avatar_url = COALESCE($3, avatar_url), last_login_at = now()
+        WHERE google_id = $4 AND NOT EXISTS (SELECT 1 FROM users other WHERE other.email = $1 AND other.id <> users.id)
+        RETURNING id, blocked_at, false AS is_new`, values)
+    : await one<{ id: string; blocked_at: Date | null; is_new: boolean }>(
     `INSERT INTO users (email, name, avatar_url, google_id, last_login_at)
      VALUES ($1,$2,$3,$4, now())
      ON CONFLICT (email) DO UPDATE SET
@@ -202,10 +218,11 @@ export async function handleGoogleCallback(
        avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
        google_id = COALESCE(users.google_id, EXCLUDED.google_id),
        last_login_at = now()
+     WHERE users.google_id IS NULL OR users.google_id = EXCLUDED.google_id
      RETURNING id, blocked_at, (xmax = 0) AS is_new`,
-    [info.email.toLowerCase(), info.name ?? null, info.picture ?? null, info.sub],
+    values,
   );
-  if (!user) return { ok: false, error: 'Could not create the account.' };
+  if (!user) return { ok: false, error: 'This email address is already linked to another Google account. Please use the original account.' };
   // Blocked by an admin: the account exists so it cannot be re-created, and it gets no session.
   if (user.blocked_at) return { ok: false, error: 'This account has been suspended. Contact support if you think this is a mistake.' };
 
@@ -220,7 +237,7 @@ export async function handleGoogleCallback(
     cookie: sessionCookie(token, maxAge),
     signedUp: user.is_new,
     userId: user.id,
-    email: info.email.toLowerCase(),
+    email,
   };
 }
 

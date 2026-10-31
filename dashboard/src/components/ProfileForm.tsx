@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AutoGrowTextarea } from './AutoGrowTextarea';
 import { annualSalaryAmount } from '../salary';
 
@@ -48,38 +48,60 @@ export function ProfileForm({ onSaved }: { onSaved?: () => void }) {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const editVersion = useRef(0);
 
-  useEffect(() => {
-    fetch('/api/profile').then((r) => r.json()).then(setP).catch(() => {});
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setError(null);
+    try {
+      const response = await fetch('/api/profile', { signal });
+      const profile = await response.json().catch(() => null);
+      if (!response.ok || !profile || typeof profile.fullName !== 'string' || typeof profile.expectedSalary !== 'string') throw new Error();
+      if (!signal?.aborted) setP(profile);
+    } catch {
+      if (!signal?.aborted) setError('Could not load your details. Please try again.');
+    }
   }, []);
 
-  if (!p) return <div className="job-meta">Loading…</div>;
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => { await load(controller.signal); })();
+    return () => controller.abort();
+  }, [load]);
+
+  if (!p) return error
+    ? <div className="job-meta" role="alert">{error} <button type="button" className="btn" onClick={() => void load()}>Retry</button></div>
+    : <div className="job-meta">Loading…</div>;
 
   const set = <K extends keyof CandidateProfile>(k: K, v: CandidateProfile[K]) => {
     setP({ ...p, [k]: v });
+    editVersion.current++;
     setDirty(true);
     setSavedAt(null);
     setError(null);
   };
 
   async function save() {
+    if (saving) return;
     if (annualSalaryAmount(p?.expectedSalary) === null) {
       setError('Enter one expected annual base salary amount in AUD, excluding superannuation.');
       return;
     }
     setSaving(true);
     setError(null);
+    const submittedVersion = editVersion.current;
     try {
       const res = await fetch('/api/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(p),
       });
-      const j = await res.json();
-      if (!res.ok || !j.profile) throw new Error(j.error ?? 'Could not save your details. Please try again.');
-      setP(j.profile);
-      setDirty(false);
-      setSavedAt(Date.now());
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.profile) throw new Error(j?.error ?? 'Could not save your details. Please try again.');
+      if (editVersion.current === submittedVersion) {
+        setP(j.profile);
+        setDirty(false);
+        setSavedAt(Date.now());
+      }
       onSaved?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save your details. Please try again.');

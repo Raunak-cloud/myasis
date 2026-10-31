@@ -3,6 +3,10 @@ import type { ToolSchema } from './celeris.js';
 import { browserTargetProperties } from './browser-target.js';
 
 const targets = { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', additionalProperties: false, properties: browserTargetProperties }, description: 'Agent-selected native locators for the actual credential/code inputs, including frame and section scopes. Prefer these to refs for embedded forms.' };
+const cachedVerification = {
+  allow_recent_cached: { type: 'boolean', description: 'Set only when visible employer copy says an existing/reusable emailed code or link is still valid. Requires cached_code_evidence. Allows recent cached mail within fifteen minutes; never an unrestricted stale fallback.' },
+  cached_code_evidence: { type: 'string', description: 'Complete exact visible employer message establishing that the existing emailed code/link can still be used. You judge its meaning; the tool verifies the quote against fresh noneditable employer copy.' },
+};
 
 const AUTHENTICATION_TOOL: ToolSchema = {
     name: 'complete_authentication',
@@ -54,6 +58,7 @@ const EMAILED_CODE_TOOL: ToolSchema = {
   parameters: {
     type: 'object',
     properties: {
+      ...cachedVerification,
       targets,
       ref: { type: 'string', description: 'The FIELD ref of the code input.' },
       refs: { type: 'array', items: { type: 'string' }, description: 'All code FIELD refs in digit order when the code has separate boxes.' },
@@ -71,7 +76,7 @@ const EMAILED_LINK_TOOL: ToolSchema = {
     "from the candidate's inbox through Gmail MCP and opened in a new tab, where the application continues. Never guess or type a link.",
   parameters: {
     type: 'object',
-    properties: { sender_hint: { type: 'string', description: 'The site or company that sent the email, e.g. "Workday" or the employer.' } },
+    properties: { ...cachedVerification, sender_hint: { type: 'string', description: 'The site or company that sent the email, e.g. "Workday" or the employer.' } },
     required: [],
   },
 };

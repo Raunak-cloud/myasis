@@ -28,3 +28,25 @@ test('verification links correlate with the requested employer, not shared reset
   const newsletter = { ...unrelated, subject: 'Data & Reporting Analyst at Angle Finance. More jobs for you', text: 'Recommended jobs: Transport for NSW, SuccessFactors roles. Sign in to see more opportunities.' };
   assert.equal(read([newsletter], ask), null, 'an employer mention plus a newsletter sign-in footer is not a verification message');
 });
+
+test('shared ATS hosts and tracking parameters cannot select another employer code', () => {
+  const other = { position: 0, sender: 'Beta <noreply@workday.com>', subject: 'Beta sign-in code', text: 'Your security code is 111222.',
+    links: [{ text: 'Help', url: 'https://workday.com/help?campaign=Acme' }] };
+  const expected = { position: 1, sender: 'Acme <noreply@accounts.acme.invalid>', subject: 'Your login code', text: 'Your code is A8X2K9P4.', links: [] };
+  const ask = { site: 'acme.wd3.myworkdayjobs.com', hint: 'Acme', want: 'code' as const };
+  assert.equal(read([other], ask), null);
+  assert.equal(read([other], { ...ask, site: 'login.workday.com' }), null);
+  assert.equal(read([other, expected], ask)?.value, 'A8X2K9P4', 'sender identity is usable even when the body has no employer name');
+});
+
+test('only code-adjacent tokens are OTPs; expiry years and account IDs are not', () => {
+  const email = (text: string) => ({ position: 0, subject: 'Fixture verification', text, links: [] });
+  assert.equal(read([email('Your verification code expires in 2026. Use 482913 to verify your account.')], { hint: 'Fixture', want: 'code' })?.value, '482913');
+  assert.equal(read([email('Verification for account 123456. Your code is A8X2K9P4.')], { hint: 'Fixture', want: 'code' })?.value, 'A8X2K9P4');
+  assert.equal(read([email('Your application reference code is 123456. Your security code is 482913.')], { hint: 'Fixture', want: 'code' })?.value, '482913', 'an explicitly identified security code outranks a generic reference code');
+  for (const code of ['1234', '123456789', '123456789012', 'A8X2K9P4', 'A8X2-K9P4']) {
+    assert.equal(read([email(`Your OTP is ${code}.`)], { hint: 'Fixture', want: 'code' })?.value, code);
+  }
+  assert.equal(read([email('Your pass code: 1234 5678')], { hint: 'Fixture', want: 'code' })?.value, '12345678');
+  assert.equal(read([email('Your verification code expires in 2026.')], { hint: 'Fixture', want: 'code' }), null);
+});

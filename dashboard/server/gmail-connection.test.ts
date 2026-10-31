@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { createHash } from 'node:crypto';
 import { getPool } from './db/index.js';
-import { beginGmailConnection, finishGmailConnection, encryptGmailToken, decryptGmailToken, gmailConnection, disconnectGmail } from './gmail-connection.js';
+import { beginGmailConnection, finishGmailConnection, encryptGmailToken, decryptGmailToken, gmailConnection, disconnectGmail, gmailRequest } from './gmail-connection.js';
 import { OAuth2Client, GMAIL_READ_SCOPE, GMAIL_SEND_SCOPE } from '../../seek-bot/src/gmail-mcp-client.js';
 const pool = getPool();
 after(async () => { await pool.end(); });
@@ -68,5 +68,53 @@ test('Gmail OAuth uses per-user PKCE, one-time browser-bound state, exact profil
   } finally {
     pool.query = originalQuery; OAuth2Client.prototype.getToken = originalGetToken; OAuth2Client.prototype.request = originalRequest; OAuth2Client.prototype.revokeToken = originalRevoke;
     for (const name of names) { if (before[name] === undefined) delete process.env[name]; else process.env[name] = before[name]; }
+  }
+});
+
+test('Gmail quota and malformed-request errors do not disconnect grants; late failures cannot poison a replacement grant', async () => {
+  const before = process.env.GMAIL_TOKEN_ENCRYPTION_KEY;
+  process.env.GMAIL_TOKEN_ENCRYPTION_KEY = 'fixture-request-key';
+  const originalQuery = pool.query, originalRequest = OAuth2Client.prototype.request;
+  const owner = 'gmail-request-fixture';
+  let encrypted = encryptGmailToken(owner, 'first-fixture-token'), lastError: string | null = null;
+  const updates: unknown[][] = [];
+  let failure: unknown;
+  let replaceDuringRequest = false;
+  pool.query = (async (sql: string, params: unknown[] = []) => {
+    if (sql.startsWith('SELECT g.refresh_token')) return { rows: [{ refresh_token: encrypted, scope: [GMAIL_READ_SCOPE, GMAIL_SEND_SCOPE].join(' ') }] };
+    if (sql.startsWith('UPDATE google_connections')) {
+      assert.match(sql, /AND refresh_token=\$3/);
+      updates.push(params);
+      if (params[2] === encrypted) lastError = String(params[1]);
+      return { rows: [] };
+    }
+    throw new Error('Unexpected isolated Gmail request SQL');
+  }) as typeof originalQuery;
+  OAuth2Client.prototype.request = (async () => {
+    if (replaceDuringRequest) { encrypted = encryptGmailToken(owner, 'replacement-fixture-token'); lastError = null; }
+    if (failure) throw failure;
+    return { data: { ok: true } };
+  }) as unknown as typeof originalRequest;
+  try {
+    for (const reason of ['dailyLimitExceeded', 'userRateLimitExceeded', 'rateLimitExceeded', 'quotaExceeded']) {
+      failure = { response: { status: 403, data: { error: { errors: [{ reason }] } } } };
+      await assert.rejects(gmailRequest(owner, 'threads'), error => (error as { code: string }).code === 'unavailable');
+    }
+    failure = { response: { status: 400, data: { error: { errors: [{ reason: 'badRequest' }] } } } };
+    await assert.rejects(gmailRequest(owner, 'threads'), error => (error as { code: string }).code === 'unavailable');
+    assert.equal(updates.length, 0); assert.equal(lastError, null);
+    for (const response of [{ status: 401 }, { status: 400, data: { error: 'invalid_grant' } }, { status: 403, data: { error: { errors: [{ reason: 'insufficientPermissions' }] } } }]) {
+      failure = { response };
+      await assert.rejects(gmailRequest(owner, 'threads'), error => (error as { code: string }).code === 'reconnect');
+    }
+    assert.equal(updates.length, 3); assert.ok(lastError);
+    replaceDuringRequest = true; failure = { response: { status: 401 } };
+    await assert.rejects(gmailRequest(owner, 'threads'));
+    assert.equal(lastError, null, 'an old request cannot mark the newly connected token disconnected');
+    replaceDuringRequest = false; failure = undefined;
+    assert.deepEqual(await gmailRequest(owner, 'threads'), { ok: true });
+  } finally {
+    pool.query = originalQuery; OAuth2Client.prototype.request = originalRequest;
+    if (before === undefined) delete process.env.GMAIL_TOKEN_ENCRYPTION_KEY; else process.env.GMAIL_TOKEN_ENCRYPTION_KEY = before;
   }
 });

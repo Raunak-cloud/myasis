@@ -8,6 +8,7 @@ import type { Observation } from './agent/observe.js';
 import { offersCoverLetter } from './agent/cover-letter-opportunity.js';
 import { hasCaptchaSurface } from './captcha/detect.js';
 import { platformOf } from './agent/lessons.js';
+import { preparePrivateAuthenticationFields, privateAuthenticationValues, redactPrivateAuthenticationText } from './private-auth-fields.js';
 
 /**
  * A corpus of real employer form pages, recorded as the agent meets them and
@@ -162,6 +163,8 @@ export async function recordFormPage(page: Page, observation: Observation): Prom
 
 /** The page as rendered, self-contained: form state written into the markup, stylesheets inlined, scripts gone. */
 async function snapshotPage(page: Page, signal: AbortSignal): Promise<string | null> {
+  await withinCapture(signal, () => preparePrivateAuthenticationFields(page));
+  const privateValues = await withinCapture(signal, () => privateAuthenticationValues(page));
   const captured = await withinCapture(signal, () => page.evaluate(() => {
     const clone = document.documentElement.cloneNode(true) as HTMLElement;
     /**
@@ -180,10 +183,11 @@ async function snapshotPage(page: Page, signal: AbortSignal): Promise<string | n
         const copy = copied[index];
         if (!copy) return;
         if (element instanceof HTMLInputElement) {
-          if (element.type === 'checkbox' || element.type === 'radio') {
+          if (element.hasAttribute('data-owtomate-private-auth')) copy.removeAttribute('value');
+          else if (element.type === 'checkbox' || element.type === 'radio') {
             if (element.checked) copy.setAttribute('checked', ''); else copy.removeAttribute('checked');
           } else if (element.type !== 'password' && element.type !== 'file') copy.setAttribute('value', element.value);
-        } else if (element instanceof HTMLTextAreaElement) copy.textContent = element.value;
+        } else if (element instanceof HTMLTextAreaElement) copy.textContent = element.hasAttribute('data-owtomate-private-auth') ? '' : element.value;
         else if (element instanceof HTMLOptionElement) {
           if (element.selected) copy.setAttribute('selected', ''); else copy.removeAttribute('selected');
         }
@@ -238,7 +242,7 @@ async function snapshotPage(page: Page, signal: AbortSignal): Promise<string | n
     }
   } else captured.css = '';
   const style = `<style data-owt-snapshot>${[captured.css, ...fetched].join('\n').replace(/<\/style/gi, '<\\/style')}</style>`;
-  return `<!doctype html>\n${captured.html.replace(/<head([^>]*)>/i, `<head$1>${style}`)}`;
+  return redactPrivateAuthenticationText(`<!doctype html>\n${captured.html.replace(/<head([^>]*)>/i, `<head$1>${style}`)}`, privateValues);
 }
 
 /** The text of every stylesheet in the page's main document, as the browser holds it. */

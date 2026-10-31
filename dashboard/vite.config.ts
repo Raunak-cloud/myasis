@@ -28,7 +28,7 @@ import { CUSTOM_MIN_SCORE } from './src/pricing.js';
 import { userRunLimitError, dailyApplicationLimit } from '../seek-bot/src/run-limits.js';
 /** The resume note on Apply, once dismissed: a UI preference, never part of a run's settings. */
 const BOARD_RESUMES_NOTE_DISMISSED = 'BOARD_RESUMES_NOTE_DISMISSED';
-import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
+import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, InvalidJsonBody, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
 import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { jobSourceSettingsError } from './server/job-sources.js';
@@ -39,7 +39,7 @@ import { startProfileMaintenance } from './server/profile-prune.js';
 import { startHealthMaintenance } from './server/health.js';
 import { startTraceRetention } from './server/trace-retention.js';
 import { googleAuthUrl, handleGoogleCallback, currentUser, logout, googleConfigured, pruneSessions, clearOauthCookie } from './server/auth.js';
-import { listAnswers, saveAnswers, deleteAnswer } from './server/answers.js';
+import { listAnswers, saveAnswers, deleteAnswer, AnswersValidationError } from './server/answers.js';
 import {
   billingStatus,
   createCheckout,
@@ -159,7 +159,7 @@ function dataApi(): Plugin {
     const user = await currentUser(req.headers.cookie);
     return user ? (isAdmin(user.email) ? 'admin' : 'user') : null;
   }, upgradeOriginAllowed);
-  const handler = (req: any, res: any, next: any) => {
+  const handle = (req: any, res: any, next: any) => {
     if (/^\/market-research(?:\/|\?|$)/.test(req.url ?? '')) return research(req, res);
     /**
      * The landing page is baked into the built HTML for crawlers. Someone
@@ -992,6 +992,7 @@ function dataApi(): Plugin {
         return withUser(async (userId) => send(await setupStatus(userId)));
 
       case '/api/attention':
+        if (req.method !== 'GET') return send({ error: 'GET required.' }, 405);
         return withUser(async (userId) => send(await loadAttention(userId)));
 
       // Skipped jobs and the candidate's call on each (server/skipped.ts). Administrators only while it is tried out.
@@ -1044,15 +1045,21 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           if (req.method === 'POST') {
             const b = await readBody();
-            const answers = Array.isArray(b?.answers) ? b.answers : [];
-            const result = await saveAnswers(userId, answers, typeof b?.jobId === 'string' ? b.jobId : undefined);
-            return send({ ok: true, ...result, items: await listAnswers(userId) });
+            try {
+              const result = await saveAnswers(userId, b?.answers, b?.jobId);
+              return send({ ok: true, ...result, items: await listAnswers(userId) });
+            } catch (error) {
+              if (error instanceof AnswersValidationError) return send({ error: error.message }, 400);
+              throw error;
+            }
           }
           if (req.method === 'DELETE') {
             const b = await readBody();
-            if (typeof b?.question === 'string') await deleteAnswer(userId, b.question);
+            if (typeof b?.question !== 'string' || !b.question.trim()) return send({ error: 'Question required.' }, 400);
+            await deleteAnswer(userId, b.question);
             return send({ ok: true, items: await listAnswers(userId) });
           }
+          if (req.method !== 'GET') return send({ error: 'Method not allowed.' }, 405);
           return send({ items: await listAnswers(userId) });
         });
       }
@@ -1301,6 +1308,24 @@ function dataApi(): Plugin {
       default:
         return send({ error: `unknown route ${route}` }, 404);
     }
+  };
+
+  // Connect does not await middleware promises. Own rejected requests here so
+  // a failed provider/database call returns a response instead of hanging or
+  // becoming an unhandled rejection in the process running live jobs.
+  const handler = (req: any, res: any, next: any) => {
+    const failed = (error: unknown) => {
+      if (res.writableEnded || res.destroyed) return;
+      const expected = error instanceof InvalidJsonBody || error instanceof BodyTooLarge || error instanceof AccountDeletionError;
+      if (!expected) console.error('[api] request failed', error);
+      if (res.headersSent) { res.end(); return; }
+      res.statusCode = error instanceof InvalidJsonBody ? 400 : error instanceof BodyTooLarge ? 413 : error instanceof AccountDeletionError ? error.status : 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(JSON.stringify({ error: expected ? (error as Error).message : 'The request could not be completed. Try again shortly.' }));
+    };
+    try { return Promise.resolve(handle(req, res, next)).catch(failed); }
+    catch (error) { failed(error); }
   };
 
   return {

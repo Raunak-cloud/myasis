@@ -2,6 +2,7 @@ import type { Page } from 'patchright';
 import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
 import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
+import { privateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
 
 /** A fresh read, never a tool's claim that its fill succeeded. Frame-scoped
  * identities keep equal captions on different forms from sharing a verdict. */
@@ -62,7 +63,7 @@ async function readSavedFormNow(page: Page): Promise<SavedForm> {
       return { controls, text: document.body?.innerText ?? '' };
     });
     for (const field of observed) {
-      if (field.sensitive || /password|one[-_ ]?time[-_ ]?(code|password)|\botp\b|verification[-_ ]?code|security[-_ ]?code/i.test(`${field.inputType ?? ''} ${field.hints ?? ''} ${field.label}`)) continue;
+      if (field.sensitive) continue;
       const control = state.controls[field.ref];
       fields.push({ ...field, localRef: field.ref, ref: `frame${frameIndex}:${field.ref}`, frame: frameIndex,
         validationError: control?.error || undefined, expanded: control?.expanded, invalid: control?.invalid,
@@ -76,5 +77,5 @@ async function readSavedFormNow(page: Page): Promise<SavedForm> {
   }
   const form = { url: page.url(), fields, text: sections.join('\n\n') };
   if (JSON.stringify(form).length > 120000) throw new Error('The saved form is too large to review completely.');
-  return form;
+  return redactPrivateAuthenticationData(form, await privateAuthenticationValues(page));
 }

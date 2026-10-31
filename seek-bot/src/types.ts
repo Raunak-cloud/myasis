@@ -264,6 +264,8 @@ export interface FormField {
   disabled?: boolean;
   /** A credential the candidate must set, not a question about them. Never stored or asked for. */
   sensitive?: boolean;
+  /** Authentication transport only; verification codes are not passwords. */
+  privateKind?: 'password' | 'verification-code';
 }
 
 /**

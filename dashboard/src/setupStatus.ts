@@ -22,12 +22,17 @@ export interface SetupStatus {
 export function useSetupStatus(): SetupStatus | null {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   useEffect(() => {
-    const load = () => fetch('/api/setup/status').then((response) => response.json()).then(setStatus).catch(() => {});
+    let cancelled = false;
+    const load = () => fetch('/api/setup/status')
+      .then((response) => response.ok ? response.json() : null)
+      .then((value) => { if (!cancelled && Array.isArray(value?.checks)) setStatus(value); })
+      .catch(() => {});
     load();
     const id = setInterval(load, 6000);
     window.addEventListener('setup-status-changed', load);
     window.addEventListener(BOARDS_CHANGED, load);
     return () => {
+      cancelled = true;
       clearInterval(id);
       window.removeEventListener('setup-status-changed', load);
       window.removeEventListener(BOARDS_CHANGED, load);

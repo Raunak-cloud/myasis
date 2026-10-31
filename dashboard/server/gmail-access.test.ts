@@ -15,6 +15,7 @@ test('browser Gmail explains mailbox mismatches and requires consent for the cur
   assert.equal(connected.connected, true); assert.equal(connected.account, expected); assert.equal(connected.error, null);
   assert.equal(browserGmailStatus(null, [], undefined).connected, false);
   assert.match(browserGmailStatus(null, []).error!, /profile email/);
+  assert.match(browserGmailStatus(expected, []).error!, /Sign in to candidate@gmail.com/, 'an empty browser profile has a concrete recovery instruction');
   assert.equal(browserGmailUrl(' Candidate+jobs@Gmail.com '), 'https://mail.google.com/mail/u/?authuser=candidate%2Bjobs%40gmail.com');
 });
 test('pending verification forces normal users to browser while admins can choose either; public release is explicit', async () => {

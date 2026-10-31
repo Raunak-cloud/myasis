@@ -1,5 +1,6 @@
 import type { Frame, Page } from 'patchright';
 import type { FormField } from './types.js';
+import { preparePrivateAuthenticationFields } from './private-auth-fields.js';
 
 /**
  * Extracts the interactive fields on the current step as a compact list.
@@ -7,6 +8,7 @@ import type { FormField } from './types.js';
  * input small and stable, and gives us a `ref` we can act on afterwards.
  */
 export async function extractFields(page: Page | Frame): Promise<FormField[]> {
+  await preparePrivateAuthenticationFields(page);
   return page.evaluate(() => {
     const fields: any[] = [];
     let n = 0;
@@ -392,7 +394,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
         ...interactionState,
         ...(hints ? { hints } : {}),
         required: el.required || el.getAttribute('aria-required') === 'true' || Boolean(el.closest('[aria-required="true"]')) || /(^|\s)\*|\*\s*$/.test(label),
-        currentValue: el.type === 'checkbox' ? String(el.checked) : el.value,
+        currentValue: el.hasAttribute('data-owtomate-private-auth') ? '[private credential]' : el.type === 'checkbox' ? String(el.checked) : el.value,
         autocomplete: el.getAttribute('role') === 'combobox' || Boolean(el.getAttribute('aria-autocomplete') && el.getAttribute('aria-autocomplete') !== 'none')
           || el.hasAttribute('list') || Boolean(el.closest('[role="combobox"], [role="listbox"]')),
         // Only when it constrains the value; "text" tells the answerer nothing.
@@ -408,7 +410,8 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
          * replays them on every later form asking the same thing — one typed
          * password would have been reused across unrelated employers.
          */
-        sensitive: el.type === 'password' || /\bpass(word|phrase)\b/i.test(label),
+        sensitive: el.hasAttribute('data-owtomate-private-auth'),
+        ...(el.hasAttribute('data-owtomate-private-auth') ? { privateKind: el.getAttribute('data-owtomate-private-auth') } : {}),
       });
       });
 

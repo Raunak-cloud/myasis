@@ -1,6 +1,6 @@
 import { EmailAlertsToggle, DailySummaryToggle } from './EmailAlertsToggle';
 import { DeleteAccount } from './DeleteAccount';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { GmailConnect } from './GmailConnect';
 import { FilesPanel } from './FilesPanel';
 import { useSetupStatus, type SetupSection } from '../setupStatus';
@@ -20,6 +20,9 @@ const ARRANGEMENTS = [
   { id: 'hybrid', label: 'Hybrid', hint: 'your city only' },
   { id: 'onsite', label: 'On-site', hint: 'your city only' },
 ];
+
+const isSettings = (value: unknown): value is Record<string, string> => value !== null
+  && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(item => typeof item === 'string');
 
 /** A numbered step that shows its own completion state. */
 function Step({
@@ -71,6 +74,10 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const saveQueue = useRef(Promise.resolve());
+  const settingsEpoch = useRef(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resumeLibraryVersion, setResumeLibraryVersion] = useState(0);
   const status = useSetupStatus();
@@ -88,12 +95,22 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
   const canFineTune = entitlements?.fineTune ?? false;
   const canUseAdvancedFilters = entitlements?.advancedFilters ?? false;
 
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then(setSettings)
-      .catch(() => {});
+  const loadSettings = useCallback(async (signal?: AbortSignal) => {
+    const epoch = ++settingsEpoch.current;
+    try {
+      const response = await fetch('/api/settings', { signal });
+      const next = await response.json();
+      if (!response.ok || !isSettings(next)) throw new Error();
+      if (!signal?.aborted && epoch === settingsEpoch.current) { setSettings(next); setLoadError(null); }
+    } catch {
+      if (!signal?.aborted && epoch === settingsEpoch.current) setLoadError('Could not load your settings. Please retry.');
+    }
   }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => { await loadSettings(controller.signal); })();
+    return () => controller.abort();
+  }, [loadSettings]);
 
   const val = (k: string, d = '') => {
     const value = edits[k] ?? settings[k] ?? d;
@@ -120,27 +137,44 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
     }
     const limitError = userRunLimitError(updates);
     if (limitError) { setSaveError(limitError.message); return; }
-    const res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ updates }),
-    });
-    const j = await res.json();
-    if (!res.ok || !j.settings) { setSaveError(j.error ?? 'Could not save your settings. Please try again.'); return; }
-    setSettings(j.settings);
-    setEdits((current) => {
-      const next = { ...current };
-      for (const [key, value] of Object.entries(updates)) {
-        if (next[key] === value) delete next[key];
+    settingsEpoch.current++;
+    setSaving(true);
+    // Automatic controls may change again while a request is in flight. Keep
+    // writes in order so an older request cannot replace the latest choice.
+    const pending = saveQueue.current.then(async () => {
+      setSaveError(null);
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates }),
+        });
+        const j = await res.json().catch(() => null);
+        if (!res.ok || !isSettings(j?.settings)) throw new Error(j?.error ?? 'Could not save your settings. Please try again.');
+        settingsEpoch.current++;
+        setSettings(j.settings);
+        setLoadError(null);
+        setEdits((current) => {
+          const next = { ...current };
+          for (const [key, value] of Object.entries(updates)) {
+            if (next[key] === value) delete next[key];
+          }
+          return next;
+        });
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+        window.dispatchEvent(new Event('setup-status-changed'));
+      } catch (reason) {
+        setSaveError(reason instanceof Error ? reason.message : 'Could not save your settings. Please try again.');
       }
-      return next;
     });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
-    window.dispatchEvent(new Event('setup-status-changed'));
+    saveQueue.current = pending;
+    await pending;
+    if (saveQueue.current === pending) setSaving(false);
   }
 
   async function save() {
+    if (saving) return;
     await saveUpdates({ ...edits });
   }
 
@@ -156,6 +190,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
   return (
     <div className={`setup-steps${inline ? ' setup-steps-inline' : ''}`}>
       {saveError && <div className="banner banner-bad" role="alert">{saveError}</div>}
+      {loadError && <div className="banner banner-bad" role="alert">{loadError} <button type="button" className="btn" onClick={() => void loadSettings()}>Retry</button></div>}
       {!inline && status && !status.ready && (
         <div className="setup-guide">
           <strong>{status.done} of {status.total} steps complete</strong>
@@ -175,7 +210,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
         <FilesPanel onChanged={() => {
           setResumeLibraryVersion((value) => value + 1);
           // The upload filled job titles and a city on the server: show them, and move on to what is left.
-          fetch('/api/settings').then((r) => r.json()).then((next) => { setSettings(next); setEdits({}); }).catch(() => {});
+          void loadSettings();
           setSelectedStep(undefined);
           window.dispatchEvent(new Event('setup-status-changed'));
         }} />
@@ -382,7 +417,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       {dirty && (
         <div className="save-bar">
           <span className="job-meta">You have unsaved changes</span>
-          <button className="btn primary" onClick={save}>
+          <button className="btn primary" disabled={saving} onClick={save}>
             Save changes
           </button>
         </div>

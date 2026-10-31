@@ -4,6 +4,7 @@ import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
 import { registerObservedFrame } from './browser-target.js';
 import { recordDiagnostic } from './attempt-diagnostics.js';
+import { privateAuthenticationValues, redactPrivateAuthenticationData, withPrivateAuthenticationMasks } from '../private-auth-fields.js';
 
 /**
  * Turns the live page into the compact, ref-addressed state the agent reasons
@@ -447,14 +448,14 @@ interface ObserveOptions {
 async function captureViewport(page: Page): Promise<Buffer> {
   const session = await page.context().newCDPSession(page);
   try {
-    return await browserDeadline('Application screenshot', 5_000, async () => {
+    return await browserDeadline('Application screenshot', 5_000, () => withPrivateAuthenticationMasks(page, async () => {
       assertBrowserOperationActive();
       const shot = await session.send('Page.captureScreenshot', {
         format: 'jpeg', quality: 60, fromSurface: true, captureBeyondViewport: false,
       });
       assertBrowserOperationActive();
       return Buffer.from(shot.data, 'base64');
-    });
+    }));
   } finally {
     // Detaching this short-lived protocol client cancels an unfinished capture;
     // it never closes or navigates the application's page.
@@ -570,6 +571,7 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
       .map(node => (node as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 4000)).filter((text, index, all) => Boolean(text) && all.indexOf(text) === index)).catch(() => []),
   };
 
+  const safeObservation = redactPrivateAuthenticationData(observation, await privateAuthenticationValues(page));
   if (options.screenshot) {
     const shot = await withMarks(page, () =>
       captureViewport(page).catch(error => {
@@ -577,10 +579,10 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
         return null;
       }),
     );
-    if (shot) observation.screenshot = `data:image/jpeg;base64,${shot.toString('base64')}`;
+    if (shot) safeObservation.screenshot = `data:image/jpeg;base64,${shot.toString('base64')}`;
   }
 
-  return observation;
+  return safeObservation;
 }
 
 /**
@@ -598,7 +600,7 @@ export function renderObservation(observation: Observation): string {
   const fields = observation.fields
     .map((f) => {
       const options = f.options?.length ? `  options=${JSON.stringify(f.options)}` : '';
-      const value = f.currentValue !== undefined ? `  current=${JSON.stringify(f.currentValue)}` : '';
+      const value = f.currentValue !== undefined ? `  current=${JSON.stringify(f.sensitive ? '[private credential]' : f.currentValue)}` : '';
       const error = f.validationError ? `  validation=${JSON.stringify(f.validationError)}` : '';
       const control = [f.inputType && `input=${f.inputType}`, f.readOnly && 'read-only', f.disabled && 'disabled', f.autocomplete && 'autocomplete: inspect the current widget before choosing an interaction',
         f.sensitive && 'private credential: use authentication tools'].filter(Boolean).join('; ');

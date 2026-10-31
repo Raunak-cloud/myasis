@@ -50,9 +50,13 @@ function toBase64(file: File): Promise<string> {
 
 export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [resumes, setResumes] = useState<ResumeRecord[]>([]);
+  const [resumeDrafts, setResumeDrafts] = useState<Record<string, Partial<ResumeRecord>>>({});
+  const resumeDraftVersions = useRef<Record<string, Partial<Record<keyof ResumeRecord, number>>>>({});
+  const [resumeErrors, setResumeErrors] = useState<Record<string, { generation: number; message: string }>>({});
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const changeQueue = useRef<Promise<unknown>>(Promise.resolve());
   const [preview, setPreview] = useState<{ kind: 'resume' | 'knowledge'; id: string; label: string; fileName?: string } | null>(null);
   const [noteText, setNoteText] = useState('');
   const resumeInput = useRef<HTMLInputElement>(null);
@@ -93,51 +97,93 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
     return () => controller.abort();
   }, [refresh]);
 
-  async function upload(kind: 'resume' | 'knowledge', file: File) {
+  async function queueChange(work: () => Promise<void>, onError?: (message: string) => void): Promise<boolean> {
     setBusy(true);
+    const pending = changeQueue.current.then(async () => {
+      setError(null);
+      try { await work(); return true; }
+      catch (reason) {
+        const message = reason instanceof Error ? reason.message : 'Could not save this change. Please retry.';
+        if (onError) onError(message); else setError(message);
+        return false;
+      }
+    });
+    changeQueue.current = pending;
+    const saved = await pending;
+    if (changeQueue.current === pending) setBusy(false);
+    return saved;
+  }
+
+  async function upload(kind: 'resume' | 'knowledge', file: File) {
     setReading(kind === 'resume');
-    setError(null);
-    try {
+    await queueChange(async () => {
       const base64 = await toBase64(file);
       const res = await fetch(kind === 'resume' ? '/api/resumes' : '/api/knowledge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: file.name, base64 }),
       });
-      const json = await res.json();
-      if (!res.ok) setError(json.error ?? 'Upload failed.');
-      else {
-        setAutofilled(Array.isArray(json.autofilled) && json.autofilled.length ? json.autofilled : null);
-        setAutofillError(kind === 'resume' && typeof json.autofillError === 'string' ? json.autofillError : null);
-        if (kind === 'resume') setSetUp({ terms: Array.isArray(json.terms) ? json.terms.length : 0, city: typeof json.city === 'string' ? json.city : null });
-        await refresh();
-        if (kind === 'resume') onChanged?.();
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-      setReading(false);
-    }
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json) throw new Error(json?.error ?? 'Upload failed.');
+      setAutofilled(Array.isArray(json.autofilled) && json.autofilled.length ? json.autofilled : null);
+      setAutofillError(kind === 'resume' && typeof json.autofillError === 'string' ? json.autofillError : null);
+      if (kind === 'resume') setSetUp({ terms: Array.isArray(json.terms) ? json.terms.length : 0, city: typeof json.city === 'string' ? json.city : null });
+      await refresh();
+      if (kind === 'resume') onChanged?.();
+    });
+    setReading(false);
   }
 
-  async function changeFile(endpoint: string, method: string, body: unknown, notify = false) {
-    if (busy) return;
-    setBusy(true); setError(null);
-    try {
+  async function changeFile(endpoint: string, method: string, body: unknown, notify = false, onError?: (message: string) => void) {
+    return queueChange(async () => {
       await writeFileChange(endpoint, method, body);
       await refresh();
       if (notify) onChanged?.();
-    } catch (reason) { setError((reason as Error).message); }
-    finally { setBusy(false); }
+    }, onError);
   }
-  const patchResume = (id: string, patch: Partial<ResumeRecord>) => {
-    return changeFile('/api/resumes', 'PATCH', { id, patch });
+  const patchResume = async (id: string, patch: Partial<ResumeRecord>) => {
+    const submittedVersions = { ...resumeDraftVersions.current[id] };
+    const keys = Object.keys(patch) as Array<keyof ResumeRecord>;
+    if (await changeFile('/api/resumes', 'PATCH', { id, patch }, false, message => {
+      setResumeErrors(current => {
+        const next = { ...current };
+        for (const key of keys) {
+          const errorKey = `${id}:${key}`, generation = submittedVersions[key] ?? 0;
+          if (!next[errorKey] || next[errorKey].generation <= generation) next[errorKey] = { generation, message };
+        }
+        return next;
+      });
+    })) {
+      setResumeDrafts(current => {
+        const next = { ...current[id] };
+        for (const key of keys) {
+          if (resumeDraftVersions.current[id]?.[key] === submittedVersions[key]) delete next[key];
+        }
+        return { ...current, [id]: next };
+      });
+      setResumeErrors(current => {
+        const next = { ...current };
+        for (const key of keys) {
+          const errorKey = `${id}:${key}`;
+          if (next[errorKey] && next[errorKey].generation <= (submittedVersions[key] ?? 0)) delete next[errorKey];
+        }
+        return next;
+      });
+    }
+  };
+  const editResume = (id: string, key: 'label' | 'notes', value: string) => {
+    const versions = resumeDraftVersions.current[id] ?? {};
+    resumeDraftVersions.current[id] = { ...versions, [key]: (versions[key] ?? 0) + 1 };
+    setResumeDrafts(current => ({ ...current, [id]: { ...current[id], [key]: value } }));
   };
 
   const removeResume = async (id: string, label: string) => {
     if (!confirm(`Delete "${label}"? Your SEEK profile is not changed.`)) return;
-    await changeFile('/api/resumes', 'DELETE', { id }, true);
+    if (await changeFile('/api/resumes', 'DELETE', { id }, true)) {
+      setResumeErrors(current => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${id}:`))));
+      setResumeDrafts(current => { const next = { ...current }; delete next[id]; return next; });
+      delete resumeDraftVersions.current[id];
+    }
   };
 
   const patchItem = (id: string, patch: Partial<KnowledgeItem>) => {
@@ -152,23 +198,21 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
   async function addNote() {
     const text = noteText.trim();
     if (!text || busy) return;
-    setBusy(true); setError(null);
     // The note names itself: its opening words are all a list needs to tell notes apart.
     const label = text.split(/\s+/).slice(0, 6).join(' ').replace(/[.,;:!?]+$/, '') || 'Note';
-    try {
+    await queueChange(async () => {
       await writeFileChange('/api/knowledge', 'POST', { kind: 'note', label, text });
       setNoteText(current => current.trim() === text ? '' : current);
       await refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save this detail. Please retry.');
-    } finally { setBusy(false); }
+    });
   }
 
   const atLimit = resumes.length >= MAX_RESUMES;
+  const visibleError = error || Object.values(resumeErrors)[0]?.message;
 
   return (
     <div className="files-grid">
-      {error && <div role="alert" className="banner banner-bad" style={{ gridColumn: '1/-1' }}>{error}</div>}
+      {visibleError && <div role="alert" className="banner banner-bad" style={{ gridColumn: '1/-1' }}>{visibleError}</div>}
 
       {reading && (
         <div className="banner" style={{ gridColumn: '1/-1' }}>
@@ -233,8 +277,8 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                     <input
                       className="input file-item-title"
                       aria-label="Resume name"
-                      value={r.label}
-                      onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, label: e.target.value } : x)))}
+                      value={resumeDrafts[r.id]?.label ?? r.label}
+                      onChange={(e) => editResume(r.id, 'label', e.target.value)}
                       onBlur={(e) => patchResume(r.id, { label: e.target.value })}
                     />
                     <div className="job-meta files-row-meta">{r.fileName} · {kb(r.size)}</div>
@@ -243,8 +287,8 @@ export function FilesPanel({ onChanged }: { onChanged?: () => void }) {
                         className="input file-item-notes"
                         aria-label="Which roles this resume is for"
                         placeholder="Which roles is it for?"
-                        value={r.notes ?? ''}
-                        onChange={(e) => setResumes(resumes.map((x) => (x.id === r.id ? { ...x, notes: e.target.value } : x)))}
+                        value={resumeDrafts[r.id]?.notes ?? r.notes ?? ''}
+                        onChange={(e) => editResume(r.id, 'notes', e.target.value)}
                         onBlur={(e) => patchResume(r.id, { notes: e.target.value })}
                       />
                     )}

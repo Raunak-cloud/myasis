@@ -131,6 +131,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   }, [showSkipped]);
   const [filter, setFilter] = useState<'all' | 'awaiting' | 'interview' | 'rejected'>('all');
   const [open, setOpen] = useState<Application | null>(null);
+  const [outcomeSaving, setOutcomeSaving] = useState(false);
+  const [outcomeError, setOutcomeError] = useState<{ jobId: string; message: string } | null>(null);
   const [query, setQuery] = useState('');
   const [accounts, setAccounts] = useState<SiteAccount[]>([]);
 
@@ -143,14 +145,21 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   }, [apps]);
 
   async function setOutcome(jobId: string, outcome: Outcome | null) {
-    const res = await fetch('/api/applications', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jobId, patch: { outcome } }),
-    });
-    const j = await res.json();
-    if (j.applications) onChange(j.applications);
-    setOpen(null);
+    if (outcomeSaving) return;
+    setOutcomeSaving(true); setOutcomeError(null);
+    try {
+      const res = await fetch('/api/applications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, patch: { outcome } }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(j?.applications)) throw new Error(j?.error ?? 'Could not save this outcome. Please try again.');
+      onChange(j.applications);
+      setOpen(current => current?.jobId === jobId ? null : current);
+    } catch (reason) {
+      setOutcomeError({ jobId, message: reason instanceof Error ? reason.message : 'Could not save this outcome. Please try again.' });
+    } finally { setOutcomeSaving(false); }
   }
 
   const rows = useMemo(() => {
@@ -363,6 +372,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                   {OUTCOMES.map((o) => (
                     <button
                       key={o.id}
+                      disabled={outcomeSaving}
                       className={`chip ${open.outcome === o.id ? 'on' : ''}`}
                       onClick={() => setOutcome(open.jobId, o.id)}
                     >
@@ -370,11 +380,12 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                     </button>
                   ))}
                   {open.outcome && (
-                    <button className="chip" onClick={() => setOutcome(open.jobId, null)}>
+                    <button className="chip" disabled={outcomeSaving} onClick={() => setOutcome(open.jobId, null)}>
                       Clear
                     </button>
                   )}
                 </div>
+                {outcomeError?.jobId === open.jobId && <p className="job-meta" role="alert">{outcomeError.message}</p>}
                 {!open.outcome && daysSince(open.appliedAt) >= followUpDays && (
                   <p className="job-meta follow-hint">
                     Sent {daysSince(open.appliedAt)} days ago with no outcome recorded. A short

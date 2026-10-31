@@ -1,12 +1,12 @@
 import { loadReviewMemory } from '../job-review-memory.js';
 import { writeFileSync, existsSync, unlinkSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { query } from './index.js';
+import { getPool, query } from './index.js';
 import { saveApplicationReview, recordReviewedOutcome, ApplicationReviewError } from '../application-reviews.js';
 import type { PreparedApplication } from '../../../seek-bot/src/application-review-types.js';
 import { insertApplicationRow, insertRunEventRow, upsertSiteAccount } from './records.js';
 import { ensureUserDataDir, userChromeDir } from '../userdata.js';
-import { normaliseQuestions } from '../attention.js';
+import { loadAttention, normaliseQuestions } from '../attention.js';
 import { loadProfile } from '../profile.js';
 import { listResumes, listKnowledge } from '../files.js';
 import { listAnswers } from '../answers.js';
@@ -87,6 +87,32 @@ interface ApplicationExportRow {
   actions: unknown;
 }
 
+interface ReviewHistoryRow {
+  job_id: string; title: string; company: string; status: string; reason: string; ts: Date | string; questions: unknown[] | null;
+}
+
+/** Facts and current unresolved questions must describe the same committed state. */
+export async function loadAnswerStateForRun(userId: string) {
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const stamp = await client.query<{ as_of: Date }>('SELECT clock_timestamp() AS as_of');
+    const read: typeof query = async (text, params) => (await client.query(text, params)).rows;
+    const answers = await listAnswers(userId, read);
+    const attention = await loadAttention(userId, read);
+    const reviewHistory = await read<ReviewHistoryRow>(`SELECT job_id, title, company, status, reason, ts, questions FROM run_events
+        WHERE user_id = $1 AND ts > now() - interval '7 days' AND reason IS NOT NULL
+        ORDER BY ts DESC, id DESC LIMIT 2000`, [userId]);
+    await client.query('COMMIT');
+    return { answers, attention, reviewHistory, asOf: new Date(stamp.rows[0].as_of).toISOString() };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Regenerates this account's slice of `seek-bot/data/users/<userId>/` from
  * Postgres immediately before a run starts. Safe to call any number of
@@ -109,8 +135,12 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
 
   // The answer bank, read by seek-bot's knowledge.ts on every form step. When each
   // answer was given decides whether a job that stopped for it is opened again.
-  const answers = await listAnswers(userId);
+  const { answers, attention, reviewHistory, asOf } = await loadAnswerStateForRun(userId);
   writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer, createdAt }) => ({ question, answer, createdAt })), null, 2));
+  // This is current state, separate from the immutable historical outcomes.
+  // A partial answer or a late import must leave the same questions visible
+  // to the applying agent that the candidate sees in Needs attention.
+  writeFileSync(resolve(dir, 'attention.json'), JSON.stringify({ asOf, items: attention }, null, 2));
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,
@@ -144,15 +174,10 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   writeFileSync(resolve(dir, 'applied.json'), JSON.stringify(appliedJson, null, 2));
 
   // Ranking memory is separate from the current-run log, which is reset below.
-  const reviewHistory = await query<{ job_id: string; title: string; company: string; status: string; reason: string; ts: Date | string; questions: unknown[] | null }>(
-    `SELECT job_id, title, company, status, reason, ts, questions FROM run_events
-      WHERE user_id = $1 AND ts > now() - interval '7 days' AND reason IS NOT NULL
-      ORDER BY ts DESC LIMIT 2000`, [userId],
-  );
   writeFileSync(resolve(dir, 'review-history.jsonl'), reviewHistory.reverse().map(row => JSON.stringify({
     jobId: row.job_id, title: row.title, company: row.company, status: row.status,
     reason: row.reason, ts: new Date(row.ts).toISOString(),
-    // A stop on the candidate's questions waits for their answers (seek-bot answer-gate.ts).
+    // Historical questions describe the attempt; attention.json is the current unresolved group.
     ...(Array.isArray(row.questions) && row.questions.length ? { questions: row.questions } : {}),
   })).join('\n'));
 

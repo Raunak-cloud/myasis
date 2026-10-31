@@ -114,18 +114,23 @@ function readablePassword(url: string, email: string, secret: string, rules: Pas
   return (body + digits + symbol).slice(0, max);
 }
 
+export function isAuthenticationPasswordField(field: Pick<FormField, 'sensitive' | 'privateKind' | 'inputType' | 'label'>): boolean {
+  return field.privateKind !== 'verification-code' && Boolean(field.sensitive || field.privateKind === 'password' || field.inputType === 'password' || /\bpass(word|phrase)\b/i.test(field.label));
+}
+
 export function authenticationValue(
   field: FormField,
   profile: CandidateProfile,
   pageUrl: string,
   credential?: SiteCredential | null,
 ): string | null {
+  if (field.privateKind === 'verification-code') return null;
   const label = field.label.toLowerCase();
   const names = profile.name.trim().split(/\s+/).filter(Boolean);
   const firstName = names[0] ?? '';
   const lastName = names.length > 1 ? names[names.length - 1] : '';
 
-  if (field.sensitive || field.inputType === 'password' || /\bpass(word|phrase)\b/.test(label)) {
+  if (isAuthenticationPasswordField(field)) {
     // Password creation is explicit. Missing account metadata never establishes
     // that our generated password belongs to an existing employer account.
     return credential ? sitePassword(pageUrl, profile.email, undefined, credential) : null;

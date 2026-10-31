@@ -1,6 +1,7 @@
 import type { Frame, Locator, Page } from 'patchright';
 import { browserDeadline } from '../browser-deadline.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
+import { privateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
 
 export const MAX_BROWSER_BATCH = 32;
 const waitState = { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] };
@@ -38,8 +39,7 @@ function describeNativeTargets(targets: Element | Element[]) {
     const select = node as HTMLSelectElement;
     const element = node as HTMLElement;
     const type = input.type || node.getAttribute('role') || node.tagName.toLowerCase();
-    const privateValue = type === 'password' || /password|one-time-code/.test(input.autocomplete || '')
-      || /password|passphrase|verification.?code|one.?time.?code|\botp\b/i.test(`${input.name} ${node.getAttribute('aria-label')} ${[...(input.labels || [])].map(label => label.textContent).join(' ')}`);
+    const privateValue = type === 'password' || node.hasAttribute('data-owtomate-private-auth');
     const described = (node.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
       .map(id => caption(node.getRootNode() instanceof ShadowRoot
         ? (node.getRootNode() as ShadowRoot).getElementById(id)?.textContent : node.ownerDocument.getElementById(id)?.textContent)).filter(Boolean);
@@ -56,6 +56,7 @@ function describeNativeTargets(targets: Element | Element[]) {
       tag: node.tagName.toLowerCase(), type, name: input.name || null,
       role: node.getAttribute('role'), shadow_root: node.shadowRoot ? 'open' : undefined,
       private: privateValue,
+      privateKind: node.getAttribute('data-owtomate-private-auth') || undefined,
       label: caption([...(input.labels || [])].map(label => label.textContent).join(' ') || node.getAttribute('aria-label')) || null,
       context: nodes.length > 1 ? context : undefined,
       value: privateValue ? '[private credential]' : element.isContentEditable ? element.innerText : input.value ?? element.innerText,
@@ -80,7 +81,8 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
 }
 
 async function nativeReadbackNow(target: Locator): Promise<unknown> {
-  return (await target.evaluate(describeNativeTargets, undefined, { timeout: 5000 })).fields[0];
+  const values = await privateAuthenticationValues(target.page());
+  return redactPrivateAuthenticationData((await target.evaluate(describeNativeTargets, undefined, { timeout: 5000 })).fields[0], values);
 }
 
 /** One evaluation reads the current matching nodes together, including privacy
@@ -90,8 +92,9 @@ export async function nativeInspect(target: Locator): Promise<unknown> {
 }
 
 async function nativeInspectNow(target: Locator): Promise<unknown> {
+  const values = await privateAuthenticationValues(target.page());
   const result = await target.evaluateAll(describeNativeTargets);
-  return result.matched === 1 ? result.fields[0] : result;
+  return redactPrivateAuthenticationData(result.matched === 1 ? result.fields[0] : result, values);
 }
 
 /** The agent chooses the target. Native scrolling reaches it through iframe
@@ -153,21 +156,20 @@ async function browserFailureEvidenceNow(page: Page, args: Record<string, unknow
 /** Read every requested section with current locators, never retained handles.
  * Keep large / changing pages bounded and make omitted sections explicit. */
 async function snapshotPrivateValues(page: Page): Promise<string[] | undefined> {
-  const reads = await Promise.allSettled(page.frames().map(frame => frame.locator('input, textarea').evaluateAll(nodes => nodes
-    .filter(node => {
-      const input = node as HTMLInputElement;
-      return input.type === 'password' || /password|one-time-code/.test(input.autocomplete || '')
-        || /password|passphrase|verification.?code|one.?time.?code|\botp\b/i.test(`${input.name} ${node.getAttribute('aria-label')} ${[...(input.labels || [])].map(label => label.textContent).join(' ')}`);
-    }).map(node => (node as HTMLInputElement).value).filter(Boolean))));
-  // Do not expose an old snapshot if privacy inspection lost its page/frame.
-  if (reads.some(read => read.status === 'rejected')) return undefined;
-  return reads.flatMap(read => read.status === 'fulfilled' ? read.value : []);
+  try { return await privateAuthenticationValues(page); }
+  catch { return undefined; } // No snapshot if a frame lost privacy inspection.
 }
 
 async function maskSnapshots(page: Page, snapshots: string[], before: string[] | undefined): Promise<string[]> {
   const after = await snapshotPrivateValues(page);
   if (!before || !after) return ['Snapshot not returned because a frame changed during private-value masking. Inspect the fresh page and retry a focused snapshot.'];
   for (const secret of new Set([...before, ...after])) {
+    if (secret.length < 4) {
+      const literal = secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const value = new RegExp(`(:\\s*)(?:["']${literal}["']|${literal})(?=\\s*$)`, 'gm');
+      snapshots = snapshots.map(snapshot => snapshot.replace(value, '$1[private credential]'));
+      continue;
+    }
     for (const representation of [secret, JSON.stringify(secret).slice(1, -1), secret.replaceAll("'", "''")]) {
       if (representation) snapshots = snapshots.map(snapshot => snapshot.replaceAll(representation, '[private credential]'));
     }

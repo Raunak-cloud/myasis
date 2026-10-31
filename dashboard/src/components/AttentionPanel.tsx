@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { relative } from '../format';
 import { plainReason, userFacingError } from '../run-messages';
+import { blockedQuestionKey } from '../../../seek-bot/src/blocked-question-key';
 
 export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
 
@@ -27,6 +28,7 @@ export interface AttentionItem {
 
 /** The question as the candidate should read it: the written-out one when there is one, else the form's own label. */
 const questionText = (q: BlockedQuestion) => q.prompt?.trim() || `What should Owtomate enter for “${q.question.replace(/[\s*:]+$/, '')}”?`;
+const questionKey = blockedQuestionKey;
 
 /**
  * Inline form for the questions a run could not answer. Saving writes them to
@@ -39,24 +41,33 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
   const [writtenAnswers, setWrittenAnswers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const answered = questions.filter((q) => (values[q.question] ?? '').trim());
+  const answered = questions.filter((q) => (values[questionKey(q)] ?? '').trim());
   const set = (question: string, value: string) => setValues((current) => ({ ...current, [question]: value }));
 
   async function save() {
     if (saving || !answered.length) return;
     setSaving(true);
     setError(null);
+    const submitted = answered.map(q => ({ question: q.question, prompt: q.prompt, answer: values[questionKey(q)].trim() }));
     try {
       const response = await fetch('/api/answers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jobId: item.jobId,
-          answers: answered.map((q) => ({ question: q.question, prompt: q.prompt, answer: values[q.question].trim() })),
+          answers: submitted,
         }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? 'Could not save the answers.');
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body || body.saved !== submitted.length) throw new Error(body?.error ?? 'Could not save the answers. Please try again.');
+      setValues(current => {
+        const next = { ...current };
+        for (const answer of submitted) {
+          const key = questionKey(answer);
+          if (current[key]?.trim() === answer.answer) delete next[key];
+        }
+        return next;
+      });
       onSaved?.();
     } catch (reason) {
       setError((reason as Error).message);
@@ -74,36 +85,38 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
    * against the employer's fresh form; this is never a direct option click.
    */
   const control = (q: BlockedQuestion) => {
-    const value = values[q.question] ?? '';
+    const key = questionKey(q);
+    const value = values[key] ?? '';
     if (q.options?.length) {
       return (
         <div>
-          {writtenAnswers[q.question] ? (
+          {writtenAnswers[key] ? (
             <>
-              <input className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(q.question, e.target.value)} />
+              <input className="input" aria-label={questionText(q)} value={value} maxLength={4000} onChange={(e) => set(key, e.target.value)} />
               <small>Owtomate will check this against the employer’s choices when retrying.</small>
             </>
           ) : (
-            <select className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(q.question, e.target.value)}>
+            <select className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(key, e.target.value)}>
               <option value="">Choose…</option>
+              {value && !q.options.includes(value) && <option value={value}>{value}</option>}
               {q.options.map((option) => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>
           )}
-          <button type="button" className="btn" aria-label={`${writtenAnswers[q.question] ? 'Use captured choices' : 'Enter a different answer'}: ${q.question}`} onClick={(e) => {
+          <button type="button" className="btn" aria-label={`${writtenAnswers[key] ? 'Use captured choices' : 'Enter a different answer'}: ${q.question}`} onClick={(e) => {
             e.preventDefault();
-            set(q.question, '');
-            setWrittenAnswers(current => ({ ...current, [q.question]: !current[q.question] }));
+            // Switching control types must not discard an answer already typed.
+            setWrittenAnswers(current => ({ ...current, [key]: !current[key] }));
           }}>
-            {writtenAnswers[q.question] ? 'Use captured choices' : 'My answer isn’t listed'}
+            {writtenAnswers[key] ? 'Use captured choices' : 'My answer isn’t listed'}
           </button>
         </div>
       );
     }
     if (q.kind === 'checkbox') {
       return (
-        <select className="input" value={value} onChange={(e) => set(q.question, e.target.value)}>
+        <select className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(key, e.target.value)}>
           <option value="">Choose…</option>
           <option value="Yes">Yes</option>
           <option value="No">No</option>
@@ -111,15 +124,15 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
       );
     }
     if (q.kind === 'textarea') {
-      return <textarea className="input" rows={3} value={value} onChange={(e) => set(q.question, e.target.value)} />;
+      return <textarea className="input" aria-label={questionText(q)} rows={3} maxLength={4000} value={value} onChange={(e) => set(key, e.target.value)} />;
     }
-    return <input className="input" value={value} onChange={(e) => set(q.question, e.target.value)} />;
+    return <input className="input" aria-label={questionText(q)} value={value} maxLength={4000} onChange={(e) => set(key, e.target.value)} />;
   };
 
   return (
     <div className="answer-form">
       {questions.map((q) => (
-        <label key={q.question} className="answer-row">
+        <label key={questionKey(q)} className="answer-row">
           <span className="answer-label">{questionText(q)}</span>
           {control(q)}
         </label>
@@ -169,10 +182,10 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
     void (async () => {
       try {
         const response = await fetch(endpoint ?? `/api/trace?jobId=${encodeURIComponent(jobId)}`);
-        const body = await response.json();
+        const body = await response.json().catch(() => null);
         if (cancelled) return;
-        if (!response.ok) throw new Error(body.error ?? 'No trace available.');
-        setSteps(body.steps ?? []);
+        if (!response.ok || !Array.isArray(body?.steps)) throw new Error(body?.error ?? 'No trace available.');
+        setSteps(body.steps);
       } catch (reason) {
         if (!cancelled) setError((reason as Error).message);
       }
@@ -187,7 +200,7 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
       {questions.length > 0 && (
         <div className="trace-question-context">
           <strong>What the employer needs from you</strong>
-          {questions.map((question) => <div key={question.question}>{questionText(question)}</div>)}
+          {questions.map((question) => <div key={questionKey(question)}>{questionText(question)}</div>)}
         </div>
       )}
       {error && <div className="job-meta">{userFacingError(error)}</div>}
@@ -332,8 +345,8 @@ export function AttentionPanel({
     setError(null);
     try {
       const response = await fetch('/api/attention/clear', { method: 'POST' });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? 'Could not clear the list.');
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body || body.ok !== true) throw new Error(body?.error ?? 'Could not clear the list. Please try again.');
       onCleared?.();
     } catch (reason) {
       setError((reason as Error).message);
@@ -358,7 +371,7 @@ export function AttentionPanel({
     [counts],
   );
 
-  if (loadError) return <div className="card empty" role="alert"><p>{userFacingError(loadError)}</p><button className="btn" onClick={onCleared}>Try again</button></div>;
+  if (loadError && !items.length) return <div className="card empty" role="alert"><p>{userFacingError(loadError)}</p><button className="btn" onClick={onCleared}>Try again</button></div>;
   if (loading && !items.length) return <div className="card empty" role="status">Checking for jobs that need your attention…</div>;
   if (!items.length) {
     return (
@@ -371,6 +384,7 @@ export function AttentionPanel({
 
   return (
     <div className="attention-panel">
+      {loadError && <div className="banner banner-bad" role="alert">{userFacingError(loadError)} <button type="button" className="btn" onClick={onCleared}>Try again</button></div>}
       {counts.verification ? (
         <div className="banner attention-hero">
           <strong>{counts.verification} listings are waiting on work-rights verification.</strong>

@@ -8,10 +8,11 @@ import { GmailMcpClient } from './gmail-mcp-client.js';
 import { GmailMcpService, GmailServiceError } from './gmail-mcp-service.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-gmail-mcp-'));
-Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
-const { doEnterEmailedCode, doOpenEmailedLink } = await import('./agent/authentication.js');
-const { observe } = await import('./agent/observe.js');
-const { findVerificationInGmail, gmailAvailable, verificationMessage } = await import('./gmail-mailbox.js');
+Object.assign(process.env, { DATA_DIR: directory, FORM_CORPUS_DIR: join(directory, 'corpus'), CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false', SITE_AUTH_SECRET: 'fixture-only-site-secret' });
+const { doEnterEmailedCode, doOpenEmailedLink, doCompleteAuthentication, fillEmailedCode } = await import('./agent/authentication.js');
+const { observe, renderObservation } = await import('./agent/observe.js');
+const { nativeReadback, nativeSnapshot } = await import('./agent/native-browser.js');
+const { findVerificationInGmail, gmailAvailable, verificationMessage, verificationMessageIsFresh } = await import('./gmail-mailbox.js');
 const { readVerificationEmailsLocally } = await import('./verification-email-local.js');
 for (const code of ['482913', 'A8X2K9P4']) {
   const email = verificationMessage({ id: 'html-only', subject: 'Fixture verification',
@@ -23,7 +24,16 @@ assert.equal(verificationMessage({ id: 'plain', plaintextBody: 'Exact plaintext\
 const originalFetch = globalThis.fetch;
 let unavailable = false, sent = 0, browserOrder = false, olderCodeBelowReply = false, staleCandidate = false, unorderedApi = false;
 let malformedCode = false;
+let cachedMessageAgeMs = 0;
 const reads: string[] = [], queries: string[] = [];
+const recent = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+const cutoff = Date.now() - 15 * 60_000;
+assert.equal(verificationMessageIsFresh({ id: 'old', date: recent(16) }, cutoff), false);
+assert.equal(verificationMessageIsFresh({ id: 'cached', date: recent(10) }, cutoff), true, 'recent cached codes remain available when no new request time is known');
+assert.equal(verificationMessageIsFresh({ id: 'old-request', date: recent(5) }, Date.now() - 2 * 60_000), false);
+assert.equal(verificationMessageIsFresh({ id: 'future', date: recent(-3) }, cutoff), false);
+assert.equal(verificationMessageIsFresh({ id: 'sent', date: recent(0), labelIds: ['SENT'] }, cutoff), false);
+assert.equal(verificationMessageIsFresh({ id: 'unknown' }, cutoff), false);
 const approval = randomUUID(), revision = 'a'.repeat(64);
 const service = new GmailMcpService({
   search: async (user, query) => {
@@ -35,16 +45,16 @@ const service = new GmailMcpService({
   thread: async (user, id) => {
     reads.push(id);
     if (browserOrder) {
-      if (unorderedApi) return [{ id, subject: 'Fixture verification', date: id === 'browser-newest' ? '2026-10-30T09:00:00Z' : '2026-10-30T10:00:00Z', plaintextBody: `Use ${id === 'browser-newest' ? '111222' : '729184'} to verify your Fixture account.` }];
+      if (unorderedApi) return [{ id, subject: 'Fixture verification', date: recent(id === 'browser-newest' ? 3 : 2), plaintextBody: `Use ${id === 'browser-newest' ? '111222' : '729184'} to verify your Fixture account.` }];
       if (olderCodeBelowReply) {
-        const code = { id, subject: 'Fixture verification', date: id === 'browser-newest' ? '2026-10-30T09:00:00Z' : '2026-10-30T10:00:00Z', plaintextBody: `Use ${id === 'browser-newest' ? '111222' : '729184'} to verify your Fixture account.` };
-        return id === 'browser-newest' ? [code, { id: 'reply', date: '2026-10-30T11:00:00Z', subject: 'Thanks', plaintextBody: 'Thank you.' }] : [code];
+        const code = { id, subject: 'Fixture verification', date: recent(id === 'browser-newest' ? 3 : 2), plaintextBody: `Use ${id === 'browser-newest' ? '111222' : '729184'} to verify your Fixture account.` };
+        return id === 'browser-newest' ? [code, { id: 'reply', date: recent(1), subject: 'Thanks', plaintextBody: 'Thank you.' }] : [code];
       }
       if (id === 'browser-older' && staleCandidate) throw new Error('Unrelated thread must not be read after finding the newest verification.');
       return [{ id, subject: 'Fixture verification', plaintextBody: `Use ${id === 'browser-newest' ? '729184' : '111222'} to verify your Fixture account.` }];
     }
     assert.equal(id, user);
-    return [{ id: `${user}-email`, subject: 'Fixture: verify application', date: new Date().toISOString(),
+    return [{ id: `${user}-email`, subject: 'Fixture: verify application', date: new Date(Date.now() - cachedMessageAgeMs).toISOString(),
       plaintextBody: malformedCode ? 'Your Fixture verification code: 482913Code' : `Use ${user === 'owner-a' ? '482913' : '628731'} to verify your account.`,
       htmlBody: `<p>Verify</p><a href="https://employer.mailbox.invalid/verified/${user}?token=fixture">Verify account</a>` }];
   },
@@ -73,15 +83,27 @@ try {
     throw new Error('Verification email content must not leave the local MCP service for an AI provider.');
   };
   const context = await browser.newContext(); let gmailPages = 0;
+  let linkNavigationFails = false;
   await context.route('**/*', route => {
     if (route.request().url().includes('mail.google.com')) gmailPages++;
+    if (linkNavigationFails && route.request().url().includes('/verified/')) return route.abort();
     return route.fulfill({ contentType: 'text/html', body: '<main><label>Code<input maxlength="6"></label></main>' });
   });
   const page = await context.newPage(); await page.goto('https://employer.mailbox.invalid/code');
-  const ctx = { page, job: { company: 'Fixture' }, observation: await observe(page), log: () => {}, actions: [] } as unknown as Parameters<typeof doEnterEmailedCode>[0];
+  const ctx = { page, profile: { email: 'a@fixture.invalid' }, job: { company: 'Fixture' }, observation: await observe(page), log: () => {}, actions: [] } as unknown as Parameters<typeof doEnterEmailedCode>[0];
+  const wrongMailbox = { ...ctx, profile: { email: 'b@fixture.invalid' } } as typeof ctx;
+  const beforeWrongMailbox = reads.length;
+  assert.match(JSON.stringify(await doEnterEmailedCode(wrongMailbox, { ref: ctx.observation.fields[0].ref })), /does not match this candidate profile/);
+  assert.equal(reads.length, beforeWrongMailbox, 'a profile/mailbox mismatch is denied before any email is read');
   const code = await doEnterEmailedCode(ctx, { ref: ctx.observation.fields[0].ref });
   assert.match(JSON.stringify(code), /Entered the emailed code/);
   assert.equal(await page.locator('input').inputValue(), '482913'); assert.equal(context.pages().length, 1);
+  const afterCode = await observe(page);
+  assert.equal(afterCode.fields[0].privateKind, 'verification-code');
+  assert.equal(afterCode.fields[0].currentValue, '[private credential]');
+  assert.doesNotMatch(renderObservation(afterCode), /482913/, 'regular observation after private code entry cannot disclose the code while the employer keeps its form open');
+  assert.doesNotMatch(JSON.stringify(await nativeReadback(page.locator('input'))), /482913/);
+  assert.doesNotMatch(await nativeSnapshot(page), /482913/);
   await page.setContent('<main>' + Array.from({ length: 6 }, (_, i) => `<label>Digit ${i + 1}<input maxlength="1"></label>`).join('') + '</main>');
   ctx.observation = await observe(page); malformedCode = true;
   const mismatch = await doEnterEmailedCode(ctx, { refs: ctx.observation.fields.map(field => field.ref) });
@@ -89,9 +111,54 @@ try {
   assert.doesNotMatch(JSON.stringify(mismatch), /482913/, 'a format diagnostic must never disclose the private code');
   assert.deepEqual(await page.locator('input').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value)), Array(6).fill(''), 'a length mismatch cannot partially type or truncate the code');
   malformedCode = false;
+  const selectedFields = ctx.observation.fields;
+  assert.equal(await fillEmailedCode(page, selectedFields, '482913', selectedFields.map(() => page.locator('input').first())), false, 'duplicate native targets cannot partially overwrite one digit box');
+  assert.deepEqual(await page.locator('input').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value)), Array(6).fill(''));
+  await page.locator('input').last().evaluate(input => { (input as HTMLInputElement).pattern = '[A-Z]'; });
+  assert.equal(await fillEmailedCode(page, selectedFields, '482913'), false, 'all per-character constraints are checked before any field is filled');
+  assert.deepEqual(await page.locator('input').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value)), Array(6).fill(''));
+  linkNavigationFails = true;
+  const actionsBeforeLink = ctx.actions.length;
+  const failedLink = await doOpenEmailedLink(ctx, {});
+  assert.match(JSON.stringify(failedLink), /could not be opened/);
+  assert.equal(ctx.page, page); assert.equal(context.pages().length, 1);
+  assert.equal(ctx.actions.length, actionsBeforeLink, 'failed verification navigation must not record a successful link opening');
+  linkNavigationFails = false;
   const link = await doOpenEmailedLink(ctx, {});
   assert.match(JSON.stringify(link), /Opened the emailed link/);
   assert.match(context.pages()[1].url(), /verified\/owner-a/); assert.equal(gmailPages, 0);
+  ctx.page = page;
+  await page.setContent('<main><label>Password<input type="text"></label></main>');
+  ctx.profile = { ...ctx.profile, name: 'Fixture Candidate', phone: '0400000000' };
+  ctx.observation = await observe(page);
+  const passwordRef = ctx.observation.fields[0].ref;
+  await doCompleteAuthentication(ctx, { refs: [passwordRef], purpose: 'create_account' });
+  const proposedPassword = await page.locator('input').inputValue();
+  assert.ok(ctx.pendingCredentials?.size, 'a password shown as text still prepares a private credential');
+  await page.locator('input').fill('');
+  const unavailableLogin = await doCompleteAuthentication(ctx, { refs: [passwordRef], purpose: 'sign_in' });
+  assert.match(JSON.stringify(unavailableLogin), /No verified usable password/);
+  assert.ok(proposedPassword.length >= 12);
+  assert.equal(await page.locator('input').inputValue(), '', 'an unaccepted registration proposal cannot authorize a generated sign-in credential');
+  assert.equal(ctx.pendingCredentials?.size, 0);
+  const reuseMessage = 'Your existing emailed code and verification link are still valid for fifteen minutes. Use either to continue.';
+  await page.setContent(`<main><p>${reuseMessage}</p><label>Code<input maxlength="6"></label></main>`);
+  ctx.observation = await observe(page);
+  cachedMessageAgeMs = 8 * 60_000;
+  const readsBeforeInvented = reads.length;
+  const inventedReuse = await doEnterEmailedCode(ctx, { ref: ctx.observation.fields[0].ref, allow_recent_cached: true, cached_code_evidence: 'The earlier emailed code is reusable for thirty minutes.' });
+  assert.match(JSON.stringify(inventedReuse), /quote could not be found/);
+  const inventedLinkReuse = await doOpenEmailedLink(ctx, { allow_recent_cached: true, cached_code_evidence: 'The earlier emailed verification link is reusable for thirty minutes.' });
+  assert.match(JSON.stringify(inventedLinkReuse), /quote could not be found/);
+  assert.equal(reads.length, readsBeforeInvented, 'invented cached-code/link evidence is rejected before mailbox reads');
+  assert.equal(await page.locator('input').inputValue(), '');
+  const reusedCode = await doEnterEmailedCode(ctx, { ref: ctx.observation.fields[0].ref, allow_recent_cached: true, cached_code_evidence: reuseMessage });
+  assert.match(JSON.stringify(reusedCode), /Entered the emailed code/);
+  assert.equal(await page.locator('input').inputValue(), '482913', 'the exact current employer quote permits a still-valid eight-minute cached code');
+  const reusedLink = await doOpenEmailedLink(ctx, { allow_recent_cached: true, cached_code_evidence: reuseMessage });
+  assert.match(JSON.stringify(reusedLink), /Opened the emailed link/);
+  await ctx.page.close(); ctx.page = page;
+  cachedMessageAgeMs = 0;
   browserOrder = true;
   process.env.GMAIL_ACCESS_MODE = 'browser';
   const ordered = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 1000 });
