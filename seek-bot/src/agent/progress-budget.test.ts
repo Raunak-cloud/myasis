@@ -23,22 +23,22 @@ test('review reserve cannot authorize browser actions and never exceeds the maxi
   const meter = new ProgressBudget(0.20, 0.70);
   spend(meter, 0.19);
   assert.equal(meter.needsReview, true);
-  meter.reviewing(true); spend(meter, 0.02);
+  meter.setPhase('progress-review'); spend(meter, 0.02);
   assert.equal(meter.exhausted, false, 'a nonmutating review can finish');
   assert.equal(meter.actionExhausted, true, 'reserve never authorizes writes');
-  meter.reviewing(false);
+  meter.setPhase('work');
   assert.equal(meter.exhausted, true, 'assessment alone cannot extend spending');
   meter.reviewedProgress('fresh-calendar-state');
   assert.ok(Math.abs(meter.limitUsd - 0.31) < 1e-9);
   spend(meter, 0.09); meter.reviewedProgress('fresh-calendar-state');
   assert.ok(Math.abs(meter.limitUsd - 0.31) < 1e-9, 'the same progress is credited once');
-  spend(meter, 0.40); meter.reviewedProgress('new-state'); meter.reviewing(true);
+  spend(meter, 0.40); meter.reviewedProgress('new-state'); meter.setPhase('progress-review');
   assert.equal(meter.exhausted, true, 'hard ceiling includes the review reserve');
 });
 
 test('canonical finalization has bounded reasoning room without funding extra browser writes',()=>{
  const meter=new ProgressBudget(.20,.70);
- spend(meter,.19);meter.finalizing(true);spend(meter,.10);
+ spend(meter,.19);meter.setPhase('application-review');spend(meter,.10);
  assert.equal(meter.exhausted,false);
  assert.equal(meter.actionExhausted,true);
  meter.reviewedProgress('canonical-application-review-ready');
@@ -47,6 +47,17 @@ test('canonical finalization has bounded reasoning room without funding extra br
  assert.equal(meter.actionExhausted,true,'repeated ready claims cannot renew the allowance');
  spend(meter,.31);
  assert.equal(meter.exhausted,true,'the seventy-cent ceiling still includes finalization');
+});
+
+test('reserves follow the current decision and cannot leak into a returned editing/recovery plan',()=>{
+ const meter=new ProgressBudget(.20,.70);
+ spend(meter,.19);meter.setPhase('application-review');spend(meter,.03);
+ assert.equal(meter.exhausted,false);
+ meter.setPhase('work');assert.equal(meter.exhausted,true,'a plan/edit turn cannot spend a past application-review reserve');
+ meter.setPhase('progress-review');assert.equal(meter.exhausted,false,'a fresh result assessment can still record observed progress');
+ meter.setPhase('final-record');assert.equal(meter.exhausted,false,'a terminal local record has a small distinct allowance');
+ spend(meter,.03);assert.equal(meter.exhausted,true,'local record funding is bounded separately from canonical review');
+ meter.setPhase('work');assert.equal(meter.actionExhausted,true);
 });
 
 test('unchanged pages and passive prefills keep the normal twenty-cent budget', () => {

@@ -5,6 +5,7 @@ const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCa
 const identity = (field: FormField) => JSON.stringify([normalise(field.section ?? ''), normalise(field.label), field.kind]);
 const usable = (field: FormField) => !field.sensitive && field.inputType !== 'password' && field.currentValue !== '[private credential]';
 const completed = (field: FormField) => Boolean(field.currentValue?.trim()) && !field.validationError;
+export type ApplicationBudgetPhase = 'work' | 'progress-review' | 'application-review' | 'final-record';
 
 /** Extra spend is earned by browser evidence, never by the agent's progress notes. */
 export class ProgressBudget extends CostMeter {
@@ -13,8 +14,7 @@ export class ProgressBudget extends CostMeter {
   private readonly stages = new Set<string>();
   private allowance: number;
   private progress = 0;
-  private reviewReserve = false;
-  private finalizationReserve = false;
+  private phase: ApplicationBudgetPhase = 'work';
   readonly maximum: number;
 
   constructor(base: number, maximum = 0.70) {
@@ -29,11 +29,13 @@ export class ProgressBudget extends CostMeter {
   get progressCount(): number { return this.progress; }
   get needsReview(): boolean { return this.totals.costUsd >= this.allowance - 0.035 && this.allowance < this.maximum; }
   get actionExhausted(): boolean { return this.totals.costUsd + 1e-9 >= this.allowance; }
-  override get exhausted(): boolean { return this.totals.costUsd + 1e-9 >= Math.min(this.maximum, this.allowance + (this.finalizationReserve ? 0.15 : this.reviewReserve ? 0.04 : 0)); }
-  reviewing(enabled: boolean): void { this.reviewReserve = enabled; }
-  /** Canonical final review may need a generation retry. This funds model
-   * assessment/local final records, never browser writes above the allowance. */
-  finalizing(enabled: boolean): void { this.finalizationReserve = enabled; }
+  override get exhausted(): boolean {
+    const reserve = this.phase === 'application-review' ? 0.15 : this.phase === 'progress-review' || this.phase === 'final-record' ? 0.04 : 0;
+    return this.totals.costUsd + 1e-9 >= Math.min(this.maximum, this.allowance + reserve);
+  }
+  /** Every decision declares its actual work. Review/report reserves never
+   * survive a return to editing or authorize browser actions. */
+  setPhase(phase: ApplicationBudgetPhase): void { this.phase = phase; }
   reviewedProgress(state: string): void { this.credit(`agent-reviewed:${state}`); }
 
   private credit(key: string): void {

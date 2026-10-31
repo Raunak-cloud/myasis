@@ -21,6 +21,7 @@ if [ "${1:-0}" = 1 ]; then
   node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/observe-frames.test.js dist/agent/indeed-cover-letter.test.js dist/gmail-browser-readiness.test.js dist/agent/prepared-finalization-budget.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/authentication-state.test.js dist/site-auth.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/budget-workflows.test.js
   node dist/fit-assessment.test.js
   shopt -s nullglob
   CORPORA=("$APP"/seek-bot/data/users/*/form-corpus)

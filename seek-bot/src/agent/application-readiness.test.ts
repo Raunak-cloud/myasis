@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ApplicationReadiness } from './application-readiness.js';
+
+test('agent correction or missing-answer decisions retire an earlier ready state',()=>{
+ const state=new ApplicationReadiness();state.record('ready');assert.equal(state.ready,true);
+ state.record('needs_answer');assert.equal(state.ready,false);assert.equal(state.needsAnswer,true);
+ state.invalidate();assert.equal(state.needsAnswer,false);
+ state.record('ready');state.record('correct');assert.equal(state.ready,false);assert.equal(state.needsDeepReasoning,true);
+});
 import type { Observation } from './observe.js';
 
 const page = (month = '1', day = '11'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Form', actions: [], text: '',

@@ -27,11 +27,14 @@ export class ApplicationReadiness {
   private reviewed = -1;
   private canonicalSurface = '';
   private correctionPending = false;
+  private answerPending = false;
   requested = false;
 
   /** Preserve the applying agent's own escalation through its repair turns.
    * This changes reasoning effort only, never control selection or permission. */
   get needsDeepReasoning(): boolean { return this.correctionPending; }
+  get needsAnswer(): boolean { return this.answerPending; }
+  get ready(): boolean { return this.reviewed === this.revision; }
 
   observe(observation: Observation, source: 'canonical' | 'wizard' = 'canonical'): void {
     const records = source === 'canonical' ? this.records : this.wizard;
@@ -57,15 +60,16 @@ export class ApplicationReadiness {
 
   request(): boolean {
     if (this.reviewed === this.revision) return false;
-    this.requested = true; return true;
+    this.answerPending = false; this.requested = true; return true;
   }
 
-  invalidate(): void { this.reviewed = -1; }
+  invalidate(): void { this.reviewed = -1; this.answerPending = false; }
 
   record(assessment: string, unresolved: string[] = []): void {
     if (assessment === 'ready' && unresolved.length) throw new Error('Resolve the listed conflicts before recording ready. No send ran.');
-    if (assessment === 'ready') this.reviewed = this.revision;
+    this.reviewed = assessment === 'ready' ? this.revision : -1;
     this.correctionPending = assessment === 'correct';
+    this.answerPending = assessment === 'needs_answer';
     this.requested = false;
   }
 
