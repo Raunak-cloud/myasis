@@ -474,7 +474,7 @@ try {
   const runsBeforeSave = writes.filter(write => write.path === '/api/run').length;
   await Promise.all([
     answerPage.waitForResponse(response => new URL(response.url()).pathname === '/api/answers' && response.request().method() === 'POST'),
-    answerPage.getByRole('button', { name: 'Save and retry', exact: true }).click(),
+    answerPage.getByRole('button', { name: 'Save answers', exact: true }).click(),
   ]);
   const answerWrite = writes.filter(write => write.path === '/api/answers').at(-1)!;
   assert.deepEqual(answerWrite.body, { jobId: 'handoff-fixture', answers: [{ question: 'Country of birth', answer: 'Nepal' }, { question: 'Audit services', answer: 'No' }] });
