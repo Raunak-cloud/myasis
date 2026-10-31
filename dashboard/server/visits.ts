@@ -4,6 +4,7 @@ import { one, query } from './db/index.js';
 import { isAdmin } from './billing.js';
 import { RUN_TIME_ZONE } from './entitlements.js';
 import { geoipConfigured, lookupPlace } from './geoip.js';
+import { readEnv } from './runner.js';
 
 /**
  * First-party visitor analytics: who looked at what, from where, for how long.
@@ -16,7 +17,10 @@ import { geoipConfigured, lookupPlace } from './geoip.js';
  */
 
 /** Days of page views kept. An address with a place is personal information; the counts do not need it forever. */
-const RETENTION_DAYS = Math.max(7, Number(process.env.VISIT_RETENTION_DAYS ?? 180) || 180);
+function retentionDays(): number {
+  const days = Number(process.env.VISIT_RETENTION_DAYS ?? readEnv().VISIT_RETENTION_DAYS ?? 180);
+  return Number.isSafeInteger(days) && days >= 7 && days <= 3650 ? days : 180;
+}
 /** Limit client-reported visible duration per page. Presence has a separate short lease. */
 const MAX_DURATION_MS = 6 * 60 * 60 * 1000;
 
@@ -27,7 +31,10 @@ const PAGE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
  * The market the product serves. All countries are shown by default; home and other-country filters
  * are explicit subsets, including unknown locations in the latter.
  */
-const HOME_COUNTRY = (process.env.VISIT_HOME_COUNTRY ?? 'AU').trim().toUpperCase().slice(0, 2) || 'AU';
+function homeCountry(): string {
+  const code = (process.env.VISIT_HOME_COUNTRY ?? readEnv().VISIT_HOME_COUNTRY ?? 'AU').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : 'AU';
+}
 
 function countryName(code: string): string {
   try {
@@ -138,6 +145,8 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
   const sessionId = String(b.sessionId ?? '');
   const page = String(b.page ?? '');
   if (!ID_PATTERN.test(visitorId) || !ID_PATTERN.test(sessionId) || !PAGE_PATTERN.test(page)) return null;
+  const clientViewId = b.viewId == null ? null : String(b.viewId);
+  if (clientViewId !== null && !ID_PATTERN.test(clientViewId)) return null;
 
   const ua = String(req.headers['user-agent'] ?? '').slice(0, 400);
   const agent = describeAgent(ua);
@@ -154,22 +163,24 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
   // An ignored address is the operator's own: the view is acknowledged, never kept.
   const row = await one<{ id: string }>(
     `INSERT INTO page_views (
-       visitor_id, session_id, user_id, page, referrer,
+       visitor_id, session_id, user_id, page, referrer, client_view_id,
        attribution_source, attribution_medium, attribution_campaign, ip,
        country_code, country, region, city, latitude, longitude,
        user_agent, device, browser, os, screen, language, time_zone, last_seen_at, visible
      )
-     SELECT $1::text, $2::text, $3::bigint, $4::text, $5::text,
+     SELECT $1::text, $2::text, $3::bigint, $4::text, $5::text, $24::text,
             $6::text, $7::text, $8::text, $9::inet,
             $10::text, $11::text, $12::text, $13::text, $14::double precision, $15::double precision,
             $16::text, $17::text, $18::text, $19::text, $20::text, $21::text, $22::text, now(), $23::boolean
       WHERE NOT EXISTS (SELECT 1 FROM ignored_addresses WHERE ip = $9::inet)
+     ON CONFLICT (visitor_id, client_view_id) WHERE client_view_id IS NOT NULL
+     DO UPDATE SET client_view_id = EXCLUDED.client_view_id
      RETURNING id::text AS id`,
     [
       visitorId, sessionId, userId, page, cleanReferrer(b.referrer, host),
       attribution.source, attribution.medium, attribution.campaign, ip,
       place.countryCode, place.country, place.region, place.city, place.latitude, place.longitude,
-      ua, agent.device, agent.browser, agent.os, screen, language, timeZone, b.visible === true,
+      ua, agent.device, agent.browser, agent.os, screen, language, timeZone, b.visible === true, clientViewId,
     ],
   );
   return row?.id ?? null;
@@ -238,18 +249,20 @@ async function adminUserIds(): Promise<string[]> {
  * given ("could not determine data type of parameter $1"), which is what the
  * time zone became for every range but today.
  */
-async function scope(opts: VisitorScope): Promise<{ where: string; params: unknown[] }> {
+async function scope(opts: VisitorScope, time: 'started' | 'activity' = 'started'): Promise<{ where: string; baseWhere: string; params: unknown[] }> {
   const params: unknown[] = [];
   const clauses: string[] = [];
+  const timestamp = time === 'activity' ? 'COALESCE(last_seen_at, started_at)' : 'started_at';
+  let timeFilter: string;
   if (opts.range === 'today') {
     params.push(RUN_TIME_ZONE);
-    clauses.push(`started_at >= (date_trunc('day', now() AT TIME ZONE $${params.length}) AT TIME ZONE $${params.length})`);
+    timeFilter = `${timestamp} >= (date_trunc('day', now() AT TIME ZONE $${params.length}) AT TIME ZONE $${params.length})`;
   } else {
     params.push(RANGE_DAYS[opts.range]);
-    clauses.push(`started_at >= now() - make_interval(days => $${params.length}::int)`);
+    timeFilter = `${timestamp} >= now() - make_interval(days => $${params.length}::int)`;
   }
   if (opts.market !== 'all') {
-    params.push(HOME_COUNTRY);
+    params.push(homeCountry());
     clauses.push(opts.market === 'home' ? `country_code = $${params.length}` : `country_code IS DISTINCT FROM $${params.length}`);
   }
   clauses.push('NOT EXISTS (SELECT 1 FROM ignored_addresses i WHERE i.ip = page_views.ip)');
@@ -263,7 +276,7 @@ async function scope(opts: VisitorScope): Promise<{ where: string; params: unkno
       (user_id IS NULL AND NOT EXISTS (SELECT 1 FROM page_views admin_view
        WHERE admin_view.visitor_id = page_views.visitor_id AND admin_view.user_id = ANY(${adminParam}))))`);
   }
-  return { where: clauses.join(' AND '), params };
+  return { where: [timeFilter, ...clauses].join(' AND '), baseWhere: clauses.join(' AND '), params };
 }
 
 // ---------------------------------------------------------------- ignored addresses
@@ -306,7 +319,7 @@ export interface VisitorReport {
   timeZone: string;
   retentionDays: number;
   geoConfigured: boolean;
-  totals: { visitors: number; visits: number; views: number; signedIn: number; located: number; avgSeconds: number | null };
+  totals: { visitors: number; visits: number; views: number; timedViews: number; signedIn: number; located: number; avgSeconds: number | null };
   countries: Breakdown[];
   regions: Breakdown[];
   cities: Breakdown[];
@@ -337,10 +350,11 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     ).then((rows) => rows.map((row) => ({ ...row, label: row.label ?? 'Unknown' })));
 
   const [totals, countries, regions, cities, pages, referrers, devices, browsers, days, addresses] = await Promise.all([
-    one<{ visitors: number; visits: number; views: number; signed_in: number; located: number; addresses: number; avg_seconds: number | null }>(
+    one<{ visitors: number; visits: number; views: number; timed_views: number; signed_in: number; located: number; addresses: number; avg_seconds: number | null }>(
       `SELECT count(DISTINCT visitor_id)::int AS visitors,
               count(DISTINCT (visitor_id, session_id))::int AS visits,
               count(*)::int AS views,
+              count(duration_ms)::int AS timed_views,
               count(DISTINCT visitor_id) FILTER (WHERE user_id IS NOT NULL)::int AS signed_in,
               count(*) FILTER (WHERE country_code IS NOT NULL)::int AS located,
               count(DISTINCT ip)::int AS addresses,
@@ -379,14 +393,15 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
   return {
     range: opts.range,
     market: opts.market,
-    home: { code: HOME_COUNTRY, name: countryName(HOME_COUNTRY) },
+    home: { code: homeCountry(), name: countryName(homeCountry()) },
     timeZone: RUN_TIME_ZONE,
-    retentionDays: RETENTION_DAYS,
+    retentionDays: retentionDays(),
     geoConfigured: geoipConfigured(),
     totals: {
       visitors: totals?.visitors ?? 0,
       visits: totals?.visits ?? 0,
       views: totals?.views ?? 0,
+      timedViews: totals?.timed_views ?? 0,
       signedIn: totals?.signed_in ?? 0,
       located: totals?.located ?? 0,
       avgSeconds: totals?.avg_seconds ?? null,
@@ -414,6 +429,9 @@ export interface RecentVisit {
   endedAt: string;
   views: number;
   durationMs: number | null;
+  timedViews: number;
+  lastPage: string;
+  accountCount: number;
   pages: string[];
   ip: string | null;
   countryCode: string | null;
@@ -435,44 +453,51 @@ export interface RecentVisit {
 
 /** One row per browser session, most recently active first, including returning tabs. */
 export async function recentVisits(opts: VisitorScope, limit = 150): Promise<RecentVisit[]> {
-  const { where, params } = await scope(opts);
+  const { where, baseWhere, params } = await scope(opts, 'activity');
   params.push(Math.min(500, Math.max(1, limit)));
   const rows = await query<{
     session_id: string; visitor_id: string; started_at: Date; ended_at: Date;
-    views: number; duration_ms: string | null; pages: string[]; ip: string | null;
+    views: number; duration_ms: string | null; timed_views: number; last_page: string; account_count: number; pages: string[]; ip: string | null;
     country_code: string | null; country: string | null; region: string | null; city: string | null;
     device: string | null; browser: string | null; os: string | null; screen: string | null;
     language: string | null; time_zone: string | null; referrer: string | null;
     attribution_source: string | null; attribution_medium: string | null; attribution_campaign: string | null;
     email: string | null;
   }>(
-    `WITH visits AS (
+    `WITH active_sessions AS (
+       SELECT session_id, visitor_id, max(COALESCE(last_seen_at, started_at)) AS last_activity
+       FROM page_views WHERE ${where} GROUP BY session_id, visitor_id
+       ORDER BY last_activity DESC, visitor_id, session_id LIMIT $${params.length}
+     ), visits AS (
        SELECT session_id, visitor_id,
               min(started_at) AS started_at,
               max(COALESCE(last_seen_at, started_at)) AS ended_at,
               count(*)::int AS views,
               sum(duration_ms)::text AS duration_ms,
+              count(duration_ms)::int AS timed_views,
+              count(DISTINCT user_id)::int AS account_count,
+              (array_agg(page ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS last_page,
               array_agg(page ORDER BY started_at, id) AS pages,
-              (array_agg(host(ip) ORDER BY started_at))[1] AS ip,
-              (array_agg(country_code ORDER BY started_at))[1] AS country_code,
-              (array_agg(country ORDER BY started_at))[1] AS country,
-              (array_agg(region ORDER BY started_at))[1] AS region,
-              (array_agg(city ORDER BY started_at))[1] AS city,
-              (array_agg(device ORDER BY started_at))[1] AS device,
-              (array_agg(browser ORDER BY started_at))[1] AS browser,
-              (array_agg(os ORDER BY started_at))[1] AS os,
-              (array_agg(screen ORDER BY started_at))[1] AS screen,
-              (array_agg(language ORDER BY started_at))[1] AS language,
-              (array_agg(time_zone ORDER BY started_at))[1] AS time_zone,
+              (array_agg(host(ip) ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS ip,
+              (array_agg(country_code ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS country_code,
+              (array_agg(country ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS country,
+              (array_agg(region ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS region,
+              (array_agg(city ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS city,
+              (array_agg(device ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS device,
+              (array_agg(browser ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS browser,
+              (array_agg(os ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS os,
+              (array_agg(screen ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS screen,
+              (array_agg(language ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS language,
+              (array_agg(time_zone ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS time_zone,
               (array_agg(referrer ORDER BY started_at) FILTER (WHERE referrer IS NOT NULL))[1] AS referrer,
               (array_agg(attribution_source ORDER BY started_at) FILTER (WHERE attribution_source IS NOT NULL))[1] AS attribution_source,
               (array_agg(attribution_medium ORDER BY started_at) FILTER (WHERE attribution_medium IS NOT NULL))[1] AS attribution_medium,
               (array_agg(attribution_campaign ORDER BY started_at) FILTER (WHERE attribution_campaign IS NOT NULL))[1] AS attribution_campaign,
               (array_agg(user_id ORDER BY started_at DESC, id DESC) FILTER (WHERE user_id IS NOT NULL))[1] AS user_id
-         FROM page_views WHERE ${where}
+         FROM page_views JOIN active_sessions USING (session_id, visitor_id) WHERE ${baseWhere}
         GROUP BY session_id, visitor_id
      )
-     SELECT v.*, u.email
+     SELECT v.*, CASE WHEN v.account_count = 1 THEN u.email ELSE NULL END AS email
        FROM visits v LEFT JOIN users u ON u.id = v.user_id
       ORDER BY v.ended_at DESC, v.started_at DESC, v.visitor_id, v.session_id
       LIMIT $${params.length}`,
@@ -485,6 +510,9 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
     endedAt: new Date(row.ended_at).toISOString(),
     views: row.views,
     durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
+    timedViews: row.timed_views,
+    lastPage: row.last_page,
+    accountCount: row.account_count,
     pages: row.pages ?? [],
     ip: row.ip,
     countryCode: row.country_code,
@@ -507,6 +535,7 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
 
 export interface LiveVisitors {
   generatedAt: string;
+  timeZone: string;
   activeWithinSeconds: number;
   count: number;
   visitors: Array<{
@@ -518,7 +547,7 @@ export interface LiveVisitors {
 
 /** A visible tab must renew its lease; closing, losing connection or crashing expires it. */
 export async function liveVisitors(): Promise<LiveVisitors> {
-  const { where, params } = await scope({ range: '7d', market: 'all' });
+  const { where, params } = await scope({ range: '7d', market: 'all' }, 'activity');
   const rows = await query<{
     visitor_id: string; page: string; email: string | null; city: string | null;
     region: string | null; country: string | null; device: string | null;
@@ -529,7 +558,7 @@ export async function liveVisitors(): Promise<LiveVisitors> {
       ORDER BY visitor_id, last_seen_at DESC, id DESC
     ) SELECT a.*, u.email, count(*) OVER ()::int AS total FROM active a
       LEFT JOIN users u ON u.id = a.user_id ORDER BY last_seen_at DESC LIMIT 100`, params);
-  return { generatedAt: new Date().toISOString(), activeWithinSeconds: 60, count: rows[0]?.total ?? 0,
+  return { generatedAt: new Date().toISOString(), timeZone: RUN_TIME_ZONE, activeWithinSeconds: 60, count: rows[0]?.total ?? 0,
     visitors: rows.map(row => ({ visitorId: row.visitor_id, page: row.page, email: row.email,
       city: row.city, region: row.region, country: row.country, device: row.device,
       browser: row.browser, lastSeenAt: new Date(row.last_seen_at).toISOString() })) };
@@ -543,7 +572,7 @@ let maintenance: NodeJS.Timeout | null = null;
 export function startVisitMaintenance(): void {
   if (maintenance) return;
   const prune = () =>
-    query(`DELETE FROM page_views WHERE started_at < now() - make_interval(days => $1)`, [RETENTION_DAYS])
+    query(`DELETE FROM page_views WHERE started_at < now() - make_interval(days => $1)`, [retentionDays()])
       .catch((error) => console.warn('[visits] prune failed:', (error as Error).message));
   setTimeout(prune, 60_000).unref();
   maintenance = setInterval(prune, 24 * 60 * 60 * 1000);

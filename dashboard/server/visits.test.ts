@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { getPool } from './db/index.js';
 import {
   endPageView,
+  clientIp,
   liveVisitors,
   parseMarket,
   pulsePageView,
@@ -29,6 +30,9 @@ pool.query = ((...args: unknown[]) => {
   return result;
 }) as typeof originalQuery;
 try {
+  assert.equal(clientIp({ socket: { remoteAddress: '203.0.113.10' }, headers: { 'x-forwarded-for': '198.51.100.1' } }), '203.0.113.10', 'public clients cannot spoof an IP header');
+  assert.equal(clientIp({ socket: { remoteAddress: '127.0.0.1' }, headers: { 'x-forwarded-for': '198.51.100.1, 203.0.113.20' } }), '203.0.113.20', 'only the trusted proxy final forwarded address is used');
+  assert.equal(clientIp({ socket: { remoteAddress: 'invalid' } }), null);
   await connection.query('BEGIN');
   await connection.query(`CREATE TEMP TABLE users (id bigint PRIMARY KEY, email text);
     INSERT INTO users VALUES (1, 'visitor-admin@example.test'), (2, 'visitor@example.test');
@@ -40,6 +44,8 @@ try {
     ALTER TABLE page_views ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
     ALTER TABLE page_views ADD COLUMN IF NOT EXISTS visible boolean NOT NULL DEFAULT false;
     ALTER TABLE page_views ADD COLUMN IF NOT EXISTS presence_seq bigint NOT NULL DEFAULT 0;
+    ALTER TABLE page_views ADD COLUMN IF NOT EXISTS client_view_id text;
+    CREATE UNIQUE INDEX visitor_fixture_view_ids ON page_views(visitor_id, client_view_id) WHERE client_view_id IS NOT NULL;
     SET LOCAL search_path = pg_temp, public;`);
   const request = {
     headers: {
@@ -190,6 +196,57 @@ try {
   assert.equal(latest[0]?.email, 'visitor@example.test');
   assert.equal(latest[0]?.views, 2, 'heartbeats do not invent page views or sessions');
   assert.ok(Date.parse(latest[0].endedAt) > Date.parse(latest[0].startedAt));
+  // Retrying a request that inserted successfully but lost its response must
+  // return the same row without resetting duration, presence or attribution.
+  const firstRetry = await recordPageView(request, view('visitor-retry', 'session-retry', { viewId: 'page-event-0001' }), '2');
+  await pulsePageView({ id: firstRetry, visitorId: 'visitor-retry', durationMs: 15000, sequence: 2, visible: false }, '2');
+  const sameRetry = await recordPageView(request, view('visitor-retry', 'session-retry', { viewId: 'page-event-0001' }), '2');
+  assert.equal(sameRetry, firstRetry);
+  const retryRows = await connection.query("SELECT duration_ms,visible FROM page_views WHERE visitor_id='visitor-retry'");
+  assert.equal(retryRows.rowCount, 1);
+  assert.equal(retryRows.rows[0].duration_ms, 15000);
+  assert.equal(retryRows.rows[0].visible, false);
+  assert.equal(await recordPageView(request, view('visitor-invalid', undefined, { viewId: 'bad!' }), '2'), null);
+  // The page returned to can differ from the page most recently opened.
+  const olderPage = await recordPageView(request, view('visitor-page', 'session-page', { page: 'run' }), '2');
+  await recordPageView(request, view('visitor-page', 'session-page', { page: 'pricing' }), '2');
+  await connection.query("UPDATE page_views SET started_at=now()-interval '2 hours',last_seen_at=now()-interval '1 hour' WHERE id=$1", [olderPage]);
+  await connection.query("UPDATE page_views SET started_at=now()-interval '20 minutes',last_seen_at=now()-interval '10 minutes' WHERE visitor_id='visitor-page' AND id<>$1", [olderPage]);
+  await pulsePageView({ id: olderPage, visitorId: 'visitor-page', durationMs: 20000, sequence: 1, visible: true }, '2');
+  const pageSession = (await recentVisits({ range: 'today', market: 'all' }, 500)).find(row => row.visitorId === 'visitor-page')!;
+  assert.equal(pageSession.lastPage, 'run');
+  assert.equal(pageSession.timedViews, 1, 'partially recorded time is distinguishable from complete time');
+  // A visible page can cross local midnight without a new page view today.
+  const midnightPage = await recordPageView(request, view('visitor-midnight', 'session-midnight'), '2');
+  await connection.query("UPDATE page_views SET started_at=(date_trunc('day',now() AT TIME ZONE 'Australia/Sydney') AT TIME ZONE 'Australia/Sydney')-interval '1 minute',last_seen_at=now() WHERE id=$1", [midnightPage]);
+  assert.ok((await recentVisits({ range: 'today', market: 'all' }, 500)).some(row => row.visitorId === 'visitor-midnight'));
+  assert.ok((await liveVisitors()).visitors.some(row => row.visitorId === 'visitor-midnight'));
+  const filtered = await visitorReport({ range: 'today', market: 'all' });
+  assert.equal(filtered.days.reduce((sum, day) => sum + day.views, 0), filtered.totals.views);
+  // An old shared-browser session must never claim every page belongs to its last account.
+  await connection.query("INSERT INTO users VALUES (3,'second@example.test')");
+  await recordPageView(request, view('visitor-shared', 'session-shared'), '2');
+  await recordPageView(request, view('visitor-shared', 'session-shared', { page: 'run' }), '3');
+  const sharedSession = (await recentVisits({ range: 'today', market: 'all' }, 500)).find(row => row.visitorId === 'visitor-shared')!;
+  assert.equal(sharedSession.accountCount, 2);
+  assert.equal(sharedSession.email, null);
+  await connection.query("INSERT INTO page_views (visitor_id,session_id,page) VALUES ('visitor-no-ip','session-no-ip','landing')");
+  assert.ok((await visitorReport({ range: 'today', market: 'all' })).addresses.list.every(row => row.ip !== null), 'unknown addresses never appear as an actionable IP or inflate the address list');
+  const originalHome = process.env.VISIT_HOME_COUNTRY;
+  const originalRetention = process.env.VISIT_RETENTION_DAYS;
+  try {
+    process.env.VISIT_HOME_COUNTRY = 'CA';
+    process.env.VISIT_RETENTION_DAYS = '42';
+    const configured = await visitorReport({ range: '7d', market: 'home' });
+    assert.equal(configured.home.code, 'CA');
+    assert.equal(configured.retentionDays, 42);
+    assert.equal(configured.totals.views, 0, 'home-country labels and filters use the same runtime setting');
+    process.env.VISIT_RETENTION_DAYS = 'Infinity';
+    assert.equal((await visitorReport({ range: '7d', market: 'all' })).retentionDays, 180);
+  } finally {
+    if (originalHome === undefined) delete process.env.VISIT_HOME_COUNTRY; else process.env.VISIT_HOME_COUNTRY = originalHome;
+    if (originalRetention === undefined) delete process.env.VISIT_RETENTION_DAYS; else process.env.VISIT_RETENTION_DAYS = originalRetention;
+  }
   console.log(
     'PASS visitor presence, expiry, admin exclusion, shared devices, counts, location scope, referrer privacy and unknown duration (temporary PostgreSQL tables only)',
   );

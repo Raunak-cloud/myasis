@@ -924,6 +924,8 @@ ALTER TABLE page_views ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT
 ALTER TABLE page_views ADD COLUMN IF NOT EXISTS presence_seq BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS page_views_presence ON page_views(last_seen_at DESC) WHERE visible;
 CREATE INDEX IF NOT EXISTS page_views_identity ON page_views(visitor_id, user_id);
+ALTER TABLE page_views ADD COLUMN IF NOT EXISTS client_view_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS page_views_client_view_id ON page_views(visitor_id, client_view_id) WHERE client_view_id IS NOT NULL;
 
 -- Explicit opt-in only: existing accounts remain paused after this upgrade.
 CREATE TABLE IF NOT EXISTS application_schedules (
