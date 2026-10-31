@@ -9,6 +9,8 @@ import { ProxiesView } from './ProxiesView';
 import { BlogView } from './BlogView';
 import { VisitorsView } from './VisitorsView';
 import { AdminEmailDialog } from './AdminEmailDialog';
+import { AdminUserPreferences } from './AdminUserPreferences';
+import type { AdminPreferenceSection } from '../admin-user-preferences';
 import { RunDiagnostics } from './RunDiagnostics';
 import type { RouteStatus } from '../route';
 import { StackedTable } from './StackedTable';
@@ -95,6 +97,7 @@ interface Overview {
 }
 
 interface UserDetail extends AdminUser {
+  preferences: AdminPreferenceSection[];
   passes: Array<{
     id: string;
     plan: string;
@@ -536,6 +539,8 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                   )}
                 </dl>
               </div>
+
+              <AdminUserPreferences sections={user.preferences ?? []} />
 
               <div className="section">
                 <h3>Controls</h3>

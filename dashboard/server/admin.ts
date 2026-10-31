@@ -1,4 +1,5 @@
 import { simulations } from './simulate.js';
+import { adminUserPreferences } from './admin-user-preferences.js';
 import { readRunDiagnostics, readRunAttempt } from './run-diagnostics.js';
 import { previewAccountAlerts } from './alerts.js';
 import { previewOperatorAlerts } from './operator-alerts.js';
@@ -299,7 +300,7 @@ async function adminOverview() {
 async function adminUserDetail(id: string) {
   const user = await findUser(id);
   if (!user) return null;
-  const [row, passes, runs, applications] = await Promise.all([
+  const [row, passes, runs, applications, preferences] = await Promise.all([
     userRow(user),
     query<{ id: string; plan_key: string; amount_paid: number; paid_at: Date; credits_total: number; credits_used: number; expires_at: Date | null; granted: boolean; test: boolean }>(
       `SELECT p.id::text AS id, p.plan_key, p.amount_paid, p.paid_at, g.credits_total, g.credits_used, g.expires_at,
@@ -315,9 +316,11 @@ async function adminUserDetail(id: string) {
         WHERE user_id = $1 AND submitted_by_myasis ORDER BY applied_at DESC LIMIT 15`,
       [id],
     ),
+    adminUserPreferences(id, user.email),
   ]);
   return {
     ...row,
+    preferences,
     passes: passes.map((pass) => ({
       id: pass.id,
       plan: PAID_PLANS[pass.plan_key as keyof typeof PAID_PLANS]?.name ?? pass.plan_key,

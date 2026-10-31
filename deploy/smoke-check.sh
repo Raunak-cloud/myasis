@@ -10,6 +10,7 @@ npm run test:statuses
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts
 ../seek-bot/node_modules/.bin/tsx server/site-accounts.test.ts
+../seek-bot/node_modules/.bin/tsx scripts/test-admin-user-preferences.mts
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
