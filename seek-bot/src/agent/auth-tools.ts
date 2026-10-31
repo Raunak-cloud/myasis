@@ -1,9 +1,11 @@
 import { gmailAvailable } from '../gmail-mailbox.js';
 import type { ToolSchema } from './celeris.js';
 import { browserTargetProperties } from './browser-target.js';
+import { VERIFICATION_PURPOSES } from '../verification-email-local.js';
 
 const targets = { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', additionalProperties: false, properties: browserTargetProperties }, description: 'Agent-selected native locators for the actual credential/code inputs, including frame and section scopes. Prefer these to refs for embedded forms.' };
 const cachedVerification = {
+  purpose: { type: 'string', enum: [...VERIFICATION_PURPOSES], description: 'The current requested email operation: account/application email verification or activation, sign-in, or password reset. A prior activation link cannot reset a password. Select reset_password after requesting password recovery.' },
   allow_recent_cached: { type: 'boolean', description: 'Set only when visible employer copy says an existing/reusable emailed code or link is still valid. Requires cached_code_evidence. Allows recent cached mail within fifteen minutes; never an unrestricted stale fallback.' },
   cached_code_evidence: { type: 'string', description: 'Complete exact visible employer message establishing that the existing emailed code/link can still be used. You judge its meaning; the tool verifies the quote against fresh noneditable employer copy.' },
 };
@@ -64,7 +66,7 @@ const EMAILED_CODE_TOOL: ToolSchema = {
       refs: { type: 'array', items: { type: 'string' }, description: 'All code FIELD refs in digit order when the code has separate boxes.' },
       sender_hint: { type: 'string', description: 'The site or company that sent the code, e.g. "Oracle" or "Workday".' },
     },
-    required: [],
+    required: ['purpose'],
   },
 };
 
@@ -77,7 +79,7 @@ const EMAILED_LINK_TOOL: ToolSchema = {
   parameters: {
     type: 'object',
     properties: { ...cachedVerification, sender_hint: { type: 'string', description: 'The site or company that sent the email, e.g. "Workday" or the employer.' } },
-    required: [],
+    required: ['purpose'],
   },
 };
 

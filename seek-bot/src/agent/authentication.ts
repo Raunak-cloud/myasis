@@ -9,6 +9,7 @@ import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js'
 import { assertLive } from '../tool-run.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { rememberPrivateAuthenticationValue, preparePrivateAuthenticationFields } from '../private-auth-fields.js';
+import { VERIFICATION_PURPOSES, type VerificationPurpose } from '../verification-email-local.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
 const authenticationStarted = new WeakMap<ToolContext, Map<string, number>>();
@@ -233,6 +234,7 @@ const cannotReadMailbox = (error: string) => /reconnect|authorization|MCP could 
 
 export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   assertLive();
+  if (!VERIFICATION_PURPOSES.includes(args.purpose as VerificationPurpose)) return ok('Choose the requested email purpose: account_verification, sign_in or reset_password. No mailbox data was read.', 'invalid-arguments');
   const problem = mailboxProblem(ctx);
   if (problem) return ok(problem, 'failed');
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [String(args.ref ?? '')];
@@ -247,7 +249,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   ctx.log('  ✉ waiting for the emailed verification code');
 
   const site = hostOf(ctx.page.url());
-  const found = await findVerificationInGmail({ hint, site, want: 'code', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  const found = await findVerificationInGmail({ hint, site, purpose: args.purpose as VerificationPurpose, want: 'code', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   assertLive();
   if (!('error' in found) && found.kind !== 'code') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a link, not a code. Call open_emailed_link instead.`);
   if ('error' in found) {
@@ -286,6 +288,7 @@ const EMAIL_WAIT_MS = 120_000;
 
 export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   assertLive();
+  if (!VERIFICATION_PURPOSES.includes(args.purpose as VerificationPurpose)) return ok('Choose the requested email purpose: account_verification, sign_in or reset_password. No mailbox data was read.', 'invalid-arguments');
   const problem = mailboxProblem(ctx);
   if (problem) return ok(problem, 'failed');
   const freshness = await verificationFreshness(ctx, args);
@@ -293,7 +296,7 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   if (freshness.error !== undefined) return ok(freshness.error, 'invalid-arguments');
   const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
   ctx.log('  ✉ waiting for the emailed verification link');
-  const found = await findVerificationInGmail({ hint, site: hostOf(ctx.page.url()), want: 'link', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  const found = await findVerificationInGmail({ hint, site: hostOf(ctx.page.url()), purpose: args.purpose as VerificationPurpose, want: 'link', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   assertLive();
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);

@@ -1,6 +1,6 @@
 import { parseHTML } from 'linkedom';
 import { GmailMcpClient, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
-import { readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail } from './verification-email-local.js';
+import { readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail, type VerificationPurpose } from './verification-email-local.js';
 import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
 import { config } from './config.js';
@@ -46,7 +46,7 @@ export function verificationMessageIsFresh(message: GmailMessage, earliest: numb
   const date = Date.parse(message.date || '');
   return Number.isFinite(date) ? date >= Math.max(earliest, now - VERIFICATION_MAX_AGE_MS) && date <= now + VERIFICATION_CLOCK_SKEW_MS : allowUndated;
 }
-export async function findVerificationInGmail(options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; allowAlternative?: boolean; timeoutMs?: number; requestedAt?: number; signal?: AbortSignal; log?: (message: string) => void } = {}) {
+export async function findVerificationInGmail(options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; purpose?: VerificationPurpose; allowAlternative?: boolean; timeoutMs?: number; requestedAt?: number; signal?: AbortSignal; log?: (message: string) => void } = {}) {
   const timeoutMs = Math.floor(options.timeoutMs ?? 90_000), startedAt = Date.now(), deadline = startedAt + timeoutMs;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) return { error: 'The verification email wait expired.' };
   if (options.signal?.aborted) return { error: 'The verification email wait was cancelled.' };
@@ -60,12 +60,12 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
   const context = verificationContextWords(options).filter(word => word.length <= 100).slice(0, 12);
   const earliest = Math.max(startedAt - VERIFICATION_MAX_AGE_MS,
     Number.isFinite(options.requestedAt) ? options.requestedAt! - VERIFICATION_CLOCK_SKEW_MS : 0);
-  const query = '(code OR verify OR verification OR confirm OR activation OR password OR passcode OR OTP OR "sign in")'
+  const query = (options.purpose === 'reset_password' ? '(password OR reset OR recovery)' : '(code OR verify OR verification OR confirm OR activation OR password OR passcode OR OTP OR "sign in")')
     + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
   const read = (emails: LocalVerificationEmail[]) => {
     for (const email of emails) {
-      const found = readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', want: options.want || 'either' })
-        ?? (options.allowAlternative ? readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', want: 'either' }) : null);
+      const found = readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: options.want || 'either' })
+        ?? (options.allowAlternative ? readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: 'either' }) : null);
       if (found) return found;
     }
     return null;

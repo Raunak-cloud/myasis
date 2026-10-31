@@ -27,9 +27,23 @@ function matchesContext(content: string, ask: { hint?: string; site?: string }):
 }
 
 export type LocalVerificationEmail = VerificationEmail & { sender?: string };
+export const VERIFICATION_PURPOSES = ['account_verification', 'sign_in', 'reset_password'] as const;
+export type VerificationPurpose = typeof VERIFICATION_PURPOSES[number];
+const resetPurpose = (text: string) => /\b(?:reset|recover|forgot(?:ten)?)\b.{0,40}\b(?:password|credentials?)\b|\bpassword\b.{0,25}\b(?:reset|recovery)\b|\b(?:reset|recover)[_-]?(?:password|pwd)\b/i.test(text.replace(/\s+/g, ' '));
+const activationPurpose = (text: string) => /\bactivat(?:e|ion|ing)\b/i.test(text);
+const signInPurpose = (text: string) => /\bsign[ _.-]?in\b|\blog[ _.-]?in\b|\bmagic[ _-]?link\b/i.test(text);
+
+/** Private mail purpose is part of the requested operation, not just sender
+ * identity. Ignore opaque token/query values when interpreting a link. */
+function linkPurpose(link: { text: string; url: string }): { reset: boolean; activation: boolean; signIn: boolean } {
+  const url = new URL(link.url);
+  const actions = [...url.searchParams].filter(([name]) => /^(?:action|type|mode|purpose|career_ns|login_ns|request)$/i.test(name)).map(([, value]) => value).join(' ');
+  const text = `${link.text} ${url.pathname} ${actions}`.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_/.-]/g, ' ');
+  return { reset: resetPurpose(text) || /\breset\b/i.test(text), activation: activationPurpose(text), signIn: signInPurpose(text) };
+}
 
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */
-export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], ask: { hint?: string; site?: string; want: 'code' | 'link' | 'either' }) {
+export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], ask: { hint?: string; site?: string; want: 'code' | 'link' | 'either'; purpose?: VerificationPurpose }) {
   const words = verificationContextWords(ask);
   if (!words.length) return null;
   for (const email of emails) {
@@ -39,7 +53,12 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
     const hosts = email.links.flatMap(link => { try { return [new URL(link.url).hostname]; } catch { return []; } });
     const identity = `${email.sender || ''}\n${content}\n${hosts.join('\n')}`;
     if (!matchesContext(identity, ask)) continue;
-    if (!/verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activation|confirm|reset.*password/i.test(content)) continue;
+    const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
+    const activationMail = activationPurpose(email.subject);
+    if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) continue;
+    if (ask.purpose === 'sign_in' && activationMail) continue;
+    if (ask.purpose === 'reset_password' && !resetMail) continue;
+    if (!/verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm|reset.*password/i.test(content)) continue;
     if (ask.want !== 'link') {
       const token = '(\\d{4}[ -]\\d{4}|\\d{3}[ -]\\d{3}|[A-Z0-9]{4,12}(?:-[A-Z0-9]{3,6})?)';
       const label = '(?:verification|security|sign[ .-]?in|log[ .-]?in|one.time|confirmation|access|authentication)';
@@ -62,13 +81,20 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
       // email. Require authentication purpose before considering its links.
       const authenticationSubject = /\b(?:verify|verification|confirm|confirmation|activat\w*|password|passcode|one.time|sign[ .-]?in|log[ .-]?in|magic link)\b/i.test(email.subject);
       const authenticationInstruction = /\b(?:verify|confirm|activate)\s+(?:your\s+)?(?:email|account|registration|identity)\b|\breset\s+(?:your\s+)?password\b|\b(?:one.time|magic|verification|activation|password.reset)\s+link\b/i.test(email.text);
+      const opaqueResetLink = ask.purpose === 'reset_password' && resetMail && /\breset\s+(?:(?:your|the)\s+)?password\b|\bpassword[ -]reset\s+link\b/i.test(email.text);
       if (!authenticationSubject && !authenticationInstruction) continue;
       const links = email.links.filter(link => {
         try {
           const url = new URL(link.url);
+          if (ask.purpose) {
+            const purpose = linkPurpose(link);
+            if (ask.purpose === 'reset_password' && (purpose.activation && !purpose.reset || purpose.signIn && !purpose.reset)) return false;
+            if (ask.purpose !== 'reset_password' && purpose.reset) return false;
+            if (ask.purpose === 'sign_in' && purpose.activation) return false;
+          }
           return url.protocol === 'https:' && !url.username && !url.password
             && !/unsubscribe|privacy|terms|help|support|tracking/i.test(`${link.text} ${url.pathname}`)
-            && /verif|confirm|activat|sign.in|log.?in|reset|magic|authenticat/i.test(`${link.text} ${url.pathname} ${url.searchParams.toString()}`);
+            && (opaqueResetLink || /verif|confirm|activat|sign.in|log.?in|reset|magic|authenticat/i.test(`${link.text} ${url.pathname} ${url.searchParams.toString()}`));
         } catch { return false; }
       });
       const unique = [...new Map(links.map(link => [new URL(link.url).href, link])).values()];

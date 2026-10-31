@@ -50,3 +50,22 @@ test('only code-adjacent tokens are OTPs; expiry years and account IDs are not',
   assert.equal(read([email('Your pass code: 1234 5678')], { hint: 'Fixture', want: 'code' })?.value, '12345678');
   assert.equal(read([email('Your verification code expires in 2026.')], { hint: 'Fixture', want: 'code' }), null);
 });
+
+test('password recovery cannot consume an activation or sign-in message from the same employer', () => {
+  const activation = { position: 0, subject: 'Fixture: account activation', text: 'Activate your Fixture account using this activation link.', links: [{ text: 'Activate account', url: 'https://fixture.invalid/activate?hash=activation' }] };
+  const reset = { position: 1, subject: 'Fixture: reset your password', text: 'Use this link to reset your Fixture password.', links: [{ text: 'Reset password', url: 'https://fixture.invalid/reset?hash=reset' }] };
+  const ask = { hint: 'Fixture', want: 'link' as const, purpose: 'reset_password' as const };
+  assert.equal(read([activation, reset], ask)?.value, reset.links[0].url, 'even a newer activation message must not hide the requested reset');
+  assert.equal(read([activation], ask), null, 'an activation link is not evidence that password-reset mail arrived');
+  assert.equal(read([{ ...activation, text: 'Your Fixture verification code is 111222.', links: [...activation.links, { text: 'Forgot password?', url: 'https://fixture.invalid/reset' }] }], { ...ask, want: 'code' as const }), null, 'a generic password-reset footer cannot turn an activation code into a reset code');
+  assert.equal(read([reset], { ...ask, purpose: 'account_verification' as const }), null);
+  assert.equal(read([activation], { ...ask, purpose: 'sign_in' as const }), null);
+  assert.equal(read([{ ...activation, subject: 'Fixture: activate your account', text: 'Activate your Fixture account.' }], { ...ask, purpose: 'account_verification' as const })?.value, activation.links[0].url);
+  const mixed = { ...reset, links: [activation.links[0], reset.links[0]] };
+  assert.equal(read([mixed], ask)?.value, reset.links[0].url, 'filter links as well as messages when one email contains multiple authentication actions');
+  const opaque = { ...reset, text: 'To reset your password, click the link below.', links: [{ text: 'Click here', url: 'https://fixture.invalid/career?email=fixture&hash=opaque' }] };
+  assert.equal(read([opaque], ask)?.value, opaque.links[0].url, 'explicit password-reset instructions can identify one opaque action URL without guessing from secret tokens');
+  assert.equal(read([{ ...opaque, links: [...opaque.links, { text: 'Click here', url: 'https://fixture.invalid/career?hash=another' }] }], ask), null, 'purpose does not override ambiguous action links');
+  const code = (subject: string, value: string) => ({ position: 0, subject, text: `Your Fixture security code is ${value}.`, links: [] });
+  assert.equal(read([code('Fixture: account verification', '111222'), code('Fixture: reset your password', '482913')], { ...ask, want: 'code' as const })?.value, '482913');
+});
