@@ -4,7 +4,7 @@ import type {IncomingMessage,ServerResponse} from 'node:http';
 import {getPool} from './db/index.js';
 import {handleFormsRequest,formAdminAction} from './form-lab.js';
 import {handleAdminRequest} from './admin.js';
-import {runner,MAX_CONCURRENT} from './runner.js';
+import {runner,MAX_CONCURRENT,deploying} from './runner.js';
 import {userDir,USERS_DIR} from './userdata.js';
 import {rmSync} from 'node:fs';
 import {dirname} from 'node:path';
@@ -30,11 +30,14 @@ try{
  assert.equal((await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'celeris',confirm:false})).status,400,'API requires deliberate spending confirmation');
  const reservations=Array.from({length:MAX_CONCURRENT},(_,i)=>'forms-capacity-fixture-'+i);
  try{for(const id of reservations)assert.equal(runner.claimStart(id),true);assert.equal((await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'celeris',confirm:true})).status,409,'test launch shares the real capacity reservation');}finally{for(const id of reservations)runner.releaseStart(id);}
- const created=await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'celeris',confirm:true});assert.equal(created.status,201);
- const id=(created.body as {id:string}).id;
- for(let i=0;i<30&&runner.inUse(actorInfo.id);i++)await new Promise(done=>setTimeout(done,10));
- assert.equal(runner.inUse(actorInfo.id),false,'failed account preparation releases the reserved server slot');
- const failed=await formAdminAction(actorInfo,'/forms/'+id,'GET');assert.equal((failed.body as {status:string}).status,'error');
+ const created=await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'celeris',confirm:true});
+ if(deploying())assert.equal(created.status,409,'deployment refuses synthetic launches too');
+ else{
+  assert.equal(created.status,201);const id=(created.body as {id:string}).id;
+  for(let i=0;i<30&&runner.inUse(actorInfo.id);i++)await new Promise(done=>setTimeout(done,10));
+  assert.equal(runner.inUse(actorInfo.id),false,'failed account preparation releases the reserved server slot');
+  const failed=await formAdminAction(actorInfo,'/forms/'+id,'GET');assert.equal((failed.body as {status:string}).status,'error');
+ }
  const req=Object.assign(Readable.from([]),{url:'/forms/attempts/11111111-1111-4111-8111-111111111111/page/1',method:'GET',headers:{'x-owtomate-form-test':'forged'}}) as unknown as IncomingMessage;
  let status=0;await handleFormsRequest(req,{setHeader:()=>{},writeHead:(code:number)=>{status=code;},end:()=>{}} as unknown as ServerResponse);assert.equal(status,403,'forged worker capability cannot bypass admin access');
  console.log('PASS form access: anonymous/customer denial, admin HTML, private screenshots, API authorization, explicit launch confirmation and forged capabilities. No worker, model call, email or real database operation.');
