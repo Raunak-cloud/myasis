@@ -174,6 +174,22 @@ try {
     'visitor@example.test',
   );
   assert.equal(parseMarket(null), 'all');
+  // A returning visitor keeps the same browser-session ID when an old tab is
+  // reopened. A heartbeat must bring that visit above a newer, inactive visit,
+  // including when LIMIT would otherwise hide it from the report.
+  await connection.query("UPDATE page_views SET started_at = now() - interval '3 days', last_seen_at = now() - interval '3 days'");
+  const returningId = await recordPageView(request, view('visitor-returning', 'session-returning'), '2');
+  const returningPageId = await recordPageView(request, view('visitor-returning', 'session-returning', { page: 'run' }), '2');
+  const newerId = await recordPageView(request, view('visitor-newer', 'session-newer'), '2');
+  await connection.query("UPDATE page_views SET started_at = now() - interval '2 days', last_seen_at = now() - interval '1 hour' WHERE id=$1", [returningId]);
+  await connection.query("UPDATE page_views SET started_at = now() - interval '2 hours', last_seen_at = now() - interval '1 hour' WHERE id=$1", [returningPageId]);
+  await connection.query("UPDATE page_views SET started_at = now() - interval '10 minutes', last_seen_at = now() - interval '10 minutes' WHERE id=$1", [newerId]);
+  await pulsePageView({ id: returningPageId, visitorId: 'visitor-returning', durationMs: 12000, sequence: 1, visible: true }, '2');
+  const latest = await recentVisits({ range: '7d', market: 'all' }, 1);
+  assert.equal(latest[0]?.visitorId, 'visitor-returning', 'latest activity must win before limiting sessions, even when its session started earlier');
+  assert.equal(latest[0]?.email, 'visitor@example.test');
+  assert.equal(latest[0]?.views, 2, 'heartbeats do not invent page views or sessions');
+  assert.ok(Date.parse(latest[0].endedAt) > Date.parse(latest[0].startedAt));
   console.log(
     'PASS visitor presence, expiry, admin exclusion, shared devices, counts, location scope, referrer privacy and unknown duration (temporary PostgreSQL tables only)',
   );

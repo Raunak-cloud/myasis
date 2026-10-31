@@ -411,7 +411,8 @@ export function VisitorsView() {
           <section className="card admin-section table-wrap">
             <h3>Recent visits</h3>
             <p className="job-meta">
-              Latest {data.recent.length} browser sessions in this period. Times
+              Latest {data.recent.length} browser sessions in this period, sorted
+              by last recorded activity. Times
               shown in {data.timeZone}. Locations are estimated from IP
               addresses.
             </p>
@@ -419,7 +420,7 @@ export function VisitorsView() {
               <StackedTable>
                 <thead>
                   <tr>
-                    <th>Started</th>
+                    <th>Last active</th>
                     <th>Visitor</th>
                     <th>Location</th>
                     <th>Page views / details</th>
@@ -429,7 +430,12 @@ export function VisitorsView() {
                 <tbody>
                   {data.recent.map((visit) => (
                     <tr key={`${visit.visitorId}:${visit.sessionId}`}>
-                      <td>{when(visit.startedAt, data.timeZone)}</td>
+                      <td>
+                        {when(visit.endedAt, data.timeZone)}
+                        <small className="job-meta">
+                          Started {when(visit.startedAt, data.timeZone)}
+                        </small>
+                      </td>
                       <td>
                         {visit.email ?? 'Anonymous'}
                         <small className="job-meta">

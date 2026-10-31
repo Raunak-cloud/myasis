@@ -433,7 +433,7 @@ export interface RecentVisit {
   email: string | null;
 }
 
-/** One row per visit (a browser session), newest first: the pages in order, and everything known about who was there. */
+/** One row per browser session, most recently active first, including returning tabs. */
 export async function recentVisits(opts: VisitorScope, limit = 150): Promise<RecentVisit[]> {
   const { where, params } = await scope(opts);
   params.push(Math.min(500, Math.max(1, limit)));
@@ -474,7 +474,7 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
      )
      SELECT v.*, u.email
        FROM visits v LEFT JOIN users u ON u.id = v.user_id
-      ORDER BY v.started_at DESC
+      ORDER BY v.ended_at DESC, v.started_at DESC, v.visitor_id, v.session_id
       LIMIT $${params.length}`,
     params,
   );

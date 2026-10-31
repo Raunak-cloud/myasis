@@ -24,7 +24,7 @@ const visit = {
   sessionId: 'session-1',
   visitorId: 'customer-1',
   visitNumber: 1,
-  startedAt: stamp,
+  startedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
   endedAt: stamp,
   views: 2,
   durationMs: null,
@@ -361,6 +361,13 @@ try {
     0,
     'advanced details stay collapsed',
   );
+  const recentVisits = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Recent visits', exact: true }) });
+  await recentVisits.getByRole('columnheader', { name: 'Last active', exact: true }).waitFor();
+  await recentVisits.getByText(/sorted by last recorded activity/).waitFor();
+  const activityCell = recentVisits.locator('tbody tr').first().locator('td').first();
+  const when = (iso: string) => new Intl.DateTimeFormat('en-AU', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'Australia/Sydney' }).format(new Date(iso));
+  assert.ok((await activityCell.innerText()).startsWith(when(visit.endedAt)), 'recent activity is visible even when the session started days ago');
+  assert.ok((await activityCell.innerText()).includes('Started ' + when(visit.startedAt)), 'original session start remains available');
   for (const fixture of [
     { pages: Array(14).fill('landing'), summary: '14 page views · Home', journey: 'Home ×14' },
     { pages: ['landing', 'landing', 'pricing', 'landing', 'landing', 'landing'], summary: '6 page views · Home', journey: 'Home ×2 → Pricing → Home ×3' },
