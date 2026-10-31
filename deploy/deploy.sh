@@ -32,6 +32,10 @@ active_runs() {
       "$APP/seek-bot"|"$APP/dashboard") n=$((n + 1));;
     esac
   done
+  # Admin form tests use the production applying agent in an isolated worker.
+  for pid in $(pgrep -f 'form-lab/worker\.mjs' || true); do
+    [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP" ] && n=$((n + 1))
+  done
   for pid in $(pgrep -f 'node .*cli\.js (research|scan-site|audit-site|ai-visibility)' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/market-scout" ] && n=$((n + 1))
   done

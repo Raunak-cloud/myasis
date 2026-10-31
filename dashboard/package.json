@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build && node scripts/prerender.mts",
     "lint": "oxlint --deny-warnings",
     "test:statuses": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.app.json --test test/activity.test.mjs test/status-copy.test.tsx",
+    "test:forms": "node --test server/form-lab/engine.test.mjs && node ../seek-bot/node_modules/tsx/dist/cli.mjs server/form-lab-access.test.ts && node scripts/test-form-lab-worker.mjs",
+    "test:forms-ui": "node scripts/test-form-lab-ui.mjs",
+    "test:forms-page": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-form-lab-page.mts",
     "test:files-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-files-panel-ui.mts",
     "test:smartrecruiters-ui": "npm run build && node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-smartrecruiters-ui.mts",
     "preview": "vite preview"

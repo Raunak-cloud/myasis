@@ -62,6 +62,7 @@ import { GmailConnectionError } from '../seek-bot/src/gmail-mcp-client.js';
 import { GmailServiceError } from '../seek-bot/src/gmail-mcp-service.js';
 import { applyRunPolicy, discardRunStart, effectivePlatforms, entitlementsFor, PLATFORMS_CHOSEN_KEY, EMPLOYER_SOURCES_CHOSEN_KEY, latestRunStartedAt, mayEditRunSetting, recordRunStart, recordFeatureUse, SEARCH_TERMS_FEATURE } from './server/entitlements.js';
 import { handleAdminRequest } from './server/admin.js';
+import { handleFormsRequest, stopFormTests } from './server/form-lab.js';
 import { routeStatus } from './server/route.js';
 import { reconcilePool, startProxyPool } from './server/proxy-pool.js';
 import { alertsEnabled, alertsOffTokenValid, setAlertsEnabled } from './server/alerts.js';
@@ -159,7 +160,7 @@ function dataApi(): Plugin {
     const user = await currentUser(req.headers.cookie);
     return user ? (isAdmin(user.email) ? 'admin' : 'user') : null;
   }, upgradeOriginAllowed);
-  const handle = (req: any, res: any, next: any) => {
+  const handle = async (req: any, res: any, next: any) => {
     if (/^\/market-research(?:\/|\?|$)/.test(req.url ?? '')) return research(req, res);
     /**
      * The landing page is baked into the built HTML for crawlers. Someone
@@ -176,6 +177,7 @@ function dataApi(): Plugin {
         return res.end(shell);
       }
     }
+    if (await handleFormsRequest(req, res)) return;
     if (!req.url?.startsWith('/api/')) return next();
 
     // Nothing under /api is a page; keep it out of search results.
@@ -1410,7 +1412,7 @@ function dataApi(): Plugin {
         const shutdownDeadline = setTimeout(() => process.exit(1), 25_000);
         // Preserve the grace period for sign-in and marketing browser shutdown too.
         const browserGrace = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
-        void Promise.all([runsStopped, signinsStopped, browserGrace]).finally(() => {
+        void Promise.all([runsStopped, signinsStopped, browserGrace, stopFormTests()]).finally(() => {
           clearTimeout(shutdownDeadline);
           process.exit(0);
         });

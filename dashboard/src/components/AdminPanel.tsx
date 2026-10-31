@@ -1064,6 +1064,7 @@ export function AdminPanel() {
           </button>
         ))}
         <a className="btn" href="/market-research/" target="_blank" rel="noopener">Market research</a>
+        <a className="btn" href="/forms">Form testing</a>
       </nav>
       {view === 'overview' && <OverviewView onOpenRun={setOpenRun} />}
       {view === 'users' && <UsersView onOpenRun={setOpenRun} />}

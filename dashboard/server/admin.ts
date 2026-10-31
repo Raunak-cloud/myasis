@@ -1,4 +1,5 @@
 import { simulations } from './simulate.js';
+import { formAdminAction } from './form-lab.js';
 import { adminUserPreferences } from './admin-user-preferences.js';
 import { preparedEventsCountSql, preparedRunCount } from './admin-run-counts.js';
 import { readRunDiagnostics, readRunAttempt } from './run-diagnostics.js';
@@ -466,6 +467,10 @@ export async function handleAdminRequest(
   let match: RegExpMatchArray | null;
 
   try {
+    if (path === '/forms' || path.startsWith('/forms/')) {
+      const result = await formAdminAction(actor, path, method, method === 'POST' ? await readBody() : {});
+      return send(result.body, result.status);
+    }
     if (path === '/overview' && method === 'GET') return send(await adminOverview());
     if (path === '/users' && method === 'GET') return send(await adminUsers());
     if (path === '/runs' && method === 'GET') {
