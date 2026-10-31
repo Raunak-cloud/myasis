@@ -8,6 +8,9 @@ for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh; do b
 cd "$APP/dashboard"
 npm run test:statuses
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
+../seek-bot/node_modules/.bin/tsx scripts/test-visitor-analytics.mts
+../seek-bot/node_modules/.bin/tsx server/visits.test.ts
+../seek-bot/node_modules/.bin/tsx server/visits-access.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts
 ../seek-bot/node_modules/.bin/tsx server/site-accounts.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-admin-user-preferences.mts
