@@ -1,5 +1,6 @@
 import { simulations } from './simulate.js';
 import { adminUserPreferences } from './admin-user-preferences.js';
+import { preparedEventsCountSql, preparedRunCount } from './admin-run-counts.js';
 import { readRunDiagnostics, readRunAttempt } from './run-diagnostics.js';
 import { previewAccountAlerts } from './alerts.js';
 import { previewOperatorAlerts } from './operator-alerts.js';
@@ -200,6 +201,7 @@ interface AdminRunRow {
   finishedAt: string | null;
   exitCode: number | null;
   applied: number | null;
+  prepared: number;
   hasLog: boolean;
   running: boolean;
 }
@@ -209,10 +211,11 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
   const rows = await query<{
     id: string; user_id: string; email: string; name: string | null; mode: string; trigger: string;
     started_by_email: string | null; started_at: Date; finished_at: Date | null; exit_code: number | null;
-    applied: number | null; log_file: string | null; initiator_device: RunDevice | null;
+    applied: number | null; prepared: string | number; log_file: string | null; initiator_device: RunDevice | null;
   }>(
     `SELECT r.id::text AS id, r.user_id::text AS user_id, u.email, u.name, r.mode, r.trigger,
-            s.email AS started_by_email, r.started_at, r.finished_at, r.exit_code, r.applied, r.log_file, r.initiator_device
+            s.email AS started_by_email, r.started_at, r.finished_at, r.exit_code, r.applied, r.log_file, r.initiator_device,
+            ${preparedEventsCountSql} AS prepared
        FROM run_starts r
        JOIN users u ON u.id = r.user_id
        LEFT JOIN users s ON s.id = r.started_by
@@ -239,6 +242,7 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
       finishedAt: row.finished_at ? new Date(row.finished_at).toISOString() : null,
       exitCode: row.exit_code,
       applied: row.applied,
+      prepared: preparedRunCount(row.prepared, row.id, runner.runIdFor(row.user_id), runner.stateFor(row.user_id).prepared),
       hasLog: Boolean(row.log_file),
       running: newest && !row.finished_at && runner.stateFor(row.user_id).running,
     };

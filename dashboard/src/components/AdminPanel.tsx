@@ -73,6 +73,7 @@ interface AdminRun {
   finishedAt: string | null;
   exitCode: number | null;
   applied: number | null;
+  prepared: number;
   hasLog: boolean;
   running: boolean;
 }
@@ -239,7 +240,8 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
             <th>How</th>
             <th title="Device reported by the browser when Start was pressed">Device</th>
             <th>Took</th>
-            <th>Applied</th>
+            <th>Submitted</th>
+            <th>Prepared</th>
             <th>Result</th>
             <th />
           </tr>
@@ -263,6 +265,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
                 <td>{runDeviceLabel(run.initiatorDevice, run.trigger)}</td>
                 <td className="nowrap">{duration(run)}</td>
                 <td>{run.applied ?? '-'}</td>
+                <td>{run.prepared}</td>
                 <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
                 <td className="nowrap">
                   <button className="btn btn-small" onClick={() => onOpen(run)}>{run.running ? 'Watch / errors' : 'Errors / log'}</button>
