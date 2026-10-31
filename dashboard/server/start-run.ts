@@ -93,6 +93,14 @@ interface StartRunRequest {
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
 
+/** Operator retries keep the same frozen draft, prepaid credit and audit trail. */
+export function confirmationStartRefusal(trigger: StartRunRequest['trigger'], mode: RunMode,
+  applicationMode: StartRunRequest['applicationMode'], verifiedOperator: boolean): Refusal | null {
+  if (trigger === 'admin' && !verifiedOperator) return { ok: false, status: 403, error: 'An active administrator is required to retry an approved application.' };
+  return (trigger !== 'manual' && trigger !== 'admin') || mode !== 'live' || applicationMode === 'semi-auto'
+    ? { ok: false, status: 400, error: 'Confirmed applications must be submitted from the review list.' } : null;
+}
+
 export function expectedSalaryRefusal(profile: { expectedSalary: string }): Refusal | null {
   return annualSalaryAmount(profile.expectedSalary) === null
     ? { ok: false, status: 400, error: EXPECTED_SALARY_REQUIRED }
@@ -160,7 +168,15 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   try {
     if (request.clientOverrides?.COVER_LETTER_INSTRUCTIONS !== undefined) validateCoverLetterInstructions(request.clientOverrides.COVER_LETTER_INSTRUCTIONS);
   } catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
-  if (request.approvals !== undefined && (trigger !== 'manual' || mode !== 'live' || request.applicationMode === 'semi-auto')) return { ok: false, status: 400, error: 'Confirmed applications must be submitted from the review list.' };
+  if (request.approvals !== undefined) {
+    let operatorConfirmed = false;
+    if (trigger === 'admin' && request.startedBy) {
+      const actor = await query<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL', [request.startedBy]);
+      operatorConfirmed = isAdmin(actor[0]?.email);
+    }
+    const refused = confirmationStartRefusal(trigger, mode, request.applicationMode, operatorConfirmed);
+    if (refused) return refused;
+  }
   const onboarding = trigger === 'manual' && !admin && entitlements.firstRunRequired;
   const effectiveTrigger = onboarding ? 'onboarding' : trigger;
   /** A search-only run never reaches an employer; a live run submits applications. */

@@ -72,7 +72,10 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
    */
   const setsPassword = purpose === 'create_account' || purpose === 'reset_password';
   const site = hostOf(ctx.page.url());
-  if (purpose === 'sign_in') ctx.pendingCredentials?.delete(site);
+  // A sign-in attempt cannot accept an unverified proposal. Keep a pending
+  // reset until its own result is recorded: many sites return to an editable
+  // login form alongside the reset-success message.
+  if (purpose === 'sign_in' && ctx.pendingCredentials?.get(site)?.purpose !== 'reset_password') ctx.pendingCredentials?.delete(site);
   /**
    * Proposals never authorize an existing-account sign-in. The agent must
    * record actual registration/reset acceptance before the new password is used.
@@ -116,7 +119,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     const email = ctx.profile.email;
     // Held until the site accepts it: a sign-up refused because the account already exists must not replace the password it has.
     if (setsPassword && credential) {
-      (ctx.pendingCredentials ??= new Map()).set(site, credential);
+      (ctx.pendingCredentials ??= new Map()).set(site, { ...credential, purpose });
     }
     if (purpose === 'create_account') {
       noteAction(ctx, { kind: 'authentication-prepared', purpose: 'create_account', site, email, detail: `Filled account-registration fields on ${siteName(site)} with ${email}; account creation is not yet confirmed.` });
@@ -149,7 +152,9 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
   }
   const evidence = await employerMessageEvidence(ctx.page, String(args.evidence ?? ''));
   if (!evidence) return ok('Copy the complete current employer message as evidence. Typed values, button labels and a narrative summary cannot establish authentication. Nothing has been recorded.', 'reobserve');
-  if (outcome === 'accepted') {
+  // Password reset/registration acceptance and an authenticated session are
+  // separate outcomes. The agent judges the fresh employer message for each.
+  if (outcome === 'accepted' && purpose === 'sign_in') {
     for (const frame of ctx.page.frames()) {
       if (frame !== ctx.page.mainFrame() && !await (await frame.frameElement()).isVisible()) continue;
       await preparePrivateAuthenticationFields(frame);
@@ -167,7 +172,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     at: new Date().toISOString(), detail: `Authentication ${outcome}: ${evidence.quote}` };
   if (outcome === 'rejected') {
     if (purpose === 'sign_in') rejectCredential(ctx.page.url(), email);
-    ctx.pendingCredentials?.delete(site);
+    if (purpose !== 'sign_in' || ctx.pendingCredentials?.get(site)?.purpose !== 'reset_password') ctx.pendingCredentials?.delete(site);
     ctx.actions.push({ ...action, kind: 'authentication-rejected' });
     // Retire the actual private value too; another click must not resubmit it.
     for (const frame of ctx.page.frames()) {
@@ -186,8 +191,8 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
   }
   const accepted = { ...action, kind: purpose === 'create_account' ? 'account-created' as const : purpose === 'reset_password' ? 'password-reset' as const : 'signed-in' as const };
   ctx.actions.push(accepted);
-  commitAcceptedCredentials(ctx.pendingCredentials, [accepted], email);
-  return ok('Recorded accepted authentication with current employer evidence.');
+  if (purpose !== 'sign_in') commitAcceptedCredentials(ctx.pendingCredentials, [accepted], email);
+  return ok('Recorded accepted authentication with current employer evidence.' + (purpose === 'reset_password' || purpose === 'create_account' ? ' This confirms the credential change, not a signed-in session. If the site returned to sign-in, use complete_authentication with purpose=sign_in next.' : ''));
 }
 
 export async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string, targets?: Locator[]): Promise<boolean> {

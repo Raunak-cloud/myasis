@@ -37,7 +37,7 @@ export function rejectCredential(url: string, email: string): void {
 
 function rememberCredential(url: string, email: string, credential: SiteCredential): void {
   const all = readAll();
-  all[key(url, email)] = { ...credential, status: 'accepted', at: new Date().toISOString() };
+  all[key(url, email)] = { format: credential.format, ...(credential.rules ? { rules: credential.rules } : {}), status: 'accepted', at: new Date().toISOString() };
   writeFileSync(FILE(), JSON.stringify(all, null, 2));
 }
 

@@ -32,7 +32,7 @@ export interface ToolContext {
   observation: Observation;
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
-  pendingCredentials?: Map<string, SiteCredential>;
+  pendingCredentials?: Map<string, SiteCredential & { purpose?: 'create_account' | 'reset_password' }>;
   resumeUsed?: string;
   resumeName?: string;
   log: (line: string) => void;

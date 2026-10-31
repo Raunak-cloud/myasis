@@ -678,6 +678,7 @@ export async function handleAdminRequest(
           email: target.email,
           mode: 'live',
           applicationMode: body?.applicationMode ?? schedule?.application_mode ?? 'auto',
+          approvals: body?.approvals,
           trigger: 'admin',
           startedBy: actor.id,
           initiatorDevice: runDeviceFromHeaders(req.headers ?? {}),
