@@ -12,7 +12,8 @@
  */
 
 const VISITOR_KEY = 'owtomate_visitor';
-const SESSION_KEY = 'owtomate_session';
+const SESSION_KEY = 'owtomate_session_v2';
+const SESSION_IDLE_MS = 30 * 60 * 1000;
 const ATTRIBUTION_KEY = 'owtomate_attribution';
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -31,11 +32,12 @@ function cleanAttributionValue(value: string | null, max: number): string {
 
 /** Capture campaign data before auth or an in-app navigation can replace the landing URL. */
 function landingAttribution(): Attribution | null {
+  let current: Attribution | null = null;
   try {
     const params = new URLSearchParams(window.location.search);
     const source = cleanAttributionValue(params.get('utm_source'), 80)
       || (params.has('rdt_cid') ? 'reddit' : '');
-    const current = source ? {
+    current = source ? {
       source: source.toLowerCase(),
       medium: cleanAttributionValue(params.get('utm_medium'), 80),
       campaign: cleanAttributionValue(params.get('utm_campaign'), 160),
@@ -44,7 +46,7 @@ function landingAttribution(): Attribution | null {
     const stored = current ?? JSON.parse(sessionStorage.getItem(ATTRIBUTION_KEY) ?? 'null');
     return stored && typeof stored.source === 'string' ? stored as Attribution : null;
   } catch {
-    return null;
+    return current;
   }
 }
 
@@ -59,6 +61,8 @@ function freshId(): string {
 }
 
 const fallback = { visitor: freshId(), session: freshId() };
+interface BrowserSession { id: string; lastActiveAt: number }
+let fallbackSession: BrowserSession = { id: fallback.session, lastActiveAt: Date.now() };
 
 function stored(storage: () => Storage, key: string, fallbackId: string): string {
   try {
@@ -72,17 +76,30 @@ function stored(storage: () => Storage, key: string, fallbackId: string): string
   }
 }
 
-/** The same person across days, and this sitting of theirs. */
-const ids = () => ({
-  visitorId: stored(() => localStorage, VISITOR_KEY, fallback.visitor),
-  sessionId: stored(() => sessionStorage, SESSION_KEY, fallback.session),
-});
+/** Tabs share a browser visit; returning after 30 minutes starts a new visit. */
+function ids() {
+  const now = Date.now();
+  let session = fallbackSession;
+  try {
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null') as BrowserSession | null;
+    if (saved && typeof saved.id === 'string' && ID_PATTERN.test(saved.id)
+      && Number.isFinite(saved.lastActiveAt)) session = saved;
+  } catch { /* Blocked storage keeps a session in this page's memory. */ }
+  if (now - session.lastActiveAt >= SESSION_IDLE_MS || session.lastActiveAt > now) {
+    session = { id: freshId(), lastActiveAt: now };
+  }
+  fallbackSession = { id: session.id, lastActiveAt: now };
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(fallbackSession)); } catch { /* private storage */ }
+  return { visitorId: stored(() => localStorage, VISITOR_KEY, fallback.visitor), sessionId: session.id };
+}
 
 interface View {
   id: string | null;
   page: string;
   identity: string | null;
   visitorId: string;
+  sessionId: string;
+  payload: Record<string, unknown>;
   sequence: number;
   startedAt: number;
   failed: boolean;
@@ -95,6 +112,25 @@ let current: View | null = null;
 let listening = false;
 let referrerReported = false;
 let attributionReported = false;
+
+/** Retry the same event ID so a lost response cannot create a second page view. */
+function createView(view: View): void {
+  view.failed = false;
+  view.ready = fetch('/api/visit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+    ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? { signal: AbortSignal.timeout(8_000) } : {}),
+    body: JSON.stringify(view.payload),
+  }).then(response => {
+    if (!response.ok) throw new Error('Visit recording unavailable');
+    return response.json();
+  }).then((body: { id?: unknown; ignored?: boolean }) => {
+    if (typeof body?.id === 'string' && /^\d{1,18}$/.test(body.id)) {
+      view.id = body.id;
+      referrerReported = true;
+      attributionReported = true;
+    } else if (body?.ignored !== true) throw new Error('Visit recording was not acknowledged');
+  }).catch(() => { view.failed = true; });
+}
 
 function elapsed(view: View): number {
   return Math.max(0, Math.round(view.visibleMs + (view.visibleSince === null ? 0 : performance.now() - view.visibleSince)));
@@ -154,26 +190,24 @@ function listen(): void {
 /** Authentication changes rotate the row too, so account identity stays accurate. */
 export function trackPage(page: string, identity: string | null = null): void {
   if (navigator.webdriver) return;
-  if (current?.page === page && current.identity === identity && !current.failed && performance.now() - current.startedAt < 6 * 60 * 60 * 1000) return;
+  const { visitorId, sessionId } = ids();
+  if (current?.page === page && current.identity === identity && current.sessionId === sessionId
+    && performance.now() - current.startedAt < 6 * 60 * 60 * 1000) {
+    if (current.failed) createView(current);
+    return;
+  }
   listen();
   if (current) hide(current);
-  const { visitorId, sessionId } = ids();
   const view: View = {
-    id: null, page, identity, visitorId, sequence: 0, startedAt: performance.now(), failed: false, visibleMs: 0,
+    id: null, page, identity, visitorId, sessionId, sequence: 0, startedAt: performance.now(), failed: false, visibleMs: 0,
     visibleSince: document.visibilityState === 'hidden' ? null : performance.now(),
     ready: Promise.resolve(),
-  };
-  view.ready = fetch('/api/visit', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-    body: JSON.stringify({ visitorId, sessionId, page, visible: view.visibleSince !== null,
+    payload: { visitorId, sessionId, viewId: freshId(), page, visible: document.visibilityState !== 'hidden',
       referrer: referrerReported ? '' : document.referrer,
       attribution: attributionReported ? null : attribution,
       screen: `${window.screen.width}x${window.screen.height}`, language: navigator.language,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-  }).then(response => response.json()).then((body: { id?: unknown }) => {
-    if (typeof body?.id === 'string') view.id = body.id;
-  }).catch(() => { view.failed = true; });
-  referrerReported = true;
-  attributionReported = true;
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+  };
+  createView(view);
   current = view;
 }

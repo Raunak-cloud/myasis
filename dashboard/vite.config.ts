@@ -279,8 +279,13 @@ function dataApi(): Plugin {
     if (route === '/api/visit' && req.method === 'POST') {
       return readBody().then(async (b) => {
         const user = await currentUser(req.headers?.cookie).catch(() => null);
-        const id = await recordPageView(req, b, user?.id ?? null).catch(() => null);
-        return send({ id });
+        try {
+          const id = await recordPageView(req, b, user?.id ?? null);
+          return send({ id, ignored: id === null });
+        } catch {
+          // Transient failures must not be mistaken for an intentionally ignored visit.
+          return send({ id: null, retryable: true }, 503);
+        }
       });
     }
     if (route === '/api/visit/pulse' && req.method === 'POST') {

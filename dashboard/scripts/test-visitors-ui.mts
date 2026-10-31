@@ -27,8 +27,11 @@ const visit = {
   startedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
   endedAt: stamp,
   views: 2,
-  durationMs: null,
+  durationMs: null as number | null,
   pages: ['landing', 'run'],
+  lastPage: 'run',
+  timedViews: 0,
+  accountCount: 1,
   ip: '203.0.113.5',
   countryCode: 'AU',
   country: 'Australia',
@@ -367,13 +370,14 @@ try {
   const activityCell = recentVisits.locator('tbody tr').first().locator('td').first();
   const when = (iso: string) => new Intl.DateTimeFormat('en-AU', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'Australia/Sydney' }).format(new Date(iso));
   assert.ok((await activityCell.innerText()).startsWith(when(visit.endedAt)), 'recent activity is visible even when the session started days ago');
-  assert.ok((await activityCell.innerText()).includes('Started ' + when(visit.startedAt)), 'original session start remains available');
+  assert.ok((await activityCell.innerText()).includes('First recorded ' + when(visit.startedAt)), 'first retained record remains available');
   for (const fixture of [
     { pages: Array(14).fill('landing'), summary: '14 page views · Home', journey: 'Home ×14' },
     { pages: ['landing', 'landing', 'pricing', 'landing', 'landing', 'landing'], summary: '6 page views · Home', journey: 'Home ×2 → Pricing → Home ×3' },
     { pages: ['landing'], summary: '1 page view · Home', journey: 'Home' },
   ]) {
     visit.pages = fixture.pages;
+    visit.lastPage = fixture.pages.at(-1)!;
     visit.views = fixture.pages.length;
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     const summary = page.locator('summary').filter({ hasText: fixture.summary });
@@ -384,7 +388,22 @@ try {
     await summary.click();
   }
   visit.pages = ['landing', 'run'];
+  visit.lastPage = 'run';
   visit.views = 2;
+  visit.lastPage = 'landing';
+  visit.durationMs = 45000;
+  visit.timedViews = 1;
+  visit.accountCount = 2;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await recentVisits.getByText('2 page views · Home', { exact: true }).waitFor();
+  await recentVisits.getByText('At least 45s', { exact: false }).waitFor();
+  await recentVisits.getByText('Time recorded for 1 of 2 page views', { exact: true }).waitFor();
+  await recentVisits.getByText('Multiple signed-in accounts', { exact: false }).waitFor();
+  assert.equal(await recentVisits.getByText('customer@example.test', { exact: true }).count(), 0, 'a mixed-account history never claims one account owns all its activity');
+  visit.lastPage = 'run';
+  visit.durationMs = null;
+  visit.timedViews = 0;
+  visit.accountCount = 1;
   await page.getByRole('button', { name: 'Today', exact: true }).click();
   await page.getByRole('button', { name: '30 days', exact: true }).click();
   await page.getByText('33', { exact: true }).waitFor();
@@ -419,6 +438,7 @@ try {
   });
   if (await closeMenu.isVisible()) await closeMenu.click();
   await page.locator('.side-nav').waitFor({ state: 'hidden' });
+  assert.equal(await recentVisits.locator('tbody td').nth(3).evaluate(element => getComputedStyle(element, '::before').position), 'static', 'wrapping mobile labels stay in normal flow instead of overlapping the next field');
   assert.equal(
     await page
       .locator('.visitor-live tbody td')

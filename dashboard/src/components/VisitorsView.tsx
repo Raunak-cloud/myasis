@@ -19,6 +19,9 @@ interface RecentVisit {
   endedAt: string;
   views: number;
   durationMs: number | null;
+  timedViews?: number;
+  lastPage?: string;
+  accountCount?: number;
   pages: string[];
   ip: string | null;
   countryCode: string | null;
@@ -53,6 +56,7 @@ interface VisitorReport {
     visitors: number;
     visits: number;
     views: number;
+    timedViews?: number;
     signedIn: number;
     located: number;
     avgSeconds: number | null;
@@ -86,6 +90,7 @@ interface VisitorReport {
 
 interface LiveVisitors {
   generatedAt: string;
+  timeZone?: string;
   activeWithinSeconds: number;
   count: number;
   visitors: Array<{
@@ -324,7 +329,7 @@ export function VisitorsView() {
                       .filter(Boolean)
                       .join(' · ') || 'Unknown'}
                   </td>
-                  <td>{when(visitor.lastSeenAt)}</td>
+                  <td>{when(visitor.lastSeenAt, liveData.timeZone)}</td>
                 </tr>
               ))}
             </tbody>
@@ -334,7 +339,7 @@ export function VisitorsView() {
         )}
         {liveData && (
           <p className="job-meta">
-            Checked {when(liveData.generatedAt)} Sydney time
+            Checked {when(liveData.generatedAt, liveData.timeZone)} ({liveData.timeZone ?? 'Australia/Sydney'})
             {liveData.count > liveData.visitors.length
               ? ` · Showing the latest ${liveData.visitors.length}`
               : ''}
@@ -385,11 +390,11 @@ export function VisitorsView() {
           <div className="admin-tiles visitor-totals">
             {[
               ['Visitors', data.totals.visitors, 'Unique browser IDs'],
-              ['Visits', data.totals.visits, 'Browser sessions'],
+              ['Visits', data.totals.visits, 'Sessions with new page views'],
               [
                 'Page views',
                 data.totals.views,
-                `${data.totals.signedIn} visitors signed in`,
+                `${data.totals.signedIn} signed-in browsers`,
               ],
               [
                 'Avg visible time / page',
@@ -398,7 +403,7 @@ export function VisitorsView() {
                     ? null
                     : data.totals.avgSeconds * 1000,
                 ),
-                'Only pages with recorded time',
+                data.totals.timedViews === undefined ? 'Only pages with recorded time' : `Time recorded for ${data.totals.timedViews} of ${data.totals.views} page views`,
               ],
             ].map(([label, value, note]) => (
               <div className="card admin-tile" key={label}>
@@ -408,11 +413,16 @@ export function VisitorsView() {
               </div>
             ))}
           </div>
+          <p className="job-meta">
+            Totals count page views first recorded in the selected period.
+            Recent visits also include older sessions active during this period.
+            Today begins at midnight in {data.timeZone}; other ranges are rolling periods.
+          </p>
           <section className="card admin-section table-wrap">
             <h3>Recent visits</h3>
             <p className="job-meta">
               Latest {data.recent.length} browser sessions in this period, sorted
-              by last recorded activity. Times
+              by last recorded activity. Session details cover retained history. Times
               shown in {data.timeZone}. Locations are estimated from IP
               addresses.
             </p>
@@ -433,11 +443,11 @@ export function VisitorsView() {
                       <td>
                         {when(visit.endedAt, data.timeZone)}
                         <small className="job-meta">
-                          Started {when(visit.startedAt, data.timeZone)}
+                          First recorded {when(visit.startedAt, data.timeZone)}
                         </small>
                       </td>
                       <td>
-                        {visit.email ?? 'Anonymous'}
+                        {(visit.accountCount ?? 0) > 1 ? 'Multiple signed-in accounts' : visit.email ?? 'Anonymous'}
                         <small className="job-meta">
                           Browser {visit.visitorId.slice(0, 8)}
                         </small>
@@ -447,7 +457,7 @@ export function VisitorsView() {
                         <details>
                           <summary>
                             {visit.views} {visit.views === 1 ? 'page view' : 'page views'}{' '}
-                            · {pageLabel(visit.pages.at(-1) ?? 'Unknown')}
+                            · {pageLabel(visit.lastPage ?? visit.pages.at(-1) ?? 'Unknown')}
                           </summary>
                           <p>{pageJourney(visit.pages)}</p>
                           <p className="job-meta">
@@ -477,7 +487,12 @@ export function VisitorsView() {
                           </p>
                         </details>
                       </td>
-                      <td>{spent(visit.durationMs)}</td>
+                      <td>
+                        {visit.durationMs !== null && (visit.timedViews ?? visit.views) < visit.views ? 'At least ' : ''}{spent(visit.durationMs)}
+                        {visit.durationMs !== null && (visit.timedViews ?? visit.views) < visit.views && (
+                          <small className="job-meta">Time recorded for {visit.timedViews} of {visit.views} page views</small>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -590,7 +605,9 @@ export function VisitorsView() {
             History refreshed{' '}
             {report.updated ? when(report.updated, data.timeZone) : 'just now'}.
             Browser IDs are not a count of people; cleared storage and blocked
-            tracking affect counts. Data kept for {data.retentionDays} days.{' '}
+            tracking affect counts. New visits expire after 30 minutes without
+            visible activity; older records may contain long-lived tab sessions.
+            Data kept for {data.retentionDays} days.{' '}
             {data.geoConfigured ? (
               <>
                 Approximate location data:{' '}

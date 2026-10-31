@@ -154,11 +154,25 @@ GeoLite2-City (free with an account) is more accurate and drops into the same
 path. Page views are kept for `VISIT_RETENTION_DAYS` (default 180) and then
 removed, because an address with a place is personal information.
 
-The view opens on visits from the country the product serves —
-`VISIT_HOME_COUNTRY`, default `AU` — and keeps every other country (and visits
-with no known place) under "Other countries". Operators' own addresses are
+The view opens on all countries. The home-country filter uses
+`VISIT_HOME_COUNTRY`, default `AU`; "Other / unknown countries" includes every
+other country and visits with no known location. Operators' own addresses are
 managed in the view's "Ignored addresses" section: nothing from an ignored
 address is recorded, and earlier visits from it are hidden from every report.
+
+New browser visits are shared across tabs and expire after 30 minutes without
+visible activity. Older session IDs may cover multiple days; those historical
+records remain intact. Report totals count page views first recorded in the
+selected period, while Recent visits includes sessions with activity during it
+and shows their retained page history. Partial visible-time totals are labelled
+as lower bounds. Browser IDs measure browsers, not distinct people.
+
+New clients send a stable page-event ID. The unique visitor/event index prevents
+a response-loss retry from recording a duplicate page view. Apply the schema
+upgrade before restarting the updated API. Recording outages return a retryable
+response; intentionally ignored visits do not retry. Country and retention
+settings are read from the process environment or `seek-bot/.env`. Retention
+accepts whole days from 7 to 3650 and otherwise uses 180 days.
 
 ## 4. Keep the public surface safe
 
