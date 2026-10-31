@@ -34,7 +34,7 @@ test('MiniMax credentials are added only after rechecking the admin owner and se
     const [admin, customer] = await Promise.all(['admin', 'customer'].map(id => accountApplicationEnvironment(id, settings)));
     assert.equal(admin.APPLICATION_AI_MODEL, 'minimax');
     assert.equal(admin.OPENROUTER_API_KEY, 'fictional-openrouter');
-    assert.equal(admin.CELERIS_API_KEY, 'fictional-celeris', 'matching retains its own provider');
+    assert.equal(admin.CELERIS_API_KEY, '', 'the unselected provider cannot be restored by dotenv');
     assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
     assert.equal(customer.OPENROUTER_API_KEY, '', 'blank explicitly prevents worker dotenv from restoring a machine key');
     assert.equal((await accountApplicationEnvironment('admin', {})).OPENROUTER_API_KEY, '');
@@ -48,6 +48,9 @@ test('MiniMax credentials are added only after rechecking the admin owner and se
     await assert.rejects(accountApplicationEnvironment('customer',oneTime,'unverified-run'),/no valid administrator/);
     assert.equal((await accountApplicationEnvironment('customer',settings)).APPLICATION_AI_MODEL,'celeris','the customer default remains unchanged');
     pool.query=operatorQuery;
+    process.env.CELERIS_API_KEY = '';
+    assert.equal((await accountApplicationEnvironment('admin', settings)).APPLICATION_AI_MODEL, 'minimax', 'MiniMax does not depend on the unselected provider credential');
+    process.env.CELERIS_API_KEY = 'fictional-celeris';
     process.env.OPENROUTER_API_KEY = '';
     await assert.rejects(accountApplicationEnvironment('admin', settings), /MiniMax is not configured/);
   } finally {

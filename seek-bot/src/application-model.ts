@@ -14,23 +14,23 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
 
 /** Stable provider identity also separates established caches from retired
  * experiments without deleting account history. */
-export function applicationModelIdentity(_env?: ApplicationEnvironment) {
-
-  return { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
+export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
+  return env.APPLICATION_AI_MODEL === 'minimax'
+    ? { selection: 'minimax', model: MINIMAX_APPLICATION_MODEL, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
+    : { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
 }
 
 export function applicationModelAvailable(env: ApplicationEnvironment = applicationModelEnvironment()): boolean {
-  return Boolean(env.CELERIS_API_KEY?.trim());
+  return Boolean((env.APPLICATION_AI_MODEL === 'minimax' ? env.OPENROUTER_API_KEY : env.CELERIS_API_KEY)?.trim());
 }
 
 export function assertApplicationModelConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
-  if (!applicationModelAvailable(env)) throw new Error('CELERIS_API_KEY is required for application AI.');
+  if (!applicationModelAvailable(env)) throw new Error(`${env.APPLICATION_AI_MODEL === 'minimax' ? 'OPENROUTER_API_KEY' : 'CELERIS_API_KEY'} is required for application AI.`);
 }
 
 export const MINIMAX_APPLICATION_MODEL = 'minimax/minimax-m3.1-flash';
 
-/** The applying agent is selectable independently of the Celeris matcher.
- * Account authorization and credential selection happen in the dashboard. */
+/** Account authorization and credential selection happen in the dashboard. */
 export function applicationAgentIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
   return env.APPLICATION_AI_MODEL === 'minimax'
     ? { selection: 'minimax', model: MINIMAX_APPLICATION_MODEL, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const

@@ -23,11 +23,11 @@ test('application AI requires a nonempty Celeris credential', () => {
   assert.doesNotThrow(() => assertApplicationBrowserConfigured({ CELERIS_API_KEY: 'fictional-key' }));
 });
 
-test('MiniMax applying selection leaves matching identity and credentials independent', () => {
+test('MiniMax selection routes matching and applications to the selected identity', () => {
   const env = { APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fictional-openrouter' };
   assert.equal(applicationAgentIdentity(env).model, 'minimax/minimax-m3.1-flash');
-  assert.equal(applicationModelIdentity(env).selection, 'celeris');
-  assert.equal(applicationModelAvailable(env), false);
+  assert.equal(applicationModelIdentity(env).selection, 'minimax');
+  assert.equal(applicationModelAvailable(env), true);
   assert.doesNotThrow(() => assertApplicationBrowserConfigured(env));
   assert.throws(() => assertApplicationBrowserConfigured({ APPLICATION_AI_MODEL: 'minimax', CELERIS_API_KEY: 'fictional-celeris' }), /OPENROUTER_API_KEY/);
 });

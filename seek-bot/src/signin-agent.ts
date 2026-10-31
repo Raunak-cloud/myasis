@@ -1,5 +1,6 @@
 import type { Page } from 'patchright';
-import { celerisChat, CostMeter, type ChatMessage, type ToolSchema } from './agent/celeris.js';
+import { CostMeter, type ChatMessage, type ToolSchema } from './agent/celeris.js';
+import { applicationChat } from './agent/application-chat.js';
 import { observe, renderObservation } from './agent/observe.js';
 import { gmailAccount, gmailAvailable, findCodeInGmail } from './gmail-mailbox.js';
 import { handleCaptchaWithCapMonster } from './captcha.js';
@@ -258,7 +259,7 @@ async function drive(
 
     let reply;
     try {
-      reply = await celerisChat({ model: 'celeris-1-magnus', thinking: true, messages, tools: TOOLS, requireTool: true, temperature: 0, meter });
+      reply = await applicationChat({ model: 'celeris-1-magnus', thinking: true, messages, tools: TOOLS, requireTool: true, temperature: 0, meter });
     } catch (error) {
       return { ok: false, reason: `the sign-in assistant could not be reached (${(error as Error).message})`, steps: step };
     }

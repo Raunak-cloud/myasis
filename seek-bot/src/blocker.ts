@@ -1,5 +1,5 @@
 import type { Page } from 'patchright';
-import { celerisChat } from './agent/celeris.js';
+import { applicationChat } from './agent/application-chat.js';
 import { captchaEnabled, reportRejectedToken, trySolveCaptcha } from './captcha.js';
 
 /**
@@ -135,7 +135,7 @@ Text: ${evidence.text}
 
 Return JSON: {"state":"ok|captcha|login|identity|removed|already-applied|loading","reason":"one short sentence naming the decisive evidence"}`;
 
-  const reply = await celerisChat({
+  const reply = await applicationChat({
     model: 'celeris-1-magnus',
     thinking: true,
     messages: [{ role: 'user', content: prompt }],

@@ -1,5 +1,6 @@
 import { config, expectedSalaryAnswer } from './config.js';
-import { celerisChat, CostMeter, ReplyUnusableError, type CelerisModel, type ChatMessage } from './agent/celeris.js';
+import { CostMeter, ReplyUnusableError, type CelerisModel, type ChatMessage } from './agent/celeris.js';
+import { applicationChat } from './agent/application-chat.js';
 import type { CandidateProfile, JobListing } from './types.js';
 import { cachedAssessment, relevantEvidence, measured, metric } from './pipeline.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
@@ -162,7 +163,7 @@ async function json<T>(
     thinking: model === 'celeris-1-magnus',
     meter,
   };
-  const reply = await celerisChat(request);
+  const reply = await applicationChat(request);
   if (!reply.text) throw new ReplyUnusableError('Model returned an empty structured response');
   return JSON.parse(reply.text) as T;
 }
