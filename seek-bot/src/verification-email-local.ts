@@ -42,31 +42,43 @@ function linkPurpose(link: { text: string; url: string }): { reset: boolean; act
   return { reset: resetPurpose(text) || /\breset\b/i.test(text), activation: activationPurpose(text), signIn: signInPurpose(text) };
 }
 
+type VerificationRequest = { hint?: string; site?: string; purpose?: VerificationPurpose };
+
+/** The same identity/purpose test drives extraction and missing-format diagnostics. */
+export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
+  if (!verificationContextWords(ask).length) return false;
+  const content = `${email.subject}\n${email.text}`;
+  // Tracking query strings can mention a company without identifying the
+  // sender or destination. Use hosts, never arbitrary URL parameters.
+  const hosts = email.links.flatMap(link => { try { return [new URL(link.url).hostname]; } catch { return []; } });
+  const identity = `${email.sender || ''}\n${content}\n${hosts.join('\n')}`;
+  if (!matchesContext(identity, ask)) return false;
+  const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
+  const activationMail = activationPurpose(email.subject);
+  if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) return false;
+  if (ask.purpose === 'sign_in' && activationMail) return false;
+  if (ask.purpose === 'reset_password' && !resetMail) return false;
+  return /verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm|reset.*password/i.test(content);
+}
+
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */
-export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], ask: { hint?: string; site?: string; want: 'code' | 'link' | 'either'; purpose?: VerificationPurpose }) {
-  const words = verificationContextWords(ask);
-  if (!words.length) return null;
+export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], ask: VerificationRequest & { want: 'code' | 'link' | 'either' }) {
   for (const email of emails) {
+    if (!isRequestedVerificationEmail(email, ask)) continue;
     const content = `${email.subject}\n${email.text}`;
-    // Tracking query strings can mention a company without identifying the
-    // sender or destination. Use hosts, never arbitrary URL parameters.
-    const hosts = email.links.flatMap(link => { try { return [new URL(link.url).hostname]; } catch { return []; } });
-    const identity = `${email.sender || ''}\n${content}\n${hosts.join('\n')}`;
-    if (!matchesContext(identity, ask)) continue;
     const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
-    const activationMail = activationPurpose(email.subject);
-    if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) continue;
-    if (ask.purpose === 'sign_in' && activationMail) continue;
-    if (ask.purpose === 'reset_password' && !resetMail) continue;
-    if (!/verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm|reset.*password/i.test(content)) continue;
     if (ask.want !== 'link') {
       const token = '(\\d{4}[ -]\\d{4}|\\d{3}[ -]\\d{3}|[A-Z0-9]{4,12}(?:-[A-Z0-9]{3,6})?)';
       const label = '(?:verification|security|sign[ .-]?in|log[ .-]?in|one.time|confirmation|access|authentication)';
+      // A linking word and punctuation are independent: real messages use
+      // "is: CODE", table/newline separators and typographic dashes. Keep
+      // extraction adjacent to a code label rather than scanning for digits.
+      const separator = '\\s*(?:is\\b\\s*)?[:=\\-\u2013\u2014]?\\s*';
       const patterns = [
-        new RegExp(`\\b(?:${label}\\s+(?:code|pass[ -]?code|PIN)|pass[ -]?code|OTP)\\s*(?:is\\b|:|=|-)?\\s*${token}\\b`, 'gi'),
+        new RegExp(`\\b(?:${label}\\s+(?:code|pass[ -]?code|PIN)|pass[ -]?code|OTP)${separator}${token}\\b`, 'gi'),
         new RegExp(`\\b${token}\\b\\s+(?:is\\s+(?:your|the)\\s+)?${label}\\s+code\\b`, 'gi'),
         new RegExp(`\\b(?:use|enter)\\s+${token}\\s+to\\s+(?:verify|confirm|sign.in|log.in)\\b`, 'gi'),
-        new RegExp(`\\b(?:code|PIN)\\s*(?:is\\b|:|=|-)?\\s*${token}\\b`, 'gi'),
+        new RegExp(`\\b(?:code|PIN)${separator}${token}\\b`, 'gi'),
       ];
       for (const pattern of patterns) {
         for (const match of content.matchAll(pattern)) {

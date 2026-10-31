@@ -37,6 +37,17 @@ try {
   messages = [message('old-link', 60 * 60_000, '111222')];
   const old = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 100 });
   assert.ok('error' in old && /within the wait/.test(old.error));
+  messages = [{ id: 'punctuation', subject: 'Fixture sign-in verification', date: new Date().toISOString(), plaintextBody: 'Your security code is:\n482913' }];
+  const punctuation = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 2000 });
+  assert.ok(!('error' in punctuation) && punctuation.value === '482913');
+  messages = [{ id: 'unreadable', subject: 'Fixture sign-in verification', date: new Date().toISOString(), plaintextBody: 'Your security code is unavailable. Please contact support.' }];
+  const unreadable = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 150 });
+  assert.ok('error' in unreadable && 'reason' in unreadable && unreadable.reason === 'unreadable-message');
+  assert.match(unreadable.error, /matching verification email was found/);
+  assert.doesNotMatch(unreadable.error, /No matching verification email arrived/);
+  messages = [{ ...messages[0], id: 'unrelated', subject: 'Beta sign-in verification' }];
+  const unrelated = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 150 });
+  assert.ok('error' in unrelated && 'reason' in unrelated && unrelated.reason === 'not-found', 'another employer cannot be reported as the expected message arriving');
   const realNow = Date.now;
   try {
     let logicalNow = realNow();

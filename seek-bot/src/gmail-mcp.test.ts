@@ -55,7 +55,7 @@ const service = new GmailMcpService({
     }
     assert.equal(id, user);
     return [{ id: `${user}-email`, subject: 'Fixture: verify application', date: new Date(Date.now() - cachedMessageAgeMs).toISOString(),
-      plaintextBody: malformedCode ? 'Your Fixture verification code: 482913Code' : `Use ${user === 'owner-a' ? '482913' : '628731'} to verify your account.`,
+      plaintextBody: malformedCode ? 'Your Fixture verification code: 482913Code' : `Your security code is:\n${user === 'owner-a' ? '482913' : '628731'}. Use it to verify your account.`,
       htmlBody: `<p>Verify</p><a href="https://employer.mailbox.invalid/verified/${user}?token=fixture">Verify account</a>` }];
   },
   send: async (user, id, version) => { assert.equal(user, 'owner-a'); assert.equal(id, approval); assert.equal(version, revision); sent++; return { messageId: 'fixture-message' }; },

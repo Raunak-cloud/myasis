@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readVerificationEmailsLocally as read } from './verification-email-local.js';
+import { isRequestedVerificationEmail, readVerificationEmailsLocally as read } from './verification-email-local.js';
+
+test('code labels accept independent linking words, punctuation and layout whitespace', () => {
+  for (const separator of [' ', ': ', ' is ', ' is: ', ' is :\n', '\n:\n', ' = ', ' - ', ' – ', ' — ', ' is\u00a0—\u00a0']) {
+    for (const label of ['verification code', 'security PIN', 'passcode', 'OTP', 'code', 'PIN']) {
+      for (const [token, expected] of [['482913', '482913'], ['482 913', '482913'], ['A8X2-K9P4', 'A8X2-K9P4']]) {
+        const email = { position: 0, subject: 'Fixture sign-in verification', text: `Your ${label}${separator}${token}. Expires in 2026.`, links: [] };
+        assert.equal(read([email], { hint: 'Fixture', want: 'code', purpose: 'sign_in' })?.value, expected, `${label}${separator}[private code]`);
+      }
+    }
+  }
+  const email = { position: 0, subject: 'Fixture sign-in verification', text: 'Your security code is not available. Account 123456 expires in 2026.', links: [] };
+  assert.equal(read([email], { hint: 'Fixture', want: 'code' }), null);
+  assert.equal(isRequestedVerificationEmail(email, { hint: 'Fixture', purpose: 'sign_in' }), true);
+  assert.equal(isRequestedVerificationEmail({ ...email, subject: 'Beta verification' }, { hint: 'Fixture' }), false);
+  assert.equal(isRequestedVerificationEmail({ ...email, subject: 'Fixture reset your password' }, { hint: 'Fixture', purpose: 'sign_in' }), false);
+});
 test('verification parsing stays local, matches the requested site and ignores unrelated messages and marketing links', () => {
   const unrelated = { position: 0, subject: 'Another Company verification', text: 'Your security code is 111222', links: [] };
   const seek = { position: 1, subject: 'Your SEEK sign-in code', text: 'Your one-time code is 938 421. Enter this on SEEK to sign in.', links: [] };

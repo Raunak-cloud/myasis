@@ -254,6 +254,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   if (!('error' in found) && found.kind !== 'code') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a link, not a code. Call open_emailed_link instead.`);
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
+    if ('reason' in found && found.reason === 'unreadable-message') return ok(found.error, 'failed');
     /**
      * A signed-out mailbox is not a slow email, and calling this again will
      * not fix it. Saying so ends the attempt in one step instead of spending
@@ -300,6 +301,7 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   assertLive();
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
+    if ('reason' in found && found.reason === 'unreadable-message') return ok(found.error, 'failed');
     if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another link.`);
     return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
   }

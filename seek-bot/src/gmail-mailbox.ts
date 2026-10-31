@@ -1,6 +1,6 @@
 import { parseHTML } from 'linkedom';
 import { GmailMcpClient, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
-import { readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail, type VerificationPurpose } from './verification-email-local.js';
+import { isRequestedVerificationEmail, readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail, type VerificationPurpose } from './verification-email-local.js';
 import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
 import { config } from './config.js';
@@ -53,6 +53,10 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
   const lifetime = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
   const network: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, lifetime]) : lifetime });
   let client: GmailMcpClient | undefined;
+  let matchingEmailSeen = false;
+  const waitFailure = () => matchingEmailSeen
+    ? { error: 'A matching verification email was found in Gmail, but its requested code or link could not be read. Try another supported authentication option or report the message-format problem; resending alone will not repair it.', reason: 'unreadable-message' as const }
+    : { error: 'No matching verification email arrived through Gmail MCP within the wait.', reason: 'not-found' as const };
   const examined = new Set<string>();
   // The browser adapter explicitly selects Most recent. Do not assume an API
   // provider's thread ordering; retain the complete timestamp comparison there.
@@ -64,6 +68,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
     + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
   const read = (emails: LocalVerificationEmail[]) => {
     for (const email of emails) {
+      if (isRequestedVerificationEmail(email, options)) matchingEmailSeen = true;
       const found = readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: options.want || 'either' })
         ?? (options.allowAlternative ? readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: 'either' }) : null);
       if (found) return found;
@@ -118,10 +123,10 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
         if (lifetime.aborted) aborted();
       });
     }
-    return { error: 'No matching verification email arrived through Gmail MCP within the wait.' };
-  } catch (error) { return { error: lifetime.aborted
-    ? options.signal?.aborted ? 'The verification email wait was cancelled.' : 'No matching verification email arrived through Gmail MCP within the wait.'
-    : safeGmailError(error).message }; }
+    return waitFailure();
+  } catch (error) { return lifetime.aborted
+    ? options.signal?.aborted ? { error: 'The verification email wait was cancelled.' } : waitFailure()
+    : { error: safeGmailError(error).message }; }
   finally { await client?.close(); }
 }
 export async function findCodeInGmail(options: { hint?: string; timeoutMs?: number; log?: (message: string) => void } = {}) {
