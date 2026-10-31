@@ -17,6 +17,13 @@ fi
 APP=/home/myasis/myasis
 LOCK=$APP/.deploying
 WAIT_MINUTES=${WAIT_MINUTES:-45}
+# An explicit full SHA keeps a reviewed release independent of concurrent pushes.
+DEPLOY_REVISION=${DEPLOY_REVISION:-}
+if [[ -n "$DEPLOY_REVISION" && ! "$DEPLOY_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'DEPLOY_REVISION must be a full lowercase Git commit SHA' >&2
+  exit 2
+fi
+FETCH_TARGET=${DEPLOY_REVISION:-main}
 
 as_app() { sudo -u myasis -H bash -lc "$1"; }
 # A run is `node dist/main.js` (or dist/queue.js) started by the dashboard with seek-bot as its working
@@ -46,7 +53,7 @@ active_runs() {
 }
 
 # Run only small checks, in one bounded phase after builds.
-as_app "cd $APP && git fetch -q origin main"
+as_app "cd $APP && git fetch -q origin $FETCH_TARGET"
 
 as_app "touch $LOCK"
 trap 'as_app "rm -f $LOCK"' EXIT
@@ -65,8 +72,8 @@ fi
 # after runs drain, then use that same revision for checks and fast-forwarding.
 # Comparing before the wait and pulling afterwards could skip required bot
 # replays for changes that arrived in between.
-as_app "cd $APP && git fetch -q origin main"
-RELEASE_SHA=$(as_app "cd $APP && git rev-parse origin/main")
+as_app "cd $APP && git fetch -q origin $FETCH_TARGET"
+RELEASE_SHA=$(as_app "cd $APP && git rev-parse ${DEPLOY_REVISION:-origin/main}")
 REPLAY_REQUIRED=0
 if ! as_app "cd $APP && git diff --quiet HEAD $RELEASE_SHA -- seek-bot"; then
   REPLAY_REQUIRED=1
