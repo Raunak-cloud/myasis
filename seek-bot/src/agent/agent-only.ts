@@ -111,7 +111,7 @@ const agentOnlyTools: ToolSchema[] = [
     status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied'] },
     reason: string, evidence: string,
     receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: copy a COMPLETE visible employer confirmation message or sentence, including its qualifications. You judge its meaning. A loading state, disabled button, account creation or URL is not receipt. Do not truncate a message to remove negation or conditions.', properties: { quote: { type: 'string', minLength: 1 } }, required: ['quote'] },
-    questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED application questions needing a consequential candidate fact or decision. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
+    questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
       type: 'object', additionalProperties: false,
       properties: { question: string, prompt: string, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
       required: ['question'],
