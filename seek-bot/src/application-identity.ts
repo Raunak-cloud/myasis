@@ -22,9 +22,17 @@ export function applicationUrlKey(raw: string): string | null {
  * a form template, not a vacancy: qualify it with listing context rather than
  * permanently blocking every other job at that employer. */
 export function applicationFormKey(job: Pick<JobListing, 'company' | 'title' | 'location'>, raw: string): string | null {
-  const canonical = applicationUrlKey(raw);
+  let canonical = applicationUrlKey(raw);
   if (!canonical) return null;
   const url = new URL(canonical);
+  // Workday resumes a manually filled application at /apply. The optional
+  // /applyManually entry step does not change its vacancy or approved content.
+  // Preserve the career site, requisition path and every routing parameter;
+  // never rewrite the original browser URL or normalize other providers.
+  if (url.hostname.endsWith('.myworkdayjobs.com') && /\/job\/.+\/apply\/applyManually\/?$/.test(url.pathname)) {
+    url.pathname = url.pathname.replace(/\/applyManually\/?$/, '');
+    canonical = url.href;
+  }
   const postingPath = /\/(?:jobs?|vacanc(?:y|ies)|requisitions?|positions?)\/[^/]+/i.test(url.pathname)
     || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f-]{18,}/i.test(url.pathname);
   const postingQuery = [...url.searchParams.keys()].some(key => /^(?:job|vacancy|requisition|position|posting)(?:id|_id|key)?$/i.test(key));

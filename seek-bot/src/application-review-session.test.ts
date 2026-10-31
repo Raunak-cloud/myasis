@@ -42,6 +42,27 @@ try {
   await page.goto(url.replace('first', 'fourth'));
   writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Changed candidate CV');
   assert.notEqual(await applicationApprovalGate(ctx), null, 'changed CV bytes still require confirmation');
+  writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Original candidate CV');
+  const workdayUrl = 'https://fixture.wd3.myworkdayjobs.com/en-US/External/job/Sydney/Developer_R123/apply/applyManually?tenant=one';
+  process.env.APPLICATION_REVIEW_MODE = 'prepare';
+  await page.goto(workdayUrl);
+  const workdayPrepared = await applicationApprovalGate(ctx);
+  assert.ok(workdayPrepared?.kind === 'terminal' && workdayPrepared.outcome.status === 'prepared');
+  const workdayDraft = workdayPrepared.outcome.draft;
+  writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([workdayDraft]));
+  process.env.APPLICATION_REVIEW_MODE = 'approved';
+  await page.goto(workdayUrl.replace('/apply/applyManually', '/apply'));
+  assert.equal(await applicationApprovalGate(ctx), null, 'Workday can resume the identical approved vacancy at /apply instead of /apply/applyManually');
+  await page.locator('input').fill('Changed Workday answer');
+  assert.notEqual(await applicationApprovalGate(ctx), null, 'a real Workday answer change still requires confirmation');
+  await page.goto(workdayUrl.replace('R123', 'R456'));
+  assert.notEqual(await applicationApprovalGate(ctx), null, 'a different Workday requisition cannot inherit confirmation');
+  await page.goto(workdayUrl.replace('tenant=one', 'tenant=two'));
+  assert.notEqual(await applicationApprovalGate(ctx), null, 'a different Workday tenant cannot inherit confirmation');
+  await page.goto(workdayUrl.replace('/External/', '/AnotherSite/'));
+  assert.notEqual(await applicationApprovalGate(ctx), null, 'a different Workday career site cannot inherit confirmation');
+  await page.goto(workdayUrl.replace('myworkdayjobs.com', 'myworkdayjobs.com.evil.invalid').replace('/apply/applyManually', '/apply'));
+  assert.notEqual(await applicationApprovalGate(ctx), null, 'a lookalike host cannot inherit Workday confirmation');
   assert.equal(submissions, 0, 'checking approval never sends an application');
   console.log('PASS: rotated SEEK sessions preserve existing approval; changed answers, vacancy, tenant and CV require confirmation.');
 } finally {

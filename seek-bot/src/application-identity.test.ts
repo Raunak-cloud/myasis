@@ -30,6 +30,20 @@ test('a shared generic form template cannot suppress unrelated vacancies', () =>
   assert.equal(applicationFormKey(job, posting), applicationFormKey({ ...job, title: 'Renamed listing' }, posting));
 });
 
+test('Workday manual entry and resumed apply routes preserve the same vacancy identity only', () => {
+  const manual = 'https://fixture.wd3.myworkdayjobs.com/en-US/External/job/Sydney/Developer_R123/apply/applyManually?tenant=one';
+  const resumed = manual.replace('/apply/applyManually', '/apply');
+  assert.equal(applicationFormKey(job, manual), applicationFormKey(job, resumed));
+  assert.notEqual(applicationUrlKey(manual), applicationUrlKey(resumed), 'the original URL remains intact for browser use');
+  for (const different of [resumed.replace('R123', 'R456'), resumed.replace('/External/', '/OtherSite/'), resumed.replace('tenant=one', 'tenant=two'), resumed + '&token=unknown']) {
+    assert.notEqual(applicationFormKey(job, manual), applicationFormKey(job, different));
+  }
+  for (const host of ['fixture.invalid', 'fixture.myworkdayjobs.com.evil.invalid']) {
+    const otherManual = manual.replace('fixture.wd3.myworkdayjobs.com', host);
+    assert.notEqual(applicationFormKey(job, otherManual), applicationFormKey(job, otherManual.replace('/apply/applyManually', '/apply')), 'unverified providers retain distinct routes');
+  }
+});
+
 test('a new SEEK handoff session keeps the same vacancy identity and preserves routing', () => {
   const first = 'https://jobs.smartrecruiters.com/oneclick-ui/company/Fixture/publication/11111111-2222-3333-4444-555555555555/screening?tenant=one&seek-token=first';
   const second = first.replace('seek-token=first', 'seek-token=second');
