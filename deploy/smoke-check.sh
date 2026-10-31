@@ -9,12 +9,14 @@ cd "$APP/dashboard"
 npm run test:statuses
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts
+../seek-bot/node_modules/.bin/tsx server/site-accounts.test.ts
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
   node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js dist/discovery-search.test.js dist/discovery-policy.test.js
   node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/observe-frames.test.js dist/agent/indeed-cover-letter.test.js dist/gmail-browser-readiness.test.js dist/agent/prepared-finalization-budget.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/authentication-state.test.js dist/site-auth.test.js
   node dist/fit-assessment.test.js
   shopt -s nullglob
   CORPORA=("$APP"/seek-bot/data/users/*/form-corpus)

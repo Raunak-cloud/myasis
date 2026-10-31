@@ -421,7 +421,7 @@ function dataApi(): Plugin {
         return withUser(async (userId) => {
           const body = await readBody();
           const password = await sitePasswordFor(userId, String(body?.site ?? ''), String(body?.email ?? ''));
-          if (!password) return send({ error: 'Owtomate has no account on that site for you.' }, 404);
+          if (!password) return send({ error: 'No verified usable password is saved for this site. Sign in with your existing account or complete password recovery.' }, 404);
           return send({ password });
         });
       }

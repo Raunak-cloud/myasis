@@ -126,7 +126,9 @@ export function authenticationValue(
   const lastName = names.length > 1 ? names[names.length - 1] : '';
 
   if (field.sensitive || field.inputType === 'password' || /\bpass(word|phrase)\b/.test(label)) {
-    return sitePassword(pageUrl, profile.email, undefined, credential);
+    // Password creation is explicit. Missing account metadata never establishes
+    // that our generated password belongs to an existing employer account.
+    return credential ? sitePassword(pageUrl, profile.email, undefined, credential) : null;
   }
   if (field.inputType === 'email' || /\b(e-?mail|email address|login id|user ?name)\b/.test(label)) {
     return profile.email || null;

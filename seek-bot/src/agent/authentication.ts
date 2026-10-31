@@ -4,13 +4,17 @@ import type { Observation } from './observe.js';
 import { isForbiddenDestination } from './browser-boundaries.js';
 import { gmailAvailable, findVerificationInGmail } from '../gmail-mailbox.js';
 import { authenticationValue, hostOf, normalizeRules, type SiteCredential } from '../site-auth.js';
-import { storedCredential } from '../site-credentials.js';
+import { storedCredential, rejectCredential, commitAcceptedCredentials } from '../site-credentials.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
 import { assertLive } from '../tool-run.js';
+import { employerMessageEvidence } from './employer-message.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
 
 export async function doCompleteAuthentication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  assertLive();
+  const purpose = String(args.purpose ?? '');
+  if (!['sign_in', 'create_account', 'reset_password'].includes(purpose)) return ok('Choose sign_in, create_account or reset_password from the observed form.', 'invalid-arguments');
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));
   const selected = new Map<string, Locator>();
@@ -31,37 +35,37 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   /**
    * Which password: a new account or a reset gets a readable one built to the
    * rules the agent read off the page; signing in uses whatever this account
-   * was given when it was made (the original formula if Owtomate has no record).
+   * was verifiably given when it was made or successfully reset.
    */
-  const purpose = String(args.purpose ?? '');
   const setsPassword = purpose === 'create_account' || purpose === 'reset_password';
   const site = hostOf(ctx.page.url());
+  if (purpose === 'sign_in') ctx.pendingCredentials?.delete(site);
   /**
-   * A password set in this attempt and not yet accepted is used for signing
-   * in on the same site, so a sign-in right after a reset or a sign-up uses
-   * the new password. It becomes the account's remembered password only once
-   * the site accepts it (see commitCredentials); until then the remembered
-   * one stands.
+   * Proposals never authorize an existing-account sign-in. The agent must
+   * record actual registration/reset acceptance before the new password is used.
    */
   const credential: SiteCredential | null = setsPassword
     ? { format: 'readable-v1', rules: normalizeRules(args.password_rules) }
-    : ctx.pendingCredentials?.get(site) ?? storedCredential(ctx.page.url(), ctx.profile.email);
+    : storedCredential(ctx.page.url(), ctx.profile.email);
   const values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url(), credential) }));
   const unsupported = values.filter((entry) => entry.value === null);
-  const missingCredential = unsupported.some((entry) => entry.field.sensitive);
+  const missingCredential = unsupported.some(({ field }) => field.sensitive || field.inputType === 'password' || /\bpass(word|phrase)\b/i.test(field.label));
   if (missingCredential) {
-    return ok('The private site credential is unavailable. Finish with "skipped" so this job is skipped.');
+    return ok('No verified usable password is available for this account and site. No credential was guessed or filled. Inspect supported registration, passwordless or authorized account recovery options; a previously existing account needs its real credential. Do not repeat the rejected sign-in or claim the candidate supplied a wrong password.', 'reobserve');
   }
 
   const filled: string[] = [];
+  const filledRefs = new Set<string>();
   const failed: string[] = [];
   for (const { field, value } of values) {
     if (value === null) continue;
     try {
+      assertLive();
       await (selected.get(field.ref) ?? browserTarget(ctx.page, { ref: field.ref })).fill(value, { timeout: 8000 });
       filled.push(field.label);
-    } catch (error) {
-      failed.push(`${field.label}: ${(error as Error).message}`);
+      filledRefs.add(field.ref);
+    } catch {
+      failed.push(field.label); // Browser errors can echo private fill values.
     }
   }
 
@@ -71,8 +75,9 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
    * not recorded, because the dashboard can derive it again for its owner.
    */
   const credentialFilled = values.some(
-    ({ field, value }) => value !== null && (field.sensitive || field.inputType === 'password') && filled.includes(field.label),
+    ({ field, value }) => value !== null && (field.sensitive || field.inputType === 'password') && filledRefs.has(field.ref),
   );
+  assertLive();
   if (credentialFilled) {
     const email = ctx.profile.email;
     // Held until the site accepts it: a sign-up refused because the account already exists must not replace the password it has.
@@ -95,6 +100,56 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
       (setsPassword ? ' If the site then rejects the password for its rules, call complete_authentication again with password_rules taken from that message.' : ''),
     failed.length || unsupported.length ? 'failed' : 'completed',
   );
+}
+
+/** The applying agent reports the outcome; transport verifies fresh quoted
+ * employer evidence and never promotes prepared fields into accepted login. */
+export async function doRecordAuthenticationResult(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  assertLive();
+  const purpose = String(args.purpose ?? ''), outcome = String(args.outcome ?? '');
+  if (!['sign_in', 'create_account', 'reset_password'].includes(purpose)
+    || !['accepted', 'rejected', 'needs_verification'].includes(outcome)) {
+    return ok('Supply purpose and an explicit outcome: accepted, rejected or needs_verification. Nothing has been recorded.', 'invalid-arguments');
+  }
+  const evidence = await employerMessageEvidence(ctx.page, String(args.evidence ?? ''));
+  if (!evidence) return ok('Copy the complete current employer message as evidence. Typed values, button labels and a narrative summary cannot establish authentication. Nothing has been recorded.', 'reobserve');
+  if (outcome === 'accepted') {
+    for (const frame of ctx.page.frames()) {
+      if (frame !== ctx.page.mainFrame() && !await (await frame.frameElement()).isVisible()) continue;
+      const passwordInputs = frame.locator('input[type="password"],input[autocomplete="current-password"],input[autocomplete="new-password"]');
+      for (const input of await passwordInputs.all()) {
+        if (await input.isVisible() && await input.isEnabled()) {
+          return ok('Authentication is still on an editable password form. Record rejected or needs_verification when appropriate, or inspect the actual authenticated account/application page before reporting accepted. No credential or success audit was saved.', 'reobserve');
+        }
+      }
+    }
+  }
+  assertLive();
+  const site = hostOf(ctx.page.url()), email = ctx.profile.email;
+  const action = { site, email, purpose: purpose as 'sign_in' | 'create_account' | 'reset_password',
+    at: new Date().toISOString(), detail: `Authentication ${outcome}: ${evidence.quote}` };
+  if (outcome === 'rejected') {
+    if (purpose === 'sign_in') rejectCredential(ctx.page.url(), email);
+    ctx.pendingCredentials?.delete(site);
+    ctx.actions.push({ ...action, kind: 'authentication-rejected' });
+    // Retire the actual private value too; another click must not resubmit it.
+    for (const frame of ctx.page.frames()) {
+      if (frame !== ctx.page.mainFrame() && !await (await frame.frameElement()).isVisible()) continue;
+      for (const input of await frame.locator('input[type="password"],input[autocomplete="current-password"],input[autocomplete="new-password"]').all()) {
+        try { assertLive(); if (await input.isVisible() && await input.isEnabled()) await input.fill('', { timeout: 1000 }); }
+        catch { assertLive(); /* Detached inputs cannot be reused on the current page. */ }
+      }
+    }
+    return ok('Recorded rejected authentication. This sign-in credential will not be reused. Account recovery or a confirmed new credential is required.', 'reobserve');
+  }
+  if (outcome === 'needs_verification') {
+    ctx.actions.push({ ...action, kind: 'authentication-prepared' });
+    return ok('Recorded pending verification. No account creation, reset or sign-in success was recorded and no new credential was retained.', 'reobserve');
+  }
+  const accepted = { ...action, kind: purpose === 'create_account' ? 'account-created' as const : purpose === 'reset_password' ? 'password-reset' as const : 'signed-in' as const };
+  ctx.actions.push(accepted);
+  commitAcceptedCredentials(ctx.pendingCredentials, [accepted], email);
+  return ok('Recorded accepted authentication with current employer evidence.');
 }
 
 async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string, targets?: Locator[]): Promise<boolean> {

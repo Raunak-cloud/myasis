@@ -12,7 +12,9 @@ const AUTHENTICATION_TOOL: ToolSchema = {
       'Use this private tool for credentials. After filling, click the sign-in, create-account or continue control. ' +
       "When creating an account or setting a new password, read the site's password requirements (stated beside the field, " +
       'or in the message after a rejected password) and pass them as password_rules; the password is then built to fit them. ' +
-      'You never see or choose the password itself.',
+      'You never see or choose the password itself. An existing-account sign-in requires a previously accepted credential; missing records never authorize generating a password. ' +
+      'After the site responds, call record_authentication_result with accepted, rejected or needs_verification and the exact employer message. ' +
+      'After rejection, use supported recovery or authenticated browser access rather than submitting the same credential again. Requesting reset email is not the same as successfully setting a new password.',
     parameters: {
       type: 'object',
       properties: {

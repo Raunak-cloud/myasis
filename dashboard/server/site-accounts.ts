@@ -50,11 +50,12 @@ export async function listSiteAccounts(userId: string): Promise<SiteAccount[]> {
 
 type SiteAuthModule = { sitePassword: (url: string, email: string, secret?: string, credential?: unknown) => string | null };
 
-/** How the bot made this account's password (seek-bot/src/site-credentials.ts); none means the original formula. */
+/** Only an accepted generated credential can be shown as this account's password. */
 function credentialFor(userId: string, site: string, email: string): unknown {
   const file = resolve(userDir(userId), 'site-credentials.json');
   try {
-    return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8'))[`${site.toLowerCase().replace(/^www\./, '')}|${email.trim().toLowerCase()}`] ?? null : null;
+    const credential = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8'))[`${site.toLowerCase().replace(/^www\./, '')}|${email.trim().toLowerCase()}`] : null;
+    return credential?.format === 'readable-v1' && (credential.status === undefined || credential.status === 'accepted') ? credential : null;
   } catch {
     return null;
   }
@@ -67,9 +68,11 @@ export async function sitePasswordFor(userId: string, site: string, email: strin
     [userId, site, email.toLowerCase()],
   );
   if (!known) return null;
+  const credential = credentialFor(userId, site, email);
+  if (!credential) return null;
   const { sitePassword } = (await import(
     /* @vite-ignore */ new URL('../../seek-bot/dist/site-auth.js', import.meta.url).href
   )) as SiteAuthModule;
   const secret = process.env.SITE_AUTH_SECRET ?? readEnv().SITE_AUTH_SECRET;
-  return sitePassword(`https://${site}`, email, secret, credentialFor(userId, site, email));
+  return sitePassword(`https://${site}`, email, secret, credential);
 }

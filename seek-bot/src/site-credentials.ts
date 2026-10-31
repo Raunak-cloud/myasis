@@ -12,7 +12,8 @@ import type { ApplicationAction } from './types.js';
 const FILE = () => resolve(config.dataDir, 'site-credentials.json');
 const key = (url: string, email: string) => `${hostOf(url)}|${email.trim().toLowerCase()}`;
 
-function readAll(): Record<string, SiteCredential & { at?: string }> {
+type CredentialRecord = Partial<SiteCredential> & { at?: string; status?: 'accepted' | 'rejected' };
+function readAll(): Record<string, CredentialRecord> {
   try {
     return existsSync(FILE()) ? JSON.parse(readFileSync(FILE(), 'utf8')) : {};
   } catch {
@@ -21,18 +22,28 @@ function readAll(): Record<string, SiteCredential & { at?: string }> {
 }
 
 export function storedCredential(url: string, email: string): SiteCredential | null {
-  return readAll()[key(url, email)] ?? null;
+  const record = readAll()[key(url, email)];
+  if (!record || (record.status !== undefined && record.status !== 'accepted') || record.format !== 'readable-v1') return null;
+  return { format: record.format, ...(record.rules ? { rules: record.rules } : {}) };
+}
+
+/** Rejected passwords remain unavailable in subsequent attempts and runs.
+ * No password bytes, derived passwords or candidate answers are stored. */
+export function rejectCredential(url: string, email: string): void {
+  const all = readAll(), id = key(url, email);
+  all[id] = { ...all[id], status: 'rejected', at: new Date().toISOString() };
+  writeFileSync(FILE(), JSON.stringify(all, null, 2));
 }
 
 function rememberCredential(url: string, email: string, credential: SiteCredential): void {
   const all = readAll();
-  all[key(url, email)] = { ...credential, at: new Date().toISOString() };
+  all[key(url, email)] = { ...credential, status: 'accepted', at: new Date().toISOString() };
   writeFileSync(FILE(), JSON.stringify(all, null, 2));
 }
 
 /**
  * Remembers each password set in an attempt whose site accepted it: the
- * account was created, or the application got in past the sign-in. A password
+ * account was created, or a new password was explicitly accepted after reset. A password
  * the site never accepted (a sign-up refused because the account exists) is
  * dropped, and the account keeps the password it has.
  */
@@ -42,7 +53,11 @@ export function commitAcceptedCredentials(
   email: string,
 ): void {
   for (const [site, credential] of pending ?? []) {
-    const accepted = actions.some((known) => (known.kind === 'account-created' || known.kind === 'signed-in') && known.site === site);
-    if (accepted) rememberCredential(`https://${site}`, email, credential);
+    const accepted = actions.some((known) => (known.kind === 'account-created' || known.kind === 'password-reset')
+      && hostOf(`https://${known.site}`) === site && known.email?.trim().toLowerCase() === email.trim().toLowerCase());
+    if (accepted) {
+      rememberCredential(`https://${site}`, email, credential);
+      pending?.delete(site);
+    }
   }
 }

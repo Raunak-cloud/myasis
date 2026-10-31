@@ -16,7 +16,6 @@ import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordFormPage } from '../form-corpus.js';
 import type { DocumentFormat } from '../resume.js';
 import { outsideScope } from '../run-scope.js';
-import { commitAcceptedCredentials } from '../site-credentials.js';
 import { startAgentActivity } from './agent-activity.js';
 import { agentOnlyDocuments, agentOnlyEvidence, applicationAttemptHistory } from './agent-only-evidence.js';
 import { AgentFiles, fileIdsProperty } from './agent-files.js';
@@ -34,7 +33,7 @@ import { looksUnrendered, observe, waitForApplicationSurface } from './observe.j
 import { locate } from './browser-target.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget } from './browser-target.js';
 import { toolInputIssue } from './tool-input.js';
-import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
+import { doCompleteAuthentication, doRecordAuthenticationResult, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
 import { ok, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
 import { authenticationTools } from './auth-tools.js';
 import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, nativeInspect, nativeSnapshot, nativeScroll, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
@@ -101,9 +100,10 @@ const agentOnlyTools: ToolSchema[] = [
   schema('reason_through_problem', 'Request high reasoning effort for the next turn when medium reasoning has not resolved a semantic form error or repeated lack of progress.', { problem: string }, ['problem']),
   ...recoveryTools,
   ...authenticationTools(),
-  schema('record_authentication_result', 'After you observe the site accepted sign-in or registration, record that outcome and retain the prepared credential for this account. You judge acceptance; this is an audit write, not a separate verifier.', {
-    purpose: { type: 'string', enum: ['sign_in', 'create_account'] }, evidence: string,
-  }, ['purpose', 'evidence']),
+  schema('record_authentication_result', 'Report the observed authentication result before another attempt. Choose rejected for a rejected login, needs_verification for an incomplete verification step, and accepted only after actual registration, reset or authenticated account access succeeds. Evidence must be a COMPLETE exact current employer message, not your narrative. Filling fields, requesting reset mail and clearing CAPTCHA do not establish acceptance.', {
+    purpose: { type: 'string', enum: ['sign_in', 'create_account', 'reset_password'] },
+    outcome: { type: 'string', enum: ['accepted', 'rejected', 'needs_verification'] }, evidence: string,
+  }, ['purpose', 'outcome', 'evidence']),
   schema('wait_for_verification', 'Optionally wait for a security challenge and use the configured CAPTCHA service. The result is an observation for you to assess; it never ends the application or prevents you choosing another next step.', {}),
   consultationToolSchema,
   schema('wait_for_submission_result', 'Optionally wait up to ten seconds for the employer response to change, without clicking, navigating or sending. This is a browser wait, not a review stage. Inspect the fresh whole page and form afterwards; you decide whether to continue, correct a rejection, or finish with a receipt or uncertainty.', {}),
@@ -467,13 +467,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     if (name === 'enter_emailed_code') return doEnterEmailedCode(ctx, args);
     if (name === 'open_emailed_link') return doOpenEmailedLink(ctx, args);
     if (name === 'wait_for_verification') return ok(`Configured verification service result: ${await waitForChallengeToClear(ctx.page, 45_000) ? 'surface cleared' : 'surface remains'}. Inspect the page yourself.`);
-    if (name === 'record_authentication_result') {
-      const site = new URL(ctx.page.url()).hostname;
-      ctx.actions.push({ kind: args.purpose === 'create_account' ? 'account-created' : 'signed-in', site, email: ctx.profile.email,
-        at: new Date().toISOString(), detail: `Agent observed authentication accepted: ${args.evidence}` });
-      commitAcceptedCredentials(ctx.pendingCredentials, ctx.actions, ctx.profile.email);
-      return ok('Recorded the agent-observed authentication outcome.');
-    }
+    if (name === 'record_authentication_result') return doRecordAuthenticationResult(ctx, args);
     if (name === 'create_file') return ok(JSON.stringify(await files.create(String(args.name), String(args.text), args.format as DocumentFormat)));
     if (name === 'convert_file') return ok(JSON.stringify(await files.convert(String(args.file_id), args.format as DocumentFormat)));
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
