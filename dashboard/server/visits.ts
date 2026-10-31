@@ -197,7 +197,8 @@ export async function pulsePageView(body: unknown, userId: string | null = null,
   if (!Number.isSafeInteger(sequence) || sequence < 1) {
     // Old clients can still report duration, but cannot claim to be live.
     if (leaving) await query(`UPDATE page_views SET duration_ms = GREATEST(COALESCE(duration_ms, 0), $3)
-      WHERE id = $1 AND visitor_id = $2 AND started_at > now() - interval '1 day'`,
+      WHERE id = $1 AND visitor_id = $2 AND started_at > now() - interval '1 day'
+        AND NOT EXISTS (SELECT 1 FROM ignored_addresses i WHERE i.ip = page_views.ip)`,
       [id, visitorId, Math.min(duration, MAX_DURATION_MS)]);
     return;
   }
@@ -208,7 +209,8 @@ export async function pulsePageView(body: unknown, userId: string | null = null,
        visible = CASE WHEN presence_seq < $4 THEN $5 ELSE visible END,
        presence_seq = GREATEST(presence_seq, $4),
        user_id = CASE WHEN presence_seq < $4 THEN COALESCE($6::bigint, user_id) ELSE user_id END
-     WHERE id = $1 AND visitor_id = $2 AND started_at > now() - interval '1 day'`,
+     WHERE id = $1 AND visitor_id = $2 AND started_at > now() - interval '1 day'
+       AND NOT EXISTS (SELECT 1 FROM ignored_addresses i WHERE i.ip = page_views.ip)`,
     [id, visitorId, Math.min(duration, MAX_DURATION_MS), sequence, !leaving && b.visible === true, userId],
   );
 }
