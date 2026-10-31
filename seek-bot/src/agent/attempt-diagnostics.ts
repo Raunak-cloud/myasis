@@ -82,7 +82,7 @@ export function recordToolDiagnostic(step: number, tool: string, message: string
   if (failed.length) {
     for (const entry of failed) recordDiagnostic({ severity: 'warning', category: 'tool_error', stage: 'tool', step, tool,
       batchIndex: entry.index, disposition: 'failed', message: String(entry.error || entry.message || 'Batch action failed.') });
-  } else if (disposition === 'failed' || /^Observed ref .*no longer on the page|^Browser\/tool error:/.test(message)) {
+  } else if (disposition === 'failed' || disposition === 'invalid-arguments' || /^Observed ref .*no longer on the page|^Browser\/tool error:/.test(message)) {
     recordDiagnostic({ severity: 'warning', category: /^Observed ref .*no longer on the page/.test(message) ? 'stale_target' : 'tool_error', stage: 'tool', step, tool,
       disposition, error, message: message.split('FRESH FAILURE EVIDENCE')[0] });
   } else if (!entries.length && /follow-up wait (?:timed out|could not be evaluated)|The requested wait (?:timed out|could not be evaluated)/.test(message)) {

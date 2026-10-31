@@ -42,6 +42,10 @@ export interface ToolContext {
 
 export const ok = (message: string, disposition?: ToolDisposition): ToolResult => ({ kind: 'ok', message, ...(disposition ? { disposition } : {}) });
 
+/** Rejected arguments did not execute a successful browser operation. */
+export const failedToolResult = (result: ToolResult): boolean => result.kind === 'ok'
+  && (result.disposition === 'failed' || result.disposition === 'invalid-arguments');
+
 /** Records a side effect once per kind and site, and says so in the run log. */
 export function noteAction(ctx: ToolContext, action: Omit<ApplicationAction, 'at'>): void {
   if (ctx.actions.some((known) => known.kind === action.kind && known.site === action.site && known.purpose === action.purpose)) return;

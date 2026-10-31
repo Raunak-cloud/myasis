@@ -62,7 +62,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     selected.set(ref, input);
   }
   if (!fields.length) {
-    return ok('None of those refs are authentication fields on this page. Choose refs from the current FIELDS list.');
+    return ok('None of those refs are authentication fields on this page. Supply targets or refs from the current FIELDS list before retrying. Nothing was filled.', 'invalid-arguments');
   }
 
   /**
@@ -241,7 +241,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   let fields = refs.map(ref => ctx.observation.fields.find(candidate => candidate.ref === ref));
   const targets = Array.isArray(args.targets) ? (args.targets as Record<string, unknown>[]).map(spec => browserTarget(ctx.page, spec)) : undefined;
   if (targets) fields = targets.map((_, index) => ({ ref: `private-code-${index}`, label: 'Verification code', kind: 'text', required: true }));
-  if (!fields.length || fields.some(field => !field) || !targets && new Set(refs).size !== refs.length) return ok('Choose current code inputs using targets, or current FIELD refs in digit order.');
+  if (!fields.length || fields.some(field => !field) || !targets && new Set(refs).size !== refs.length) return ok('Supply targets, ref or refs for the current code inputs in digit order before retrying. No mailbox data was read and nothing was entered.', 'invalid-arguments');
   const freshness = await verificationFreshness(ctx, args);
   assertLive();
   if (freshness.error !== undefined) return ok(freshness.error, 'invalid-arguments');

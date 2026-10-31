@@ -38,3 +38,17 @@ test('bounded batches and declared options are checked before any browser action
   assert.equal(validToolInput(Infinity, { type: 'number' }), false);
   assert.equal(validToolInput(1, { type: 'number', exclusiveMaximum: 1 }), false);
 });
+
+test('alternative required inputs share the closed parent schema and diagnose missing alternatives', () => {
+  const schema = { type: 'object', properties: { purpose: { type: 'string' }, ref: { type: 'string', minLength: 1 },
+    refs: { type: 'array', minItems: 1, items: { type: 'string' } } }, required: ['purpose'],
+    anyOf: [{ required: ['ref'] }, { required: ['refs'] }] };
+  assert.equal(validToolInput({ purpose: 'sign_in' }, schema), false);
+  assert.equal(validToolInput({ purpose: 'sign_in', ref: 'f0' }, schema), true);
+  assert.equal(validToolInput({ purpose: 'sign_in', refs: ['f0'] }, schema), true);
+  assert.equal(validToolInput({ purpose: 'sign_in', ref: 'f0', refs: ['f0'] }, schema), true, 'anyOf permits more than one valid alternative');
+  assert.equal(validToolInput({ purpose: 'sign_in', ref: 'f0', undeclared: 'PRIVATE' }, schema), false);
+  assert.match(toolInputIssue({ purpose: 'PRIVATE' }, schema)!, /\$\.ref or \$\.refs/);
+  assert.doesNotMatch(toolInputIssue({ purpose: 'PRIVATE' }, schema)!, /PRIVATE/);
+  assert.match(toolInputIssue({ purpose: 'sign_in', refs: [] }, schema)!, /\$\.refs must contain/);
+});

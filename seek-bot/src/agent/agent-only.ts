@@ -35,7 +35,7 @@ import { locate } from './browser-target.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget } from './browser-target.js';
 import { toolInputIssue } from './tool-input.js';
 import { doCompleteAuthentication, doRecordAuthenticationResult, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
-import { ok, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
+import { ok, failedToolResult, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
 import { authenticationTools } from './auth-tools.js';
 import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, nativeInspect, nativeSnapshot, nativeScroll, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { approvedApplication, applicationApprovalGate, preparingApplications, reviewingApplications } from '../application-review.js';
@@ -846,7 +846,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
             result = await act(call.name, call.args);
-            if (result.kind === 'ok' && !readiness.requested && result.disposition !== 'failed' && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
+            if (result.kind === 'ok' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
               || call.name === 'browser_action' && changesBrowserState(call.args))) browserMutated = true;
             ownedPages.add(ctx.page);
@@ -863,9 +863,9 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });
         Object.assign(traceStep, { url: ctx.page.url(), result: text, disposition, completedAt: new Date().toISOString() });
         saveLiveTrace();
-        if (!checkpoint && !readiness.requested) recovery.acted(call.name, result.kind === 'ok' && result.disposition === 'failed', call.args);
+        if (!checkpoint && !readiness.requested) recovery.acted(call.name, failedToolResult(result), call.args);
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }
-        else if (result.disposition === 'failed') {
+        else if (failedToolResult(result)) {
           recovery.failed(call.name, call.args, ctx.page.url(), result.message);
           highEffort = true; interrupted = true; lastNote = 'The last action failed. Reason through the current evidence, then recover or finish honestly.';
         }

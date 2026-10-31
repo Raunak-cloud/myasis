@@ -31,6 +31,7 @@ test('preparation and confirmation retain separate steps; nested and stale error
       recordToolDiagnostic(3,'browser_action','The browser action completed, but its follow-up wait timed out.');
       recordToolDiagnostic(4,'browser_action','Action executed.');
       recordToolDiagnostic(5,'wait_for_submission_result','Read the fresh employer response. This wait did not repeat the send.','reobserve');
+      recordToolDiagnostic(6,'enter_emailed_code','Supply the current code targets. No action ran.','invalid-arguments');
       persistTrace(job,{status:'applied'},[{step:2,url:'https://example.test',tool:'finish',args:{},label:'Submitted'}],'https://example.test');
       return {outcome:{status:'applied'}};
     });
@@ -45,6 +46,8 @@ test('preparation and confirmation retain separate steps; nested and stale error
     assert.equal(events.filter(e=>e.category==='wait_warning').length,1);
     assert.equal(events.find(e=>e.category==='page_runtime_error').attemptId,ids[0]);
     assert.equal(events.find(e=>e.category==='tool_handoff').severity,'info');
+    const invalid=events.find(e=>e.tool==='enter_emailed_code');
+    assert.equal(invalid.category,'tool_error');assert.equal(invalid.severity,'warning');assert.equal(invalid.disposition,'invalid-arguments');
     assert.ok(events.every(e=>e.runStartId==='123'));
   }finally{
     if(previous===undefined)delete process.env.DATA_DIR;else process.env.DATA_DIR=previous;
