@@ -232,6 +232,13 @@ try {
   assert.equal(sharedSession.email, null);
   await connection.query("INSERT INTO page_views (visitor_id,session_id,page) VALUES ('visitor-no-ip','session-no-ip','landing')");
   assert.ok((await visitorReport({ range: 'today', market: 'all' })).addresses.list.every(row => row.ip !== null), 'unknown addresses never appear as an actionable IP or inflate the address list');
+  const excludedId = await recordPageView({ ...request, socket: { remoteAddress: '198.51.100.5' } } as IncomingMessage, view('visitor-excluded-later'), '2');
+  await connection.query("INSERT INTO ignored_addresses(ip) VALUES ('198.51.100.5')");
+  await pulsePageView({ id: excludedId, visitorId: 'visitor-excluded-later', durationMs: 60000, sequence: 1, visible: true }, '2');
+  await endPageView({ id: excludedId, visitorId: 'visitor-excluded-later', durationMs: 60000 });
+  const excludedRow = (await connection.query('SELECT duration_ms,presence_seq FROM page_views WHERE id=$1', [excludedId])).rows[0];
+  assert.equal(excludedRow.duration_ms, null, 'ignoring an address stops updates from an already-open tab too');
+  assert.equal(Number(excludedRow.presence_seq), 0);
   const originalHome = process.env.VISIT_HOME_COUNTRY;
   const originalRetention = process.env.VISIT_RETENTION_DAYS;
   try {
