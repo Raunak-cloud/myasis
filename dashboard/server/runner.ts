@@ -29,7 +29,7 @@ export async function accountBrowserEnvironment(userId: string, mode: RunMode): 
 }
 
 /** Recheck the active owner before accessing their private application files. */
-export async function accountApplicationEnvironment(userId: string, settings?: Record<string, string>): Promise<Record<string, string>> {
+export async function accountApplicationEnvironment(userId: string, settings?: Record<string, string>, runStartId?: string | null): Promise<Record<string, string>> {
   if (!/^[A-Za-z0-9_-]+$/.test(userId)) throw new Error('This account is not available for an application run.');
   const owners = await query<{ id: string; email: string }>(
     'SELECT id, email FROM users WHERE id = $1 AND blocked_at IS NULL',
@@ -40,7 +40,14 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const serverEnv = { ...readEnv(), ...process.env };
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
-  const selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
+  let selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
+  if (runStartId && selectedSettings.ADMIN_APPLICATION_MODEL) {
+    const operators = await query<{ email: string }>(
+      `SELECT actor.email FROM run_starts run JOIN users actor ON actor.id=run.started_by
+       WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND actor.blocked_at IS NULL`, [runStartId,userId]);
+    if (!isAdmin(operators[0]?.email) || !['celeris','minimax'].includes(selectedSettings.ADMIN_APPLICATION_MODEL)) throw new Error('This run has no valid administrator model authorization.');
+    selected = selectedSettings.ADMIN_APPLICATION_MODEL as 'celeris' | 'minimax';
+  }
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
   if (!serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Celeris is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
   if (selected === 'minimax' && !serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error('MiniMax is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.');
@@ -364,7 +371,7 @@ class Run {
     this.emailOnlyRun = emailOnly;
     let accountOverrides: Record<string, string>;
     try {
-      accountOverrides = await accountApplicationEnvironment(userId, overrides);
+      accountOverrides = await accountApplicationEnvironment(userId, overrides, runStartId);
     } catch (error) {
       this.cdpPort = null;
       return { ok: false, error: (error as Error).message };
@@ -415,6 +422,7 @@ class Run {
       // Always last: no override may point a run at another account's files.
       DATA_DIR: dataDir,
       COST_TRACKING: 'true',
+      ADMIN_APPLICATION_MODEL: undefined,
     };
 
     // A release can begin while the account export is awaiting the database.

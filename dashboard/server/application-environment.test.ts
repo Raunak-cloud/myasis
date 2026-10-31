@@ -38,6 +38,16 @@ test('MiniMax credentials are added only after rechecking the admin owner and se
     assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
     assert.equal(customer.OPENROUTER_API_KEY, '', 'blank explicitly prevents worker dotenv from restoring a machine key');
     assert.equal((await accountApplicationEnvironment('admin', {})).OPENROUTER_API_KEY, '');
+    const operatorQuery=pool.query;
+    pool.query=(async(sql:string,params:unknown[])=>sql.includes('FROM run_starts')
+      ? {rows:params[0]==='authorized-run'?[{email:'admin@fixture.invalid'}]:[]}
+      : {rows:[{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]}) as typeof originalQuery;
+    const oneTime={...settings,ADMIN_APPLICATION_MODEL:'minimax'};
+    assert.equal((await accountApplicationEnvironment('customer',oneTime)).APPLICATION_AI_MODEL,'celeris','an unbound marker cannot override the customer policy');
+    assert.equal((await accountApplicationEnvironment('customer',oneTime,'authorized-run')).APPLICATION_AI_MODEL,'minimax','an audited active admin can select a model for this run only');
+    await assert.rejects(accountApplicationEnvironment('customer',oneTime,'unverified-run'),/no valid administrator/);
+    assert.equal((await accountApplicationEnvironment('customer',settings)).APPLICATION_AI_MODEL,'celeris','the customer default remains unchanged');
+    pool.query=operatorQuery;
     process.env.OPENROUTER_API_KEY = '';
     await assert.rejects(accountApplicationEnvironment('admin', settings), /MiniMax is not configured/);
   } finally {

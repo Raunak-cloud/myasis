@@ -88,7 +88,7 @@ interface StartRunRequest {
   /** One exact employer job page supplied by an administrator. */
   externalUrl?: unknown;
   /** Explicit operator exception, resolved for this run only; never saved as account settings. */
-  oneTime?: { allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number };
+  oneTime?: { allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: 'celeris' | 'minimax' };
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
@@ -191,6 +191,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     const oneTime = request.oneTime;
     if (!oneTime || typeof oneTime !== 'object' || Array.isArray(oneTime)
       || (oneTime.allowMissingSalary !== undefined && typeof oneTime.allowMissingSalary !== 'boolean')
+      || (oneTime.applicationModel !== undefined && !['celeris','minimax'].includes(oneTime.applicationModel))
       || (oneTime.maxApplications !== undefined && (!Number.isInteger(oneTime.maxApplications) || oneTime.maxApplications < 1 || oneTime.maxApplications > USER_RUN_LIMITS.MAX_APPS_PER_DAY))
       || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > 150))) {
       return { ok: false, status: 400, error: `Use 1–${USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications and 1–150 job reviews for a one-time run.` };
@@ -257,6 +258,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    */
   const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1', settingsSnapshot.saved[EMPLOYER_SOURCES_CHOSEN_KEY] === '1');
   overrides.APPLICATION_REVIEW_MODE = request.applicationMode === 'semi-auto' ? 'prepare' : '';
+  if (request.oneTime?.applicationModel) overrides.ADMIN_APPLICATION_MODEL = request.oneTime.applicationModel;
   overrides.PENDING_APPLICATION_KEYS_JSON = JSON.stringify(await pendingReviewKeys(userId));
   let selections;
   try { selections = request.approvals === undefined ? null : reviewSelection(request.approvals); }
