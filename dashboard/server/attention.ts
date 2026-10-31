@@ -80,9 +80,9 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
   return [...latest.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 
-export async function loadAttention(userId: string): Promise<AttentionItem[]> {
+export async function loadAttention(userId: string, read: typeof query = query): Promise<AttentionItem[]> {
   const [events, appliedRows] = await Promise.all([
-    query<RunEventRow>(
+    read<RunEventRow>(
       `SELECT job_id, status, title, company, reason, url, ts, questions
          FROM (
            SELECT DISTINCT ON (job_id)
@@ -98,7 +98,7 @@ export async function loadAttention(userId: string): Promise<AttentionItem[]> {
         ORDER BY ts`,
       [userId, RESOLVED_STATUSES],
     ),
-    query<{ job_id: string }>(`SELECT job_id FROM applications WHERE user_id = $1`, [userId]),
+    read<{ job_id: string }>(`SELECT job_id FROM applications WHERE user_id = $1`, [userId]),
   ]);
   return resolveAttention(events, new Set(appliedRows.map((row) => row.job_id)));
 }

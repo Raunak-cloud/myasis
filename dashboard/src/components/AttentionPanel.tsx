@@ -30,8 +30,8 @@ const questionText = (q: BlockedQuestion) => q.prompt?.trim() || `What should Ow
 
 /**
  * Inline form for the questions a run could not answer. Saving writes them to
- * the answer bank, which every later run reads, and takes the job off this
- * list so the next run retries it.
+ * the answer bank, which every later run reads. Unanswered questions stay
+ * visible until the rest of the group is answered.
  */
 function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => void }) {
   const questions = item.questions ?? [];
@@ -126,8 +126,8 @@ function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => vo
       ))}
       {error && <div className="banner banner-bad">{userFacingError(error)}</div>}
       <div className="answer-actions">
-        <button className="btn primary" disabled={saving || !answered.length} onClick={save} title="Saved for every future run; this job is retried on the next one.">
-          {saving ? 'Saving…' : 'Save and retry'}
+        <button className="btn primary" disabled={saving || !answered.length} onClick={save} title="Saved for every future run.">
+          {saving ? 'Saving…' : 'Save answers'}
         </button>
       </div>
     </div>
