@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { withApplicationModel } from './application-model.js';
-import { AppliedIndex, logOutcome, recentReviewFeedback, saveRunSummary } from './store.js';
+import { AppliedIndex, logOutcome, recentReviewFeedback, relatedReviewFeedback, saveRunSummary } from './store.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-store-scope-'));
 const owners = ['one', 'two'].map(owner => {
@@ -26,6 +26,10 @@ test('concurrent feedback reads never mix another account outcome into scoped hi
     await new Promise(done => setTimeout(done, index ? 1 : 5));
     const entries = [...recentReviewFeedback().values()];
     assert.equal(entries.length, 1);
+    const related = relatedReviewFeedback({id: 'another-board-id', title: '  FICTIONAL role ', company: 'Fixture'});
+    assert.equal(related.length, 1);
+    assert.equal(related[0].reason, entries[0].reason, 'related posting evidence must retain the current account scope');
+    assert.deepEqual(relatedReviewFeedback({id: 'same-job', title: 'Fictional role', company: 'Fixture'}), [], 'exact-listing evidence is not duplicated as a related posting');
     return entries[0].reason;
   })));
   assert.deepEqual(results, ['private-feedback-one', 'private-feedback-two']);

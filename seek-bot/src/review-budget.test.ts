@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, JobListing } from './types.js';
 
-type FixtureJob = JobListing & { searchPage?: number; searchScope?: 'office' | 'remote' | 'unscoped'; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { reviewPriority?: number; searchPage?: number; searchScope?: 'office' | 'remote' | 'unscoped'; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney', ageDays: 1,
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -82,7 +82,7 @@ export const jitter = async () => {};
     writeFileSync(join(directory, 'llm.mjs'), `
 import { record } from './boundary.mjs';
 export const reviewKey = job => job.platform+':'+job.id;
-export const rankJobsForReview = async jobs => new Map(jobs.map(job => [reviewKey(job),{priority:90,reason:'Fixture priority'}]));
+export const rankJobsForReview = async jobs => new Map(jobs.map(job => [reviewKey(job),{priority:job.reviewPriority??90,reason:'Fixture priority'}]));
 export const finishedCoverLetterForJob = async () => 'Fixture letter';
 import { config } from './config.mjs';
 export const assessFit = async job => {
@@ -185,6 +185,18 @@ test('age-window policy matches undated jobs in Auto and Semi auto while excludi
     assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['unknown', 'in-range']);
     assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['unknown', 'in-range']);
   }
+});
+
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} refills promising jobs before weak recommendations consume the remaining reviews`, () => {
+  const result = run([
+    ...Array.from({length: 12}, (_, i) => job(`promising-rejected-${i}`, {source: 'recommended', fitReject: true})),
+    ...Array.from({length: 30}, (_, i) => job(`weak-recommendation-${i}`, {source: 'recommended', reviewPriority: 10, fitReject: true})),
+    ...Array.from({length: 3}, (_, i) => job(`next-page-fit-${i}`, {searchPage: 2, source: 'search'})),
+  ], {apply: true, prepare, reviews: 15, cap: 3});
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['next-page-fit-0', 'next-page-fit-1', 'next-page-fit-2']);
+  assert.equal(result.events.filter(event => event.stage === 'fit').length, 15, 'refilling discovery does not increase the review allowance');
+  assert.ok(!result.events.some(event => event.stage === 'fit' && event.id.startsWith('weak-recommendation')));
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, prepare ? 0 : 3);
 });
 
 test('Semi auto fills only its run cap and records no submitted applications', () => {

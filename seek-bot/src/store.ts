@@ -164,6 +164,22 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
   return result;
 }
 
+/** Owner-scoped observations about similarly named postings can disclose facts
+ * another board omitted. They are evidence for the matching agent, never a
+ * duplicate decision or an automatic rejection of a different vacancy. */
+export function relatedReviewFeedback(job: Pick<JobListing, 'id' | 'title' | 'company'>, history = recentReviewFeedback()) {
+  const normalise = (value: string) => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+  const title = normalise(job.title), company = normalise(job.company);
+  if (!title || !company) return [];
+  const related: Array<{jobId: string; title: string; company: string; at: string; status: string; reason: string}> = [];
+  for (const [key, outcome] of history) {
+    const [jobId, previousTitle, previousCompany] = JSON.parse(key) as string[];
+    if (jobId === job.id || normalise(previousTitle) !== title || normalise(previousCompany) !== company) continue;
+    related.push({jobId, title: previousTitle, company: previousCompany, at: outcome.at, status: outcome.status, reason: outcome.reason});
+  }
+  return related.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 3);
+}
+
 /**
  * A small machine-readable handoff to the dashboard after a run.
  *

@@ -437,11 +437,9 @@ async function main() {
       return outsideScope(job.applicationMode) ? 2 : 0;
     };
     /**
-     * Within scope, the boards' own recommendations are opened before search
-     * results, as the run promises (Run panel, landing page): with the
-     * evaluation cap a recommendation the pre-ranking scored low could
-     * otherwise never be opened at all. Scope stays first — an out-of-scope
-     * recommendation is dropped unopened anyway.
+     * Prefer board recommendations within the same discovery-quality band.
+     * A weak recommendation must not consume the last review slots while
+     * the matching agent has identified promising search results.
      */
     const recommendedFirst = (job: JobListing): number => (job.source === 'recommended' || job.source === 'chosen' ? 0 : 1);
     const reviewOrder = (a: JobListing, b: JobListing) => {
@@ -450,6 +448,8 @@ async function main() {
       if (a.source === 'chosen' || b.source === 'chosen') return a.source === b.source ? 0 : a.source === 'chosen' ? -1 : 1;
       const known = Number(priorRejections.has(listingKey(a))) - Number(priorRejections.has(listingKey(b)));
       if (known) return known;
+      const promising = Number(!isPromising(a)) - Number(!isPromising(b));
+      if (promising) return promising;
       const recommended = recommendedFirst(a) - recommendedFirst(b);
       if (recommended) return recommended;
       return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
@@ -549,7 +549,7 @@ async function main() {
      * recommendations then all fail review the run used to end with nothing to
      * apply for, its job-title searches never read (30 Sep: 28 "promising"
      * recommendations, 0 suitable, 0 applied). Once review has gone through
-     * everything found, the searches carry on from the page they stopped at,
+     * the promising buffer, the searches carry on from the page they stopped at,
      * and only what is new is reviewed: listings already applied for, recently
      * rejected or already seen are dropped on the way in, as always.
      */
@@ -564,6 +564,7 @@ async function main() {
       await searchPageRound();
       const added = shortlist.splice(before).sort(reviewOrder);
       shortlist.push(...added);
+      shortlist.sort(reviewOrder);
       console.log(`  Search page ${pageNumber}: ${added.length} new listing(s) to review.`);
     };
     // Only fallback discovery still owns the persistent search page. Recheck
@@ -571,7 +572,7 @@ async function main() {
     const discoveryMutex = new AsyncMutex();
     const refillReviews = () => discoveryMutex.run(async () => {
 
-      if (!hasUnreviewed(job => !priorRejections.has(listingKey(job))) && searchesLeft()) {
+      if (!hasPromisingUnreviewed() && searchesLeft()) {
         await showLiveActivity({ phase: 'reviewing', detail: 'Finding more job listings.' }, page);
         try { await searchMore(); }
         finally { await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' }); }
@@ -731,6 +732,7 @@ async function main() {
     const reviewClaimed = new Set<string>();
     const hasUnreviewed = (accept: (job: JobListing) => boolean = () => true) =>
       shortlist.some(job => !reviewClaimed.has(reviewReservationKey(job)) && accept(job));
+    const hasPromisingUnreviewed = () => hasUnreviewed(job => isPromising(job) && !stoppedPlatform(job.platform ?? 'seek'));
     let evaluated = 0;
     let reviewStopped = false;
     let workersRemaining = 1;
@@ -772,6 +774,7 @@ async function main() {
         await refillReviews();
         return;
       }
+      if (!isPromising(stub) && !hasPromisingUnreviewed() && searchesLeft()) { await refillReviews(); return; }
       if (priorRejections.has(listingKey(stub)) && searchesLeft()) { await refillReviews(); return; }
       reviewClaimed.add(reviewReservationKey(stub));
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');

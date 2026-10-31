@@ -13,6 +13,11 @@ mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Retail customer service experience.\n' + 'Supporting detail. '.repeat(900) + '\nCV_TAIL_FIXTURE');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'fixture-cv', label: 'Fixture CV', fileName: 'CV.txt', isDefault: true }]));
 writeFileSync(join(directory, 'answers.json'), JSON.stringify([{ question: 'Current clearance', answer: 'SAVED_FACT_FIXTURE' }]));
+writeFileSync(join(directory, 'review-history.jsonl'), [
+  {jobId: 'other-board-id', title: 'Retail Assistant', company: 'Fixture', status: 'skipped', reason: 'RELATED_DISCLOSED_PAY_FIXTURE: advertised annual salary is $55,000.', ts: new Date().toISOString()},
+  {jobId: 'different-employer', title: 'Retail Assistant', company: 'Other Employer', status: 'skipped', reason: 'UNRELATED_EMPLOYER_FIXTURE', ts: new Date().toISOString()},
+  {jobId: 'different-role', title: 'Retail Manager', company: 'Fixture', status: 'skipped', reason: 'UNRELATED_ROLE_FIXTURE', ts: new Date().toISOString()},
+].map(row => JSON.stringify(row)).join('\n'));
 const originalFetch = globalThis.fetch;
 let mode = 'apply', calls = 0;
 globalThis.fetch = async (_url, init) => {
@@ -22,6 +27,8 @@ globalThis.fetch = async (_url, init) => {
   assert.equal(body.response_format.json_schema.schema.properties.checks, undefined, 'No preliminary instruction classifier.');
   assert.match(body.messages[0].content, /sole matching decision maker/);
   for (const evidence of ['FULL CANDIDATE PROFILE', 'CV_TAIL_FIXTURE', 'SAVED_FACT_FIXTURE', config.aiInstructions, 'minimum match score', 'MATCHING-STAGE DUPLICATE DECISION']) assert.ok(prompt.includes(evidence), evidence);
+  assert.ok(prompt.includes('RELATED_DISCLOSED_PAY_FIXTURE'), 'a different board ID must not hide related disclosed pay from the matching agent');
+  assert.doesNotMatch(prompt, /UNRELATED_EMPLOYER_FIXTURE|UNRELATED_ROLE_FIXTURE/, 'unrelated employers and roles cannot supply matching evidence');
   const correction = prompt.includes('RESPONSE FORMAT CORRECTION');
   const result = { decision: mode === 'skip' ? 'skip' : mode === 'uncertain' ? 'uncertain' : 'apply',
     matchScore: mode === 'invalid-twice' || mode === 'repair' && !correction ? 101 : 85,
