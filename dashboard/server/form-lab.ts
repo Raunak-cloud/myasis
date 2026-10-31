@@ -27,6 +27,11 @@ interface Entry {meta:Metadata;lab:FormLab;directory:string;secret:string;token?
 const entries=new Map<string,Entry>();
 const safeRead=(file:string):any=>{try{return JSON.parse(readFileSync(file,'utf8'));}catch{return null;}};
 const safeMessage=(value:unknown)=>String(value).replace(/(?:sk-or-v1-|sk-)[A-Za-z0-9_-]+/g,'[credential]').replace(/\b\d{6}\b/g,'[code]').slice(0,1600);
+function protectedHtml(res:ServerResponse,html:string):string{
+ const nonce=randomBytes(20).toString('base64');
+ res.setHeader('Content-Security-Policy',`default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'`);
+ return html.replace(/<script(?=[\s>])/g,`<script nonce="${nonce}"`);
+}
 function save(entry:Entry){
  const file=join(entry.directory,'private.json'),temp=file+'.tmp';
  writeFileSync(temp,JSON.stringify({meta:entry.meta,secret:entry.secret,state:entry.lab.state}),{mode:0o600});renameSync(temp,file);
@@ -145,7 +150,7 @@ export async function handleFormsRequest(req:IncomingMessage,res:ServerResponse)
   const owner=await one<{email:string}>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL',[entry.meta.owner]);if(!owner||!isAdmin(owner.email))return deny(403,'Admin access was revoked.');
  }else{
   const actor=await currentUser(req.headers.cookie);if(!actor)return deny(401,'Sign in as an administrator to open form tests.');if(!isAdmin(actor.email))return deny(403,'Admins only.');
-  if(url.pathname==='/forms'||url.pathname==='/forms/'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end(formsPage());return true;}
+  if(url.pathname==='/forms'||url.pathname==='/forms/'){const html=protectedHtml(res,formsPage());res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end(html);return true;}
   if(match)entry=load(actor.id,match[1]);
  }
  if(!entry||!match)return deny(404,'Form test not found.');
@@ -157,7 +162,8 @@ export async function handleFormsRequest(req:IncomingMessage,res:ServerResponse)
  try{
   const body=req.method==='POST'?await readRawBodyLimited(req,10_000_000):undefined;
   const response=await entry.lab.request({method:req.method||'GET',path:match[2],query:url.search,body,contentType:req.headers['content-type']},message=>sendCode(entry!,message));
-  save(entry);res.writeHead(response.status,response.headers);res.end(response.body);return true;
+  const html=response.headers['Content-Type']?.startsWith('text/html')?protectedHtml(res,response.body):response.body;
+  save(entry);res.writeHead(response.status,response.headers);res.end(html);return true;
  }catch(error){return deny(400,safeMessage((error as Error).message));}
  finally{entry.busy=false;}
 }

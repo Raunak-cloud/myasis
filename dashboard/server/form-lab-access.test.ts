@@ -16,10 +16,11 @@ try{
   actor=email;
   for(const path of ['/forms','/forms/attempts/11111111-1111-4111-8111-111111111111/page/1','/forms/attempts/11111111-1111-4111-8111-111111111111/screenshot']){
    const req=Object.assign(Readable.from([]),{url:path,method:'GET',headers:{cookie:'myasis_session=fixture'}}) as IncomingMessage;
-   let status=0,body='';const res={setHeader:()=>{},writeHead:(code:number)=>{status=code;},end:(text:string)=>{body=text;}} as unknown as ServerResponse;
+   let status=0,body='';const headers:Record<string,string>={};const res={setHeader:(name:string,value:string)=>{headers[name]=value;},writeHead:(code:number)=>{status=code;},end:(text:string)=>{body=text;}} as unknown as ServerResponse;
    assert.equal(await handleFormsRequest(req,res),true);
    assert.equal(status,email===null?401:email==='ordinary@example.invalid'?403:path==='/forms'?200:404);
    if(email==='ordinary@example.invalid')assert.ok(!body.includes('Create your test candidate account'));
+   if(email==='forms-admin@example.invalid'&&path==='/forms'){assert.match(headers['Content-Security-Policy'],/script-src 'self' 'nonce-/);const nonce=headers['Content-Security-Policy'].match(/'nonce-([^']+)'/)![1];assert.ok(body.includes('<script nonce="'+nonce+'">'));assert.match(headers['Content-Security-Policy'],/frame-ancestors 'self'/);}
   }
   let apiStatus=200;
   await handleAdminRequest({method:'POST',headers:{cookie:'myasis_session=fixture'},on:()=>{}},{writeHead:()=>{},write:()=>{}},new URL('https://example.invalid/api/admin/forms'),(_body,status=200)=>{apiStatus=status;},async()=>({key:'enterprise',model:'celeris',action:'run',confirm:false}));

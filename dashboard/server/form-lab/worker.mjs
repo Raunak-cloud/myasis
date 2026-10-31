@@ -45,7 +45,7 @@ try{
    const chunks=[];let bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>10_000_000)throw Error('Test request exceeds 10 MB.');chunks.push(chunk);}
    const headers={'X-Owtomate-Form-Test':process.env.FORM_LAB_TOKEN};if(req.headers['content-type'])headers['Content-Type']=req.headers['content-type'];
    const response=await originalFetch(new URL(req.url,process.env.FORM_LAB_BACKEND),{method:req.method,headers,body:['GET','HEAD'].includes(req.method)?undefined:Buffer.concat(chunks),redirect:'manual',signal:AbortSignal.timeout(30000)});
-   res.writeHead(response.status,Object.fromEntries([...response.headers].filter(([name])=>['content-type','location','cache-control','x-content-type-options'].includes(name))));res.end(Buffer.from(await response.arrayBuffer()));
+   res.writeHead(response.status,Object.fromEntries([...response.headers].filter(([name])=>['content-type','location','cache-control','x-content-type-options','content-security-policy','referrer-policy'].includes(name))));res.end(Buffer.from(await response.arrayBuffer()));
   }catch{if(!res.headersSent)res.writeHead(502,{'Content-Type':'text/plain'});res.end('The synthetic form service did not respond. Retry after inspecting the current page.');}
  });
  await new Promise(done=>server.listen(0,'127.0.0.1',done));
