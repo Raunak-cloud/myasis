@@ -75,7 +75,7 @@ const agentOnlyTools: ToolSchema[] = [
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
       action: { type: 'string', enum: ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'] },
       file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
-      ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean' },
+      ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto and approved reconstruction: true transmits the application; false is preparatory.' },
     }, required: ['action'] } },
   }, ['actions']),
   schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or sections with ref, selector or a direct Playwright locator. Multiple matching sections return one bounded page snapshot so all included accessibility references remain consistent; narrow the locator for a focused section. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ...browserTargetProperties }),
@@ -86,7 +86,7 @@ const agentOnlyTools: ToolSchema[] = [
     ...browserTargetProperties, ...browserWaitProperties, value: string, script: string,
     script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only evidence gathering, not execution of a repair. Use act for any DOM write, interaction or navigation. Default act. This does not grant permissions, bypass Semi auto or change send confirmation.' },
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
-    sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission.' },
+    sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission. Required on every click/press in Semi auto and approved reconstruction; use false for preparatory interactions.' },
   }, ['action']),
   schema('create_file', 'Render exactly your supplied text in your explicitly chosen format. Returns a private file_id for native set_input_files; never uploads, selects a form field or judges acceptance. Inspect employer requirements before choosing the format. Record cover-letter text separately with save_progress or prepare_application.', {
     name: { type: 'string', description: 'Plain document filename or title. If an extension is supplied, it must match format; otherwise the explicitly chosen format is appended.' }, text: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
@@ -485,6 +485,9 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     if (name === 'create_file') return ok(JSON.stringify(await files.create(String(args.name), String(args.text), args.format as DocumentFormat)));
     if (name === 'convert_file') return ok(JSON.stringify(await files.convert(String(args.file_id), args.format as DocumentFormat)));
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
+    if (reviewingApplications() && ['click', 'press'].includes(String(args.action)) && typeof args.sends_application !== 'boolean') {
+      return ok('In Semi auto and approved reconstruction, every click or keypress must explicitly set sends_application: true for an application-transmitting action, false for a preparatory interaction. Missing intent cannot bypass candidate confirmation. Nothing was executed.', 'invalid-arguments');
+    }
     if (reviewingApplications() && (args.action === 'script' || (args.action === 'click' && typeof args.x === 'number') || args.action === 'dialog' && args.value !== 'dismiss')) {
       return ok('Use the observed form controls in Semi auto. Scripts, coordinate clicks and accepting browser dialogs are unavailable because they can bypass application confirmation.', 'failed');
     }

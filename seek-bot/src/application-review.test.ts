@@ -85,7 +85,7 @@ try {
   const result = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(result.outcome.status, 'prepared', 'the actual agent returns a filled application for review');
   assert.equal(requests, 0, 'an agent-marked send is held before the browser action');
-  calls = [{ name: 'browser_action', args: { action: 'click', selector: 'input[type="radio"][value="Missing saved CV"]' } },
+  calls = [{ name: 'browser_action', args: { action: 'click', selector: 'input[type="radio"][value="Missing saved CV"]', sends_application: false } },
     { name: 'finish', args: { status: 'skipped', reason: 'Missing target', evidence: 'Fresh form inspected' } }] as typeof calls;
   const missingStart = performance.now();
   await runAgentOnlyApplication({ page, job, profile, log: () => {} });
@@ -97,7 +97,18 @@ try {
   calls = [{ name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Send application' } } }] as typeof calls;
   await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(requests, 0, 'direct semantic locators retain confirmation even without an agent-supplied send flag');
+  for (const action of [
+    { action: 'click', selector: '#send' },
+    { action: 'press', selector: 'input', value: 'Enter' },
+  ]) {
+    calls = [{ name: 'browser_batch', args: { actions: [action] } }] as typeof calls;
+    await runAgentOnlyApplication({ page, job, profile, log: () => {} });
+    assert.equal(requests, 0, 'batch clicks and Enter cannot send by omitting intent either');
+  }
   process.env.APPLICATION_REVIEW_MODE = 'approved';
+  calls = [{ name: 'browser_action', args: { action: 'press', selector: 'input', value: 'Enter' } }] as typeof calls;
+  await runAgentOnlyApplication({ page, job, profile, log: () => {} });
+  assert.equal(requests, 0, 'even an approved reconstruction must declare submission intent');
   calls = [
     { name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } },
     { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Send application' }, sends_application: true } },
@@ -122,8 +133,6 @@ try {
   const drafts: PreparedApplication[] = [];
   const submissions: string[] = [];
   const sentLetters: string[] = [];
-  let classifierCalls = 0;
-  let expectedControlSends = false;
   let expectedApproved: PreparedApplication | undefined;
   let changedReview = false;
   await page.context().unroute('**/*');
@@ -150,11 +159,7 @@ try {
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
-    if (!body.tools?.length) {
-      classifierCalls++;
-      assert.match(JSON.stringify(body.messages), /as opposed to opening the form/);
-      return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: expectedControlSends }) } }] });
-    }
+    assert.ok(body.tools?.length, 'the applying agent owns send intent without an independent classifier');
     const call = calls.shift();
     assert.match(body.messages[0].content, /Use a direct greeting and concise paragraphs\./, 'saved preferences are always in the active agent system prompt');
     assert.match(body.messages[0].content, /Never use em dashes/);
@@ -178,15 +183,14 @@ try {
     { name: 'browser_action', args: { action: 'fill', selector: '#name', value: 'Fixture Applicant' } },
     { name: 'browser_action', args: { action: 'fill', selector: '#availability', value: 'Two weeks' } },
     { name: 'browser_action', args: { action: 'fill', selector: '#letter', value: text } },
-    { name: 'upload_document', args: { selector: '#cv', document_id: 'cv' } },
+    { name: 'browser_action', args: { action: 'set_input_files', selector: '#cv', file_ids: ['cv'] } },
     { name: 'prepare_application', args: { submit_selector: '#send', resume_id: 'cv', cover_letter: text, answers: [{ question: 'Name', answer: 'Fixture Applicant' }, { question: 'Availability', answer: 'Two weeks' }] } },
   ];
   const fixtures = Array.from({ length: 5 }, (_, index) => ({ ...job, id: String(index + 1), title: `Prepared Role ${index + 1}`, company: 'Fixture Employer', url: `https://listing.fixture.invalid/jobs/${index + 1}` }));
   for (const fixture of fixtures) {
     process.env.APPLICATION_REVIEW_MODE = 'prepare';
-    expectedControlSends = false;
     await page.goto(fixture.url);
-    calls = [{ name: 'browser_action', args: { action: 'click', selector: '#entry' } }, ...fill()];
+    calls = [{ name: 'browser_action', args: { action: 'click', selector: '#entry', sends_application: false } }, ...fill()];
     const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });
     assert.equal(result.outcome.status, 'prepared', `${fixture.title} is filled and held for review`);
     assert.ok(result.outcome.status === 'prepared');
@@ -194,6 +198,7 @@ try {
     assert.equal(submissions.length, 0, 'preparing five applications never sends any of them');
     assert.equal(calls.length, 0);
     assert.equal(page.context().pages().length, Number(fixture.id) % 2 ? 2 : 1, 'popup forms open once and are followed without another Apply click or model tab-selection turn');
+    assert.deepEqual(await page.context().pages().at(-1)!.locator('#cv').evaluate(node => [...(node as HTMLInputElement).files!].map(file => file.name)), ['Fixture CV.txt'], 'the real offered upload tool attaches the selected CV before preparation');
     const draft = result.outcome.draft;
     assert.ok(draft.answers.some(answer => answer.question === 'Availability' && answer.answer === 'Two weeks'));
     assert.equal(draft.coverLetter, letter);
@@ -203,7 +208,6 @@ try {
     drafts.push(draft);
     for (const tab of page.context().pages()) if (tab !== page) await tab.close();
   }
-  assert.equal(classifierCalls, 5, 'all five form-entry links are classified, not rejected by a broad Apply prefix');
   const beforeEdit = drafts[0].revision;
   drafts[0] = withCoverLetter(drafts[0], 'Dear team,\n\nThis is my edited cover letter — please use my exact wording.\n\nFixture Applicant');
   assert.notEqual(drafts[0].revision, beforeEdit, 'editing the letter invalidates the earlier review');
@@ -224,15 +228,14 @@ try {
     attempted++;
     expectedApproved = drafts[index];
     await page.goto(drafts[index].formUrl);
-    expectedControlSends = true;
     const rewritten = 'MODEL_REWRITE_MUST_NOT_REPLACE_THE_APPROVED_LETTER';
     const writes: typeof calls = fill(index < 2 ? rewritten : drafts[index].coverLetter);
     if (index === 1) writes[2] = { name: 'browser_batch', args: { actions: [{ action: 'fill', selector: '#letter', value: rewritten }] } };
-    calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send' } },
+    calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' }, cover_letter: rewritten } }];
     if (index === 4) calls = [
       { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
-      { name: 'browser_action', args: { action: 'click', selector: '#send' } },
+      { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' }, answers: [] } },
     ];
     const result = await runAgentOnlyApplication({ page, job: fixture, profile, log: () => {} });

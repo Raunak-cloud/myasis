@@ -122,7 +122,7 @@ try {
       { name: 'browser_action', args: { action: 'press', ...at('#city'), value: 'Enter', sends_application: false } },
       { name: 'browser_action', args: { action: 'set_input_files', ...at('#cv'), file_ids: ['cv'] } },
       { name: 'save_progress', args: { note: 'Selected fixture CV verified.', resume_id: 'cv' } },
-      ...(index === 4 ? [{ name: 'browser_action', args: { action: 'press', ...at('#name'), value: 'Home' } }] : []),
+      ...(index === 4 ? [{ name: 'browser_action', args: { action: 'press', ...at('#name'), value: 'Home', sends_application: false } }] : []),
       { name: 'browser_action', args: { ...unapprovedSend, sends_application: true } },
     ];
     const prepared = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
