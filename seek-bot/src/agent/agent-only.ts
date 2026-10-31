@@ -21,7 +21,8 @@ import { agentOnlyDocuments, agentOnlyEvidence, applicationAttemptHistory } from
 import { AgentFiles, fileIdsProperty } from './agent-files.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
 import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
-import { ApplicationBudgetExhaustedError, celerisChat, type ChatMessage, type ToolSchema } from './celeris.js';
+import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } from './celeris.js';
+import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
 import { isExternal } from './browser-boundaries.js';
@@ -758,14 +759,14 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         return messages;
       };
       try {
-        reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
+        reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
           requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens: 8192, meter });
       } catch (error) {
         if (error instanceof ApplicationBudgetExhaustedError) { budgetStopped = true; break; }
-        if (!/Celeris (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
+        if (!/(?:Celeris|OpenRouter) (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
         try {
-          reply = await celerisChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
+          reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
             requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens: 8192, meter });
         } catch (retryError) {
           if (retryError instanceof ApplicationBudgetExhaustedError) { budgetStopped = true; break; }

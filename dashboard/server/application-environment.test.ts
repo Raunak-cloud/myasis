@@ -15,11 +15,35 @@ test('worker environment excludes retired controls and unknown credentials witho
     APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true',
     RETIRED_PROVIDER_API_KEY: 'must-not-inherit', RETIRED_PROVIDER_KEY: 'must-not-inherit', UNRELATED_SECRET: 'must-not-inherit',
     GMAIL_MCP_TOKEN: 'foreign-mailbox-capability', GMAIL_MCP_URL: 'http://foreign.invalid', GMAIL_MCP_ACCOUNT: 'foreign@fixture.invalid',
+    OPENROUTER_API_KEY: 'foreign-credential', OPENROUTER_BASE_URL: 'http://foreign.invalid',
     RETIRED_BROWSER_PASSWORD: 'fixture-browser-password' };
   const before = { ...input };
   assert.deepEqual(applicationRunEnvironment(input), { PATH: 'fixture-path', DATA_DIR: '/owner/files',
     CELERIS_API_KEY: 'fixture-key', SITE_AUTH_SECRET: 'fixture-session' });
   assert.deepEqual(input, before);
+});
+
+test('MiniMax credentials are added only after rechecking the admin owner and selected model', async () => {
+  const originalQuery = pool.query;
+  const names = ['CELERIS_API_KEY', 'OPENROUTER_API_KEY', 'ADMIN_EMAILS'] as const;
+  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  Object.assign(process.env, { CELERIS_API_KEY: 'fictional-celeris', OPENROUTER_API_KEY: 'fictional-openrouter', ADMIN_EMAILS: 'admin@fixture.invalid' });
+  pool.query = (async (_sql: string, params: unknown[]) => ({ rows: [{ id: params[0], email: params[0] === 'admin' ? 'admin@fixture.invalid' : 'customer@fixture.invalid' }] })) as typeof originalQuery;
+  try {
+    const settings = { APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'forged-client-key' };
+    const [admin, customer] = await Promise.all(['admin', 'customer'].map(id => accountApplicationEnvironment(id, settings)));
+    assert.equal(admin.APPLICATION_AI_MODEL, 'minimax');
+    assert.equal(admin.OPENROUTER_API_KEY, 'fictional-openrouter');
+    assert.equal(admin.CELERIS_API_KEY, 'fictional-celeris', 'matching retains its own provider');
+    assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
+    assert.equal(customer.OPENROUTER_API_KEY, '', 'blank explicitly prevents worker dotenv from restoring a machine key');
+    assert.equal((await accountApplicationEnvironment('admin', {})).OPENROUTER_API_KEY, '');
+    process.env.OPENROUTER_API_KEY = '';
+    await assert.rejects(accountApplicationEnvironment('admin', settings), /MiniMax is not configured/);
+  } finally {
+    pool.query = originalQuery;
+    for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }
+  }
 });
 
 test('application environment rechecks active ownership and only returns that owner data directory', async () => {
@@ -35,7 +59,7 @@ test('application environment rechecks active ownership and only returns that ow
   try {
     await assert.rejects(accountApplicationEnvironment('../owner-account'), /account is not available/);
     assert.equal(queries, 0);
-    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true', CELERIS_API_KEY: 'fixture-only' });
+    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true', CELERIS_API_KEY: 'fixture-only', OPENROUTER_API_KEY: '' });
     available = false;
     await assert.rejects(accountApplicationEnvironment('owner-account', {}), /account is not available/);
     available = true;
@@ -104,5 +128,8 @@ test('model selection persists while retired form-review controls stay hidden', 
     assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AGENT_MODE, 'agent-only');
     assert.equal(saved.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
     assert.equal(saved.APPLICATION_AI_FORM_REVIEW_MODE, undefined);
+    const minimax = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'minimax' });
+    assert.equal(minimax.APPLICATION_AI_MODEL, 'minimax', 'a selected admin model must survive the settings read');
+    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'minimax');
   } finally { pool.query = originalQuery; }
 });

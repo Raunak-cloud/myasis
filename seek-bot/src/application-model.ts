@@ -27,4 +27,18 @@ export function assertApplicationModelConfigured(env: ApplicationEnvironment = a
   if (!applicationModelAvailable(env)) throw new Error('CELERIS_API_KEY is required for application AI.');
 }
 
-export const assertApplicationBrowserConfigured = assertApplicationModelConfigured;
+export const MINIMAX_APPLICATION_MODEL = 'minimax/minimax-m3.1-flash';
+
+/** The applying agent is selectable independently of the Celeris matcher.
+ * Account authorization and credential selection happen in the dashboard. */
+export function applicationAgentIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
+  return env.APPLICATION_AI_MODEL === 'minimax'
+    ? { selection: 'minimax', model: MINIMAX_APPLICATION_MODEL, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
+    : { selection: 'celeris', model: 'celeris-1-magnus', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
+}
+
+export function assertApplicationBrowserConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
+  if (applicationAgentIdentity(env).selection === 'minimax') {
+    if (!env.OPENROUTER_API_KEY?.trim()) throw new Error('OPENROUTER_API_KEY is required for the MiniMax application agent.');
+  } else assertApplicationModelConfigured(env);
+}

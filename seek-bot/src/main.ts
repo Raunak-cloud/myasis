@@ -7,7 +7,7 @@ import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
 import { withApplicationAllowance } from './application-allowance.js';
 import { applicationFailureContext } from './application-diagnostics.js';
-import { applicationModelAvailable, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
+import { applicationModelAvailable, applicationAgentIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import { applicationWorkerPage } from './application-worker-page.js';
 import { ApplicationSlots, AsyncMutex, nextApplicationCandidate, withApplicationWorker } from './application-workers.js';
 import { applyToIndeedJob } from './apply-indeed.js';
@@ -150,7 +150,7 @@ async function main() {
   }
   if (!searchOnly) {
     console.log(
-      `Browser agent: ${applicationModelIdentity().model} ` +
+      `Browser agent: ${applicationAgentIdentity().model} ` +
         `($${config.celeris.budgetUsdPerApplication.toFixed(3)}/application; spending and time limits apply)`,
     );
   }

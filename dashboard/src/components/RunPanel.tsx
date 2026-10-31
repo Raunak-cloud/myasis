@@ -170,6 +170,8 @@ export function RunPanel({
   const isAdmin = entitlements?.tier === 'admin';
   const employerSourcesEnabled = entitlements?.employerSources === true;
   const [adminModeEnabled, setAdminModeEnabled] = useState(false);
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
   const adminMode = isAdmin && adminModeEnabled;
   const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
   const jobBoards = employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS;
@@ -430,6 +432,22 @@ export function RunPanel({
     setStandingError(null);
     setEdit(key, value);
   };
+  async function saveApplicationModel(value: string) {
+    if (!isAdmin || modelSaving) return;
+    setModelSaving(true);
+    setModelError(null);
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: { APPLICATION_AI_MODEL: value } }),
+      });
+      const saved = await response.json();
+      if (!response.ok) throw new Error(saved.error ?? 'Could not save the application model.');
+      if (saved.settings) setSettings(saved.settings);
+      setEdits(current => { const next = { ...current }; delete next.APPLICATION_AI_MODEL; return next; });
+    } catch (reason) { setModelError((reason as Error).message); }
+    finally { setModelSaving(false); }
+  }
   const discardStanding = () => {
     setStandingError(null);
     setEdits((current) => {
@@ -703,6 +721,16 @@ export function RunPanel({
             </button>
           </div>}
           </div>
+          {isAdmin && <div className="run-application-model">
+            <label htmlFor="run-application-model">Application model</label>
+            <select id="run-application-model" value={val('APPLICATION_AI_MODEL')} disabled={starting || modelSaving}
+              onChange={event => void saveApplicationModel(event.target.value)}>
+              <option value="celeris">Celeris Magnus</option>
+              <option value="minimax">MiniMax M3.1</option>
+            </select>
+            <p className="job-meta">{modelSaving ? 'Saving…' : 'Saved for your next run. Job matching uses Celeris.'}</p>
+            {modelError && <p role="alert">{modelError}</p>}
+          </div>}
           <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}

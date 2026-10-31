@@ -14,3 +14,6 @@
   font-size: 12px;
   white-space: nowrap;
 }
+.run-application-model { margin-top: 14px; }
+.run-application-model label { display: block; margin-bottom: 6px; font-weight: 600; }
+.run-application-model select { width: min(100%, 280px); }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { applicationModelIdentity, applicationModelAvailable, applicationModelEnvironment,
-  assertApplicationModelConfigured, assertApplicationBrowserConfigured, withApplicationModel } from './application-model.js';
+  assertApplicationModelConfigured, assertApplicationBrowserConfigured, applicationAgentIdentity, withApplicationModel } from './application-model.js';
 import { config } from './config.js';
 
 test('application AI has one credential-free Celeris identity', () => {
@@ -21,6 +21,15 @@ test('application AI requires a nonempty Celeris credential', () => {
   }
   assert.equal(applicationModelAvailable({ CELERIS_API_KEY: 'fictional-key' }), true);
   assert.doesNotThrow(() => assertApplicationBrowserConfigured({ CELERIS_API_KEY: 'fictional-key' }));
+});
+
+test('MiniMax applying selection leaves matching identity and credentials independent', () => {
+  const env = { APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fictional-openrouter' };
+  assert.equal(applicationAgentIdentity(env).model, 'minimax/minimax-m3.1-flash');
+  assert.equal(applicationModelIdentity(env).selection, 'celeris');
+  assert.equal(applicationModelAvailable(env), false);
+  assert.doesNotThrow(() => assertApplicationBrowserConfigured(env));
+  assert.throws(() => assertApplicationBrowserConfigured({ APPLICATION_AI_MODEL: 'minimax', CELERIS_API_KEY: 'fictional-celeris' }), /OPENROUTER_API_KEY/);
 });
 
 test('concurrent account scopes isolate credentials and data directories across awaits', async () => {

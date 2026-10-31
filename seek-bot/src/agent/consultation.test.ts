@@ -87,8 +87,8 @@ test('parallel account consultations isolate full candidate evidence, preference
   }
 });
 
-test('Celeris receives a read-only structured request without fallback or tools', async () => {
-  for (const model of ['celeris']) {
+test('the selected provider receives a read-only structured request without fallback or tools', async () => {
+  for (const model of ['celeris', 'minimax']) {
     const owner = account(`MODEL_${model}`, model), shared = options();
     let called = 0;
     globalThis.fetch = async (url, init) => {
@@ -96,15 +96,20 @@ test('Celeris receives a read-only structured request without fallback or tools'
       const body = JSON.parse(String(init?.body));
       assert.equal(body.tools, undefined);
       assert.equal(body.tool_choice, undefined);
-      {
+      if (model === 'celeris') {
         assert.match(String(url), /\/celeris-1-magnus\/v1\/chat\/completions$/);
         assert.equal(body.model, 'celeris-1-magnus');
         assert.equal(body.chat_template_kwargs.reasoning_effort, 'medium');
         assert.equal(body.response_format.type, 'json_schema');
+      } else {
+        assert.equal(String(url), 'https://openrouter.ai/api/v1/chat/completions');
+        assert.equal(body.model, 'minimax/minimax-m3.1-flash');
+        assert.equal(body.reasoning.effort, 'medium');
+        assert.equal(body.response_format.type, 'json_schema');
       }
       return success(model);
     };
-    await withApplicationModel(owner.env, async () => {
+    await withApplicationModel({ ...owner.env, OPENROUTER_API_KEY: 'private-synthetic-openrouter' }, async () => {
       const result = await consultApplicationSpecialist(context(), { question: 'Check the current evidence.' }, shared);
       assert.match(message(result), /not an approval or a submission receipt/);
     });

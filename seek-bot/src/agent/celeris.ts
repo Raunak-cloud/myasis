@@ -30,7 +30,8 @@ export interface ToolCall {
 
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string | ContentPart[] }
-  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] }
+  | { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[];
+      reasoning?: string | null; reasoning_details?: Record<string, unknown>[] }
   | { role: 'tool'; tool_call_id: string; content: string };
 
 type ContentPart =

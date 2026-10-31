@@ -1,6 +1,7 @@
 import { APPLICATION_EVIDENCE_RULES, CONTACT_IDENTITY_RULES } from '../application-answer-policy.js';
 import { agentOnlyEvidence } from './agent-only-evidence.js';
-import { celerisChat, type CostMeter, type ToolSchema } from './celeris.js';
+import { type CostMeter, type ToolSchema } from './celeris.js';
+import { applicationChat } from './application-chat.js';
 import { validToolInput } from './tool-input.js';
 import { ok, type ToolContext, type ToolResult } from './context.js';
 
@@ -74,7 +75,7 @@ export async function consultApplicationSpecialist(
     if (options.meter.exhausted) return ok('Specialist request not started because evidence loading left insufficient application budget.', 'reobserve');
     const fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password'
       ? { ...field, currentValue: '[credential withheld]' } : field);
-    const reply = await celerisChat({
+    const reply = await applicationChat({
       model: 'celeris-1-magnus', meter: options.meter,
       thinking: true, reasoningEffort: 'medium', maxTokens: 8192,
       responseSchema: replySchema,

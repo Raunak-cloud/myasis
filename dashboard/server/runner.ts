@@ -43,19 +43,23 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
   if (!serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Celeris is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
+  if (selected === 'minimax' && !serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error('MiniMax is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.');
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin),
-    CELERIS_API_KEY: serverEnv.CELERIS_API_KEY };
+    CELERIS_API_KEY: serverEnv.CELERIS_API_KEY,
+    // Explicitly blank the unselected credential: the worker loads .env with
+    // dotenv, which otherwise restores a key omitted from its inherited env.
+    OPENROUTER_API_KEY: selected === 'minimax' ? serverEnv.OPENROUTER_API_KEY! : '' };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 
