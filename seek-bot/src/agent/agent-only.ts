@@ -790,7 +790,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             // wrong. Retain this review for one schema correction, then end
             // honestly instead of cycling through send/review again.
             if (++invalidApplicationReviews >= 2) {
-              terminal = { status: 'skipped', reason: 'The application review response could not be completed.' };
+              terminal = { status: 'skipped', reason: 'The application could not be completed.' };
               finished = true;
               break;
             }

@@ -177,5 +177,5 @@ test('repeated malformed final review exits with its actual error instead of loo
   if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}]);
   assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([{name:'record_application_review',args:{assessment:'ready'}}]);
  };
- try{const r=await runAgentOnlyApplication(f);assert.deepEqual(r.outcome,{status:'skipped',reason:'The application review response could not be completed.'});assert.equal(turns,3);assert.equal(r.submitPressed,false);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);}finally{await f.context.close();}
+ try{const r=await runAgentOnlyApplication(f);assert.deepEqual(r.outcome,{status:'skipped',reason:'The application could not be completed.'});assert.equal(turns,3);assert.equal(r.submitPressed,false);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);}finally{await f.context.close();}
 });
