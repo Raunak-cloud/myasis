@@ -57,3 +57,25 @@ test('cross-origin and nested form fields, actions and progress are visible with
     assert.equal(await browserTarget(page, {ref: replacementName.ref}).inputValue(), '');
   } finally { await browser.close(); }
 });
+
+test('a detached frame retries the observation without exposing private authentication fields', async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<main><label>Name<input value="Fixture"></label><iframe srcdoc="<label>Password<input type=password value=private-fixture-secret></label>"></iframe></main>');
+    await page.frameLocator('iframe').getByLabel('Password').waitFor();
+    const frame = page.frames().find(item => item !== page.mainFrame())!;
+    const original = frame.evaluate.bind(frame) as (...args: unknown[]) => Promise<unknown>;
+    let failures = 0;
+    Object.defineProperty(frame, 'evaluate', { configurable: true, value: async (...args: unknown[]) => {
+      if (!failures && typeof args[0] === 'function' && args[0].name === 'scanPrivateAuthenticationFields') {
+        failures++; throw new Error('frame.evaluate: Frame was detached');
+      }
+      return original(...args);
+    } });
+    const result = await observe(page);
+    assert.equal(failures, 1, 'the frame changed during the private-field inspection');
+    assert.equal(result.fields.some(field => field.label === 'Name'), true);
+    assert.doesNotMatch(JSON.stringify(result), /private-fixture-secret/, 'retry never bypasses credential redaction');
+  } finally { await browser.close(); }
+});

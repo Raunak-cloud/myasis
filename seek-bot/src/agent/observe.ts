@@ -469,7 +469,7 @@ export async function observe(page: Page, options: ObserveOptions = {}): Promise
     catch (error) {
       recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',
         retry: attempt + 1, message: error instanceof Error ? error.message : String(error), error });
-      if (attempt >= 2 || !/Execution context was destroyed|Cannot find context with specified id/i.test(String(error))) throw error;
+      if (attempt >= 2 || !/Execution context was destroyed|Cannot find context with specified id|Frame was detached/i.test(String(error))) throw error;
       // Only retry observation, never replay an action or submit click.
       await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
     }
