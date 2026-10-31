@@ -54,6 +54,15 @@ try {
   await recordFormPage(page, changing);
   assert.equal(readdirSync(directory).length, 0, 'a page whose fields changed under the snapshot is not recorded');
 
+  for (const control of ['<input>', '<select><option>Choose</option><option>One</option></select>']) {
+    await page.evaluate(markup => document.body.insertAdjacentHTML('beforeend', `<div id="conditional"><label>Conditional detail ${markup}</label></div>`), control);
+    const beforeHide = await observe(page);
+    await page.locator('#conditional input, #conditional select').evaluate(element => { (element as HTMLElement).style.display = 'none'; });
+    await recordFormPage(page, beforeHide);
+    assert.equal(readdirSync(directory).length, 0, 'a visible label/parent cannot validate a newly hidden ordinary control');
+    await page.locator('#conditional').evaluate(element => element.remove());
+  }
+
   const observation = await observe(page);
   assert.ok(!observation.fields.some((field) => /internal code/i.test(field.label)), 'the field hidden by the stylesheet is not observed live');
   assert.ok(observation.fields.some((field) => /write a reply/i.test(field.label)), 'the field inside a shadow root is observed live');
@@ -102,6 +111,16 @@ try {
   assert.equal(readdirSync(platformDir).filter(name => name.endsWith('.json')).length, 1, 'no partial or late recording is saved');
   await recordFormPage(page, delayed);
   assert.equal(readdirSync(platformDir).filter(name => name.endsWith('.json')).length, 2, 'a later healthy capture can still succeed');
+
+  writeFileSync(jsonPath, JSON.stringify(expectation));
+  await page.route('https://www.google.com/recaptcha/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body>Offline fixture</body>' }));
+  await page.setContent('<label>Applicant name<input></label><iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/api2/anchor?k=fixture-key-only&size=normal"></iframe>');
+  await page.frameLocator('iframe').locator('body').waitFor();
+  await recordFormPage(page, await observe(page));
+  const securityRecords = readdirSync(platformDir).filter(name => name.endsWith('.json')).map(name => JSON.parse(readFileSync(join(platformDir, name), 'utf8')));
+  assert.ok(securityRecords.some(record => record.captcha), 'the synthetic security frame is recorded as a CAPTCHA surface');
+  run = replay();
+  assert.equal(run.status, 0, `security frame URLs remain detectable offline without contacting their provider:\n${run.stdout}\n${run.stderr}`);
 
   console.log('PASS: real form pages are recorded once and only when stable, replay offline with their state, styles, shadow roots and in-page step address, and a worse reading fails the replay');
 } finally {

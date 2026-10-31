@@ -122,10 +122,23 @@ async function fieldsStillShown(page: Page, observation: Observation): Promise<b
         const stamp = element.getAttribute('data-field-id');
         if (!stamp) continue;
         const ref = stamp.split(':')[0];
-        const labels = [...((element as HTMLInputElement).labels ?? [])];
+        const input = element as HTMLInputElement;
+        const labels = [...(input.labels ?? [])];
         let widget: Element | null = element.parentElement;
-        for (let depth = 0; widget && depth < 3 && !shown(widget); depth++) widget = widget.parentElement;
-        const visible = shown(element) || labels.some((label) => shown(label)) || shown(widget);
+        for (let depth = 0; widget && depth < 3; depth++) {
+          const style = getComputedStyle(widget);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.contentVisibility === 'hidden') {
+            widget = null;
+            break;
+          }
+          if (shown(widget)) break;
+          widget = widget.parentElement;
+        }
+        // Match extractFields: a visible parent cannot resurrect a conditional
+        // text/select control that disappeared after the observation.
+        const visible = shown(element)
+          || /^(radio|checkbox)$/.test(input.type) && labels.some((label) => shown(label))
+          || (element.getAttribute('role') === 'combobox' || element.hasAttribute('aria-haspopup')) && shown(widget);
         found.set(ref, Boolean(found.get(ref)) || visible);
       }
     }

@@ -49,15 +49,27 @@ const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_P
 const findings: Finding[] = [];
 let read = 0;
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   for (const recorded of pages) {
+    // Several recorded steps can share one URL (including its fragment).
+    // A fresh page prevents same-document navigation from reusing the last
+    // step's DOM instead of requesting this snapshot.
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const name = `${recorded.expectation.platform} · ${recorded.expectation.host}${new URL(recorded.expectation.url).pathname.slice(0, 60)}`;
     try {
       await page.unrouteAll({ behavior: 'ignoreErrors' });
       const address = requested(recorded.expectation.url);
-      await page.route('**/*', (route) => (requested(route.request().url()) === address
-        ? route.fulfill({ contentType: 'text/html; charset=utf-8', body: recorded.html })
-        : route.abort()));
+      await page.route('**/*', (route) => {
+        if (requested(route.request().url()) === address) {
+          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: recorded.html });
+        }
+        // Keep the recorded child-frame URL without contacting its provider.
+        // Aborting replaces it with chrome-error:// and falsely loses CAPTCHA
+        // surfaces whose detection depends on the security frame's URL.
+        if (route.request().isNavigationRequest() && route.request().frame() !== page.mainFrame()) {
+          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html><html><body></body></html>' });
+        }
+        return route.abort();
+      });
       await page.goto(recorded.expectation.url, { waitUntil: 'domcontentloaded', timeout: 20_000 });
       // A recorded static page must not replay its entrance animation from
       // frame zero. Match snapshot-test rendering: finish finite animations
@@ -77,6 +89,8 @@ try {
       read++;
     } catch (error) {
       findings.push({ page: name, kind: 'regression', detail: `could not be read: ${(error as Error).message.split('\n')[0].slice(0, 160)}` });
+    } finally {
+      await page.close();
     }
   }
 } finally {
