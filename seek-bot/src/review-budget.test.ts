@@ -619,6 +619,17 @@ for (const minimum of [60, 75, 100]) test(`the ${minimum}% match filter includes
   assert.equal(result.history.length, 1);
 });
 
+test('joined employer exclusions block preparation before consuming a review slot', () => {
+  const result = run([
+    job('excluded-joined', { company: 'TPG Telecom' }),
+    job('excluded-spaced', { company: 'InsightTimer Pty Ltd' }),
+    job('eligible'),
+  ], { apply: true, prepare: true, excludedCompanies: ['tpgtelecom', 'Insight Timer'], reviews: 1 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['eligible']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['eligible']);
+  assert.equal(result.history.filter(record => record.submittedByMyasis).length, 0);
+});
+
 for (const maximum of [20, 30]) test(`company and ${maximum}-day age filters exclude jobs before AI review without hiding an eligible listing`, () => {
   const result = run([
     job('excluded-company', { company: 'Commonwealth Bank of Australia' }),

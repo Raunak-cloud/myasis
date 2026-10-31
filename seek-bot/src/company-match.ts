@@ -77,7 +77,9 @@ function tokenSimilar(left: string, right: string): boolean {
 
 function companyNamesMatch(excluded: readonly string[], advertised: readonly string[]): boolean {
   if (!excluded.length || !advertised.length) return false;
-  if (excluded.join(' ') === advertised.join(' ')) return true;
+  // Spacing alone must not change an employer's full canonical identity.
+  // Keep this exact: compact substring/fuzzy matching can hide unrelated jobs.
+  if (excluded.join('') === advertised.join('')) return true;
   if (tokensAppearTogether(excluded, advertised) || tokensAppearTogether(advertised, excluded)) return true;
 
   const excludedAcronym = acronym(excluded);
