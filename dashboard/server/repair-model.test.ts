@@ -27,6 +27,15 @@ test('independent review has no tools and requires a measured explicit decision'
   await assert.rejects(()=>reviewRepair('key',incident,{},proposal,async()=>Response.json({choices:[]})),/unavailable/);
 });
 
+test('independent review receives the same fixed browser contract meaning as the coder',async()=>{
+ const incident={runId:'1',attemptId:'fixture',category:'tool_execution_failure' as const,count:1,code:'browser_page_contract' as const};
+ await reviewRepair('key',incident,{source:'before'},{files:{source:'after'},summary:'fixture',costUsd:0},async(_url,init)=>{
+  const request=JSON.parse(String(init?.body)),context=JSON.parse(request.messages[1].content.split('\nInspect')[0]);
+  assert.match(context.description,/non-Page argument.*caller corrupted/);
+  return Response.json({usage:{cost:0},choices:[{message:{content:'{"accepted":false,"reason":"fixture"}'}}]});
+ });
+});
+
 test('MiniMax broker rejects missing usage and incomplete responses', async () => {
   const model = miniMaxRepairModel('key', async () => Response.json({ choices: [] }));
   await assert.rejects(() => model([{ role: 'system', content: 'rules' }]), /charge was unavailable/);

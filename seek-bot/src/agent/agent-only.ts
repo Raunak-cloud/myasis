@@ -122,7 +122,7 @@ const agentOnlyTools: ToolSchema[] = [
     status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied'] },
     reason: string, evidence: string,
     receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: copy a COMPLETE visible employer confirmation message or sentence, including its qualifications. You judge its meaning. A loading state, disabled button, account creation or URL is not receipt. Do not truncate a message to remove negation or conditions.', properties: { quote: { type: 'string', minLength: 1 } }, required: ['quote'] },
-    questions: { type: 'array', minItems: 1, description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
+    questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
       type: 'object', additionalProperties: false,
       properties: { field_ref: { type: 'string', description: 'Current observed field/group ref for the required unanswered employer question. The system extracts its label and choices.' }, form_quote: { type: 'string', maxLength: 2000, description: 'Optional compatibility field; employer text is extracted directly from the form.' }, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
       required: ['field_ref'],
@@ -134,7 +134,7 @@ const agentOnlyTools: ToolSchema[] = [
       properties: { source: { type: 'string', enum: ['listing', 'form'] }, evidence: string }, required: ['source', 'evidence'] },
     answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
   }, ['status', 'reason', 'evidence'],{anyOf:[
-    {properties:{status:{enum:['needs-human']}},required:['questions']},
+    {properties:{status:{enum:['needs-human']},questions:{type:'array',minItems:1}},required:['questions']},
     {properties:{status:{enum:['applied','skipped','already-applied']}}},
   ]}),
 ];

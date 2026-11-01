@@ -12,6 +12,8 @@ test('automatic proposals preserve controls and deny new I/O or broad patches', 
   assert.throws(() => validateRepairProposal(source,{...valid,files:{'../secret': 'changed'}}));
   assert.doesNotThrow(()=>validateRepairProposal({[path]:source[path].replaceAll('\n','\r\n')},valid));
   assert.throws(()=>validateRepairProposal(source,{...valid,files:{[path]:source[path].replaceAll('\n','\r\n')}}),'line-ending-only changes are not a repair');
+  const contract='function inspect(page: Page) {\n assertBrowserPage(page);\n return page.locator("input");\n}\n';
+  assert.throws(()=>validateRepairProposal({[path]:contract},{...valid,files:{[path]:contract.replace(' assertBrowserPage(page);','')}}),/protected/,'automatic coding cannot remove the argument contract');
 });
 
 test('browser ownership references are distinguished from account ownership by their bindings',()=>{

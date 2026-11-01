@@ -29,6 +29,14 @@ test('repair context retains only the failing internal module and function, neve
   assert.equal(new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...event,failureKind:'execution',sourceSite:{path:'seek-bot/.env',function:'secret'}})?.sourceSite,undefined);
 });
 
+test('browser argument contracts become fixed private-data-free incident categories',()=>{
+ const input={...event,tool:'browser_action',failureKind:'execution',sourceSite:{path:'seek-bot/src/agent/browser-target.ts',function:'assertBrowserPage'},error:{name:'BrowserPageContractError',message:'PRIVATE CANDIDATE DATA',arbitrary:'SECRET'}};
+ const incident=new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',input);
+ assert.equal(incident?.code,'browser_page_contract');assert.doesNotMatch(JSON.stringify(incident),/PRIVATE|SECRET|arbitrary/);
+ assert.equal(new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...input,error:undefined,tool:'browser_batch',message:'Browser target resolution received a non-Page argument.'})?.code,'browser_page_contract','batch exceptions retain the fixed contract without serializing Error objects');
+ assert.equal(new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...input,sourceSite:{path:'seek-bot/src/agent/agent-files.ts'}})?.code,undefined,'an unrelated tool cannot claim a browser API contract');
+});
+
 test('the pilot only emits bounded metadata for repeated failures in the exact admin account', () => {
   for (const detector of [new RepairPilotDetector('183', 'raunak.vision@gmail.com', true), new RepairPilotDetector('1', 'other@example.com', true), new RepairPilotDetector('1', 'raunak.vision@gmail.com', false)]) {
     assert.equal(detector.observe('1081', event), null);

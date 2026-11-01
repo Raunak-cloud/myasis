@@ -11,6 +11,7 @@ export interface RepairDiagnostic {
   failureKind?: unknown;
   sourceSite?: unknown;
   sourceSites?: unknown;
+  error?: unknown;
 }
 
 export const REPAIR_EDITABLE_FILES = [
@@ -47,7 +48,7 @@ export interface RepairIncident {
   attemptId: string;
   category: 'repeated_tool_failure' | 'tool_execution_failure' | 'application_exception';
   tool?: string;
-  code?: 'approved_document_bundle_rejected' | 'target_missing' | 'target_ambiguous' | 'pointer_blocked' | 'outside_viewport' | 'question_capture_rejected' | 'tool_arguments_rejected' | 'runtime_reference_error';
+  code?: 'approved_document_bundle_rejected' | 'target_missing' | 'target_ambiguous' | 'pointer_blocked' | 'outside_viewport' | 'question_capture_rejected' | 'tool_arguments_rejected' | 'runtime_reference_error' | 'browser_page_contract';
   count: number;
   sourceSite?: RepairSourceSite;
   sourceSites?: RepairSourceSite[];
@@ -92,7 +93,12 @@ export class RepairPilotDetector {
     this.counts.set(key, count);
     if ((!fatal && !execution && count < 2) || this.emitted.has(key)) return null;
     this.emitted.add(key);
-    const code = tool === 'create_file' && typeof input.message === 'string'
+    const contractName=input.error&&typeof input.error==='object'&&(input.error as {name?:unknown}).name==='BrowserPageContractError';
+    // Batch results retain the fixed internal message and source site, while
+    // avoiding serialization of arbitrary Error objects or browser values.
+    const contractMessage=['Browser target resolution received a non-Page argument.','Browser/tool error: Browser target resolution received a non-Page argument.'].includes(message);
+    const internalContract = execution && (contractName||contractMessage) && checkedSourceSite(input.sourceSite)?.path==='seek-bot/src/agent/browser-target.ts';
+    const code = internalContract ? 'browser_page_contract' as const : tool === 'create_file' && typeof input.message === 'string'
       && input.message.includes('Generated content must match the candidate-approved cover letter exactly.')
       ? 'approved_document_bundle_rejected' as const
       : /outside of the viewport/i.test(message) ? 'outside_viewport' as const

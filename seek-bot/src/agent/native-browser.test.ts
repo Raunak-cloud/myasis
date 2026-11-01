@@ -6,6 +6,10 @@ import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, 
 import { observe, renderObservation } from './observe.js';
 import { ApplicationReadiness } from './application-readiness.js';
 
+test('corrupted browser arguments produce a private-data-free API contract diagnostic',()=>{
+  for(const page of [undefined,null,()=>{},{}])assert.throws(()=>browserTarget(page as never,{selector:'input'}),{name:'BrowserPageContractError',message:'Browser target resolution received a non-Page argument.'});
+});
+
 test('observations capture a usable viewport while a web font remains pending', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   try {

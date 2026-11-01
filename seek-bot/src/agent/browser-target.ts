@@ -61,7 +61,17 @@ export function hasBrowserTarget(args: Record<string, unknown>): boolean {
   return Boolean(args.locator || args.selector || args.ref);
 }
 
+/** Internal API contract, not employer/candidate data. A corrupted Page
+ * argument must not masquerade as an absent frame or a missing form field. */
+function assertBrowserPage(page: Page): void {
+  if (!page || typeof page !== 'object' || typeof page.locator !== 'function' || typeof page.frames !== 'function') {
+    const error = new TypeError('Browser target resolution received a non-Page argument.');
+    error.name = 'BrowserPageContractError'; throw error;
+  }
+}
+
 export function browserTarget(page: Page, args: Record<string, unknown>): Locator {
+  assertBrowserPage(page);
   if (args.locator) {
     const spec = args.locator as { by: string; value: string; name?: string; exact?: boolean; within?: string; frame?: string; index?: number };
     const frame = spec.frame ? observedFrame(page, spec.frame) ?? page.frameLocator(spec.frame) : page;

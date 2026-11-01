@@ -54,7 +54,7 @@ try {
    {name:'browser_action',args:{action:'fill',selector:'#city',value:'Sydney'}},
    prepare?{name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}}:
     {name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}},
-   {name:'finish',args:{status:'applied',reason:'Observed fixture receipt',evidence:'Application received FIXTURE-REPAIR-1',receipt:{quote:'FIXTURE-REPAIR-1'}}},
+   {name:'finish',args:{status:'applied',reason:'Observed fixture receipt',evidence:'Application received FIXTURE-REPAIR-1',questions:[],receipt:{quote:'FIXTURE-REPAIR-1'}}},
   ];
   globalThis.fetch=(async(_url,init)=>{
     const body=JSON.parse(String(init?.body)),forced=body.tool_choice?.function?.name;
