@@ -43,6 +43,8 @@ try{
  const unknown=await reviewHalt(ctx,{status:'needs-human',reason:'Exact visa expiry is unknown'},newHaltReviewState(),meter,async()=>
   ({text:JSON.stringify({decision:'stop',reason:'No explicit expiry date is supplied; do not infer it.',evidence:[]}),toolCalls:[],message:{role:'assistant',content:null}}));
  assert.equal(unknown.decision,'stop','genuine unknown facts still reach the candidate');
+ const browserOnly=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'The question is present.',evidence:['browser:/fields/0']}),toolCalls:[],message:{role:'assistant',content:null}}));
+ assert.equal(browserOnly.decision,'stop','an observed question is not a saved candidate answer');
  const fabricated=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use an invented date.',evidence:['profile:/madeUpDate']}),toolCalls:[],message:{role:'assistant',content:null}}));
  assert.equal(fabricated.decision,'unavailable','unsupported review claims never authorize work');
  const mixed=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use 31 December 2030.',evidence:['profile:/noticePeriod','profile:/madeUpDate']}),toolCalls:[],message:{role:'assistant',content:null}}));
