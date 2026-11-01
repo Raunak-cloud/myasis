@@ -20,6 +20,8 @@ export interface TraceStep {
   /** Recorded before execution; a missing completion identifies outstanding work. */
   startedAt?: string;
   completedAt?: string;
+  /** Trusted dispatcher audit. Absence on older traces means unknown. */
+  execution?: 'started'|'not-started';
   disposition?: string;
   /** The image observed before this decision, when a capture was available. */
   screenshot?: string;

@@ -4,6 +4,17 @@ import { validToolInput, toolInputIssue } from './tool-input.js';
 import { browserCommandContract } from './browser-command-schema.js';
 import { browserTargetProperties } from './browser-target.js';
 
+test('confirmation-mode send intent is enforced by the same advertised command schema before any batch work',()=>{
+ const command={type:'object',properties:{action:{type:'string'},sends_application:{type:'boolean'}},...browserCommandContract(['fill','click','press'],true)};
+ for(const action of ['click','press']){
+  assert.equal(validToolInput({action},command),false);
+  assert.match(toolInputIssue({action},command)!,/sends_application is required/);
+  for(const sends_application of [true,false])assert.equal(validToolInput({action,sends_application},command),true);
+ }
+ assert.equal(validToolInput({action:'fill'},command),true);
+ assert.equal(validToolInput([{action:'fill'},{action:'click'}],{type:'array',items:command}),false,'partial batches are rejected before the first fill');
+});
+
 test('frame-only and invented references are rejected before browser dispatch',()=>{
   for(const ref of ['a0','f3','f1:2','e12','f1e12','frame1:f2','frame1:a3:2'])assert.equal(validToolInput(ref,browserTargetProperties.ref),true,ref);
   for(const ref of ['frame1','SECRET_INVALID_REF','','a0\n','frame1:frame2']){

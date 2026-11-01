@@ -43,9 +43,10 @@ try {
   const url=`https://employer.fixture.invalid/job/${prepare?'prepare':'auto'}`;await page.goto(url);
   privacy.rememberPrivateAuthenticationValue(page,'fixture-retained-secret');
   await page.evaluate('window.sends=0;window.nameWrites=0',undefined,undefined,false);
-  let failures=0,index=0,resumed=false,markerSeen=false,allowanceChecks=0;
+  let index=0,resumed=false,markerSeen=false,allowanceChecks=0;
   const readinessReply=createReadinessFixtureReply();
   const calls=[
+   ...prepare?[{name:'browser_action',args:{action:'click',selector:'#send'}}]:[],
    {name:'browser_action',args:{action:'fill',selector:'#name',value:'Fixture Applicant'}},
    {name:'create_file',args:{name:'../invalid.txt',text:'Fixture',format:'txt'}},
    {name:'create_file',args:{name:'../invalid.txt',text:'Fixture',format:'txt'}},
@@ -61,12 +62,13 @@ try {
     return Response.json({usage:{prompt_tokens:1000,completion_tokens:10},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`fixture-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
   }) as typeof fetch;
   const options:AgentRunOptions={simulation:'isolated-form',page,job:{id:`repair-${prepare}`,title:'Developer',company:'Fixture Employer',location:'Sydney',platform:'workday',url},
-    profile:{name:'Fixture Applicant',email:'fixture@example.invalid',skills:[]} as never,log:()=>{},testRepairRequested:()=>++failures>=2};
+    profile:{name:'Fixture Applicant',email:'fixture@example.invalid',skills:[]} as never,log:()=>{},testRepairRequested:()=>index>=(prepare?4:3)};
   await withApplicationAllowance(()=>{allowanceChecks++;return true;},async()=>{
     const original=await runAgentOnlyApplication(options);assert.ok(original.repair,'Repeated error must hand off at a safe boundary before ending the run');
     const checkpoint=original.repair!,spent=checkpoint.meter.totals.costUsd,writes=await page.evaluate('window.nameWrites',undefined,undefined,false);
     const trace=JSON.parse(readFileSync(join(directory,'traces',`attempt-${checkpoint.attemptId}.json`),'utf8'));
     assert.equal(traceProvesNoSend(trace,'100',checkpoint.attemptId),true);
+    if(prepare){assert.equal(trace.steps[0].execution,'not-started');assert.equal(await page.evaluate('window.sends',undefined,undefined,false),0,'a rejected send intent never executes or blocks later safe recovery');}
     const result=await recoverDuringRun(options,original,{enabled:()=>true,safe:()=>true,event:()=>{},
       ticket:()=>({status:'in_run_ready',caseId:'00000000-0000-4000-8000-000000000001',runId:'100',attemptId:checkpoint.attemptId,expiresAt:Date.now()+10000}),
       load:async()=>{resumed=true;const sharedPrivacy=await import(pathToFileURL(join(artifact,'dist/private-auth-fields.js')).href);

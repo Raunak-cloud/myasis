@@ -179,7 +179,13 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
 async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRunResult> {
   // Do not offer a preparation-only tool to an Auto apply run. Email drafts
   // retain their explicit-confirmation path in both modes.
-  const offeredTools = reviewingApplications() ? agentOnlyTools : agentOnlyTools.filter(tool => tool.name !== 'prepare_application');
+  const offeredTools = reviewingApplications() ? agentOnlyTools.map(tool=>{
+    if(tool.name==='browser_action')return {...tool,parameters:{...tool.parameters,...browserCommandContract(browserActions,true)}};
+    if(tool.name!=='browser_batch')return tool;
+    const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
+    return {...tool,parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
+      items:{...(properties.actions.items as Record<string,unknown>),...browserCommandContract(batchActions,true)}}}}};
+  }) : agentOnlyTools.filter(tool => tool.name !== 'prepare_application');
   if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
   const isolated = options.simulation === 'isolated-form';
@@ -889,6 +895,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         if(haltCorrection){interrupted=true;highEffort=true;}
         let result: ToolResult;
         let diagnosticError: unknown;
+        let dispatchStarted=false;
         let failureKind:'execution'|'arguments'|'validation'='arguments';
         const tool = turnTools.find(item => item.name === call.name);
         // Usage is charged when the reply arrives. Its final judgement can
@@ -919,6 +926,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
             failureKind='execution';
+            dispatchStarted=true;
             if(call.name==='browser_action'&&changesBrowserState(call.args)||call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState))haltReview.pendingAction=false;
             result = await act(call.name, call.args);
             failureKind='validation';
@@ -937,7 +945,8 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
         recordToolDiagnostic(steps, call.name, text, disposition, diagnosticError, failureKind);
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });
-        Object.assign(traceStep, { url: ctx.page.url(), result: text, disposition:notExecuted?'not-executed':disposition, completedAt: new Date().toISOString() });
+        Object.assign(traceStep, { url: ctx.page.url(), result: text, disposition:notExecuted?'not-executed':disposition,
+          execution:dispatchStarted?'started':'not-started',completedAt: new Date().toISOString() });
         saveLiveTrace();
         if (!checkpoint && !readiness.requested) recovery.acted(call.name, failedToolResult(result), call.args);
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }

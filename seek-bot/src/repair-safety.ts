@@ -5,6 +5,7 @@ export function traceProvesNoSend(trace: Record<string, any>, runId: string, att
   for (const step of trace.steps) {
     if (!step.completedAt) return false;
     if (step.disposition === 'not-executed') continue;
+    if (step.execution === 'not-started') continue;
     const commands = step.tool === 'browser_batch' ? step.args?.actions : step.tool === 'browser_action' ? [step.args] : [];
     if (!Array.isArray(commands)) return false;
     for (const command of commands) {

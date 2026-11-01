@@ -40,4 +40,8 @@ test('retry evidence rejects missing audits, incomplete actions, scripts and unc
   assert.equal(traceProvesNoSend(trace,'101','attempt'),false);
   assert.equal(traceProvesNoSend({...trace,steps:[],sendAudit:{attempted:false,phase:'before-tools'}},'100','attempt'),true);
   assert.equal(traceProvesNoSend({...trace,steps:[{...trace.steps[0],completedAt:null}],sendAudit:{attempted:false,phase:'before-tools'}},'100','attempt'),false);
+  const rejected={...trace.steps[0],tool:'browser_action',args:{action:'click'},execution:'not-started',disposition:'failed'};
+  assert.equal(traceProvesNoSend({...trace,steps:[rejected]},'100','attempt'),true,'a completed pre-dispatch rejection did not touch the browser');
+  for(const patch of [{execution:'started'},{execution:undefined},{completedAt:null}])assert.equal(traceProvesNoSend({...trace,steps:[{...rejected,...patch}]},'100','attempt'),false,'an uncertain or incomplete operation remains unsafe');
+  assert.equal(traceProvesNoSend({...trace,steps:[rejected],sendAudit:{attempted:true}},'100','attempt'),false,'the send audit always overrides a rejected later call');
 });
