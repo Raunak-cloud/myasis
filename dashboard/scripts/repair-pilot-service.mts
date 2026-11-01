@@ -182,11 +182,11 @@ async function repair(id:string,incident:RepairIncident){
   try{
     const baseSha=String((await git(['rev-parse','HEAD'])).stdout).trim();
     const source:Record<string,string>={};for(const path of REPAIR_EDITABLE_FILES)source[path]=String((await git(['show',`${baseSha}:${path}`])).stdout);
-    const provider=miniMaxRepairModel(env.OPENROUTER_API_KEY??'');
+    const provider=miniMaxRepairModel(env.OPENROUTER_API_KEY??'',undefined,()=>caseActive(incident.runId));
     const proposal=await proposeRepair(incident,source,async turns=>{if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused.');const r=await provider(turns);await charge(r.costUsd);return r;});
     validateRepairProposal(source,proposal);
     if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused, or release in progress.');
-    const review=await reviewRepair(env.OPENROUTER_API_KEY??'',incident,source,proposal);await charge(review.costUsd);
+    const review=await reviewRepair(env.OPENROUTER_API_KEY??'',incident,source,proposal,undefined,()=>caseActive(incident.runId));await charge(review.costUsd);
     if(!review.accepted)throw Error('Independent review did not accept this repair.');
     if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused.');
     await setState(id,'testing','Code proposal accepted for isolated validation.',{baseSha});

@@ -32,3 +32,21 @@ test('MiniMax broker rejects missing usage and incomplete responses', async () =
   const truncated = miniMaxRepairModel('key', async () => Response.json({ usage: { cost: 0 }, choices: [{ finish_reason: 'length' }] }));
   await assert.rejects(() => truncated([{ role: 'system', content: 'rules' }]), /truncated/);
 });
+
+test('truncated proposal calls are discarded, corrected once, and both charges are retained',async()=>{
+  const limits:number[]=[];
+  const model=miniMaxRepairModel('key',async(_url,init)=>{
+    const body=JSON.parse(String(init?.body));limits.push(body.max_tokens);assert.equal(body.reasoning.effort,'medium');
+    if(limits.length===1)return Response.json({usage:{cost:.001},choices:[{finish_reason:'length',message:{tool_calls:[{function:{name:'replace_source',arguments:'partial'}}]}}]});
+    return Response.json({usage:{cost:.002},choices:[{finish_reason:'tool_calls',message:{tool_calls:[{function:{name:'read_source',arguments:'{"path":"safe"}'}}]}}]});
+  });
+  const result=await model([{role:'system',content:'rules'}]);
+  assert.deepEqual(limits,[8192,16384]);assert.equal(result.costUsd,.003);assert.deepEqual(result.calls,[{name:'read_source',args:{path:'safe'}}]);
+});
+
+test('cancellation prevents a truncated-response resample and preserves its known charge',async()=>{
+  let calls=0,checks=0;
+  const model=miniMaxRepairModel('key',async()=>{calls++;return Response.json({usage:{cost:.001},choices:[{finish_reason:'length'}]});},async()=>++checks===1);
+  await assert.rejects(()=>model([{role:'system',content:'rules'}]),(error:any)=>error.repairCostUsd===.001&&/paused/.test(error.message));
+  assert.equal(calls,1);
+});

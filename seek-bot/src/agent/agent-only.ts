@@ -123,7 +123,7 @@ const agentOnlyTools: ToolSchema[] = [
     questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
       type: 'object', additionalProperties: false,
       properties: { field_ref: { type: 'string', description: 'Current observed field/group ref for the required unanswered employer question. The system extracts its label and choices.' }, form_quote: { type: 'string', maxLength: 2000, description: 'Optional compatibility field; employer text is extracted directly from the form.' }, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
-      required: [],
+      required: ['field_ref'],
     } },
     cover_letter: string, resume_id: string,
     duplicate_evidence: { type: 'object', additionalProperties: false, description: 'Required for already-applied: new evidence on the actual employer form, not a historical record or similar title.',
@@ -442,7 +442,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     if (name === 'finish') {
       // An unfinished field or a technical failure is not an unanswered
       // candidate fact. Give the applying agent an executable correction.
-      if(args.status==='needs-human'&&!normaliseBlockedQuestions(args.questions).length){
+      if(args.status==='needs-human'&&(!Array.isArray(args.questions)||!args.questions.length)){
         if(++invalidAttentionRequests>=2)return {kind:'terminal',outcome:{status:'skipped',reason:'The agent could not identify an actual unanswered employer question.'}};
         return ok('Needs attention requires at least one actual observed employer question whose required candidate answer is unavailable. Empty questions do not qualify. Continue filling known answers and recovering tools; a blank field with a saved answer is work to complete, not a candidate question. Nothing was submitted or sent for attention.','invalid-arguments');
       }

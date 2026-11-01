@@ -12,14 +12,14 @@ writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv-1',label:'F
 writeFileSync(join(directory,'answers.json'),'[]');
 type Call={name:string;args:Record<string,unknown>};
 type Body={messages:Array<{role:string;content:unknown}>;tools?:unknown[];chat_template_kwargs?:{reasoning_effort?:string}};
-let script:Array<(body:Body)=>Call[]>=[];
+let script:Array<(body:Body)=>Call[]|Promise<Call[]>>=[];
 let turn=0;
 const observation=(body:Body)=>{const content=body.messages.filter(message=>message.role==='user').at(-1)?.content;return typeof content==='string'?content:JSON.stringify(content);};
 globalThis.fetch=(async(_url,init)=>{
  const body=JSON.parse(String(init?.body)) as Body;
  assert.ok(body.tools?.length,'only the applying agent decides; no extra reviewer');
  const next=script.shift();assert.ok(next,'no unexpected model request');
- return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:next(body).map((call,index)=>({id:`date-${turn++}-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:30,completion_tokens:10}});
+ return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:(await next(body)).map((call,index)=>({id:`date-${turn++}-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:30,completion_tokens:10}});
 }) as typeof fetch;
 const {runApplicationAgent}=await import('./loop.js');
 const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
@@ -38,10 +38,10 @@ try {
     assert.match(String(body.messages[0].content), /You own personal-answer verification/);
     assert.match(String(body.messages[0].content), /duration such as two years does not establish exact start\/end months/);
     return [{ name: 'read_candidate_evidence', args: { query: 'employment dates' } }];
-  }, body => {
+  }, async body => {
     assert.match(JSON.stringify(body.messages), /OWNER-SCOPED CANDIDATE EVIDENCE/);
     return [{ name: 'finish', args: { status: 'needs-human', reason: 'Exact start month is not in saved evidence.',
-      evidence: 'The form requires Employment start month.', questions: [{ question: 'Employment start month', prompt: 'What month and year did this role start?', kind: 'text' }] } }];
+      evidence: 'The form requires Employment start month.', questions: [{ field_ref:await page.locator('#date').getAttribute('data-field-id'), form_quote: 'Employment start month', kind: 'text' }] } }];
   }];
   const missingDates = await runApplicationAgent({ page, job: { ...job, id: 'agent-owned-unknown-date' }, profile, log: () => {} });
   assert.equal(missingDates.outcome.status, 'needs-human');
@@ -74,7 +74,7 @@ try {
     assert.match(observation(body), /APPLICATION ACCURACY CHECKPOINT/);
     assert.match(observation(body), /"label":"Month".*"value":"1"/);
     return [review('correct')];
-  }, body => {
+  }, async body => {
     assert.equal(body.chat_template_kwargs?.reasoning_effort, 'xhigh', 'agent-authored correction keeps high effort while executing the repair');
     return [{ name: 'browser_batch', args: { actions: [
     { action: 'fill', selector: '#month', value: '11' }, { action: 'fill', selector: '#day', value: '1' },
@@ -95,9 +95,9 @@ try {
   script = [body => {
     assert.match(String(body.messages[0].content), /a nearest available choice is not an authorized substitute/);
     return [{name:'read_candidate_evidence',args:{query:'notice period'}}];
-  }, body => {
+  }, async body => {
     assert.match(JSON.stringify(body.messages), /One week only/);
-    return [{name:'finish',args:{status:'needs-human',reason:'Required dropdown has no truthful option for confirmed one week.',evidence:'Only 2 weeks and 4 weeks are offered.',questions:[{question:'Current notice period',prompt:'The form offers only 2 weeks or 4 weeks. Is either an authorized alternative?',kind:'text'}]}}];
+    return [{name:'finish',args:{status:'needs-human',reason:'Required dropdown has no truthful option for confirmed one week.',evidence:'Only 2 weeks and 4 weeks are offered.',questions:[{field_ref:await page.locator('select').getAttribute('data-field-id'),form_quote:'Current notice period',kind:'text'}]}}];
   }];
   const unsupportedNotice = await runApplicationAgent({page,job:{...job,id:'agent-owned-unsupported-notice'},profile,log:()=>{}});
   assert.equal(unsupportedNotice.outcome.status,'needs-human');
