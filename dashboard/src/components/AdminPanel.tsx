@@ -55,7 +55,7 @@ interface AdminUser {
     pooled: string | null;
     status: RouteStatus & { exitProblem: string | null };
   };
-  applications: { total: number; week: number; today: number };
+  applications: { total: number; week: number; today: number; preparedTotal?: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string; initiatorDevice: RunDevice | null } | null;
   running: boolean;
   signingIn: boolean;
@@ -518,6 +518,10 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                   </dd>
                   <dt>Applications sent</dt>
                   <dd>{user.applications.total} total · {user.applications.week} this week · {user.applications.today} today</dd>
+                  {user.applications.preparedTotal !== undefined && <>
+                    <dt>Applications prepared</dt>
+                    <dd title="Unique jobs with a saved prepared application, including those later submitted, dismissed or failed. This total can overlap with applications sent.">{user.applications.preparedTotal} total</dd>
+                  </>}
                   <dt>Job boards</dt>
                   <dd>
                     SEEK {user.boards.seek === true ? 'signed in' : user.boards.seek === false ? 'signed out' : 'not checked'} ·
@@ -977,7 +981,11 @@ function UsersView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
                       : `${user.autoApply.usedToday} of ${user.autoApply.runsPerDay}`}
                   </td>
                   <td className="nowrap"><NextRun user={user} /></td>
-                  <td>{user.applications.total}<div className="job-meta">{user.applications.today} today</div></td>
+                  <td>
+                    <div>{user.applications.total} submitted</div>
+                    {user.applications.preparedTotal !== undefined && <div title="Unique jobs with a saved prepared application, including those later submitted, dismissed or failed. This total can overlap with submitted applications.">{user.applications.preparedTotal} prepared total</div>}
+                    <div className="job-meta">{user.applications.today} submitted today</div>
+                  </td>
                   <td className="nowrap">
                     {last ? when(last.startedAt) : '-'}
                     {last && (

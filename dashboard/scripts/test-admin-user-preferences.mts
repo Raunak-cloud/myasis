@@ -13,7 +13,7 @@ const user = (id: string) => ({ id, email: `candidate${id}@example.test`, name: 
   allowance: { freeRemaining: 5, paidRemaining: 0, paidExpiresAt: null }, setupMissing: [], emailedAt: null, resumes: 1,
   boards: { seek: true, indeed: null }, autoApply: { runsPerDay: 1, usedToday: 0, paused: true, canPause: true, nextRunAt: null, applicationMode: 'auto' },
   overrides: { evaluationsPerRun: null, maxApplicationsPerRun: null }, route: { homePort: null, proxy: null, pooled: null, status: { exitOnline: false, exitProblem: null } },
-  applications: { total: 0, week: 0, today: 0 }, lastRun: null, running: false, signingIn: false,
+  applications: { total: id === '1' ? 13 : 0, week: 0, today: 0, preparedTotal: id === '1' ? 27 : 0 }, lastRun: null, running: false, signingIn: false,
 });
 const prompt = 'Only education roles.\nPreserve my exact instructions.\n<script>window.injected=true</script>\n' + 'A'.repeat(1200);
 const preferences = [
@@ -55,9 +55,13 @@ try {
   });
   await page.goto(`${origin}/preferences-fixture.html`);
   await page.getByRole('button', { name: 'Users', exact: true }).click();
+  const applications = page.getByRole('row').filter({ hasText: 'candidate1@example.test' }).getByRole('cell').nth(6);
+  assert.match(await applications.innerText(), /13 submitted\s+27 prepared total\s+0 submitted today/);
+  await page.getByText('0 prepared total', { exact: true }).waitFor();
   await page.getByText('candidate1@example.test', { exact: true }).click();
   const drawer = page.locator('.admin-drawer');
   await drawer.getByRole('heading', { name: 'Search preferences', exact: true }).waitFor();
+  assert.equal(await drawer.locator('dt').filter({ hasText: /^Applications prepared$/ }).evaluate(element => element.nextElementSibling?.textContent), '27 total');
   assert.match(await drawer.innerText(), /Fixture Employer/);
   assert.match(await drawer.innerText(), /Saved preference: 75%/);
   assert.equal(await drawer.getByRole('region', { name: 'Custom instructions' }).locator('dd').textContent(), prompt);

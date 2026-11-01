@@ -92,7 +92,7 @@ interface AdminUserRow {
     pooled: string | null;
     status: RouteStatus;
   };
-  applications: { total: number; week: number; today: number };
+  applications: { total: number; week: number; today: number; preparedTotal: number };
   lastRun: { startedAt: string; finishedAt: string | null; exitCode: number | null; trigger: string; initiatorDevice: RunDevice | null } | null;
   running: boolean;
   signingIn: boolean;
@@ -105,9 +105,10 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
     adminOverridesFor(user.id),
     // The steps as the account holder sees them, so what the operator reads and emails about matches their screen.
     setupStatus(user.id),
-    one<{ resumes: string; total: string; week: string; today: string }>(
+    one<{ resumes: string; total: string; week: string; today: string; prepared_total: string }>(
       `SELECT
          (SELECT count(*) FROM resumes WHERE user_id = $2)::text AS resumes,
+         (SELECT count(*) FROM application_reviews WHERE user_id = $2)::text AS prepared_total,
          (SELECT count(*) FROM applications WHERE user_id = $2 AND submitted_by_myasis)::text AS total,
          (SELECT count(*) FROM applications WHERE user_id = $2 AND submitted_by_myasis AND applied_at > now() - interval '7 days')::text AS week,
          (SELECT count(*) FROM applications WHERE user_id = $2 AND submitted_by_myasis AND applied_at >= ${DAY_START})::text AS today`,
@@ -156,7 +157,7 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
       pooled: await pooledProxyFor(user.id, false).then((proxy) => (proxy ? `${proxy.host}:${proxy.port}` : null)),
       status: await routeStatus(user.id),
     },
-    applications: { total: Number(counts?.total ?? 0), week: Number(counts?.week ?? 0), today: Number(counts?.today ?? 0) },
+    applications: { total: Number(counts?.total ?? 0), week: Number(counts?.week ?? 0), today: Number(counts?.today ?? 0), preparedTotal: Number(counts?.prepared_total ?? 0) },
     lastRun: lastRun
       ? {
           startedAt: new Date(lastRun.started_at).toISOString(),
