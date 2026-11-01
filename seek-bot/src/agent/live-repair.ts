@@ -96,7 +96,8 @@ export async function recoverDuringRun(options:AgentRunOptions,original:AgentRun
       relatedAttemptId:checkpoint.attemptId,message:category==='repair_waiting'?'Application is waiting at a safe checkpoint for a tested tool repair.':category==='repair_resumed'?'Validated tool repair resumed the existing application in the same run.':'In-run repair checkpoint ended.'}),
     ...overrides,
   };
-  if(!deps.enabled()||options.continuation||original.submitPressed||original.outcome.status!=='skipped'||checkpoint.page.isClosed()||!deps.safe(checkpoint))return unavailable();
+  if(options.continuation||original.submitPressed||original.outcome.status!=='skipped')return unchanged;
+  if(!deps.enabled()||checkpoint.page.isClosed()||!deps.safe(checkpoint))return unavailable();
   deps.event('repair_waiting');
   const deadline=deps.now()+6*60_000;
   try {
