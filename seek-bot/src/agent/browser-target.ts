@@ -2,6 +2,12 @@ import type { Frame, Locator, Page } from 'patchright';
 
 const observedFrames = new WeakMap<Page, { next: number; frames: Map<string, Frame> }>();
 
+/** An observed target became stale or the agent selected an unsupported
+ * target. Correct the call from fresh evidence; this is not a source defect. */
+export class BrowserTargetInputError extends Error {
+  constructor(message:string){super(message);this.name='BrowserTargetInputError';}
+}
+
 /** A reference stays bound to its actual browser frame, never its current array
  * index. Locators still resolve fresh controls; detached frames cannot retarget
  * an action to a replacement frame. No DOM handles or candidate data retained. */
@@ -21,7 +27,7 @@ export function observedFrame(page: Page, ref: string): Frame | undefined {
   assertBrowserPage(page);
   if (!/^frame\d+$/.test(ref)) return undefined;
   const frame = observedFrames.get(page)?.frames.get(ref);
-  if (!frame || frame.isDetached()) throw new Error(`Observed ${ref} is no longer attached. Inspect the fresh page; no replacement frame was selected.`);
+  if (!frame || frame.isDetached()) throw new BrowserTargetInputError(`Observed ${ref} is no longer attached. Inspect the fresh page; no replacement frame was selected.`);
   return frame;
 }
 
@@ -88,7 +94,7 @@ export function browserTarget(page: Page, args: Record<string, unknown>): Locato
       case 'text': result = scope.getByText(spec.value, { exact }); break;
       case 'test_id': result = scope.getByTestId(spec.value); break;
       case 'css': result = scope.locator(spec.value); break;
-      default: throw new Error('Choose a standard Playwright locator: role, label, placeholder, text, test_id or css.');
+      default: throw new BrowserTargetInputError('Choose a standard Playwright locator: role, label, placeholder, text, test_id or css.');
     }
     // Playwright strictness exposes ambiguity to the agent instead of silently
     // choosing a potentially different answer/control. An index is explicit.
@@ -97,6 +103,6 @@ export function browserTarget(page: Page, args: Record<string, unknown>): Locato
   if (args.selector) return page.locator(String(args.selector));
   const ref = String(args.ref ?? '');
   const found = locate(page, ref);
-  if (!found) throw new Error('Use an observed ref, CSS selector or Playwright locator for this element.');
+  if (!found) throw new BrowserTargetInputError('Use an observed ref, CSS selector or Playwright locator for this element.');
   return found;
 }

@@ -36,7 +36,7 @@ import { traceProvesNoSend } from '../repair-safety.js';
 import { observationMessage } from './loop/transcript.js';
 import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
 import { locate } from './browser-target.js';
-import { browserTarget, browserTargetProperties, hasBrowserTarget } from './browser-target.js';
+import { browserTarget, browserTargetProperties, hasBrowserTarget, BrowserTargetInputError } from './browser-target.js';
 import { toolInputIssue } from './tool-input.js';
 import { doCompleteAuthentication, doRecordAuthenticationResult, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
 import { ok, failedToolResult, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
@@ -145,7 +145,7 @@ function target(ctx: ToolContext, args: Record<string, unknown>): Locator {
   return browserTarget(ctx.page, args);
 }
 
-class StaleObservedRefError extends Error {
+class StaleObservedRefError extends BrowserTargetInputError {
   constructor(ref: string) {
     super(`Observed ref ${ref} is no longer on the page. No action was attempted for that ref. Inspect the fresh observation and choose the current target.`);
   }
@@ -170,7 +170,7 @@ async function assertCurrentRef(ctx: ToolContext, args: Record<string, unknown>)
   }
   const radioQuestion = ctx.observation.fields.find(field => field.ref === ref && field.kind === 'radio');
   if (radioQuestion) {
-    throw new Error(`Observed radio question ${JSON.stringify(radioQuestion.label)} (${ref}) does not resolve to a current individual option. No action was attempted. Inspect its visible options and use the intended option's current ref or a scoped role/label locator. The check action targets one checkbox or radio input; its value argument does not select an option from a question group. Do not repeat this unresolved group ref.`);
+    throw new BrowserTargetInputError(`Observed radio question ${JSON.stringify(radioQuestion.label)} (${ref}) does not resolve to a current individual option. No action was attempted. Inspect its visible options and use the intended option's current ref or a scoped role/label locator. The check action targets one checkbox or radio input; its value argument does not select an option from a question group. Do not repeat this unresolved group ref.`);
   }
   throw new StaleObservedRefError(ref);
 }
@@ -395,7 +395,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           results.push({ index, ...result });
           if (result.disposition && result.disposition !== 'completed') return ok(JSON.stringify({ results, stopped: index, remainingNotExecuted: true }), result.disposition);
         } catch (error) {
-          results.push({ index, error: (error as Error).message, failureKind:'execution',sourceSite:repairSourceSite(error),sourceSites:repairSourceSites(error),
+          results.push({ index, error: (error as Error).message, failureKind:error instanceof BrowserTargetInputError?'arguments':'execution',sourceSite:repairSourceSite(error),sourceSites:repairSourceSites(error),
             evidence: await browserFailureEvidence(ctx.page, command).catch(() => '') });
           return ok(JSON.stringify({ results, stopped: index, remainingNotExecuted: true }), 'failed');
         }
@@ -943,8 +943,10 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             ownedPages.add(ctx.page);
           } catch (error) {
             diagnosticError = error;
+            if(error instanceof BrowserTargetInputError)failureKind='arguments';
             result = error instanceof StaleObservedRefError
               ? ok(error.message, 'reobserve')
+              : error instanceof BrowserTargetInputError ? ok(error.message,'invalid-arguments')
               : ok(`Browser/tool error: ${(error as Error).message}${call.name === 'browser_action' ? await browserFailureEvidence(ctx.page, call.args).catch(() => '') : ''}`, 'failed');
           }
         }

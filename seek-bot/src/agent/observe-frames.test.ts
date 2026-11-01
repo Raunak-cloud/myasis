@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'patchright';
 import { observe, renderObservation } from './observe.js';
-import { browserTarget } from './browser-target.js';
+import { browserTarget,BrowserTargetInputError } from './browser-target.js';
 import { evaluateBrowser, nativeInspect, nativeScroll } from './native-browser.js';
 import { RecoveryCheckpoint } from './recovery-checkpoint.js';
 import { ProgressBudget } from './progress-budget.js';
@@ -68,7 +68,7 @@ test('cross-origin and nested form fields, actions and progress are visible with
     await page.evaluate(() => { const frame = document.createElement('iframe'); frame.id='form'; frame.src='https://forms.invalid/apply'; document.body.appendChild(frame); });
     await page.frameLocator('#form').getByLabel('Legal name', {exact: true}).waitFor();
     const replacement = await observe(page);
-    assert.throws(() => browserTarget(page, {ref: names[0].ref}), /no longer attached/, 'an old frame reference cannot target the replacement');
+    assert.throws(() => browserTarget(page, {ref: names[0].ref}), error=>error instanceof BrowserTargetInputError&&/no longer attached/.test(error.message), 'an old frame reference cannot target the replacement or masquerade as a code execution failure');
     const replacementName = replacement.fields.find(field => field.label === 'Legal name')!;
     assert.notEqual(replacementName.ref, names[0].ref);
     assert.equal(await browserTarget(page, {ref: replacementName.ref}).inputValue(), '');
