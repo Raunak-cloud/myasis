@@ -171,7 +171,7 @@ export async function runAgent(page: Page, options: AgentOptions): Promise<Agent
         tools: TOOLS,
         requireTool: true,
         thinking: true,
-        reasoningEffort: stuck ? 'xhigh' : 'low',
+        reasoningEffort: stuck ? 'high' : 'low',
         meter: options.meter,
       });
     } catch (error) {

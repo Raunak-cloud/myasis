@@ -14,7 +14,7 @@ import { Semaphore } from '../core/semaphore.js';
  */
 
 export type CelerisModel = 'celeris-1' | 'celeris-1-magnus';
-export type ReasoningEffort = 'low' | 'medium' | 'xhigh';
+export type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface ToolSchema {
   name: string;

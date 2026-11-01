@@ -142,8 +142,8 @@ export interface CelerisRequest {
   temperature?: number;
   /** Magnus only; ignored by celeris-1. */
   thinking?: boolean;
-  /** How long Magnus may think when it does: 'low' (the default), 'medium' or 'xhigh'. */
-  reasoningEffort?: 'low' | 'medium' | 'xhigh';
+  /** How long Magnus may think when it does: 'low' (the default), 'medium' or 'high'. */
+  reasoningEffort?: 'low' | 'medium' | 'high';
   /**
    * JSON Schema the reply must conform to, enforced server-side via
    * `response_format`. Use for a structured answer; use `tools` when the model

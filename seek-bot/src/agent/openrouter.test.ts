@@ -34,7 +34,7 @@ test('MiniMax receives the full tools, screenshot, forced tool and unchanged rea
   const messages: ChatMessage[] = [{ role: 'system', content: 'Complete the synthetic application.' },
     { role: 'user', content: [{ type: 'text', text: 'Current page' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,fixture' } }] }];
   const request: CelerisRequest = { model: 'celeris-1-magnus', messages, tools: [tool], requireTool: true,
-    forceTool: tool.name, thinking: true, reasoningEffort: 'xhigh', maxTokens: 8192, meter };
+    forceTool: tool.name, thinking: true, reasoningEffort: 'high', maxTokens: 8192, meter };
   const result = await applicationChat(request);
   assert.equal(result.toolCalls[0].args.action, 'inspect');
   messages.push(result.message, { role: 'tool', tool_call_id: 'call-one', content: 'Inspection complete' });
@@ -44,7 +44,7 @@ test('MiniMax receives the full tools, screenshot, forced tool and unchanged rea
   assert.deepEqual(requests[0].tools, [{ type: 'function', function: tool }]);
   assert.deepEqual(requests[0].tool_choice, { type: 'function', function: { name: tool.name } });
   assert.deepEqual(requests[0].messages[1], messages[1]);
-  assert.deepEqual(requests[0].reasoning, { effort: 'xhigh' });
+  assert.deepEqual(requests[0].reasoning, { effort: 'high' });
   assert.deepEqual(requests[1].messages[2].reasoning_details, reply().choices[0].message.reasoning_details);
   assert.equal(meter.totals.costUsd, 0.002, 'provider cost overrides cheaper published estimates');
   assert.equal(meter.totals.cachedPromptTokens, 1000);

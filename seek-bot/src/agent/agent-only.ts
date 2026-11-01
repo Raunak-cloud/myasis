@@ -834,7 +834,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
       if (recordOnly) finalRecordUsed = true;
-      const reasoningEffort = checkpoint || highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning ? 'xhigh' : 'medium';
+      const reasoningEffort = checkpoint || highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning ? 'high' : 'medium';
       const compact = (force = false) => {
         const transcript = agentOnlyTranscript(screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages, contextLimit, force);
         if (transcript !== messages) messages.splice(0, messages.length, ...transcript);
