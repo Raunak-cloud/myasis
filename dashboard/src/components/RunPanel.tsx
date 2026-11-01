@@ -727,7 +727,6 @@ export function RunPanel({
               onChange={event => void saveApplicationModel(event.target.value)}>
               <option value="celeris">Celeris Magnus</option>
               <option value="minimax">MiniMax M3.1</option>
-              <option value="qwen">Qwen 3.7 Flash</option>
             </select>
             <p className="job-meta">{modelSaving ? 'Saving…' : 'Saved for your next run.'}</p>
             {modelError && <p role="alert">{modelError}</p>}

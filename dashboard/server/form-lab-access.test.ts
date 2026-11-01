@@ -28,8 +28,8 @@ try{
  }
  const actorInfo={id:'forms-access-fixture',email:'forms-admin@example.invalid',name:'Fixture',avatarUrl:null};
  assert.equal((await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'celeris',confirm:false})).status,400,'API requires deliberate spending confirmation');
- const qwen=await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'qwen',confirm:false});
- assert.match((qwen.body as {error:string}).error,/Confirm the model spending allowance/,'Qwen is accepted but still requires launch confirmation');
+ const retired=await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'retired-model',confirm:true});
+ assert.equal(retired.status,400,'unsupported models are rejected before any worker or spending');
  const reservations=Array.from({length:MAX_CONCURRENT},(_,i)=>'forms-capacity-fixture-'+i);
  try{for(const id of reservations)assert.equal(runner.claimStart(id),true);assert.equal((await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'celeris',confirm:true})).status,409,'test launch shares the real capacity reservation');}finally{for(const id of reservations)runner.releaseStart(id);}
  const created=await formAdminAction(actorInfo,'/forms','POST',{key:'enterprise',action:'run',model:'celeris',confirm:true});

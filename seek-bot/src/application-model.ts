@@ -17,7 +17,7 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
  * experiments without deleting account history. */
 export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
   const selection = env.APPLICATION_AI_MODEL;
-  return selection === 'minimax' || selection === 'qwen'
+  return selection === 'minimax'
     ? { selection, model: OPENROUTER_APPLICATION_MODELS[selection].model, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
     : { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
 }

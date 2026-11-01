@@ -13,14 +13,7 @@ import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, gene
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 // Published non-discounted rates, USD/token, checked 2026-11-02. Actual usage.cost
 // takes precedence, including time-dependent prices and cache discounts.
-function ratesFor(model: string, prompt: number) {
-  // Qwen's published context tiers; actual provider charges always win.
-  if (model === OPENROUTER_APPLICATION_MODELS.qwen.model) return prompt >= 256_000
-    ? { prompt: 0.0000002, cached: 0.00000004, completion: 0.0000008 }
-    : prompt >= 32_000 ? { prompt: 0.0000001, cached: 0.00000002, completion: 0.0000004 }
-    : { prompt: 0.00000003, cached: 0.000000006, completion: 0.00000013 };
-  return { prompt: 0.00000015, cached: 0.000000015, completion: 0.0000006 };
-}
+const MINIMAX_RATES = { prompt: 0.00000015, cached: 0.000000015, completion: 0.0000006 };
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 interface Payload {
@@ -37,7 +30,7 @@ function recordUsage(request: CelerisRequest, body: Record<string, unknown>, usa
   const cached = measured && finite(usage?.prompt_tokens_details?.cached_tokens)
     ? Math.min(prompt, usage!.prompt_tokens_details!.cached_tokens!) : 0;
   const exact = finite(usage?.cost);
-  const rates = ratesFor(String(body.model), prompt);
+  const rates = MINIMAX_RATES;
   const amountUsd = exact ? usage!.cost! : (prompt - cached) * rates.prompt + cached * rates.cached + completion * rates.completion;
   request.meter?.recordProvider({ prompt, cached, completion, amountUsd });
   recordCost({ provider: 'OpenRouter', model: String(body.model), amountUsd: exact || measured ? amountUsd : null,
@@ -64,32 +57,14 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
     provider: { require_parameters: true },
   };
   if (request.tools?.length) {
-    // Qwen's thinking endpoint supports auto tool selection, not `required`.
-    // Offer only the requested checkpoint tool when forcing one. The shared
-    // application loop still validates that checkpoint before any action.
-    const tools = model.toolChoice === 'auto' && request.forceTool
-      ? request.tools.filter(tool => tool.name === request.forceTool) : request.tools;
-    body.tools = tools.map(tool => ({ type: 'function', function: tool }));
-    body.tool_choice = model.toolChoice === 'auto' ? 'auto'
-      : request.forceTool ? { type: 'function', function: { name: request.forceTool } }
-        : request.requireTool ? 'required' : 'auto';
-    if (model.toolChoice === 'auto' && (request.forceTool || request.requireTool)) body.messages = [
-      { role: 'system', content: request.forceTool
-        ? `For this turn return exactly one ${request.forceTool} tool call with its required arguments. Do not return prose or other actions.`
-        : 'Choose and call an offered tool for this turn. Complete the task through tool calls; use the offered finish tool for your final outcome.' },
-      ...request.messages,
-    ];
+    body.tools = request.tools.map(tool => ({ type: 'function', function: tool }));
+    body.tool_choice = request.forceTool ? { type: 'function', function: { name: request.forceTool } }
+      : request.requireTool ? 'required' : 'auto';
   }
   if (request.responseSchema) {
-    if (model.structuredOutput === 'json_schema') body.response_format = {
+    body.response_format = {
       type: 'json_schema', json_schema: { name: 'reply', schema: request.responseSchema },
     };
-    else {
-      // Qwen supports JSON mode, not provider-enforced JSON Schema. Existing
-      // callers still validate the returned object against their typed schema.
-      body.response_format = { type: 'json_object' };
-      body.messages = [{ role: 'system', content: 'Return only a JSON object matching this schema: ' + JSON.stringify(request.responseSchema) }, ...body.messages as ChatMessage[]];
-    }
   }
   const recovery = new GenerationRecovery({ ...request, messages: body.messages as ChatMessage[] }, 60_000, Number(body.max_tokens));
   const started = performance.now();

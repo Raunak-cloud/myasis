@@ -5,10 +5,6 @@ import { applyJobSourceAccess } from './job-sources.js';
 import { mayEditRunSetting } from './entitlements.js';
 
 test('only admins can select either supported application provider', () => {
-  assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'qwen' }, true), null);
-  assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'qwen' }, false)?.status, 403);
-  assert.equal(applicationModelForAccount('qwen', true), 'qwen');
-  assert.equal(applicationModelForAccount('qwen', false), 'celeris');
   assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'retired' }, true)?.status, 400);
   assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'celeris' }, true), null);
   assert.equal(applicationModelSettingsError({ APPLICATION_AI_MODEL: 'minimax' }, true), null);
