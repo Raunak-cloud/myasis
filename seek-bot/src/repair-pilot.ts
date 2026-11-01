@@ -16,7 +16,7 @@ export interface RepairIncident {
   attemptId: string;
   category: 'repeated_tool_failure' | 'tool_execution_failure' | 'application_exception';
   tool?: string;
-  code?: 'approved_document_bundle_rejected' | 'target_missing' | 'target_ambiguous' | 'pointer_blocked' | 'outside_viewport' | 'question_capture_rejected' | 'tool_arguments_rejected';
+  code?: 'approved_document_bundle_rejected' | 'target_missing' | 'target_ambiguous' | 'pointer_blocked' | 'outside_viewport' | 'question_capture_rejected' | 'tool_arguments_rejected' | 'runtime_reference_error';
   count: number;
 }
 
@@ -67,6 +67,7 @@ export class RepairPilotDetector {
       : /strict mode violation|resolved to \d+ elements/i.test(message) ? 'target_ambiguous' as const
       : /no longer on the page|waiting for .*exceeded|Timeout .*exceeded/i.test(message) ? 'target_missing' as const
       : /employer quote is not present|complete question labels/i.test(message) ? 'question_capture_rejected' as const
+      : /Cannot read propert(?:y|ies).*\b(?:undefined|null)\b|\b\w+ is (?:undefined|not defined)\b/i.test(message) ? 'runtime_reference_error' as const
       : /Invalid tool input/i.test(message) ? 'tool_arguments_rejected' as const : undefined;
     return { runId, attemptId, category: fatal ? 'application_exception' : execution ? 'tool_execution_failure' : 'repeated_tool_failure', ...(tool ? { tool } : {}), ...(code ? { code } : {}), count };
   }

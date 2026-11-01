@@ -19,6 +19,12 @@ test('a repair is an isolated proposal, with explicit source access and bounded 
   });
 });
 
+test('multiline edits match mixed Windows/Unix source without changing protected text',async()=>{
+  const text='import { safe } from "./safe.js";\r\nconst approved = safe;\r\nfunction value() {\n  return 0;\r\n}\r\n';
+  const proposal=await proposeRepair(incident,{[file]:text},model([{name:'replace_source',args:{path:file,old:'function value() {\n  return 0;\n}',replacement:'function value() {\n  return 1;\n}'}}]));
+  assert.match(proposal.files[file],/return 1;/);assert.doesNotMatch(proposal.files[file],/\r/);
+});
+
 test('secrets, approval policies, malformed edits and unbounded model usage fail closed', async () => {
   for (const path of ['seek-bot/.env', 'seek-bot/src/agent/application-policy.ts', '../agent-files.ts']) {
     await assert.rejects(() => proposeRepair(incident, source, async () => ({ calls: [{ name: 'replace_source', args: { path,old:'old',replacement:'new' } }], costUsd: 0 })), /turn limit/);

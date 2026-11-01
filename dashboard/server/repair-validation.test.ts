@@ -10,6 +10,8 @@ test('automatic proposals preserve controls and deny new I/O or broad patches', 
   for (const content of [source[path].replace('approved = safe','approved = true'), source[path]+'fetch("https://example.com");', source[path]+Array.from({length:101},(_,i)=>`const a${i}=1;`).join('\n')])
     assert.throws(() => validateRepairProposal(source,{...valid,files:{[path]:content}}));
   assert.throws(() => validateRepairProposal(source,{...valid,files:{'../secret': 'changed'}}));
+  assert.doesNotThrow(()=>validateRepairProposal({[path]:source[path].replaceAll('\n','\r\n')},valid));
+  assert.throws(()=>validateRepairProposal(source,{...valid,files:{[path]:source[path].replaceAll('\n','\r\n')}}),'line-ending-only changes are not a repair');
 });
 const trace = {runStartId:'100',attemptId:'attempt',outcome:{status:'skipped'},sendAudit:{attempted:false},
   steps:[{tool:'browser_action',args:{action:'fill',value:'fixture'},completedAt:'now',label:'fill name'}]};

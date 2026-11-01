@@ -1,4 +1,4 @@
-import { REPAIR_EDITABLE_FILES, type RepairProposal } from './repair-coder.js';
+import { REPAIR_EDITABLE_FILES, repairSourceText, type RepairProposal } from './repair-coder.js';
 
 const protectedLine = /\b(?:approved|sensitive|privateKind|credential|redact|mask|submission|sends_application|confirmation|owner|realpath|relative\(|isAbsolute|\.\.\b)/i;
 const privileged = /\b(?:import|require|process|globalThis|eval|Function|fetch|WebSocket|child_process|execFile|spawn|createConnection|writeFile|appendFile|readFile|unlink|rmSync|chmod|chown)\b/;
@@ -12,8 +12,9 @@ export function validateRepairProposal(source: Record<string, string>, proposal:
   let changes = 0;
   for (const path of paths) {
     if (!(REPAIR_EDITABLE_FILES as readonly string[]).includes(path) || typeof source[path] !== 'string') throw Error('Repair path is not allowed.');
-    const before = source[path], after = proposal.files[path];
-    if (typeof after !== 'string' || after.length > 150_000 || before === after) throw Error('Invalid repair content.');
+    if(typeof proposal.files[path]!=='string')throw Error('Invalid repair content.');
+    const before = repairSourceText(source[path]), after = repairSourceText(proposal.files[path]);
+    if (after.length > 150_000 || before === after) throw Error('Invalid repair content.');
     const oldLines = before.split('\n'), newLines = after.split('\n');
     const remaining = [...newLines];
     for (const line of oldLines.filter(line => protectedLine.test(line) || privileged.test(line))) {
