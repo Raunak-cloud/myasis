@@ -268,10 +268,13 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
       let node: Element | null = el;
       for (let depth = 0; node && depth < 20; depth++) {
         const root = node.getRootNode();
-        if (!nearestId && node.id) nearestId = node.id.slice(0,80);
+        // Read attributes across HTML and SVG alike. A form's named controls
+        // or a page-defined getter can shadow its JavaScript id property.
+        const nodeId = node.getAttribute('id') ?? '';
+        if (!nearestId && nodeId) nearestId = nodeId.slice(0,80);
         const siblings = node.parentElement?.children ?? (root instanceof ShadowRoot ? root.children : []);
         const ordinal = [...siblings].filter(sibling => sibling.tagName === node!.tagName).indexOf(node);
-        path.unshift(`${node.tagName}:${ordinal}${node.id ? '#'+node.id.slice(0,80) : ''}${node.getAttribute('name') ? '[name='+node.getAttribute('name')!.slice(0,80)+']' : ''}`);
+        path.unshift(`${node.tagName}:${ordinal}${nodeId ? '#'+nodeId.slice(0,80) : ''}${node.getAttribute('name') ? '[name='+node.getAttribute('name')!.slice(0,80)+']' : ''}`);
         const parent: Element | null = node.parentElement;
         node = parent ?? (root instanceof ShadowRoot ? root.host : null);
       }

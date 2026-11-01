@@ -8,6 +8,23 @@ import { RecoveryCheckpoint } from './recovery-checkpoint.js';
 import { ProgressBudget } from './progress-budget.js';
 import { expectationOf } from '../form-corpus.js';
 
+test('HTML and SVG-backed controls keep stable identities when a DOM id property is not a string', async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<main><form id="application"><label>Name<input id="name"></label><label>Alias<input name="id" value="named property"></label></form><svg id="diagram"><foreignObject width="300" height="60"><div xmlns="http://www.w3.org/1999/xhtml"><label>SVG-contained answer<input id="svg-answer"/></label></div></foreignObject></svg></main>');
+    assert.equal(await page.locator('#application').evaluate(node => typeof node.id), 'object', 'the input named id shadows form.id with a DOM node');
+    const before = await observe(page);
+    const names = before.fields.filter(field => ['Name', 'SVG-contained answer'].includes(field.label));
+    assert.equal(names.length, 2);
+    assert.equal(new Set(names.map(field => field.controlIdentity)).size, 2);
+    await page.locator('#name').fill('Alex Fixture');
+    const after = await observe(page);
+    for (const field of names) assert.equal(after.fields.find(current => current.label === field.label)?.controlIdentity, field.controlIdentity);
+    assert.equal(after.fields.find(field => field.label === 'Name')?.currentValue, 'Alex Fixture');
+  } finally { await browser.close(); }
+});
+
 test('cross-origin and nested form fields, actions and progress are visible without parent-document scripts', async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   try {
