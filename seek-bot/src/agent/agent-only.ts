@@ -52,10 +52,13 @@ import { changesBrowserState } from './browser-commands.js';
 import { addIndeedCoverLetter } from './indeed-cover-letter.js';
 import { jobBoardForUrl } from '../job-board-url.js';
 import { questionEvidenceIssue, quotedQuestions } from './question-evidence.js';
+import { browserCommandContract } from './browser-command-schema.js';
 
 const string = { type: 'string' };
-const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolSchema => ({
-  name, description, parameters: { type: 'object', additionalProperties: false, properties, required },
+const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'];
+const browserActions = [...batchActions, 'scroll', 'navigate', 'script', 'select_page', 'dialog'];
+const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = [], constraints: Record<string, unknown> = {}): ToolSchema => ({
+  name, description, parameters: { type: 'object', additionalProperties: false, properties, required, ...constraints },
 });
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
@@ -74,21 +77,22 @@ const agentOnlyTools: ToolSchema[] = [
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
   schema('browser_batch', 'Execute your own ordered native browser commands and read-only inspections in one call. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
-      action: { type: 'string', enum: ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'] },
+      action: { type: 'string', enum: batchActions },
       file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto and approved reconstruction: true transmits the application; false is preparatory.' },
-    }, required: ['action'] } },
+    }, required: ['action'], ...browserCommandContract(batchActions) } },
   }, ['actions']),
   schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or sections with ref, selector or a direct Playwright locator. Multiple matching sections return one bounded page snapshot so all included accessibility references remain consistent; narrow the locator for a focused section. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ...browserTargetProperties }),
-  schema('browser_action', 'Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. type appends text with native keyboard events; fill replaces text using normal input events. Use type when an inspected widget needs key events, clearing first when replacing text. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
-    action: { type: 'string', enum: ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'scroll', 'navigate', 'script', 'select_page', 'dialog', 'wait', 'inspect', 'set_input_files'] },
+  schema('browser_action', 'Required arguments: action=script needs script containing your complete code; action=set_input_files needs file_ids (an array of inventory IDs, even for one file) and a target; action=wait needs a current target or wait with a target/URL condition. A timeout alone is not a wait. Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. type appends text with native keyboard events; fill replaces text using normal input events. Use type when an inspected widget needs key events, clearing first when replacing text. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
+    action: { type: 'string', enum: browserActions },
     file_ids: fileIdsProperty,
     file_chooser: { type: 'boolean', description: 'For set_input_files only: true clicks your selected upload trigger and attaches through the native file chooser. Otherwise target the actual file input directly.' },
-    ...browserTargetProperties, ...browserWaitProperties, value: string, script: string,
+    ...browserTargetProperties, ...browserWaitProperties, value: string,
+    script: { type: 'string', minLength: 1, description: 'Required for action=script: your complete browser-side function or async body with return.' },
     script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only evidence gathering, not execution of a repair. Use act for any DOM write, interaction or navigation. Default act. This does not grant permissions, bypass Semi auto or change send confirmation.' },
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
     sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission. Required on every click/press in Semi auto and approved reconstruction; use false for preparatory interactions.' },
-  }, ['action']),
+  }, ['action'], browserCommandContract(browserActions)),
   schema('create_file', 'Render exactly your supplied text in your explicitly chosen format. Returns a private file_id for native set_input_files; never uploads, selects a form field or judges acceptance. Inspect employer requirements before choosing the format. Record cover-letter text separately with save_progress or prepare_application.', {
     name: { type: 'string', description: 'Plain document filename or title. If an extension is supplied, it must match format; otherwise the explicitly chosen format is appended.' }, text: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
   }, ['name', 'text', 'format']),

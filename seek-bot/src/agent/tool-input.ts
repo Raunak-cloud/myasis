@@ -7,6 +7,13 @@ export function validToolInput(value: unknown, schema: Record<string, unknown>, 
     && (schema.required as string[] | undefined)?.some(key => !(key in value))) return false;
   if (Array.isArray(schema.anyOf) && !schema.anyOf.some(branch => validToolInput(value, branch as Record<string, unknown>, closedObjects))) return false;
   if (schema.enum && !(schema.enum as unknown[]).includes(value)) return false;
+  // Discriminator branches constrain a subset of the parent's properties.
+  // They must be checked without independently closing that property set.
+  if (schema.type !== 'object' && schema.properties && value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const [key, property] of Object.entries(schema.properties as Record<string, Record<string, unknown>>)) {
+      if (key in value && !validToolInput((value as Record<string, unknown>)[key], property, closedObjects)) return false;
+    }
+  }
   if (schema.type === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const object = value as Record<string, unknown>, properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
@@ -41,13 +48,13 @@ export function validToolInput(value: unknown, schema: Record<string, unknown>, 
  * Validation and browser behaviour stay unchanged; the agent corrects its call. */
 export function toolInputIssue(value: unknown, schema: Record<string, unknown>, path = '$'): string | null {
   if (validToolInput(value, schema)) return null;
-  if (schema.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
     const object = value as Record<string, unknown>, properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
     const missing = (schema.required as string[] | undefined)?.find(key => !(key in object));
     if (missing) return `${path}.${missing} is required.`;
-    const unknown = Object.keys(object).filter(key => !properties[key]);
+    const unknown = schema.type === 'object' ? Object.keys(object).filter(key => !properties[key]) : [];
     if (unknown.length) return `${path} contains undeclared properties: ${unknown.map(key => JSON.stringify(key)).join(', ')}. Allowed: ${Object.keys(properties).join(', ')}. This tool call did not run; remove the undeclared properties or use the documented structure.`;
-    for (const [key, item] of Object.entries(object)) {
+    for (const [key, item] of Object.entries(object).filter(([key]) => properties[key])) {
       const issue = toolInputIssue(item, properties[key], `${path}.${key}`);
       if (issue) return issue;
     }
@@ -60,6 +67,18 @@ export function toolInputIssue(value: unknown, schema: Record<string, unknown>, 
     }
   }
   if (Array.isArray(schema.anyOf) && !schema.anyOf.some(branch => validToolInput(value, branch as Record<string, unknown>))) {
+    // Select a branch only from its declared enum discriminator, never from
+    // candidate values or browser heuristics. This explains the actual missing
+    // argument instead of listing unrelated script/upload alternatives.
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const object = value as Record<string, unknown>;
+      const matching = schema.anyOf.filter(branch => {
+        const properties = (branch as Record<string, unknown>).properties as Record<string, Record<string, unknown>> | undefined;
+        const discriminators = Object.entries(properties ?? {}).filter(([, property]) => Array.isArray(property.enum));
+        return discriminators.length > 0 && discriminators.every(([key, property]) => (property.enum as unknown[]).includes(object[key]));
+      });
+      if (matching.length === 1) return toolInputIssue(value, matching[0] as Record<string, unknown>, path);
+    }
     const alternatives = schema.anyOf.map(branch => ((branch as Record<string, unknown>).required as string[] | undefined)
       ?.map(key => `${path}.${key}`).join(' and ')).filter(Boolean);
     return `${path} must supply ${alternatives.length ? `at least one supported alternative: ${alternatives.join(' or ')}` : 'one complete supported alternative'}. This tool call did not run; supply the missing arguments before retrying.`;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validToolInput, toolInputIssue } from './tool-input.js';
+import { browserCommandContract } from './browser-command-schema.js';
 
 test('tool dispatch rejects missing, unknown and malformed nested arguments', () => {
   const schema = { type: 'object', properties: {
@@ -51,4 +52,31 @@ test('alternative required inputs share the closed parent schema and diagnose mi
   assert.match(toolInputIssue({ purpose: 'PRIVATE' }, schema)!, /\$\.ref or \$\.refs/);
   assert.doesNotMatch(toolInputIssue({ purpose: 'PRIVATE' }, schema)!, /PRIVATE/);
   assert.match(toolInputIssue({ purpose: 'sign_in', refs: [] }, schema)!, /\$\.refs must contain/);
+});
+
+test('action-specific browser contracts require executable script, files and wait conditions', () => {
+  const schema = { type: 'object', additionalProperties: false, properties: {
+    action: { type: 'string', enum: ['script', 'set_input_files', 'wait', 'click'] },
+    ref: { type: 'string' }, selector: { type: 'string' }, locator: { type: 'object', properties: { value: { type: 'string' } } },
+    script: { type: 'string', minLength: 1 }, file_ids: { type: 'array', items: { type: 'string' } },
+    timeout_ms: { type: 'number' }, wait: { type: 'object', properties: { url: { type: 'string' }, timeout_ms: { type: 'number' }, ref: { type: 'string' } } },
+  }, required: ['action'], ...browserCommandContract(['script', 'set_input_files', 'wait', 'click']) };
+  for (const args of [
+    { action: 'script', script: 'return document.title' },
+    { action: 'set_input_files', ref: 'f0', file_ids: ['5'] },
+    { action: 'set_input_files', ref: 'f0', file_ids: [] },
+    { action: 'wait', ref: 'f0', timeout_ms: 1000 },
+    { action: 'wait', wait: { url: '**/receipt', timeout_ms: 1000 } },
+    { action: 'click', ref: 'a0' },
+  ]) assert.equal(validToolInput(args, schema), true, JSON.stringify(args));
+  assert.match(toolInputIssue({ action: 'script' }, schema)!, /\$\.script is required/);
+  assert.match(toolInputIssue({ action: 'set_input_files', ref: 'f0' }, schema)!, /\$\.file_ids is required/);
+  for (const args of [
+    { action: 'script', script: '' },
+    { action: 'set_input_files', file_ids: ['5'] },
+    { action: 'wait', timeout_ms: 1000 },
+    { action: 'wait', wait: { timeout_ms: 1000 } },
+  ]) assert.equal(validToolInput(args, schema), false, JSON.stringify(args));
+  const batch = { type: 'array', items: schema };
+  assert.match(toolInputIssue([{ action: 'click', ref: 'a0' }, { action: 'set_input_files', ref: 'f0' }], batch)!, /\$\[1\]\.file_ids is required/);
 });
